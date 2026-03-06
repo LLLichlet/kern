@@ -65,7 +65,6 @@ impl<'a> ImportResolver<'a> {
                     node_id: crate::ast::NodeId(0), // 模块不直接对应可执行代码的 AST 节点
                     type_id: crate::sema::ty::TypeId::VOID,
                     def_id: Some(target_mod_id),
-                    is_mutable: false,
                 };
 
                 self.define_import(current_scope, name_to_bind, mod_info, import.span);
@@ -114,10 +113,7 @@ impl<'a> ImportResolver<'a> {
         // 确定查找起点
         let (mut curr_mod_id, mut curr_scope) = match kind {
             UsePathKind::Absolute => {
-                // 绝对路径从全局 Root 开始。在实际中，你的 Compiler Context 
-                // 应当维护一个记录所有顶层包 (Crates/Packages) 的根作用域。
-                // 假设 ScopeId(0) 是全局命名空间。
-                (DefId(0), ScopeId(0)) // TODO: 根据你的 Driver 逻辑初始化顶层包映射
+                (DefId(0), ScopeId(0)) 
             }
             UsePathKind::Relative => {
                 (current_mod_id, self.get_module_scope(current_mod_id))

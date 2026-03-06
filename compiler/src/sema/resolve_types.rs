@@ -6,6 +6,7 @@ use crate::context::Context;
 use crate::sema::def::{Def, ImplDef};
 use crate::sema::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::sema::ty::{DefId, PrimitiveType, TypeId, TypeKind};
+use crate::sema::typeck::const_eval::ConstEvaluator;
 use crate::utils::SymbolId;
 
 pub struct TypeResolver<'a> {
@@ -158,29 +159,35 @@ impl<'a> TypeResolver<'a> {
     // ==========================================
 
     /// 将 AST TypeNode 转换为语义 TypeId
-    fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
+    pub fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
         let ty_id = match &ty_node.kind {
             ast::TypeKind::Path { segments, generics } => {
                 self.resolve_path_type(segments, generics, env_scope, ty_node.span)
             }
-            ast::TypeKind::Pointer { elem, is_mut } => {
+            ast::TypeKind::Mut(elem) => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Pointer { base, is_mut: *is_mut, is_volatile: false })
+                self.ctx.type_registry.intern(TypeKind::Mut(base))
             }
-            ast::TypeKind::VolatilePtr { elem, is_mut } => {
+            ast::TypeKind::Pointer { elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Pointer { base, is_mut: *is_mut, is_volatile: true })
+                self.ctx.type_registry.intern(TypeKind::Pointer(base))
             }
-            ast::TypeKind::Slice { elem, is_mut } => {
+            ast::TypeKind::VolatilePtr { elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Slice { elem: base, is_mut: *is_mut })
+                self.ctx.type_registry.intern(TypeKind::VolatilePtr(base))
             }
-            ast::TypeKind::Array { elem, len, is_mut: _ } => {
+            ast::TypeKind::Slice { elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                let length = self.evaluate_const_usize(len); 
+                self.ctx.type_registry.intern(TypeKind::Slice(base))
+            }
+            ast::TypeKind::Array { elem, len} => {
+                let base = self.resolve_type(elem, env_scope);
+                let mut evaluator = ConstEvaluator::new(self.ctx);
+                let length = evaluator.eval_usize(len); 
+                
                 self.ctx.type_registry.intern(TypeKind::Array { elem: base, len: length })
             }
-            ast::TypeKind::Function { params, ret } => {
+            ast::TypeKind::Function { params, ret, is_variadic } => {
                 let mut param_tys = Vec::with_capacity(params.len());
                 for p in params {
                     param_tys.push(self.resolve_type(p, env_scope));
@@ -189,7 +196,7 @@ impl<'a> TypeResolver<'a> {
                     Some(r) => self.resolve_type(r, env_scope),
                     None => TypeId::VOID,
                 };
-                self.ctx.type_registry.intern(TypeKind::Function { params: param_tys, ret: ret_ty })
+                self.ctx.type_registry.intern(TypeKind::Function { params: param_tys, ret: ret_ty, is_variadic: *is_variadic})
             }
             ast::TypeKind::SelfType => {
                 // 查找环境中绑定的 `Self` 符号
@@ -297,9 +304,31 @@ impl<'a> TypeResolver<'a> {
                 self.ctx.type_registry.intern(TypeKind::Def(def_id, resolved_generics))
             }
             SymbolKind::TypeAlias => {
-                // 注意：这里可能需要检查别名是否带有泛型并进行替换，这涉及代换机制 (Substitution)
-                // Kern 作为一个重系统的语言，这里目前穿透返回。
-                final_sym.type_id
+                let def_id = final_sym.def_id.unwrap();
+                let target_ty = final_sym.type_id;
+
+                if resolved_generics.is_empty() {
+                    // 没有传入泛型，直接穿透返回
+                    target_ty
+                } else {
+                    // 获取别名的定义以提取泛型名字
+                    if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
+                        if t_def.generics.len() != resolved_generics.len() {
+                            self.ctx.emit_error(span, format!("Type alias `{}` expects {} generic arguments, but {} were provided", self.ctx.resolve(*segments.last().unwrap()), t_def.generics.len(), resolved_generics.len()));
+                            return TypeId::ERROR;
+                        }
+
+                        // 构造映射字典并执行替换
+                        let mut map = std::collections::HashMap::new();
+                        for (i, param) in t_def.generics.iter().enumerate() {
+                            map.insert(param.name, resolved_generics[i]);
+                        }
+                        let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
+                        subst.substitute(target_ty)
+                    } else {
+                        unreachable!()
+                    }
+                }
             }
             _ => {
                 let name = self.ctx.resolve(*segments.last().unwrap()).to_string();
@@ -334,7 +363,6 @@ impl<'a> TypeResolver<'a> {
                 node_id: ast::NodeId(0), // 伪造 ID，或者传入 param.span 对应的真实 ID
                 type_id: param_ty,
                 def_id: None,
-                is_mutable: false,
             };
             let _ = self.ctx.scopes.define(param.name, info);
         }
@@ -348,20 +376,9 @@ impl<'a> TypeResolver<'a> {
             node_id: ast::NodeId(0),
             type_id: target_ty,
             def_id: None,
-            is_mutable: false,
         };
         // 允许重复定义（覆盖外部可能存在的同名绑定）
         let _ = self.ctx.scopes.define(self_sym, info);
-    }
-
-    fn evaluate_const_usize(&mut self, expr: &ast::Expr) -> u64 {
-        // 当前为简易处理。真正的常量折叠(Constant Folding)是一个庞大的主题。
-        if let ast::ExprKind::Integer(val) = &expr.kind {
-            *val as u64
-        } else {
-            self.ctx.emit_error(expr.span, "Array length must be an integer constant expression".into());
-            0
-        }
     }
 
     fn kind_to_string(&self, kind: SymbolKind) -> &'static str {
@@ -369,6 +386,98 @@ impl<'a> TypeResolver<'a> {
             SymbolKind::Var => "variable", SymbolKind::Const => "constant",
             SymbolKind::Static => "static variable", SymbolKind::Function => "function",
             SymbolKind::Module => "module", _ => "symbol",
+        }
+    }
+
+    // ==========================================
+    //          Constant Folding (常量折叠)
+    // ==========================================
+
+    fn evaluate_const_usize(&mut self, expr: &ast::Expr) -> u64 {
+        match self.eval_const_math(expr) {
+            Ok(val) => {
+                if val < 0 {
+                    self.ctx.emit_error(expr.span, "Array length cannot be negative".into());
+                    0
+                } else {
+                    val as u64
+                }
+            }
+            Err(_) => {
+                // 具体的错误已经在 eval_const_math 内部报出，这里直接返回兜底值 0
+                0
+            }
+        }
+    }
+
+    /// 递归计算编译期整型常量表达式
+    /// 返回 i128 以安全捕获中间计算可能出现的负数或溢出
+    fn eval_const_math(&mut self, expr: &ast::Expr) -> Result<i128, ()> {
+        use ast::{ExprKind, BinaryOperator, UnaryOperator};
+
+        match &expr.kind {
+            // 基本常量
+            ExprKind::Integer(val) => Ok(*val as i128),
+            ExprKind::Char(c) => Ok(*c as i128),
+
+            // 双目运算: + - * / % << >> & | ^
+            ExprKind::Binary { lhs, op, rhs } => {
+                let left = self.eval_const_math(lhs)?;
+                let right = self.eval_const_math(rhs)?;
+
+                match op {
+                    BinaryOperator::Add => Ok(left.wrapping_add(right)),
+                    BinaryOperator::Subtract => Ok(left.wrapping_sub(right)),
+                    BinaryOperator::Multiply => Ok(left.wrapping_mul(right)),
+                    BinaryOperator::Divide => {
+                        if right == 0 {
+                            self.ctx.emit_error(rhs.span, "Division by zero in constant expression".into());
+                            Err(())
+                        } else {
+                            Ok(left / right)
+                        }
+                    }
+                    BinaryOperator::Modulo => {
+                        if right == 0 {
+                            self.ctx.emit_error(rhs.span, "Modulo by zero in constant expression".into());
+                            Err(())
+                        } else {
+                            Ok(left % right)
+                        }
+                    }
+                    BinaryOperator::ShiftLeft => Ok(left << right),
+                    BinaryOperator::ShiftRight => Ok(left >> right),
+                    BinaryOperator::BitwiseAnd => Ok(left & right),
+                    BinaryOperator::BitwiseOr => Ok(left | right),
+                    BinaryOperator::BitwiseXor => Ok(left ^ right),
+                    _ => {
+                        self.ctx.emit_error(expr.span, "Operator not supported in constant expression".into());
+                        Err(())
+                    }
+                }
+            }
+
+            // 单目运算: - ~
+            ExprKind::Unary { op, operand } => {
+                let val = self.eval_const_math(operand)?;
+                match op {
+                    UnaryOperator::Negate => Ok(-val),
+                    UnaryOperator::BitwiseNot => Ok(!val),
+                    _ => {
+                        self.ctx.emit_error(expr.span, "Unary operator not supported in constant expression".into());
+                        Err(())
+                    }
+                }
+            }
+
+            // 扩展：如果全局标识符是一个 Const，理论上可以在这里查表代入值。
+            // Kern 设计哲学：保持简单。初期如果不允许数组长度使用全局常量变量，可直接报错。
+            // 稍后可以扩展为查询 GlobalDef 的 value。
+            
+            _ => {
+                self.ctx.emit_error(expr.span, "Expected an integer constant expression (e.g. `1024 * 4`)".into());
+                Err(())
+            }
         }
     }
 }

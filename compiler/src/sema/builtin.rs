@@ -1,0 +1,161 @@
+// src/sema/builtin.rs
+use crate::context::Context;
+use crate::sema::def::*;
+use crate::sema::scope::{SymbolInfo, SymbolKind};
+use crate::sema::ty::{DefId, TypeId, TypeKind};
+use crate::ast::{TypeNode, NodeId, GenericParam};
+
+pub struct BuiltinInjector<'a> {
+    pub ctx: &'a mut Context,
+}
+
+impl<'a> BuiltinInjector<'a> {
+    pub fn new(ctx: &'a mut Context) -> Self {
+        Self { ctx }
+    }
+
+    pub fn inject(&mut self) {
+        // 1. 注册内置 Traits: Integer, Float, Add 等
+        let int_trait_id = self.inject_builtin_trait("Integer");
+        let float_trait_id = self.inject_builtin_trait("Float");
+        // let add_trait_id = self.inject_builtin_trait("Add");
+
+        // 2. 为原始类型注入 Impl 块 (e.g., impl i32 : Integer)
+        let int_types = [TypeId::I8, TypeId::I16, TypeId::I32, TypeId::I64, TypeId::I128, TypeId::ISIZE,
+                         TypeId::U8, TypeId::U16, TypeId::U32, TypeId::U64, TypeId::U128, TypeId::USIZE];
+        for &ty in &int_types {
+            self.inject_primitive_impl(ty, int_trait_id);
+        }
+
+        let float_types = [TypeId::F32, TypeId::F64];
+        for &ty in &float_types {
+            self.inject_primitive_impl(ty, float_trait_id);
+        }
+
+        // 3. 注册内置函数 (Intrinsics)
+        self.inject_sizeof();
+        self.inject_int_to_float(int_trait_id, float_trait_id);
+    }
+
+    // ==========================================
+    //          注入逻辑细节
+    // ==========================================
+
+    fn inject_builtin_trait(&mut self, name: &str) -> DefId {
+        let name_id = self.ctx.intern(name);
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        
+        let trait_def = TraitDef {
+            id: def_id,
+            name: name_id,
+            vis: Visibility::Public,
+            supertraits: vec![],
+            methods: vec![], // 内置特征仅作约束，可以没有方法 (Marker Trait)
+            is_builtin: true,
+            span: crate::utils::Span::default(),
+        };
+        
+        self.ctx.add_def(Def::Trait(trait_def));
+
+        // 注册到根作用域
+        let info = SymbolInfo {
+            kind: SymbolKind::Trait, node_id: NodeId(0), type_id: TypeId::ERROR, def_id: Some(def_id)
+        };
+        let root_scope = crate::sema::scope::ScopeId(0);
+        self.ctx.scopes.set_current_scope(root_scope);
+        let _ = self.ctx.scopes.define(name_id, info);
+
+        def_id
+    }
+
+    fn inject_primitive_impl(&mut self, target_ty_id: TypeId, trait_def_id: DefId) {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        
+        // 伪造 AST 节点以适应现有的统一逻辑
+        let target_node = TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer }; // 占位
+        let trait_node = TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer };
+
+        // 直接在 node_types 缓存中写入它们真实的语义类型！这是最精妙的一步
+        self.ctx.node_types.insert(target_node.id, target_ty_id);
+        
+        let trait_ty = self.ctx.type_registry.intern(TypeKind::Def(trait_def_id, vec![]));
+        self.ctx.node_types.insert(trait_node.id, trait_ty);
+
+        let impl_def = ImplDef {
+            id: def_id, parent_module: None, generics: vec![],
+            target_type: target_node, trait_type: Some(trait_node), methods: vec![],
+            span: Default::default(),
+        };
+        self.ctx.add_def(Def::Impl(impl_def));
+    }
+
+    // 注入 @sizeof[T]() -> usize
+    fn inject_sizeof(&mut self) {
+        let name_id = self.ctx.intern("@sizeof");
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        
+        // 泛型参数 T (没有任何约束)
+        let param_t = GenericParam { name: self.ctx.intern("T"), constraints: vec![], span: Default::default() };
+        
+        // 构造类型签名: fn[T]() -> usize
+        let sig_ty = {
+            let _ = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+            self.ctx.type_registry.intern(TypeKind::Function { params: vec![], ret: TypeId::USIZE, is_variadic: false })
+        };
+
+        let func_def = FunctionDef {
+            id: def_id, name: name_id, vis: Visibility::Public, parent: None,
+            generics: vec![param_t], params: vec![], // 空参数
+            ret_type: TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer },
+            body: None, is_extern: false, is_variadic: false,
+            is_intrinsic: true, // ✅ 核心标记
+            resolved_sig: Some(sig_ty),
+            span: Default::default(),
+        };
+        
+        self.ctx.add_def(Def::Function(func_def));
+        
+        let root_scope = crate::sema::scope::ScopeId(0);
+        self.ctx.scopes.set_current_scope(root_scope);
+        let _ = self.ctx.scopes.define(name_id, SymbolInfo {
+            kind: SymbolKind::Function, node_id: NodeId(0), type_id: TypeId::ERROR, def_id: Some(def_id)
+        });
+    }
+
+    // 注入 @intToFloat[T: Integer, U: Float](val: T) -> U
+    fn inject_int_to_float(&mut self, int_trait_id: DefId, float_trait_id: DefId) {
+        let name_id = self.ctx.intern("@intToFloat");
+        let def_id = DefId(self.ctx.defs.len() as u32);
+
+        // 伪造约束节点并提前填入类型缓存
+        let c_int = TypeNode { id: NodeId(1), span: Default::default(), kind: crate::ast::TypeKind::Infer };
+        let c_float = TypeNode { id: NodeId(2), span: Default::default(), kind: crate::ast::TypeKind::Infer };
+        self.ctx.node_types.insert(c_int.id, self.ctx.type_registry.intern(TypeKind::Def(int_trait_id, vec![])));
+        self.ctx.node_types.insert(c_float.id, self.ctx.type_registry.intern(TypeKind::Def(float_trait_id, vec![])));
+
+        let param_t = GenericParam { name: self.ctx.intern("T"), constraints: vec![c_int], span: Default::default() };
+        let param_u = GenericParam { name: self.ctx.intern("U"), constraints: vec![c_float], span: Default::default() };
+
+        let sig_ty = {
+            let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+            let u_ty = self.ctx.type_registry.intern(TypeKind::Param(param_u.name));
+            self.ctx.type_registry.intern(TypeKind::Function { params: vec![t_ty], ret: u_ty, is_variadic: false })
+        };
+
+        let func_def = FunctionDef {
+            id: def_id, name: name_id, vis: Visibility::Public, parent: None,
+            generics: vec![param_t, param_u],
+            // 伪造一个 FuncParam 供后续解构，虽然内置函数体为空
+            params: vec![crate::ast::FuncParam { name: self.ctx.intern("val"), type_node: TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer }, span: Default::default() }],
+            ret_type: TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer },
+            body: None, is_extern: false, is_variadic: false, is_intrinsic: true,
+            resolved_sig: Some(sig_ty), span: Default::default(),
+        };
+        
+        self.ctx.add_def(Def::Function(func_def));
+        self.ctx.scopes.set_current_scope(crate::sema::scope::ScopeId(0));
+        let _ = self.ctx.scopes.define(name_id, SymbolInfo {
+            kind: SymbolKind::Function, node_id: NodeId(0), type_id: TypeId::ERROR, def_id: Some(def_id)
+        });
+    }
+}

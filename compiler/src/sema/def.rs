@@ -90,7 +90,9 @@ pub struct FunctionDef {
     pub body: Option<Box<ast::Expr>>,
     pub is_extern: bool,
     pub is_variadic: bool,
+    pub is_intrinsic: bool,
     pub span: Span,
+    pub resolved_sig: Option<TypeId>,
 }
 
 #[derive(Debug, Clone)]
@@ -130,9 +132,11 @@ pub struct TraitDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub supertraits: Vec<ast::TypeNode>,
     // 特征中定义的方法契约
     pub methods: Vec<ast::StructFieldDef>, 
     pub span: Span,
+    pub is_builtin: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -164,7 +168,6 @@ pub struct GlobalDef {
     pub vis: Visibility,
     pub type_node: Option<ast::TypeNode>,
     pub value: ast::Expr,
-    pub is_mut: bool,
     pub is_static: bool,
     pub is_extern: bool,
     pub span: Span,

@@ -39,12 +39,11 @@ pub enum TypeKind {
     /// 基础类型 (i32, bool, void...)
     Primitive(PrimitiveType),
 
-    /// 指针: *T, *mut T, ^T, ^mut T
-    Pointer {
-        base: TypeId,
-        is_mut: bool,
-        is_volatile: bool, // 区分 * 和 ^
-    },
+   /// 普通指针: *T (如果是 *mut T，则 base 指向一个 Mut 类型)
+    Pointer(TypeId),
+
+    /// 易失指针: ^T
+    VolatilePtr(TypeId),
 
     /// 数组: [N]T
     Array {
@@ -53,10 +52,10 @@ pub enum TypeKind {
     },
 
     /// 切片: []T (胖指针)
-    Slice {
-        elem: TypeId,
-        is_mut: bool,
-    },
+    Slice(TypeId),
+
+    /// 可变类型修饰符 mut T
+    Mut(TypeId),
 
     /// 引用具体的定义 (Struct/Enum/Union)
     /// 我们只存 ID。具体字段信息去 Context 里查。
@@ -74,7 +73,12 @@ pub enum TypeKind {
     Function {
         params: Vec<TypeId>,
         ret: TypeId,
+        is_variadic: bool,
     },
+
+    /// 具体的函数定义项 (Function Item)
+    /// 带有其 DefId 和已绑定的泛型实参。例如 `ArrayList.new[i32]`
+    FnDef(DefId, Vec<TypeId>),
 
     /// 未知/错误类型
     Error,

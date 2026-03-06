@@ -86,11 +86,11 @@ impl<'a> Collector<'a> {
                     generics, params, ret_type, body, *is_variadic
                 )
             }
-            DeclKind::Var { type_node, value, is_mut, is_static, is_extern } => {
-                self.collect_global(decl, vis, force_extern || *is_extern, type_node, value, *is_mut, *is_static)
+            DeclKind::Var { type_node, value, is_static, is_extern } => {
+                self.collect_global(decl, vis, force_extern || *is_extern, type_node, value, *is_static)
             }
-            DeclKind::TypeAlias { generics, target, is_extern } => {
-                self.collect_type_alias_or_struct(decl, vis, force_extern || *is_extern, generics, target)
+            DeclKind::TypeAlias { generics, target, is_extern, bounds } => {
+                self.collect_type_alias_or_struct(decl, vis, bounds, force_extern || *is_extern, generics, target)
             }
             DeclKind::Impl { generics, target_type, trait_type, decls } => {
                 self.collect_impl(decl, generics, target_type, trait_type, decls)
@@ -103,13 +103,8 @@ impl<'a> Collector<'a> {
                 None // Extern 块本身不产生单独的 Def，只影响其内部元素
             }
             DeclKind::Use { .. } => {
-                // TODO: 导入解析将在 Resolve 阶段或者这里进一步处理
-                // 暂时略过
+                // 在 collect_module 中处理
                 None 
-            }
-            DeclKind::Macro { .. } => {
-                // 初期不支持宏
-                None
             }
         }
     }
@@ -139,14 +134,16 @@ impl<'a> Collector<'a> {
             body: body.clone(),
             is_extern,
             is_variadic,
+            is_intrinsic: false,
             span: decl.span,
+            resolved_sig: None,
         };
 
         self.ctx.add_def(Def::Function(func_def));
 
         // 如果不是 impl 块中的方法，则将其注册到当前词法作用域
         if parent_impl.is_none() {
-            self.define_symbol(decl.name, SymbolKind::Function, decl.id, Some(def_id), false, decl.span);
+            self.define_symbol(decl.name, SymbolKind::Function, decl.id, Some(def_id), decl.span);
         }
 
         Some(def_id)
@@ -159,7 +156,6 @@ impl<'a> Collector<'a> {
         is_extern: bool,
         type_node: &Option<ast::TypeNode>,
         value: &ast::Expr,
-        is_mut: bool,
         is_static: bool,
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
@@ -170,7 +166,6 @@ impl<'a> Collector<'a> {
             vis,
             type_node: type_node.clone(),
             value: value.clone(),
-            is_mut,
             is_static,
             is_extern,
             span: decl.span,
@@ -179,7 +174,7 @@ impl<'a> Collector<'a> {
         self.ctx.add_def(Def::Global(global_def));
 
         let sym_kind = if is_static { SymbolKind::Static } else { SymbolKind::Const };
-        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), is_mut, decl.span);
+        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span);
 
         Some(def_id)
     }
@@ -189,6 +184,7 @@ impl<'a> Collector<'a> {
         &mut self,
         decl: &Decl,
         vis: Visibility,
+        bounds: &[ast::TypeNode],
         is_extern: bool,
         generics: &[ast::GenericParam],
         target: &ast::TypeNode,
@@ -238,7 +234,9 @@ impl<'a> Collector<'a> {
                     id: def_id,
                     name: decl.name,
                     vis,
+                    supertraits: bounds.to_vec(), 
                     methods: fields.clone(),
+                    is_builtin: false,
                     span: decl.span,
                 })
             }
@@ -256,7 +254,7 @@ impl<'a> Collector<'a> {
         };
 
         self.ctx.add_def(def);
-        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), false, decl.span);
+        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span);
 
         Some(def_id)
     }
@@ -315,7 +313,6 @@ impl<'a> Collector<'a> {
         kind: SymbolKind,
         node_id: ast::NodeId,
         def_id: Option<DefId>,
-        is_mutable: bool,
         span: crate::utils::Span,
     ) {
         let info = SymbolInfo {
@@ -323,7 +320,6 @@ impl<'a> Collector<'a> {
             node_id,
             type_id: TypeId::ERROR, // Collect 阶段尚未推导类型
             def_id,
-            is_mutable,
         };
 
         if self.ctx.scopes.define(name, info).is_err() {

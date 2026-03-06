@@ -31,7 +31,6 @@ pub struct SymbolInfo {
     pub node_id: NodeId,      // 对应的 AST 节点
     pub type_id: TypeId,      // 语义类型
     pub def_id: Option<DefId>,// 指向具体的定义表
-    pub is_mutable: bool,     // 变量是否可变
 }
 
 /// 单层作用域 (持久化结构)
@@ -148,9 +147,24 @@ impl SymbolTable {
         self.scopes[current_id.0].symbols.get(&name)
     }
 
-    /// 【全新能力】跨模块查询：直接在指定的 Scope 中查找符号 (不向上追溯)
+    /// 跨模块查询：直接在指定的 Scope 中查找符号 (不向上追溯)
     /// 用于解析 `use std.math.add` 时，在 `math` 模块的 Scope 中精准查找 `add`
     pub fn resolve_in(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
         self.scopes[scope_id.0].symbols.get(&name)
+    }
+
+    /// 更新已存在符号的类型 (用于 let 绑定的类型推导回填)
+    pub fn update_type(&mut self, name: SymbolId, ty: TypeId) {
+        let mut curr = self.current_scope;
+        
+        // 沿作用域链向上找，找到在哪定义的，就更新哪里的 info
+        while let Some(id) = curr {
+            let scope = &mut self.scopes[id.0];
+            if let Some(info) = scope.symbols.get_mut(&name) {
+                info.type_id = ty;
+                return;
+            }
+            curr = scope.parent;
+        }
     }
 }

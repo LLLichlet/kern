@@ -38,7 +38,6 @@ pub enum TokenType {
     Pub,
     Extern,
     Use,
-    Macro,
     Impl,
     True,
     False,
@@ -111,7 +110,6 @@ pub enum TokenType {
     Comma, // ,
     Colon, // :
     Semicolon, // ;
-    Dollar, // $ (宏变量)
 
     // ( )
     LParen,

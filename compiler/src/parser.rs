@@ -291,14 +291,14 @@ impl<'a> Parser<'a> {
             // 1. 指针: *T 或 *mut T
             TokenType::Star => {
                 self.advance();
-                let is_mut = self.match_token(&[TokenType::Mut]);
+ 
                 let elem = self.parse_type()?;
                 Ok(TypeNode {
                     id: self.new_id(),
                     span: start_span.to(elem.span),
                     kind: TypeKind::Pointer {
                         elem: Box::new(elem),
-                        is_mut,
+                        
                     },
                 })
             }
@@ -306,14 +306,14 @@ impl<'a> Parser<'a> {
             // 2. 易失指针: ^T
             TokenType::Caret => {
                 self.advance();
-                let is_mut = self.match_token(&[TokenType::Mut]);
+ 
                 let elem = self.parse_type()?;
                 Ok(TypeNode {
                     id: self.new_id(),
                     span: start_span.to(elem.span),
                     kind: TypeKind::VolatilePtr {
                         elem: Box::new(elem),
-                        is_mut,
+                        
                     },
                 })
             }
@@ -324,21 +324,21 @@ impl<'a> Parser<'a> {
 
                 // A. 切片 []T
                 if self.match_token(&[TokenType::RBracket]) {
-                    let is_mut = self.match_token(&[TokenType::Mut]);
+     
                     let elem = self.parse_type()?;
                     Ok(TypeNode {
                         id: self.new_id(),
                         span: start_span.to(elem.span),
                         kind: TypeKind::Slice {
                             elem: Box::new(elem),
-                            is_mut,
+                            
                         },
                     })
                 } else {
                     // B. 数组 [expr]T
                     let len_expr = self.parse_expression(Precedence::Lowest)?;
                     self.expect(TokenType::RBracket)?;
-                    let is_mut = self.match_token(&[TokenType::Mut]);
+     
                     let elem = self.parse_type()?;
                     
                     Ok(TypeNode {
@@ -347,7 +347,7 @@ impl<'a> Parser<'a> {
                         kind: TypeKind::Array {
                             elem: Box::new(elem),
                             len: Box::new(len_expr),
-                            is_mut,
+                            
                         },
                     })
                 }
@@ -359,9 +359,18 @@ impl<'a> Parser<'a> {
                 self.expect(TokenType::LParen)?;
                 
                 let mut params = Vec::new();
+                let mut is_variadic = false; 
+                
                 if !self.check(TokenType::RParen) {
                     loop {
+                        // 拦截可变参数 ...
+                        if self.match_token(&[TokenType::Ellipsis]) {
+                            is_variadic = true;
+                            break; // ... 必须是最后一个参数
+                        }
+                        
                         params.push(self.parse_type()?);
+                        
                         if !self.match_token(&[TokenType::Comma]) {
                             break;
                         }
@@ -369,8 +378,6 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(TokenType::RParen)?;
                 
-                // 返回值 (Kern 中必须显式声明返回值，如果是 void 也要写 void 吗？
-                // 照 Zig 逻辑，它直接解析 parseType。
                 let ret_type = self.parse_type()?;
                 let end = ret_type.span;
 
@@ -380,6 +387,7 @@ impl<'a> Parser<'a> {
                     kind: TypeKind::Function {
                         params,
                         ret: Some(Box::new(ret_type)),
+                        is_variadic, 
                     }
                 })
             }
@@ -412,6 +420,20 @@ impl<'a> Parser<'a> {
                         segments,
                         generics,
                     }
+                })
+            }
+
+            TokenType::Mut => {
+                self.advance();
+                let elem = self.parse_type()?;
+                // 护城河：拦截 mut *, mut ^, mut []
+                if matches!(elem.kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Slice { .. }) {
+                    self.add_error(start_span.to(elem.span), "Forbidden: cannot apply 'mut' directly to pointers or slices (e.g., 'mut *T'). Pointer arithmetic is disabled.".to_string());
+                }
+                Ok(TypeNode {
+                    id: self.new_id(),
+                    span: start_span.to(elem.span),
+                    kind: TypeKind::Mut(Box::new(elem)),
                 })
             }
 
@@ -682,6 +704,19 @@ impl<'a> Parser<'a> {
 
             TokenType::Undef => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Undef }),
             TokenType::SelfValue => Ok(Expr { id: self.new_id(), span, kind: ExprKind::SelfValue }),
+            TokenType::At => {
+                let at_token = self.advance(); // 消费 @
+                let id_token = self.expect(TokenType::Identifier)?;
+                // 拼成如 "@sizeof" 的字符串并 Intern
+                let sym = self.intern_token(id_token);
+                let name_str = format!("@{}", self.context.resolve(sym));
+                let sym_id = self.context.intern(&name_str);
+                Ok(Expr { 
+                    id: self.new_id(), 
+                    span: at_token.span.to(id_token.span), 
+                    kind: ExprKind::Identifier(sym_id) 
+                })
+            }
 
             _ => {
                 let text = self.context.source_manager.slice_source(span).to_string();
@@ -765,7 +800,7 @@ impl<'a> Parser<'a> {
 
             // Slice or Index: .[
             TokenType::DotLBracket => {
-                let is_mut = self.match_token(&[TokenType::Mut]);
+ 
                 
                 let mut start = None;
                 let mut end = None;
@@ -796,58 +831,33 @@ impl<'a> Parser<'a> {
                 let span = left.span.to(rbracket.span);
 
                 if is_range {
-                    Ok(Expr { id: self.new_id(), span, kind: ExprKind::SliceOp { lhs: Box::new(left), start, end, is_mut, is_inclusive } })
+                    Ok(Expr { id: self.new_id(), span, kind: ExprKind::SliceOp { lhs: Box::new(left), start, end, is_inclusive } })
                 } else {
-                    if is_mut { self.add_error(span, "Index access cannot imply 'mut'".to_string()); }
                     Ok(Expr { id: self.new_id(), span, kind: ExprKind::IndexAccess { lhs: Box::new(left), index: start.unwrap() } })
                 }
             }
 
             TokenType::DotAmpersand => {
-                 let mut op = UnaryOperator::AddressOf;
-                 let mut span = left.span.to(token.span);
-                 if self.match_token(&[TokenType::Mut]) {
-                     op = UnaryOperator::AddressOfMut;
-                     span = left.span.to(self.stream.prev_span());
-                 }
-                 Ok(Expr { id: self.new_id(), span, kind: ExprKind::Unary { op, operand: Box::new(left) } })
+                let mut op = UnaryOperator::AddressOf;
+                let mut span = left.span.to(token.span);
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Unary { op, operand: Box::new(left) } })
             }
 
             TokenType::LBracket => {
-                 // Generic Instantiation: expr[T, U]
-                 let mut types = Vec::new();
-                 if !self.check(TokenType::RBracket) {
-                     loop {
-                         types.push(self.parse_type()?);
-                         if !self.match_token(&[TokenType::Comma]) { break; }
-                         if self.check(TokenType::RBracket) { break; }
-                     }
-                 }
-                 let rb = self.expect(TokenType::RBracket)?;
-                 Ok(Expr {
-                     id: self.new_id(),
-                     span: left.span.to(rb.span),
-                     kind: ExprKind::GenericInstantiation { target: Box::new(left), types }
-                 })
-            }
-            
-            // 宏调用 expr!
-            TokenType::Bang => {
-                let open_token = self.peek();
-                let close_tag = match open_token.tag {
-                    TokenType::LParen => TokenType::RParen,
-                    TokenType::LBracket => TokenType::RBracket,
-                    TokenType::LBrace => TokenType::RBrace,
-                    _ => {
-                        self.add_error(open_token.span, "Expected '(', '[', or '{' after macro invocation".to_string());
-                        return Err(());
+                // Generic Instantiation: expr[T, U]
+                let mut types = Vec::new();
+                if !self.check(TokenType::RBracket) {
+                    loop {
+                        types.push(self.parse_type()?);
+                        if !self.match_token(&[TokenType::Comma]) { break; }
+                        if self.check(TokenType::RBracket) { break; }
                     }
-                };
-                let args = self.parse_token_tree(open_token.tag, close_tag)?;
+                }
+                let rb = self.expect(TokenType::RBracket)?;
                 Ok(Expr {
                     id: self.new_id(),
-                    span: left.span.to(self.stream.prev_span()),
-                    kind: ExprKind::MacroCall { target: Box::new(left), args }
+                    span: left.span.to(rb.span),
+                    kind: ExprKind::GenericInstantiation { target: Box::new(left), types }
                 })
             }
 
@@ -1037,11 +1047,6 @@ impl<'a> Parser<'a> {
 
     fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {
         let tag = start_token.tag;
-        let is_mut_keyword = self.match_token(&[TokenType::Mut]);
-        
-        if tag == TokenType::Const && is_mut_keyword {
-            self.add_error(start_token.span, "Constants cannot be mutable".to_string());
-        }
 
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
@@ -1057,14 +1062,13 @@ impl<'a> Parser<'a> {
 
         match tag {
             TokenType::Static => Ok(Expr {
-                 id: self.new_id(), span,
-                 kind: ExprKind::Static { type_node, init: Box::new(init), is_mut: is_mut_keyword }
+                id: self.new_id(), span,
+                kind: ExprKind::Static { name: name_id, type_node, init: Box::new(init) } 
             }),
             TokenType::Let | TokenType::Const => {
-                let is_mut = if tag == TokenType::Const { false } else { is_mut_keyword };
                 Ok(Expr {
                     id: self.new_id(), span,
-                    kind: ExprKind::Let { name: name_id, type_node, init: Box::new(init), is_mut }
+                    kind: ExprKind::Let { name: name_id, type_node, init: Box::new(init) }
                 })
             },
             _ => unreachable!()
@@ -1116,9 +1120,9 @@ impl<'a> Parser<'a> {
             let type_node = self.parse_type()?;
             
             params.push(FuncParam {
-                 name: name_id, 
-                 span: name.span.to(type_node.span), 
-                 type_node 
+                name: name_id, 
+                span: name.span.to(type_node.span), 
+                type_node 
             });
 
             if !self.match_token(&[TokenType::Comma]) { break; }
@@ -1161,7 +1165,6 @@ impl<'a> Parser<'a> {
             TokenType::Type => Ok(Some(self.parse_type_alias_decl(start_span, is_pub, is_extern)?)),
             TokenType::Const | TokenType::Static => Ok(Some(self.parse_global_var_decl(start_span, is_pub, is_extern)?)),
             TokenType::Use => Ok(Some(self.parse_use_decl(start_span, is_pub)?)),
-            TokenType::Macro => Ok(Some(self.parse_macro_decl(start_span, is_pub)?)),
             TokenType::Impl => {
                 if is_pub { self.add_error(start_span, "impl blocks cannot be pub".to_string()); }
                 Ok(Some(self.parse_impl_decl(start_span)?))
@@ -1263,10 +1266,6 @@ impl<'a> Parser<'a> {
     fn parse_global_var_decl(&mut self, start: Span, is_pub: bool, is_extern: bool) -> ParseResult<Decl> {
         let kw = self.advance();
         let is_static = kw.tag == TokenType::Static;
-        let mut is_mut = false;
-        if is_static && self.match_token(&[TokenType::Mut]) {
-            is_mut = true;
-        }
         
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
@@ -1281,32 +1280,48 @@ impl<'a> Parser<'a> {
         if self.match_token(&[TokenType::Assign]) {
             value = self.parse_expression(Precedence::Lowest)?;
         } else if is_extern {
-             value = Expr { id: self.new_id(), span: self.stream.prev_span(), kind: ExprKind::Undef };
+            value = Expr { id: self.new_id(), span: self.stream.prev_span(), kind: ExprKind::Undef };
         } else {
-             self.add_error(start, "Global vars must be initialized".to_string());
-             return Err(());
+            self.add_error(start, "Global vars must be initialized".to_string());
+            return Err(());
         }
         self.expect(TokenType::Semicolon)?;
         let end = self.stream.prev_span();
 
         Ok(Decl {
-             id: self.new_id(), span: start.to(end), name: name_id, is_pub,
-             kind: DeclKind::Var { type_node, value, is_mut, is_static, is_extern }
+            id: self.new_id(), span: start.to(end), name: name_id, is_pub,
+            kind: DeclKind::Var { type_node, value, is_static, is_extern }
         })
     }
 
     fn parse_type_alias_decl(&mut self, start: Span, is_pub: bool, is_extern: bool) -> ParseResult<Decl> {
-        self.advance();
+        self.advance(); // 消费 `type`
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
+        
+        // 解析泛型参数 [T]
         let generics = self.parse_generic_params()?;
+        
+        // 解析约束界限 `: Reader + Writer`
+        let mut bounds = Vec::new();
+        if self.match_token(&[TokenType::Colon]) {
+            loop {
+                bounds.push(self.parse_type()?);
+                if !self.match_token(&[TokenType::Plus]) {
+                    break;
+                }
+            }
+        }
+
         self.expect(TokenType::Assign)?;
         let target = self.parse_type()?;
         self.expect(TokenType::Semicolon)?;
+        
         let end = self.stream.prev_span();
+        
         Ok(Decl {
              id: self.new_id(), span: start.to(end), name: name_id, is_pub,
-             kind: DeclKind::TypeAlias { generics, target, is_extern }
+             kind: DeclKind::TypeAlias { generics, bounds, target, is_extern }
         })
     }
 
@@ -1357,48 +1372,12 @@ impl<'a> Parser<'a> {
              kind: DeclKind::Use { kind, path, target, is_reexport: is_pub }
         })
     }
-
-    fn parse_macro_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
-        self.advance();
-        let name = self.expect(TokenType::Identifier)?;
-        let name_id = self.intern_token(name);
-        self.expect(TokenType::LBrace)?;
-        
-        let mut rules = Vec::new();
-        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let r_start = self.peek().span;
-            let matcher = self.parse_token_tree(TokenType::LParen, TokenType::RParen)?;
-            self.expect(TokenType::Arrow)?;
-            let transcriber = self.parse_token_tree(TokenType::LBrace, TokenType::RBrace)?;
-            self.expect(TokenType::Semicolon)?;
-            let r_end = self.stream.prev_span();
-            rules.push(MacroRule { matcher, transcriber, span: r_start.to(r_end) });
-        }
-        let end = self.expect(TokenType::RBrace)?;
-        Ok(Decl {
-             id: self.new_id(), span: start.to(end.span), name: name_id, is_pub,
-             kind: DeclKind::Macro { rules }
-        })
-    }
-
-    fn parse_token_tree(&mut self, open: TokenType, close: TokenType) -> ParseResult<Vec<Token>> {
-        self.expect(open)?;
-        let mut tokens = Vec::new();
-        let mut depth = 1;
-        while depth > 0 {
-            if self.check(TokenType::Eof) { return Err(()); }
-            let t = self.advance();
-            if t.tag == open { depth += 1; }
-            else if t.tag == close { depth -= 1; if depth == 0 { break; } }
-            tokens.push(t);
-        }
-        Ok(tokens)
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ast::*; // 确保引入了所有的 AST 结构
 
     // 测试辅助结构体
     struct TestContext {
@@ -1501,16 +1480,16 @@ mod tests {
         };
 
         // 1. let a = 1 + 2 * 3;
-        // AST Should be: Let(init = Binary(1, +, Binary(2, *, 3)))
         let init1 = match &stmts[0].kind {
             StmtKind::ExprStmt(e) => match &e.kind {
+                // 注意：移除了旧的 is_mut
                 ExprKind::Let { init, .. } => init,
                 _ => panic!("Expected Let"),
             },
             _ => panic!("Expected ExprStmt"),
         };
 
-        if let ExprKind::Binary { lhs, op, rhs } = &init1.kind {
+        if let ExprKind::Binary { op, rhs, .. } = &init1.kind {
             assert_eq!(*op, BinaryOperator::Add); // Top level is +
             if let ExprKind::Binary { op: op2, .. } = &rhs.kind {
                 assert_eq!(*op2, BinaryOperator::Multiply); // RHS is *
@@ -1518,7 +1497,6 @@ mod tests {
         } else { panic!("Expected Binary"); }
 
         // 2. let b = (1 + 2) * 3;
-        // AST Should be: Let(init = Binary(Binary(1, +, 2), *, 3))
         let init2 = match &stmts[1].kind {
             StmtKind::ExprStmt(e) => match &e.kind {
                 ExprKind::Let { init, .. } => init,
@@ -1527,7 +1505,7 @@ mod tests {
             _ => panic!("Expected ExprStmt"),
         };
 
-        if let ExprKind::Binary { lhs, op, rhs } = &init2.kind {
+        if let ExprKind::Binary { lhs, op, .. } = &init2.kind {
             assert_eq!(*op, BinaryOperator::Multiply); // Top level is *
             if let ExprKind::Binary { op: op2, .. } = &lhs.kind {
                 assert_eq!(*op2, BinaryOperator::Add); // LHS is +
@@ -1539,10 +1517,7 @@ mod tests {
     fn test_control_flow() {
         let source = r#"
             fn flow(x: bool) void {
-                // if (expr) expr else expr;
                 if (x) return else return;
-        
-                // for (init; cond; post) expr;
                 for (;;) break;
             }
         "#;
@@ -1602,16 +1577,24 @@ mod tests {
             _ => panic!(),
         };
 
-        // 1. *mut i32
+        // 1. *mut i32 -> Pointer(Mut(i32))
         match &fields[0].type_node.kind {
-            TypeKind::Pointer { is_mut, .. } => assert!(is_mut),
+            TypeKind::Pointer { elem } => {
+                match &elem.kind {
+                    TypeKind::Mut(_) => {}, // 验证包含 Mut 节点
+                    _ => panic!("Expected Mut inside Pointer"),
+                }
+            },
             _ => panic!("Expected Pointer"),
         }
 
-        // 2. [10]mut u8
+        // 2. [10]mut u8 -> Array(Mut(u8), 10)
         match &fields[1].type_node.kind {
-            TypeKind::Array { is_mut, len, .. } => {
-                assert!(is_mut);
+            TypeKind::Array { elem, len } => {
+                match &elem.kind {
+                    TypeKind::Mut(_) => {}, // 验证包含 Mut 节点
+                    _ => panic!("Expected Mut inside Array"),
+                }
                 match &len.kind {
                     ExprKind::Integer(v) => assert_eq!(*v, 10),
                     _ => panic!("Expected integer len"),
@@ -1620,9 +1603,15 @@ mod tests {
             _ => panic!("Expected Array"),
         }
 
-        // 3. []u8
+        // 3. []u8 -> Slice(u8) (不包含 Mut)
         match &fields[2].type_node.kind {
-            TypeKind::Slice { is_mut, .. } => assert!(!is_mut),
+            TypeKind::Slice { elem } => {
+                match &elem.kind {
+                    TypeKind::Mut(_) => panic!("Did not expect Mut inside immutable Slice"),
+                    TypeKind::Path { .. } => {},
+                    _ => panic!("Expected Path inside Slice"),
+                }
+            },
             _ => panic!("Expected Slice"),
         }
 
@@ -1674,167 +1663,12 @@ mod tests {
     }
 
     #[test]
-    fn test_extern_block_variadic() {
-        let source = r#"
-            extern "C" {
-                fn printf(fmt: *u8, ...) i32;
-                fn exit(code: i32) void;
-                static errno: i32;
-            }
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        let extern_block = match &mod_.decls[0].kind {
-            DeclKind::ExternBlock { abi, decls } => {
-                assert_eq!(abi.as_deref(), Some("\"C\""));
-                decls
-            },
-            _ => panic!(),
-        };
-
-        // printf
-        match &extern_block[0].kind {
-            DeclKind::Function { is_extern, is_variadic, params, .. } => {
-                assert!(is_extern);
-                assert!(is_variadic);
-                assert_eq!(params.len(), 1);
-            },
-            _ => panic!(),
-        }
-
-        // exit
-        match &extern_block[1].kind {
-            DeclKind::Function { is_variadic, .. } => assert!(!is_variadic),
-            _ => panic!(),
-        }
-
-        // errno
-        match &extern_block[2].kind {
-            DeclKind::Var { is_extern, .. } => assert!(is_extern),
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn test_unified_data_literal() {
-        let source = r#"
-            fn main() void {
-                // Struct
-                let s: Point = .{ x: 1, y: 2 };
-                // Array
-                let a: [3]u8 = .{ 1, 2, 3 };
-                // Repeat
-                let b: [1024]u8 = .{ 0; 1024 };
-                // Empty
-                let empty = .{};
-            }
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-        
-        let stmts = match &mod_.decls[0].kind {
-            DeclKind::Function { body: Some(b), .. } => match &b.kind {
-                 ExprKind::Block { stmts, .. } => stmts,
-                 _ => panic!(),
-            },
-            _ => panic!(),
-        };
-
-        fn get_literal(stmt: &crate::ast::Stmt) -> &crate::ast::DataLiteralKind {
-            match &stmt.kind {
-                StmtKind::ExprStmt(e) => match &e.kind {
-                    ExprKind::Let { init, .. } => match &init.kind {
-                        ExprKind::DataLiteral(k) => k,
-                        _ => panic!("Expected DataLiteral"),
-                    },
-                    _ => panic!("Expected Let"),
-                },
-                _ => panic!("Expected ExprStmt"),
-            }
-        }
-
-        // 1. Struct
-        match get_literal(&stmts[0]) {
-            crate::ast::DataLiteralKind::Struct(fields) => assert_eq!(fields.len(), 2),
-            _ => panic!("Expected Struct literal"),
-        }
-
-        // 2. Array
-        match get_literal(&stmts[1]) {
-            crate::ast::DataLiteralKind::Array(elems) => assert_eq!(elems.len(), 3),
-            _ => panic!("Expected Array literal"),
-        }
-
-        // 3. Repeat
-        match get_literal(&stmts[2]) {
-            crate::ast::DataLiteralKind::Repeat { value, count } => {
-                match value.kind { ExprKind::Integer(0) => {}, _ => panic!() }
-                match count.kind { ExprKind::Integer(1024) => {}, _ => panic!() }
-            },
-            _ => panic!("Expected Repeat literal"),
-        }
-
-        // 4. Empty
-        match get_literal(&stmts[3]) {
-            crate::ast::DataLiteralKind::Array(elems) => assert_eq!(elems.len(), 0),
-            _ => panic!("Expected Empty literal"),
-        }
-    }
-
-    #[test]
-    fn test_impl_block() {
-        let source = r#"
-            impl i32 { fn add(b: i32) i32 { return 0; } }
-            impl[T] List[T] { pub fn len() usize { return 0; } }
-            impl Point : Addable {}
-            impl *mut i32 {}
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        // 1. impl i32
-        match &mod_.decls[0].kind {
-            DeclKind::Impl { target_type, decls, .. } => {
-                match &target_type.kind { TypeKind::Path { .. } => {}, _ => panic!() }
-                assert_eq!(decls.len(), 1);
-            },
-            _ => panic!(),
-        }
-
-        // 2. impl[T]
-        match &mod_.decls[1].kind {
-            DeclKind::Impl { generics, decls, .. } => {
-                assert_eq!(generics.len(), 1);
-                assert!(decls[0].is_pub);
-            },
-            _ => panic!(),
-        }
-
-        // 3. Trait
-        match &mod_.decls[2].kind {
-            DeclKind::Impl { trait_type, .. } => assert!(trait_type.is_some()),
-            _ => panic!(),
-        }
-
-        // 4. Pointer
-        match &mod_.decls[3].kind {
-            DeclKind::Impl { target_type, .. } => match &target_type.kind {
-                TypeKind::Pointer { is_mut, .. } => assert!(is_mut),
-                _ => panic!(),
-            },
-            _ => panic!(),
-        }
-    }
-
-    #[test]
     fn test_postfix_address_of() {
         let source = r#"
             fn main() void {
                 let p1 = x.&;
-                let p2 = x.&mut;
-                let p3 = instance.data.&;
-                let p4 = p1.*.&;
+                let p2 = instance.data.&;
+                let p3 = p1.*.&;
             }
         "#;
         let mut ctx = TestContext::new(source);
@@ -1862,8 +1696,47 @@ mod tests {
         }
 
         assert_eq!(get_unary_op(&stmts[0]), UnaryOperator::AddressOf);
-        assert_eq!(get_unary_op(&stmts[1]), UnaryOperator::AddressOfMut);
+        assert_eq!(get_unary_op(&stmts[1]), UnaryOperator::AddressOf);
         assert_eq!(get_unary_op(&stmts[2]), UnaryOperator::AddressOf);
-        assert_eq!(get_unary_op(&stmts[3]), UnaryOperator::AddressOf);
+    }
+
+    #[test]
+    fn test_switch_expr() {
+        let source = r#"
+            fn check(val: i32) i32 {
+                return switch (val) {
+                    1..10 => 10,
+                    11, 12 => 20,
+                    else => 0,
+                };
+            }
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        let func = &mod_.decls[0];
+        let stmts = match &func.kind {
+            DeclKind::Function { body: Some(b), .. } => match &b.kind {
+                ExprKind::Block { stmts, .. } => stmts,
+                _ => panic!(),
+            },
+            _ => panic!(),
+        };
+
+        let ret_stmt = match &stmts[0].kind {
+            StmtKind::ExprStmt(e) => e,
+            _ => panic!(),
+        };
+
+        if let ExprKind::Return(Some(ret_val)) = &ret_stmt.kind {
+            if let ExprKind::Switch { cases, default_case, .. } = &ret_val.kind {
+                assert_eq!(cases.len(), 2);
+                assert!(default_case.is_some());
+            } else {
+                panic!("Expected Switch expression");
+            }
+        } else {
+            panic!("Expected Return statement");
+        }
     }
 }

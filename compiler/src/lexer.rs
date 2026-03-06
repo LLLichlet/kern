@@ -55,7 +55,6 @@ impl<'a> Lexer<'a> {
             b';' => self.make_token(TokenType::Semicolon),
             b':' => self.make_token(TokenType::Colon),
             b'#' => self.make_token(TokenType::Hash),
-            b'$' => self.make_token(TokenType::Dollar),
             b'@' => self.make_token(TokenType::At),
             
             // Dot 家族处理
@@ -560,7 +559,6 @@ fn resolve_keyword(text: &[u8]) -> TokenType {
         b"pub" => TokenType::Pub,
         b"extern" => TokenType::Extern,
         b"use" => TokenType::Use,
-        b"macro" => TokenType::Macro,
         b"impl" => TokenType::Impl,
         b"true" => TokenType::True,
         b"false" => TokenType::False,

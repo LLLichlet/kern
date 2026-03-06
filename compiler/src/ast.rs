@@ -73,8 +73,7 @@ pub enum UnaryOperator {
     Negate,       // -
     LogicalNot,   // !
     BitwiseNot,   // ~
-    AddressOf,    // &
-    AddressOfMut, // &mut
+    AddressOf,    // .&
     LengthOf,     // #
     PointerDeRef, // .*
 }
@@ -135,32 +134,32 @@ pub enum TypeKind {
     /// 指针: `*T`, `*mut T`
     Pointer {
         elem: Box<TypeNode>,
-        is_mut: bool,
     },
 
     /// 易失指针: `^T`, `^mut T`
     VolatilePtr {
         elem: Box<TypeNode>,
-        is_mut: bool,
     },
 
     /// 数组: `[N]T`
     Array {
         elem: Box<TypeNode>,
         len: Box<Expr>, // 必须是常量表达式
-        is_mut: bool,
     },
 
     /// 切片: `[]T`
     Slice {
         elem: Box<TypeNode>,
-        is_mut: bool,
     },
+
+    /// 可变类型修饰符 `mut T`
+    Mut(Box<TypeNode>),
 
     /// 函数指针类型: `fn(i32) bool`
     Function {
         params: Vec<TypeNode>,
         ret: Option<Box<TypeNode>>,
+        is_variadic: bool,
     },
 
     // === 匿名/内联类型定义 (Structural Types) ===
@@ -221,27 +220,26 @@ pub struct Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
-    /// `let mut x: T = v`
+    /// `let x: mut T = v` 或 `let x = v`
     Let {
         name: SymbolId,
         type_node: Option<Box<TypeNode>>,
         init: Box<Expr>,
-        is_mut: bool,
     },
 
     /// `static x: T = v`
     Static {
+        name: SymbolId,
         type_node: Option<Box<TypeNode>>,
         init: Box<Expr>,
-        is_mut: bool,
     },
 
     // --- Literals ---
     Integer(u128),
     Float(f64),
     Bool(bool),
-    Char(char), // Rust char is 4 bytes (u32), matches Zig u32 roughly
-    String(String), // Own the string data
+    Char(char), 
+    String(String), 
     Null,
 
     Identifier(SymbolId),
@@ -269,10 +267,6 @@ pub enum ExprKind {
     Call {
         callee: Box<Expr>,
         args: Vec<Expr>, 
-    },
-    MacroCall {
-        target: Box<Expr>,
-        args: Vec<Token>, // 存储 Token 流
     },
 
     // --- Constructors ---
@@ -315,7 +309,6 @@ pub enum ExprKind {
         lhs: Box<Expr>,
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
-        is_mut: bool,
         is_inclusive: bool,
     },
 
@@ -339,10 +332,6 @@ pub enum ExprKind {
     As {
         lhs: Box<Expr>,
         target: Box<TypeNode>,
-    },
-    Intrinsic {
-        name: SymbolId,
-        args: Vec<Expr>,
     },
 
     Undef,
@@ -452,7 +441,6 @@ pub enum DeclKind {
     Var {
         type_node: Option<TypeNode>,
         value: Expr,
-        is_mut: bool,
         is_static: bool,
         is_extern: bool,
     },
@@ -460,6 +448,7 @@ pub enum DeclKind {
     /// `type Name[T] = Target;`
     TypeAlias {
         generics: Vec<GenericParam>,
+        bounds: Vec<TypeNode>,
         target: TypeNode,
         is_extern: bool,
     },
@@ -470,11 +459,6 @@ pub enum DeclKind {
         path: Vec<SymbolId>,
         target: UseTarget,
         is_reexport: bool,
-    },
-
-    /// 宏定义
-    Macro {
-        rules: Vec<MacroRule>,
     },
 
     /// Extern 块
@@ -516,14 +500,6 @@ pub struct UseMember {
 pub struct FuncParam {
     pub name: SymbolId,
     pub type_node: TypeNode,
-    pub span: Span,
-}
-
-/// 宏规则
-#[derive(Debug, Clone, PartialEq)]
-pub struct MacroRule {
-    pub matcher: Vec<Token>,
-    pub transcriber: Vec<Token>,
     pub span: Span,
 }
 

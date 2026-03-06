@@ -1,0 +1,1869 @@
+#![allow(unused)]
+use crate::ast::*;
+use crate::context::Context;
+use crate::lexer::Lexer;
+use crate::token::{Token, TokenType};
+use crate::stream::TokenStream;
+use crate::utils::{Span, SymbolId};
+use crate::utils::FileId;
+use crate::diagnostic::DiagnosticLevel;
+
+/// 解析结果类型
+/// Err(()) 表示错误已经报告给 Context，调用者应该进行恢复或向上传播
+pub type ParseResult<T> = Result<T, ()>;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Precedence {
+    Lowest,
+    Assignment, // =
+    LogicalOr,  // or
+    LogicalAnd, // and
+    Equality,   // == !=
+    Comparison, // < > <= >=
+    Term,       // + -
+    Factor,     // * / %
+    Unary,      // ! - * &
+    Cast,       // as
+    Call,       // () . []
+}
+
+impl Precedence {
+    fn from_token(t: TokenType) -> Self {
+        match t {
+            TokenType::Dot | TokenType::DotLBracket | TokenType::DotStar | 
+            TokenType::LParen | TokenType::LBracket | TokenType::DotAmpersand | 
+            TokenType::Bang => Self::Call,
+
+            TokenType::As => Self::Cast,
+
+            TokenType::Star | TokenType::Slash | TokenType::Percent => Self::Factor,
+            TokenType::Plus | TokenType::Minus | TokenType::Pipe | TokenType::Caret => Self::Term,
+
+            TokenType::LessThan | TokenType::LessEqual | TokenType::GreaterThan | TokenType::GreaterEqual => Self::Comparison,
+            TokenType::EqualEqual | TokenType::NotEqual => Self::Equality,
+
+            TokenType::And => Self::LogicalAnd,
+            TokenType::Or => Self::LogicalOr,
+
+            TokenType::Assign | TokenType::PlusAssign | TokenType::MinusAssign |
+            TokenType::StarAssign | TokenType::SlashAssign | TokenType::PercentAssign |
+            TokenType::AmpersandAssign | TokenType::PipeAssign | TokenType::CaretAssign |
+            TokenType::LShiftAssign | TokenType::RShiftAssign => Self::Assignment,
+
+            _ => Self::Lowest,
+        }
+    }
+}
+
+pub struct Parser<'a> {
+    stream: TokenStream<'a>,
+    context: &'a mut Context,
+    file_id: FileId,
+    
+    // 状态标记
+    panic_mode: bool,
+    
+    // ID 计数器
+    next_node_id: u32,
+}
+
+impl<'a> Parser<'a> {
+    pub fn new(source: &'a str, file_id: FileId, context: &'a mut Context) -> Self {
+        let lexer = Lexer::new(source, file_id);
+        let stream = TokenStream::new(lexer);
+        Self {
+            stream,
+            context,
+            file_id,
+            panic_mode: false,
+            next_node_id: 0,
+        }
+    }
+
+    // ==========================================
+    // Core Tools: AST Node Creation
+    // ==========================================
+
+    fn new_id(&mut self) -> NodeId {
+        let id = self.next_node_id;
+        self.next_node_id += 1;
+        NodeId(id)
+    }
+
+    // ==========================================
+    // Core Tools: Token Consumption
+    // ==========================================
+
+    fn peek(&mut self) -> Token {
+        self.stream.peek()
+    }
+
+    fn advance(&mut self) -> Token {
+        self.stream.bump()
+    }
+
+    fn check(&mut self, tag: TokenType) -> bool {
+        self.stream.check(tag)
+    }
+
+    fn match_token(&mut self, tags: &[TokenType]) -> bool {
+        for &tag in tags {
+            if self.check(tag) {
+                self.advance();
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 消费一个 Token，如果类型不对则报错 (Sync 入口)
+    fn expect(&mut self, tag: TokenType) -> ParseResult<Token> {
+        if self.check(tag) {
+            Ok(self.advance())
+        } else {
+            let current = self.peek();
+            let found_text = self.context.source_manager.slice_source(current.span).to_string();
+            
+            self.add_error(
+                current.span,
+                format!("Expected token '{:?}', but found '{}'.", tag, found_text),
+            );
+            Err(())
+        }
+    }
+
+    // ==========================================
+    // Integration: String Interner & Unescape
+    // ==========================================
+
+    fn intern_token(&mut self, token: Token) -> SymbolId {
+        let text = self.context.source_manager.slice_source(token.span);
+        self.context.interner.intern(text)
+    }
+
+    fn parse_string_literal(&mut self, token: Token) -> ParseResult<SymbolId> {
+        let raw = self.context.source_manager.slice_source(token.span).to_string();
+        
+        // 1. 去掉引号
+        if raw.len() < 2 {
+            return Err(());
+        }
+        let inner = &raw[1..raw.len() - 1];
+
+        // 2. 转义处理
+        let unescaped = self.unescape_string(inner, token.span)?;
+
+        // 3. Intern
+        Ok(self.context.intern(&unescaped))
+    }
+
+    fn unescape_string(&mut self, input: &str, span: Span) -> ParseResult<String> {
+        let mut result = String::with_capacity(input.len());
+        let mut chars = input.chars().peekable();
+
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                match chars.next() {
+                    Some('n') => result.push('\n'),
+                    Some('r') => result.push('\r'),
+                    Some('t') => result.push('\t'),
+                    Some('\\') => result.push('\\'),
+                    Some('\'') => result.push('\''),
+                    Some('"') => result.push('"'),
+                    Some('0') => result.push('\0'),
+                    
+                    // Hex: \xNN
+                    Some('x') => {
+                        let hex: String = chars.by_ref().take(2).collect();
+                        if hex.len() != 2 {
+                            self.add_error(span, "Invalid hex escape sequence".to_string());
+                            return Err(());
+                        }
+                        let byte = u8::from_str_radix(&hex, 16).map_err(|_| {
+                            self.add_error(span, format!("Invalid hex escape: {}", hex));
+                        })?;
+                        result.push(byte as char);
+                    }
+
+                    // Unicode: \u{...}
+                    Some('u') => {
+                        if chars.next() != Some('{') {
+                             self.add_error(span, "Expected '{' after \\u".to_string());
+                             return Err(());
+                        }
+                        
+                        let mut hex_str = String::new();
+                        let mut found_brace = false;
+                        for ch in chars.by_ref() {
+                            if ch == '}' {
+                                found_brace = true;
+                                break;
+                            }
+                            hex_str.push(ch);
+                        }
+
+                        if !found_brace {
+                            self.add_error(span, "Unterminated unicode escape".to_string());
+                            return Err(());
+                        }
+
+                        let code_point = u32::from_str_radix(&hex_str, 16).map_err(|_| {
+                             self.add_error(span, format!("Invalid unicode scalar: {}", hex_str));
+                        })?;
+                        
+                        if let Some(c) = std::char::from_u32(code_point) {
+                            result.push(c);
+                        } else {
+                            self.add_error(span, format!("Invalid unicode scalar value: {:x}", code_point));
+                            return Err(());
+                        }
+                    }
+
+                    Some(c) => {
+                        // 未知转义，保留原样
+                        result.push('\\');
+                        result.push(c);
+                    }
+                    None => {
+                        self.add_error(span, "Unterminated escape sequence".to_string());
+                        return Err(());
+                    }
+                }
+            } else {
+                result.push(c);
+            }
+        }
+        Ok(result)
+    }
+
+    // ==========================================
+    // Error Handling & Synchronization
+    // ==========================================
+
+    fn error_at_current(&mut self, msg: String) {
+        let span = self.peek().span;
+        self.add_error(span, msg);
+    }
+
+    fn add_error(&mut self, span: Span, msg: String) {
+        if self.panic_mode {
+            return;
+        }
+        self.panic_mode = true;
+        self.context.report(span, DiagnosticLevel::Error, msg);
+    }
+
+    pub fn synchronize(&mut self) {
+        self.panic_mode = false;
+
+        while !self.check(TokenType::Eof) {
+            if self.stream.prev_span().end > 0 && self.stream.prev_span() != Span::default() {
+                 // 简单的近似：如果 TokenStream 可以访问上一个 Token 的类型最好
+                 // 但这里我们根据 current token 判断
+            }
+            
+            // 如果碰到了分号，很可能上一个语句结束了
+             if self.stream.peek_nth(0).tag == TokenType::Semicolon {
+                // 如果当前是分号，消耗它，然后结束 sync
+                self.advance();
+                return;
+            }
+
+            match self.peek().tag {
+                TokenType::Fn | TokenType::Let | TokenType::Const | TokenType::Struct | 
+                TokenType::Enum | TokenType::If | TokenType::For | TokenType::Return => return,
+                _ => {
+                    self.advance();
+                }
+            }
+        }
+    }
+
+    // ==========================================
+    //               Type Parsing
+    // ==========================================
+
+    pub fn parse_type(&mut self) -> ParseResult<TypeNode> {
+        let start_token = self.peek();
+        let start_span = start_token.span;
+
+        match start_token.tag {
+            // 1. 指针: *T 或 *mut T
+            TokenType::Star => {
+                self.advance();
+                let is_mut = self.match_token(&[TokenType::Mut]);
+                let elem = self.parse_type()?;
+                Ok(TypeNode {
+                    id: self.new_id(),
+                    span: start_span.to(elem.span),
+                    kind: TypeKind::Pointer {
+                        elem: Box::new(elem),
+                        is_mut,
+                    },
+                })
+            }
+
+            // 2. 易失指针: ^T
+            TokenType::Caret => {
+                self.advance();
+                let is_mut = self.match_token(&[TokenType::Mut]);
+                let elem = self.parse_type()?;
+                Ok(TypeNode {
+                    id: self.new_id(),
+                    span: start_span.to(elem.span),
+                    kind: TypeKind::VolatilePtr {
+                        elem: Box::new(elem),
+                        is_mut,
+                    },
+                })
+            }
+
+            // 3. 数组或切片
+            TokenType::LBracket => {
+                self.advance(); // eat [
+
+                // A. 切片 []T
+                if self.match_token(&[TokenType::RBracket]) {
+                    let is_mut = self.match_token(&[TokenType::Mut]);
+                    let elem = self.parse_type()?;
+                    Ok(TypeNode {
+                        id: self.new_id(),
+                        span: start_span.to(elem.span),
+                        kind: TypeKind::Slice {
+                            elem: Box::new(elem),
+                            is_mut,
+                        },
+                    })
+                } else {
+                    // B. 数组 [expr]T
+                    let len_expr = self.parse_expression(Precedence::Lowest)?;
+                    self.expect(TokenType::RBracket)?;
+                    let is_mut = self.match_token(&[TokenType::Mut]);
+                    let elem = self.parse_type()?;
+                    
+                    Ok(TypeNode {
+                        id: self.new_id(),
+                        span: start_span.to(elem.span),
+                        kind: TypeKind::Array {
+                            elem: Box::new(elem),
+                            len: Box::new(len_expr),
+                            is_mut,
+                        },
+                    })
+                }
+            }
+
+            // 4. 函数指针 fn(args) ret
+            TokenType::Fn => {
+                self.advance();
+                self.expect(TokenType::LParen)?;
+                
+                let mut params = Vec::new();
+                if !self.check(TokenType::RParen) {
+                    loop {
+                        params.push(self.parse_type()?);
+                        if !self.match_token(&[TokenType::Comma]) {
+                            break;
+                        }
+                    }
+                }
+                self.expect(TokenType::RParen)?;
+                
+                // 返回值 (Kern 中必须显式声明返回值，如果是 void 也要写 void 吗？
+                // 照 Zig 逻辑，它直接解析 parseType。
+                let ret_type = self.parse_type()?;
+                let end = ret_type.span;
+
+                Ok(TypeNode {
+                    id: self.new_id(),
+                    span: start_span.to(end),
+                    kind: TypeKind::Function {
+                        params,
+                        ret: Some(Box::new(ret_type)),
+                    }
+                })
+            }
+
+            // 5. 路径类型
+            TokenType::Identifier => {
+                self.advance(); // consume first ident
+                let first_id = self.intern_token(start_token);
+                let mut span = start_span;
+                
+                let mut segments = vec![first_id];
+                
+                while self.match_token(&[TokenType::Dot]) {
+                    let id_token = self.expect(TokenType::Identifier)?;
+                    segments.push(self.intern_token(id_token));
+                    span = span.to(id_token.span);
+                }
+
+                // 泛型参数 List[T]
+                let mut generics = Vec::new();
+                if self.check(TokenType::LBracket) {
+                    generics = self.parse_type_args()?;
+                    span = span.to(self.stream.prev_span());
+                }
+
+                Ok(TypeNode {
+                    id: self.new_id(),
+                    span,
+                    kind: TypeKind::Path {
+                        segments,
+                        generics,
+                    }
+                })
+            }
+
+            TokenType::Underscore => {
+                self.advance();
+                Ok(TypeNode { id: self.new_id(), span: start_span, kind: TypeKind::Infer })
+            }
+
+            TokenType::SelfType => {
+                self.advance();
+                Ok(TypeNode { id: self.new_id(), span: start_span, kind: TypeKind::SelfType })
+            }
+
+            TokenType::Struct => self.parse_struct_type(false),
+            TokenType::Union => self.parse_struct_type(true),
+            TokenType::Enum => self.parse_enum_type(),
+            TokenType::Trait => self.parse_trait_type(),
+
+            _ => {
+                let token = self.peek();
+                let found_text = self.context.source_manager.slice_source(token.span).to_string();
+                self.add_error(token.span, format!("Expected type definition, found '{}'", found_text));
+                Err(())
+            }
+        }
+    }
+
+    fn parse_type_args(&mut self) -> ParseResult<Vec<TypeNode>> {
+        self.expect(TokenType::LBracket)?;
+        let mut args = Vec::new();
+        if !self.check(TokenType::RBracket) {
+            loop {
+                args.push(self.parse_type()?);
+                if !self.match_token(&[TokenType::Comma]) { break; }
+                if self.check(TokenType::RBracket) { break; }
+            }
+        }
+        self.expect(TokenType::RBracket)?;
+        Ok(args)
+    }
+
+    fn parse_struct_type(&mut self, is_union: bool) -> ParseResult<TypeNode> {
+        let start_token = self.advance(); // struct / union
+        self.expect(TokenType::LBrace)?;
+        
+        let mut fields = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let name_token = self.expect(TokenType::Identifier)?;
+            let name_id = self.intern_token(name_token);
+            self.expect(TokenType::Colon)?;
+            let field_type = self.parse_type()?;
+            
+            let mut default_value = None;
+            if self.match_token(&[TokenType::Assign]) {
+                default_value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            }
+            
+            let span = name_token.span.to(if let Some(ref v) = default_value { v.span } else { field_type.span });
+
+            fields.push(StructFieldDef {
+                name: name_id,
+                type_node: field_type,
+                default_value,
+                span,
+            });
+
+            if !self.match_token(&[TokenType::Comma]) { break; }
+        }
+
+        let end_token = self.expect(TokenType::RBrace)?;
+        let kind = if is_union { TypeKind::Union { fields } } else { TypeKind::Struct { fields } };
+
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_token.span.to(end_token.span),
+            kind,
+        })
+    }
+
+    fn parse_enum_type(&mut self) -> ParseResult<TypeNode> {
+        let start_token = self.advance();
+        let mut backing_type = None;
+        if self.match_token(&[TokenType::Colon]) {
+            backing_type = Some(Box::new(self.parse_type()?));
+        }
+
+        self.expect(TokenType::LBrace)?;
+        let mut variants = Vec::new();
+
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let name_token = self.expect(TokenType::Identifier)?;
+            let name_id = self.intern_token(name_token);
+            
+            let mut value = None;
+            if self.match_token(&[TokenType::Assign]) {
+                value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            }
+
+            let span = name_token.span.to(if let Some(ref v) = value { v.span } else { name_token.span });
+
+            variants.push(EnumVariant { name: name_id, value, span });
+            if !self.match_token(&[TokenType::Comma]) { break; }
+        }
+
+        let end_token = self.expect(TokenType::RBrace)?;
+
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_token.span.to(end_token.span),
+            kind: TypeKind::Enum { backing_type, variants },
+        })
+    }
+
+    fn parse_trait_type(&mut self) -> ParseResult<TypeNode> {
+        let start_token = self.advance();
+        self.expect(TokenType::LBrace)?;
+        
+        let mut fields = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let name_token = self.expect(TokenType::Identifier)?;
+            let name_id = self.intern_token(name_token);
+            self.expect(TokenType::Colon)?;
+            let method_type = self.parse_type()?;
+
+            if self.check(TokenType::Assign) {
+                self.error_at_current("Trait methods cannot have default implementations here.".to_string());
+                self.advance();
+                self.parse_expression(Precedence::Lowest)?; // consume expr
+            }
+
+            fields.push(StructFieldDef {
+                name: name_id,
+                default_value: None,
+                span: name_token.span.to(method_type.span),
+                type_node: method_type,
+            });
+
+            if !self.match_token(&[TokenType::Comma]) { break; }
+        }
+        let end_token = self.expect(TokenType::RBrace)?;
+
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_token.span.to(end_token.span),
+            kind: TypeKind::Trait { fields },
+        })
+    }
+
+    // ==========================================
+    //            Expression Parsing
+    // ==========================================
+
+    pub fn parse_expression(&mut self, precedence: Precedence) -> ParseResult<Expr> {
+        let prefix_token = self.advance();
+        let mut left = self.parse_prefix(prefix_token)?;
+
+        while precedence < Precedence::from_token(self.peek().tag) {
+            let op_token = self.advance();
+            left = self.parse_infix(left, op_token)?;
+        }
+        Ok(left)
+    }
+
+    fn parse_prefix(&mut self, token: Token) -> ParseResult<Expr> {
+        let span = token.span;
+        match token.tag {
+            TokenType::IntLiteral => {
+                let text = self.context.source_manager.slice_source(span).to_string();
+                // Rust 处理 0xFF, 0b10 比较方便，但如果带下划线 1_000 需要去掉
+                let text_clean = text.replace("_", "");
+                
+                // 处理前缀
+                let (radix, num_str) = if text_clean.starts_with("0x") { (16, &text_clean[2..]) }
+                else if text_clean.starts_with("0b") { (2, &text_clean[2..]) }
+                else if text_clean.starts_with("0o") { (8, &text_clean[2..]) }
+                else { (10, text_clean.as_str()) };
+
+                let val = u128::from_str_radix(num_str, radix).map_err(|_| {
+                     self.add_error(span, format!("Invalid integer literal: {}", text));
+                })?;
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Integer(val) })
+            }
+            TokenType::FloatLiteral => {
+                let text = self.context.source_manager.slice_source(span).replace("_", "");
+                let val = text.parse::<f64>().map_err(|_| {
+                     self.add_error(span, format!("Invalid float literal: {}", text));
+                })?;
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Float(val) })
+            }
+            TokenType::StringLiteral => {
+                let sid = self.parse_string_literal(token)?;
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::String(self.context.resolve(sid).to_string()) })
+            }
+            TokenType::CharLiteral => {
+                // 简化的 char 处理，严谨的需要 unescape
+                let raw = self.context.source_manager.slice_source(span);
+                let inner = &raw[1..raw.len()-1];
+                let c = inner.chars().next().unwrap_or('\0');
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Char(c) })
+            }
+            TokenType::Identifier => {
+                let name = self.intern_token(token);
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Identifier(name) })
+            }
+            
+            // .{ ... }
+            TokenType::DotLBrace => self.parse_data_literal(span),
+
+            // .Enum
+            TokenType::Dot => {
+                if self.check(TokenType::Identifier) {
+                    let id_token = self.advance();
+                    let sid = self.intern_token(id_token);
+                    Ok(Expr {
+                        id: self.new_id(),
+                        span: span.to(id_token.span),
+                        kind: ExprKind::EnumLiteral(sid),
+                    })
+                } else {
+                    self.add_error(span, "Unexpected '.' at start of expression".to_string());
+                    Err(())
+                }
+            }
+
+            TokenType::Minus | TokenType::Bang | TokenType::Tilde | TokenType::Hash => {
+                let op = match token.tag {
+                    TokenType::Minus => UnaryOperator::Negate,
+                    TokenType::Bang => UnaryOperator::LogicalNot,
+                    TokenType::Tilde => UnaryOperator::BitwiseNot,
+                    TokenType::Hash => UnaryOperator::LengthOf,
+                    _ => unreachable!(),
+                };
+                let operand = self.parse_expression(Precedence::Unary)?;
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: span.to(operand.span),
+                    kind: ExprKind::Unary { op, operand: Box::new(operand) }
+                })
+            }
+
+            TokenType::LParen => {
+                let expr = self.parse_expression(Precedence::Lowest)?;
+                self.expect(TokenType::RParen)?;
+                Ok(expr)
+            }
+
+            TokenType::If => self.parse_if_expr(span),
+            TokenType::Switch => self.parse_switch_expr(span),
+            TokenType::LBrace => self.parse_block_expr(span),
+            TokenType::For => self.parse_for_expr(span),
+            
+            TokenType::Let | TokenType::Const | TokenType::Static => self.parse_decl_expr(token),
+
+            TokenType::Break => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Break }),
+            TokenType::Continue => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Continue }),
+            
+            TokenType::Return => {
+                let mut val = None;
+                let is_stopper = self.check(TokenType::Semicolon) || self.check(TokenType::RBrace) || 
+                                 self.check(TokenType::Else) || self.check(TokenType::RParen) || 
+                                 self.check(TokenType::RBracket) || self.check(TokenType::Comma) || 
+                                 self.check(TokenType::Eof);
+                if !is_stopper {
+                    val = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                }
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Return(val) })
+            }
+
+            TokenType::Undef => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Undef }),
+            TokenType::SelfValue => Ok(Expr { id: self.new_id(), span, kind: ExprKind::SelfValue }),
+
+            _ => {
+                let text = self.context.source_manager.slice_source(span).to_string();
+                self.add_error(span, format!("Expected expression, found '{}'", text));
+                Err(())
+            }
+        }
+    }
+
+    fn parse_infix(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
+        match token.tag {
+            TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash | 
+            TokenType::EqualEqual | TokenType::NotEqual | TokenType::Percent |
+            TokenType::LessThan | TokenType::LessEqual | TokenType::GreaterThan | TokenType::GreaterEqual |
+            TokenType::And | TokenType::Or | TokenType::Pipe | TokenType::Ampersand | TokenType::Caret |
+            TokenType::LShift | TokenType::RShift => {
+                let op = BinaryOperator::from_token(token.tag);
+                let precedence = Precedence::from_token(token.tag);
+                let right = self.parse_expression(precedence)?;
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: left.span.to(right.span),
+                    kind: ExprKind::Binary { lhs: Box::new(left), op, rhs: Box::new(right) }
+                })
+            }
+            
+            TokenType::Dot => {
+                let field_token = self.expect(TokenType::Identifier)?;
+                let field_id = self.intern_token(field_token);
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: left.span.to(field_token.span),
+                    kind: ExprKind::FieldAccess { lhs: Box::new(left), field: field_id }
+                })
+            }
+
+            TokenType::DotStar => {
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: left.span.to(token.span),
+                    kind: ExprKind::Unary { op: UnaryOperator::PointerDeRef, operand: Box::new(left) }
+                })
+            }
+
+            TokenType::LParen => {
+                let mut args = Vec::new();
+                if !self.check(TokenType::RParen) {
+                    loop {
+                        args.push(self.parse_expression(Precedence::Lowest)?);
+                        if !self.match_token(&[TokenType::Comma]) { break; }
+                    }
+                }
+                let end = self.expect(TokenType::RParen)?;
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: left.span.to(end.span),
+                    kind: ExprKind::Call { callee: Box::new(left), args }
+                })
+            }
+
+            TokenType::Assign | TokenType::PlusAssign | TokenType::MinusAssign | TokenType::StarAssign |
+            TokenType::SlashAssign | TokenType::PercentAssign | TokenType::AmpersandAssign | 
+            TokenType::PipeAssign | TokenType::CaretAssign | TokenType::LShiftAssign | TokenType::RShiftAssign => {
+                let op = AssignmentOperator::from_token(token.tag);
+                let right = self.parse_expression(Precedence::Lowest)?;
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: left.span.to(right.span),
+                    kind: ExprKind::Assign { lhs: Box::new(left), op, rhs: Box::new(right) }
+                })
+            }
+
+            TokenType::As => {
+                let target = self.parse_type()?;
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: left.span.to(target.span),
+                    kind: ExprKind::As { lhs: Box::new(left), target: Box::new(target) }
+                })
+            }
+
+            // Slice or Index: .[
+            TokenType::DotLBracket => {
+                let is_mut = self.match_token(&[TokenType::Mut]);
+                
+                let mut start = None;
+                let mut end = None;
+                let mut is_range = false;
+                let mut is_inclusive = false;
+
+                if self.match_token(&[TokenType::DotDot]) {
+                     is_range = true;
+                     if !self.check(TokenType::RBracket) {
+                         end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                     }
+                } else {
+                    start = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                    
+                    if self.match_token(&[TokenType::DotDot]) {
+                        is_range = true;
+                        if !self.check(TokenType::RBracket) {
+                            end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                        }
+                    } else if self.match_token(&[TokenType::DotDotEqual]) {
+                        is_range = true;
+                        is_inclusive = true;
+                        end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                    }
+                }
+                
+                let rbracket = self.expect(TokenType::RBracket)?;
+                let span = left.span.to(rbracket.span);
+
+                if is_range {
+                    Ok(Expr { id: self.new_id(), span, kind: ExprKind::SliceOp { lhs: Box::new(left), start, end, is_mut, is_inclusive } })
+                } else {
+                    if is_mut { self.add_error(span, "Index access cannot imply 'mut'".to_string()); }
+                    Ok(Expr { id: self.new_id(), span, kind: ExprKind::IndexAccess { lhs: Box::new(left), index: start.unwrap() } })
+                }
+            }
+
+            TokenType::DotAmpersand => {
+                 let mut op = UnaryOperator::AddressOf;
+                 let mut span = left.span.to(token.span);
+                 if self.match_token(&[TokenType::Mut]) {
+                     op = UnaryOperator::AddressOfMut;
+                     span = left.span.to(self.stream.prev_span());
+                 }
+                 Ok(Expr { id: self.new_id(), span, kind: ExprKind::Unary { op, operand: Box::new(left) } })
+            }
+
+            TokenType::LBracket => {
+                 // Generic Instantiation: expr[T, U]
+                 let mut types = Vec::new();
+                 if !self.check(TokenType::RBracket) {
+                     loop {
+                         types.push(self.parse_type()?);
+                         if !self.match_token(&[TokenType::Comma]) { break; }
+                         if self.check(TokenType::RBracket) { break; }
+                     }
+                 }
+                 let rb = self.expect(TokenType::RBracket)?;
+                 Ok(Expr {
+                     id: self.new_id(),
+                     span: left.span.to(rb.span),
+                     kind: ExprKind::GenericInstantiation { target: Box::new(left), types }
+                 })
+            }
+            
+            // 宏调用 expr!
+            TokenType::Bang => {
+                let open_token = self.peek();
+                let close_tag = match open_token.tag {
+                    TokenType::LParen => TokenType::RParen,
+                    TokenType::LBracket => TokenType::RBracket,
+                    TokenType::LBrace => TokenType::RBrace,
+                    _ => {
+                        self.add_error(open_token.span, "Expected '(', '[', or '{' after macro invocation".to_string());
+                        return Err(());
+                    }
+                };
+                let args = self.parse_token_tree(open_token.tag, close_tag)?;
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: left.span.to(self.stream.prev_span()),
+                    kind: ExprKind::MacroCall { target: Box::new(left), args }
+                })
+            }
+
+            _ => {
+                self.add_error(token.span, format!("Unexpected infix token {:?}", token.tag));
+                Err(())
+            }
+        }
+    }
+
+    // ==========================================
+    //            Specific Expressions
+    // ==========================================
+
+    fn parse_data_literal(&mut self, start_span: Span) -> ParseResult<Expr> {
+         // .{ consumed
+         if self.check(TokenType::RBrace) {
+             let rb = self.advance();
+             return Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(vec![])) });
+         }
+
+         let mut is_struct_mode = false;
+         if self.check(TokenType::Identifier) {
+             if self.stream.peek_nth(1).tag == TokenType::Colon {
+                 is_struct_mode = true;
+             }
+         }
+
+         if is_struct_mode {
+             let mut fields = Vec::new();
+             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                 let name = self.expect(TokenType::Identifier)?;
+                 let name_id = self.intern_token(name);
+                 self.expect(TokenType::Colon)?;
+                 let val = self.parse_expression(Precedence::Lowest)?;
+                 fields.push(StructFieldInit { name: name_id, value: val, span: name.span }); // value span is loosely name..expr
+                 if !self.match_token(&[TokenType::Comma]) { break; }
+             }
+             let rb = self.expect(TokenType::RBrace)?;
+             Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Struct(fields)) })
+         } else {
+             // Array or Repeat
+             let first = self.parse_expression(Precedence::Lowest)?;
+             
+             if self.match_token(&[TokenType::Semicolon]) {
+                 let count = self.parse_expression(Precedence::Lowest)?;
+                 let rb = self.expect(TokenType::RBrace)?;
+                 Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Repeat { value: Box::new(first), count: Box::new(count) }) })
+             } else {
+                 let mut elems = vec![first];
+                 if self.match_token(&[TokenType::Comma]) {
+                     while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                         elems.push(self.parse_expression(Precedence::Lowest)?);
+                         if !self.match_token(&[TokenType::Comma]) { break; }
+                     }
+                 }
+                 let rb = self.expect(TokenType::RBrace)?;
+                 Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(elems)) })
+             }
+         }
+    }
+
+    fn parse_block_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        // { consumed
+        let mut stmts = Vec::new();
+        let mut result = None;
+        let mut end_span = start_span;
+
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            if self.check(TokenType::Defer) {
+                let defer_t = self.advance();
+                let expr = self.parse_expression(Precedence::Lowest)?;
+                self.expect(TokenType::Semicolon)?;
+                
+                let defer_expr = Expr {
+                    id: self.new_id(),
+                    span: defer_t.span.to(self.stream.prev_span()),
+                    kind: ExprKind::Defer { expr: Box::new(expr) }
+                };
+                stmts.push(Stmt { id: self.new_id(), span: defer_expr.span, kind: StmtKind::ExprStmt(defer_expr) });
+                continue;
+            }
+
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            
+            if self.match_token(&[TokenType::Semicolon]) {
+                stmts.push(Stmt { id: self.new_id(), span: expr.span, kind: StmtKind::ExprStmt(expr) });
+            } else if self.check(TokenType::RBrace) {
+                result = Some(Box::new(expr));
+            } else {
+                self.error_at_current("Expected semicolon".to_string());
+                stmts.push(Stmt { id: self.new_id(), span: expr.span, kind: StmtKind::ExprStmt(expr) });
+            }
+        }
+        let rb = self.expect(TokenType::RBrace)?;
+        end_span = rb.span;
+        Ok(Expr { id: self.new_id(), span: start_span.to(end_span), kind: ExprKind::Block { stmts, result } })
+    }
+
+    fn parse_if_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        self.expect(TokenType::LParen)?;
+        let cond = self.parse_expression(Precedence::Lowest)?;
+        self.expect(TokenType::RParen)?;
+        let then_branch = self.parse_expression(Precedence::Lowest)?;
+        let mut else_branch = None;
+        if self.match_token(&[TokenType::Else]) {
+            else_branch = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+        }
+        let end = if let Some(ref e) = else_branch { e.span } else { then_branch.span };
+        Ok(Expr {
+             id: self.new_id(), span: start_span.to(end),
+             kind: ExprKind::If { cond: Box::new(cond), then_branch: Box::new(then_branch), else_branch }
+        })
+    }
+
+    fn parse_for_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        self.expect(TokenType::LParen)?;
+        let mut init = None;
+        if !self.check(TokenType::Semicolon) { init = Some(Box::new(self.parse_expression(Precedence::Lowest)?)); }
+        self.expect(TokenType::Semicolon)?;
+
+        let mut cond = None;
+        if !self.check(TokenType::Semicolon) { cond = Some(Box::new(self.parse_expression(Precedence::Lowest)?)); }
+        self.expect(TokenType::Semicolon)?;
+
+        let mut post = None;
+        if !self.check(TokenType::RParen) { post = Some(Box::new(self.parse_expression(Precedence::Lowest)?)); }
+        self.expect(TokenType::RParen)?;
+
+        let body = self.parse_expression(Precedence::Lowest)?;
+        Ok(Expr {
+             id: self.new_id(), span: start_span.to(body.span),
+             kind: ExprKind::For { init, cond, post, body: Box::new(body) }
+        })
+    }
+    
+    fn parse_switch_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        self.expect(TokenType::LParen)?;
+        let target = self.parse_expression(Precedence::Lowest)?;
+        self.expect(TokenType::RParen)?;
+        self.expect(TokenType::LBrace)?;
+        
+        let mut cases = Vec::new();
+        let mut default_case = None;
+
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            if self.match_token(&[TokenType::Else]) {
+                self.expect(TokenType::Arrow)?;
+                default_case = Some(Box::new(self.parse_switch_body()?));
+                self.match_token(&[TokenType::Comma]);
+                continue;
+            }
+
+            let mut patterns = Vec::new();
+            loop {
+                let start = self.parse_expression(Precedence::Lowest)?;
+                if self.match_token(&[TokenType::DotDot]) {
+                    let end = self.parse_expression(Precedence::Lowest)?;
+                    patterns.push(SwitchPattern::Range { start, end, inclusive: false });
+                } else if self.match_token(&[TokenType::DotDotEqual]) {
+                    let end = self.parse_expression(Precedence::Lowest)?;
+                    patterns.push(SwitchPattern::Range { start, end, inclusive: true });
+                } else {
+                    patterns.push(SwitchPattern::Value(start));
+                }
+
+                if !self.match_token(&[TokenType::Comma]) { break; }
+                if self.check(TokenType::Arrow) { break; }
+            }
+            self.expect(TokenType::Arrow)?;
+            let body = self.parse_switch_body()?;
+            self.match_token(&[TokenType::Comma]);
+            cases.push(SwitchCase { patterns, body, span: start_span /* imprecise */ });
+        }
+        let rb = self.expect(TokenType::RBrace)?;
+        Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::Switch { target: Box::new(target), cases, default_case } })
+    }
+
+    fn parse_switch_body(&mut self) -> ParseResult<Expr> {
+        if self.check(TokenType::LBrace) {
+            let t = self.advance();
+            self.parse_block_expr(t.span)
+        } else {
+            self.parse_expression(Precedence::Lowest)
+        }
+    }
+
+    fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {
+        let tag = start_token.tag;
+        let is_mut_keyword = self.match_token(&[TokenType::Mut]);
+        
+        if tag == TokenType::Const && is_mut_keyword {
+            self.add_error(start_token.span, "Constants cannot be mutable".to_string());
+        }
+
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+
+        let mut type_node = None;
+        if self.match_token(&[TokenType::Colon]) {
+            type_node = Some(Box::new(self.parse_type()?));
+        }
+
+        self.expect(TokenType::Assign)?;
+        let init = self.parse_expression(Precedence::Lowest)?;
+        let span = start_token.span.to(init.span);
+
+        match tag {
+            TokenType::Static => Ok(Expr {
+                 id: self.new_id(), span,
+                 kind: ExprKind::Static { type_node, init: Box::new(init), is_mut: is_mut_keyword }
+            }),
+            TokenType::Let | TokenType::Const => {
+                let is_mut = if tag == TokenType::Const { false } else { is_mut_keyword };
+                Ok(Expr {
+                    id: self.new_id(), span,
+                    kind: ExprKind::Let { name: name_id, type_node, init: Box::new(init), is_mut }
+                })
+            },
+            _ => unreachable!()
+        }
+    }
+
+    // ==========================================
+    //               Declarations
+    // ==========================================
+
+    fn parse_generic_params(&mut self) -> ParseResult<Vec<GenericParam>> {
+        if !self.match_token(&[TokenType::LBracket]) { return Ok(Vec::new()); }
+        let mut params = Vec::new();
+        while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
+            let name = self.expect(TokenType::Identifier)?;
+            let name_id = self.intern_token(name);
+            let mut span = name.span;
+            let mut constraints = Vec::new();
+
+            if self.match_token(&[TokenType::Colon]) {
+                loop {
+                    let con = self.parse_type()?;
+                    span = span.to(con.span);
+                    constraints.push(con);
+                    if !self.match_token(&[TokenType::Plus]) { break; }
+                }
+            }
+            params.push(GenericParam { name: name_id, constraints, span });
+            if !self.match_token(&[TokenType::Comma]) { break; }
+        }
+        self.expect(TokenType::RBracket)?;
+        Ok(params)
+    }
+
+    fn parse_func_params(&mut self) -> ParseResult<(Vec<FuncParam>, bool)> {
+        self.expect(TokenType::LParen)?;
+        let mut params = Vec::new();
+        let mut is_variadic = false;
+        
+        while !self.check(TokenType::RParen) && !self.check(TokenType::Eof) {
+            if self.match_token(&[TokenType::Ellipsis]) {
+                is_variadic = true;
+                break;
+            }
+            
+            let name = self.expect(TokenType::Identifier)?;
+            let name_id = self.intern_token(name);
+            self.expect(TokenType::Colon)?;
+            let type_node = self.parse_type()?;
+            
+            params.push(FuncParam {
+                 name: name_id, 
+                 span: name.span.to(type_node.span), 
+                 type_node 
+            });
+
+            if !self.match_token(&[TokenType::Comma]) { break; }
+        }
+        self.expect(TokenType::RParen)?;
+        Ok((params, is_variadic))
+    }
+
+    // Top Level
+    pub fn parse_module(&mut self) -> ParseResult<Module> {
+        let mut decls = Vec::new();
+        while !self.check(TokenType::Eof) {
+            match self.parse_decl() {
+                Ok(Some(decl)) => decls.push(decl),
+                Ok(None) => {}, // Skipped
+                Err(_) => {
+                    // Error already reported, sync and continue
+                    self.synchronize();
+                }
+            }
+        }
+        Ok(Module { path: "test.kn".to_string(), decls })
+    }
+
+    fn parse_decl(&mut self) -> ParseResult<Option<Decl>> {
+        let is_pub = self.match_token(&[TokenType::Pub]);
+        let start_span = if is_pub { self.stream.prev_span() } else { self.peek().span };
+        let is_extern = self.match_token(&[TokenType::Extern]);
+
+        if is_extern {
+            if self.check(TokenType::LBrace) || self.check(TokenType::StringLiteral) {
+                if is_pub { self.add_error(start_span, "Extern blocks cannot be pub".to_string()); }
+                return Ok(Some(self.parse_extern_block(start_span)?));
+            }
+        }
+
+        let token = self.peek();
+        match token.tag {
+            TokenType::Fn => Ok(Some(self.parse_fn_decl(start_span, is_pub, is_extern)?)),
+            TokenType::Type => Ok(Some(self.parse_type_alias_decl(start_span, is_pub, is_extern)?)),
+            TokenType::Const | TokenType::Static => Ok(Some(self.parse_global_var_decl(start_span, is_pub, is_extern)?)),
+            TokenType::Use => Ok(Some(self.parse_use_decl(start_span, is_pub)?)),
+            TokenType::Macro => Ok(Some(self.parse_macro_decl(start_span, is_pub)?)),
+            TokenType::Impl => {
+                if is_pub { self.add_error(start_span, "impl blocks cannot be pub".to_string()); }
+                Ok(Some(self.parse_impl_decl(start_span)?))
+            },
+            TokenType::Semicolon => { self.advance(); Ok(None) },
+            TokenType::Eof => Ok(None),
+            _ => {
+                let txt = self.context.source_manager.slice_source(token.span).to_string();
+                self.add_error(token.span, format!("Expected declaration, found '{}'", txt));
+                Err(())
+            }
+        }
+    }
+
+    fn parse_fn_decl(&mut self, start: Span, is_pub: bool, is_extern: bool) -> ParseResult<Decl> {
+        self.advance(); // fn
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        
+        let generics = self.parse_generic_params()?;
+        let (params, is_variadic) = self.parse_func_params()?;
+        
+        if is_variadic && !is_extern {
+            self.add_error(start, "Variadic args only allowed in extern".to_string());
+        }
+
+        let ret_type = self.parse_type()?;
+        
+        let body = if is_extern {
+            self.expect(TokenType::Semicolon)?;
+            None
+        } else {
+            let brace = self.expect(TokenType::LBrace)?;
+            Some(Box::new(self.parse_block_expr(brace.span)?))
+        };
+        
+        let end = if let Some(ref b) = body { b.span } else { self.stream.prev_span() };
+
+        Ok(Decl {
+             id: self.new_id(), span: start.to(end), name: name_id, is_pub,
+             kind: DeclKind::Function { generics, params, ret_type, body, is_extern, is_variadic }
+        })
+    }
+    
+    fn parse_extern_block(&mut self, start: Span) -> ParseResult<Decl> {
+        let mut abi = None;
+        if self.check(TokenType::StringLiteral) {
+            let t = self.advance();
+            // TODO: Unescape string here
+            abi = Some(self.context.source_manager.slice_source(t.span).to_string());
+        }
+        self.expect(TokenType::LBrace)?;
+        
+        let mut decls = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let is_pub = self.match_token(&[TokenType::Pub]);
+            let d_start = if is_pub { self.stream.prev_span() } else { self.peek().span };
+            
+            if self.check(TokenType::Fn) {
+                decls.push(self.parse_fn_decl(d_start, is_pub, true)?);
+            } else if self.check(TokenType::Static) {
+                decls.push(self.parse_global_var_decl(d_start, is_pub, true)?);
+            } else {
+                self.error_at_current("Only fn and static allowed in extern".to_string());
+                self.synchronize();
+            }
+        }
+        let end = self.expect(TokenType::RBrace)?;
+        let name = self.context.intern("extern_block");
+        Ok(Decl { id: self.new_id(), span: start.to(end.span), name, is_pub: false, kind: DeclKind::ExternBlock { abi, decls } })
+    }
+
+    fn parse_impl_decl(&mut self, start: Span) -> ParseResult<Decl> {
+        self.advance(); // impl
+        let generics = self.parse_generic_params()?;
+        let target_type = self.parse_type()?;
+        let mut trait_type = None;
+        if self.match_token(&[TokenType::Colon]) {
+            trait_type = Some(self.parse_type()?);
+        }
+        self.expect(TokenType::LBrace)?;
+        
+        let mut decls = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let is_pub = self.match_token(&[TokenType::Pub]);
+            let d_start = if is_pub { self.stream.prev_span() } else { self.peek().span };
+            if self.check(TokenType::Fn) {
+                decls.push(self.parse_fn_decl(d_start, is_pub, false)?);
+            } else {
+                self.error_at_current("Only fn allowed in impl".to_string());
+                self.synchronize();
+            }
+        }
+        let end = self.expect(TokenType::RBrace)?;
+        let name = self.context.intern("impl");
+        Ok(Decl { id: self.new_id(), span: start.to(end.span), name, is_pub: false, kind: DeclKind::Impl { generics, target_type, trait_type, decls } })
+    }
+
+    fn parse_global_var_decl(&mut self, start: Span, is_pub: bool, is_extern: bool) -> ParseResult<Decl> {
+        let kw = self.advance();
+        let is_static = kw.tag == TokenType::Static;
+        let mut is_mut = false;
+        if is_static && self.match_token(&[TokenType::Mut]) {
+            is_mut = true;
+        }
+        
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        
+        let mut type_node = None;
+        if self.match_token(&[TokenType::Colon]) {
+            type_node = Some(self.parse_type()?);
+        }
+        
+        // Init
+        let value;
+        if self.match_token(&[TokenType::Assign]) {
+            value = self.parse_expression(Precedence::Lowest)?;
+        } else if is_extern {
+             value = Expr { id: self.new_id(), span: self.stream.prev_span(), kind: ExprKind::Undef };
+        } else {
+             self.add_error(start, "Global vars must be initialized".to_string());
+             return Err(());
+        }
+        self.expect(TokenType::Semicolon)?;
+        let end = self.stream.prev_span();
+
+        Ok(Decl {
+             id: self.new_id(), span: start.to(end), name: name_id, is_pub,
+             kind: DeclKind::Var { type_node, value, is_mut, is_static, is_extern }
+        })
+    }
+
+    fn parse_type_alias_decl(&mut self, start: Span, is_pub: bool, is_extern: bool) -> ParseResult<Decl> {
+        self.advance();
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        let generics = self.parse_generic_params()?;
+        self.expect(TokenType::Assign)?;
+        let target = self.parse_type()?;
+        self.expect(TokenType::Semicolon)?;
+        let end = self.stream.prev_span();
+        Ok(Decl {
+             id: self.new_id(), span: start.to(end), name: name_id, is_pub,
+             kind: DeclKind::TypeAlias { generics, target, is_extern }
+        })
+    }
+
+    fn parse_use_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
+        self.advance();
+        let mut kind = UsePathKind::Absolute;
+        if self.match_token(&[TokenType::Dot]) { kind = UsePathKind::Relative; }
+        else if self.match_token(&[TokenType::DotDot]) { kind = UsePathKind::Super; }
+        
+        let mut path = Vec::new();
+        loop {
+            if self.check(TokenType::LBrace) { break; }
+            let id = self.expect(TokenType::Identifier)?;
+            path.push(self.intern_token(id));
+            if !self.match_token(&[TokenType::Dot]) { break; }
+        }
+
+        let target;
+        if self.check(TokenType::LBrace) {
+            self.advance();
+            let mut members = Vec::new();
+            while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                 let m_tok = self.expect(TokenType::Identifier)?;
+                 let m_id = self.intern_token(m_tok);
+                 let mut alias = None;
+                 if self.match_token(&[TokenType::As]) {
+                     let a_tok = self.expect(TokenType::Identifier)?;
+                     alias = Some(self.intern_token(a_tok));
+                 }
+                 members.push(UseMember { name: m_id, alias, span: m_tok.span });
+                 if !self.match_token(&[TokenType::Comma]) { break; }
+            }
+            self.expect(TokenType::RBrace)?;
+            target = UseTarget::Members(members);
+        } else {
+            let mut alias = None;
+            if self.match_token(&[TokenType::As]) {
+                let a = self.expect(TokenType::Identifier)?;
+                alias = Some(self.intern_token(a));
+            }
+            target = UseTarget::Module(alias);
+        }
+        self.expect(TokenType::Semicolon)?;
+        let name = if let Some(&last) = path.last() { last } else { self.context.intern("root") };
+        
+        Ok(Decl {
+             id: self.new_id(), span: start.to(self.stream.prev_span()), name, is_pub,
+             kind: DeclKind::Use { kind, path, target, is_reexport: is_pub }
+        })
+    }
+
+    fn parse_macro_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
+        self.advance();
+        let name = self.expect(TokenType::Identifier)?;
+        let name_id = self.intern_token(name);
+        self.expect(TokenType::LBrace)?;
+        
+        let mut rules = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let r_start = self.peek().span;
+            let matcher = self.parse_token_tree(TokenType::LParen, TokenType::RParen)?;
+            self.expect(TokenType::Arrow)?;
+            let transcriber = self.parse_token_tree(TokenType::LBrace, TokenType::RBrace)?;
+            self.expect(TokenType::Semicolon)?;
+            let r_end = self.stream.prev_span();
+            rules.push(MacroRule { matcher, transcriber, span: r_start.to(r_end) });
+        }
+        let end = self.expect(TokenType::RBrace)?;
+        Ok(Decl {
+             id: self.new_id(), span: start.to(end.span), name: name_id, is_pub,
+             kind: DeclKind::Macro { rules }
+        })
+    }
+
+    fn parse_token_tree(&mut self, open: TokenType, close: TokenType) -> ParseResult<Vec<Token>> {
+        self.expect(open)?;
+        let mut tokens = Vec::new();
+        let mut depth = 1;
+        while depth > 0 {
+            if self.check(TokenType::Eof) { return Err(()); }
+            let t = self.advance();
+            if t.tag == open { depth += 1; }
+            else if t.tag == close { depth -= 1; if depth == 0 { break; } }
+            tokens.push(t);
+        }
+        Ok(tokens)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // 测试辅助结构体
+    struct TestContext {
+        context: Context,
+        file_id: FileId,
+    }
+
+    impl TestContext {
+        fn new(source: &str) -> Self {
+            let mut context = Context::new();
+            let file_id = context.source_manager.add_file("test.kn".to_string(), source.to_string());
+            Self { context, file_id }
+        }
+
+        fn parse(&mut self) -> Module {
+            let src = self.context.source_manager.get_file(self.file_id).unwrap().src.clone();
+            let mut parser = Parser::new(&src, self.file_id, &mut self.context);
+            parser.parse_module().expect("Parse failed")
+        }
+    }
+
+    #[test]
+    fn test_basic_function_and_call() {
+        let source = r#"
+            fn main() void {
+                let x = 10;
+                print(x);
+            }
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        assert_eq!(mod_.decls.len(), 1);
+        
+        let func = &mod_.decls[0];
+        if let DeclKind::Function { body, .. } = &func.kind {
+            let func_name = ctx.context.resolve(func.name);
+            assert_eq!(func_name, "main");
+
+            let body_expr = body.as_ref().expect("Body should exist");
+            if let ExprKind::Block { stmts, .. } = &body_expr.kind {
+                assert_eq!(stmts.len(), 2);
+            } else {
+                panic!("Body is not a block");
+            }
+        } else {
+            panic!("Expected Function declaration");
+        }
+        
+        assert!(!ctx.context.has_errors());
+    }
+
+    #[test]
+    fn test_struct_definition() {
+        let source = r#"
+            type Point = struct {
+                x: i32,
+                y: i32 = 0,
+            };
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        assert_eq!(mod_.decls.len(), 1);
+        let decl = &mod_.decls[0];
+        
+        if let DeclKind::TypeAlias { target, .. } = &decl.kind {
+            if let TypeKind::Struct { fields } = &target.kind {
+                assert_eq!(fields.len(), 2);
+                let f1_name = ctx.context.resolve(fields[0].name);
+                assert_eq!(f1_name, "x");
+            } else {
+                panic!("Expected Struct type");
+            }
+        } else {
+            panic!("Expected TypeAlias declaration");
+        }
+    }
+
+    #[test]
+    fn test_expr_precedence() {
+        let source = r#"
+            fn calc() void {
+                let a = 1 + 2 * 3;
+                let b = (1 + 2) * 3;
+            }
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+        
+        let func = &mod_.decls[0];
+        let body = match &func.kind {
+            DeclKind::Function { body: Some(b), .. } => b,
+            _ => panic!("Expected function with body"),
+        };
+        
+        let stmts = match &body.kind {
+            ExprKind::Block { stmts, .. } => stmts,
+            _ => panic!("Expected block"),
+        };
+
+        // 1. let a = 1 + 2 * 3;
+        // AST Should be: Let(init = Binary(1, +, Binary(2, *, 3)))
+        let init1 = match &stmts[0].kind {
+            StmtKind::ExprStmt(e) => match &e.kind {
+                ExprKind::Let { init, .. } => init,
+                _ => panic!("Expected Let"),
+            },
+            _ => panic!("Expected ExprStmt"),
+        };
+
+        if let ExprKind::Binary { lhs, op, rhs } = &init1.kind {
+            assert_eq!(*op, BinaryOperator::Add); // Top level is +
+            if let ExprKind::Binary { op: op2, .. } = &rhs.kind {
+                assert_eq!(*op2, BinaryOperator::Multiply); // RHS is *
+            } else { panic!("RHS should be multiply"); }
+        } else { panic!("Expected Binary"); }
+
+        // 2. let b = (1 + 2) * 3;
+        // AST Should be: Let(init = Binary(Binary(1, +, 2), *, 3))
+        let init2 = match &stmts[1].kind {
+            StmtKind::ExprStmt(e) => match &e.kind {
+                ExprKind::Let { init, .. } => init,
+                _ => panic!("Expected Let"),
+            },
+            _ => panic!("Expected ExprStmt"),
+        };
+
+        if let ExprKind::Binary { lhs, op, rhs } = &init2.kind {
+            assert_eq!(*op, BinaryOperator::Multiply); // Top level is *
+            if let ExprKind::Binary { op: op2, .. } = &lhs.kind {
+                assert_eq!(*op2, BinaryOperator::Add); // LHS is +
+            } else { panic!("LHS should be add"); }
+        } else { panic!("Expected Binary"); }
+    }
+
+    #[test]
+    fn test_control_flow() {
+        let source = r#"
+            fn flow(x: bool) void {
+                // if (expr) expr else expr;
+                if (x) return else return;
+        
+                // for (init; cond; post) expr;
+                for (;;) break;
+            }
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        let func = &mod_.decls[0];
+        let stmts = match &func.kind {
+            DeclKind::Function { body: Some(b), .. } => match &b.kind {
+                ExprKind::Block { stmts, .. } => stmts,
+                _ => panic!(),
+            },
+            _ => panic!(),
+        };
+
+        // 1. If
+        let if_expr = match &stmts[0].kind {
+            StmtKind::ExprStmt(e) => e,
+            _ => panic!(),
+        };
+        if let ExprKind::If { cond, else_branch, .. } = &if_expr.kind {
+            if let ExprKind::Identifier(_) = cond.kind {} else { panic!("Cond should be ident"); }
+            assert!(else_branch.is_some());
+        } else { panic!("Expected If"); }
+
+        // 2. For
+        let for_expr = match &stmts[1].kind {
+            StmtKind::ExprStmt(e) => e,
+            _ => panic!(),
+        };
+        if let ExprKind::For { init, cond, post, body } = &for_expr.kind {
+            assert!(init.is_none());
+            assert!(cond.is_none());
+            assert!(post.is_none());
+            if let ExprKind::Break = body.kind {} else { panic!("Body should be break"); }
+        } else { panic!("Expected For"); }
+    }
+
+    #[test]
+    fn test_complex_types() {
+        let source = r#"
+            type MyType = struct {
+                ptr: *mut i32,
+                arr: [10]mut u8,
+                slice: []u8,
+                map: Map[String, i32],
+            };
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        let fields = match &mod_.decls[0].kind {
+            DeclKind::TypeAlias { target, .. } => match &target.kind {
+                TypeKind::Struct { fields } => fields,
+                _ => panic!(),
+            },
+            _ => panic!(),
+        };
+
+        // 1. *mut i32
+        match &fields[0].type_node.kind {
+            TypeKind::Pointer { is_mut, .. } => assert!(is_mut),
+            _ => panic!("Expected Pointer"),
+        }
+
+        // 2. [10]mut u8
+        match &fields[1].type_node.kind {
+            TypeKind::Array { is_mut, len, .. } => {
+                assert!(is_mut);
+                match &len.kind {
+                    ExprKind::Integer(v) => assert_eq!(*v, 10),
+                    _ => panic!("Expected integer len"),
+                }
+            },
+            _ => panic!("Expected Array"),
+        }
+
+        // 3. []u8
+        match &fields[2].type_node.kind {
+            TypeKind::Slice { is_mut, .. } => assert!(!is_mut),
+            _ => panic!("Expected Slice"),
+        }
+
+        // 4. Map
+        match &fields[3].type_node.kind {
+            TypeKind::Path { .. } => {},
+            _ => panic!("Expected Path"),
+        }
+    }
+
+    #[test]
+    fn test_global_variables() {
+        let source = r#"
+            static x: i32 = 10;
+            const y: f32 = 3.14;
+            extern static z: i32;
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        // 1. static x
+        match &mod_.decls[0].kind {
+            DeclKind::Var { is_static, is_extern, value, .. } => {
+                assert!(is_static);
+                assert!(!is_extern);
+                match value.kind { ExprKind::Undef => panic!("Should have value"), _ => {} }
+            },
+            _ => panic!(),
+        }
+
+        // 2. const y
+        match &mod_.decls[1].kind {
+            DeclKind::Var { is_static, is_extern, .. } => {
+                assert!(!is_static);
+                assert!(!is_extern);
+            },
+            _ => panic!(),
+        }
+
+        // 3. extern static z
+        match &mod_.decls[2].kind {
+            DeclKind::Var { is_static, is_extern, value, .. } => {
+                assert!(is_static);
+                assert!(is_extern);
+                match value.kind { ExprKind::Undef => {}, _ => panic!("Extern should be undef") }
+            },
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_extern_block_variadic() {
+        let source = r#"
+            extern "C" {
+                fn printf(fmt: *u8, ...) i32;
+                fn exit(code: i32) void;
+                static errno: i32;
+            }
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        let extern_block = match &mod_.decls[0].kind {
+            DeclKind::ExternBlock { abi, decls } => {
+                assert_eq!(abi.as_deref(), Some("\"C\""));
+                decls
+            },
+            _ => panic!(),
+        };
+
+        // printf
+        match &extern_block[0].kind {
+            DeclKind::Function { is_extern, is_variadic, params, .. } => {
+                assert!(is_extern);
+                assert!(is_variadic);
+                assert_eq!(params.len(), 1);
+            },
+            _ => panic!(),
+        }
+
+        // exit
+        match &extern_block[1].kind {
+            DeclKind::Function { is_variadic, .. } => assert!(!is_variadic),
+            _ => panic!(),
+        }
+
+        // errno
+        match &extern_block[2].kind {
+            DeclKind::Var { is_extern, .. } => assert!(is_extern),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_unified_data_literal() {
+        let source = r#"
+            fn main() void {
+                // Struct
+                let s: Point = .{ x: 1, y: 2 };
+                // Array
+                let a: [3]u8 = .{ 1, 2, 3 };
+                // Repeat
+                let b: [1024]u8 = .{ 0; 1024 };
+                // Empty
+                let empty = .{};
+            }
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+        
+        let stmts = match &mod_.decls[0].kind {
+            DeclKind::Function { body: Some(b), .. } => match &b.kind {
+                 ExprKind::Block { stmts, .. } => stmts,
+                 _ => panic!(),
+            },
+            _ => panic!(),
+        };
+
+        fn get_literal(stmt: &crate::ast::Stmt) -> &crate::ast::DataLiteralKind {
+            match &stmt.kind {
+                StmtKind::ExprStmt(e) => match &e.kind {
+                    ExprKind::Let { init, .. } => match &init.kind {
+                        ExprKind::DataLiteral(k) => k,
+                        _ => panic!("Expected DataLiteral"),
+                    },
+                    _ => panic!("Expected Let"),
+                },
+                _ => panic!("Expected ExprStmt"),
+            }
+        }
+
+        // 1. Struct
+        match get_literal(&stmts[0]) {
+            crate::ast::DataLiteralKind::Struct(fields) => assert_eq!(fields.len(), 2),
+            _ => panic!("Expected Struct literal"),
+        }
+
+        // 2. Array
+        match get_literal(&stmts[1]) {
+            crate::ast::DataLiteralKind::Array(elems) => assert_eq!(elems.len(), 3),
+            _ => panic!("Expected Array literal"),
+        }
+
+        // 3. Repeat
+        match get_literal(&stmts[2]) {
+            crate::ast::DataLiteralKind::Repeat { value, count } => {
+                match value.kind { ExprKind::Integer(0) => {}, _ => panic!() }
+                match count.kind { ExprKind::Integer(1024) => {}, _ => panic!() }
+            },
+            _ => panic!("Expected Repeat literal"),
+        }
+
+        // 4. Empty
+        match get_literal(&stmts[3]) {
+            crate::ast::DataLiteralKind::Array(elems) => assert_eq!(elems.len(), 0),
+            _ => panic!("Expected Empty literal"),
+        }
+    }
+
+    #[test]
+    fn test_impl_block() {
+        let source = r#"
+            impl i32 { fn add(b: i32) i32 { return 0; } }
+            impl[T] List[T] { pub fn len() usize { return 0; } }
+            impl Point : Addable {}
+            impl *mut i32 {}
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+
+        // 1. impl i32
+        match &mod_.decls[0].kind {
+            DeclKind::Impl { target_type, decls, .. } => {
+                match &target_type.kind { TypeKind::Path { .. } => {}, _ => panic!() }
+                assert_eq!(decls.len(), 1);
+            },
+            _ => panic!(),
+        }
+
+        // 2. impl[T]
+        match &mod_.decls[1].kind {
+            DeclKind::Impl { generics, decls, .. } => {
+                assert_eq!(generics.len(), 1);
+                assert!(decls[0].is_pub);
+            },
+            _ => panic!(),
+        }
+
+        // 3. Trait
+        match &mod_.decls[2].kind {
+            DeclKind::Impl { trait_type, .. } => assert!(trait_type.is_some()),
+            _ => panic!(),
+        }
+
+        // 4. Pointer
+        match &mod_.decls[3].kind {
+            DeclKind::Impl { target_type, .. } => match &target_type.kind {
+                TypeKind::Pointer { is_mut, .. } => assert!(is_mut),
+                _ => panic!(),
+            },
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn test_postfix_address_of() {
+        let source = r#"
+            fn main() void {
+                let p1 = x.&;
+                let p2 = x.&mut;
+                let p3 = instance.data.&;
+                let p4 = p1.*.&;
+            }
+        "#;
+        let mut ctx = TestContext::new(source);
+        let mod_ = ctx.parse();
+        
+        let stmts = match &mod_.decls[0].kind {
+            DeclKind::Function { body: Some(b), .. } => match &b.kind {
+                 ExprKind::Block { stmts, .. } => stmts,
+                 _ => panic!(),
+            },
+            _ => panic!(),
+        };
+
+        fn get_unary_op(stmt: &crate::ast::Stmt) -> UnaryOperator {
+            match &stmt.kind {
+                StmtKind::ExprStmt(e) => match &e.kind {
+                    ExprKind::Let { init, .. } => match &init.kind {
+                        ExprKind::Unary { op, .. } => *op,
+                        _ => panic!("Expected Unary"),
+                    },
+                    _ => panic!("Expected Let"),
+                },
+                _ => panic!("Expected ExprStmt"),
+            }
+        }
+
+        assert_eq!(get_unary_op(&stmts[0]), UnaryOperator::AddressOf);
+        assert_eq!(get_unary_op(&stmts[1]), UnaryOperator::AddressOfMut);
+        assert_eq!(get_unary_op(&stmts[2]), UnaryOperator::AddressOf);
+        assert_eq!(get_unary_op(&stmts[3]), UnaryOperator::AddressOf);
+    }
+}

@@ -1,0 +1,420 @@
+# Kern Language Design 
+
+## Table of Contents
+   1. [Core Philosophy](#1-core-philosophy)
+   2. [Type System](#2-type-system)
+   3. [Declarations and Storage](#3-declarations-and-storage)
+   4. [Data Structures](#4-data-structures)
+   5. [Functions and Traits](#5-functions-and-traits)
+   6. [Control Flow](#6-control-flow)
+   7. [Modules](#7-modules)
+   8. [Interoperability](#8-interoperability)
+
+---
+
+## 1. Core Philosophy and Manifesto
+
+**Kern** is a systems‑level language for operating system kernels, embedded firmware, and high‑performance infrastructure.
+
+Kern’s design is based on the observation that languages trade off **abstraction capability** against **policy constraints**. Kern aims to occupy the fourth quadrant: **high abstraction, low policy**.
+
+### 1.1 Core Values
+
+#### 1. Clarity over novelty
+* Syntax must be simpler and more consistent than C.
+* Remove features that make generated assembly unpredictable.
+* Fix C legacy warts (spiral declarations, implicit array decay).
+* Goal: what you write is what the machine executes.
+
+#### 2. Explicit over implicit
+* No implicit heap allocation.
+* No exceptions, no background GC, no implicit destructor chains.
+* Unless explicitly introduced, Kern binaries have no runtime dependencies.
+
+#### 3. Mechanism Trinity
+To achieve “high abstraction, low policy”, Kern provides three core mechanisms:
+
+1. **Module system** – modern namespaces and visibility control.
+2. **Generics** – strongly‑typed code reuse via monomorphisation (zero runtime cost).
+
+### 1.2 Non‑Goals
+
+* **Compile‑time enforced memory safety** – no borrow checker.
+* **Standard library design** – Kern is freestanding.
+* **Optimisation that exploits undefined behaviour** – ambiguous behaviour (integer overflow, uninitialised reads) is either defined or a compile‑time error.
+
+## 2. Type System
+
+### 2.1 Primitive Types
+
+* **Integers**: `i8`, `i16`, `i32`, `i64`, `i128` (signed); `u8`, `u16`, `u32`, `u64`, `u128` (unsigned); `usize`, `isize` (pointer‑sized).
+* **Floats**: `f32`, `f64`.
+* **Boolean**: `bool` (1 byte, no arithmetic).
+* **Default inference**: integer literals → `usize`; float literals → `f32`.
+
+### 2.2 Mutability Types
+
+Variables and bindings are **immutable by default**. Every type `T` has a corresponding *mutable variant* `mut T`. 
+
+* **Default immutability**: In `let` bindings, the inferred type is strictly immutable (e.g., `let a = 10` gives `a` the type `usize`). To create a mutable variable, you must explicitly declare the type variant: `let b: mut usize = 20;`.
+* **Address‑of and Pointer Inference**: The postfix operator `.&` yields a pointer whose mutability strictly matches the variable's declaration.
+  * `a.&` (where `a` is `T`) yields `*T` (read-only pointer).
+  * `b.&` (where `b` is `mut T`) yields `*mut T` (read-write pointer).
+* **Safe Downgrade**: You can safely assign a mutable reference to an immutable pointer type (e.g., `let p: *usize = b.&;`), but you cannot obtain a mutable pointer from an immutable variable.
+* **Array and slice mutability**: Arrays and slices follow the same rules. The mutable variants `[N]mut T` and `[]mut T` allow element modification; the immutable variants `[N]T` and `[]T` strictly forbid it.
+
+### 2.3 Pointers and Volatility
+
+* **Normal pointers**: `*T`, `*mut T` – ordinary memory, compiler may optimise.
+* **Volatile pointers**: `^T`, `^mut T` – MMIO/hardware registers, no optimisations.
+* **Dereference**: `ptr.*` (postfix, allows `ptr.*.field`)
+* **Null pointer**: literal `0` must be explicitly cast to a pointer type (e.g., `0 as *i32`). Pointer arithmetic requires converting the pointer to `usize` or `isize` first via `as`.
+* **Pointer Arithmetic**: Implicit pointer arithmetic (e.g., `ptr + 1`) is **strictly forbidden**. To compute addresses, you must either:
+  1. Cast to `usize`, perform the math, and cast back (e.g., `(ptr as usize + 4) as *u32`).
+  2. Use standard library pointer methods (e.g., `ptr.offset(1)`).
+* **Casts**: explicit conversion required, e.g. `x as *i32`.
+
+### 2.4 Arrays and Slices
+
+* **Arrays**: `[N]T`, `[N]mut T` – value type, copy on assignment/parameter passing.
+* **Array initialisers**: `.{1, 2, 3}`, `.{0; 1024}`, `.{p; 10}` (copy semantics).
+* **Slices**: `[]T`, `[]mut T` – fat pointer (pointer + length).
+* **Slice creation**: `arr.[start..end]`, `arr.[..]`, `ptr.[0..10]`.
+* **Indexing**: `arr.[i]` (dot notation).
+* **Length operator**: `#arr` (prefix `#`).
+
+## 3. Declarations and Storage
+
+* **Stack (local)**: `let name = value;` (immutable by default, e.g., `let a = 10` gives `a` the type `usize`). To declare a mutable variable, explicitly annotate the type: `let name: mut T = value`;.
+* **Static (global)**: `static name: T = value;`
+* **Compile‑time constant**: `const NAME: T = value;` (inlined, no memory location).
+* **External**: `extern static name: T;` (resolved at link time, see Section 8).
+
+## 4. Data Structures
+
+### 4.1 Structs
+
+```kern
+type Point = struct {
+    x: i32,
+    y: i32,
+};
+```
+
+* **Generics**: `type Point[T] = struct { x: T, y: T };`
+
+* **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
+
+* **Layout**: default reorder/padding for size; `extern type …` guarantees C‑compatible memory layout and alignment.
+
+* **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized (retaining garbage data for performance), you must explicitly use the `undef` keyword (e.g., `priority: u8 = undef;`). There is no implicit zero-initialization.
+
+```kern
+// Immutable by default
+let p1 = Point.{x: 10, y: 20};       
+
+// Mutable binding with explicit type and shorthand literal
+let p2: mut Point = .{x: 10, y: 20}; 
+
+// Arrays follow the exact same rule
+let arr: mut [3]u8 = .{1, 2, 3};
+```
+
+### 4.2 Unions
+
+```kern
+type Payload = union {
+    as_int: i32,
+    as_float: f32,
+    raw: [4]mut u8,
+};
+```
+
+No active‑field tracking; no default values.
+
+### 4.3 Enums
+
+C‑style integer constant sets, but with strict value guarantees.
+
+```kern
+type Color: u8 = enum {
+    Red = 0,
+    Green, // 1
+    Blue,  // 2
+};
+```
+
+Backing type defaults to `u32`.
+
+* **Strict Casts**: The `as` operator guarantees that a value belongs to the enum's defined set. Casting an invalid integer literal (e.g., `99 as Status`) is a compile-time error. Converting dynamic runtime integers to enums must be handled explicitly by the programmer (e.g., via a `switch` statement) to handle invalid hardware/network states.
+
+### 4.4 Conversions
+
+* **`as` operator** – reinterpretation that preserves the bit pattern (pointer casts, trait‑object construction). Cannot be used for numeric conversions that change the representation (e.g., signed/unsigned, integer/float).
+* **Numeric conversions** – use intrinsics: `@intToFloat`, `@floatToInt`, `@truncate`, `@zext`, `@sext`.
+
+### 4.5 Manual Vtables
+
+```kern
+type FileOps = struct {
+    read: fn(*mut File, []u8) usize,
+    write: fn(*mut File, []u8) usize,
+};
+```
+
+## 5. Functions and Traits
+
+### 5.1 Free Functions
+
+Defined at module level.
+
+```kern
+pub fn max(a: i32, b: i32) i32 {
+    if (a > b) a else b
+}
+```
+
+> Functions can specify external linkage (e.g., `pub extern fn _start() void`). See Section 8 for FFI details.
+
+### 5.2 Implementation Blocks and Methods
+
+* `impl` blocks attach methods to a type.
+* Implicit `self` parameter (type determined by the `impl` target).
+* No static methods in `impl` blocks.
+
+```kern
+type Point = struct { x: i32, y: i32 };
+
+impl Point {
+    pub fn area() i32 { self.x * self.y }
+}
+
+impl *mut Point {
+    pub fn move_by(dx: i32, dy: i32) void {
+        self.x += dx;
+        self.y += dy;
+    }
+}
+```
+
+### 5.3 Generics
+
+Monomorphisation.
+
+* Function‑level: `fn map[T, U](input: T) U { … }`
+* Impl‑block level: `impl [T: Copy] List[T] { … }`
+
+### 5.4 Traits
+
+Define a set of function signatures; first parameter is implicit `self`.
+
+```kern
+type Addable = trait {
+    add: fn(Self) Self,
+};
+
+type Reader = trait {
+    read: fn([]u8) usize,
+};
+```
+
+Implementation:
+
+```kern
+impl i32 : Addable {
+    pub fn add(other: i32) i32 { self + other }
+}
+
+impl *mut File : Reader {
+    pub fn read(buf: []u8) usize { … }
+}
+```
+
+Traits can require the implementation of other traits (pure semantic composition).
+
+```kern
+type ReadWriter: Reader + Writer = trait {
+    flush: fn(Self) void,
+};
+```
+
+### 5.5 Trait Objects
+
+A trait object is a built-in primitive representing a fat pointer (data pointer + vtable pointer). Treat it as a cohesive whole, similar to a slice (`[]T`) or a function pointer (`fn`). It does not require a `*` prefix.
+
+```kern
+type File = struct { ... };
+impl *mut File : Reader { ... }
+
+let file: mut File = .{ ... };
+// Step 1: Obtain the concrete pointer
+let p = file.&; 
+
+// Step 2: Explicitly cast to a trait object
+let r = p as mut Reader; 
+
+// Step 3: Call methods directly (no pointer dereferencing syntax required)
+let bytes_read = r.read(buf);
+
+```
+
+* **Syntax and Mutability**: Trait objects use the core mutability modifiers. `Reader` represents an immutable trait object, while `mut Reader` represents a mutable one.
+* **Pointer Matching Rule**: If a trait method signature contains `Self` passed or returned by value, it can be implemented by any type for use in generics (static dispatch). However, converting such an implementation to a trait object via `as` is **strictly forbidden** unless the implementation target is explicitly a pointer type (e.g., `impl *mut T : Trait`). This guarantees the compiler always knows the exact stack size (the size of a pointer) during dynamic dispatch.
+* **Explicit Upcasting**: Implicit conversion between trait objects is forbidden. To convert a combined trait object into a base trait object, use the explicit `as` operator to adjust the vtable: `let r: mut Reader = rw as mut Reader;`.
+
+### 5.6 Error Handling
+
+No built‑in policy. No exceptions, no panic, no built‑in `Result`. Use `union` + `enum` or integer error codes.
+
+## 6. Control Flow
+
+### 6.1 Conditional Expressions
+
+`if` is an expression.
+
+```kern
+let a = if (b < 10) 10 else 20;
+let c = if (d > 100) {
+    process(d);
+    e
+} else {
+    e - 20
+};
+```
+
+### 6.2 Switch Expressions
+
+Enhanced C‑style `switch`. No fallthrough.
+
+```kern
+let result = switch (val) {
+    1..10 => 10,
+    11, 12, 13 => 20,
+    14..=15 => 30,
+    19, 20 {
+        printf("very big!");
+        40
+    },
+    else => 0,
+};
+```
+
+* **Exhaustiveness**: Switch expressions must be exhaustive. When matching on an `enum`, if all defined variants are covered, an `else =>` branch is **not required** (and potentially warned against as dead code), because Kern guarantees the enum cannot hold unrepresented values. For integer types, an `else =>` branch is mandatory unless the entire type range is covered.
+
+### 6.3 For Loops
+
+Only `for` (no `while`, `do‑while`).
+
+```kern
+for (let i = 0; i < 10; i += 1) { … }
+for (; cond ;) { … }          // while
+for (;;) { … }                // infinite loop
+```
+
+### 6.4 Defer
+
+Executes an expression or block when the **current lexical scope (block `{\}`)** exits (LIFO). `defer` is strictly block‑scoped, not function‑scoped.
+
+```kern
+let ptr = malloc(1024);
+defer free(ptr);
+
+```
+
+### 6.5 Blocks and Expressions
+
+Blocks evaluate to their last expression.
+
+* `expr` – value is used.
+* `expr;` – value is discarded (unit/void).
+
+**Evaluation Order with Defer:**
+When a block `{ … }` is evaluated as an expression and contains `defer` statements, the exact exit sequence is:
+
+1. **Evaluate**: Compute the value of the final expression.
+2. **Execute**: Run all `defer` statements registered in the current block in LIFO (last-in, first-out) order.
+3. **Yield**: Pass the computed value to the outer context.
+
+> **Warning**: Returning a pointer to a resource that is freed by a `defer` within the exact same block will result in a dangling pointer. Kern prioritizes explicit execution order over implicit memory protection; such cases are treated as programmer logic errors.
+
+## 7. Modules
+
+### 7.1 Module Resolution
+
+* **Absolute import**: `use path.to.module;` – resolved from project root or external packages.
+* **Relative import**: `use .utils;`, `use ..common.types;` – resolved relative to current file.
+* No support for `...` or deeper backtracking.
+
+### 7.2 Directory Modules (`init.kn`)
+
+A directory becomes a module if it contains `init.kn`.
+
+* `init.kn` may import its sub‑modules (for re‑export).
+* Sub‑modules **must not** import `init.kn` (breaks DAG).
+* **Multi-pass Type Resolution**: Kern uses multi-pass parsing. Circular type dependencies (e.g., `Node` contains `*Edge` and `Edge` contains `*Node`) across different module files are fully supported without forward declarations.
+
+### 7.3 Import Syntax
+
+```kern
+use std.io;                     // module as namespace
+use std.math.PI;                // import item
+use std.math.geometry.{ Point, Circle, calculate_area }; // grouping
+use std.net.http as h;          // rename module
+use std.math.{ max as maximum, min }; // rename item
+```
+
+### 7.4 Visibility and Re‑export
+
+* `pub` makes definition visible outside module.
+* `pub use` re‑exports items (common in `init.kn`).
+
+### 7.5 Idiom: Static Methods via Modules
+
+File name matches type name; module functions act as “static methods”.
+
+```kern
+// std/collections/ArrayList.kn
+pub type ArrayList[T] = struct { … };
+pub fn new[T]() ArrayList[T] { … }
+
+// main.kn
+use std.collections.ArrayList;
+let list = ArrayList.new[i32]();
+```
+
+## 8. Interoperability 
+
+Kern is designed to interoperate seamlessly with C and assembly language, which is critical for operating system development. In Kern, the C Application Binary Interface (ABI) is the universal language for all external communication.
+
+### 8.1 Exporting Functions to C/Assembly
+To make a Kern function callable from an external C program, assembly file, or the linker (e.g., an OS entry point), use the `pub extern` modifiers. 
+
+The `extern` keyword instructs the compiler to use the standard C calling convention and disables name mangling, ensuring the symbol matches the function name exactly.
+
+```kern
+// OS entry point called by the bootloader
+pub extern fn _start() void {
+    // ...
+}
+
+```
+
+### 8.2 Importing External Functions and Statics
+
+To call functions or access global variables defined in other languages (like C) or assembly, use an `extern` block. By default, everything inside an `extern` block assumes the C ABI.
+
+Crucially, external C functions can use the `...` syntax to support C-style variadic arguments. This is essential for interfacing with standard C libraries or implementing Kern's own standard I/O based on existing C bindings.
+
+```kern
+extern {
+    // Import a standard C function
+    fn malloc(size: usize) *mut u8;
+
+    // Import a variadic C function (e.g., for Kern's internal print implementation)
+    fn printf(format: *u8, ...) i32;
+
+    // Import an external global variable (e.g., defined in a linker script)
+    static MULTIBOOT_MAGIC: u32;
+}
+
+```

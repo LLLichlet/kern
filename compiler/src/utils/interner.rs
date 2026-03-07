@@ -2,7 +2,7 @@
 use std::collections::HashMap;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct SymbolId(usize);
+pub struct SymbolId(pub usize);
 
 #[derive(Default, Debug, Clone)]
 pub struct Interner {

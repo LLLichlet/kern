@@ -385,6 +385,18 @@ pub enum SwitchPattern {
     },
 }
 
+impl SwitchPattern {
+    /// 动态获取该模式的 Span
+    pub fn span(&self) -> Span {
+        match self {
+            SwitchPattern::Value(expr) => expr.span,
+            SwitchPattern::Range { start, end, .. } => {
+                start.span.to(end.span)
+            }
+        }
+    }
+}
+
 // ==========================================
 //               Statements
 // ==========================================

@@ -101,12 +101,20 @@ impl<'a> TypeckDriver<'a> {
 
         // 5. 校验函数的最终末尾表达式是否匹配签名
         if ret_ty != TypeId::ERROR && body_eval_ty != TypeId::ERROR {
-            if !checker.check_coercion(body_expr.span, ret_ty, body_eval_ty) {
-                self.ctx.emit_error(
-                    body_expr.span, 
-                    "Function body evaluates to a type that does not match its signature. \
-                    (Hint: Missing a return statement or a trailing semicolon?)".into()
-                );
+            if ret_ty == body_eval_ty {
+                // 类型完美匹配 (例如函数是 void，或者用户用了无分号的尾部表达式)
+            } else if body_eval_ty == TypeId::VOID && checker.has_returned {
+                // 🌟 核心修复：虽然代码块因为末尾的 `;` 被推导成了 VOID，
+                // 但我们在内部确实检查过了合法的 Return 语句！放行！
+            } else {
+                // 强制检查 Coercion（会打印 Type mismatch）
+                if !checker.check_coercion(body_expr.span, ret_ty, body_eval_ty) {
+                    self.ctx.emit_error(
+                        body_expr.span, 
+                        "Function body evaluates to a type that does not match its signature. \
+                        (Hint: Missing a return statement or a trailing semicolon?)".into()
+                    );
+                }
             }
         }
 

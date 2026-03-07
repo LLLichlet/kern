@@ -873,55 +873,54 @@ impl<'a> Parser<'a> {
     // ==========================================
 
     fn parse_data_literal(&mut self, start_span: Span) -> ParseResult<Expr> {
-         // .{ consumed
-         if self.check(TokenType::RBrace) {
-             let rb = self.advance();
-             return Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(vec![])) });
-         }
+        // .{ consumed
+        if self.check(TokenType::RBrace) {
+            let rb = self.advance();
+            return Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(vec![])) });
+        }
 
-         let mut is_struct_mode = false;
-         if self.check(TokenType::Identifier) {
-             if self.stream.peek_nth(1).tag == TokenType::Colon {
-                 is_struct_mode = true;
-             }
-         }
+        let mut is_struct_mode = false;
+        if self.check(TokenType::Identifier) {
+            if self.stream.peek_nth(1).tag == TokenType::Colon {
+                is_struct_mode = true;
+            }
+        }
 
-         if is_struct_mode {
-             let mut fields = Vec::new();
-             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-                 let name = self.expect(TokenType::Identifier)?;
-                 let name_id = self.intern_token(name);
-                 self.expect(TokenType::Colon)?;
-                 let val = self.parse_expression(Precedence::Lowest)?;
-                 fields.push(StructFieldInit { name: name_id, value: val, span: name.span }); // value span is loosely name..expr
-                 if !self.match_token(&[TokenType::Comma]) { break; }
-             }
-             let rb = self.expect(TokenType::RBrace)?;
-             Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Struct(fields)) })
-         } else {
-             // Array or Repeat
-             let first = self.parse_expression(Precedence::Lowest)?;
-             
-             if self.match_token(&[TokenType::Semicolon]) {
-                 let count = self.parse_expression(Precedence::Lowest)?;
-                 let rb = self.expect(TokenType::RBrace)?;
-                 Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Repeat { value: Box::new(first), count: Box::new(count) }) })
-             } else {
-                 let mut elems = vec![first];
-                 if self.match_token(&[TokenType::Comma]) {
-                     while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-                         elems.push(self.parse_expression(Precedence::Lowest)?);
-                         if !self.match_token(&[TokenType::Comma]) { break; }
-                     }
-                 }
-                 let rb = self.expect(TokenType::RBrace)?;
-                 Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(elems)) })
-             }
-         }
+        if is_struct_mode {
+            let mut fields = Vec::new();
+            while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                let name = self.expect(TokenType::Identifier)?;
+                let name_id = self.intern_token(name);
+                self.expect(TokenType::Colon)?;
+                let val = self.parse_expression(Precedence::Lowest)?;
+                fields.push(StructFieldInit { name: name_id, value: val, span: name.span }); // value span is loosely name..expr
+                if !self.match_token(&[TokenType::Comma]) { break; }
+            }
+            let rb = self.expect(TokenType::RBrace)?;
+            Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Struct(fields)) })
+        } else {
+            // Array or Repeat
+            let first = self.parse_expression(Precedence::Lowest)?;
+            
+            if self.match_token(&[TokenType::Semicolon]) {
+                let count = self.parse_expression(Precedence::Lowest)?;
+                let rb = self.expect(TokenType::RBrace)?;
+                Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Repeat { value: Box::new(first), count: Box::new(count) }) })
+            } else {
+                let mut elems = vec![first];
+                if self.match_token(&[TokenType::Comma]) {
+                    while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                        elems.push(self.parse_expression(Precedence::Lowest)?);
+                        if !self.match_token(&[TokenType::Comma]) { break; }
+                    }
+                }
+                let rb = self.expect(TokenType::RBrace)?;
+                Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(elems)) })
+            }
+        }
     }
 
     fn parse_block_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        // { consumed
         let mut stmts = Vec::new();
         let mut result = None;
         let mut end_span = start_span;
@@ -943,10 +942,20 @@ impl<'a> Parser<'a> {
 
             let expr = self.parse_expression(Precedence::Lowest)?;
             
+            // 判断当前表达式是否是自带大括号的“块级表达式”
+            let is_block_like = matches!(
+                &expr.kind,
+                ExprKind::If { .. } | ExprKind::Block { .. } | ExprKind::Switch { .. } | ExprKind::For { .. }
+            );
+
             if self.match_token(&[TokenType::Semicolon]) {
                 stmts.push(Stmt { id: self.new_id(), span: expr.span, kind: StmtKind::ExprStmt(expr) });
             } else if self.check(TokenType::RBrace) {
+                // 如果紧跟着是 }，说明这是整个 Block 的返回值
                 result = Some(Box::new(expr));
+            } else if is_block_like {
+                // 如果是块级表达式，没有分号也是合法的独立语句
+                stmts.push(Stmt { id: self.new_id(), span: expr.span, kind: StmtKind::ExprStmt(expr) });
             } else {
                 self.error_at_current("Expected semicolon".to_string());
                 stmts.push(Stmt { id: self.new_id(), span: expr.span, kind: StmtKind::ExprStmt(expr) });

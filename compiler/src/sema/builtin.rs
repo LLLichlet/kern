@@ -1,4 +1,5 @@
 // src/sema/builtin.rs
+#![allow(unused)]
 use crate::context::Context;
 use crate::sema::def::*;
 use crate::sema::scope::{SymbolInfo, SymbolKind};

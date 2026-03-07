@@ -1,8 +1,8 @@
 pub mod scope;
 pub mod ty;
 pub mod def;
-mod collect;
-mod resolve_imports;
-mod resolve_types;
-mod typeck;
-mod builtin;
+pub mod collect;
+pub mod resolve_imports;
+pub mod resolve_types;
+pub mod typeck;
+pub mod builtin;

@@ -6,16 +6,18 @@ use crate::sema::def::Def;
 use crate::sema::scope::SymbolKind;
 use crate::sema::ty::{TypeId, TypeKind, PrimitiveType};
 use crate::sema::resolve_types::TypeResolver;
+use crate::sema::typeck::SymbolInfo;
 use crate::utils::Span;
 
 pub struct ExprChecker<'a> {
     pub ctx: &'a mut Context,
     pub current_return_type: Option<TypeId>,
+    pub has_returned: bool,
 }
 
 impl<'a> ExprChecker<'a> {
     pub fn new(ctx: &'a mut Context, current_return_type: Option<TypeId>) -> Self {
-        Self { ctx, current_return_type }
+        Self { ctx, current_return_type, has_returned: false } 
     }
 
     /// 核心入口：检查表达式类型
@@ -59,12 +61,14 @@ impl<'a> ExprChecker<'a> {
             }
 
             // === 3. 声明与绑定 ===
+            // === 3. 声明与绑定 ===
             ExprKind::Let { name, type_node, init } |
             ExprKind::Static { name, type_node, init} => {
                 let mut explicit_ty = None;
                 if let Some(ty_node) = type_node {
+                    // 使用 {} 隔离作用域，避免借用冲突
+                    let scope = self.ctx.scopes.current_scope_id().unwrap();
                     let mut resolver = TypeResolver::new(self.ctx);
-                    let scope = resolver.ctx.scopes.current_scope_id().unwrap();
                     explicit_ty = Some(resolver.resolve_type(ty_node, scope));
                 }
 
@@ -75,9 +79,16 @@ impl<'a> ExprChecker<'a> {
                     self.check_coercion(init.span, exp, init_ty);
                 }
 
-                // 更新符号表
+                // ✅ 核心修复：全新定义变量，写入当前符号表！
                 if let ExprKind::Let { name, .. } = &expr.kind {
-                    self.ctx.scopes.update_type(*name, final_ty);
+                    let info = SymbolInfo {
+                        kind: SymbolKind::Var,
+                        node_id: expr.id,
+                        type_id: final_ty,
+                        def_id: None,
+                    };
+                    // 注册变量，让后续的 p.x 和 result 都能找得到它！
+                    let _ = self.ctx.scopes.define(*name, info); 
                 }
                 TypeId::VOID
             }
@@ -207,6 +218,9 @@ impl<'a> ExprChecker<'a> {
 
             // === 9. 控制流 ===
             ExprKind::Block { stmts, result } => {
+                // ✅ 核心修复：进入块级作用域！
+                self.ctx.scopes.enter_scope();
+
                 for stmt in stmts {
                     match &stmt.kind {
                         StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
@@ -214,11 +228,17 @@ impl<'a> ExprChecker<'a> {
                         }
                     }
                 }
-                if let Some(res) = result {
+                
+                let ret_ty = if let Some(res) = result {
                     self.check_expr(res, expected_ty)
                 } else {
                     TypeId::VOID
-                }
+                };
+
+                // ✅ 核心修复：退出块级作用域！
+                self.ctx.scopes.exit_scope();
+                
+                ret_ty
             }
 
             ExprKind::If { cond, then_branch, else_branch } => {
@@ -275,6 +295,9 @@ impl<'a> ExprChecker<'a> {
             }
 
             ExprKind::For { init, cond, post, body } => {
+                // 为 For 循环单独开辟作用域 (保护 init 里的 let)
+                self.ctx.scopes.enter_scope();
+                
                 if let Some(i) = init { self.check_expr(i, None); }
                 if let Some(c) = cond {
                     let c_ty = self.check_expr(c, Some(TypeId::BOOL));
@@ -283,6 +306,9 @@ impl<'a> ExprChecker<'a> {
                 if let Some(p) = post { self.check_expr(p, None); }
                 
                 self.check_expr(body, None);
+                
+                self.ctx.scopes.exit_scope();
+                
                 TypeId::VOID
             }
 
@@ -292,6 +318,7 @@ impl<'a> ExprChecker<'a> {
             }
             ExprKind::Break | ExprKind::Continue => TypeId::VOID,
             ExprKind::Return(val) => {
+                self.has_returned = true;
                 let expected_ret = self.current_return_type.unwrap_or(TypeId::VOID);
                 
                 if let Some(v) = val {

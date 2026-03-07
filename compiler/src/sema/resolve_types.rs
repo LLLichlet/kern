@@ -55,10 +55,30 @@ impl<'a> TypeResolver<'a> {
                 
                 self.bind_generics(&f.generics, func_scope);
 
+                // ✅ 核心修复 1: 收集所有参数和返回值的具体 TypeId
+                let mut param_tys = Vec::new();
                 for param in &f.params {
-                    self.resolve_type(&param.type_node, func_scope);
+                    param_tys.push(self.resolve_type(&param.type_node, func_scope));
                 }
-                self.resolve_type(&f.ret_type, func_scope);
+                let ret_ty = self.resolve_type(&f.ret_type, func_scope);
+
+                // ✅ 核心修复 2: 打包成一个完整的函数签名 TypeId
+                let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
+                    params: param_tys,
+                    ret: ret_ty,
+                    is_variadic: f.is_variadic,
+                });
+
+                // ✅ 核心修复 3: 将这个签名写回全局 AST (ctx.defs) 中！
+                if let Def::Function(mut updated_f) = self.ctx.defs[item_id.0 as usize].clone() {
+                    updated_f.resolved_sig = Some(sig_ty);
+                    self.ctx.defs[item_id.0 as usize] = Def::Function(updated_f);
+                }
+
+                // 递归遍历函数体
+                if let Some(body) = &f.body {
+                    self.resolve_expr(body, func_scope);
+                }
 
                 self.ctx.scopes.exit_scope();
             }
@@ -223,6 +243,59 @@ impl<'a> TypeResolver<'a> {
 
         self.ctx.node_types.insert(ty_node.id, ty_id);
         ty_id
+    }
+
+    // 递归查找并解析表达式内部的所有 TypeNode
+    fn resolve_expr(&mut self, expr: &ast::Expr, scope: ScopeId) {
+        match &expr.kind {
+            ast::ExprKind::Let { type_node, init, .. } => {
+                if let Some(ty) = type_node {
+                    self.resolve_type(ty, scope);
+                }
+                self.resolve_expr(init, scope);
+            }
+            ast::ExprKind::Static { type_node, init, .. } => {
+                if let Some(ty) = type_node {
+                    self.resolve_type(ty, scope);
+                }
+                self.resolve_expr(init, scope);
+            }
+            ast::ExprKind::As { lhs, target } => {
+                self.resolve_expr(lhs, scope);
+                self.resolve_type(target, scope);
+            }
+            ast::ExprKind::Block { stmts, result } => {
+                for stmt in stmts {
+                    match &stmt.kind {
+                        ast::StmtKind::ExprStmt(e) | ast::StmtKind::ExprValue(e) => {
+                            self.resolve_expr(e, scope);
+                        }
+                    }
+                }
+                if let Some(r) = result {
+                    self.resolve_expr(r, scope);
+                }
+            }
+            ast::ExprKind::If { cond, then_branch, else_branch } => {
+                self.resolve_expr(cond, scope);
+                self.resolve_expr(then_branch, scope);
+                if let Some(e) = else_branch { self.resolve_expr(e, scope); }
+            }
+            ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
+                self.resolve_expr(lhs, scope);
+                self.resolve_expr(rhs, scope);
+            }
+            ast::ExprKind::Call { callee, args } => {
+                self.resolve_expr(callee, scope);
+                for arg in args { self.resolve_expr(arg, scope); }
+            }
+            ast::ExprKind::GenericInstantiation { target, types } => {
+                self.resolve_expr(target, scope);
+                for ty in types { self.resolve_type(ty, scope); }
+            }
+            // 其他包含子表达式的节点按需展开
+            _ => {}
+        }
     }
 
     /// 严格的路径类型解析 (支持 `module.submodule.Type[Generic]`)

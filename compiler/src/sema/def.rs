@@ -132,6 +132,7 @@ pub struct TraitDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub generics: Vec<ast::GenericParam>,
     pub supertraits: Vec<ast::TypeNode>,
     // 特征中定义的方法契约
     pub methods: Vec<ast::StructFieldDef>, 
@@ -166,7 +167,6 @@ pub struct GlobalDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
-    pub type_node: Option<ast::TypeNode>,
     pub value: ast::Expr,
     pub is_static: bool,
     pub is_extern: bool,

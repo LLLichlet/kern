@@ -56,19 +56,31 @@ impl<'a> ImportResolver<'a> {
         // 2. 根据 Target 类型，将符号注入到当前作用域
         match &import.target {
             UseTarget::Module(alias) => {
-                // 场景: `use std.io;` 或 `use std.io as my_io;`
-                let name_to_bind = alias.unwrap_or_else(|| *import.path.last().unwrap());
-                
-                // 构造代表该模块的符号信息
-                let mod_info = SymbolInfo {
-                    kind: SymbolKind::Module,
-                    node_id: crate::ast::NodeId(0), // 模块不直接对应可执行代码的 AST 节点
-                    type_id: crate::sema::ty::TypeId::VOID,
-                    def_id: Some(target_mod_id),
-                };
+            let (parent_path, last_segment) = import.path.split_at(import.path.len() - 1);
+            let target_name = last_segment[0];
 
-                self.define_import(current_scope, name_to_bind, mod_info, import.span);
+            // 1. 解析父级路径 (如果 parent_path 为空，resolve_path 会直接返回起点)
+            let (parent_mod_id, parent_scope) = match self.resolve_path(current_mod_id, import.path_kind, parent_path, import.span) {
+                Some(res) => res,
+                None => return,
+            };
+
+            // 2. 在父模块中查找最终的目标符号 (可能是 Module，也可能是 Item)
+            if let Some(symbol_info) = self.ctx.scopes.resolve_in(parent_scope, target_name) {
+                // 3. 可见性检查
+                if !self.check_visibility(symbol_info.def_id, current_mod_id, parent_mod_id) {
+                    let name_str = self.ctx.resolve(target_name).to_string();
+                    self.ctx.emit_error(import.span, format!("Symbol `{}` is private", name_str));
+                    return;
+                }
+
+                let name_to_bind = alias.unwrap_or(target_name);
+                self.define_import(current_scope, name_to_bind, symbol_info.clone(), import.span);
+            } else {
+                let name_str = self.ctx.resolve(target_name).to_string();
+                self.ctx.emit_error(import.span, format!("Cannot find `{}`", name_str));
             }
+        }
             UseTarget::Members(members) => {
                 // 场景: `use std.math.{ PI, max as maximum };`
                 for member in members {

@@ -67,6 +67,10 @@ impl<'a> Substituter<'a> {
                 let new_target = self.substitute(target);
                 self.registry.intern(TypeKind::Alias(name, new_target))
             }
+            TypeKind::TraitObject(def_id, args) => {
+                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                self.registry.intern(TypeKind::TraitObject(def_id, new_args))
+            }
         }
     }
 }

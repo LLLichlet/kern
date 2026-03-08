@@ -5,7 +5,7 @@ use crate::context::Context;
 use crate::sema::def::*;
 use crate::sema::scope::{SymbolInfo, SymbolKind};
 use crate::sema::ty::{DefId, TypeId};
-use crate::utils::SymbolId;
+use crate::utils::{Span, SymbolId};
 
 pub struct Collector<'a> {
     pub ctx: &'a mut Context,
@@ -55,7 +55,14 @@ impl<'a> Collector<'a> {
                     is_reexport: *is_reexport,
                     span: decl.span,
                 });
-            } else if let Some(def_id) = self.collect_decl(decl, None, false) {
+            } else if let DeclKind::ExternBlock { decls, .. } = &decl.kind {
+                // ✅ 核心修复：展平 Extern 块，将内部的 C 函数注册到模块成员中！
+                for ext_decl in decls {
+                    if let Some(def_id) = self.collect_decl(ext_decl, None, true, &[]) {
+                        item_ids.push(def_id);
+                    }
+                }
+            } else if let Some(def_id) = self.collect_decl(decl, None, false, &[]) {
                 item_ids.push(def_id);
             }
         }
@@ -76,18 +83,22 @@ impl<'a> Collector<'a> {
     /// 收集单个声明
     /// `parent_impl`: 如果当前声明位于 impl 块内，传入 impl 的 DefId
     /// `force_extern`: 如果当前声明位于 extern 块内，强制标记为 extern
-    fn collect_decl(&mut self, decl: &Decl, parent_impl: Option<DefId>, force_extern: bool) -> Option<DefId> {
+    fn collect_decl(&mut self, decl: &Decl, parent_impl: Option<DefId>, force_extern: bool, impl_generics: &[ast::GenericParam]) -> Option<DefId> {
         let vis = decl.is_pub.into();
 
         match &decl.kind {
             DeclKind::Function { generics, params, ret_type, body, is_extern, is_variadic } => {
+                // 🌟 核心修复：合并 impl 块的泛型和函数自身的泛型
+                let mut combined_generics = impl_generics.to_vec();
+                combined_generics.extend_from_slice(generics);
+
                 self.collect_function(
                     decl, vis, parent_impl, force_extern || *is_extern, 
-                    generics, params, ret_type, body, *is_variadic
+                    &combined_generics, params, ret_type, body, *is_variadic
                 )
             }
-            DeclKind::Var { type_node, value, is_static, is_extern } => {
-                self.collect_global(decl, vis, force_extern || *is_extern, type_node, value, *is_static)
+            DeclKind::Var { value, is_static, is_extern } => {
+                self.collect_global(decl, vis, force_extern || *is_extern, value, *is_static)
             }
             DeclKind::TypeAlias { generics, target, is_extern, bounds } => {
                 self.collect_type_alias_or_struct(decl, vis, bounds, force_extern || *is_extern, generics, target)
@@ -96,16 +107,13 @@ impl<'a> Collector<'a> {
                 self.collect_impl(decl, generics, target_type, trait_type, decls)
             }
             DeclKind::ExternBlock { abi: _, decls } => {
-                // 进入 extern 块，强制块内声明的 is_extern 为 true
                 for ext_decl in decls {
-                    self.collect_decl(ext_decl, parent_impl, true);
+                    // Extern 块不传递泛型
+                    self.collect_decl(ext_decl, parent_impl, true, &[]);
                 }
-                None // Extern 块本身不产生单独的 Def，只影响其内部元素
+                None
             }
-            DeclKind::Use { .. } => {
-                // 在 collect_module 中处理
-                None 
-            }
+            DeclKind::Use { .. } => None 
         }
     }
 
@@ -123,13 +131,30 @@ impl<'a> Collector<'a> {
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
         
+        let mut actual_params = params.to_vec();
+        
+        if parent_impl.is_some() {
+            let self_sym = self.ctx.intern("self");
+            let node_id = self.ctx.next_node_id(); 
+            
+            actual_params.insert(0, ast::FuncParam {
+                name: self_sym,
+                type_node: ast::TypeNode {
+                    id: node_id,
+                    span: decl.span,
+                    kind: ast::TypeKind::SelfType,
+                },
+                span: decl.span,
+            });
+        }
+
         let func_def = FunctionDef {
             id: def_id,
             name: decl.name,
             vis,
             parent: parent_impl.or(self.current_module),
             generics: generics.to_vec(),
-            params: params.to_vec(),
+            params: actual_params,
             ret_type: ret_type.clone(),
             body: body.clone(),
             is_extern,
@@ -154,7 +179,6 @@ impl<'a> Collector<'a> {
         decl: &Decl,
         vis: Visibility,
         is_extern: bool,
-        type_node: &Option<ast::TypeNode>,
         value: &ast::Expr,
         is_static: bool,
     ) -> Option<DefId> {
@@ -164,7 +188,6 @@ impl<'a> Collector<'a> {
             id: def_id,
             name: decl.name,
             vis,
-            type_node: type_node.clone(),
             value: value.clone(),
             is_static,
             is_extern,
@@ -234,6 +257,7 @@ impl<'a> Collector<'a> {
                     id: def_id,
                     name: decl.name,
                     vis,
+                    generics: generics.to_vec(),
                     supertraits: bounds.to_vec(), 
                     methods: fields.clone(),
                     is_builtin: false,
@@ -270,13 +294,23 @@ impl<'a> Collector<'a> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
         let mut method_ids = Vec::new();
 
-        // Impl 块会引入新的作用域（为了泛型参数）
+        // 1. 占位（此时 methods 为空）
+        self.ctx.add_def(Def::Impl(ImplDef {
+            id: impl_id,
+            parent_module: self.current_module,
+            generics: generics.to_vec(),
+            target_type: target_type.clone(),
+            trait_type: trait_type.clone(),
+            methods: Vec::new(), 
+            span: decl.span,
+        }));
+
         self.ctx.scopes.enter_scope();
+        self.inject_generic_params(generics);
 
         for method_decl in decls {
-            // Impl 块内只允许存在 Function
             if matches!(method_decl.kind, DeclKind::Function { .. }) {
-                if let Some(m_id) = self.collect_decl(method_decl, Some(impl_id), false) {
+                if let Some(m_id) = self.collect_decl(method_decl, Some(impl_id), false, generics) {
                     method_ids.push(m_id);
                 }
             } else {
@@ -286,19 +320,11 @@ impl<'a> Collector<'a> {
 
         self.ctx.scopes.exit_scope();
 
-        let impl_def = ImplDef {
-            id: impl_id,
-            parent_module: self.current_module,
-            generics: generics.to_vec(),
-            target_type: target_type.clone(),
-            trait_type: trait_type.clone(),
-            methods: method_ids,
-            span: decl.span,
-        };
+        // 2. 🌟 绝对正确的原地更新：直接修改占位符，不新增任何元素！
+        if let Def::Impl(i) = &mut self.ctx.defs[impl_id.0 as usize] {
+            i.methods = method_ids;
+        }
 
-        self.ctx.add_def(Def::Impl(impl_def));
-
-        // Impl 块没有显式的名字，不注册到当前命名空间
         Some(impl_id)
     }
 
@@ -325,6 +351,20 @@ impl<'a> Collector<'a> {
         if self.ctx.scopes.define(name, info).is_err() {
             let name_str = self.ctx.resolve(name).to_string();
             self.ctx.emit_error(span, format!("Symbol `{}` has already been defined in this scope", name_str));
+        }
+    }
+
+    // sema/collect.rs 内部的辅助方法 (你可以加在 Helper 区域)
+    fn inject_generic_params(&mut self, generics: &[ast::GenericParam]) {
+        for param in generics {
+            // 泛型参数没有 DefId，它的节点 ID 就是自身的 NodeId
+            self.define_symbol(
+                param.name,
+                SymbolKind::TypeParam,
+                ast::NodeId(0), // 或者传入真实的 NodeId
+                None, 
+                param.span
+            );
         }
     }
 }

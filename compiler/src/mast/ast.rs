@@ -128,6 +128,11 @@ pub enum MastExprKind {
         /// 已经按照结构体内存布局排序好的字段初始化值
         fields: Vec<MastExpr>, 
     },
+    UnionInit {
+        union_id: MonoId,
+        field_idx: usize,
+        value: Box<MastExpr>,
+    },
     ArrayInit(Vec<MastExpr>),
     
     /// 结构体字段访问
@@ -200,8 +205,15 @@ pub enum MastExprKind {
     /// `let r = p as mut Reader;` 降级为手动拼装一个包含两个指针的 Struct
     ConstructFatPointer {
         data_ptr: Box<MastExpr>,
-        vtable_ptr: MonoId, // 指向一个全局的虚表 (VTable)
+        /// 如果是 Trait Object，这是 vtable_ptr；
+        /// 如果是 Slice/String，这是一个常量 Integer 表示长度！
+        meta: Box<MastExpr>, 
     },
+
+    /// 提取胖指针的数据指针 (相当于 llvm extractvalue 0)
+    ExtractFatPtrData(Box<MastExpr>),
+    /// 提取胖指针的元数据 (vtable_ptr 或 slice_len，相当于 extractvalue 1)
+    ExtractFatPtrMeta(Box<MastExpr>),
 
     // --- 9. 执行块 ---
     /// 作为一个整体表达式执行的代码块 (用于嵌套作用域和 Defer 展开)
@@ -228,4 +240,5 @@ pub enum MastCastKind {
     FloatToInt,  // 浮点数转整数
     FloatCast,   // 浮点数精度转换 (f32 <=> f64)
     ArrayToSlice,// 隐式降级：构造切片胖指针
+    SliceToPtr,
 }

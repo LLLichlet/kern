@@ -54,33 +54,55 @@ impl<'a> TypeResolver<'a> {
                 let func_scope = self.ctx.scopes.enter_scope();
                 
                 self.bind_generics(&f.generics, func_scope);
+                if let Some(parent_id) = f.parent {
+                    if let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize] {
+                        let target_ty = self.ctx.node_types.get(&i.target_type.id).copied().unwrap_or(TypeId::ERROR);
+                        self.bind_self_type(target_ty, func_scope);
+                    }
+                }
 
-                // ✅ 核心修复 1: 收集所有参数和返回值的具体 TypeId
                 let mut param_tys = Vec::new();
                 for param in &f.params {
                     param_tys.push(self.resolve_type(&param.type_node, func_scope));
                 }
                 let ret_ty = self.resolve_type(&f.ret_type, func_scope);
 
-                // ✅ 核心修复 2: 打包成一个完整的函数签名 TypeId
                 let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
                     params: param_tys,
                     ret: ret_ty,
                     is_variadic: f.is_variadic,
                 });
 
-                // ✅ 核心修复 3: 将这个签名写回全局 AST (ctx.defs) 中！
                 if let Def::Function(mut updated_f) = self.ctx.defs[item_id.0 as usize].clone() {
                     updated_f.resolved_sig = Some(sig_ty);
                     self.ctx.defs[item_id.0 as usize] = Def::Function(updated_f);
                 }
 
-                // 递归遍历函数体
                 if let Some(body) = &f.body {
                     self.resolve_expr(body, func_scope);
                 }
 
                 self.ctx.scopes.exit_scope();
+
+                // 🌟 核心修复 1：提取真实的泛型参数，而不是盲目传 Vec::new()
+                let mut gen_args = Vec::new();
+                for param in &f.generics {
+                    gen_args.push(self.ctx.type_registry.intern(TypeKind::Param(param.name)));
+                }
+                let fn_def_ty = self.ctx.type_registry.intern(TypeKind::FnDef(item_id, gen_args));
+                
+                // 切换回父作用域
+                self.ctx.scopes.set_current_scope(parent_scope);
+                
+                // 🌟 核心修复 2：只有普通的独立函数才需要在当前作用域更新类型。
+                // 如果这是 impl 块里的方法，它并没有注册在作用域树中，不要去 update 它！
+                let is_impl_method = f.parent.map_or(false, |p_id| {
+                    matches!(self.ctx.defs[p_id.0 as usize], Def::Impl(_))
+                });
+                
+                if !is_impl_method {
+                    self.ctx.scopes.update_type(f.name, fn_def_ty);
+                }
             }
             Def::Struct(s) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
@@ -92,6 +114,9 @@ impl<'a> TypeResolver<'a> {
                     self.resolve_type(&field.type_node, struct_scope);
                 }
                 self.ctx.scopes.exit_scope();
+                let struct_ty = self.ctx.type_registry.intern(TypeKind::Def(item_id, Vec::new()));
+                self.ctx.scopes.set_current_scope(parent_scope);
+                self.ctx.scopes.update_type(s.name, struct_ty);
             }
             Def::Union(u) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
@@ -103,6 +128,9 @@ impl<'a> TypeResolver<'a> {
                     self.resolve_type(&field.type_node, union_scope);
                 }
                 self.ctx.scopes.exit_scope();
+                let union_ty = self.ctx.type_registry.intern(TypeKind::Def(item_id, Vec::new()));
+                self.ctx.scopes.set_current_scope(parent_scope);
+                self.ctx.scopes.update_type(u.name, union_ty);
             }
             Def::Enum(e) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
@@ -118,12 +146,19 @@ impl<'a> TypeResolver<'a> {
                     }
                 }
                 self.ctx.scopes.exit_scope();
+                let enum_ty = self.ctx.type_registry.intern(TypeKind::Def(item_id, Vec::new()));
+                self.ctx.scopes.set_current_scope(parent_scope);
+                self.ctx.scopes.update_type(e.name, enum_ty);
             }
             Def::Trait(t) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let trait_scope = self.ctx.scopes.enter_scope();
 
-                // Kern 的特征内是函数签名 (这里你在 AST 中复用了 StructFieldDef 作为方法)
+                // 🌟 核心修复 1：为 Trait 强制绑定 Self 类型
+                let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(item_id, vec![]));
+                self.bind_self_type(self_ty, trait_scope);
+
+                // Kern 的特征内是函数签名
                 for method in &t.methods {
                     self.resolve_type(&method.type_node, trait_scope);
                 }
@@ -136,13 +171,9 @@ impl<'a> TypeResolver<'a> {
                 self.bind_generics(&t.generics, alias_scope);
                 let target_ty = self.resolve_type(&t.target, alias_scope);
                 
-                // 写回符号表
-                if let Some(mut info) = self.ctx.scopes.resolve_local(t.name).cloned() {
-                    info.type_id = target_ty;
-                    // Note: 在真实的 Scope 实现中需要一个 update() 方法。
-                    // 暂时略过，因为 alias 逻辑通常可以直接查询 target_ty
-                }
                 self.ctx.scopes.exit_scope();
+                self.ctx.scopes.set_current_scope(parent_scope);
+                self.ctx.scopes.update_type(t.name, target_ty);
             }
             Def::Impl(i) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
@@ -166,9 +197,10 @@ impl<'a> TypeResolver<'a> {
                 self.ctx.scopes.exit_scope();
             }
             Def::Global(g) => {
-                if let Some(ty_node) = &g.type_node {
-                    self.resolve_type(ty_node, parent_scope);
-                }
+                self.resolve_expr(&g.value, parent_scope);
+                let val_ty = self.ctx.node_types.get(&g.value.id).copied().unwrap_or(TypeId::ERROR);
+                self.ctx.scopes.set_current_scope(parent_scope);
+                self.ctx.scopes.update_type(g.name, val_ty);
             }
             _ => {} // Module 自身无需在此解析
         }
@@ -248,16 +280,7 @@ impl<'a> TypeResolver<'a> {
     // 递归查找并解析表达式内部的所有 TypeNode
     fn resolve_expr(&mut self, expr: &ast::Expr, scope: ScopeId) {
         match &expr.kind {
-            ast::ExprKind::Let { type_node, init, .. } => {
-                if let Some(ty) = type_node {
-                    self.resolve_type(ty, scope);
-                }
-                self.resolve_expr(init, scope);
-            }
-            ast::ExprKind::Static { type_node, init, .. } => {
-                if let Some(ty) = type_node {
-                    self.resolve_type(ty, scope);
-                }
+            ast::ExprKind::Let { init, .. } | ast::ExprKind::Static { init, .. } => {
                 self.resolve_expr(init, scope);
             }
             ast::ExprKind::As { lhs, target } => {
@@ -293,7 +316,27 @@ impl<'a> TypeResolver<'a> {
                 self.resolve_expr(target, scope);
                 for ty in types { self.resolve_type(ty, scope); }
             }
-            // 其他包含子表达式的节点按需展开
+            ast::ExprKind::DataInit { type_node, literal } => {
+                if let Some(ty) = type_node {
+                    self.resolve_type(ty, scope);
+                }
+                // 递归解析数据负载
+                match literal {
+                    ast::DataLiteralKind::Struct(fields) => {
+                        for f in fields { self.resolve_expr(&f.value, scope); }
+                    }
+                    ast::DataLiteralKind::Array(elems) => {
+                        for e in elems { self.resolve_expr(e, scope); }
+                    }
+                    ast::DataLiteralKind::Repeat { value, count } => {
+                        self.resolve_expr(value, scope);
+                        self.resolve_expr(count, scope);
+                    }
+                    ast::DataLiteralKind::Scalar(inner) => {
+                        self.resolve_expr(inner, scope);
+                    }
+                }
+            }
             _ => {}
         }
     }
@@ -371,10 +414,19 @@ impl<'a> TypeResolver<'a> {
 
         // 验证最终符号的类型
         match final_sym.kind {
-            SymbolKind::Struct | SymbolKind::Union | SymbolKind::Enum | SymbolKind::Trait => {
+            SymbolKind::Struct | SymbolKind::Union | SymbolKind::Enum => {
                 let def_id = final_sym.def_id.unwrap();
-                // 返回 Def 类型，并将实例化的泛型参数附带上
                 self.ctx.type_registry.intern(TypeKind::Def(def_id, resolved_generics))
+            }
+            SymbolKind::Trait => {
+                let def_id = final_sym.def_id.unwrap();
+                self.ctx.type_registry.intern(TypeKind::TraitObject(def_id, resolved_generics))
+            }
+            SymbolKind::TypeParam => {
+                if !resolved_generics.is_empty() {
+                    self.ctx.emit_error(span, "Type parameters cannot take generic arguments".into());
+                }
+                final_sym.type_id // 直接返回 Param(SymbolId)
             }
             SymbolKind::TypeAlias => {
                 let def_id = final_sym.def_id.unwrap();
@@ -432,8 +484,8 @@ impl<'a> TypeResolver<'a> {
         for param in generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let info = SymbolInfo {
-                kind: SymbolKind::TypeAlias, 
-                node_id: ast::NodeId(0), // 伪造 ID，或者传入 param.span 对应的真实 ID
+                kind: SymbolKind::TypeParam, 
+                node_id: ast::NodeId(0),
                 type_id: param_ty,
                 def_id: None,
             };
@@ -544,8 +596,6 @@ impl<'a> TypeResolver<'a> {
             }
 
             // 扩展：如果全局标识符是一个 Const，理论上可以在这里查表代入值。
-            // Kern 设计哲学：保持简单。初期如果不允许数组长度使用全局常量变量，可直接报错。
-            // 稍后可以扩展为查询 GlobalDef 的 value。
             
             _ => {
                 self.ctx.emit_error(expr.span, "Expected an integer constant expression (e.g. `1024 * 4`)".into());

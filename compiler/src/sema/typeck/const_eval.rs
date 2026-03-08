@@ -5,7 +5,6 @@ use crate::context::Context;
 use crate::sema::def::Def;
 use crate::sema::scope::SymbolKind;
 use crate::sema::ty::{TypeId, TypeKind};
-use crate::sema::resolve_types::TypeResolver;
 
 /// 编译期常量求值器 (Const Evaluator)
 pub struct ConstEvaluator<'a> {
@@ -117,21 +116,21 @@ impl<'a> ConstEvaluator<'a> {
                 Err(())
             }
             
-            ExprKind::GenericInstantiation { target, types } => {
-                 // 处理 @sizeof[T] 这种情况
-                 // 如果 target 是 Intrinsic，我们需要在这里截获，并利用 `types` 计算大小
-                 // TODO: 集成 Types 内存布局计算
-                 Ok(8) // 打桩
+            ExprKind::GenericInstantiation { .. } => {
+                 // 这个节点本身不产生值，它通常作为 Call 的 callee (例如 @sizeof[T])。
+                 // 如果单独出现，属于非法表达式。
+                 self.ctx.emit_error(expr.span, "Generic instantiation cannot be evaluated as a standalone constant value. Did you mean to call it like `@sizeof[T]()`?".into());
+                 Err(())
             }
 
             // === 3. 处理内置常量函数调用 ===
-            ExprKind::Call { callee, args } => {
+            ExprKind::Call { callee, .. } => {
                 // 直接从节点类型缓存中拿到 Callee 的类型 (Typeck阶段已经解析过了)
                 let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
                 let norm_callee = self.ctx.type_registry.normalize(callee_ty);
                 
                 // 完美的统一：如果它是一个绑定了泛型的函数定义 (比如 @sizeof[Point])
-                if let TypeKind::FnDef(def_id, generic_args) = self.ctx.type_registry.get(norm_callee) {
+                if let TypeKind::FnDef(def_id, generic_args) = self.ctx.type_registry.get(norm_callee).clone() {
                     if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
                         if f.is_intrinsic {
                             let name_str = self.ctx.resolve(f.name);
@@ -163,6 +162,37 @@ impl<'a> ConstEvaluator<'a> {
                 Err(())
             }
 
+            ExprKind::EnumLiteral(variant_name) => {
+                // 求值器从节点缓存中拿到确切类型
+                let ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
+                let norm_ty = self.ctx.type_registry.normalize(ty);
+                
+                let def_id = if let TypeKind::Def(id, _) = self.ctx.type_registry.get(norm_ty) {
+                    *id
+                } else {
+                    self.ctx.emit_error(expr.span, "Enum literal type not resolved".into());
+                    return Err(());
+                };
+                
+                let enum_def = if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
+                    e.clone() // 克隆以释放借用
+                } else { return Err(()); };
+
+                let mut current_val: i128 = 0;
+                for v in enum_def.variants {
+                    if let Some(v_expr) = v.value {
+                        current_val = self.eval_math(&v_expr)?;
+                    }
+                    if v.name == *variant_name {
+                        return Ok(current_val);
+                    }
+                    current_val += 1;
+                }
+                
+                self.ctx.emit_error(expr.span, "Variant not found in Enum".into());
+                Err(())
+            }
+
             _ => {
                 self.ctx.emit_error(expr.span, "Expected a constant expression".into());
                 Err(())
@@ -185,9 +215,11 @@ impl<'a> ConstEvaluator<'a> {
     // ==========================================
 
     /// 计算类型的内存对齐要求 (Alignment)
-    fn compute_type_align(&self, ty: TypeId) -> u64 {
+    fn compute_type_align(&mut self, ty: TypeId) -> u64 {
         let norm = self.ctx.type_registry.normalize(ty);
-        match self.ctx.type_registry.get(norm) {
+        let kind = self.ctx.type_registry.get(norm).clone();
+
+        match kind {
             TypeKind::Primitive(p) => match p {
                 crate::sema::ty::PrimitiveType::I8 | crate::sema::ty::PrimitiveType::U8 | crate::sema::ty::PrimitiveType::Bool => 1,
                 crate::sema::ty::PrimitiveType::I16 | crate::sema::ty::PrimitiveType::U16 => 2,
@@ -197,20 +229,35 @@ impl<'a> ConstEvaluator<'a> {
                 crate::sema::ty::PrimitiveType::I128 | crate::sema::ty::PrimitiveType::U128 => 16,
                 _ => 1,
             },
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) => 8, // TODO: 假设 64-bit 架构
-            TypeKind::Slice(_) => 8, // 切片(胖指针)包含指针和长度，两者都是 8 字节对齐
-            TypeKind::Mut(inner) => self.compute_type_align(*inner),
-            TypeKind::Array { elem, .. } => self.compute_type_align(*elem),
+            // ✅ 动态读取目标架构的指针大小
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => self.ctx.target.pointer_size, 
+            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size, // 胖指针内部对齐依然是单指针宽度
+            TypeKind::Mut(inner) => self.compute_type_align(inner),
+            TypeKind::Array { elem, .. } => self.compute_type_align(elem),
             
             TypeKind::Def(def_id, generic_args) => {
-                let def = &self.ctx.defs[def_id.0 as usize];
+                let def = self.ctx.defs[def_id.0 as usize].clone();
                 match def {
                     Def::Struct(s) => {
                         let mut max_align = 1;
+                        
+                        // 建立泛型映射表
+                        let mut map = std::collections::HashMap::new();
+                        if !s.generics.is_empty() && !generic_args.is_empty() {
+                            for (i, param) in s.generics.iter().enumerate() {
+                                map.insert(param.name, generic_args[i]);
+                            }
+                        }
+
                         for field in &s.fields {
-                            // TODO: 完整的布局引擎需要处理结构体内部泛型字段的替换。
-                            // 简化处理：拿到字段类型后计算对齐
-                            let f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            
+                            // ✅ 核心代换逻辑：如果字段是泛型，将具体类型代入计算
+                            if !map.is_empty() {
+                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
+                                f_ty = subst.substitute(f_ty);
+                            }
+                            
                             let align = self.compute_type_align(f_ty);
                             if align > max_align { max_align = align; }
                         }
@@ -218,15 +265,26 @@ impl<'a> ConstEvaluator<'a> {
                     }
                     Def::Union(u) => {
                         let mut max_align = 1;
+                        
+                        let mut map = std::collections::HashMap::new();
+                        if !u.generics.is_empty() && !generic_args.is_empty() {
+                            for (i, param) in u.generics.iter().enumerate() {
+                                map.insert(param.name, generic_args[i]);
+                            }
+                        }
+
                         for field in &u.fields {
-                            let f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            if !map.is_empty() {
+                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
+                                f_ty = subst.substitute(f_ty);
+                            }
                             let align = self.compute_type_align(f_ty);
                             if align > max_align { max_align = align; }
                         }
                         max_align
                     }
                     Def::Enum(e) => {
-                        // 枚举的对齐由其 backing_type 决定，默认为 u32
                         let back_ty = if let Some(bt) = &e.backing_type {
                             self.ctx.node_types.get(&bt.id).copied().unwrap_or(TypeId::U32)
                         } else {
@@ -234,7 +292,6 @@ impl<'a> ConstEvaluator<'a> {
                         };
                         self.compute_type_align(back_ty)
                     }
-                    Def::Trait(_) => 8, // Trait 本身无大小，但转换为 TraitObject 时对齐为 8
                     _ => 1,
                 }
             }
@@ -248,9 +305,11 @@ impl<'a> ConstEvaluator<'a> {
     }
 
     /// 计算类型的内存占用大小 (Size)
-    fn compute_type_size(&self, ty: TypeId) -> u64 {
+    fn compute_type_size(&mut self, ty: TypeId) -> u64 {
         let norm = self.ctx.type_registry.normalize(ty);
-        match self.ctx.type_registry.get(norm) {
+        let kind = self.ctx.type_registry.get(norm).clone();
+
+        match kind {
             TypeKind::Primitive(p) => match p {
                 crate::sema::ty::PrimitiveType::I8 | crate::sema::ty::PrimitiveType::U8 | crate::sema::ty::PrimitiveType::Bool => 1,
                 crate::sema::ty::PrimitiveType::I16 | crate::sema::ty::PrimitiveType::U16 => 2,
@@ -260,26 +319,38 @@ impl<'a> ConstEvaluator<'a> {
                 crate::sema::ty::PrimitiveType::I128 | crate::sema::ty::PrimitiveType::U128 => 16,
                 _ => 0,
             },
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) => 8, // 假设 64-bit 架构
-            TypeKind::Slice(_) => 16, // 胖指针：ptr(8) + len(8)
-            TypeKind::Mut(inner) => self.compute_type_size(*inner),
-            TypeKind::Array { elem, len } => self.compute_type_size(*elem) * len,
+            // ✅ 动态读取目标机器指针大小，处理胖指针
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => self.ctx.target.pointer_size,
+            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size * 2, // 胖指针占用两个普通指针的宽度
+            TypeKind::Mut(inner) => self.compute_type_size(inner),
+            TypeKind::Array { elem, len } => self.compute_type_size(elem) * len,
             
-            TypeKind::Def(def_id, _) => {
-                let def = &self.ctx.defs[def_id.0 as usize];
+            TypeKind::Def(def_id, generic_args) => {
+                let def = self.ctx.defs[def_id.0 as usize].clone();
                 match def {
                     Def::Struct(s) => {
                         let mut offset = 0;
                         let mut max_align = 1;
+                        
+                        let mut map = std::collections::HashMap::new();
+                        if !s.generics.is_empty() && !generic_args.is_empty() {
+                            for (i, param) in s.generics.iter().enumerate() {
+                                map.insert(param.name, generic_args[i]);
+                            }
+                        }
+
                         for field in &s.fields {
-                            let f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            if !map.is_empty() {
+                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
+                                f_ty = subst.substitute(f_ty);
+                            }
+                            
                             let f_align = self.compute_type_align(f_ty);
                             let f_size = self.compute_type_size(f_ty);
                             
                             if f_align > max_align { max_align = f_align; }
-                            // 对齐当前字段
                             offset = Self::align_to(offset, f_align);
-                            // 加上大小
                             offset += f_size;
                         }
                         // 整个结构体的大小必须是最大对齐数的整数倍
@@ -288,14 +359,28 @@ impl<'a> ConstEvaluator<'a> {
                     Def::Union(u) => {
                         let mut max_size = 0;
                         let mut max_align = 1;
+                        
+                        let mut map = std::collections::HashMap::new();
+                        if !u.generics.is_empty() && !generic_args.is_empty() {
+                            for (i, param) in u.generics.iter().enumerate() {
+                                map.insert(param.name, generic_args[i]);
+                            }
+                        }
+
                         for field in &u.fields {
-                            let f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                            if !map.is_empty() {
+                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
+                                f_ty = subst.substitute(f_ty);
+                            }
+                            
                             let f_align = self.compute_type_align(f_ty);
                             let f_size = self.compute_type_size(f_ty);
                             
                             if f_align > max_align { max_align = f_align; }
                             if f_size > max_size { max_size = f_size; }
                         }
+                        // 联合体的大小是最大字段的大小，且要按最大对齐数进行对齐
                         Self::align_to(max_size, max_align)
                     }
                     Def::Enum(e) => {

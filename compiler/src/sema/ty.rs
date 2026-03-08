@@ -62,6 +62,10 @@ pub enum TypeKind {
     /// 这样设计是为了处理递归类型 (e.g., struct Node { next: *Node })
     Def(DefId, Vec<TypeId>),
 
+    /// 特征对象 (Trait Object)
+    /// 内存布局：胖指针 { data_ptr: *mut void, vtable: *mut VTable }
+    TraitObject(DefId, Vec<TypeId>),
+
     /// 类型别名: type A = B;
     /// 记录了 "A" 这个名字，以及它指向的 "B"
     Alias(SymbolId, TypeId),

@@ -147,28 +147,42 @@ impl<'a> TypeckDriver<'a> {
     }
 
     fn check_global(&mut self, g: &GlobalDef, parent_scope: ScopeId) {
-        let expected_ty = if let Some(ty_node) = &g.type_node {
-            self.ctx.node_types.get(&ty_node.id).copied()
-        } else {
-            None
-        };
-
         self.ctx.scopes.set_current_scope(parent_scope);
-
         let mut checker = ExprChecker::new(self.ctx, None);
-        let init_ty = checker.check_expr(&g.value, expected_ty);
 
-        if let Some(exp) = expected_ty {
-            checker.check_coercion(g.value.span, exp, init_ty);
+        // ✅ 完全依赖右侧的表达式推导类型
+        let init_ty = checker.check_expr(&g.value, None);
+
+        // ✅ 使用你现有的完美 API 同步类型！
+        if self.ctx.scopes.resolve_local(g.name).is_some() {
+            self.ctx.scopes.update_type(g.name, init_ty);
+        } else {
+            // 极端兜底：如果 collect 阶段漏掉了，在这里补上
+            let sym_kind = if g.is_static { SymbolKind::Static } else { SymbolKind::Const };
+            let info = SymbolInfo {
+                kind: sym_kind,
+                node_id: g.value.id,
+                type_id: init_ty,
+                def_id: Some(g.id),
+            };
+            let _ = self.ctx.scopes.define(g.name, info);
         }
 
-        // === 常量计算规则约束 ===
+        // === 常量与 extern 规则约束 ===
         if !g.is_extern {
             if let ast::ExprKind::Undef = g.value.kind {
                 self.ctx.emit_error(g.span, "Global variables cannot be initialized with `undef`. Must provide a constant value.".into());
             } else {
                 let mut evaluator = ConstEvaluator::new(self.ctx);
                 let _ = evaluator.eval_math(&g.value); 
+            }
+        } else {
+            // 如果是 extern，确保推导出了合法类型
+            if init_ty == TypeId::ERROR {
+                self.ctx.emit_error(g.span, "Extern statics must have a concrete type, e.g., `static X = i32.{undef};`".into());
+            } else if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef)) {
+                // 确保 extern 不会被赋真实的值
+                self.ctx.emit_error(g.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`".into());
             }
         }
     }

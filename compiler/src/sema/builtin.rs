@@ -50,6 +50,7 @@ impl<'a> BuiltinInjector<'a> {
             id: def_id,
             name: name_id,
             vis: Visibility::Public,
+            generics: vec![],
             supertraits: vec![],
             methods: vec![], // 内置特征仅作约束，可以没有方法 (Marker Trait)
             is_builtin: true,
@@ -76,10 +77,10 @@ impl<'a> BuiltinInjector<'a> {
         let target_node = TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer }; // 占位
         let trait_node = TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer };
 
-        // 直接在 node_types 缓存中写入它们真实的语义类型！这是最精妙的一步
+        // 直接在 node_types 缓存中写入它们真实的语义类型
         self.ctx.node_types.insert(target_node.id, target_ty_id);
         
-        let trait_ty = self.ctx.type_registry.intern(TypeKind::Def(trait_def_id, vec![]));
+        let trait_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(trait_def_id, vec![]));
         self.ctx.node_types.insert(trait_node.id, trait_ty);
 
         let impl_def = ImplDef {
@@ -119,7 +120,7 @@ impl<'a> BuiltinInjector<'a> {
         let root_scope = crate::sema::scope::ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
         let _ = self.ctx.scopes.define(name_id, SymbolInfo {
-            kind: SymbolKind::Function, node_id: NodeId(0), type_id: TypeId::ERROR, def_id: Some(def_id)
+            kind: SymbolKind::Function, node_id: NodeId(0), type_id: sig_ty, def_id: Some(def_id)
         });
     }
 

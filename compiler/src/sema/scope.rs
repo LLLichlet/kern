@@ -22,6 +22,7 @@ pub enum SymbolKind {
     Trait,       // 特征定义
     Module,      // 模块
     TypeAlias,   // 类型别名
+    TypeParam,
 }
 
 /// 符号信息

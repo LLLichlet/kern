@@ -238,8 +238,6 @@ pub enum ExprKind {
     Bool(bool),
     Char(char), 
     String(String), 
-    Null,
-
     Identifier(SymbolId),
 
     // --- Ops ---

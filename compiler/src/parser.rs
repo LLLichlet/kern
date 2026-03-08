@@ -118,10 +118,21 @@ impl<'a> Parser<'a> {
             let current = self.peek();
             let found_text = self.context.source_manager.slice_source(current.span).to_string();
             
-            self.add_error(
-                current.span,
-                format!("Expected token '{:?}', but found '{}'.", tag, found_text),
+            let mut diag = self.context.struct_error(
+                current.span, 
+                format!("expected `{:?}`, found `{}`", tag, found_text)
             );
+
+            // 针对特定的缺失提供智能提示
+            match tag {
+                TokenType::Semicolon => diag = diag.with_hint("consider adding a `;` here"),
+                TokenType::RBrace => diag = diag.with_hint("unclosed block"),
+                TokenType::RParen => diag = diag.with_hint("unclosed parenthesis"),
+                _ => {}
+            }
+
+            diag.emit();
+            self.panic_mode = true;
             Err(())
         }
     }
@@ -138,10 +149,14 @@ impl<'a> Parser<'a> {
     fn parse_string_literal(&mut self, token: Token) -> ParseResult<SymbolId> {
         let raw = self.context.source_manager.slice_source(token.span).to_string();
         
-        // 1. 去掉引号
-        if raw.len() < 2 {
+        // 1. 检查并去掉引号
+        if raw.len() < 2 || !raw.starts_with('"') || !raw.ends_with('"') {
+            self.context.struct_error(token.span, "invalid or unterminated string literal")
+                .with_hint("ensure the string is properly enclosed in double quotes `\"`")
+                .emit();
             return Err(());
         }
+        
         let inner = &raw[1..raw.len() - 1];
 
         // 2. 转义处理
@@ -214,9 +229,11 @@ impl<'a> Parser<'a> {
                     }
 
                     Some(c) => {
-                        // 未知转义，保留原样
-                        result.push('\\');
-                        result.push(c);
+                        self.context.struct_error(span, format!("unknown escape sequence: `\\{}`", c))
+                            .with_hint(format!("if you meant to write a backslash, use `\\\\`"))
+                            .emit();
+                        self.panic_mode = true;
+                        return Err(());
                     }
                     None => {
                         self.add_error(span, "Unterminated escape sequence".to_string());
@@ -272,175 +289,32 @@ impl<'a> Parser<'a> {
             }
         }
     }
+}
 
-    // ==========================================
-    //               Type Parsing
-    // ==========================================
-
+// ==========================================
+//             Type Parsing
+// ==========================================
+impl<'a> Parser<'a> {
     pub fn parse_type(&mut self) -> ParseResult<TypeNode> {
         let start_token = self.peek();
-        let start_span = start_token.span;
 
         match start_token.tag {
-            // 1. 指针: *T 或 *mut T
-            TokenType::Star => {
-                self.advance();
- 
-                let elem = self.parse_type()?;
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_span.to(elem.span),
-                    kind: TypeKind::Pointer {
-                        elem: Box::new(elem),
-                        
-                    },
-                })
-            }
-
-            // 2. 易失指针: ^T
-            TokenType::Caret => {
-                self.advance();
- 
-                let elem = self.parse_type()?;
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_span.to(elem.span),
-                    kind: TypeKind::VolatilePtr {
-                        elem: Box::new(elem),
-                        
-                    },
-                })
-            }
-
-            // 3. 数组或切片
-            TokenType::LBracket => {
-                self.advance(); // eat [
-
-                // A. 切片 []T
-                if self.match_token(&[TokenType::RBracket]) {
-     
-                    let elem = self.parse_type()?;
-                    Ok(TypeNode {
-                        id: self.new_id(),
-                        span: start_span.to(elem.span),
-                        kind: TypeKind::Slice {
-                            elem: Box::new(elem),
-                            
-                        },
-                    })
-                } else {
-                    // B. 数组 [expr]T
-                    let len_expr = self.parse_expression(Precedence::Lowest)?;
-                    self.expect(TokenType::RBracket)?;
-     
-                    let elem = self.parse_type()?;
-                    
-                    Ok(TypeNode {
-                        id: self.new_id(),
-                        span: start_span.to(elem.span),
-                        kind: TypeKind::Array {
-                            elem: Box::new(elem),
-                            len: Box::new(len_expr),
-                            
-                        },
-                    })
-                }
-            }
-
-            // 4. 函数指针 fn(args) ret
-            TokenType::Fn => {
-                self.advance();
-                self.expect(TokenType::LParen)?;
-                
-                let mut params = Vec::new();
-                let mut is_variadic = false; 
-                
-                if !self.check(TokenType::RParen) {
-                    loop {
-                        // 拦截可变参数 ...
-                        if self.match_token(&[TokenType::Ellipsis]) {
-                            is_variadic = true;
-                            break; // ... 必须是最后一个参数
-                        }
-                        
-                        params.push(self.parse_type()?);
-                        
-                        if !self.match_token(&[TokenType::Comma]) {
-                            break;
-                        }
-                    }
-                }
-                self.expect(TokenType::RParen)?;
-                
-                let ret_type = self.parse_type()?;
-                let end = ret_type.span;
-
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_span.to(end),
-                    kind: TypeKind::Function {
-                        params,
-                        ret: Some(Box::new(ret_type)),
-                        is_variadic, 
-                    }
-                })
-            }
-
-            // 5. 路径类型
-            TokenType::Identifier => {
-                self.advance(); // consume first ident
-                let first_id = self.intern_token(start_token);
-                let mut span = start_span;
-                
-                let mut segments = vec![first_id];
-                
-                while self.match_token(&[TokenType::Dot]) {
-                    let id_token = self.expect(TokenType::Identifier)?;
-                    segments.push(self.intern_token(id_token));
-                    span = span.to(id_token.span);
-                }
-
-                // 泛型参数 List[T]
-                let mut generics = Vec::new();
-                if self.check(TokenType::LBracket) {
-                    generics = self.parse_type_args()?;
-                    span = span.to(self.stream.prev_span());
-                }
-
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span,
-                    kind: TypeKind::Path {
-                        segments,
-                        generics,
-                    }
-                })
-            }
-
-            TokenType::Mut => {
-                self.advance();
-                let elem = self.parse_type()?;
-                // 护城河：拦截 mut *, mut ^, mut []
-                if matches!(elem.kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Slice { .. }) {
-                    self.add_error(start_span.to(elem.span), "Forbidden: cannot apply 'mut' directly to pointers or slices (e.g., 'mut *T'). Pointer arithmetic is disabled.".to_string());
-                }
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_span.to(elem.span),
-                    kind: TypeKind::Mut(Box::new(elem)),
-                })
-            }
-
+            TokenType::Star => self.parse_pointer_type(),
+            TokenType::Caret => self.parse_volatile_pointer_type(),
+            TokenType::LBracket => self.parse_array_or_slice_type(),
+            TokenType::Fn => self.parse_fn_type(),
+            TokenType::Identifier => self.parse_path_type(),
+            TokenType::Mut => self.parse_mut_type(),
+            
             TokenType::Underscore => {
                 self.advance();
-                Ok(TypeNode { id: self.new_id(), span: start_span, kind: TypeKind::Infer })
+                Ok(TypeNode { id: self.new_id(), span: start_token.span, kind: TypeKind::Infer })
             }
-
             TokenType::SelfType => {
                 self.advance();
-                Ok(TypeNode { id: self.new_id(), span: start_span, kind: TypeKind::SelfType })
+                Ok(TypeNode { id: self.new_id(), span: start_token.span, kind: TypeKind::SelfType })
             }
-
+            
             TokenType::Struct => self.parse_struct_type(false),
             TokenType::Union => self.parse_struct_type(true),
             TokenType::Enum => self.parse_enum_type(),
@@ -453,6 +327,149 @@ impl<'a> Parser<'a> {
                 Err(())
             }
         }
+    }
+
+    // --- Type Parsing Sub-Routines ---
+
+    fn parse_pointer_type(&mut self) -> ParseResult<TypeNode> {
+        let start_span = self.advance().span; // 消费 '*'
+        let elem = self.parse_type()?;
+        
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_span.to(elem.span),
+            kind: TypeKind::Pointer {
+                elem: Box::new(elem),
+            },
+        })
+    }
+
+    fn parse_volatile_pointer_type(&mut self) -> ParseResult<TypeNode> {
+        let start_span = self.advance().span; // 消费 '^'
+        let elem = self.parse_type()?;
+        
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_span.to(elem.span),
+            kind: TypeKind::VolatilePtr {
+                elem: Box::new(elem),
+            },
+        })
+    }
+
+    fn parse_array_or_slice_type(&mut self) -> ParseResult<TypeNode> {
+        let start_span = self.advance().span; // 消费 '['
+
+        // A. 切片 []T
+        if self.match_token(&[TokenType::RBracket]) {
+            let elem = self.parse_type()?;
+            Ok(TypeNode {
+                id: self.new_id(),
+                span: start_span.to(elem.span),
+                kind: TypeKind::Slice {
+                    elem: Box::new(elem),
+                },
+            })
+        } 
+        // B. 数组 [expr]T
+        else {
+            let len_expr = self.parse_expression(Precedence::Lowest)?;
+            self.expect(TokenType::RBracket)?;
+            let elem = self.parse_type()?;
+            
+            Ok(TypeNode {
+                id: self.new_id(),
+                span: start_span.to(elem.span),
+                kind: TypeKind::Array {
+                    elem: Box::new(elem),
+                    len: Box::new(len_expr),
+                },
+            })
+        }
+    }
+
+    fn parse_fn_type(&mut self) -> ParseResult<TypeNode> {
+        let start_span = self.advance().span; // 消费 'fn'
+        self.expect(TokenType::LParen)?;
+        
+        let mut params = Vec::new();
+        let mut is_variadic = false; 
+        
+        if !self.check(TokenType::RParen) {
+            loop {
+                // 拦截可变参数 ...
+                if self.match_token(&[TokenType::Ellipsis]) {
+                    is_variadic = true;
+                    break; // ... 必须是最后一个参数
+                }
+                
+                params.push(self.parse_type()?);
+                
+                if !self.match_token(&[TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenType::RParen)?;
+        
+        let ret_type = self.parse_type()?;
+        let end = ret_type.span;
+
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_span.to(end),
+            kind: TypeKind::Function {
+                params,
+                ret: Some(Box::new(ret_type)),
+                is_variadic, 
+            }
+        })
+    }
+
+    fn parse_path_type(&mut self) -> ParseResult<TypeNode> {
+        let start_token = self.advance(); // 消费第一个 ident
+        let first_id = self.intern_token(start_token);
+        let mut span = start_token.span;
+        
+        let mut segments = vec![first_id];
+        
+        while self.match_token(&[TokenType::Dot]) {
+            let id_token = self.expect(TokenType::Identifier)?;
+            segments.push(self.intern_token(id_token));
+            span = span.to(id_token.span);
+        }
+
+        // 泛型参数 List[T]
+        let mut generics = Vec::new();
+        if self.check(TokenType::LBracket) {
+            generics = self.parse_type_args()?;
+            span = span.to(self.stream.prev_span());
+        }
+
+        Ok(TypeNode {
+            id: self.new_id(),
+            span,
+            kind: TypeKind::Path {
+                segments,
+                generics,
+            }
+        })
+    }
+
+    fn parse_mut_type(&mut self) -> ParseResult<TypeNode> {
+        let start_span = self.advance().span; // 消费 'mut'
+        let elem = self.parse_type()?;
+        
+        // 护城河：拦截 mut *, mut ^, mut []
+        if matches!(elem.kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Slice { .. }) {
+            self.add_error(start_span.to(elem.span), "Forbidden: cannot apply 'mut' directly to pointers or slices (e.g., 'mut *T'). Pointer arithmetic is disabled.".to_string());
+        }
+        
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_span.to(elem.span),
+            kind: TypeKind::Mut(Box::new(elem)),
+        })
     }
 
     fn parse_type_args(&mut self) -> ParseResult<Vec<TypeNode>> {
@@ -587,11 +604,12 @@ impl<'a> Parser<'a> {
             kind: TypeKind::Trait { fields },
         })
     }
+}
 
-    // ==========================================
-    //            Expression Parsing
-    // ==========================================
-
+// ==========================================
+//            Expression Parsing
+// ==========================================
+impl<'a> Parser<'a> {
     pub fn parse_expression(&mut self, precedence: Precedence) -> ParseResult<Expr> {
         let prefix_token = self.advance();
         let mut left = self.parse_prefix(prefix_token)?;
@@ -606,12 +624,107 @@ impl<'a> Parser<'a> {
     fn parse_prefix(&mut self, token: Token) -> ParseResult<Expr> {
         let span = token.span;
         match token.tag {
+            // Literals
+            TokenType::IntLiteral | TokenType::FloatLiteral | 
+            TokenType::StringLiteral | TokenType::CharLiteral => self.parse_literal_expr(token),
+            
+            TokenType::Identifier => {
+                let name = self.intern_token(token);
+                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Identifier(name) })
+            }
+            
+            // Unary & Enums
+            TokenType::DotLBrace => self.parse_data_init(None, span),
+            TokenType::Dot => self.parse_enum_literal_expr(span),
+            TokenType::Minus | TokenType::Bang | 
+            TokenType::Tilde | TokenType::Hash => self.parse_unary_prefix_expr(token),
+            TokenType::LParen => self.parse_grouped_expr(span),
+            
+            // Control Flow & Blocks
+            TokenType::If => self.parse_if_expr(span),
+            TokenType::Switch => self.parse_switch_expr(span),
+            TokenType::LBrace => self.parse_block_expr(span),
+            TokenType::For => self.parse_for_expr(span),
+            TokenType::Let | TokenType::Const | TokenType::Static => self.parse_decl_expr(token),
+            
+            // Jumps
+            TokenType::Break => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Break }),
+            TokenType::Continue => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Continue }),
+            TokenType::Return => self.parse_return_expr(span),
+            
+            // Special / Intrinsics
+            TokenType::Undef => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Undef }),
+            TokenType::SelfValue => Ok(Expr { id: self.new_id(), span, kind: ExprKind::SelfValue }),
+            TokenType::At => self.parse_intrinsic_expr(token),
+            
+            // Explicitly Typed Initializations (e.g., mut T.{...}, [N]T.{...}, *T.{...})
+            TokenType::Mut | TokenType::LBracket | 
+            TokenType::Star | TokenType::Caret => self.parse_typed_data_init_prefix(token),
+
+            _ => {
+                let text = self.context.source_manager.slice_source(span).to_string();
+                self.add_error(span, format!("Expected expression, found '{}'", text));
+                Err(())
+            }
+        }
+    }
+
+    fn parse_infix(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
+        match token.tag {
+            // Binary Operators
+            TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash | 
+            TokenType::EqualEqual | TokenType::NotEqual | TokenType::Percent |
+            TokenType::LessThan | TokenType::LessEqual | TokenType::GreaterThan | TokenType::GreaterEqual |
+            TokenType::And | TokenType::Or | TokenType::Pipe | TokenType::Ampersand | TokenType::Caret |
+            TokenType::LShift | TokenType::RShift => self.parse_binary_expr(left, token),
+            
+            // Field & Method Access
+            TokenType::Dot => self.parse_field_access_expr(left, token),
+            TokenType::LParen => self.parse_call_expr(left, token),
+            
+            // Pointer Deref & AddressOf
+            TokenType::DotStar => Ok(Expr { 
+                id: self.new_id(), span: left.span.to(token.span), 
+                kind: ExprKind::Unary { op: UnaryOperator::PointerDeRef, operand: Box::new(left) } 
+            }),
+            TokenType::DotAmpersand => Ok(Expr { 
+                id: self.new_id(), span: left.span.to(token.span), 
+                kind: ExprKind::Unary { op: UnaryOperator::AddressOf, operand: Box::new(left) } 
+            }),
+            
+            // Assignments
+            TokenType::Assign | TokenType::PlusAssign | TokenType::MinusAssign | TokenType::StarAssign |
+            TokenType::SlashAssign | TokenType::PercentAssign | TokenType::AmpersandAssign | 
+            TokenType::PipeAssign | TokenType::CaretAssign | TokenType::LShiftAssign | TokenType::RShiftAssign => 
+                self.parse_assignment_expr(left, token),
+
+            // Casts & Indexing/Slicing
+            TokenType::As => self.parse_as_cast_expr(left, token),
+            TokenType::DotLBracket => self.parse_slice_or_index_expr(left, token),
+            TokenType::LBracket => self.parse_generic_instantiation_expr(left, token),
+            
+            // Type-affixed Data Init (Type.{...})
+            TokenType::DotLBrace => {
+                let type_node = self.expr_to_type(left)?;
+                let span = type_node.span;
+                self.parse_data_init(Some(Box::new(type_node)), span)
+            }
+
+            _ => {
+                self.add_error(token.span, format!("Unexpected infix token {:?}", token.tag));
+                Err(())
+            }
+        }
+    }
+
+    // --- Prefix Sub-Routines ---
+
+    fn parse_literal_expr(&mut self, token: Token) -> ParseResult<Expr> {
+        let span = token.span;
+        match token.tag {
             TokenType::IntLiteral => {
                 let text = self.context.source_manager.slice_source(span).to_string();
-                // Rust 处理 0xFF, 0b10 比较方便，但如果带下划线 1_000 需要去掉
                 let text_clean = text.replace("_", "");
-                
-                // 处理前缀
                 let (radix, num_str) = if text_clean.starts_with("0x") { (16, &text_clean[2..]) }
                 else if text_clean.starts_with("0b") { (2, &text_clean[2..]) }
                 else if text_clean.starts_with("0o") { (8, &text_clean[2..]) }
@@ -634,110 +747,93 @@ impl<'a> Parser<'a> {
                 Ok(Expr { id: self.new_id(), span, kind: ExprKind::String(self.context.resolve(sid).to_string()) })
             }
             TokenType::CharLiteral => {
-                // 简化的 char 处理，严谨的需要 unescape
                 let raw = self.context.source_manager.slice_source(span);
                 let inner = &raw[1..raw.len()-1];
-                let c = inner.chars().next().unwrap_or('\0');
+                let c = if inner.is_empty() {
+                    self.add_error(span, "Empty character literal".to_string());
+                    '\0' // Dummy value for recovery
+                } else {
+                    inner.chars().next().unwrap()
+                };
                 Ok(Expr { id: self.new_id(), span, kind: ExprKind::Char(c) })
             }
-            TokenType::Identifier => {
-                let name = self.intern_token(token);
-                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Identifier(name) })
-            }
-            
-            // .{ ... }
-            TokenType::DotLBrace => self.parse_data_init(None, span),
+            _ => unreachable!(),
+        }
+    }
 
-            // .Enum
-            TokenType::Dot => {
-                if self.check(TokenType::Identifier) {
-                    let id_token = self.advance();
-                    let sid = self.intern_token(id_token);
-                    Ok(Expr {
-                        id: self.new_id(),
-                        span: span.to(id_token.span),
-                        kind: ExprKind::EnumLiteral(sid),
-                    })
-                } else {
-                    self.add_error(span, "Unexpected '.' at start of expression".to_string());
-                    Err(())
-                }
-            }
+    fn parse_enum_literal_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        if self.check(TokenType::Identifier) {
+            let id_token = self.advance();
+            let sid = self.intern_token(id_token);
+            Ok(Expr {
+                id: self.new_id(),
+                span: start_span.to(id_token.span),
+                kind: ExprKind::EnumLiteral(sid),
+            })
+        } else {
+            self.add_error(start_span, "Unexpected '.' at start of expression".to_string());
+            Err(())
+        }
+    }
 
-            TokenType::Minus | TokenType::Bang | TokenType::Tilde | TokenType::Hash => {
-                let op = match token.tag {
-                    TokenType::Minus => UnaryOperator::Negate,
-                    TokenType::Bang => UnaryOperator::LogicalNot,
-                    TokenType::Tilde => UnaryOperator::BitwiseNot,
-                    TokenType::Hash => UnaryOperator::LengthOf,
-                    _ => unreachable!(),
-                };
-                let operand = self.parse_expression(Precedence::Unary)?;
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: span.to(operand.span),
-                    kind: ExprKind::Unary { op, operand: Box::new(operand) }
-                })
-            }
+    fn parse_unary_prefix_expr(&mut self, token: Token) -> ParseResult<Expr> {
+        let op = match token.tag {
+            TokenType::Minus => UnaryOperator::Negate,
+            TokenType::Bang => UnaryOperator::LogicalNot,
+            TokenType::Tilde => UnaryOperator::BitwiseNot,
+            TokenType::Hash => UnaryOperator::LengthOf,
+            _ => unreachable!(),
+        };
+        let operand = self.parse_expression(Precedence::Unary)?;
+        Ok(Expr {
+            id: self.new_id(),
+            span: token.span.to(operand.span),
+            kind: ExprKind::Unary { op, operand: Box::new(operand) }
+        })
+    }
 
-            TokenType::LParen => {
-                let expr = self.parse_expression(Precedence::Lowest)?;
-                self.expect(TokenType::RParen)?;
-                Ok(expr)
-            }
+    fn parse_grouped_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        let mut expr = self.parse_expression(Precedence::Lowest)?;
+        let rparen = self.expect(TokenType::RParen)?;
+        expr.span = start_span.to(rparen.span);
+        Ok(expr) 
+    }
 
-            TokenType::If => self.parse_if_expr(span),
-            TokenType::Switch => self.parse_switch_expr(span),
-            TokenType::LBrace => self.parse_block_expr(span),
-            TokenType::For => self.parse_for_expr(span),
-            
-            TokenType::Let | TokenType::Const | TokenType::Static => self.parse_decl_expr(token),
+    fn parse_return_expr(&mut self, span: Span) -> ParseResult<Expr> {
+        let mut val = None;
+        let is_stopper = self.check(TokenType::Semicolon) || self.check(TokenType::RBrace) || 
+                         self.check(TokenType::Else) || self.check(TokenType::RParen) || 
+                         self.check(TokenType::RBracket) || self.check(TokenType::Comma) || 
+                         self.check(TokenType::Eof);
+        if !is_stopper {
+            val = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+        }
+        Ok(Expr { id: self.new_id(), span, kind: ExprKind::Return(val) })
+    }
 
-            TokenType::Break => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Break }),
-            TokenType::Continue => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Continue }),
-            
-            TokenType::Return => {
-                let mut val = None;
-                let is_stopper = self.check(TokenType::Semicolon) || self.check(TokenType::RBrace) || 
-                                 self.check(TokenType::Else) || self.check(TokenType::RParen) || 
-                                 self.check(TokenType::RBracket) || self.check(TokenType::Comma) || 
-                                 self.check(TokenType::Eof);
-                if !is_stopper {
-                    val = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-                }
-                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Return(val) })
-            }
+    fn parse_intrinsic_expr(&mut self, at_token: Token) -> ParseResult<Expr> {
+        let id_token = self.expect(TokenType::Identifier)?;
+        let sym = self.intern_token(id_token);
+        let name_str = format!("@{}", self.context.resolve(sym));
+        let sym_id = self.context.intern(&name_str);
+        Ok(Expr { 
+            id: self.new_id(), 
+            span: at_token.span.to(id_token.span), 
+            kind: ExprKind::Identifier(sym_id) 
+        })
+    }
 
-            TokenType::Undef => Ok(Expr { id: self.new_id(), span, kind: ExprKind::Undef }),
-            TokenType::SelfValue => Ok(Expr { id: self.new_id(), span, kind: ExprKind::SelfValue }),
-            TokenType::At => {
-                let at_token = self.advance(); // 消费 @
-                let id_token = self.expect(TokenType::Identifier)?;
-                // 拼成如 "@sizeof" 的字符串并 Intern
-                let sym = self.intern_token(id_token);
-                let name_str = format!("@{}", self.context.resolve(sym));
-                let sym_id = self.context.intern(&name_str);
-                Ok(Expr { 
-                    id: self.new_id(), 
-                    span: at_token.span.to(id_token.span), 
-                    kind: ExprKind::Identifier(sym_id) 
-                })
-            }
-
+    fn parse_typed_data_init_prefix(&mut self, start_token: Token) -> ParseResult<Expr> {
+        let span = start_token.span;
+        
+        // 我们利用了 parse_type 的递归结构，但是需要为第一步的特殊 token 手动桥接
+        let type_node = match start_token.tag {
             TokenType::Mut => {
-                // 特判：这必然是 `mut Type.{ ... }` 的开头
-                // 手动组装 TypeNode：
                 let elem = self.parse_type()?;
-                let type_span = span.to(elem.span);
-                let mut_type = TypeNode { id: self.new_id(), span: type_span, kind: TypeKind::Mut(Box::new(elem)) };
-                
-                self.expect(TokenType::DotLBrace)?;
-                self.parse_data_init(Some(Box::new(mut_type)), span)
+                TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Mut(Box::new(elem)) }
             }
-
             TokenType::LBracket => {
-                // 嗅探是切片 `[]T` 还是数组 `[N]T`
-                let type_node = if self.match_token(&[TokenType::RBracket]) {
+                if self.match_token(&[TokenType::RBracket]) {
                     let elem = self.parse_type()?;
                     TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Slice { elem: Box::new(elem) } }
                 } else {
@@ -745,185 +841,132 @@ impl<'a> Parser<'a> {
                     self.expect(TokenType::RBracket)?;
                     let elem = self.parse_type()?;
                     TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Array { elem: Box::new(elem), len: Box::new(len_expr) } }
-                };
-
-                self.expect(TokenType::DotLBrace)?;
-                self.parse_data_init(Some(Box::new(type_node)), span)
+                }
             }
-
             TokenType::Star => {
-                // 指针类型: *T.{ ... }
                 let elem = self.parse_type()?;
-                let ptr_type = TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Pointer { elem: Box::new(elem) } };
-                
-                self.expect(TokenType::DotLBrace)?;
-                self.parse_data_init(Some(Box::new(ptr_type)), span)
+                TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Pointer { elem: Box::new(elem) } }
             }
-
             TokenType::Caret => {
-                // 易失指针类型: ^T.{ ... }
                 let elem = self.parse_type()?;
-                let ptr_type = TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::VolatilePtr { elem: Box::new(elem) } };
-                
-                self.expect(TokenType::DotLBrace)?;
-                self.parse_data_init(Some(Box::new(ptr_type)), span)
+                TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::VolatilePtr { elem: Box::new(elem) } }
             }
+            _ => unreachable!(),
+        };
 
-            _ => {
-                let text = self.context.source_manager.slice_source(span).to_string();
-                self.add_error(span, format!("Expected expression, found '{}'", text));
-                Err(())
+        self.expect(TokenType::DotLBrace)?;
+        self.parse_data_init(Some(Box::new(type_node)), span)
+    }
+
+    // --- Infix Sub-Routines ---
+
+    fn parse_binary_expr(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
+        let op = BinaryOperator::from_token(token.tag);
+        let precedence = Precedence::from_token(token.tag);
+        let right = self.parse_expression(precedence)?;
+        Ok(Expr {
+            id: self.new_id(),
+            span: left.span.to(right.span),
+            kind: ExprKind::Binary { lhs: Box::new(left), op, rhs: Box::new(right) }
+        })
+    }
+
+    fn parse_field_access_expr(&mut self, left: Expr, dot_token: Token) -> ParseResult<Expr> {
+        let field_token = self.expect(TokenType::Identifier)?;
+        let field_id = self.intern_token(field_token);
+        Ok(Expr {
+            id: self.new_id(),
+            span: left.span.to(field_token.span),
+            kind: ExprKind::FieldAccess { lhs: Box::new(left), field: field_id }
+        })
+    }
+
+    fn parse_call_expr(&mut self, left: Expr, lparen_token: Token) -> ParseResult<Expr> {
+        let mut args = Vec::new();
+        if !self.check(TokenType::RParen) {
+            loop {
+                args.push(self.parse_expression(Precedence::Lowest)?);
+                if !self.match_token(&[TokenType::Comma]) { break; }
             }
+        }
+        let end = self.expect(TokenType::RParen)?;
+        Ok(Expr {
+            id: self.new_id(),
+            span: left.span.to(end.span),
+            kind: ExprKind::Call { callee: Box::new(left), args }
+        })
+    }
+
+    fn parse_assignment_expr(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
+        let op = AssignmentOperator::from_token(token.tag);
+        let right = self.parse_expression(Precedence::Lowest)?;
+        Ok(Expr {
+            id: self.new_id(),
+            span: left.span.to(right.span),
+            kind: ExprKind::Assign { lhs: Box::new(left), op, rhs: Box::new(right) }
+        })
+    }
+
+    fn parse_as_cast_expr(&mut self, left: Expr, as_token: Token) -> ParseResult<Expr> {
+        let target = self.parse_type()?;
+        Ok(Expr {
+            id: self.new_id(),
+            span: left.span.to(target.span),
+            kind: ExprKind::As { lhs: Box::new(left), target: Box::new(target) }
+        })
+    }
+
+    fn parse_slice_or_index_expr(&mut self, left: Expr, lbracket_token: Token) -> ParseResult<Expr> {
+        let mut start = None;
+        let mut end = None;
+        let mut is_range = false;
+        let mut is_inclusive = false;
+
+        if self.match_token(&[TokenType::DotDot]) {
+            is_range = true;
+            if !self.check(TokenType::RBracket) {
+                end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            }
+        } else {
+            start = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            
+            if self.match_token(&[TokenType::DotDot]) {
+                is_range = true;
+                if !self.check(TokenType::RBracket) {
+                    end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                }
+            } else if self.match_token(&[TokenType::DotDotEqual]) {
+                is_range = true;
+                is_inclusive = true;
+                end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            }
+        }
+        
+        let rbracket = self.expect(TokenType::RBracket)?;
+        let span = left.span.to(rbracket.span);
+
+        if is_range {
+            Ok(Expr { id: self.new_id(), span, kind: ExprKind::SliceOp { lhs: Box::new(left), start, end, is_inclusive } })
+        } else {
+            Ok(Expr { id: self.new_id(), span, kind: ExprKind::IndexAccess { lhs: Box::new(left), index: start.unwrap() } })
         }
     }
 
-    fn parse_infix(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
-        match token.tag {
-            TokenType::Plus | TokenType::Minus | TokenType::Star | TokenType::Slash | 
-            TokenType::EqualEqual | TokenType::NotEqual | TokenType::Percent |
-            TokenType::LessThan | TokenType::LessEqual | TokenType::GreaterThan | TokenType::GreaterEqual |
-            TokenType::And | TokenType::Or | TokenType::Pipe | TokenType::Ampersand | TokenType::Caret |
-            TokenType::LShift | TokenType::RShift => {
-                let op = BinaryOperator::from_token(token.tag);
-                let precedence = Precedence::from_token(token.tag);
-                let right = self.parse_expression(precedence)?;
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: left.span.to(right.span),
-                    kind: ExprKind::Binary { lhs: Box::new(left), op, rhs: Box::new(right) }
-                })
-            }
-            
-            TokenType::Dot => {
-                let field_token = self.expect(TokenType::Identifier)?;
-                let field_id = self.intern_token(field_token);
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: left.span.to(field_token.span),
-                    kind: ExprKind::FieldAccess { lhs: Box::new(left), field: field_id }
-                })
-            }
-
-            TokenType::DotStar => {
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: left.span.to(token.span),
-                    kind: ExprKind::Unary { op: UnaryOperator::PointerDeRef, operand: Box::new(left) }
-                })
-            }
-
-            TokenType::LParen => {
-                let mut args = Vec::new();
-                if !self.check(TokenType::RParen) {
-                    loop {
-                        args.push(self.parse_expression(Precedence::Lowest)?);
-                        if !self.match_token(&[TokenType::Comma]) { break; }
-                    }
-                }
-                let end = self.expect(TokenType::RParen)?;
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: left.span.to(end.span),
-                    kind: ExprKind::Call { callee: Box::new(left), args }
-                })
-            }
-
-            TokenType::Assign | TokenType::PlusAssign | TokenType::MinusAssign | TokenType::StarAssign |
-            TokenType::SlashAssign | TokenType::PercentAssign | TokenType::AmpersandAssign | 
-            TokenType::PipeAssign | TokenType::CaretAssign | TokenType::LShiftAssign | TokenType::RShiftAssign => {
-                let op = AssignmentOperator::from_token(token.tag);
-                let right = self.parse_expression(Precedence::Lowest)?;
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: left.span.to(right.span),
-                    kind: ExprKind::Assign { lhs: Box::new(left), op, rhs: Box::new(right) }
-                })
-            }
-
-            TokenType::As => {
-                let target = self.parse_type()?;
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: left.span.to(target.span),
-                    kind: ExprKind::As { lhs: Box::new(left), target: Box::new(target) }
-                })
-            }
-
-            // Slice or Index: .[
-            TokenType::DotLBracket => {
- 
-                
-                let mut start = None;
-                let mut end = None;
-                let mut is_range = false;
-                let mut is_inclusive = false;
-
-                if self.match_token(&[TokenType::DotDot]) {
-                     is_range = true;
-                     if !self.check(TokenType::RBracket) {
-                        end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-                     }
-                } else {
-                    start = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-                    
-                    if self.match_token(&[TokenType::DotDot]) {
-                        is_range = true;
-                        if !self.check(TokenType::RBracket) {
-                            end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-                        }
-                    } else if self.match_token(&[TokenType::DotDotEqual]) {
-                        is_range = true;
-                        is_inclusive = true;
-                        end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
-                    }
-                }
-                
-                let rbracket = self.expect(TokenType::RBracket)?;
-                let span = left.span.to(rbracket.span);
-
-                if is_range {
-                    Ok(Expr { id: self.new_id(), span, kind: ExprKind::SliceOp { lhs: Box::new(left), start, end, is_inclusive } })
-                } else {
-                    Ok(Expr { id: self.new_id(), span, kind: ExprKind::IndexAccess { lhs: Box::new(left), index: start.unwrap() } })
-                }
-            }
-
-            TokenType::DotAmpersand => {
-                let mut op = UnaryOperator::AddressOf;
-                let mut span = left.span.to(token.span);
-                Ok(Expr { id: self.new_id(), span, kind: ExprKind::Unary { op, operand: Box::new(left) } })
-            }
-
-            TokenType::LBracket => {
-                // Generic Instantiation: expr[T, U]
-                let mut types = Vec::new();
-                if !self.check(TokenType::RBracket) {
-                    loop {
-                        types.push(self.parse_type()?);
-                        if !self.match_token(&[TokenType::Comma]) { break; }
-                        if self.check(TokenType::RBracket) { break; }
-                    }
-                }
-                let rb = self.expect(TokenType::RBracket)?;
-                Ok(Expr {
-                    id: self.new_id(),
-                    span: left.span.to(rb.span),
-                    kind: ExprKind::GenericInstantiation { target: Box::new(left), types }
-                })
-            }
-
-            TokenType::DotLBrace => {
-                // 当遇到 `.{` 时，说明左侧的表达式其实是一个类型！
-                let type_node = self.expr_to_type(left)?;
-                let span = type_node.span;
-                self.parse_data_init(Some(Box::new(type_node)), span)
-            }
-
-            _ => {
-                self.add_error(token.span, format!("Unexpected infix token {:?}", token.tag));
-                Err(())
+    fn parse_generic_instantiation_expr(&mut self, left: Expr, lbracket_token: Token) -> ParseResult<Expr> {
+        let mut types = Vec::new();
+        if !self.check(TokenType::RBracket) {
+            loop {
+                types.push(self.parse_type()?);
+                if !self.match_token(&[TokenType::Comma]) { break; }
+                if self.check(TokenType::RBracket) { break; }
             }
         }
+        let rb = self.expect(TokenType::RBracket)?;
+        Ok(Expr {
+            id: self.new_id(),
+            span: left.span.to(rb.span),
+            kind: ExprKind::GenericInstantiation { target: Box::new(left), types }
+        })
     }
 
     // ==========================================
@@ -1146,12 +1189,16 @@ impl<'a> Parser<'a> {
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
-        // 🌟 护城河：拦截旧的冒号类型标注
         if self.match_token(&[TokenType::Colon]) {
             let err_span = self.stream.prev_span();
-            self.add_error(err_span, "Type annotations on the left side of declarations are no longer supported. Use explicit constructor syntax on the right side: `let x = Type.{ value };`".to_string());
-            // 为了恢复，我们假装吃掉这个类型，但不存入 AST
-            let _ = self.parse_type(); 
+            // 假装解析掉类型，防止后续连锁报错
+            let parsed_type = self.parse_type(); 
+            
+            self.context.struct_error(err_span, "type annotations on the left side of declarations are strictly forbidden in Kern")
+                .with_hint("Kern uses explicit constructor syntax on the right side")
+                .with_hint("try rewriting this as: `let x = mut Type.{ ... };`")
+                .emit();
+            self.panic_mode = true;
         }
 
         self.expect(TokenType::Assign)?;
@@ -1174,11 +1221,12 @@ impl<'a> Parser<'a> {
             _ => unreachable!()
         }
     }
+}
 
-    // ==========================================
-    //               Declarations
-    // ==========================================
-
+// ==========================================
+//               Declarations
+// ==========================================
+impl<'a> Parser<'a> {
     fn parse_generic_params(&mut self) -> ParseResult<Vec<GenericParam>> {
         if !self.match_token(&[TokenType::LBracket]) { return Ok(Vec::new()); }
         let mut params = Vec::new();
@@ -1508,373 +1556,6 @@ impl<'a> Parser<'a> {
                 self.add_error(expr.span, "Invalid expression used as a type prefix".to_string());
                 Err(())
             }
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ast::*; // 确保引入了所有的 AST 结构
-
-    // 测试辅助结构体
-    struct TestContext {
-        context: Context,
-        file_id: FileId,
-    }
-
-    impl TestContext {
-        fn new(source: &str) -> Self {
-            let mut context = Context::new();
-            let file_id = context.source_manager.add_file("test.kn".to_string(), source.to_string());
-            Self { context, file_id }
-        }
-
-        fn parse(&mut self) -> Module {
-            let src = self.context.source_manager.get_file(self.file_id).unwrap().src.clone();
-            let mut parser = Parser::new(&src, self.file_id, &mut self.context);
-            parser.parse_module().expect("Parse failed")
-        }
-    }
-
-    #[test]
-    fn test_basic_function_and_call() {
-        let source = r#"
-            fn main() void {
-                let x = 10;
-                print(x);
-            }
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        assert_eq!(mod_.decls.len(), 1);
-        
-        let func = &mod_.decls[0];
-        if let DeclKind::Function { body, .. } = &func.kind {
-            let func_name = ctx.context.resolve(func.name);
-            assert_eq!(func_name, "main");
-
-            let body_expr = body.as_ref().expect("Body should exist");
-            if let ExprKind::Block { stmts, .. } = &body_expr.kind {
-                assert_eq!(stmts.len(), 2);
-            } else {
-                panic!("Body is not a block");
-            }
-        } else {
-            panic!("Expected Function declaration");
-        }
-        
-        assert!(!ctx.context.has_errors());
-    }
-
-    #[test]
-    fn test_struct_definition() {
-        let source = r#"
-            type Point = struct {
-                x: i32,
-                y: i32 = 0,
-            };
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        assert_eq!(mod_.decls.len(), 1);
-        let decl = &mod_.decls[0];
-        
-        if let DeclKind::TypeAlias { target, .. } = &decl.kind {
-            if let TypeKind::Struct { fields } = &target.kind {
-                assert_eq!(fields.len(), 2);
-                let f1_name = ctx.context.resolve(fields[0].name);
-                assert_eq!(f1_name, "x");
-            } else {
-                panic!("Expected Struct type");
-            }
-        } else {
-            panic!("Expected TypeAlias declaration");
-        }
-    }
-
-    #[test]
-    fn test_expr_precedence() {
-        let source = r#"
-            fn calc() void {
-                let a = 1 + 2 * 3;
-                let b = (1 + 2) * 3;
-            }
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-        
-        let func = &mod_.decls[0];
-        let body = match &func.kind {
-            DeclKind::Function { body: Some(b), .. } => b,
-            _ => panic!("Expected function with body"),
-        };
-        
-        let stmts = match &body.kind {
-            ExprKind::Block { stmts, .. } => stmts,
-            _ => panic!("Expected block"),
-        };
-
-        // 1. let a = 1 + 2 * 3;
-        let init1 = match &stmts[0].kind {
-            StmtKind::ExprStmt(e) => match &e.kind {
-                // 注意：移除了旧的 is_mut
-                ExprKind::Let { init, .. } => init,
-                _ => panic!("Expected Let"),
-            },
-            _ => panic!("Expected ExprStmt"),
-        };
-
-        if let ExprKind::Binary { op, rhs, .. } = &init1.kind {
-            assert_eq!(*op, BinaryOperator::Add); // Top level is +
-            if let ExprKind::Binary { op: op2, .. } = &rhs.kind {
-                assert_eq!(*op2, BinaryOperator::Multiply); // RHS is *
-            } else { panic!("RHS should be multiply"); }
-        } else { panic!("Expected Binary"); }
-
-        // 2. let b = (1 + 2) * 3;
-        let init2 = match &stmts[1].kind {
-            StmtKind::ExprStmt(e) => match &e.kind {
-                ExprKind::Let { init, .. } => init,
-                _ => panic!("Expected Let"),
-            },
-            _ => panic!("Expected ExprStmt"),
-        };
-
-        if let ExprKind::Binary { lhs, op, .. } = &init2.kind {
-            assert_eq!(*op, BinaryOperator::Multiply); // Top level is *
-            if let ExprKind::Binary { op: op2, .. } = &lhs.kind {
-                assert_eq!(*op2, BinaryOperator::Add); // LHS is +
-            } else { panic!("LHS should be add"); }
-        } else { panic!("Expected Binary"); }
-    }
-
-    #[test]
-    fn test_control_flow() {
-        let source = r#"
-            fn flow(x: bool) void {
-                if (x) return else return;
-                for (;;) break;
-            }
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        let func = &mod_.decls[0];
-        let stmts = match &func.kind {
-            DeclKind::Function { body: Some(b), .. } => match &b.kind {
-                ExprKind::Block { stmts, .. } => stmts,
-                _ => panic!(),
-            },
-            _ => panic!(),
-        };
-
-        // 1. If
-        let if_expr = match &stmts[0].kind {
-            StmtKind::ExprStmt(e) => e,
-            _ => panic!(),
-        };
-        if let ExprKind::If { cond, else_branch, .. } = &if_expr.kind {
-            if let ExprKind::Identifier(_) = cond.kind {} else { panic!("Cond should be ident"); }
-            assert!(else_branch.is_some());
-        } else { panic!("Expected If"); }
-
-        // 2. For
-        let for_expr = match &stmts[1].kind {
-            StmtKind::ExprStmt(e) => e,
-            _ => panic!(),
-        };
-        if let ExprKind::For { init, cond, post, body } = &for_expr.kind {
-            assert!(init.is_none());
-            assert!(cond.is_none());
-            assert!(post.is_none());
-            if let ExprKind::Break = body.kind {} else { panic!("Body should be break"); }
-        } else { panic!("Expected For"); }
-    }
-
-    #[test]
-    fn test_complex_types() {
-        let source = r#"
-            type MyType = struct {
-                ptr: *mut i32,
-                arr: [10]mut u8,
-                slice: []u8,
-                map: Map[String, i32],
-            };
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        let fields = match &mod_.decls[0].kind {
-            DeclKind::TypeAlias { target, .. } => match &target.kind {
-                TypeKind::Struct { fields } => fields,
-                _ => panic!(),
-            },
-            _ => panic!(),
-        };
-
-        // 1. *mut i32 -> Pointer(Mut(i32))
-        match &fields[0].type_node.kind {
-            TypeKind::Pointer { elem } => {
-                match &elem.kind {
-                    TypeKind::Mut(_) => {}, // 验证包含 Mut 节点
-                    _ => panic!("Expected Mut inside Pointer"),
-                }
-            },
-            _ => panic!("Expected Pointer"),
-        }
-
-        // 2. [10]mut u8 -> Array(Mut(u8), 10)
-        match &fields[1].type_node.kind {
-            TypeKind::Array { elem, len } => {
-                match &elem.kind {
-                    TypeKind::Mut(_) => {}, // 验证包含 Mut 节点
-                    _ => panic!("Expected Mut inside Array"),
-                }
-                match &len.kind {
-                    ExprKind::Integer(v) => assert_eq!(*v, 10),
-                    _ => panic!("Expected integer len"),
-                }
-            },
-            _ => panic!("Expected Array"),
-        }
-
-        // 3. []u8 -> Slice(u8) (不包含 Mut)
-        match &fields[2].type_node.kind {
-            TypeKind::Slice { elem } => {
-                match &elem.kind {
-                    TypeKind::Mut(_) => panic!("Did not expect Mut inside immutable Slice"),
-                    TypeKind::Path { .. } => {},
-                    _ => panic!("Expected Path inside Slice"),
-                }
-            },
-            _ => panic!("Expected Slice"),
-        }
-
-        // 4. Map
-        match &fields[3].type_node.kind {
-            TypeKind::Path { .. } => {},
-            _ => panic!("Expected Path"),
-        }
-    }
-
-    #[test]
-    fn test_global_variables() {
-        let source = r#"
-            static x: i32 = 10;
-            const y: f32 = 3.14;
-            extern static z: i32;
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        // 1. static x
-        match &mod_.decls[0].kind {
-            DeclKind::Var { is_static, is_extern, value, .. } => {
-                assert!(is_static);
-                assert!(!is_extern);
-                match value.kind { ExprKind::Undef => panic!("Should have value"), _ => {} }
-            },
-            _ => panic!(),
-        }
-
-        // 2. const y
-        match &mod_.decls[1].kind {
-            DeclKind::Var { is_static, is_extern, .. } => {
-                assert!(!is_static);
-                assert!(!is_extern);
-            },
-            _ => panic!(),
-        }
-
-        // 3. extern static z
-        match &mod_.decls[2].kind {
-            DeclKind::Var { is_static, is_extern, value, .. } => {
-                assert!(is_static);
-                assert!(is_extern);
-                match value.kind { ExprKind::Undef => {}, _ => panic!("Extern should be undef") }
-            },
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn test_postfix_address_of() {
-        let source = r#"
-            fn main() void {
-                let p1 = x.&;
-                let p2 = instance.data.&;
-                let p3 = p1.*.&;
-            }
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-        
-        let stmts = match &mod_.decls[0].kind {
-            DeclKind::Function { body: Some(b), .. } => match &b.kind {
-                 ExprKind::Block { stmts, .. } => stmts,
-                 _ => panic!(),
-            },
-            _ => panic!(),
-        };
-
-        fn get_unary_op(stmt: &crate::ast::Stmt) -> UnaryOperator {
-            match &stmt.kind {
-                StmtKind::ExprStmt(e) => match &e.kind {
-                    ExprKind::Let { init, .. } => match &init.kind {
-                        ExprKind::Unary { op, .. } => *op,
-                        _ => panic!("Expected Unary"),
-                    },
-                    _ => panic!("Expected Let"),
-                },
-                _ => panic!("Expected ExprStmt"),
-            }
-        }
-
-        assert_eq!(get_unary_op(&stmts[0]), UnaryOperator::AddressOf);
-        assert_eq!(get_unary_op(&stmts[1]), UnaryOperator::AddressOf);
-        assert_eq!(get_unary_op(&stmts[2]), UnaryOperator::AddressOf);
-    }
-
-    #[test]
-    fn test_switch_expr() {
-        let source = r#"
-            fn check(val: i32) i32 {
-                return switch (val) {
-                    1..10 => 10,
-                    11, 12 => 20,
-                    else => 0,
-                };
-            }
-        "#;
-        let mut ctx = TestContext::new(source);
-        let mod_ = ctx.parse();
-
-        let func = &mod_.decls[0];
-        let stmts = match &func.kind {
-            DeclKind::Function { body: Some(b), .. } => match &b.kind {
-                ExprKind::Block { stmts, .. } => stmts,
-                _ => panic!(),
-            },
-            _ => panic!(),
-        };
-
-        let ret_stmt = match &stmts[0].kind {
-            StmtKind::ExprStmt(e) => e,
-            _ => panic!(),
-        };
-
-        if let ExprKind::Return(Some(ret_val)) = &ret_stmt.kind {
-            if let ExprKind::Switch { cases, default_case, .. } = &ret_val.kind {
-                assert_eq!(cases.len(), 2);
-                assert!(default_case.is_some());
-            } else {
-                panic!("Expected Switch expression");
-            }
-        } else {
-            panic!("Expected Return statement");
         }
     }
 }

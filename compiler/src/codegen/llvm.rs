@@ -98,7 +98,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             let func_val = self.functions.get(&mono_id).unwrap();
                             ptr_vals.push(func_val.as_global_value().as_pointer_value());
                         } else {
-                            // TODO: 
                             // 如果不是函数引用，塞入 Null 指针
                             ptr_vals.push(self.context.ptr_type(AddressSpace::default()).const_null());
                         }
@@ -311,493 +310,522 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         None
     }
 
-    fn compile_expr(&mut self, expr: &MastExpr) -> inkwell::values::BasicValueEnum<'ctx> {
+    // ==========================================
+    //          Expression Compilation
+    // ==========================================
+
+    fn compile_expr(&mut self, expr: &MastExpr) -> BasicValueEnum<'ctx> {
         let expected_llvm_ty = self.get_llvm_type(expr.ty);
 
         match &expr.kind {
+            // === 1. 字面量与常量 ===
             MastExprKind::Undef => expected_llvm_ty.const_zero(),
             MastExprKind::Integer(val) => expected_llvm_ty.into_int_type().const_int(*val as u64, false).into(),
             MastExprKind::Float(val) => expected_llvm_ty.into_float_type().const_float(*val).into(),
             MastExprKind::Bool(val) => self.context.bool_type().const_int(if *val { 1 } else { 0 }, false).into(),
             MastExprKind::StringLiteral(_) => unreachable!("Handled dynamically in Globals"),
 
-            MastExprKind::Var(name) => {
-                let ptr = self.locals.get(name).expect("Local variable not found");
-                self.builder.build_load(expected_llvm_ty, *ptr, &format!("load_{}", name.0)).unwrap()
-            }
-            MastExprKind::GlobalRef(mono_id) => {
-                let global_val = self.globals.get(mono_id).expect("Global not found");
-                let ptr = global_val.as_pointer_value();
-                self.builder.build_load(expected_llvm_ty, ptr, "global_load").unwrap()
-            }
-            MastExprKind::FuncRef(mono_id) => {
-                let func_val = self.functions.get(mono_id).expect("Function not found");
-                func_val.as_global_value().as_pointer_value().into()
-            }
+            // === 2. 引用与解引用 ===
+            MastExprKind::Var(name) => self.compile_var_ref(*name, expected_llvm_ty),
+            MastExprKind::GlobalRef(mono_id) => self.compile_global_ref(*mono_id, expected_llvm_ty),
+            MastExprKind::FuncRef(mono_id) => self.compile_func_ref(*mono_id),
             MastExprKind::AddressOf(operand) => self.compile_lvalue(operand).into(),
-            MastExprKind::Deref(operand) => {
-                let ptr_val = self.compile_expr(operand).into_pointer_value();
-                self.builder.build_load(expected_llvm_ty, ptr_val, "deref").unwrap()
-            }
+            MastExprKind::Deref(operand) => self.compile_deref(operand, expected_llvm_ty),
 
-            MastExprKind::StructInit { struct_id, fields } => {
-                let struct_llvm_ty = self.structs.get(struct_id).unwrap();
-                let mut current_struct = struct_llvm_ty.as_basic_type_enum().into_struct_type().const_zero();
-                
-                for (idx, field_expr) in fields.iter().enumerate() {
-                    let field_val = self.compile_expr(field_expr);
-                    current_struct = self.builder.build_insert_value(current_struct, field_val, idx as u32, "s_init").unwrap().into_struct_value();
-                }
-                current_struct.into()
-            }
+            // === 3. 聚合数据 (Struct/Union/Array) 构造与访问 ===
+            MastExprKind::StructInit { struct_id, fields } => self.compile_struct_init(*struct_id, fields),
+            MastExprKind::UnionInit { union_id, value, .. } => self.compile_union_init(*union_id, value),
+            MastExprKind::ArrayInit(elems) => self.compile_array_init(elems, expected_llvm_ty),
+            MastExprKind::FieldAccess { lhs, struct_id, field_idx } => self.compile_field_access(lhs, *struct_id, *field_idx, expected_llvm_ty),
+            MastExprKind::IndexAccess { lhs, index } => self.compile_index_access(lhs, index, expected_llvm_ty, expr.ty),
+
+            // === 4. 运算与赋值 ===
+            MastExprKind::Call { callee, args } => self.compile_call(callee, args, expr.ty),
+            MastExprKind::Binary { op, lhs, rhs } => self.compile_binary(*op, lhs, rhs),
+            MastExprKind::Unary { op, operand } => self.compile_unary(*op, operand),
+            MastExprKind::Assign { op, lhs, rhs } => self.compile_assign(*op, lhs, rhs),
+
+            // === 5. 控制流与块级作用域 ===
+            MastExprKind::If { cond, then_branch, else_branch } => self.compile_if(cond, then_branch, else_branch.as_ref(), expr.ty, expected_llvm_ty),
+            MastExprKind::Loop(body) => self.compile_loop(body),
+            MastExprKind::Break => self.compile_break(),
+            MastExprKind::Continue => self.compile_continue(),
+            MastExprKind::Switch { target, cases, default_case } => self.compile_switch(target, cases, default_case.as_ref(), expr.ty, expected_llvm_ty),
+            MastExprKind::Block(block) => self.compile_block_expr(block),
+            MastExprKind::Return(ret_val) => self.compile_return(ret_val.as_deref()),
+
+            // === 6. 类型转换与胖指针底层操作 ===
+            MastExprKind::Cast { kind, operand } => self.compile_cast(*kind, operand, expected_llvm_ty),
+            MastExprKind::ConstructFatPointer { data_ptr, meta } => self.compile_construct_fat_ptr(data_ptr, meta),
+            MastExprKind::ExtractFatPtrData(fat_ptr_expr) => self.compile_extract_fat_ptr(fat_ptr_expr, 0, "extract_data"),
+            MastExprKind::ExtractFatPtrMeta(fat_ptr_expr) => self.compile_extract_fat_ptr(fat_ptr_expr, 1, "extract_meta"),
+        }
+    }
+
+    // ==========================================
+    //          LLVM Generation Helpers
+    // ==========================================
+
+    fn compile_var_ref(&self, name: crate::utils::SymbolId, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let ptr = self.locals.get(&name).expect("Local variable not found");
+        self.builder.build_load(expected_ty, *ptr, &format!("load_{}", name.0)).unwrap()
+    }
+
+    fn compile_global_ref(&self, mono_id: MonoId, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let global_val = self.globals.get(&mono_id).expect("Global not found");
+        let ptr = global_val.as_pointer_value();
+        self.builder.build_load(expected_ty, ptr, "global_load").unwrap()
+    }
+
+    fn compile_func_ref(&self, mono_id: MonoId) -> BasicValueEnum<'ctx> {
+        let func_val = self.functions.get(&mono_id).expect("Function not found");
+        func_val.as_global_value().as_pointer_value().into()
+    }
+
+    fn compile_deref(&mut self, operand: &MastExpr, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let ptr_val = self.compile_expr(operand).into_pointer_value();
+        self.builder.build_load(expected_ty, ptr_val, "deref").unwrap()
+    }
+
+    fn compile_struct_init(&mut self, struct_id: MonoId, fields: &[MastExpr]) -> BasicValueEnum<'ctx> {
+        let struct_llvm_ty = self.structs.get(&struct_id).unwrap();
+        let mut current_struct = struct_llvm_ty.as_basic_type_enum().into_struct_type().const_zero();
+        
+        for (idx, field_expr) in fields.iter().enumerate() {
+            let field_val = self.compile_expr(field_expr);
+            current_struct = self.builder.build_insert_value(current_struct, field_val, idx as u32, "s_init").unwrap().into_struct_value();
+        }
+        current_struct.into()
+    }
+
+    fn compile_union_init(&mut self, union_id: MonoId, value: &MastExpr) -> BasicValueEnum<'ctx> {
+        let union_llvm_ty = *self.structs.get(&union_id).unwrap();
+        let alloca = self.builder.build_alloca(union_llvm_ty, "union_init").unwrap();
+        
+        let val = self.compile_expr(value);
+        self.builder.build_store(alloca, val).unwrap();
+        self.builder.build_load(union_llvm_ty.as_basic_type_enum(), alloca, "union_load").unwrap()
+    }
+
+    fn compile_array_init(&mut self, elems: &[MastExpr], expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let array_llvm_ty = expected_ty.into_array_type();
+        let mut current_array = array_llvm_ty.const_zero();
+        for (idx, elem_expr) in elems.iter().enumerate() {
+            let elem_val = self.compile_expr(elem_expr);
+            current_array = self.builder.build_insert_value(current_array, elem_val, idx as u32, "arr_init").unwrap().into_array_value();
+        }
+        current_array.into()
+    }
+
+    fn compile_field_access(&mut self, lhs: &MastExpr, struct_id: MonoId, field_idx: usize, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let struct_ptr = self.compile_lvalue(lhs);
+        let struct_llvm_ty = self.structs.get(&struct_id).unwrap();
+        let field_ptr = self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, field_idx as u32, "field_gep").unwrap();
+        self.builder.build_load(expected_ty, field_ptr, "field_load").unwrap()
+    }
+
+    fn compile_index_access(&mut self, lhs: &MastExpr, index: &MastExpr, expected_ty: BasicTypeEnum<'ctx>, expr_ty: TypeId) -> BasicValueEnum<'ctx> {
+        let idx_val = self.compile_expr(index).into_int_value();
+        let norm_lhs = self.type_registry.normalize(lhs.ty);
+        
+        let elem_ptr = if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
+            let slice_val = self.compile_expr(lhs).into_struct_value();
+            let ptr_val = self.builder.build_extract_value(slice_val, 0, "slice_ptr").unwrap().into_pointer_value();
+            let elem_ty = self.get_llvm_type(expr_ty);
+            unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_idx").unwrap() }
+        } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
+            let ptr_val = self.compile_expr(lhs).into_pointer_value();
+            let elem_ty = self.get_llvm_type(expr_ty);
+            unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_idx").unwrap() }
+        } else {
+            let array_ptr = self.compile_lvalue(lhs);
+            let zero = self.context.i64_type().const_zero();
+            let array_llvm_ty = self.get_llvm_type(lhs.ty);
+            unsafe { self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_idx").unwrap() }
+        };
+        
+        self.builder.build_load(expected_ty, elem_ptr, "idx_load").unwrap()
+    }
+
+    fn compile_call(&mut self, callee: &MastExpr, args: &[MastExpr], expr_ty: TypeId) -> BasicValueEnum<'ctx> {
+        let mut llvm_args = Vec::new();
+        for arg in args {
+            llvm_args.push(self.compile_expr(arg).into());
+        }
+
+        let call_site = if let MastExprKind::FuncRef(mono_id) = callee.kind {
+            let llvm_func = self.functions.get(&mono_id).unwrap();
+            self.builder.build_call(*llvm_func, &llvm_args, "call_ret").unwrap()
+        } else {
+            let ptr_val = self.compile_expr(callee).into_pointer_value();
+            let norm_ty = self.type_registry.normalize(callee.ty);
             
-            MastExprKind::UnionInit { union_id, field_idx: _, value } => {
-                // 加上 .copied() (或者解引用 *)，立刻释放对 self.structs 的不可变借用
-                let union_llvm_ty = *self.structs.get(union_id).unwrap();
-                
-                // 分配内存 (此时 self 可以被可变借用了)
-                let alloca = self.builder.build_alloca(union_llvm_ty, "union_init").unwrap();
-                let val = self.compile_expr(value);
-                
-                self.builder.build_store(alloca, val).unwrap();
-                
-                self.builder.build_load(union_llvm_ty.as_basic_type_enum(), alloca, "union_load").unwrap()
-            }
-
-            MastExprKind::ArrayInit(elems) => {
-                let array_llvm_ty = expected_llvm_ty.into_array_type();
-                let mut current_array = array_llvm_ty.const_zero();
-                for (idx, elem_expr) in elems.iter().enumerate() {
-                    let elem_val = self.compile_expr(elem_expr);
-                    current_array = self.builder.build_insert_value(current_array, elem_val, idx as u32, "arr_init").unwrap().into_array_value();
-                }
-                current_array.into()
-            }
-
-            MastExprKind::FieldAccess { lhs, struct_id, field_idx } => {
-                let struct_ptr = self.compile_lvalue(lhs);
-                let struct_llvm_ty = self.structs.get(struct_id).unwrap();
-                let field_ptr = self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, *field_idx as u32, "field_gep").unwrap();
-                self.builder.build_load(expected_llvm_ty, field_ptr, "field_load").unwrap()
-            }
-
-            MastExprKind::IndexAccess { lhs, index } => {
-                let idx_val = self.compile_expr(index).into_int_value();
-                let norm_lhs = self.type_registry.normalize(lhs.ty);
-                
-                let elem_ptr = if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
-                    let slice_val = self.compile_expr(lhs).into_struct_value();
-                    let ptr_val = self.builder.build_extract_value(slice_val, 0, "slice_ptr").unwrap().into_pointer_value();
-                    let elem_ty = self.get_llvm_type(expr.ty);
-                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_idx").unwrap() }
-                } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
-                    let ptr_val = self.compile_expr(lhs).into_pointer_value();
-                    let elem_ty = self.get_llvm_type(expr.ty);
-                    // 指针的 GEP 只需要一个索引参数 `[idx_val]`
-                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_idx").unwrap() }
+            let fn_type = if let TypeKind::Function { params, ret, is_variadic } = self.type_registry.get(norm_ty) {
+                let mut param_types = Vec::new();
+                for p in params { param_types.push(self.get_llvm_type(*p).into()); }
+                if *ret == TypeId::VOID {
+                    self.context.void_type().fn_type(&param_types, *is_variadic)
                 } else {
-                    let array_ptr = self.compile_lvalue(lhs);
-                    let zero = self.context.i64_type().const_zero();
-                    let array_llvm_ty = self.get_llvm_type(lhs.ty);
-                    // 数组的 GEP 需要两个索引参数 `[0, idx_val]`
-                    unsafe { self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_idx").unwrap() }
-                };
-                
-                // IndexAccess 本身自带 Load
-                self.builder.build_load(expected_llvm_ty, elem_ptr, "idx_load").unwrap()
-            }
-
-            MastExprKind::Call { callee, args } => {
-                let mut llvm_args = Vec::new();
-                for arg in args {
-                    llvm_args.push(self.compile_expr(arg).into());
-                }
-
-                let call_site = if let MastExprKind::FuncRef(mono_id) = callee.kind {
-                    let llvm_func = self.functions.get(&mono_id).unwrap();
-                    self.builder.build_call(*llvm_func, &llvm_args, "call_ret").unwrap()
-                } else {
-                    let ptr_val = self.compile_expr(callee).into_pointer_value();
-                    let norm_ty = self.type_registry.normalize(callee.ty);
-                    
-                    let fn_type = if let TypeKind::Function { params, ret, is_variadic } = self.type_registry.get(norm_ty) {
-                        let mut param_types = Vec::new();
-                        for p in params { param_types.push(self.get_llvm_type(*p).into()); }
-                        if *ret == TypeId::VOID {
-                            self.context.void_type().fn_type(&param_types, *is_variadic)
-                        } else {
-                            let ret_t = self.get_llvm_type(*ret);
-                            match ret_t {
-                                BasicTypeEnum::IntType(i) => i.fn_type(&param_types, *is_variadic),
-                                BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, *is_variadic),
-                                BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, *is_variadic),
-                                BasicTypeEnum::StructType(s) => s.fn_type(&param_types, *is_variadic),
-                                BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, *is_variadic),
-                                _ => unreachable!(),
-                            }
-                        }
-                    } else { unreachable!() };
-                    
-                    self.builder.build_indirect_call(fn_type, ptr_val, &llvm_args, "icall").unwrap()
-                };
-                
-                if expr.ty == TypeId::VOID || expr.ty == TypeId::ERROR {
-                    self.context.i8_type().const_zero().into() 
-                } else {
-                    call_site.try_as_basic_value().unwrap_basic() 
-                }
-            }
-
-            MastExprKind::Binary { op, lhs, rhs } => {
-                let l_val = self.compile_expr(lhs);
-                let r_val = self.compile_expr(rhs);
-                
-                if l_val.is_int_value() && r_val.is_int_value() {
-                    let l_int = l_val.into_int_value();
-                    let r_int = r_val.into_int_value();
-                    match op {
-                        crate::ast::BinaryOperator::Add => self.builder.build_int_add(l_int, r_int, "add").unwrap().into(),
-                        crate::ast::BinaryOperator::Subtract => self.builder.build_int_sub(l_int, r_int, "sub").unwrap().into(),
-                        crate::ast::BinaryOperator::Multiply => self.builder.build_int_mul(l_int, r_int, "mul").unwrap().into(),
-                        crate::ast::BinaryOperator::Divide => self.builder.build_int_signed_div(l_int, r_int, "sdiv").unwrap().into(),
-                        crate::ast::BinaryOperator::Modulo => self.builder.build_int_signed_rem(l_int, r_int, "srem").unwrap().into(),
-                        crate::ast::BinaryOperator::BitwiseAnd => self.builder.build_and(l_int, r_int, "and").unwrap().into(),
-                        crate::ast::BinaryOperator::BitwiseOr => self.builder.build_or(l_int, r_int, "or").unwrap().into(),
-                        crate::ast::BinaryOperator::BitwiseXor => self.builder.build_xor(l_int, r_int, "xor").unwrap().into(),
-                        crate::ast::BinaryOperator::ShiftLeft => self.builder.build_left_shift(l_int, r_int, "shl").unwrap().into(),
-                        crate::ast::BinaryOperator::ShiftRight => self.builder.build_right_shift(l_int, r_int, false, "shr").unwrap().into(),
-                        crate::ast::BinaryOperator::Equal => self.builder.build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "eq").unwrap().into(),
-                        crate::ast::BinaryOperator::NotEqual => self.builder.build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ne").unwrap().into(),
-                        crate::ast::BinaryOperator::LessThan => self.builder.build_int_compare(inkwell::IntPredicate::SLT, l_int, r_int, "slt").unwrap().into(),
-                        crate::ast::BinaryOperator::LessOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SLE, l_int, r_int, "sle").unwrap().into(),
-                        crate::ast::BinaryOperator::GreaterThan => self.builder.build_int_compare(inkwell::IntPredicate::SGT, l_int, r_int, "sgt").unwrap().into(),
-                        crate::ast::BinaryOperator::GreaterOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SGE, l_int, r_int, "sge").unwrap().into(),
-                        _ => unreachable!("Operator handled elsewhere"),
-                    }
-                } else if l_val.is_float_value() && r_val.is_float_value() {
-                    let l_float = l_val.into_float_value();
-                    let r_float = r_val.into_float_value();
-                    match op {
-                        crate::ast::BinaryOperator::Add => self.builder.build_float_add(l_float, r_float, "fadd").unwrap().into(),
-                        crate::ast::BinaryOperator::Subtract => self.builder.build_float_sub(l_float, r_float, "fsub").unwrap().into(),
-                        crate::ast::BinaryOperator::Multiply => self.builder.build_float_mul(l_float, r_float, "fmul").unwrap().into(),
-                        crate::ast::BinaryOperator::Divide => self.builder.build_float_div(l_float, r_float, "fdiv").unwrap().into(),
-                        crate::ast::BinaryOperator::Modulo => self.builder.build_float_rem(l_float, r_float, "frem").unwrap().into(),
-                        crate::ast::BinaryOperator::Equal => self.builder.build_float_compare(inkwell::FloatPredicate::OEQ, l_float, r_float, "feq").unwrap().into(),
-                        crate::ast::BinaryOperator::NotEqual => self.builder.build_float_compare(inkwell::FloatPredicate::ONE, l_float, r_float, "fne").unwrap().into(),
-                        crate::ast::BinaryOperator::LessThan => self.builder.build_float_compare(inkwell::FloatPredicate::OLT, l_float, r_float, "flt").unwrap().into(),
-                        crate::ast::BinaryOperator::LessOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle").unwrap().into(),
-                        crate::ast::BinaryOperator::GreaterThan => self.builder.build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt").unwrap().into(),
-                        crate::ast::BinaryOperator::GreaterOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge").unwrap().into(),
+                    match self.get_llvm_type(*ret) {
+                        BasicTypeEnum::IntType(i) => i.fn_type(&param_types, *is_variadic),
+                        BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, *is_variadic),
+                        BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, *is_variadic),
+                        BasicTypeEnum::StructType(s) => s.fn_type(&param_types, *is_variadic),
+                        BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, *is_variadic),
                         _ => unreachable!(),
                     }
-                } else { unreachable!() }
-            }
+                }
+            } else { unreachable!() };
+            
+            self.builder.build_indirect_call(fn_type, ptr_val, &llvm_args, "icall").unwrap()
+        };
+        
+        if expr_ty == TypeId::VOID || expr_ty == TypeId::ERROR {
+            self.context.i8_type().const_zero().into() 
+        } else {
+            call_site.try_as_basic_value().unwrap_basic() 
+        }
+    }
 
-            MastExprKind::Unary { op, operand } => {
-                let op_val = self.compile_expr(operand);
+    // --- 运算与赋值 ---
+    fn compile_binary(&mut self, op: crate::ast::BinaryOperator, lhs: &MastExpr, rhs: &MastExpr) -> BasicValueEnum<'ctx> {
+        let l_val = self.compile_expr(lhs);
+        let r_val = self.compile_expr(rhs);
+        
+        if l_val.is_int_value() && r_val.is_int_value() {
+            let l_int = l_val.into_int_value();
+            let r_int = r_val.into_int_value();
+            use crate::ast::BinaryOperator::*;
+            match op {
+                Add => self.builder.build_int_add(l_int, r_int, "add").unwrap().into(),
+                Subtract => self.builder.build_int_sub(l_int, r_int, "sub").unwrap().into(),
+                Multiply => self.builder.build_int_mul(l_int, r_int, "mul").unwrap().into(),
+                Divide => self.builder.build_int_signed_div(l_int, r_int, "sdiv").unwrap().into(),
+                Modulo => self.builder.build_int_signed_rem(l_int, r_int, "srem").unwrap().into(),
+                BitwiseAnd => self.builder.build_and(l_int, r_int, "and").unwrap().into(),
+                BitwiseOr => self.builder.build_or(l_int, r_int, "or").unwrap().into(),
+                BitwiseXor => self.builder.build_xor(l_int, r_int, "xor").unwrap().into(),
+                ShiftLeft => self.builder.build_left_shift(l_int, r_int, "shl").unwrap().into(),
+                ShiftRight => self.builder.build_right_shift(l_int, r_int, false, "shr").unwrap().into(),
+                Equal => self.builder.build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "eq").unwrap().into(),
+                NotEqual => self.builder.build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ne").unwrap().into(),
+                LessThan => self.builder.build_int_compare(inkwell::IntPredicate::SLT, l_int, r_int, "slt").unwrap().into(),
+                LessOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SLE, l_int, r_int, "sle").unwrap().into(),
+                GreaterThan => self.builder.build_int_compare(inkwell::IntPredicate::SGT, l_int, r_int, "sgt").unwrap().into(),
+                GreaterOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SGE, l_int, r_int, "sge").unwrap().into(),
+                _ => unreachable!("Operator handled elsewhere"),
+            }
+        } else if l_val.is_float_value() && r_val.is_float_value() {
+            let l_float = l_val.into_float_value();
+            let r_float = r_val.into_float_value();
+            use crate::ast::BinaryOperator::*;
+            match op {
+                Add => self.builder.build_float_add(l_float, r_float, "fadd").unwrap().into(),
+                Subtract => self.builder.build_float_sub(l_float, r_float, "fsub").unwrap().into(),
+                Multiply => self.builder.build_float_mul(l_float, r_float, "fmul").unwrap().into(),
+                Divide => self.builder.build_float_div(l_float, r_float, "fdiv").unwrap().into(),
+                Modulo => self.builder.build_float_rem(l_float, r_float, "frem").unwrap().into(),
+                Equal => self.builder.build_float_compare(inkwell::FloatPredicate::OEQ, l_float, r_float, "feq").unwrap().into(),
+                NotEqual => self.builder.build_float_compare(inkwell::FloatPredicate::ONE, l_float, r_float, "fne").unwrap().into(),
+                LessThan => self.builder.build_float_compare(inkwell::FloatPredicate::OLT, l_float, r_float, "flt").unwrap().into(),
+                LessOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle").unwrap().into(),
+                GreaterThan => self.builder.build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt").unwrap().into(),
+                GreaterOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge").unwrap().into(),
+                _ => unreachable!(),
+            }
+        } else { unreachable!() }
+    }
+
+    fn compile_unary(&mut self, op: crate::ast::UnaryOperator, operand: &MastExpr) -> BasicValueEnum<'ctx> {
+        let op_val = self.compile_expr(operand);
+        match op {
+            crate::ast::UnaryOperator::Negate => {
+                if op_val.is_int_value() {
+                    self.builder.build_int_neg(op_val.into_int_value(), "neg").unwrap().into()
+                } else {
+                    self.builder.build_float_neg(op_val.into_float_value(), "fneg").unwrap().into()
+                }
+            }
+            crate::ast::UnaryOperator::LogicalNot | crate::ast::UnaryOperator::BitwiseNot => {
+                self.builder.build_not(op_val.into_int_value(), "not").unwrap().into()
+            }
+            crate::ast::UnaryOperator::LengthOf => {
+                // MAST 保证了此时的类型已经是纯物理类型
+                let norm_ty = self.type_registry.normalize(operand.ty);
+                match self.type_registry.get(norm_ty) {
+                    TypeKind::Array { len, .. } => self.context.i64_type().const_int(*len, false).into(),
+                    TypeKind::Slice(_) => self.builder.build_extract_value(op_val.into_struct_value(), 1, "slice_len").unwrap(),
+                    _ => unreachable!()
+                }
+            }
+            _ => unreachable!() 
+        }
+    }
+
+    fn compile_assign(&mut self, op: crate::ast::AssignmentOperator, lhs: &MastExpr, rhs: &MastExpr) -> BasicValueEnum<'ctx> {
+        let ptr = self.compile_lvalue(lhs);
+        let rhs_val = self.compile_expr(rhs);
+        
+        if op == crate::ast::AssignmentOperator::Assign {
+            self.builder.build_store(ptr, rhs_val).unwrap();
+        } else {
+            let expected_lhs_ty = self.get_llvm_type(lhs.ty);
+            let lhs_val = self.builder.build_load(expected_lhs_ty, ptr, "assign_load").unwrap();
+            
+            let new_val: inkwell::values::BasicValueEnum<'ctx> = if lhs_val.is_int_value() {
+                let l_int = lhs_val.into_int_value();
+                let r_int = rhs_val.into_int_value();
+                use crate::ast::AssignmentOperator::*;
                 match op {
-                    crate::ast::UnaryOperator::Negate => {
-                        if op_val.is_int_value() {
-                            self.builder.build_int_neg(op_val.into_int_value(), "neg").unwrap().into()
-                        } else {
-                            self.builder.build_float_neg(op_val.into_float_value(), "fneg").unwrap().into()
-                        }
-                    }
-                    crate::ast::UnaryOperator::LogicalNot | crate::ast::UnaryOperator::BitwiseNot => {
-                        self.builder.build_not(op_val.into_int_value(), "not").unwrap().into()
-                    }
-                    crate::ast::UnaryOperator::LengthOf => {
-                        // 给操作数剥离 Mut
-                        let mut norm_ty = self.type_registry.normalize(operand.ty);
-                        if let TypeKind::Mut(inner) = self.type_registry.get(norm_ty) {
-                            norm_ty = *inner;
-                        }
-                        
-                        match self.type_registry.get(norm_ty) {
-                            TypeKind::Array { len, .. } => self.context.i64_type().const_int(*len, false).into(),
-                            TypeKind::Slice(_) => self.builder.build_extract_value(op_val.into_struct_value(), 1, "slice_len").unwrap(),
-                            _ => unreachable!()
-                        }
-                    }
-                    _ => unreachable!() 
+                    AddAssign => self.builder.build_int_add(l_int, r_int, "add_a").unwrap().into(),
+                    SubtractAssign => self.builder.build_int_sub(l_int, r_int, "sub_a").unwrap().into(),
+                    MultiplyAssign => self.builder.build_int_mul(l_int, r_int, "mul_a").unwrap().into(),
+                    DivideAssign => self.builder.build_int_signed_div(l_int, r_int, "div_a").unwrap().into(),
+                    ModuloAssign => self.builder.build_int_signed_rem(l_int, r_int, "rem_a").unwrap().into(),
+                    BitwiseAndAssign => self.builder.build_and(l_int, r_int, "and_a").unwrap().into(),
+                    BitwiseOrAssign => self.builder.build_or(l_int, r_int, "or_a").unwrap().into(),
+                    BitwiseXorAssign => self.builder.build_xor(l_int, r_int, "xor_a").unwrap().into(),
+                    ShiftLeftAssign => self.builder.build_left_shift(l_int, r_int, "shl_a").unwrap().into(),
+                    ShiftRightAssign => self.builder.build_right_shift(l_int, r_int, false, "shr_a").unwrap().into(),
+                    _ => unreachable!(),
                 }
-            }
+            } else {
+                unreachable!();
+            };
+            self.builder.build_store(ptr, new_val).unwrap();
+        }
+        self.context.i8_type().const_zero().into()
+    }
 
-            MastExprKind::Return(ret_val) => {
-                if let Some(val) = ret_val {
-                    let llvm_val = self.compile_expr(val);
-                    self.builder.build_return(Some(&llvm_val)).unwrap();
-                } else {
-                    self.builder.build_return(None).unwrap();
-                }
-                self.context.i8_type().const_zero().into()
-            }
+    // --- 控制流 (Control Flow) ---
 
-            MastExprKind::Assign { op, lhs, rhs } => {
-                let ptr = self.compile_lvalue(lhs);
-                let rhs_val = self.compile_expr(rhs);
-                
-                if *op == crate::ast::AssignmentOperator::Assign {
-                    self.builder.build_store(ptr, rhs_val).unwrap();
-                } else {
-                    let expected_lhs_ty = self.get_llvm_type(lhs.ty);
-                    let lhs_val = self.builder.build_load(expected_lhs_ty, ptr, "assign_load").unwrap();
-                    
-                    let new_val: inkwell::values::BasicValueEnum<'ctx> = if lhs_val.is_int_value() {
-                        let l_int = lhs_val.into_int_value();
-                        let r_int = rhs_val.into_int_value();
-                        match op {
-                            crate::ast::AssignmentOperator::AddAssign => self.builder.build_int_add(l_int, r_int, "add_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::SubtractAssign => self.builder.build_int_sub(l_int, r_int, "sub_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::MultiplyAssign => self.builder.build_int_mul(l_int, r_int, "mul_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::DivideAssign => self.builder.build_int_signed_div(l_int, r_int, "div_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::ModuloAssign => self.builder.build_int_signed_rem(l_int, r_int, "rem_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::BitwiseAndAssign => self.builder.build_and(l_int, r_int, "and_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::BitwiseOrAssign => self.builder.build_or(l_int, r_int, "or_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::BitwiseXorAssign => self.builder.build_xor(l_int, r_int, "xor_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::ShiftLeftAssign => self.builder.build_left_shift(l_int, r_int, "shl_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::ShiftRightAssign => self.builder.build_right_shift(l_int, r_int, false, "shr_a").unwrap().into(),
-                            _ => unreachable!(),
-                        }
-                    } else {
-                        unreachable!();
-                    };
-                    self.builder.build_store(ptr, new_val).unwrap();
-                }
-                self.context.i8_type().const_zero().into()
-            }
+    fn compile_if(&mut self, cond: &MastExpr, then_branch: &MastBlock, else_branch: Option<&MastBlock>, expr_ty: TypeId, expected_llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let cond_val = self.compile_expr(cond).into_int_value();
+        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
 
-            MastExprKind::If { cond, then_branch, else_branch } => {
-                let cond_val = self.compile_expr(cond).into_int_value();
-                let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let then_bb = self.context.append_basic_block(parent_func, "then");
+        let else_bb = self.context.append_basic_block(parent_func, "else");
+        let merge_bb = self.context.append_basic_block(parent_func, "ifcont");
 
-                let then_bb = self.context.append_basic_block(parent_func, "then");
-                let else_bb = self.context.append_basic_block(parent_func, "else");
-                let merge_bb = self.context.append_basic_block(parent_func, "ifcont");
+        if else_branch.is_some() {
+            self.builder.build_conditional_branch(cond_val, then_bb, else_bb).unwrap();
+        } else {
+            self.builder.build_conditional_branch(cond_val, then_bb, merge_bb).unwrap();
+        }
 
-                if else_branch.is_some() {
-                    self.builder.build_conditional_branch(cond_val, then_bb, else_bb).unwrap();
-                } else {
-                    self.builder.build_conditional_branch(cond_val, then_bb, merge_bb).unwrap();
-                }
+        // 编译 Then 分支
+        self.builder.position_at_end(then_bb);
+        let then_result = self.compile_block(then_branch);
+        let then_exit_bb = self.builder.get_insert_block().unwrap();
+        if then_exit_bb.get_terminator().is_none() {
+            self.builder.build_unconditional_branch(merge_bb).unwrap();
+        }
 
-                self.builder.position_at_end(then_bb);
-                let then_result = self.compile_block(then_branch);
-                let then_exit_bb = self.builder.get_insert_block().unwrap();
-                if then_exit_bb.get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(merge_bb).unwrap();
-                }
+        // 编译 Else 分支
+        self.builder.position_at_end(else_bb);
+        let mut else_result = None;
+        if let Some(eb) = else_branch {
+            else_result = self.compile_block(eb);
+        }
+        let else_exit_bb = self.builder.get_insert_block().unwrap();
+        if else_exit_bb.get_terminator().is_none() {
+            self.builder.build_unconditional_branch(merge_bb).unwrap();
+        }
 
-                self.builder.position_at_end(else_bb);
-                let mut else_result = None;
-                if let Some(eb) = else_branch {
-                    else_result = self.compile_block(eb);
-                }
-                let else_exit_bb = self.builder.get_insert_block().unwrap();
-                if else_exit_bb.get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(merge_bb).unwrap();
-                }
+        // 生成 PHI 节点，合并两个分支的返回值
+        self.builder.position_at_end(merge_bb);
+        if expr_ty != TypeId::VOID && then_result.is_some() && else_result.is_some() {
+            let phi = self.builder.build_phi(expected_llvm_ty, "iftmp").unwrap();
+            phi.add_incoming(&[
+                (&then_result.unwrap(), then_exit_bb),
+                (&else_result.unwrap(), else_exit_bb),
+            ]);
+            phi.as_basic_value()
+        } else {
+            self.context.i8_type().const_zero().into()
+        }
+    }
 
-                self.builder.position_at_end(merge_bb);
-                if expr.ty != TypeId::VOID && then_result.is_some() && else_result.is_some() {
-                    let phi = self.builder.build_phi(expected_llvm_ty, "iftmp").unwrap();
-                    phi.add_incoming(&[
-                        (&then_result.unwrap(), then_exit_bb),
-                        (&else_result.unwrap(), else_exit_bb),
-                    ]);
-                    phi.as_basic_value()
-                } else {
-                    self.context.i8_type().const_zero().into()
-                }
-            }
+    fn compile_loop(&mut self, body: &MastBlock) -> BasicValueEnum<'ctx> {
+        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let loop_bb = self.context.append_basic_block(parent_func, "loop");
+        let merge_bb = self.context.append_basic_block(parent_func, "loopcont");
 
-            MastExprKind::Loop(body) => {
-                let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
-                let loop_bb = self.context.append_basic_block(parent_func, "loop");
-                let merge_bb = self.context.append_basic_block(parent_func, "loopcont");
+        self.builder.build_unconditional_branch(loop_bb).unwrap();
+        self.builder.position_at_end(loop_bb);
+        self.loop_targets.push((loop_bb, merge_bb));
+        
+        self.compile_block(body);
+        
+        let loop_exit_bb = self.builder.get_insert_block().unwrap();
+        if loop_exit_bb.get_terminator().is_none() {
+            self.builder.build_unconditional_branch(loop_bb).unwrap();
+        }
+        
+        self.loop_targets.pop();
+        self.builder.position_at_end(merge_bb);
+        self.context.i8_type().const_zero().into()
+    }
 
-                self.builder.build_unconditional_branch(loop_bb).unwrap();
-                self.builder.position_at_end(loop_bb);
-                self.loop_targets.push((loop_bb, merge_bb));
-                self.compile_block(body);
-                
-                let loop_exit_bb = self.builder.get_insert_block().unwrap();
-                if loop_exit_bb.get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(loop_bb).unwrap();
-                }
-                self.loop_targets.pop();
-                self.builder.position_at_end(merge_bb);
-                self.context.i8_type().const_zero().into()
-            }
-            MastExprKind::Break => {
-                let (_, merge_bb) = self.loop_targets.last().expect("Break outside of loop");
-                self.builder.build_unconditional_branch(*merge_bb).unwrap();
-                self.context.i8_type().const_zero().into()
-            }
-            MastExprKind::Continue => {
-                let (loop_bb, _) = self.loop_targets.last().expect("Continue outside of loop");
-                self.builder.build_unconditional_branch(*loop_bb).unwrap();
-                self.context.i8_type().const_zero().into()
-            }
+    fn compile_break(&mut self) -> BasicValueEnum<'ctx> {
+        let (_, merge_bb) = self.loop_targets.last().expect("Break outside of loop");
+        self.builder.build_unconditional_branch(*merge_bb).unwrap();
+        self.context.i8_type().const_zero().into()
+    }
 
-            MastExprKind::Switch { target, cases, default_case } => {
-                let target_val = self.compile_expr(target).into_int_value();
-                let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+    fn compile_continue(&mut self) -> BasicValueEnum<'ctx> {
+        let (loop_bb, _) = self.loop_targets.last().expect("Continue outside of loop");
+        self.builder.build_unconditional_branch(*loop_bb).unwrap();
+        self.context.i8_type().const_zero().into()
+    }
 
-                let merge_bb = self.context.append_basic_block(parent_func, "switchcont");
-                let default_bb = self.context.append_basic_block(parent_func, "default");
-                let mut case_blocks = Vec::new(); 
-                let mut llvm_cases = Vec::new();
+    fn compile_switch(&mut self, target: &MastExpr, cases: &[MastSwitchCase], default_case: Option<&MastBlock>, expr_ty: TypeId, expected_llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let target_val = self.compile_expr(target).into_int_value();
+        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
 
-                for case in cases {
-                    let case_bb = self.context.append_basic_block(parent_func, "case");
-                    case_blocks.push(case_bb); 
-                    for &val in &case.values {
-                        let int_val = target_val.get_type().const_int(val as u64, false);
-                        llvm_cases.push((int_val, case_bb));
-                    }
-                }
+        let merge_bb = self.context.append_basic_block(parent_func, "switchcont");
+        let default_bb = self.context.append_basic_block(parent_func, "default");
+        let mut case_blocks = Vec::new(); 
+        let mut llvm_cases = Vec::new();
 
-                self.builder.build_switch(target_val, default_bb, &llvm_cases).unwrap();
-
-                // 收集所有分支的返回值和对应的 Block，供 PHI 节点使用
-                let mut incoming = Vec::new(); 
-
-                self.builder.position_at_end(default_bb);
-                if let Some(def_block) = default_case {
-                    if let Some(val) = self.compile_block(def_block) {
-                        incoming.push((val, self.builder.get_insert_block().unwrap()));
-                    }
-                    if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
-                        self.builder.build_unconditional_branch(merge_bb).unwrap();
-                    }
-                } else {
-                    // 前端保证了穷尽性，这里如果走到 default 就是不可达的
-                    self.builder.build_unreachable().unwrap();
-                }
-                if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
-                    self.builder.build_unconditional_branch(merge_bb).unwrap();
-                }
-
-                for (i, case) in cases.iter().enumerate() {
-                    self.builder.position_at_end(case_blocks[i]);
-                    if let Some(val) = self.compile_block(&case.body) {
-                        incoming.push((val, self.builder.get_insert_block().unwrap()));
-                    }
-                    if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
-                        self.builder.build_unconditional_branch(merge_bb).unwrap();
-                    }
-                }
-
-                self.builder.position_at_end(merge_bb);
-                
-                // 生成汇编级的 PHI (多路选择) 节点
-                if expr.ty != TypeId::VOID && !incoming.is_empty() {
-                    let phi = self.builder.build_phi(expected_llvm_ty, "switchtmp").unwrap();
-                    let mut incoming_refs = Vec::new();
-                    for (val, bb) in &incoming {
-                        incoming_refs.push((val as &dyn inkwell::values::BasicValue<'ctx>, *bb));
-                    }
-                    phi.add_incoming(&incoming_refs);
-                    phi.as_basic_value()
-                } else {
-                    self.context.i8_type().const_zero().into()
-                }
-            }
-
-            MastExprKind::Cast { kind, operand } => {
-                let val = self.compile_expr(operand);
-                let target_llvm_ty = expected_llvm_ty;
-
-                match kind {
-                    MastCastKind::Bitcast => {
-                        // TODO:
-                        // 防御性修复：如果前端错误地将 Slice 转 Ptr 标记为了 Bitcast
-                        if val.is_struct_value() && target_llvm_ty.is_pointer_type() {
-                            let fat_ptr = val.into_struct_value();
-                            self.builder.build_extract_value(fat_ptr, 0, "slice_ptr_fallback").unwrap()
-                                .into_pointer_value().into()
-                        } else {
-                            self.builder.build_bit_cast(val, target_llvm_ty, "bitcast").unwrap()
-                        }
-                    }
-                    MastCastKind::PtrToInt => self.builder.build_ptr_to_int(val.into_pointer_value(), target_llvm_ty.into_int_type(), "ptr2int").unwrap().into(),
-                    MastCastKind::IntToPtr => self.builder.build_int_to_ptr(val.into_int_value(), target_llvm_ty.into_pointer_type(), "int2ptr").unwrap().into(),
-                    MastCastKind::ZeroExt => self.builder.build_int_z_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "zext").unwrap().into(),
-                    MastCastKind::SignExt => self.builder.build_int_s_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "sext").unwrap().into(),
-                    MastCastKind::Trunc => self.builder.build_int_truncate(val.into_int_value(), target_llvm_ty.into_int_type(), "trunc").unwrap().into(),
-                    MastCastKind::IntToFloat => self.builder.build_signed_int_to_float(val.into_int_value(), target_llvm_ty.into_float_type(), "i2f").unwrap().into(),
-                    MastCastKind::FloatToInt => self.builder.build_float_to_signed_int(val.into_float_value(), target_llvm_ty.into_int_type(), "f2i").unwrap().into(),
-                    MastCastKind::FloatCast => self.builder.build_float_cast(val.into_float_value(), target_llvm_ty.into_float_type(), "fcast").unwrap().into(),
-                    MastCastKind::ArrayToSlice => {
-                        let slice_ty = target_llvm_ty.into_struct_type();
-                        let mut slice_val = slice_ty.const_zero();
-                        
-                        let array_ptr = self.compile_lvalue(operand);
-                        slice_val = self.builder.build_insert_value(slice_val, array_ptr, 0, "slice_ptr").unwrap().into_struct_value();
-                        
-                        // 剥离 Mut 以获取数组真实长度
-                        let mut base_op_ty = self.type_registry.normalize(operand.ty);
-                        if let TypeKind::Mut(inner) = self.type_registry.get(base_op_ty) {
-                            base_op_ty = *inner;
-                        }
-                        
-                        let len = if let TypeKind::Array { len, .. } = self.type_registry.get(base_op_ty) {
-                            *len
-                        } else { 0 };
-                        
-                        let len_val = self.context.i64_type().const_int(len, false);
-                        slice_val = self.builder.build_insert_value(slice_val, len_val, 1, "slice_len").unwrap().into_struct_value();
-                        
-                        slice_val.into()
-                    }
-                    MastCastKind::SliceToPtr => {
-                        let fat_ptr = val.into_struct_value();
-                        
-                        // 提取第 0 个元素 (即裸指针)
-                        self.builder.build_extract_value(fat_ptr, 0, "slice_ptr").unwrap()
-                            .into_pointer_value().into()
-                    }
-                }
-            }
-
-            MastExprKind::ConstructFatPointer { data_ptr, meta } => {
-                let ptr_ty = self.context.ptr_type(AddressSpace::default());
-                let len_ty = self.context.i64_type();
-                // 显式声明这是一个 { ptr, i64 } 的结构体
-                let fat_ptr_ty = self.context.struct_type(&[ptr_ty.into(), len_ty.into()], false);
-                
-                let mut fat_ptr = fat_ptr_ty.const_zero(); 
-                
-                let data_val = self.compile_expr(data_ptr);
-                fat_ptr = self.builder.build_insert_value(fat_ptr, data_val, 0, "fat_data").unwrap().into_struct_value();
-                
-                let meta_val = self.compile_expr(meta);
-                fat_ptr = self.builder.build_insert_value(fat_ptr, meta_val, 1, "fat_meta").unwrap().into_struct_value();
-                
-                fat_ptr.into()
-            }
-
-            MastExprKind::Block(block) => {
-                if let Some(res) = self.compile_block(block) {
-                    res
-                } else {
-                    self.context.i8_type().const_zero().into()
-                }
-            }
-
-            MastExprKind::ExtractFatPtrData(fat_ptr_expr) => {
-                let fat_ptr_val = self.compile_expr(fat_ptr_expr).into_struct_value();
-                // 提取 0 号索引，即 data_ptr (*void)
-                self.builder.build_extract_value(fat_ptr_val, 0, "extract_data").unwrap()
-            }
-            MastExprKind::ExtractFatPtrMeta(fat_ptr_expr) => {
-                let fat_ptr_val = self.compile_expr(fat_ptr_expr).into_struct_value();
-                // 提取 1 号索引，即 meta (usize)
-                self.builder.build_extract_value(fat_ptr_val, 1, "extract_meta").unwrap()
+        for case in cases {
+            let case_bb = self.context.append_basic_block(parent_func, "case");
+            case_blocks.push(case_bb); 
+            for &val in &case.values {
+                let int_val = target_val.get_type().const_int(val as u64, false);
+                llvm_cases.push((int_val, case_bb));
             }
         }
+
+        self.builder.build_switch(target_val, default_bb, &llvm_cases).unwrap();
+
+        let mut incoming = Vec::new(); 
+
+        // 编译 Default 分支
+        self.builder.position_at_end(default_bb);
+        if let Some(def_block) = default_case {
+            if let Some(val) = self.compile_block(def_block) {
+                incoming.push((val, self.builder.get_insert_block().unwrap()));
+            }
+            if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+            }
+        } else {
+            self.builder.build_unreachable().unwrap(); // 前端已保证穷尽性
+        }
+        if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+            self.builder.build_unconditional_branch(merge_bb).unwrap();
+        }
+
+        // 编译所有 Case 分支
+        for (i, case) in cases.iter().enumerate() {
+            self.builder.position_at_end(case_blocks[i]);
+            if let Some(val) = self.compile_block(&case.body) {
+                incoming.push((val, self.builder.get_insert_block().unwrap()));
+            }
+            if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+            }
+        }
+
+        // 构建 PHI 返回值
+        self.builder.position_at_end(merge_bb);
+        if expr_ty != TypeId::VOID && !incoming.is_empty() {
+            let phi = self.builder.build_phi(expected_llvm_ty, "switchtmp").unwrap();
+            let mut incoming_refs = Vec::new();
+            for (val, bb) in &incoming {
+                incoming_refs.push((val as &dyn inkwell::values::BasicValue<'ctx>, *bb));
+            }
+            phi.add_incoming(&incoming_refs);
+            phi.as_basic_value()
+        } else {
+            self.context.i8_type().const_zero().into()
+        }
+    }
+
+    fn compile_block_expr(&mut self, block: &MastBlock) -> BasicValueEnum<'ctx> {
+        if let Some(res) = self.compile_block(block) {
+            res
+        } else {
+            self.context.i8_type().const_zero().into()
+        }
+    }
+
+    fn compile_return(&mut self, ret_val: Option<&MastExpr>) -> BasicValueEnum<'ctx> {
+        if let Some(val) = ret_val {
+            let llvm_val = self.compile_expr(val);
+            self.builder.build_return(Some(&llvm_val)).unwrap();
+        } else {
+            self.builder.build_return(None).unwrap();
+        }
+        self.context.i8_type().const_zero().into()
+    }
+
+    // --- 类型转换 (Casts) ---
+
+    fn compile_cast(&mut self, kind: MastCastKind, operand: &MastExpr, target_llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+        let val = self.compile_expr(operand);
+        match kind {
+            MastCastKind::Bitcast => {
+                if val.is_struct_value() && target_llvm_ty.is_pointer_type() {
+                    let fat_ptr = val.into_struct_value();
+                    self.builder.build_extract_value(fat_ptr, 0, "slice_ptr_fallback").unwrap()
+                        .into_pointer_value().into()
+                } else {
+                    self.builder.build_bit_cast(val, target_llvm_ty, "bitcast").unwrap()
+                }
+            }
+            MastCastKind::PtrToInt => self.builder.build_ptr_to_int(val.into_pointer_value(), target_llvm_ty.into_int_type(), "ptr2int").unwrap().into(),
+            MastCastKind::IntToPtr => self.builder.build_int_to_ptr(val.into_int_value(), target_llvm_ty.into_pointer_type(), "int2ptr").unwrap().into(),
+            MastCastKind::ZeroExt => self.builder.build_int_z_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "zext").unwrap().into(),
+            MastCastKind::SignExt => self.builder.build_int_s_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "sext").unwrap().into(),
+            MastCastKind::Trunc => self.builder.build_int_truncate(val.into_int_value(), target_llvm_ty.into_int_type(), "trunc").unwrap().into(),
+            MastCastKind::IntToFloat => self.builder.build_signed_int_to_float(val.into_int_value(), target_llvm_ty.into_float_type(), "i2f").unwrap().into(),
+            MastCastKind::FloatToInt => self.builder.build_float_to_signed_int(val.into_float_value(), target_llvm_ty.into_int_type(), "f2i").unwrap().into(),
+            MastCastKind::FloatCast => self.builder.build_float_cast(val.into_float_value(), target_llvm_ty.into_float_type(), "fcast").unwrap().into(),
+            
+            // ArrayDecay: [N]T -> []T (将数组隐式转换为带长度的胖指针)
+            MastCastKind::ArrayToSlice => {
+                let slice_ty = target_llvm_ty.into_struct_type();
+                let mut slice_val = slice_ty.const_zero();
+                
+                let array_ptr = self.compile_lvalue(operand);
+                slice_val = self.builder.build_insert_value(slice_val, array_ptr, 0, "slice_ptr").unwrap().into_struct_value();
+                
+                let norm_op_ty = self.type_registry.normalize(operand.ty);
+                let len = if let TypeKind::Array { len, .. } = self.type_registry.get(norm_op_ty) { *len } else { 0 };
+                
+                let len_val = self.context.i64_type().const_int(len, false);
+                slice_val = self.builder.build_insert_value(slice_val, len_val, 1, "slice_len").unwrap().into_struct_value();
+                
+                slice_val.into()
+            }
+            MastCastKind::SliceToPtr => {
+                let fat_ptr = val.into_struct_value();
+                self.builder.build_extract_value(fat_ptr, 0, "slice_ptr").unwrap().into_pointer_value().into()
+            }
+        }
+    }
+
+    fn compile_construct_fat_ptr(&mut self, data_ptr: &MastExpr, meta: &MastExpr) -> BasicValueEnum<'ctx> {
+        let ptr_ty = self.context.ptr_type(AddressSpace::default());
+        let len_ty = self.context.i64_type();
+        let fat_ptr_ty = self.context.struct_type(&[ptr_ty.into(), len_ty.into()], false);
+        
+        let mut fat_ptr = fat_ptr_ty.const_zero(); 
+        
+        let data_val = self.compile_expr(data_ptr);
+        fat_ptr = self.builder.build_insert_value(fat_ptr, data_val, 0, "fat_data").unwrap().into_struct_value();
+        
+        let meta_val = self.compile_expr(meta);
+        fat_ptr = self.builder.build_insert_value(fat_ptr, meta_val, 1, "fat_meta").unwrap().into_struct_value();
+        
+        fat_ptr.into()
+    }
+
+    fn compile_extract_fat_ptr(&mut self, fat_ptr_expr: &MastExpr, index: u32, name: &str) -> BasicValueEnum<'ctx> {
+        let fat_ptr_val = self.compile_expr(fat_ptr_expr).into_struct_value();
+        self.builder.build_extract_value(fat_ptr_val, index, name).unwrap()
     }
 
     fn compile_lvalue(&mut self, expr: &MastExpr) -> PointerValue<'ctx> {

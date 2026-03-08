@@ -91,6 +91,12 @@ pub struct MastExpr {
     pub kind: MastExprKind,
 }
 
+impl MastExpr {
+    pub fn new(ty: TypeId, kind: MastExprKind, span: Span) -> Self {
+        Self { ty, kind, span }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum MastExprKind {
     // --- 1. 基本字面量 ---

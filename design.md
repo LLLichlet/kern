@@ -123,7 +123,7 @@ let p1 = Point.{x: 10, y: 20};
 let p2 = mut Point.{x: 10, y: 20}; 
 
 // Arrays follow the exact same rule
-let arr = mut [3]u8.{1, 2, 3};
+let arr = [3]mut u8.{1, 2, 3};
 ```
 
 ### 4.2 Unions

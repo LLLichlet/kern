@@ -550,12 +550,24 @@ impl<'a> Parser<'a> {
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
             self.expect(TokenType::Colon)?;
-            let method_type = self.parse_type()?;
+            // 1. 解析后面的签名，比如 fn() i32
+            let mut method_type = self.parse_type()?;
+            if let TypeKind::Function { ref mut params, .. } = method_type.kind {
+                // 构造一个隐式的 Self 类型节点
+                let implicit_self = TypeNode {
+                    id: self.new_id(),
+                    span: name_token.span, // 使用方法名的位置作为 span
+                    kind: TypeKind::SelfType,
+                };
+                params.insert(0, implicit_self);
+            } else {
+                self.add_error(method_type.span, "Trait members must be function signatures (e.g., `fn() void`)".to_string());
+            }
 
             if self.check(TokenType::Assign) {
                 self.error_at_current("Trait methods cannot have default implementations here.".to_string());
                 self.advance();
-                self.parse_expression(Precedence::Lowest)?; // consume expr
+                let _ = self.parse_expression(Precedence::Lowest)?; // consume expr
             }
 
             fields.push(StructFieldDef {
@@ -721,6 +733,40 @@ impl<'a> Parser<'a> {
                 
                 self.expect(TokenType::DotLBrace)?;
                 self.parse_data_init(Some(Box::new(mut_type)), span)
+            }
+
+            TokenType::LBracket => {
+                // 嗅探是切片 `[]T` 还是数组 `[N]T`
+                let type_node = if self.match_token(&[TokenType::RBracket]) {
+                    let elem = self.parse_type()?;
+                    TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Slice { elem: Box::new(elem) } }
+                } else {
+                    let len_expr = self.parse_expression(Precedence::Lowest)?;
+                    self.expect(TokenType::RBracket)?;
+                    let elem = self.parse_type()?;
+                    TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Array { elem: Box::new(elem), len: Box::new(len_expr) } }
+                };
+
+                self.expect(TokenType::DotLBrace)?;
+                self.parse_data_init(Some(Box::new(type_node)), span)
+            }
+
+            TokenType::Star => {
+                // 指针类型: *T.{ ... }
+                let elem = self.parse_type()?;
+                let ptr_type = TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::Pointer { elem: Box::new(elem) } };
+                
+                self.expect(TokenType::DotLBrace)?;
+                self.parse_data_init(Some(Box::new(ptr_type)), span)
+            }
+
+            TokenType::Caret => {
+                // 易失指针类型: ^T.{ ... }
+                let elem = self.parse_type()?;
+                let ptr_type = TypeNode { id: self.new_id(), span: span.to(elem.span), kind: TypeKind::VolatilePtr { elem: Box::new(elem) } };
+                
+                self.expect(TokenType::DotLBrace)?;
+                self.parse_data_init(Some(Box::new(ptr_type)), span)
             }
 
             _ => {

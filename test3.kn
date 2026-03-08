@@ -9,7 +9,7 @@ impl [T] *mut Box[T] {
 }
 
 type Reader = trait {
-    read: fn(Self) i32,
+    read: fn() i32,
 };
 
 type File = struct { fd: i32 };

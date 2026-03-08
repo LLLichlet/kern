@@ -2,9 +2,9 @@ extern {
     fn printf(format: *u8, ...) i32;
 }
 type Shape = trait {
-    area: fn(Self) i32,
-    scale: fn(Self, i32) void,
-    id: fn(Self) i32,
+    area: fn() i32,
+    scale: fn(i32) void,
+    id: fn() i32,
 };
 type Rectangle = struct {
     width: i32,
@@ -42,7 +42,7 @@ fn main() i32 {
     let shape_obj = rect.& as mut Shape;
     process_shape(shape_obj);
     printf("\n\0" as *u8);
-    let arr = mut [3]i32.{ 42, 84, 126 };
+    let arr = [3]mut i32.{ 42, 84, 126 };
     process_slice(arr);
     printf("\nAll tests completed successfully!\n\0" as *u8);
     0

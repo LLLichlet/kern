@@ -30,7 +30,7 @@ pub enum Precedence {
 impl Precedence {
     fn from_token(t: TokenType) -> Self {
         match t {
-            TokenType::Dot | TokenType::DotLBracket | TokenType::DotStar | 
+            TokenType::Dot | TokenType::DotLBracket | TokenType::DotLBrace | TokenType::DotStar | 
             TokenType::LParen | TokenType::LBracket | TokenType::DotAmpersand | 
             TokenType::Bang => Self::Call,
 
@@ -62,9 +62,6 @@ pub struct Parser<'a> {
     
     // 状态标记
     panic_mode: bool,
-    
-    // ID 计数器
-    next_node_id: u32,
 }
 
 impl<'a> Parser<'a> {
@@ -76,7 +73,6 @@ impl<'a> Parser<'a> {
             context,
             file_id,
             panic_mode: false,
-            next_node_id: 0,
         }
     }
 
@@ -85,9 +81,7 @@ impl<'a> Parser<'a> {
     // ==========================================
 
     fn new_id(&mut self) -> NodeId {
-        let id = self.next_node_id;
-        self.next_node_id += 1;
-        NodeId(id)
+        self.context.next_node_id()
     }
 
     // ==========================================
@@ -612,14 +606,14 @@ impl<'a> Parser<'a> {
                 else { (10, text_clean.as_str()) };
 
                 let val = u128::from_str_radix(num_str, radix).map_err(|_| {
-                     self.add_error(span, format!("Invalid integer literal: {}", text));
+                    self.add_error(span, format!("Invalid integer literal: {}", text));
                 })?;
                 Ok(Expr { id: self.new_id(), span, kind: ExprKind::Integer(val) })
             }
             TokenType::FloatLiteral => {
                 let text = self.context.source_manager.slice_source(span).replace("_", "");
                 let val = text.parse::<f64>().map_err(|_| {
-                     self.add_error(span, format!("Invalid float literal: {}", text));
+                    self.add_error(span, format!("Invalid float literal: {}", text));
                 })?;
                 Ok(Expr { id: self.new_id(), span, kind: ExprKind::Float(val) })
             }
@@ -640,7 +634,7 @@ impl<'a> Parser<'a> {
             }
             
             // .{ ... }
-            TokenType::DotLBrace => self.parse_data_literal(span),
+            TokenType::DotLBrace => self.parse_data_init(None, span),
 
             // .Enum
             TokenType::Dot => {
@@ -716,6 +710,17 @@ impl<'a> Parser<'a> {
                     span: at_token.span.to(id_token.span), 
                     kind: ExprKind::Identifier(sym_id) 
                 })
+            }
+
+            TokenType::Mut => {
+                // 特判：这必然是 `mut Type.{ ... }` 的开头
+                // 手动组装 TypeNode：
+                let elem = self.parse_type()?;
+                let type_span = span.to(elem.span);
+                let mut_type = TypeNode { id: self.new_id(), span: type_span, kind: TypeKind::Mut(Box::new(elem)) };
+                
+                self.expect(TokenType::DotLBrace)?;
+                self.parse_data_init(Some(Box::new(mut_type)), span)
             }
 
             _ => {
@@ -810,7 +815,7 @@ impl<'a> Parser<'a> {
                 if self.match_token(&[TokenType::DotDot]) {
                      is_range = true;
                      if !self.check(TokenType::RBracket) {
-                         end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                        end = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
                      }
                 } else {
                     start = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
@@ -861,6 +866,13 @@ impl<'a> Parser<'a> {
                 })
             }
 
+            TokenType::DotLBrace => {
+                // 当遇到 `.{` 时，说明左侧的表达式其实是一个类型！
+                let type_node = self.expr_to_type(left)?;
+                let span = type_node.span;
+                self.parse_data_init(Some(Box::new(type_node)), span)
+            }
+
             _ => {
                 self.add_error(token.span, format!("Unexpected infix token {:?}", token.tag));
                 Err(())
@@ -872,13 +884,18 @@ impl<'a> Parser<'a> {
     //            Specific Expressions
     // ==========================================
 
-    fn parse_data_literal(&mut self, start_span: Span) -> ParseResult<Expr> {
-        // .{ consumed
+    fn parse_data_init(&mut self, type_node: Option<Box<TypeNode>>, start_span: Span) -> ParseResult<Expr> {
+        // 空数组兜底
         if self.check(TokenType::RBrace) {
             let rb = self.advance();
-            return Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(vec![])) });
+            return Ok(Expr { 
+                id: self.new_id(), 
+                span: start_span.to(rb.span), 
+                kind: ExprKind::DataInit { type_node, literal: DataLiteralKind::Array(vec![]) } 
+            });
         }
 
+        // 1. 判断是否是 Struct 模式 (包含 field: value)
         let mut is_struct_mode = false;
         if self.check(TokenType::Identifier) {
             if self.stream.peek_nth(1).tag == TokenType::Colon {
@@ -893,29 +910,52 @@ impl<'a> Parser<'a> {
                 let name_id = self.intern_token(name);
                 self.expect(TokenType::Colon)?;
                 let val = self.parse_expression(Precedence::Lowest)?;
-                fields.push(StructFieldInit { name: name_id, value: val, span: name.span }); // value span is loosely name..expr
+                fields.push(StructFieldInit { name: name_id, value: val, span: name.span });
                 if !self.match_token(&[TokenType::Comma]) { break; }
             }
             let rb = self.expect(TokenType::RBrace)?;
-            Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Struct(fields)) })
+            Ok(Expr { 
+                id: self.new_id(), 
+                span: start_span.to(rb.span), 
+                kind: ExprKind::DataInit { type_node, literal: DataLiteralKind::Struct(fields) } 
+            })
         } else {
-            // Array or Repeat
+            // 2. 此时大括号内是一个普通的表达式
             let first = self.parse_expression(Precedence::Lowest)?;
             
+            // 模式 A: [Repeat] .{ 0; 1024 }
             if self.match_token(&[TokenType::Semicolon]) {
                 let count = self.parse_expression(Precedence::Lowest)?;
                 let rb = self.expect(TokenType::RBrace)?;
-                Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Repeat { value: Box::new(first), count: Box::new(count) }) })
-            } else {
+                Ok(Expr { 
+                    id: self.new_id(), 
+                    span: start_span.to(rb.span), 
+                    kind: ExprKind::DataInit { type_node, literal: DataLiteralKind::Repeat { value: Box::new(first), count: Box::new(count) } } 
+                })
+            } 
+            // 模式 B: [Array] .{ 1, 2, 3 } (只要遇到了逗号，就一定是数组)
+            else if self.match_token(&[TokenType::Comma]) {
                 let mut elems = vec![first];
-                if self.match_token(&[TokenType::Comma]) {
-                    while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-                        elems.push(self.parse_expression(Precedence::Lowest)?);
-                        if !self.match_token(&[TokenType::Comma]) { break; }
-                    }
+                while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                    elems.push(self.parse_expression(Precedence::Lowest)?);
+                    if !self.match_token(&[TokenType::Comma]) { break; }
                 }
                 let rb = self.expect(TokenType::RBrace)?;
-                Ok(Expr { id: self.new_id(), span: start_span.to(rb.span), kind: ExprKind::DataLiteral(DataLiteralKind::Array(elems)) })
+                Ok(Expr { 
+                    id: self.new_id(), 
+                    span: start_span.to(rb.span), 
+                    kind: ExprKind::DataInit { type_node, literal: DataLiteralKind::Array(elems) } 
+                })
+            } 
+            // ✅ 模式 C: [Scalar] .{ 10 } 或者 Type.{ 1 << 12 }
+            else {
+                // 既没有逗号，也没有分号，那就是唯一的一个单值！直接包装为 Scalar！
+                let rb = self.expect(TokenType::RBrace)?;
+                Ok(Expr { 
+                    id: self.new_id(), 
+                    span: start_span.to(rb.span), 
+                    kind: ExprKind::DataInit { type_node, literal: DataLiteralKind::Scalar(Box::new(first)) } 
+                })
             }
         }
     }
@@ -1060,9 +1100,12 @@ impl<'a> Parser<'a> {
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
-        let mut type_node = None;
+        // 🌟 护城河：拦截旧的冒号类型标注
         if self.match_token(&[TokenType::Colon]) {
-            type_node = Some(Box::new(self.parse_type()?));
+            let err_span = self.stream.prev_span();
+            self.add_error(err_span, "Type annotations on the left side of declarations are no longer supported. Use explicit constructor syntax on the right side: `let x = Type.{ value };`".to_string());
+            // 为了恢复，我们假装吃掉这个类型，但不存入 AST
+            let _ = self.parse_type(); 
         }
 
         self.expect(TokenType::Assign)?;
@@ -1072,12 +1115,14 @@ impl<'a> Parser<'a> {
         match tag {
             TokenType::Static => Ok(Expr {
                 id: self.new_id(), span,
-                kind: ExprKind::Static { name: name_id, type_node, init: Box::new(init) } 
+                // ✅ 初始化直接接管全部语义
+                kind: ExprKind::Static { name: name_id, init: Box::new(init) } 
             }),
             TokenType::Let | TokenType::Const => {
                 Ok(Expr {
                     id: self.new_id(), span,
-                    kind: ExprKind::Let { name: name_id, type_node, init: Box::new(init) }
+                    // ✅ 瘦身后的 Let
+                    kind: ExprKind::Let { name: name_id, init: Box::new(init) }
                 })
             },
             _ => unreachable!()
@@ -1222,8 +1267,8 @@ impl<'a> Parser<'a> {
         let mut abi = None;
         if self.check(TokenType::StringLiteral) {
             let t = self.advance();
-            // TODO: Unescape string here
-            abi = Some(self.context.source_manager.slice_source(t.span).to_string());
+            let sid = self.parse_string_literal(t)?;
+            abi = Some(self.context.resolve(sid).to_string());
         }
         self.expect(TokenType::LBrace)?;
         
@@ -1279,19 +1324,20 @@ impl<'a> Parser<'a> {
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
         
-        let mut type_node = None;
+        // 🌟 护城河：全局变量同样拦截左侧冒号
         if self.match_token(&[TokenType::Colon]) {
-            type_node = Some(self.parse_type()?);
+            let err_span = self.stream.prev_span();
+            self.add_error(err_span, "Global variables no longer support left-side type annotations. Use explicit constructors: `static X = Type.{ value };`".to_string());
+            let _ = self.parse_type(); 
         }
         
         // Init
         let value;
         if self.match_token(&[TokenType::Assign]) {
             value = self.parse_expression(Precedence::Lowest)?;
-        } else if is_extern {
-            value = Expr { id: self.new_id(), span: self.stream.prev_span(), kind: ExprKind::Undef };
         } else {
-            self.add_error(start, "Global vars must be initialized".to_string());
+            // 不再自动补齐，无论是 extern 还是普通全局变量，都必须带 =
+            self.add_error(start, "Global/extern vars must be initialized (use `= Type.{undef};` for externs)".to_string());
             return Err(());
         }
         self.expect(TokenType::Semicolon)?;
@@ -1299,7 +1345,8 @@ impl<'a> Parser<'a> {
 
         Ok(Decl {
             id: self.new_id(), span: start.to(end), name: name_id, is_pub,
-            kind: DeclKind::Var { type_node, value, is_static, is_extern }
+            // ✅ 瘦身后的 Var
+            kind: DeclKind::Var { value, is_static, is_extern }
         })
     }
 
@@ -1380,6 +1427,42 @@ impl<'a> Parser<'a> {
              id: self.new_id(), span: start.to(self.stream.prev_span()), name, is_pub,
              kind: DeclKind::Use { kind, path, target, is_reexport: is_pub }
         })
+    }
+
+    /// 将一个路径表达式强制转换为 TypeNode（用于处理 Type.{...} 的左侧）
+    fn expr_to_type(&mut self, expr: Expr) -> ParseResult<TypeNode> {
+        match expr.kind {
+            ExprKind::Identifier(id) => Ok(TypeNode {
+                id: self.new_id(), span: expr.span,
+                kind: TypeKind::Path { segments: vec![id], generics: Vec::new() }
+            }),
+            ExprKind::FieldAccess { lhs, field } => {
+                let mut base = self.expr_to_type(*lhs)?;
+                if let TypeKind::Path { ref mut segments, .. } = base.kind {
+                    segments.push(field);
+                    base.span = base.span.to(expr.span);
+                    Ok(base)
+                } else {
+                    self.add_error(expr.span, "Invalid path used as type".to_string());
+                    Err(())
+                }
+            },
+            ExprKind::GenericInstantiation { target, types } => {
+                let mut base = self.expr_to_type(*target)?;
+                if let TypeKind::Path { ref mut generics, .. } = base.kind {
+                    *generics = types;
+                    base.span = base.span.to(expr.span);
+                    Ok(base)
+                } else {
+                    self.add_error(expr.span, "Invalid generic type target".to_string());
+                    Err(())
+                }
+            },
+            _ => {
+                self.add_error(expr.span, "Invalid expression used as a type prefix".to_string());
+                Err(())
+            }
+        }
     }
 }
 

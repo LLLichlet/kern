@@ -220,17 +220,15 @@ pub struct Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
-    /// `let x: mut T = v` 或 `let x = v`
+    /// `let x = v` (可变性包含在 v 的类型中，例如 let x = mut i32.{10})
     Let {
         name: SymbolId,
-        type_node: Option<Box<TypeNode>>,
         init: Box<Expr>,
     },
 
-    /// `static x: T = v`
+    /// `static x = v`
     Static {
         name: SymbolId,
-        type_node: Option<Box<TypeNode>>,
         init: Box<Expr>,
     },
 
@@ -271,8 +269,14 @@ pub enum ExprKind {
 
     // --- Constructors ---
 
-    /// 统一的数据字面量: `.{ ... }`
-    DataLiteral(DataLiteralKind),
+    /// 统一的数据字面量初始化，支持 Type.{ ... } 和 .{ ... }
+    DataInit {
+        /// 如果是 `.{ ... }`，此字段为 None；
+        /// 如果是 `Point.{ ... }`，此字段就是 `Point` 对应的 TypeNode。
+        type_node: Option<Box<TypeNode>>,
+        /// 具体的数据负载
+        literal: DataLiteralKind,
+    },
 
     /// 枚举/上下文简写: .Red, .Ok
     EnumLiteral(SymbolId),
@@ -359,6 +363,9 @@ pub enum DataLiteralKind {
         value: Box<Expr>,
         count: Box<Expr>,
     },
+
+    /// 标量/单值构造模式: `.{ 10 }` 
+    Scalar(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -451,7 +458,6 @@ pub enum DeclKind {
 
     /// `const x = ...` 或 `static x = ...`
     Var {
-        type_node: Option<TypeNode>,
         value: Expr,
         is_static: bool,
         is_extern: bool,

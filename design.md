@@ -10,6 +10,11 @@
    7. [Modules](#7-modules)
    8. [Interoperability](#8-interoperability)
 
+**[Experimental Features (Unstable)](#experimental-features-unstable)**
+
+   9. [Algebraic Data Types (ADT) and Pattern Matching](#9-algebraic-data-types-adt-and-pattern-matching)
+   10. [Classes and Component Polymorphism](#10-classes-and-component-polymorphism)
+   11. [Stateless Anonymous Functions (Lambdas)](#11-stateless-anonymous-functions-lambdas)
 ---
 
 ## 1. Core Philosophy and Manifesto
@@ -54,14 +59,14 @@ To achieve “high abstraction, low policy”, Kern provides three core mechanis
 
 ### 2.2 Mutability Types
 
-Variables and bindings are **immutable by default**. Every type `T` has a corresponding *mutable variant* `mut T`. 
-
-* **Default immutability**: In `let` bindings, the inferred type is strictly immutable (e.g., `let a = 10` gives `a` the type `usize`). To create a mutable variable, you must explicitly declare the type variant: `let b: mut usize = 20;`.
+Variables and bindings are **immutable by default**. Every type `T` has a corresponding *mutable variant* `mut T`.
+* **Default immutability**: In `let` bindings, the inferred type is strictly immutable (e.g., `let a = 10` gives `a` the type `usize`). To create a mutable variable, you must explicitly use a mutable scalar literal: `let b = mut usize.{20};`.
 * **Address‑of and Pointer Inference**: The postfix operator `.&` yields a pointer whose mutability strictly matches the variable's declaration.
-  * `a.&` (where `a` is `T`) yields `*T` (read-only pointer).
-  * `b.&` (where `b` is `mut T`) yields `*mut T` (read-write pointer).
-* **Safe Downgrade**: You can safely assign a mutable reference to an immutable pointer type (e.g., `let p: *usize = b.&;`), but you cannot obtain a mutable pointer from an immutable variable.
-* **Array and slice mutability**: Arrays and slices follow the same rules. The mutable variants `[N]mut T` and `[]mut T` allow element modification; the immutable variants `[N]T` and `[]T` strictly forbid it.
+* `a.&` (where `a` is `T`) yields `*T` (read-only pointer).
+* `b.&` (where `b` is `mut T`) yields `*mut T` (read-write pointer).
+
+* **Safe Downgrade**: You can safely assign a mutable reference to an immutable pointer type (e.g., `let p = *usize.{b.&};` or simply rely on inference `let p = b.&;`), but you cannot obtain a mutable pointer from an immutable variable.
+* **Array and slice mutability**: Arrays and slices follow the same rules. The mutable variants `[N]mut T` allow element modification.
 
 ### 2.3 Pointers and Volatility
 
@@ -85,10 +90,11 @@ Variables and bindings are **immutable by default**. Every type `T` has a corres
 
 ## 3. Declarations and Storage
 
-* **Stack (local)**: `let name = value;` (immutable by default, e.g., `let a = 10` gives `a` the type `usize`). To declare a mutable variable, explicitly annotate the type: `let name: mut T = value`;.
-* **Static (global)**: `static name: T = value;`
-* **Compile‑time constant**: `const NAME: T = value;` (inlined, no memory location).
-* **External**: `extern static name: T;` (resolved at link time, see Section 8).
+* **Stack (local)**: `let name = value;` (immutable by default). To declare a specific type or a mutable variable, use type literals: `let name = mut T.{value};`.
+* **Static (global)**: `static name = T.{value};`
+* **Compile‑time constant**: `const NAME = T.{value};` (inlined, no memory location).
+* **Uninitialized Storage**: Use the `undef` keyword within the literal to leave memory uninitialized intentionally: `let name = mut T.{undef};`.
+* **External Storage**: For variables defined in external object files or C code, use an `extern` block and the `undef` keyword within the literal: `extern { static name = T.{undef}; }` (resolved at link time, see Section 8).
 
 ## 4. Data Structures
 
@@ -107,17 +113,17 @@ type Point = struct {
 
 * **Layout**: default reorder/padding for size; `extern type …` guarantees C‑compatible memory layout and alignment.
 
-* **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized (retaining garbage data for performance), you must explicitly use the `undef` keyword (e.g., `priority: u8 = undef;`). There is no implicit zero-initialization.
+* **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized (retaining garbage data for performance), you must explicitly use the `undef` keyword (e.g., `priority = u8.{undef};`). There is no implicit zero-initialization.
 
 ```kern
-// Immutable by default
+// Immutable 
 let p1 = Point.{x: 10, y: 20};       
 
 // Mutable binding with explicit type and shorthand literal
-let p2: mut Point = .{x: 10, y: 20}; 
+let p2 = mut Point.{x: 10, y: 20}; 
 
 // Arrays follow the exact same rule
-let arr: mut [3]u8 = .{1, 2, 3};
+let arr = mut [3]u8.{1, 2, 3};
 ```
 
 ### 4.2 Unions
@@ -246,7 +252,7 @@ A trait object is a built-in primitive representing a fat pointer (data pointer 
 type File = struct { ... };
 impl *mut File : Reader { ... }
 
-let file: mut File = .{ ... };
+let file = mut File.{ ... };
 // Step 1: Obtain the concrete pointer
 let p = file.&; 
 
@@ -402,8 +408,7 @@ pub extern fn _start() void {
 ### 8.2 Importing External Functions and Statics
 
 To call functions or access global variables defined in other languages (like C) or assembly, use an `extern` block. By default, everything inside an `extern` block assumes the C ABI.
-
-Crucially, external C functions can use the `...` syntax to support C-style variadic arguments. This is essential for interfacing with standard C libraries or implementing Kern's own standard I/O based on existing C bindings.
+Crucially, external C functions can use the `...` syntax to support C-style variadic arguments. External static variables must be declared using the `T.{undef}` literal syntax to maintain consistent declaration semantics.
 
 ```kern
 extern {
@@ -414,7 +419,224 @@ extern {
     fn printf(format: *u8, ...) i32;
 
     // Import an external global variable (e.g., defined in a linker script)
-    static MULTIBOOT_MAGIC: u32;
+    static MULTIBOOT_MAGIC = u32.{undef};
 }
 
 ```
+
+## Experimental Features (Unstable)
+
+> **Notice**: The features described in this document are currently experimental. They are undergoing semantic evaluation and compiler implementation, and are not yet stabilized as part of the core Kern specification. The syntax and underlying memory models of these features are subject to change in future iterations.
+
+## 9. Algebraic Data Types (ADT) and Pattern Matching
+
+To provide robust state management and error handling without introducing exceptions or implicit control flow, Kern introduces Algebraic Data Types (`adt`).
+
+An `adt` is implemented at the physical memory level as a Tagged Union (a hidden scalar discriminant tag followed by a union aligned to its largest variant).
+
+### 9.1 Defining ADTs
+
+ADTs allow for the definition of enumerations where variants can carry distinct data payloads. The syntax strictly follows a `Variant: Type` mapping.
+
+```kern
+pub type Option[T] = adt {
+    Some: T,
+    None,
+};
+
+pub type Result[T, E] = adt {
+    Ok: T,
+    Err: E,
+};
+
+```
+
+### 9.2 Elided Initialization Syntax
+
+Where the type context is explicit (e.g., function return types, explicitly typed declarations), ADTs can be initialized using an elided literal syntax `.{ Variant: value }`. This maintains visual consistency with standard `struct` scalar literals while reducing visual noise.
+
+```kern
+fn safe_divide(a: i32, b: i32) Result[i32, i32] {
+    if (b == 0) {
+        // Implicitly inferred as Result[i32, i32].{ Err: -1 }
+        return .{ Err: -1 }; 
+    }
+    return .{ Ok: a / b };
+}
+
+```
+
+### 9.3 Pattern Matching (`match`)
+
+Destructuring an `adt` requires the `match` expression. Kern strictly avoids closure-like syntaxes (such as `Variant(val)`) to prevent conceptual overlap with function calls. Instead, `match` bindings perfectly mirror the `adt` definition syntax using a colon (`:`).
+
+* **Syntax and Elision**: Branches are evaluated by matching the ADT variants. You can use the fully qualified path (e.g., `Result[i32, i32].Ok`) or the elided dot-prefix syntax (e.g., `.Ok`) since the type being matched is strictly inferred. Data extraction is performed by mapping the variant to a local binding name: `Variant: binding_name`.
+* **Exhaustiveness and `else`**: `match` blocks must be strictly exhaustive. You must either explicitly match all defined variants of the `adt`, or provide a catch-all `else =>` branch. This behaves exactly like `switch` statements for enums.
+
+```kern
+let res = safe_divide(10, 0);
+
+// Using the elided syntax (mirroring the definition and initialization)
+match (res) {
+    .Ok: val => printf("Result: %d\n", val),
+    .Err: code => printf("Error code: %d\n", code),
+}
+
+// Using the full path syntax and an `else` branch
+match (res) {
+    Result[i32, i32].Ok: val => {
+        printf("Success: %d\n", val);
+    },
+    else => {
+        printf("An error occurred.\n");
+    },
+}
+
+```
+
+**Interactions and Edge Cases**:
+
+* **No Direct Access**: It is a strict compile-time error to attempt to access an ADT's internal payload without a `match` statement. This enforces memory safety over unions.
+* **Nested Matches**: `match` expressions evaluate to a value, allowing them to be bound directly to variables (e.g., `let x = match (res) { ... };`).
+* **Empty Variants**: For variants that carry no data payload (e.g., `None`), the colon and binding name are simply omitted (e.g., `.None => { ... }`).
+
+## 10. Classes and Component Polymorphism
+
+While Kern’s `trait` system provides type-level polymorphism via external static VTables, certain domains (e.g., GUI frameworks, state machines, file operation tables) require **instance-level polymorphism**. Kern addresses this with the `class` keyword, which implements a "Thick Object" model.
+
+### 10.1 Memory Layout and Internal Methods
+
+A `class` is fundamentally a `struct` that allows an inline `impl` block. The compiler automatically translates the methods defined within this `impl` block into **physical function pointer fields** embedded directly within the instance's memory layout.
+
+```kern
+type Widget = class {
+    width: i32,
+    
+    // The compiler implicitly inserts a hidden function pointer:
+    // `draw: fn(*mut Self) void` into the Widget's memory layout.
+    impl *mut Self {
+        fn draw() void { 
+            printf("Base Widget Draw\n\0" as *u8); 
+        }
+    }
+};
+
+```
+
+### 10.2 Single Inheritance
+
+Kern `class` types support **strict single inheritance** using the `:` operator. This guarantees that the base class memory layout always occupies offset `0` of the child class. This physical constraint completely eliminates the diamond inheritance problem and avoids any implicit pointer offset arithmetic at runtime.
+
+```kern
+type Button: Widget = class {
+    color: u32,
+    
+    impl *mut Self {
+        // Implicit Override: Defining a method with the same name as the base 
+        // overwrites the inherited function pointer during initialization.
+        fn draw() void { 
+            printf("Button Draw: %d\n\0" as *u8, self.color); 
+        }
+        
+        fn click() void { 
+            printf("Clicked\n\0" as *u8); 
+        }
+    }
+};
+
+```
+
+### 10.3 Flattened Initialization and Casting
+
+Initialization of a child class requires explicitly providing all fields (both inherited and native) in a flattened `T.{ ... }` literal.
+
+Because the memory offset of the base class is guaranteed to be `0`, upcasting is a zero-cost, transparent operation.
+
+```kern
+// 1. Flattened Initialization (no abstraction leak of a "base" keyword)
+let btn = mut Button.{ 
+    width: 100, 
+    color: 0xFF0000 
+};
+
+// 2. Safe, Zero-Cost Pointer Upcasting
+let w_ptr = btn.& as *mut Widget;   
+
+// 3. Dynamic Dispatch
+// Executes the Button's overridden logic, as the function pointer 
+// inside the struct was replaced during initialization.
+w_ptr.draw(); 
+
+```
+
+**Interactions and Edge Cases**:
+
+* **Field Shadowing**: Child classes cannot declare data fields with the same name as inherited base fields. This is a strict compilation error to prevent ambiguity.
+* **Inline Trait Implementation (The Bridge)**: A `class` can implement a `trait` directly within its body using `impl *mut Self : TraitName { ... }`. This elegantly bridges instance-level and type-level polymorphism without code duplication.
+
+```kern
+type Display = trait {
+    draw: fn() void,
+};
+
+type Widget = class {
+    width: i32,
+    
+    // Implements the trait AND populates the class's internal function pointers.
+    impl *mut Self : Display {
+        fn draw() void { 
+            printf("Widget Draw\n\0" as *u8); 
+        }
+    }
+};
+
+```
+
+* **Trampoline VTables**: When an inline trait is implemented, the compiler generates a static VTable for the trait object whose methods act as "trampolines." When a trait object (e.g., `mut Display`) invokes `.draw()`, the static VTable safely delegates the call to the physical function pointer stored inside the specific `class` instance. This guarantees that if a subclass overrides the method, trait objects will always execute the correct, most-derived logic.
+
+---
+
+## 11. Stateless Anonymous Functions (Lambdas)
+
+To support inline callbacks and default trait implementations without violating Kern's strict memory rules, the language supports stateless anonymous functions.
+
+### 11.1 Strict Statelessness
+
+Anonymous functions use the `fn(...) ReturnType { ... }` syntax.
+Crucially, Kern **strictly forbids environmental capturing (closures)**. An anonymous function cannot access local variables from its enclosing scope. This physical limitation guarantees that anonymous functions compile down to pure, static function pointers (`fn`), entirely preventing use-after-free bugs caused by stack-allocated environments escaping their scope.
+
+```kern
+let arr = mut [3]i32.{ 3, 1, 2 };
+
+// Safe, zero-allocation callback
+arr.sort(fn(a: i32, b: i32) bool {
+    return a < b;
+});
+
+```
+
+*Note: If state capture is required, developers must explicitly define a `class` (Thick Object) to manage the memory of the captured variables.*
+
+### 11.2 Interaction with Traits (Default Implementations)
+
+Anonymous functions act as the mechanism for providing default implementations for `trait` methods. Since a `trait` is logically a template for a VTable, providing a default method is semantically identical to providing a default value for a struct field.
+
+```kern
+type Shape = trait {
+    id: fn() i32,
+    
+    // Providing a default method via an anonymous function
+    area: fn() i32 = fn() i32 {
+        return 0;
+    },
+    
+    print_id: fn() void = fn() void {
+        printf("ID: %d\n\0" as *u8, self.id());
+    }
+};
+
+```
+
+**Interactions and Edge Cases**:
+
+* **Implicit `self` Injection**: When an anonymous function is used as the default value for a `trait` field, the compiler's semantic analyzer (Sema) implicitly injects the `self` context into the anonymous function's scope. This allows the default method to call other trait methods (like `self.id()` in the example above) while maintaining the explicit symmetry of the trait declaration syntax.

@@ -53,15 +53,22 @@ impl<'a> BuiltinInjector<'a> {
             generics: vec![],
             supertraits: vec![],
             methods: vec![], // 内置特征仅作约束，可以没有方法 (Marker Trait)
+            resolved_methods: vec![],
             is_builtin: true,
             span: crate::utils::Span::default(),
         };
         
         self.ctx.add_def(Def::Trait(trait_def));
 
-        // 注册到根作用域
+        // 内置 Trait 的 type_id 应该是它自身的 TraitObject 类型
+        let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(def_id, vec![]));
         let info = SymbolInfo {
-            kind: SymbolKind::Trait, node_id: NodeId(0), type_id: TypeId::ERROR, def_id: Some(def_id)
+            kind: SymbolKind::Trait, 
+            node_id: self.ctx.next_node_id(), 
+            type_id: self_ty,                
+            def_id: Some(def_id),
+            span: Default::default(),
+            is_pub: true,                     
         };
         let root_scope = crate::sema::scope::ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
@@ -107,10 +114,10 @@ impl<'a> BuiltinInjector<'a> {
 
         let func_def = FunctionDef {
             id: def_id, name: name_id, vis: Visibility::Public, parent: None,
-            generics: vec![param_t], params: vec![], // 空参数
+            generics: vec![param_t], params: vec![], 
             ret_type: TypeNode { id: NodeId(0), span: Default::default(), kind: crate::ast::TypeKind::Infer },
             body: None, is_extern: false, is_variadic: false,
-            is_intrinsic: true, // ✅ 核心标记
+            is_intrinsic: true, 
             resolved_sig: Some(sig_ty),
             span: Default::default(),
         };
@@ -119,9 +126,15 @@ impl<'a> BuiltinInjector<'a> {
         
         let root_scope = crate::sema::scope::ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
-        let _ = self.ctx.scopes.define(name_id, SymbolInfo {
-            kind: SymbolKind::Function, node_id: NodeId(0), type_id: sig_ty, def_id: Some(def_id)
-        });
+        let info = SymbolInfo {
+            kind: SymbolKind::Function,
+            node_id: self.ctx.next_node_id(), 
+            type_id: sig_ty, // 这里直接填签名类型
+            def_id: Some(def_id),
+            span: crate::utils::Span::default(),
+            is_pub: true, // 全局内置函数都是 Public
+        };
+        let _ = self.ctx.scopes.define(name_id, info);
     }
 
     // 注入 @intToFloat[T: Integer, U: Float](val: T) -> U
@@ -156,8 +169,14 @@ impl<'a> BuiltinInjector<'a> {
         
         self.ctx.add_def(Def::Function(func_def));
         self.ctx.scopes.set_current_scope(crate::sema::scope::ScopeId(0));
-        let _ = self.ctx.scopes.define(name_id, SymbolInfo {
-            kind: SymbolKind::Function, node_id: NodeId(0), type_id: TypeId::ERROR, def_id: Some(def_id)
-        });
+        let info = SymbolInfo {
+            kind: SymbolKind::Function,
+            node_id: self.ctx.next_node_id(), 
+            type_id: sig_ty, // 这里直接填签名类型
+            def_id: Some(def_id),
+            span: crate::utils::Span::default(),
+            is_pub: true, // 全局内置函数都是 Public
+        };
+        let _ = self.ctx.scopes.define(name_id, info);
     }
 }

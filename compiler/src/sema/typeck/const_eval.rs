@@ -1,8 +1,9 @@
-use crate::ast::{Expr, ExprKind, BinaryOperator, UnaryOperator};
+use crate::ast::{self, Expr, ExprKind, BinaryOperator, UnaryOperator};
 use crate::context::Context;
 use crate::sema::def::Def;
 use crate::sema::scope::SymbolKind;
 use crate::sema::ty::{TypeId, TypeKind};
+use crate::utils::Span;
 
 /// 编译期常量求值器 (Const Evaluator)
 pub struct ConstEvaluator<'a> {
@@ -16,10 +17,12 @@ impl<'a> ConstEvaluator<'a> {
 
     /// 计算并返回安全的 usize (例如用于数组长度)
     pub fn eval_usize(&mut self, expr: &Expr) -> u64 {
-        match self.eval_math(expr) {
+        match self.eval_math_inner(expr, 0) {
             Ok(val) => {
                 if val < 0 {
-                    self.ctx.emit_error(expr.span, "Constant expression cannot evaluate to a negative number here".into());
+                    self.ctx.struct_error(expr.span, "constant expression cannot evaluate to a negative number here")
+                        .with_hint("array lengths and similar contexts require positive integers")
+                        .emit();
                     0
                 } else {
                     val as u64
@@ -29,170 +32,196 @@ impl<'a> ConstEvaluator<'a> {
         }
     }
 
-    /// 核心递归求值引擎 (使用 i128 防止计算过程溢出)
     pub fn eval_math(&mut self, expr: &Expr) -> Result<i128, ()> {
+        self.eval_math_inner(expr, 0)
+    }
+
+    /// 核心递归求值引擎 (带有深度限制防死循环，中央分派器)
+    fn eval_math_inner(&mut self, expr: &Expr, depth: usize) -> Result<i128, ()> {
+        if depth > 100 {
+            self.ctx.struct_error(expr.span, "constant evaluation exceeded maximum recursion depth")
+                .with_hint("check for circular references in your `const` declarations")
+                .emit();
+            return Err(());
+        }
+
         match &expr.kind {
+            // === 1. 基础字面量 ===
             ExprKind::Integer(val) => Ok(*val as i128),
             ExprKind::Char(c) => Ok(*c as i128),
             ExprKind::Bool(b) => Ok(if *b { 1 } else { 0 }),
 
-            // === 1. 递归计算算术运算 ===
-            ExprKind::Binary { lhs, op, rhs } => {
-                let left = self.eval_math(lhs)?;
-                let right = self.eval_math(rhs)?;
+            // === 2. 算术与逻辑运算 ===
+            ExprKind::Binary { lhs, op, rhs } => self.eval_binary(lhs, *op, rhs, depth, expr.span),
+            ExprKind::Unary { op, operand } => self.eval_unary(*op, operand, depth, expr.span),
 
-                match op {
-                    BinaryOperator::Add => Ok(left.wrapping_add(right)),
-                    BinaryOperator::Subtract => Ok(left.wrapping_sub(right)),
-                    BinaryOperator::Multiply => Ok(left.wrapping_mul(right)),
-                    BinaryOperator::Divide => {
-                        if right == 0 {
-                            self.ctx.emit_error(rhs.span, "Division by zero in constant expression".into());
-                            Err(())
-                        } else {
-                            Ok(left / right)
-                        }
-                    }
-                    BinaryOperator::Modulo => {
-                        if right == 0 {
-                            self.ctx.emit_error(rhs.span, "Modulo by zero in constant expression".into());
-                            Err(())
-                        } else {
-                            Ok(left % right)
-                        }
-                    }
-                    BinaryOperator::ShiftLeft => Ok(left << right),
-                    BinaryOperator::ShiftRight => Ok(left >> right),
-                    BinaryOperator::BitwiseAnd => Ok(left & right),
-                    BinaryOperator::BitwiseOr => Ok(left | right),
-                    BinaryOperator::BitwiseXor => Ok(left ^ right),
-                    _ => {
-                        self.ctx.emit_error(expr.span, "Operator not supported in constant expression".into());
-                        Err(())
-                    }
-                }
-            }
-
-            ExprKind::Unary { op, operand } => {
-                let val = self.eval_math(operand)?;
-                match op {
-                    UnaryOperator::Negate => Ok(-val),
-                    UnaryOperator::BitwiseNot => Ok(!val),
-                    UnaryOperator::LogicalNot => Ok(if val == 0 { 1 } else { 0 }),
-                    _ => {
-                        self.ctx.emit_error(expr.span, "Unary operator not supported in constant expression".into());
-                        Err(())
-                    }
-                }
-            }
-
-            // === 2. 查表代入全局 Const 变量 ===
-            ExprKind::Identifier(name) => {
-                let sym_info = self.ctx.scopes.resolve(*name).cloned();
-                
-                if let Some(info) = sym_info {
-                    // Kern 规范：只有 `const` (编译期常量) 能参与 Const Eval，`static` (运行时全局变量) 和 `let` 不行
-                    if info.kind == SymbolKind::Const {
-                        if let Some(def_id) = info.def_id {
-                            let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                                g.value.clone()
-                            } else {
-                                return Err(());
-                            };
-                            
-                            // 递归计算该常量的值
-                            return self.eval_math(&const_expr);
-                        }
-                    } else {
-                        let name_str = self.ctx.resolve(*name).to_string();
-                        self.ctx.emit_error(expr.span, format!("`{}` is a {}, not a compile-time constant. Only `const` variables can be used here.", name_str, self.kind_to_string(info.kind)));
-                        return Err(());
-                    }
-                }
-                self.ctx.emit_error(expr.span, "Undeclared identifier in constant expression".into());
-                Err(())
-            }
+            // === 3. 查表代入全局 Const 变量 ===
+            ExprKind::Identifier(name) => self.eval_identifier(*name, depth, expr.span),
             
+            // === 4. 内置常量函数调用 (Intrinsics) ===
+            ExprKind::Call { callee, .. } => self.eval_intrinsic_call(callee, expr.span),
+
+            // === 5. 枚举字面量求值 ===
+            ExprKind::EnumLiteral(variant_name) => self.eval_enum_literal(expr.id, *variant_name, depth, expr.span),
+
+            // === 6. 不支持的表达式 ===
             ExprKind::GenericInstantiation { .. } => {
-                // 这个节点本身不产生值，它通常作为 Call 的 callee (例如 @sizeof[T])。
-                // 如果单独出现，属于非法表达式。
-                self.ctx.emit_error(expr.span, "Generic instantiation cannot be evaluated as a standalone constant value. Did you mean to call it like `@sizeof[T]()`?".into());
+                self.ctx.struct_error(expr.span, "generic instantiation cannot be evaluated as a standalone constant value")
+                    .with_hint("did you mean to call it like `@sizeof[T]()`?")
+                    .emit();
                 Err(())
             }
-
-            // === 3. 处理内置常量函数调用 ===
-            ExprKind::Call { callee, .. } => {
-                // 直接从节点类型缓存中拿到 Callee 的类型 (Typeck阶段已经解析过了)
-                let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
-                let norm_callee = self.ctx.type_registry.normalize(callee_ty);
-                
-                // 如果它是一个绑定了泛型的函数定义 (比如 @sizeof[Point])
-                if let TypeKind::FnDef(def_id, generic_args) = self.ctx.type_registry.get(norm_callee).clone() {
-                    if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
-                        if f.is_intrinsic {
-                            let name_str = self.ctx.resolve(f.name);
-                            match name_str {
-                                "@sizeof" => {
-                                    if let Some(&target_ty) = generic_args.get(0) {
-                                        let size = self.compute_type_size(target_ty);
-                                        return Ok(size as i128);
-                                    }
-                                }
-                                "@alignof" => {
-                                    if let Some(&target_ty) = generic_args.get(0) {
-                                        let align = self.compute_type_align(target_ty);
-                                        return Ok(align as i128);
-                                    }
-                                }
-                                _ => {
-                                    self.ctx.emit_error(expr.span, format!("Intrinsic `{}` cannot be evaluated at compile time", name_str));
-                                    return Err(());
-                                }
-                            }
-                        }
-                    }
-                }
-                
-                self.ctx.emit_error(expr.span, "Function calls are not allowed in constant expressions (except for certain compile-time intrinsics like @sizeof)".into());
-                Err(())
-            }
-
-            ExprKind::EnumLiteral(variant_name) => {
-                // 求值器从节点缓存中拿到确切类型
-                let ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
-                let norm_ty = self.ctx.type_registry.normalize(ty);
-                
-                let def_id = if let TypeKind::Def(id, _) = self.ctx.type_registry.get(norm_ty) {
-                    *id
-                } else {
-                    self.ctx.emit_error(expr.span, "Enum literal type not resolved".into());
-                    return Err(());
-                };
-                
-                let enum_def = if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
-                    e.clone() // 克隆以释放借用
-                } else { return Err(()); };
-
-                let mut current_val: i128 = 0;
-                for v in enum_def.variants {
-                    if let Some(v_expr) = v.value {
-                        current_val = self.eval_math(&v_expr)?;
-                    }
-                    if v.name == *variant_name {
-                        return Ok(current_val);
-                    }
-                    current_val += 1;
-                }
-                
-                self.ctx.emit_error(expr.span, "Variant not found in Enum".into());
-                Err(())
-            }
-
             _ => {
-                self.ctx.emit_error(expr.span, "Expected a constant expression".into());
+                self.ctx.struct_error(expr.span, "expected a constant expression").emit();
                 Err(())
             }
         }
+    }
+
+    // ==========================================
+    //            Const Eval Helpers
+    // ==========================================
+
+    fn eval_binary(&mut self, lhs: &Expr, op: BinaryOperator, rhs: &Expr, depth: usize, span: Span) -> Result<i128, ()> {
+        let left = self.eval_math_inner(lhs, depth + 1)?;
+        let right = self.eval_math_inner(rhs, depth + 1)?;
+
+        match op {
+            BinaryOperator::Add => Ok(left.wrapping_add(right)),
+            BinaryOperator::Subtract => Ok(left.wrapping_sub(right)),
+            BinaryOperator::Multiply => Ok(left.wrapping_mul(right)),
+            BinaryOperator::Divide => {
+                if right == 0 {
+                    self.ctx.struct_error(rhs.span, "division by zero in constant expression").emit();
+                    Err(())
+                } else {
+                    Ok(left / right)
+                }
+            }
+            BinaryOperator::Modulo => {
+                if right == 0 {
+                    self.ctx.struct_error(rhs.span, "modulo by zero in constant expression").emit();
+                    Err(())
+                } else {
+                    Ok(left % right)
+                }
+            }
+            BinaryOperator::ShiftLeft => Ok(left << right),
+            BinaryOperator::ShiftRight => Ok(left >> right),
+            BinaryOperator::BitwiseAnd => Ok(left & right),
+            BinaryOperator::BitwiseOr => Ok(left | right),
+            BinaryOperator::BitwiseXor => Ok(left ^ right),
+            _ => {
+                self.ctx.struct_error(span, "operator not supported in constant expression").emit();
+                Err(())
+            }
+        }
+    }
+
+    fn eval_unary(&mut self, op: UnaryOperator, operand: &Expr, depth: usize, span: Span) -> Result<i128, ()> {
+        let val = self.eval_math_inner(operand, depth + 1)?;
+        match op {
+            UnaryOperator::Negate => Ok(-val),
+            UnaryOperator::BitwiseNot => Ok(!val),
+            UnaryOperator::LogicalNot => Ok(if val == 0 { 1 } else { 0 }),
+            _ => {
+                self.ctx.struct_error(span, "unary operator not supported in constant expression").emit();
+                Err(())
+            }
+        }
+    }
+
+    fn eval_identifier(&mut self, name: crate::utils::SymbolId, depth: usize, span: Span) -> Result<i128, ()> {
+        let sym_info = self.ctx.scopes.resolve(name).cloned();
+        
+        if let Some(info) = sym_info {
+            if info.kind == SymbolKind::Const {
+                if let Some(def_id) = info.def_id {
+                    let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                        g.value.clone()
+                    } else {
+                        return Err(());
+                    };
+                    
+                    return self.eval_math_inner(&const_expr, depth + 1);
+                }
+            } else {
+                let name_str = self.ctx.resolve(name).to_string();
+                self.ctx.struct_error(span, format!("`{}` is a {}, not a compile-time constant", name_str, self.kind_to_string(info.kind)))
+                    .with_hint("only `const` variables can be used in constant expressions")
+                    .emit();
+                return Err(());
+            }
+        }
+        self.ctx.struct_error(span, "use of undeclared identifier in constant expression").emit();
+        Err(())
+    }
+
+    fn eval_intrinsic_call(&mut self, callee: &Expr, span: Span) -> Result<i128, ()> {
+        let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
+        let norm_callee = self.ctx.type_registry.normalize(callee_ty);
+        
+        if let TypeKind::FnDef(def_id, generic_args) = self.ctx.type_registry.get(norm_callee).clone() {
+            if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
+                if f.is_intrinsic {
+                    let name_str = self.ctx.resolve(f.name);
+                    match name_str {
+                        "@sizeof" => {
+                            if let Some(&target_ty) = generic_args.get(0) {
+                                let size = self.compute_type_size(target_ty);
+                                return Ok(size as i128);
+                            }
+                        }
+                        "@alignof" => {
+                            if let Some(&target_ty) = generic_args.get(0) {
+                                let align = self.compute_type_align(target_ty);
+                                return Ok(align as i128);
+                            }
+                        }
+                        _ => {
+                            self.ctx.struct_error(span, format!("intrinsic `{}` cannot be evaluated at compile time", name_str)).emit();
+                            return Err(());
+                        }
+                    }
+                }
+            }
+        }
+        
+        self.ctx.struct_error(span, "function calls are not allowed in constant expressions")
+            .with_hint("only compile-time intrinsics like `@sizeof` or `@alignof` are permitted here")
+            .emit();
+        Err(())
+    }
+
+    fn eval_enum_literal(&mut self, node_id: ast::NodeId, variant_name: crate::utils::SymbolId, depth: usize, span: Span) -> Result<i128, ()> {
+        let ty = self.ctx.node_types.get(&node_id).copied().unwrap_or(TypeId::ERROR);
+        let norm_ty = self.ctx.type_registry.normalize(ty);
+        
+        let def_id = if let TypeKind::Def(id, _) = self.ctx.type_registry.get(norm_ty) {
+            *id
+        } else {
+            self.ctx.struct_error(span, "enum literal type could not be resolved during constant evaluation").emit();
+            return Err(());
+        };
+        
+        let enum_def = if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
+            e.clone() 
+        } else { return Err(()); };
+
+        let mut current_val: i128 = 0;
+        for v in enum_def.variants {
+            if let Some(v_expr) = v.value {
+                current_val = self.eval_math_inner(&v_expr, depth + 1)?;
+            }
+            if v.name == variant_name {
+                return Ok(current_val);
+            }
+            current_val += 1;
+        }
+        
+        let v_str = self.ctx.resolve(variant_name).to_string();
+        self.ctx.struct_error(span, format!("variant `.{}` not found in enum", v_str)).emit();
+        Err(())
     }
 
     fn kind_to_string(&self, kind: SymbolKind) -> &'static str {
@@ -209,187 +238,192 @@ impl<'a> ConstEvaluator<'a> {
     //          Memory Layout Engine
     // ==========================================
 
-    /// 计算类型的内存对齐要求 (Alignment)
-    fn compute_type_align(&mut self, ty: TypeId) -> u64 {
+    pub fn compute_type_align(&mut self, ty: TypeId) -> u64 {
+        self.compute_type_align_inner(ty, 0)
+    }
+
+    fn compute_type_align_inner(&mut self, ty: TypeId, depth: usize) -> u64 {
+        if depth > 100 { return 1; /* 防止非法嵌套结构体导致死循环崩溃 */ }
+
         let norm = self.ctx.type_registry.normalize(ty);
         let kind = self.ctx.type_registry.get(norm).clone();
 
         match kind {
-            TypeKind::Primitive(p) => match p {
-                crate::sema::ty::PrimitiveType::I8 | crate::sema::ty::PrimitiveType::U8 | crate::sema::ty::PrimitiveType::Bool => 1,
-                crate::sema::ty::PrimitiveType::I16 | crate::sema::ty::PrimitiveType::U16 => 2,
-                crate::sema::ty::PrimitiveType::I32 | crate::sema::ty::PrimitiveType::U32 | crate::sema::ty::PrimitiveType::F32 => 4,
-                crate::sema::ty::PrimitiveType::I64 | crate::sema::ty::PrimitiveType::U64 | crate::sema::ty::PrimitiveType::F64 | 
-                crate::sema::ty::PrimitiveType::ISize | crate::sema::ty::PrimitiveType::USize => 8,
-                crate::sema::ty::PrimitiveType::I128 | crate::sema::ty::PrimitiveType::U128 => 16,
-                _ => 1,
-            },
-            // 动态读取目标架构的指针大小
+            TypeKind::Primitive(p) => self.primitive_align(p),
             TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => self.ctx.target.pointer_size, 
-            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size, // 胖指针内部对齐依然是单指针宽度
-            TypeKind::Mut(inner) => self.compute_type_align(inner),
-            TypeKind::Array { elem, .. } => self.compute_type_align(elem),
+            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size, 
+            TypeKind::Mut(inner) => self.compute_type_align_inner(inner, depth + 1),
+            TypeKind::Array { elem, .. } => self.compute_type_align_inner(elem, depth + 1),
             
-            TypeKind::Def(def_id, generic_args) => {
-                let def = self.ctx.defs[def_id.0 as usize].clone();
-                match def {
-                    Def::Struct(s) => {
-                        let mut max_align = 1;
-                        
-                        // 建立泛型映射表
-                        let mut map = std::collections::HashMap::new();
-                        if !s.generics.is_empty() && !generic_args.is_empty() {
-                            for (i, param) in s.generics.iter().enumerate() {
-                                map.insert(param.name, generic_args[i]);
-                            }
-                        }
+            TypeKind::Def(def_id, generic_args) => self.compute_def_align(def_id, &generic_args, depth),
+            _ => 1,
+        }
+    }
 
-                        for field in &s.fields {
-                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                            
-                            // 如果字段是泛型，将具体类型代入计算
-                            if !map.is_empty() {
-                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
-                                f_ty = subst.substitute(f_ty);
-                            }
-                            
-                            let align = self.compute_type_align(f_ty);
-                            if align > max_align { max_align = align; }
-                        }
-                        max_align
-                    }
-                    Def::Union(u) => {
-                        let mut max_align = 1;
-                        
-                        let mut map = std::collections::HashMap::new();
-                        if !u.generics.is_empty() && !generic_args.is_empty() {
-                            for (i, param) in u.generics.iter().enumerate() {
-                                map.insert(param.name, generic_args[i]);
-                            }
-                        }
+    pub fn compute_type_size(&mut self, ty: TypeId) -> u64 {
+        self.compute_type_size_inner(ty, 0)
+    }
 
-                        for field in &u.fields {
-                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                            if !map.is_empty() {
-                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
-                                f_ty = subst.substitute(f_ty);
-                            }
-                            let align = self.compute_type_align(f_ty);
-                            if align > max_align { max_align = align; }
-                        }
-                        max_align
-                    }
-                    Def::Enum(e) => {
-                        let back_ty = if let Some(bt) = &e.backing_type {
-                            self.ctx.node_types.get(&bt.id).copied().unwrap_or(TypeId::U32)
-                        } else {
-                            TypeId::U32
-                        };
-                        self.compute_type_align(back_ty)
-                    }
-                    _ => 1,
+    fn compute_type_size_inner(&mut self, ty: TypeId, depth: usize) -> u64 {
+        if depth > 100 { return 0; /* 防止非法嵌套结构体导致死循环崩溃 */ }
+
+        let norm = self.ctx.type_registry.normalize(ty);
+        let kind = self.ctx.type_registry.get(norm).clone();
+
+        match kind {
+            TypeKind::Primitive(p) => self.primitive_size(p),
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => self.ctx.target.pointer_size,
+            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size * 2, 
+            TypeKind::Mut(inner) => self.compute_type_size_inner(inner, depth + 1),
+            TypeKind::Array { elem, len } => self.compute_type_size_inner(elem, depth + 1) * len,
+            
+            TypeKind::Def(def_id, generic_args) => self.compute_def_size(def_id, &generic_args, depth),
+            _ => 0,
+        }
+    }
+
+    fn align_to(offset: u64, align: u64) -> u64 {
+        (offset + align - 1) & !(align - 1)
+    }
+
+    // ==========================================
+    //       Layout Helpers (Primitives)
+    // ==========================================
+
+    fn primitive_align(&self, p: crate::sema::ty::PrimitiveType) -> u64 {
+        use crate::sema::ty::PrimitiveType::*;
+        match p {
+            I8 | U8 | Bool => 1,
+            I16 | U16 => 2,
+            I32 | U32 | F32 => 4,
+            I64 | U64 | F64 => 8,
+            // 动态读取目标机器的指针大小 (例如 32 位架构返回 4, 64 位架构返回 8)
+            ISize | USize => self.ctx.target.pointer_size, 
+            I128 | U128 => 16,
+            _ => 1,
+        }
+    }
+
+    fn primitive_size(&self, p: crate::sema::ty::PrimitiveType) -> u64 {
+        use crate::sema::ty::PrimitiveType::*;
+        match p {
+            I8 | U8 | Bool => 1,
+            I16 | U16 => 2,
+            I32 | U32 | F32 => 4,
+            I64 | U64 | F64 => 8,
+            // 动态读取目标机器的指针大小
+            ISize | USize => self.ctx.target.pointer_size,
+            I128 | U128 => 16,
+            _ => 0,
+        }
+    }
+
+    // ==========================================
+    //       Layout Helpers (Complex Defs)
+    // ==========================================
+
+    fn compute_def_align(&mut self, def_id: crate::sema::ty::DefId, generic_args: &[TypeId], depth: usize) -> u64 {
+        let def = self.ctx.defs[def_id.0 as usize].clone();
+        match def {
+            Def::Struct(s) => {
+                let map = self.prepare_generic_subst(&s.generics, generic_args);
+                let mut max_align = 1;
+                for field in &s.fields {
+                    let f_ty = self.resolve_field_type(&field.type_node, &map);
+                    let align = self.compute_type_align_inner(f_ty, depth + 1);
+                    if align > max_align { max_align = align; }
                 }
+                max_align
+            }
+            Def::Union(u) => {
+                let map = self.prepare_generic_subst(&u.generics, generic_args);
+                let mut max_align = 1;
+                for field in &u.fields {
+                    let f_ty = self.resolve_field_type(&field.type_node, &map);
+                    let align = self.compute_type_align_inner(f_ty, depth + 1);
+                    if align > max_align { max_align = align; }
+                }
+                max_align
+            }
+            Def::Enum(e) => {
+                let back_ty = self.resolve_enum_backing_type(&e);
+                self.compute_type_align_inner(back_ty, depth + 1)
             }
             _ => 1,
         }
     }
 
-    /// 辅助方法：将偏移量向上取整到指定的对齐边界
-    fn align_to(offset: u64, align: u64) -> u64 {
-        (offset + align - 1) & !(align - 1)
-    }
+    fn compute_def_size(&mut self, def_id: crate::sema::ty::DefId, generic_args: &[TypeId], depth: usize) -> u64 {
+        let def = self.ctx.defs[def_id.0 as usize].clone();
+        match def {
+            Def::Struct(s) => {
+                let map = self.prepare_generic_subst(&s.generics, generic_args);
+                let mut offset = 0;
+                let mut max_align = 1;
 
-    /// 计算类型的内存占用大小 (Size)
-    fn compute_type_size(&mut self, ty: TypeId) -> u64 {
-        let norm = self.ctx.type_registry.normalize(ty);
-        let kind = self.ctx.type_registry.get(norm).clone();
-
-        match kind {
-            TypeKind::Primitive(p) => match p {
-                crate::sema::ty::PrimitiveType::I8 | crate::sema::ty::PrimitiveType::U8 | crate::sema::ty::PrimitiveType::Bool => 1,
-                crate::sema::ty::PrimitiveType::I16 | crate::sema::ty::PrimitiveType::U16 => 2,
-                crate::sema::ty::PrimitiveType::I32 | crate::sema::ty::PrimitiveType::U32 | crate::sema::ty::PrimitiveType::F32 => 4,
-                crate::sema::ty::PrimitiveType::I64 | crate::sema::ty::PrimitiveType::U64 | crate::sema::ty::PrimitiveType::F64 | 
-                crate::sema::ty::PrimitiveType::ISize | crate::sema::ty::PrimitiveType::USize => 8,
-                crate::sema::ty::PrimitiveType::I128 | crate::sema::ty::PrimitiveType::U128 => 16,
-                _ => 0,
-            },
-            // 动态读取目标机器指针大小，处理胖指针
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => self.ctx.target.pointer_size,
-            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size * 2, // 胖指针占用两个普通指针的宽度
-            TypeKind::Mut(inner) => self.compute_type_size(inner),
-            TypeKind::Array { elem, len } => self.compute_type_size(elem) * len,
-            
-            TypeKind::Def(def_id, generic_args) => {
-                let def = self.ctx.defs[def_id.0 as usize].clone();
-                match def {
-                    Def::Struct(s) => {
-                        let mut offset = 0;
-                        let mut max_align = 1;
-                        
-                        let mut map = std::collections::HashMap::new();
-                        if !s.generics.is_empty() && !generic_args.is_empty() {
-                            for (i, param) in s.generics.iter().enumerate() {
-                                map.insert(param.name, generic_args[i]);
-                            }
-                        }
-
-                        for field in &s.fields {
-                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                            if !map.is_empty() {
-                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
-                                f_ty = subst.substitute(f_ty);
-                            }
-                            
-                            let f_align = self.compute_type_align(f_ty);
-                            let f_size = self.compute_type_size(f_ty);
-                            
-                            if f_align > max_align { max_align = f_align; }
-                            offset = Self::align_to(offset, f_align);
-                            offset += f_size;
-                        }
-                        // 整个结构体的大小必须是最大对齐数的整数倍
-                        Self::align_to(offset, max_align)
-                    }
-                    Def::Union(u) => {
-                        let mut max_size = 0;
-                        let mut max_align = 1;
-                        
-                        let mut map = std::collections::HashMap::new();
-                        if !u.generics.is_empty() && !generic_args.is_empty() {
-                            for (i, param) in u.generics.iter().enumerate() {
-                                map.insert(param.name, generic_args[i]);
-                            }
-                        }
-
-                        for field in &u.fields {
-                            let mut f_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                            if !map.is_empty() {
-                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
-                                f_ty = subst.substitute(f_ty);
-                            }
-                            
-                            let f_align = self.compute_type_align(f_ty);
-                            let f_size = self.compute_type_size(f_ty);
-                            
-                            if f_align > max_align { max_align = f_align; }
-                            if f_size > max_size { max_size = f_size; }
-                        }
-                        // 联合体的大小是最大字段的大小，且要按最大对齐数进行对齐
-                        Self::align_to(max_size, max_align)
-                    }
-                    Def::Enum(e) => {
-                        let back_ty = if let Some(bt) = &e.backing_type {
-                            self.ctx.node_types.get(&bt.id).copied().unwrap_or(TypeId::U32)
-                        } else {
-                            TypeId::U32
-                        };
-                        self.compute_type_size(back_ty)
-                    }
-                    _ => 0,
+                for field in &s.fields {
+                    let f_ty = self.resolve_field_type(&field.type_node, &map);
+                    let f_align = self.compute_type_align_inner(f_ty, depth + 1);
+                    let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+                    
+                    if f_align > max_align { max_align = f_align; }
+                    offset = Self::align_to(offset, f_align);
+                    offset += f_size;
                 }
+                // 结构体总大小必须是其最大对齐要求的整数倍 (末尾填充)
+                Self::align_to(offset, max_align)
+            }
+            Def::Union(u) => {
+                let map = self.prepare_generic_subst(&u.generics, generic_args);
+                let mut max_size = 0;
+                let mut max_align = 1;
+
+                for field in &u.fields {
+                    let f_ty = self.resolve_field_type(&field.type_node, &map);
+                    let f_align = self.compute_type_align_inner(f_ty, depth + 1);
+                    let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+                    
+                    if f_align > max_align { max_align = f_align; }
+                    if f_size > max_size { max_size = f_size; }
+                }
+                // 联合体总大小也必须对其最大对齐要求进行对齐
+                Self::align_to(max_size, max_align)
+            }
+            Def::Enum(e) => {
+                let back_ty = self.resolve_enum_backing_type(&e);
+                self.compute_type_size_inner(back_ty, depth + 1)
             }
             _ => 0,
+        }
+    }
+
+    /// 构建泛型替换映射表
+    fn prepare_generic_subst(&self, generics: &[crate::ast::GenericParam], args: &[TypeId]) -> std::collections::HashMap<crate::utils::SymbolId, TypeId> {
+        let mut map = std::collections::HashMap::new();
+        if !generics.is_empty() && !args.is_empty() {
+            for (i, param) in generics.iter().enumerate() {
+                map.insert(param.name, args[i]);
+            }
+        }
+        map
+    }
+
+    /// 获取字段的 AST 类型，并在需要时应用泛型替换
+    fn resolve_field_type(&mut self, type_node: &crate::ast::TypeNode, map: &std::collections::HashMap<crate::utils::SymbolId, TypeId>) -> TypeId {
+        let mut f_ty = self.ctx.node_types.get(&type_node.id).copied().unwrap_or(TypeId::ERROR);
+        if !map.is_empty() {
+            let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, map);
+            f_ty = subst.substitute(f_ty);
+        }
+        f_ty
+    }
+
+    /// 获取枚举的底层表示类型
+    fn resolve_enum_backing_type(&self, e: &crate::sema::def::EnumDef) -> TypeId {
+        if let Some(bt) = &e.backing_type {
+            self.ctx.node_types.get(&bt.id).copied().unwrap_or(TypeId::U32)
+        } else {
+            TypeId::U32
         }
     }
 }

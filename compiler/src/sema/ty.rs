@@ -199,4 +199,31 @@ impl TypeRegistry {
             _ => false,
         }
     }
+
+    /// 剥离外层的 Mut 包裹，返回底层类型。
+    /// 如果原来不是 Mut，原样返回。
+    /// 极其重要：后端 Lowering 和类型兼容性检查必备！
+    pub fn strip_mut(&self, id: TypeId) -> TypeId {
+        match self.get(self.normalize(id)) {
+            TypeKind::Mut(inner) => *inner,
+            _ => id,
+        }
+    }
+
+    /// 检查一个类型是否显式声明了可变性
+    pub fn is_mut(&self, id: TypeId) -> bool {
+        matches!(self.get(self.normalize(id)), TypeKind::Mut(_))
+    }
+
+    /// （可选但很有用）获取指针或切片的底层元素类型
+    pub fn get_elem_type(&self, id: TypeId) -> Option<TypeId> {
+        match self.get(self.normalize(id)) {
+            TypeKind::Pointer(elem) | 
+            TypeKind::VolatilePtr(elem) | 
+            TypeKind::Slice(elem) => Some(*elem),
+            TypeKind::Array { elem, .. } => Some(*elem),
+            TypeKind::Mut(inner) => self.get_elem_type(*inner), // 穿透 Mut 找元素
+            _ => None,
+        }
+    }
 }

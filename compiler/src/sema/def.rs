@@ -133,6 +133,7 @@ pub struct TraitDef {
     pub supertraits: Vec<ast::TypeNode>,
     // 特征中定义的方法契约
     pub methods: Vec<ast::StructFieldDef>, 
+    pub resolved_methods: Vec<(SymbolId, TypeId)>,
     pub span: Span,
     pub is_builtin: bool,
 }

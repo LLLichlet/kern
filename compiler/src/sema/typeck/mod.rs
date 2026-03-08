@@ -55,11 +55,13 @@ impl<'a> TypeckDriver<'a> {
     fn check_function(&mut self, f: &FunctionDef, parent_scope: ScopeId) {
         // 1. 验证 Extern 规则
         if f.is_extern && f.body.is_some() {
-            self.ctx.emit_error(f.span, "Extern functions cannot have a body".into());
+            self.ctx.struct_error(f.span, "extern functions cannot have a body")
+                .with_hint("extern functions are defined in other object files")
+                .emit();
             return;
         }
         if !f.is_extern && f.body.is_none() {
-            self.ctx.emit_error(f.span, "Non-extern functions must have a body".into());
+            self.ctx.emit_error(f.span, "Non-extern functions must have a body");
             return;
         }
 
@@ -85,6 +87,8 @@ impl<'a> TypeckDriver<'a> {
                     node_id: param_ast.type_node.id, 
                     type_id: param_tys[i],
                     def_id: None,
+                    span: param_ast.span, 
+                    is_pub: false,        
                 };
                 let _ = self.ctx.scopes.define(param_ast.name, info);
             }
@@ -106,7 +110,7 @@ impl<'a> TypeckDriver<'a> {
                     self.ctx.emit_error(
                         body_expr.span, 
                         "Function body evaluates to a type that does not match its signature. \
-                        (Hint: Missing a return statement or a trailing semicolon?)".into()
+                        (Hint: Missing a return statement or a trailing semicolon?)"
                     );
                 }
             }
@@ -127,6 +131,8 @@ impl<'a> TypeckDriver<'a> {
             node_id: i.target_type.id,
             type_id: target_ty,
             def_id: None,
+            span: i.span,
+            is_pub: false
         });
 
         // 递归检查所有方法
@@ -147,13 +153,17 @@ impl<'a> TypeckDriver<'a> {
         if self.ctx.scopes.resolve_local(g.name).is_some() {
             self.ctx.scopes.update_type(g.name, init_ty);
         } else {
-            // 极端兜底：如果 collect 阶段漏掉了，在这里补上
-            let sym_kind = if g.is_static { SymbolKind::Static } else { SymbolKind::Const };
+            // 如果走到这里，说明 Collector 没扫到这个全局变量，这是编译器本身的 Bug
+            self.ctx.emit_ice(g.span, format!("global symbol `{}` was not collected during the collection pass", self.ctx.resolve(g.name)));
+            
+            // 为了让编译器能继续跑完 Typeck 以发现更多错误，这里可以保留定义
             let info = SymbolInfo {
-                kind: sym_kind,
+                kind: if g.is_static { SymbolKind::Static } else { SymbolKind::Const },
                 node_id: g.value.id,
                 type_id: init_ty,
                 def_id: Some(g.id),
+                span: g.span,
+                is_pub: g.vis == crate::sema::def::Visibility::Public, 
             };
             let _ = self.ctx.scopes.define(g.name, info);
         }
@@ -161,7 +171,7 @@ impl<'a> TypeckDriver<'a> {
         // === 常量与 extern 规则约束 ===
         if !g.is_extern {
             if let ast::ExprKind::Undef = g.value.kind {
-                self.ctx.emit_error(g.span, "Global variables cannot be initialized with `undef`. Must provide a constant value.".into());
+                self.ctx.emit_error(g.span, "Global variables cannot be initialized with `undef`. Must provide a constant value.");
             } else {
                 let mut evaluator = ConstEvaluator::new(self.ctx);
                 let _ = evaluator.eval_math(&g.value); 
@@ -169,10 +179,10 @@ impl<'a> TypeckDriver<'a> {
         } else {
             // 如果是 extern，确保推导出了合法类型
             if init_ty == TypeId::ERROR {
-                self.ctx.emit_error(g.span, "Extern statics must have a concrete type, e.g., `static X = i32.{undef};`".into());
+                self.ctx.emit_error(g.span, "Extern statics must have a concrete type, e.g., `static X = i32.{undef};`");
             } else if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef)) {
                 // 确保 extern 不会被赋真实的值
-                self.ctx.emit_error(g.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`".into());
+                self.ctx.emit_error(g.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
             }
         }
     }

@@ -164,7 +164,8 @@ impl<'a> Collector<'a> {
 
         // 如果不是 impl 块中的方法，则将其注册到当前词法作用域
         if parent_impl.is_none() {
-            self.define_symbol(decl.name, SymbolKind::Function, decl.id, Some(def_id), decl.span);
+            let is_pub = vis == Visibility::Public;
+            self.define_symbol(decl.name, SymbolKind::Function, decl.id, Some(def_id), decl.span, is_pub);
         }
 
         Some(def_id)
@@ -193,7 +194,8 @@ impl<'a> Collector<'a> {
         self.ctx.add_def(Def::Global(global_def));
 
         let sym_kind = if is_static { SymbolKind::Static } else { SymbolKind::Const };
-        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span);
+        let is_pub = vis == Visibility::Public;
+        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span, is_pub);
 
         Some(def_id)
     }
@@ -256,6 +258,7 @@ impl<'a> Collector<'a> {
                     generics: generics.to_vec(),
                     supertraits: bounds.to_vec(), 
                     methods: fields.clone(),
+                    resolved_methods: Vec::new(),
                     is_builtin: false,
                     span: decl.span,
                 })
@@ -274,7 +277,8 @@ impl<'a> Collector<'a> {
         };
 
         self.ctx.add_def(def);
-        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span);
+        let is_pub = vis == Visibility::Public;
+        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span, is_pub);
 
         Some(def_id)
     }
@@ -310,7 +314,7 @@ impl<'a> Collector<'a> {
                     method_ids.push(m_id);
                 }
             } else {
-                self.ctx.emit_error(method_decl.span, "Only functions are allowed inside `impl` blocks".into());
+                self.ctx.emit_error(method_decl.span, "Only functions are allowed inside `impl` blocks");
             }
         }
 
@@ -328,7 +332,7 @@ impl<'a> Collector<'a> {
     //               Helpers
     // ==========================================
 
-    /// 向当前作用域注册符号，处理重定义错误
+    /// 向当前作用域注册符号，处理重定义错误并提供极其友好的诊断信息
     fn define_symbol(
         &mut self,
         name: SymbolId,
@@ -336,29 +340,39 @@ impl<'a> Collector<'a> {
         node_id: ast::NodeId,
         def_id: Option<DefId>,
         span: crate::utils::Span,
+        is_pub: bool
     ) {
         let info = SymbolInfo {
             kind,
             node_id,
             type_id: TypeId::ERROR, // Collect 阶段尚未推导类型
             def_id,
+            span, // 记录符号的诞生位置
+            is_pub,
         };
 
-        if self.ctx.scopes.define(name, info).is_err() {
+        // 利用 DiagnosticBuilder 提供多 Span 的关联报错
+        if let Err(old_info) = self.ctx.scopes.define(name, info) {
             let name_str = self.ctx.resolve(name).to_string();
-            self.ctx.emit_error(span, format!("Symbol `{}` has already been defined in this scope", name_str));
+            
+            self.ctx.struct_error(span, format!("the name `{}` is defined multiple times", name_str))
+                .with_hint(format!("`{}` must be defined only once in the same scope", name_str))
+                .with_span_label(old_info.span, format!("previous definition of `{}` was here", name_str)) 
+                .emit();
         }
     }
     
     fn inject_generic_params(&mut self, generics: &[ast::GenericParam]) {
         for param in generics {
-            // 泛型参数没有 DefId，它的节点 ID 就是自身的 NodeId
+            let generic_node_id = self.ctx.next_node_id();
+            
             self.define_symbol(
                 param.name,
                 SymbolKind::TypeParam,
-                ast::NodeId(0), 
+                generic_node_id, 
                 None, 
-                param.span
+                param.span,
+                false,
             );
         }
     }

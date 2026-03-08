@@ -55,7 +55,7 @@ impl<'a> TypeResolver<'a> {
                 if let Some(parent_id) = f.parent {
                     if let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize] {
                         let target_ty = self.ctx.node_types.get(&i.target_type.id).copied().unwrap_or(TypeId::ERROR);
-                        self.bind_self_type(target_ty, func_scope);
+                        self.bind_self_type(target_ty, func_scope, f.span);
                     }
                 }
 
@@ -139,7 +139,7 @@ impl<'a> TypeResolver<'a> {
                     let resolved_ty = self.resolve_type(backing_ty, enum_scope);
                     // 严格检查 backing type 必须是整数类型
                     if !self.ctx.type_registry.is_integer(resolved_ty) && resolved_ty != TypeId::ERROR {
-                        self.ctx.emit_error(backing_ty.span, "Enum backing type must be an integer".into());
+                        self.ctx.emit_error(backing_ty.span, "Enum backing type must be an integer");
                     }
                 }
                 self.ctx.scopes.exit_scope();
@@ -153,13 +153,21 @@ impl<'a> TypeResolver<'a> {
 
                 // 为 Trait 强制绑定 Self 类型
                 let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(item_id, vec![]));
-                self.bind_self_type(self_ty, trait_scope);
+                self.bind_self_type(self_ty, trait_scope, t.span); 
 
-                // Kern 的特征内是函数签名
+                // 解析方法签名并收集
+                let mut resolved_methods = Vec::new();
                 for method in &t.methods {
-                    self.resolve_type(&method.type_node, trait_scope);
+                    let sig_ty = self.resolve_type(&method.type_node, trait_scope);
+                    resolved_methods.push((method.name, sig_ty));
                 }
                 self.ctx.scopes.exit_scope();
+
+                // 将解析完成的方法字典回填到全局定义中
+                if let Def::Trait(mut updated_t) = self.ctx.defs[item_id.0 as usize].clone() {
+                    updated_t.resolved_methods = resolved_methods;
+                    self.ctx.defs[item_id.0 as usize] = Def::Trait(updated_t);
+                }
             }
             Def::TypeAlias(t) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
@@ -180,7 +188,7 @@ impl<'a> TypeResolver<'a> {
 
                 // 绑定 Self 类型到上下文中
                 let target_ty_id = self.resolve_type(&i.target_type, impl_scope);
-                self.bind_self_type(target_ty_id, impl_scope);
+                self.bind_self_type(target_ty_id, impl_scope, i.span);
 
                 if let Some(trait_ty) = &i.trait_type {
                     self.resolve_type(trait_ty, impl_scope);
@@ -248,24 +256,26 @@ impl<'a> TypeResolver<'a> {
                 self.ctx.type_registry.intern(TypeKind::Function { params: param_tys, ret: ret_ty, is_variadic: *is_variadic})
             }
             ast::TypeKind::SelfType => {
-                // 查找环境中绑定的 `Self` 符号
                 self.ctx.scopes.set_current_scope(env_scope);
                 let self_sym = self.ctx.intern("Self");
                 if let Some(info) = self.ctx.scopes.resolve(self_sym) {
                     info.type_id
                 } else {
-                    self.ctx.emit_error(ty_node.span, "`Self` is only valid inside an `impl` block".into());
-                    // TODO: trait 中的`Self`？
+                    self.ctx.struct_error(ty_node.span, "the `Self` type is only valid inside `impl` blocks or `trait` definitions")
+                        .with_hint("you are using it in a global or standard function context")
+                        .emit();
                     TypeId::ERROR
                 }
             }
             ast::TypeKind::Infer => {
-                self.ctx.emit_error(ty_node.span, "Type inference `_` is not allowed in this context".into());
+                self.ctx.struct_error(ty_node.span, "type inference `_` is not allowed in this context")
+                    .with_hint("in Kern, the `_` placeholder is typically only valid in array length inference, e.g., `[_]u8.{ 1, 2, 3 }`")
+                    .emit();
                 TypeId::ERROR
             }
             // Struct/Enum/Union/Trait 在这里不会直接作为匿名类型出现 (已被 Collect 提取)
             _ => {
-                self.ctx.emit_error(ty_node.span, "Invalid or unsupported type construction".into());
+                self.ctx.emit_error(ty_node.span, "Invalid or unsupported type construction");
                 TypeId::ERROR
             }
         };
@@ -359,7 +369,7 @@ impl<'a> TypeResolver<'a> {
                     let name_str = self.ctx.resolve(segment);
                     if let Some(prim_id) = self.resolve_builtin_primitive(name_str) {
                         if !generics.is_empty() {
-                            self.ctx.emit_error(span, "Primitive types do not take generic arguments".into());
+                            self.ctx.emit_error(span, "Primitive types do not take generic arguments");
                         }
                         return prim_id;
                     }
@@ -421,7 +431,7 @@ impl<'a> TypeResolver<'a> {
             }
             SymbolKind::TypeParam => {
                 if !resolved_generics.is_empty() {
-                    self.ctx.emit_error(span, "Type parameters cannot take generic arguments".into());
+                    self.ctx.emit_error(span, "Type parameters cannot take generic arguments");
                 }
                 final_sym.type_id // 直接返回 Param(SymbolId)
             }
@@ -482,22 +492,26 @@ impl<'a> TypeResolver<'a> {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let info = SymbolInfo {
                 kind: SymbolKind::TypeParam, 
-                node_id: ast::NodeId(0),
+                node_id: self.ctx.next_node_id(), 
                 type_id: param_ty,
                 def_id: None,
+                span: param.span, 
+                is_pub: false,    
             };
             let _ = self.ctx.scopes.define(param.name, info);
         }
     }
 
-    fn bind_self_type(&mut self, target_ty: TypeId, scope: ScopeId) {
+    fn bind_self_type(&mut self, target_ty: TypeId, scope: ScopeId, span: crate::utils::Span) {
         self.ctx.scopes.set_current_scope(scope);
         let self_sym = self.ctx.intern("Self");
         let info = SymbolInfo {
             kind: SymbolKind::TypeAlias,
-            node_id: ast::NodeId(0),
+            node_id: self.ctx.next_node_id(), 
             type_id: target_ty,
             def_id: None,
+            span,             
+            is_pub: false,   
         };
         // 允许重复定义（覆盖外部可能存在的同名绑定）
         let _ = self.ctx.scopes.define(self_sym, info);
@@ -508,96 +522,6 @@ impl<'a> TypeResolver<'a> {
             SymbolKind::Var => "variable", SymbolKind::Const => "constant",
             SymbolKind::Static => "static variable", SymbolKind::Function => "function",
             SymbolKind::Module => "module", _ => "symbol",
-        }
-    }
-
-    // ==========================================
-    //          常量折叠
-    // ==========================================
-
-    fn evaluate_const_usize(&mut self, expr: &ast::Expr) -> u64 {
-        match self.eval_const_math(expr) {
-            Ok(val) => {
-                if val < 0 {
-                    self.ctx.emit_error(expr.span, "Array length cannot be negative".into());
-                    0
-                } else {
-                    val as u64
-                }
-            }
-            Err(_) => {
-                // 具体的错误已经在 eval_const_math 内部报出，这里直接返回兜底值 0
-                0
-            }
-        }
-    }
-
-    /// 递归计算编译期整型常量表达式
-    /// 返回 i128 以安全捕获中间计算可能出现的负数或溢出
-    fn eval_const_math(&mut self, expr: &ast::Expr) -> Result<i128, ()> {
-        use ast::{ExprKind, BinaryOperator, UnaryOperator};
-
-        match &expr.kind {
-            // 基本常量
-            ExprKind::Integer(val) => Ok(*val as i128),
-            ExprKind::Char(c) => Ok(*c as i128),
-
-            // 双目运算: + - * / % << >> & | ^
-            ExprKind::Binary { lhs, op, rhs } => {
-                let left = self.eval_const_math(lhs)?;
-                let right = self.eval_const_math(rhs)?;
-
-                match op {
-                    BinaryOperator::Add => Ok(left.wrapping_add(right)),
-                    BinaryOperator::Subtract => Ok(left.wrapping_sub(right)),
-                    BinaryOperator::Multiply => Ok(left.wrapping_mul(right)),
-                    BinaryOperator::Divide => {
-                        if right == 0 {
-                            self.ctx.emit_error(rhs.span, "Division by zero in constant expression".into());
-                            Err(())
-                        } else {
-                            Ok(left / right)
-                        }
-                    }
-                    BinaryOperator::Modulo => {
-                        if right == 0 {
-                            self.ctx.emit_error(rhs.span, "Modulo by zero in constant expression".into());
-                            Err(())
-                        } else {
-                            Ok(left % right)
-                        }
-                    }
-                    BinaryOperator::ShiftLeft => Ok(left << right),
-                    BinaryOperator::ShiftRight => Ok(left >> right),
-                    BinaryOperator::BitwiseAnd => Ok(left & right),
-                    BinaryOperator::BitwiseOr => Ok(left | right),
-                    BinaryOperator::BitwiseXor => Ok(left ^ right),
-                    _ => {
-                        self.ctx.emit_error(expr.span, "Operator not supported in constant expression".into());
-                        Err(())
-                    }
-                }
-            }
-
-            // 单目运算: - ~
-            ExprKind::Unary { op, operand } => {
-                let val = self.eval_const_math(operand)?;
-                match op {
-                    UnaryOperator::Negate => Ok(-val),
-                    UnaryOperator::BitwiseNot => Ok(!val),
-                    _ => {
-                        self.ctx.emit_error(expr.span, "Unary operator not supported in constant expression".into());
-                        Err(())
-                    }
-                }
-            }
-
-            // TODO: 扩展：如果全局标识符是一个 Const，理论上可以在这里查表代入值。
-            
-            _ => {
-                self.ctx.emit_error(expr.span, "Expected an integer constant expression (e.g. `1024 * 4`)".into());
-                Err(())
-            }
         }
     }
 }

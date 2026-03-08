@@ -1,7 +1,7 @@
 #![allow(unused)]
 
 use std::collections::HashMap;
-use crate::utils::SymbolId;
+use crate::utils::{SymbolId, Span};
 use crate::ast::NodeId;
 use super::ty::{TypeId, DefId};
 
@@ -32,6 +32,8 @@ pub struct SymbolInfo {
     pub node_id: NodeId,      // 对应的 AST 节点
     pub type_id: TypeId,      // 语义类型
     pub def_id: Option<DefId>,// 指向具体的定义表
+    pub span: Span,
+    pub is_pub: bool,
 }
 
 /// 单层作用域 (持久化结构)
@@ -108,13 +110,16 @@ impl SymbolTable {
         self.current_scope
     }
 
-    /// 在当前作用域定义符号
-    pub fn define(&mut self, name: SymbolId, info: SymbolInfo) -> Result<(), ()> {
+    /// 在当前作用域定义符号。
+    /// 如果成功，返回 Ok(())。
+    /// 如果失败（发生同名冲突），返回 Err(旧的 SymbolInfo)，以便调用者可以报出极具建设性的错误
+    pub fn define(&mut self, name: SymbolId, info: SymbolInfo) -> Result<(), SymbolInfo> {
         let current_id = self.current_scope.expect("No active scope to define symbol");
         let current_scope = &mut self.scopes[current_id.0];
         
-        if current_scope.symbols.contains_key(&name) {
-            return Err(());
+        if let Some(existing) = current_scope.symbols.get(&name) {
+            // 返回旧变量的信息，方便报错时指出 "previous definition was here"
+            return Err(existing.clone());
         }
         current_scope.symbols.insert(name, info);
         Ok(())

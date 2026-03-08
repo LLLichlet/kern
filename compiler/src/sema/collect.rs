@@ -27,7 +27,7 @@ impl<'a> Collector<'a> {
         
         let parent_module = self.current_module;
         
-        // 【关键改动 1】开启模块的专属作用域，并获取其持久化的 ScopeId
+        // 开启模块的专属作用域，并获取其持久化的 ScopeId
         let scope_id = self.ctx.scopes.enter_scope();
         
         // 预先注册 ModuleDef，并绑定 scope_id
@@ -35,16 +35,14 @@ impl<'a> Collector<'a> {
             id: mod_id,
             name: mod_name,
             parent: parent_module, 
-            scope_id, // <--- 绑定专属作用域
+            scope_id, 
             items: Vec::new(),
             imports: Vec::new(),
         }));
 
         self.current_module = Some(mod_id);
-        
         let mut item_ids = Vec::new();
         let mut imports = Vec::new();
-
         // 遍历并收集模块内的所有顶层声明
         for decl in &module.decls {
             if let DeclKind::Use { kind, path, target, is_reexport } = &decl.kind {
@@ -56,7 +54,7 @@ impl<'a> Collector<'a> {
                     span: decl.span,
                 });
             } else if let DeclKind::ExternBlock { decls, .. } = &decl.kind {
-                // ✅ 核心修复：展平 Extern 块，将内部的 C 函数注册到模块成员中！
+                // 展平 Extern 块，将内部的 C 函数注册到模块成员中
                 for ext_decl in decls {
                     if let Some(def_id) = self.collect_decl(ext_decl, None, true, &[]) {
                         item_ids.push(def_id);
@@ -66,14 +64,12 @@ impl<'a> Collector<'a> {
                 item_ids.push(def_id);
             }
         }
-
         // 收集完毕，将内部成员和导入列表更新回 ModuleDef
         if let Def::Module(m) = &mut self.ctx.defs[mod_id.0 as usize] {
             m.items = item_ids;
             m.imports = imports;
         }
-
-        // 【关键改动 2】退出当前作用域，恢复上下文
+        // 退出当前作用域，恢复上下文
         self.ctx.scopes.exit_scope();
         self.current_module = parent_module;
 
@@ -88,7 +84,7 @@ impl<'a> Collector<'a> {
 
         match &decl.kind {
             DeclKind::Function { generics, params, ret_type, body, is_extern, is_variadic } => {
-                // 🌟 核心修复：合并 impl 块的泛型和函数自身的泛型
+                // 合并 impl 块的泛型和函数自身的泛型
                 let mut combined_generics = impl_generics.to_vec();
                 combined_generics.extend_from_slice(generics);
 
@@ -353,15 +349,14 @@ impl<'a> Collector<'a> {
             self.ctx.emit_error(span, format!("Symbol `{}` has already been defined in this scope", name_str));
         }
     }
-
-    // sema/collect.rs 内部的辅助方法 (你可以加在 Helper 区域)
+    
     fn inject_generic_params(&mut self, generics: &[ast::GenericParam]) {
         for param in generics {
             // 泛型参数没有 DefId，它的节点 ID 就是自身的 NodeId
             self.define_symbol(
                 param.name,
                 SymbolKind::TypeParam,
-                ast::NodeId(0), // 或者传入真实的 NodeId
+                ast::NodeId(0), 
                 None, 
                 param.span
             );

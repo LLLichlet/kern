@@ -73,8 +73,6 @@ impl Context {
 
     /// 解析驻留的字符串
     pub fn resolve(&self, sym: SymbolId) -> &str {
-        // 假设 interner.resolve 返回 Option<&str>，这里为了方便直接 unwrap 
-        // 或者返回 "<unknown>"，视 interner 实现而定
         self.interner.resolve(sym).unwrap_or("<unknown>")
     }
     
@@ -92,7 +90,6 @@ impl Context {
 
     fn print_diagnostic(&self, diag: &Diagnostic) {
         // 获取位置信息 (Line, Col)
-        // 这里的 lookup_location 来自之前的 SourceManager 实现
         let location = self.source_manager.lookup_location(diag.span);
 
         // 获取文件名
@@ -122,8 +119,6 @@ impl Context {
             diag.message
         );
 
-        // 进阶：打印源代码片段并高亮
-        // 如果 SourceManager 提供了 slice_source 或 get_line_text
         if let Some(loc) = location {
             if let Some(line_text) = self.source_manager.get_line_text(loc) {
                 // 打印源代码行
@@ -131,10 +126,9 @@ impl Context {
                 eprintln!(" {} | {}", line, line_text.trim_end());
                 
                 // 打印下划线指针 (简单的 ^ 指示)
-                // 注意：这里需要处理 Tab 和宽字符，简单起见先打印空格
                 eprint!("   | ");
                 for _ in 0..col {
-                    eprint!(" "); // 实际上应该匹配 line_text 前面的空白字符宽度
+                    eprint!(" "); 
                 }
                 eprintln!("^");
             }
@@ -173,13 +167,10 @@ mod tests {
         let span = Span { file: file_id, start: 8, end: 9 };
         
         // 报告错误
-        // Rust 的 format! 宏是在调用处使用的，非常灵活
         ctx.emit_error(span, format!("Expected expression, found {:?}", ";"));
 
         assert_eq!(ctx.error_count, 1);
         assert!(ctx.has_errors());
-        
-        // 打印看看 (在 `cargo test` 中需要 --nocapture 才能看到输出)
         ctx.print_diagnostics();
     }
     

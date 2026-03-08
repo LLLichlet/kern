@@ -1,6 +1,4 @@
 #![allow(unused)]
-// src/sema/resolve_types.rs
-
 use crate::ast;
 use crate::context::Context;
 use crate::sema::def::{Def, ImplDef};
@@ -20,7 +18,7 @@ impl<'a> TypeResolver<'a> {
 
     /// 执行完整的类型解析 Pass
     pub fn resolve_all(&mut self) {
-        // 核心纠正：我们必须基于模块层级进行遍历，以获取正确的词法作用域上下文
+        // 基于模块层级进行遍历，以获取正确的词法作用域上下文
         let module_ids: Vec<DefId> = self.ctx.defs.iter().filter_map(|def| {
             if let Def::Module(m) = def { Some(m.id) } else { None }
         }).collect();
@@ -84,7 +82,7 @@ impl<'a> TypeResolver<'a> {
 
                 self.ctx.scopes.exit_scope();
 
-                // 🌟 核心修复 1：提取真实的泛型参数，而不是盲目传 Vec::new()
+                // 提取泛型参数
                 let mut gen_args = Vec::new();
                 for param in &f.generics {
                     gen_args.push(self.ctx.type_registry.intern(TypeKind::Param(param.name)));
@@ -94,8 +92,7 @@ impl<'a> TypeResolver<'a> {
                 // 切换回父作用域
                 self.ctx.scopes.set_current_scope(parent_scope);
                 
-                // 🌟 核心修复 2：只有普通的独立函数才需要在当前作用域更新类型。
-                // 如果这是 impl 块里的方法，它并没有注册在作用域树中，不要去 update 它！
+                // 只有普通的独立函数才需要在当前作用域更新类型。
                 let is_impl_method = f.parent.map_or(false, |p_id| {
                     matches!(self.ctx.defs[p_id.0 as usize], Def::Impl(_))
                 });
@@ -154,7 +151,7 @@ impl<'a> TypeResolver<'a> {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let trait_scope = self.ctx.scopes.enter_scope();
 
-                // 🌟 核心修复 1：为 Trait 强制绑定 Self 类型
+                // 为 Trait 强制绑定 Self 类型
                 let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(item_id, vec![]));
                 self.bind_self_type(self_ty, trait_scope);
 
@@ -253,12 +250,12 @@ impl<'a> TypeResolver<'a> {
             ast::TypeKind::SelfType => {
                 // 查找环境中绑定的 `Self` 符号
                 self.ctx.scopes.set_current_scope(env_scope);
-                // 假设我们在 bind_self_type 时使用了名为 `Self` 的符号
                 let self_sym = self.ctx.intern("Self");
                 if let Some(info) = self.ctx.scopes.resolve(self_sym) {
                     info.type_id
                 } else {
                     self.ctx.emit_error(ty_node.span, "`Self` is only valid inside an `impl` block".into());
+                    // TODO: trait 中的`Self`？
                     TypeId::ERROR
                 }
             }
@@ -515,7 +512,7 @@ impl<'a> TypeResolver<'a> {
     }
 
     // ==========================================
-    //          Constant Folding (常量折叠)
+    //          常量折叠
     // ==========================================
 
     fn evaluate_const_usize(&mut self, expr: &ast::Expr) -> u64 {
@@ -595,7 +592,7 @@ impl<'a> TypeResolver<'a> {
                 }
             }
 
-            // 扩展：如果全局标识符是一个 Const，理论上可以在这里查表代入值。
+            // TODO: 扩展：如果全局标识符是一个 Const，理论上可以在这里查表代入值。
             
             _ => {
                 self.ctx.emit_error(expr.span, "Expected an integer constant expression (e.g. `1024 * 4`)".into());

@@ -1,4 +1,3 @@
-// src/sema/typeck/mod.rs
 #![allow(unused)]
 pub mod expr;
 pub mod subst;
@@ -12,7 +11,7 @@ use crate::sema::ty::{TypeId, TypeKind};
 use crate::sema::typeck::const_eval::ConstEvaluator;
 use crate::sema::typeck::expr::ExprChecker;
 
-/// 类型检查的主驱动器 (Typeck Driver)
+/// 类型检查的主驱动器 
 pub struct TypeckDriver<'a> {
     pub ctx: &'a mut Context,
 }
@@ -79,9 +78,6 @@ impl<'a> TypeckDriver<'a> {
         // === 3. 核心：作用域环境重建 ===
         self.ctx.scopes.set_current_scope(parent_scope);
         let _ = self.ctx.scopes.enter_scope();
-
-        // 注册所有形参到当前函数的局部作用域中！
-        // 这样在函数体里写 `a + b` 时，标识符解析才能找到它们。
         for (i, param_ast) in f.params.iter().enumerate() {
             if i < param_tys.len() {
                 let info = SymbolInfo {
@@ -104,8 +100,6 @@ impl<'a> TypeckDriver<'a> {
             if ret_ty == body_eval_ty {
                 // 类型完美匹配 (例如函数是 void，或者用户用了无分号的尾部表达式)
             } else if body_eval_ty == TypeId::VOID && checker.has_returned {
-                // 🌟 核心修复：虽然代码块因为末尾的 `;` 被推导成了 VOID，
-                // 但我们在内部确实检查过了合法的 Return 语句！放行！
             } else {
                 // 强制检查 Coercion（会打印 Type mismatch）
                 if !checker.check_coercion(body_expr.span, ret_ty, body_eval_ty) {
@@ -149,11 +143,7 @@ impl<'a> TypeckDriver<'a> {
     fn check_global(&mut self, g: &GlobalDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let mut checker = ExprChecker::new(self.ctx, None);
-
-        // ✅ 完全依赖右侧的表达式推导类型
         let init_ty = checker.check_expr(&g.value, None);
-
-        // ✅ 使用你现有的完美 API 同步类型！
         if self.ctx.scopes.resolve_local(g.name).is_some() {
             self.ctx.scopes.update_type(g.name, init_ty);
         } else {

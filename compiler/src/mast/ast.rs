@@ -1,4 +1,3 @@
-// src/mast/ast.rs
 #![allow(unused)]
 use crate::sema::ty::TypeId;
 use crate::utils::{Span, SymbolId};
@@ -19,10 +18,6 @@ pub struct MastModule {
     pub functions: Vec<MastFunction>,
     // Trait, Enum(被降级为整数和常量), TypeAlias 在这里彻底消失
 }
-
-// ==========================================
-//          Top-Level Definitions
-// ==========================================
 
 #[derive(Debug, Clone)]
 pub struct MastStruct {
@@ -85,16 +80,10 @@ pub enum MastStmt {
     },
     /// 表达式语句
     Expr(MastExpr),
-    // 💡 注意：Defer 已经消失！在 Lowering 阶段，所有的 defer 都已经被
+    // 在 Lowering 阶段，所有的 defer 都已经被
     // 倒序强行插入到了此 Block 的每一个返回/退出路径上。
 }
-
-// ==========================================
-//          Expressions (The Core)
-// ==========================================
-
-/// 每一个 MAST 表达式都必须**显式**携带它的具体类型。
-/// 这样 LLVM Codegen 在遍历时不需要任何环境查表，闭着眼睛就能生成指令。
+/// 每一个 MAST 表达式都必须显式携带它的具体类型。
 #[derive(Debug, Clone)]
 pub struct MastExpr {
     pub ty: TypeId,
@@ -139,8 +128,6 @@ pub enum MastExprKind {
     FieldAccess {
         lhs: Box<MastExpr>,
         struct_id: MonoId, // 显式记录所属结构体的具体 MonoId
-        /// 极其关键：AST 中的 SymbolId 变成了物理索引！
-        /// 完美契合 LLVM 的 `getelementptr` 指令 (GEP)。
         field_idx: usize, 
     },
     
@@ -163,11 +150,9 @@ pub enum MastExprKind {
         else_branch: Option<MastBlock>,
     },
     
-    /// 💡 注意：For/While 都消失了，统一降级为无条件 Loop。
-    /// 条件判断变成了 Loop 内部的 `if (!cond) break;`。
     Loop(MastBlock), 
     
-    /// 💡 Switch 被保留，因为 LLVM 有原生的 `switch` 指令，比 if-else 链快得多。
+    /// Switch 被保留，因为 LLVM 有原生的 `switch` 指令，比 if-else 链快得多。
     Switch {
         target: Box<MastExpr>,
         cases: Vec<MastSwitchCase>,

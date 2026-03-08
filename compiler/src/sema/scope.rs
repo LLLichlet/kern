@@ -80,10 +80,6 @@ impl SymbolTable {
         id
     }
 
-    // ==========================================
-    //          Scope Navigation
-    // ==========================================
-
     /// 进入一个新的块级作用域（将其父节点设为当前作用域）
     /// 返回创建的 ScopeId，方便在 Collect 阶段将其绑定到模块上
     pub fn enter_scope(&mut self) -> ScopeId {
@@ -111,10 +107,6 @@ impl SymbolTable {
     pub fn current_scope_id(&self) -> Option<ScopeId> {
         self.current_scope
     }
-
-    // ==========================================
-    //          Symbol Management
-    // ==========================================
 
     /// 在当前作用域定义符号
     pub fn define(&mut self, name: SymbolId, info: SymbolInfo) -> Result<(), ()> {

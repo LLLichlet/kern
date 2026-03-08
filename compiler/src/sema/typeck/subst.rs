@@ -21,7 +21,7 @@ impl<'a> Substituter<'a> {
         match kind {
             TypeKind::Primitive(_) | TypeKind::Error => ty,
             
-            // 【核心】命中泛型参数，执行替换
+            // 命中泛型参数，执行替换
             TypeKind::Param(name) => {
                 if let Some(&new_ty) = self.map.get(&name) {
                     new_ty

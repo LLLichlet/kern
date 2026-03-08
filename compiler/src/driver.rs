@@ -112,7 +112,7 @@ impl CompilerDriver {
 
         // 2. 调用系统默认的 C 编译器 (cc/clang/gcc) 进行链接
         println!("Linking...");
-        let status = std::process::Command::new("cc") // 这里默认使用系统 cc，也可以换成 clang
+        let status = std::process::Command::new("cc") // 这里默认使用系统 cc
             .arg(obj_path_str)
             .arg("-o")
             .arg(&self.options.output_file)
@@ -120,7 +120,7 @@ impl CompilerDriver {
 
         match status {
             Ok(s) if s.success() => {
-                // 链接成功后，我们可以优雅地把临时的 .o 文件删掉
+                // 链接成功后，把临时的 .o 文件删掉
                 let _ = std::fs::remove_file(obj_path);
                 println!("Successfully compiled to `{}`", self.options.output_file);
                 true

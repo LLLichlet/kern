@@ -23,9 +23,8 @@ impl<'a> ImportResolver<'a> {
             if let Def::Module(m) = def { Some(m.id) } else { None }
         }).collect();
 
-        // 提示：如果要完美支持乱序的 `pub use` 链条 (A 导 B，B 导 C)，
+        // TODO: 支持乱序的 `pub use` 链条 (A 导 B，B 导 C)，
         // 应当在这里加入 fixed-point iteration (不动点迭代) 或者对导入依赖做拓扑排序。
-        // 对于 Kern 这种显式要求清晰依赖树的语言，单次严格遍历通常已能满足大部分需求。
         for mod_id in module_ids {
             self.resolve_module_imports(mod_id);
         }
@@ -47,7 +46,6 @@ impl<'a> ImportResolver<'a> {
         let current_scope = self.get_module_scope(current_mod_id);
 
         // 1. 定位目标路径的 Module DefId 和 ScopeId
-        // 注意：Use 语句的 `path` 部分 (如 std.math) 永远指向一个模块！具体的项在 target 中。
         let (target_mod_id, target_scope) = match self.resolve_path(current_mod_id, import.path_kind, &import.path, import.span) {
             Some(res) => res,
             None => return, // 寻址失败，错误已由 resolve_path 发出
@@ -96,7 +94,7 @@ impl<'a> ImportResolver<'a> {
                         // 2.2 注入作用域
                         let name_to_bind = member.alias.unwrap_or(member.name);
                         
-                        // 注意：对于 `pub use` (is_reexport == true)，
+                        // TODO: 注意：对于 `pub use` (is_reexport == true)，
                         // 我们仅仅将其放入当前 Scope。要让其他模块知道它是 pub 的，
                         // 后续的 check_visibility 机制或 SymbolInfo 需要扩展以记录“导出状态”。
                         self.define_import(current_scope, name_to_bind, symbol_info.clone(), member.span);
@@ -134,8 +132,6 @@ impl<'a> ImportResolver<'a> {
                 // 获取当前模块的父模块
                 if let Def::Module(m) = &self.ctx.defs[current_mod_id.0 as usize] {
                     if let Some(parent_id) = m.parent {
-                        // 【语言设计特性：严格层级约束】
-                        // 如果父模块是 `init` (目录模块)，严禁子模块回溯导入，打断循环依赖！
                         if self.is_init_module(parent_id) {
                             self.ctx.emit_error(span, "Child modules are strictly forbidden from importing `init.kn` contents".into());
                             return None;
@@ -211,8 +207,7 @@ impl<'a> ImportResolver<'a> {
         match vis {
             Visibility::Public => true,
             Visibility::Private => {
-                // 私有成员仅对同模块，或该模块的直接子模块可见
-                // 这里我们做严格限制：私有成员仅对同模块可见。
+                // 私有成员仅对同模块可见。
                 false 
             }
         }

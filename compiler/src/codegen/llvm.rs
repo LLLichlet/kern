@@ -98,7 +98,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             let func_val = self.functions.get(&mono_id).unwrap();
                             ptr_vals.push(func_val.as_global_value().as_pointer_value());
                         } else {
-                            // 兜底防爆：如果不是函数引用，塞入 Null 指针
+                            // TODO: 
+                            // 如果不是函数引用，塞入 Null 指针
                             ptr_vals.push(self.context.ptr_type(AddressSpace::default()).const_null());
                         }
                     }
@@ -152,7 +153,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let elem_ty = self.get_llvm_type(*elem);
                 elem_ty.array_type(*len as u32).into()
             }
-            // ✅ 确保包含这两个胖指针类型的正确映射
             TypeKind::TraitObject(_, _) | TypeKind::Slice(_) => {
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
                 let len_ty = self.context.i64_type(); 
@@ -262,12 +262,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         if let Some(body) = &func.body {
-            // 🌟 1. 捕获 Block 执行完抛出的最后那个值 (比如 test3 里的 0)
+            // 1. 捕获 Block 执行完抛出的最后那个值 (比如 test3 里的 0)
             let block_res = self.compile_block(body);
             
             let current_block = self.builder.get_insert_block().unwrap();
             if current_block.get_terminator().is_none() {
-                // 🌟 2. 如果 Block 有返回值，自动帮它生成 ret 指令！
+                // 2. 如果 Block 有返回值，自动帮它生成 ret 指令
                 if let Some(val) = block_res {
                     self.builder.build_return(Some(&val)).unwrap();
                 } else if func.ret_ty == TypeId::VOID {
@@ -381,8 +381,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.builder.build_load(expected_llvm_ty, field_ptr, "field_load").unwrap()
             }
 
-            // ✅ 核心修复：安全区分 Slice 索引和 Array 索引
-           MastExprKind::IndexAccess { lhs, index } => {
+            MastExprKind::IndexAccess { lhs, index } => {
                 let idx_val = self.compile_expr(index).into_int_value();
                 let norm_lhs = self.type_registry.normalize(lhs.ty);
                 
@@ -392,16 +391,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let elem_ty = self.get_llvm_type(expr.ty);
                     unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_idx").unwrap() }
                 } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
-                    // 🌟 修复 1：支持对裸指针直接进行索引！直接 compile_expr 当做右值指针
                     let ptr_val = self.compile_expr(lhs).into_pointer_value();
                     let elem_ty = self.get_llvm_type(expr.ty);
-                    // 注意：指针的 GEP 只需要一个索引参数 `[idx_val]`
+                    // 指针的 GEP 只需要一个索引参数 `[idx_val]`
                     unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_idx").unwrap() }
                 } else {
                     let array_ptr = self.compile_lvalue(lhs);
                     let zero = self.context.i64_type().const_zero();
                     let array_llvm_ty = self.get_llvm_type(lhs.ty);
-                    // 注意：数组的 GEP 需要两个索引参数 `[0, idx_val]`
+                    // 数组的 GEP 需要两个索引参数 `[0, idx_val]`
                     unsafe { self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_idx").unwrap() }
                 };
                 
@@ -510,7 +508,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         self.builder.build_not(op_val.into_int_value(), "not").unwrap().into()
                     }
                     crate::ast::UnaryOperator::LengthOf => {
-                        // 🌟 修复：给操作数剥离 Mut
+                        // 给操作数剥离 Mut
                         let mut norm_ty = self.type_registry.normalize(operand.ty);
                         if let TypeKind::Mut(inner) = self.type_registry.get(norm_ty) {
                             norm_ty = *inner;
@@ -663,7 +661,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
                 self.builder.build_switch(target_val, default_bb, &llvm_cases).unwrap();
 
-                // 🌟 核心修复：收集所有分支的返回值和对应的 Block，供 PHI 节点使用
+                // 收集所有分支的返回值和对应的 Block，供 PHI 节点使用
                 let mut incoming = Vec::new(); 
 
                 self.builder.position_at_end(default_bb);
@@ -675,7 +673,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         self.builder.build_unconditional_branch(merge_bb).unwrap();
                     }
                 } else {
-                    // 🌟 核心修复：前端保证了穷尽性，这里如果走到 default 就是不可达的
+                    // 前端保证了穷尽性，这里如果走到 default 就是不可达的
                     self.builder.build_unreachable().unwrap();
                 }
                 if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
@@ -714,6 +712,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
                 match kind {
                     MastCastKind::Bitcast => {
+                        // TODO:
                         // 防御性修复：如果前端错误地将 Slice 转 Ptr 标记为了 Bitcast
                         if val.is_struct_value() && target_llvm_ty.is_pointer_type() {
                             let fat_ptr = val.into_struct_value();
@@ -738,7 +737,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         let array_ptr = self.compile_lvalue(operand);
                         slice_val = self.builder.build_insert_value(slice_val, array_ptr, 0, "slice_ptr").unwrap().into_struct_value();
                         
-                        // 🌟 修复：剥离 Mut 以获取数组真实长度
+                        // 剥离 Mut 以获取数组真实长度
                         let mut base_op_ty = self.type_registry.normalize(operand.ty);
                         if let TypeKind::Mut(inner) = self.type_registry.get(base_op_ty) {
                             base_op_ty = *inner;
@@ -824,7 +823,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let elem_ty = self.get_llvm_type(expr.ty);
                     unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_lvalue").unwrap() }
                 } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
-                    // 🌟 修复 2：支持裸指针的左值推导
                     let ptr_val = self.compile_expr(lhs).into_pointer_value();
                     let elem_ty = self.get_llvm_type(expr.ty);
                     unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_lvalue").unwrap() }
@@ -859,7 +857,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let target_machine = target.create_target_machine(
             &triple,
             "generic", // CPU 类型
-            "",        // 特性 (Features)
+            "",        // 特性 
             inkwell::OptimizationLevel::Default, // 可根据传入的 OptLevel 动态调整
             RelocMode::Default,
             CodeModel::Default,
@@ -871,13 +869,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         if let Err(err) = self.module.verify() {
             // 如果 IR 有问题，它会打印出极其详细的错误信息（比如哪一行的 PHI 节点类型不对）
-            eprintln!("🔥 LLVM IR Verification Failed:\n{}", err.to_string());
-            // 顺便把畸形的 IR 打印出来，方便我们肉眼对比
+            eprintln!("LLVM IR Verification Failed:\n{}", err.to_string());
+            // 顺便把畸形的 IR 打印出来，方便肉眼对比
             self.print_ir();
             return Err("Invalid LLVM IR generated".to_string());
         }
         
-        // 5. 触发 LLVM 后端，直接将 IR 编译为二进制的 Object (.o) 文件！
+        // 5. 触发 LLVM 后端，直接将 IR 编译为二进制的 Object (.o) 文件
         let path = std::path::Path::new(output_path);
         target_machine.write_to_file(&self.module, FileType::Object, path).map_err(|e| e.to_string())?;
 

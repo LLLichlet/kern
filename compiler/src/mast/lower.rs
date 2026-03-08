@@ -74,8 +74,8 @@ impl<'a> Lowerer<'a> {
             let def = self.ctx.defs[id.0 as usize].clone();
             match def {
                 Def::Function(f) => {
-                    // 🌟 核心修复：检查函数自身和其父级（Impl块）是否包含泛型
-                    // 只有自己没泛型，且爹也没泛型的函数，才是真正的“自由函数”，才能在此刻被实例化！
+                    // 检查函数自身和其父级（Impl块）是否包含泛型
+                    // 只有自己没泛型，且爹也没泛型的函数，才是真正的“自由函数”，才能在此刻被实例化
                     let mut is_generic = !f.generics.is_empty();
                     if let Some(parent_id) = f.parent {
                         if let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize] {
@@ -112,10 +112,8 @@ impl<'a> Lowerer<'a> {
 
         let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] { f.clone() } else { unreachable!() };
         
-        // ==========================================
-        // 🌟 核心修复：合并父级作用域 (Impl 块) 的泛型参数
+        // 合并父级作用域 (Impl 块) 的泛型参数
         // 泛型参数环境 = [Impl 泛型] + [函数自身泛型]
-        // ==========================================
         let mut all_generic_params = Vec::new();
         
         // 1. 如果这个函数属于某个 Impl 块，先把它身上的 T, U 拿过来
@@ -331,7 +329,7 @@ impl<'a> Lowerer<'a> {
             println!("--------------------------------------------------");
             println!("🔥 [LOWER TRAP] Lowering an expression with ERROR type!");
             println!("Span: {:?}", expr.span);
-            // println!("ExprKind: {:#?}", expr.kind);
+            println!("ExprKind: {:#?}", expr.kind);
             println!("--------------------------------------------------");
         }
 
@@ -362,7 +360,7 @@ impl<'a> Lowerer<'a> {
                     is_extern: false,
                 });
 
-                // ✅ 核心魔法：直接在 MAST 层面组装出一个标准的 FatPointer！
+                // 直接在 MAST 层面组装出一个标准的 FatPointer
                 let data_ptr = MastExpr {
                     ty: self.ctx.type_registry.intern(TypeKind::Pointer(array_ty)),
                     span: expr.span,
@@ -460,7 +458,7 @@ impl<'a> Lowerer<'a> {
                 let mut is_method = false;
                 let mut method_field_sym = None;
                 
-                // 🚀 1. 嗅探是否为方法调用，并提前独占式提取 Receiver
+                // 嗅探是否为方法调用，并提前独占式提取 Receiver
                 if let ExprKind::FieldAccess { lhs, field } = &callee.kind {
                     let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
                     let norm_callee = self.ctx.type_registry.normalize(callee_ty);
@@ -468,12 +466,12 @@ impl<'a> Lowerer<'a> {
                     if matches!(self.ctx.type_registry.get(norm_callee), TypeKind::FnDef(..) | TypeKind::Function {..}) {
                         is_method = true;
                         method_field_sym = Some(*field);
-                        // 🌟 只在这里下降一次 Receiver，绝不重复求值！
+                        // 只在这里下降一次 Receiver，不重复求值
                         receiver_mast = Some(self.lower_expr(lhs, subst_map, None)); 
                     }
                 }
 
-                // 🌟 新增：在下降参数之前，统一提取被调用者的完整参数签名！
+                // 在下降参数之前，统一提取被调用者的完整参数签名
                 let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
                 let norm_callee = self.ctx.type_registry.normalize(callee_ty);
                 
@@ -482,7 +480,7 @@ impl<'a> Lowerer<'a> {
                     TypeKind::FnDef(def_id, gen_args) => {
                         if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
                             if let Some(sig) = f.resolved_sig {
-                                // 🌟 步骤 1：在没有任何可变借用的时候，先去不可变地读取原始参数签名！
+                                // 1：在没有任何可变借用的时候，先去不可变地读取原始参数签名
                                 let norm_sig = self.ctx.type_registry.normalize(sig);
                                 let raw_params = if let TypeKind::Function { params, .. } = self.ctx.type_registry.get(norm_sig).clone() {
                                     params
@@ -490,7 +488,7 @@ impl<'a> Lowerer<'a> {
                                     Vec::new()
                                 };
 
-                                // 🌟 步骤 2：准备泛型映射表的数据
+                                // 2：准备泛型映射表的数据
                                 let mut all_generic_params = Vec::new();
                                 if let Some(parent_id) = f.parent {
                                     if let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize] {
@@ -506,7 +504,7 @@ impl<'a> Lowerer<'a> {
                                     }
                                 }
                                 
-                                // 🌟 步骤 3：开启可变借用，此时再去执行替换！
+                                // 3：开启可变借用，此时执行替换
                                 let mut sig_subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &sig_subst_map);
                                 
                                 raw_params.into_iter().map(|p| sig_subst.substitute(p)).collect()
@@ -516,10 +514,10 @@ impl<'a> Lowerer<'a> {
                     _ => Vec::new(),
                 };
 
-                // 🚀 2. 准备普通的实参
+                // 2. 准备普通的实参
                 let mut arg_masts = Vec::new();
                 for (i, a) in args.iter().enumerate() { 
-                    // 🌟 修复：处理隐式的 self 参数偏移！
+                    // 处理隐式的 self 参数偏移！
                     // 如果是方法，用户传的 args[0] 对应签名里的 params[1] (params[0] 是 receiver)
                     let param_idx = if is_method { i + 1 } else { i };
                     let exp_ty = expected_param_tys.get(param_idx).copied();
@@ -528,7 +526,7 @@ impl<'a> Lowerer<'a> {
                     arg_masts.push(self.lower_expr(a, subst_map, exp_ty)); 
                 }
 
-                // 🚀 3. 如果是方法调用，进入专门的分发逻辑
+                // 3. 如果是方法调用，进入专门的分发逻辑
                 if is_method {
                     let field = method_field_sym.unwrap();
                     let recv = receiver_mast.unwrap();
@@ -547,7 +545,7 @@ impl<'a> Lowerer<'a> {
                     let norm_callee = self.ctx.type_registry.normalize(self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR));
 
                     // ==========================================
-                    // 🌊 分支 A：动态分发 (Trait Object 虚表查表)
+                    // 分支 A：动态分发 (Trait Object 虚表查表)
                     // ==========================================
                     if let TypeKind::TraitObject(trait_id, _) = self.ctx.type_registry.get(norm_base) {
                         let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_id.0 as usize] { t } else { unreachable!() };
@@ -578,7 +576,7 @@ impl<'a> Lowerer<'a> {
                             kind: MastExprKind::Cast { kind: MastCastKind::IntToPtr, operand: Box::new(vtable_meta) }
                         };
 
-                        // d. 🌟 核心：利用 IndexAccess 取出对应的函数指针 (*void)。它自带 Load！
+                        // d. 利用 IndexAccess 取出对应的函数指针 (*void)。它自带 Load！
                         let func_ptr = MastExpr {
                             ty: void_ptr_ty,
                             span: callee.span,
@@ -588,7 +586,7 @@ impl<'a> Lowerer<'a> {
                             }
                         };
 
-                        // e. 🌟 核心：构建打了补丁的函数签名: fn(*void, arg1...) -> ret
+                        // e. 构建打了补丁的函数签名: fn(*void, arg1...) -> ret
                         // 从 norm_callee 提取出原始的参数列表
                         let mut patched_params = if let TypeKind::Function { params, .. } = self.ctx.type_registry.get(norm_callee) {
                             params.clone()
@@ -624,7 +622,7 @@ impl<'a> Lowerer<'a> {
                         };
                     }
                     // ==========================================
-                    // ⚡ 分支 B：静态分发 (普通结构体的泛型方法)
+                    // 分支 B：静态分发 (普通结构体的泛型方法)
                     // ==========================================
                     else if let TypeKind::FnDef(method_id, generics) = self.ctx.type_registry.get(norm_callee).clone() {
                         // 将 Receiver 原封不动作为第 0 个实参压入
@@ -641,7 +639,7 @@ impl<'a> Lowerer<'a> {
                     }
                 }
 
-                // 🚀 4. 如果不是方法调用，走常规的普通函数下降逻辑
+                // 4. 如果不是方法调用，走常规的普通函数下降逻辑
                 let callee_mast = self.lower_expr(callee, subst_map, None);
                 let func_info = if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty) {
                     Some((*fn_id, fn_args.clone()))
@@ -664,7 +662,7 @@ impl<'a> Lowerer<'a> {
                 let expr_ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
                 let norm_expr = self.ctx.type_registry.normalize(expr_ty);
 
-                // 🌟 防御拦截：如果在这走到函数/方法，说明试图获取闭包 (Bound Method)
+                // 如果在这走到函数/方法，说明试图获取闭包 (Bound Method)
                 if matches!(self.ctx.type_registry.get(norm_expr), TypeKind::FnDef(..) | TypeKind::Function {..}) {
                     let field_name = self.ctx.resolve(*field).to_string();
                     unreachable!(
@@ -673,13 +671,11 @@ impl<'a> Lowerer<'a> {
                     );
                 }
 
-                // ==========================================
-                // 🚀 核心修复：提前拦截方法访问 (Method Access)
-                // 如果结果是一个函数类型，说明我们在访问一个方法！
-                // ==========================================
+                // 提前拦截方法访问 
+                // 如果结果是一个函数类型，说明在访问一个方法
                 if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_expr).clone() {
-                    // ⚡ 静态分发 (Static Dispatch - 对应 b.&.get_val())
-                    // 注意：这里绝不能 lower_expr(lhs)！
+                    // 静态分发 (Static Dispatch - 对应 b.&.get_val())
+                    // 这里不能 lower_expr(lhs)
                     // 因为外层 Call 节点已经非常聪明地提前提取并 lower 了 Receiver。
                     // 直接返回泛型单态化后的函数指针即可。
                     let mono_id = self.instantiate_function(fn_id, &fn_args);
@@ -689,7 +685,7 @@ impl<'a> Lowerer<'a> {
                         kind: MastExprKind::FuncRef(mono_id),
                     };
                 } else if let TypeKind::Function { .. } = self.ctx.type_registry.get(norm_expr) {
-                    // 🌊 动态分发 (Dynamic Dispatch - 对应 r.read())
+                    // 动态分发 (Dynamic Dispatch - 对应 r.read())
                     // 胖指针在内存中概念上是 { data: *void, vtable: *[usize; N] }
                     let mut base_ty = lhs_ty;
                     loop {
@@ -704,9 +700,7 @@ impl<'a> Lowerer<'a> {
                     if let TypeKind::TraitObject(trait_id, _) = self.ctx.type_registry.get(norm_base) {
                         let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_id.0 as usize] { t } else { unreachable!() };
                         let vtable_idx = trait_def.methods.iter().position(|m| m.name == *field).expect("Method not found in trait");
-                        
-                        // 由于目前 ast.rs 中缺少从 FatPointer 中读取 meta(vtable) 的指令，
-                        // 暂时用 Undef 占位并打印警告。稍后我们在 MastExprKind 补充对应指令！
+                        // TODO: ?
                         println!("🚨 [MAST WARN] Dynamic VTable lookup triggered for `{}` at index {}. Requires IR expansion.", self.ctx.resolve(*field), vtable_idx);
                         
                         return MastExpr {
@@ -717,9 +711,6 @@ impl<'a> Lowerer<'a> {
                     }
                 }
 
-                // ==========================================
-                // 原有逻辑：常规 Enum 和 Struct/Union 字段访问
-                // ==========================================
                 // 1. 提前克隆 EnumDef，立刻释放对 self.ctx.defs 的不可变借用
                 let enum_def_opt = if let TypeKind::Def(def_id, _) = self.ctx.type_registry.get(norm_lhs) {
                     if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
@@ -783,7 +774,6 @@ impl<'a> Lowerer<'a> {
                     let struct_id = if let Some((def_id, gen_args)) = struct_def_info {
                         self.instantiate_struct(def_id, &gen_args)
                     } else { 
-                        // 改写 Panic 信息，使其更容易 Debug
                         let err_field = self.ctx.resolve(*field).to_string();
                         unreachable!("Field access `{}` on non-struct type {:?}. Expected struct/union/enum.", err_field, base_ty); 
                     };
@@ -812,15 +802,13 @@ impl<'a> Lowerer<'a> {
                                 for (i, param) in s.generics.iter().enumerate() {
                                     struct_subst_map.insert(param.name, gen_args[i]);
                                 }
-
                                 let mut ordered_fields = Vec::new();
                                 for f_def in &s.fields {
-                                    // 🌟 修复：利用大括号 {} 限制 Substituter 的生命周期！
                                     let conc_f_ty = {
                                         let mut struct_subst = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map);
                                         let raw_f_ty = self.ctx.node_types.get(&f_def.type_node.id).copied().unwrap_or(TypeId::ERROR);
                                         struct_subst.substitute(raw_f_ty)
-                                    }; // ✨ struct_subst 在这里被销毁，归还了对 self 的可变借用！
+                                    }; 
 
                                     // 此时 self 已经完全自由了，可以放心调用 self.lower_expr
                                     if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
@@ -832,23 +820,18 @@ impl<'a> Lowerer<'a> {
                                 MastExprKind::StructInit { struct_id: mono_id, fields: ordered_fields }
                             }
                             Def::Union(u) => {
-                                // 🌟 同理，修改 Union 分支
                                 let mut union_subst_map = std::collections::HashMap::new();
                                 for (i, param) in u.generics.iter().enumerate() {
                                     union_subst_map.insert(param.name, gen_args[i]);
                                 }
-
                                 let init_f = &fields[0]; 
                                 let field_idx = u.fields.iter().position(|f| f.name == init_f.name).unwrap();
                                 let f_def = &u.fields[field_idx];
-                                
-                                // 🌟 缩短生命周期
                                 let conc_f_ty = {
                                     let mut union_subst = Substituter::new(&mut self.ctx.type_registry, &union_subst_map);
                                     let raw_f_ty = self.ctx.node_types.get(&f_def.type_node.id).copied().unwrap_or(TypeId::ERROR);
                                     union_subst.substitute(raw_f_ty)
-                                }; // ✨ union_subst 销毁
-
+                                }; 
                                 let val_expr = self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty));
                                 MastExprKind::UnionInit { union_id: mono_id, field_idx, value: Box::new(val_expr) }
                             }
@@ -866,8 +849,6 @@ impl<'a> Lowerer<'a> {
                     }
                     ast::DataLiteralKind::Repeat { value, count: _ } => {
                         let mut lowered_elems = Vec::new();
-                        
-                        // 🌟 顺手加固：提取 elem_ty，不要传 None，防止内部出现无法推导的情况
                         let elem_ty = if let TypeKind::Array { elem, .. } = self.ctx.type_registry.get(self.ctx.type_registry.normalize(concrete_ty)) {
                             Some(*elem)
                         } else { None };
@@ -896,7 +877,7 @@ impl<'a> Lowerer<'a> {
                     if let Def::Trait(_) = &self.ctx.defs[def_id.0 as usize] {
                         let vtable_id = self.get_or_create_vtable(l.ty, target_ty);
                         
-                        // 🌟 核心修复：查找全局数组类型，并生成强转指针
+                        // 查找全局数组类型，并生成强转指针
                         let global_array_ty = self.module.globals.iter().find(|g| g.id == vtable_id).unwrap().ty;
                         let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer(global_array_ty));
                         
@@ -911,7 +892,7 @@ impl<'a> Lowerer<'a> {
                                         operand: Box::new(MastExpr {
                                             ty: array_ptr_ty,
                                             span: expr.span, 
-                                            // 🌟 关键补丁：利用 AddressOf 获取数组地址，阻止 GlobalRef 发生 Load 行为！
+                                            // 利用 AddressOf 获取数组地址，阻止 GlobalRef 发生 Load 行为
                                             kind: MastExprKind::AddressOf(Box::new(MastExpr {
                                                 ty: global_array_ty,
                                                 span: expr.span,
@@ -1076,15 +1057,11 @@ impl<'a> Lowerer<'a> {
             }
             ExprKind::EnumLiteral(variant_name) => {
                 let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
-                
-                // 1. 提前克隆 EnumDef，立刻释放对 self.ctx.defs 的不可变借用
                 let enum_def_opt = if let TypeKind::Def(def_id, _) = self.ctx.type_registry.get(norm_ty) {
                     if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
-                        Some(e.clone()) // 🌟 核心操作：克隆一份，打断借用链！
+                        Some(e.clone()) 
                     } else { None }
                 } else { None };
-
-                // 2. 此时 self.ctx 已经完全自由
                 if let Some(enum_def) = enum_def_opt {
                     let mut current_val: i128 = 0;
                     let mut target_val: u128 = 0;
@@ -1127,9 +1104,6 @@ impl<'a> Lowerer<'a> {
             _ => unreachable!("Unhandled ExprKind in lowering: {:?}", expr.kind),
         };
 
-        // ==========================================
-        // 🌟 核心修复：隐式切片转换前，必须将双方的 Mut 彻底剥除！
-        // ==========================================
         let mut conc_base = self.ctx.type_registry.normalize(concrete_ty);
         loop {
             if let TypeKind::Mut(inner) = self.ctx.type_registry.get(conc_base) { conc_base = *inner; } 
@@ -1249,8 +1223,6 @@ impl<'a> Lowerer<'a> {
 
         let vtable_id = self.new_mono_id();
         self.vtable_cache.insert(key, vtable_id);
-
-        // 现在匹配绝对安全！
         let trait_def_id = if let TypeKind::TraitObject(id, _) = self.ctx.type_registry.get(actual_trait_ty) {
             *id
         } else { 
@@ -1295,8 +1267,6 @@ impl<'a> Lowerer<'a> {
                     if let TypeKind::TraitObject(i_trait_id, _) = self.ctx.type_registry.get(i_trait_norm) {
                         if *i_trait_id == trait_def_id {
                             let i_target_ty = self.ctx.node_types.get(&impl_def.target_type.id).copied().unwrap_or(TypeId::ERROR);
-                            
-                            // 🌟 核心修复：对称剥离！同时剥离 Mut 和 Pointer，直达结构体 Def 本体
                             let mut i_target_base = i_target_ty;
                             loop {
                                 let n = self.ctx.type_registry.normalize(i_target_base);
@@ -1310,8 +1280,6 @@ impl<'a> Lowerer<'a> {
                                     }
                                 }
                             }
-                            
-                            // 此时 i_target_base 是 Def(File)，base_ty 也是 Def(File)，完美匹配！
                             if let TypeKind::Def(i_target_id, _) = self.ctx.type_registry.get(i_target_base) {
                                 if let TypeKind::Def(src_base_id, _) = self.ctx.type_registry.get(base_ty) {
                                     if *i_target_id == *src_base_id {
@@ -1344,7 +1312,7 @@ impl<'a> Lowerer<'a> {
             
             let m_id = method_mono_id.expect("Missing trait method implementation");
             vtable_methods.push(MastExpr {
-                ty: void_ptr_ty, // ✅ 统一塞入指针类型
+                ty: void_ptr_ty, 
                 span: crate::utils::Span::default(),
                 kind: MastExprKind::FuncRef(m_id)
             });
@@ -1352,7 +1320,7 @@ impl<'a> Lowerer<'a> {
 
         let vtable_len = vtable_methods.len() as u64;
         let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array { 
-            elem: void_ptr_ty, // ✅ 告诉全局变量：我是一个由指针组成的数组
+            elem: void_ptr_ty, 
             len: vtable_len 
         });
 

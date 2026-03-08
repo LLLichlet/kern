@@ -21,11 +21,8 @@ impl From<bool> for Visibility {
     }
 }
 
-/// 全局顶层定义的聚合枚举 (HIR - High-level Intermediate Representation)
-/// 
+/// 全局顶层定义的聚合枚举
 /// 语义分析的 Collect 阶段会将 AST 转换为这些定义对象。
-/// 注意：此时类型可能还未完全解析 (Type Resolution 未完成)，
-/// 因此我们在结构中保留了部分 AST 节点（如 `ast::TypeNode`），留给下一阶段处理。
 #[derive(Debug, Clone)]
 pub enum Def {
     Module(ModuleDef),

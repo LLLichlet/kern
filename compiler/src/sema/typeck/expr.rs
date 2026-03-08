@@ -53,7 +53,7 @@ impl<'a> ExprChecker<'a> {
                 let self_var = self.ctx.intern("self"); // 小写的变量 self
                 let self_type = self.ctx.intern("Self"); // 大写的类型 Self
                 
-                // 🌟 核心修复 3：先尝试找变量，找不到就直接提取上下文中的 Self 类型！
+                // 先尝试找变量，找不到就直接提取上下文中的 Self 类型
                 if let Some(info) = self.ctx.scopes.resolve(self_var) {
                     info.type_id
                 } else if let Some(info) = self.ctx.scopes.resolve(self_type) {
@@ -203,7 +203,7 @@ impl<'a> ExprChecker<'a> {
                                 res_ty = exp_ty; 
                             } else {
                                 // ==========================================
-                                // 🐞 探针：打印出到底哪里不匹配！
+                                // 探针：打印出到底哪里不匹配
                                 // ==========================================
                                 println!("--------------------------------------------------");
                                 println!("🔥 ENUM MISMATCH DETECTED!");
@@ -239,9 +239,7 @@ impl<'a> ExprChecker<'a> {
 
             // === 9. 控制流 ===
             ExprKind::Block { stmts, result } => {
-                // ✅ 核心修复：进入块级作用域！
                 self.ctx.scopes.enter_scope();
-
                 for stmt in stmts {
                     match &stmt.kind {
                         StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
@@ -249,14 +247,11 @@ impl<'a> ExprChecker<'a> {
                         }
                     }
                 }
-                
                 let ret_ty = if let Some(res) = result {
                     self.check_expr(res, expected_ty)
                 } else {
                     TypeId::VOID
                 };
-
-                // ✅ 核心修复：退出块级作用域！
                 self.ctx.scopes.exit_scope();
                 
                 ret_ty
@@ -411,17 +406,14 @@ impl<'a> ExprChecker<'a> {
             }
         };
 
-        // === 👇 加入调试探针：抓取万恶之源 ===
+        // === 调试探针 ===
         if ty == TypeId::ERROR {
             println!("--------------------------------------------------");
             println!("🚨 [SEMA TRAP] Expression evaluated to ERROR!");
-            // 如果你的 Expr 实现了 Debug，可以直接打出 kind；否则可以打印出对应的源码文本
             println!("Span: {:?}", expr.span); 
-            println!("ExprKind: {:#?}", expr.kind); // 如果实现了 Debug，请取消这行注释
+            println!("ExprKind: {:#?}", expr.kind); 
             println!("--------------------------------------------------");
         }
-        // === 👆 调试探针结束 ===
-
         self.ctx.node_types.insert(expr.id, ty);
         ty
     }
@@ -437,7 +429,6 @@ impl<'a> ExprChecker<'a> {
                 let constraint_ty = self.ctx.node_types.get(&constraint_node.id).copied().unwrap_or(TypeId::ERROR);
                 
                 if constraint_ty != TypeId::ERROR {
-                    // 利用我们刚刚写好的 Trait 检查器
                     if !self.check_trait_impl(act_ty, constraint_ty) {
                         let param_name = self.ctx.resolve(param.name);
                         self.ctx.emit_error(span, format!("Type does not satisfy trait bounds for generic parameter `{}`", param_name));
@@ -572,10 +563,6 @@ impl<'a> ExprChecker<'a> {
     fn check_field_access(&mut self, lhs: &Expr, field: crate::utils::SymbolId, span: Span) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
         if lhs_ty == TypeId::ERROR { return TypeId::ERROR; }
-
-        // ==========================================
-        // ✅ 核心修复：追踪自动解引用过程中的可变性
-        // ==========================================
         let mut base_ty = lhs_ty;
         let mut is_target_mut = false;
 
@@ -587,8 +574,6 @@ impl<'a> ExprChecker<'a> {
                     base_ty = *inner;
                 }
                 TypeKind::Pointer(inner) | TypeKind::VolatilePtr(inner) => {
-                    // 🌟 穿过指针边界！目标的可变性由指针的内部类型严格决定
-                    // 例如 *mut Point，剥开 Pointer 后，下一轮会匹配到 Mut(Point)
                     is_target_mut = false; 
                     base_ty = *inner;
                 }
@@ -645,8 +630,6 @@ impl<'a> ExprChecker<'a> {
                         let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
                         field_ty = subst.substitute(field_ty);
                     }
-                    
-                    // ✅ 修复：将推导出的真实可变性赋予字段！
                     if is_target_mut {
                         field_ty = self.ctx.type_registry.intern(TypeKind::Mut(field_ty));
                     }
@@ -664,8 +647,6 @@ impl<'a> ExprChecker<'a> {
                         let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
                         field_ty = subst.substitute(field_ty);
                     }
-
-                    // ✅ 修复：同理处理 Union
                     if is_target_mut {
                         field_ty = self.ctx.type_registry.intern(TypeKind::Mut(field_ty));
                     }
@@ -684,24 +665,19 @@ impl<'a> ExprChecker<'a> {
         // 4. 查找方法 (在 Impl 块中)
         let mut found_method_id = None;
         let mut found_impl_def = None;
-        let mut resolved_impl_args = Vec::new(); // 🌟 提前准备好实参列表
+        let mut resolved_impl_args = Vec::new(); 
 
         for global_def in &self.ctx.defs {
             if let Def::Impl(impl_def) = global_def {
                 let impl_target_ty = self.ctx.node_types.get(&impl_def.target_type.id).copied().unwrap_or(TypeId::ERROR);
                 
                 let mut map = std::collections::HashMap::new();
-                
-                // 🌟 核心修复：不要自己手动剥洋葱了！直接用极其强大的 unify 函数去匹配！
-                // unify 会自动穿透 Pointer, Mut, 并且完美匹配出 T -> i32 !
                 if self.unify(impl_target_ty, lhs_ty, &mut map) {
-                    
                     // 按 Impl 声明的泛型顺序，组装实参
                     for param in &impl_def.generics {
                         resolved_impl_args.push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
                     }
-
-                    // 既然类型统一成功，说明这个 Impl 块绝对属于当前类型！开始找方法
+                    // 既然类型统一成功，说明这个 Impl 块绝对属于当前类型，开始找方法
                     for &method_id in &impl_def.methods {
                         if let Def::Function(func_def) = &self.ctx.defs[method_id.0 as usize] {
                             if func_def.name == field {
@@ -757,13 +733,12 @@ impl<'a> ExprChecker<'a> {
 
         // === 校验参数 ===
         if let TypeKind::Function { params, ret, is_variadic } = self.ctx.type_registry.get(sig_ty).clone() {
-            // 🌟 识别方法调用并提取 Receiver 类型
+            // 识别方法调用并提取 Receiver 类型
             let mut is_method = false;
             let mut receiver_ty = TypeId::ERROR;
-            // 🌟 核心修复：仅当左侧是一个实例（即不是纯粹的模块路径时），才把它当成 Method 的 Receiver
+            // 仅当左侧是一个实例（即不是纯粹的模块路径时），才把它当成 Method 的 Receiver
             if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
                 let callee_node_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
-                
                 // 如果它是个 FnDef，说明它是从 Impl 块或全局函数里捞出来的
                 // 如果它是个 Function，说明它是从 TraitObject 的虚表签名里捞出来的
                 if matches!(self.ctx.type_registry.get(self.ctx.type_registry.normalize(callee_node_ty)), TypeKind::FnDef(..) | TypeKind::Function {..}) {
@@ -774,14 +749,11 @@ impl<'a> ExprChecker<'a> {
 
             // 计算用户需要填写的实际参数数量
             let expected_arg_count = if is_method { params.len().saturating_sub(1) } else { params.len() };
-
             if is_variadic {
-                // 🐛 修复 1: 使用 expected_arg_count 替代 params.len()
                 if args.len() < expected_arg_count {
                     self.ctx.emit_error(span, format!("Function expects at least {} arguments, but {} were provided", expected_arg_count, args.len()));
                 }
             } else {
-                // 🐛 修复 1: 使用 expected_arg_count 替代 params.len()
                 if args.len() != expected_arg_count {
                     self.ctx.emit_error(span, format!("Function expects exactly {} arguments, but {} were provided", expected_arg_count, args.len()));
                 }
@@ -792,7 +764,7 @@ impl<'a> ExprChecker<'a> {
                 self.check_coercion(callee.span, params[0], receiver_ty);
             }
 
-            // 🐛 修复 2: 引入偏移量。如果是方法调用，用户传入的第 0 个参数，对应签名里的第 1 个参数
+            // 如果是方法调用，用户传入的第 0 个参数，对应签名里的第 1 个参数
             let param_offset = if is_method { 1 } else { 0 };
 
             for (i, arg) in args.iter().enumerate() {
@@ -984,6 +956,7 @@ impl<'a> ExprChecker<'a> {
             }
 
             // b. 校验来源是否是指针 (Kern 规范：转为 trait object 的实现方必须显式是指针)
+            // TODO
             let is_from_ptr = matches!(self.ctx.type_registry.get(f_norm), TypeKind::Pointer(_) | TypeKind::VolatilePtr(_));
             let is_from_trait_obj = matches!(self.ctx.type_registry.get(f_norm), TypeKind::Def(id, _) if matches!(&self.ctx.defs[id.0 as usize], Def::Trait(_)));
 
@@ -994,7 +967,7 @@ impl<'a> ExprChecker<'a> {
             
             let sym = self.ctx.defs[to_def_id.0 as usize].name().unwrap();
             // c. 校验是否真正实现了该 Trait
-            if !self.check_trait_impl(from, t_norm) { // ✅ 改为 t_norm
+            if !self.check_trait_impl(from, t_norm) { 
                 let trait_name = self.ctx.resolve(sym);
                 self.ctx.emit_error(span, format!("The source type does not implement trait `{}`", trait_name));
             }
@@ -1061,7 +1034,7 @@ impl<'a> ExprChecker<'a> {
                         subst.substitute(impl_trait_ty)
                     }; 
 
-                    // 🌟 核心修复：比较前必须剥离 Mut
+                    // 比较前必须剥离 Mut
                     let inst_norm = self.strip_mut(instantiated_trait_ty);
                     let target_norm = self.strip_mut(target_trait_ty);
 
@@ -1075,7 +1048,6 @@ impl<'a> ExprChecker<'a> {
                     }
 
                     // 2. 检查 Supertraits (特征继承)
-                    // 现在调用 self.strip_mut 和获取 ctx 是完全安全的
                     let inst_norm = self.strip_mut(instantiated_trait_ty);
                     if let TypeKind::Def(inst_def_id, _) = self.ctx.type_registry.get(inst_norm) {
                         // 防止特征循环依赖导致死循环
@@ -1094,7 +1066,6 @@ impl<'a> ExprChecker<'a> {
                                     if inst_super_ty == target_trait_ty {
                                         return true;
                                     }
-                                    // 现在递归调用 check_trait_impl_inner 也是安全的！
                                     if self.check_trait_impl_inner(source_ty, inst_super_ty, visited) {
                                         return true;
                                     }

@@ -4,40 +4,48 @@ use std::collections::HashMap;
 use inkwell::context::Context as LlvmContext;
 use inkwell::module::Module as LlvmModule;
 use inkwell::builder::Builder;
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, GlobalValue, BasicMetadataValueEnum};
+use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, GlobalValue};
 use inkwell::types::{BasicType, BasicTypeEnum, StructType};
 use inkwell::AddressSpace;
+use inkwell::targets::{Target, RelocMode, CodeModel, FileType, InitializationConfig};
 
 use crate::mast::ast::*;
 use crate::sema::ty::{TypeId, TypeKind, PrimitiveType, TypeRegistry};
+use crate::sema::def::Def;
 
 pub struct CodeGenerator<'ctx, 'a> {
     pub context: &'ctx LlvmContext,
     pub builder: Builder<'ctx>,
     pub module: LlvmModule<'ctx>,
     
-    // 前端类型注册表，用于查询具体类型
-    pub type_registry: &'a TypeRegistry, 
+    // 前端类型注册表与原始定义，用于反查结构体名
+    pub type_registry: &'a TypeRegistry,
+    pub ctx_defs: &'a Vec<Def>, 
+    pub ctx_resolve: &'a dyn Fn(crate::utils::SymbolId) -> &'a str,
 
-    // === LLVM 实体映射表 (根据 MonoId 快速查找) ===
     pub structs: HashMap<MonoId, StructType<'ctx>>,
     pub globals: HashMap<MonoId, GlobalValue<'ctx>>,
     pub functions: HashMap<MonoId, FunctionValue<'ctx>>,
     
-    // 当前正在编译的函数内部的局部变量映射 (SymbolId -> 栈上分配的内存指针)
     pub locals: HashMap<crate::utils::SymbolId, PointerValue<'ctx>>,
-
-    // 用于追踪当前所处 Loop 的 (Continue Block, Break Block)
     pub loop_targets: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)>,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    pub fn new(context: &'ctx LlvmContext, module_name: &str, type_registry: &'a TypeRegistry) -> Self {
+    pub fn new(
+        context: &'ctx LlvmContext, 
+        module_name: &str, 
+        type_registry: &'a TypeRegistry,
+        ctx_defs: &'a Vec<Def>,
+        ctx_resolve: &'a dyn Fn(crate::utils::SymbolId) -> &'a str,
+    ) -> Self {
         Self {
             context,
             builder: context.create_builder(),
             module: context.create_module(module_name),
             type_registry,
+            ctx_defs,
+            ctx_resolve,
             structs: HashMap::new(),
             globals: HashMap::new(),
             functions: HashMap::new(),
@@ -46,55 +54,67 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 核心编译入口
     pub fn compile(&mut self, module: &MastModule) {
-        // 1. 声明阶段 (Declarations) - 解决函数和变量互相引用的问题
         self.declare_structs(&module.structs);
         self.declare_globals(&module.globals);
         self.declare_functions(&module.functions);
 
-        // 2. 定义阶段 (Definitions) - 真正生成机器码和内存初始值
         for global in &module.globals {
-            self.compile_global(global); // 初始化全局变量 (如 OFFSET = 100)
+            self.compile_global(global); 
         }
 
         for function in &module.functions {
             if !function.is_extern {
-                self.compile_function(function); // 🌟 将 AST 翻译为 LLVM IR 指令！
+                self.compile_function(function); 
             }
         }
     }
 
-    /// 编译全局变量的初始值
     fn compile_global(&mut self, global: &MastGlobal) {
+        if global.is_extern { return; }
         let global_val = *self.globals.get(&global.id).expect("Global should be declared");
         
         if let Some(init) = &global.init {
             let const_val: inkwell::values::BasicValueEnum<'ctx> = match &init.kind {
-                crate::mast::ast::MastExprKind::Integer(val) => {
+                MastExprKind::Integer(val) => {
                     let int_type = self.get_llvm_type(init.ty).into_int_type();
                     int_type.const_int(*val as u64, false).into()
                 }
-                crate::mast::ast::MastExprKind::Float(val) => {
+                MastExprKind::Float(val) => {
                     let float_type = self.get_llvm_type(init.ty).into_float_type();
                     float_type.const_float(*val).into()
                 }
-                crate::mast::ast::MastExprKind::Bool(val) => {
+                MastExprKind::Bool(val) => {
                     self.context.bool_type().const_int(if *val { 1 } else { 0 }, false).into()
                 }
-                // 复杂的结构体常量初始化可以后续扩展，这里暂时用 const_zero 兜底
+                MastExprKind::StringLiteral(s) => {
+                    let bytes = self.context.const_string(s.as_bytes(), false);
+                    bytes.into()
+                }
+                MastExprKind::ArrayInit(elems) => {
+                    let mut ptr_vals = Vec::new();
+                    for e in elems {
+                        if let MastExprKind::FuncRef(mono_id) = e.kind {
+                            let func_val = self.functions.get(&mono_id).unwrap();
+                            ptr_vals.push(func_val.as_global_value().as_pointer_value());
+                        } else {
+                            // 兜底防爆：如果不是函数引用，塞入 Null 指针
+                            ptr_vals.push(self.context.ptr_type(AddressSpace::default()).const_null());
+                        }
+                    }
+                    let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                    ptr_ty.const_array(&ptr_vals).into()
+                }
                 _ => self.get_llvm_type(global.ty).const_zero()
             };
             
             global_val.set_initializer(&const_val);
         } else if !global.is_extern {
-            // 非 extern 的全局变量如果没有初始值，默认置为 0 (BSS段)
             let llvm_ty = self.get_llvm_type(global.ty);
             global_val.set_initializer(&llvm_ty.const_zero());
         }
     }
 
-    /// 调试用：打印生成的 LLVM IR 到标准错误输出
     pub fn print_ir(&self) {
         self.module.print_to_stderr();
     }
@@ -103,12 +123,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     //          Type Translation
     // ==========================================
 
-    /// 将前端的 TypeId 无缝翻译为 LLVM 的 BasicType
     pub fn get_llvm_type(&self, ty: TypeId) -> BasicTypeEnum<'ctx> {
         let mut norm = self.type_registry.normalize(ty);
         loop {
             match self.type_registry.get(norm) {
-                crate::sema::ty::TypeKind::Mut(inner) => norm = *inner,
+                TypeKind::Mut(inner) => norm = *inner,
                 _ => break,
             }
         }
@@ -122,28 +141,39 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::F32 => self.context.f32_type().into(),
                 PrimitiveType::F64 => self.context.f64_type().into(),
                 PrimitiveType::Bool => self.context.bool_type().into(),
-                PrimitiveType::Str => self.context.ptr_type(inkwell::AddressSpace::default()).into(),
+                PrimitiveType::Str => self.context.ptr_type(AddressSpace::default()).into(),
                 PrimitiveType::Void => self.context.i8_type().into(),
             },
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Mut(_) => {
-                // LLVM 15+ 拥抱不透明指针 (Opaque Pointers)
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) 
+            | TypeKind::Function { .. } | TypeKind::FnDef(..) => {
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             TypeKind::Array { elem, len } => {
                 let elem_ty = self.get_llvm_type(*elem);
                 elem_ty.array_type(*len as u32).into()
             }
-            TypeKind::Slice(_) => {
-                // 胖指针: { ptr, usize }
-                self.context.struct_type(&[
-                    self.context.ptr_type(AddressSpace::default()).into(),
-                    self.context.i64_type().into(),
-                ], false).into()
+            // ✅ 确保包含这两个胖指针类型的正确映射
+            TypeKind::TraitObject(_, _) | TypeKind::Slice(_) => {
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let len_ty = self.context.i64_type(); 
+                self.context.struct_type(&[ptr_ty.into(), len_ty.into()], false).into()
             }
-            TypeKind::Def(def_id, _) => {
-                self.context.ptr_type(AddressSpace::default()).into()
+            TypeKind::Def(def_id, args) => {
+                let def = &self.ctx_defs[def_id.0 as usize];
+                let mut mangled_name = (self.ctx_resolve)(def.name().unwrap()).to_string();
+                for arg in args { mangled_name.push_str(&format!("_{}", arg.0)); }
+                
+                if let Some(struct_ty) = self.module.get_struct_type(&mangled_name) {
+                    struct_ty.into()
+                } else {
+                    self.context.i8_type().into()
+                }
             }
-            _ => self.context.i8_type().into(), // 兜底
+            _ => unreachable!(
+                "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}", 
+                norm, 
+                self.type_registry.get(norm)
+            ),
         }
     }
 
@@ -151,49 +181,32 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     //          Phase 1: Declarations
     // ==========================================
 
-    /// 声明所有结构体 (解决自引用问题)
     fn declare_structs(&mut self, structs: &[MastStruct]) {
-        // 第一遍：创建所有不透明的结构体类型 (Opaque Structs)
         for s in structs {
             let llvm_struct = self.context.opaque_struct_type(&s.name);
             self.structs.insert(s.id, llvm_struct);
         }
 
-        // 第二遍：填充结构体的字段 (Body)
         for s in structs {
             let llvm_struct = self.structs.get(&s.id).unwrap();
             let mut field_types = Vec::new();
             for field in &s.fields {
                 field_types.push(self.get_llvm_type(field.ty));
             }
-            // Kern 默认按照 C ABI 进行打包 (非 packed)
             llvm_struct.set_body(&field_types, false);
         }
     }
 
-    /// 声明全局变量
     fn declare_globals(&mut self, globals: &[MastGlobal]) {
         for g in globals {
-            // 注意：VTable 在 MAST 中被定义为 TypeId::ERROR（占位），我们需要特殊处理它
-            let llvm_ty = if g.name.starts_with("__vtable") {
-                // 虚表本质上是函数指针数组，我们简单将其声明为一个包含若干指针的结构体/数组
-                // 实际上 LLVM 中可以直接声明为不透明类型的全局变量
-                self.context.ptr_type(AddressSpace::default()).into()
-            } else {
-                self.get_llvm_type(g.ty)
-            };
+            let llvm_ty = self.get_llvm_type(g.ty);
 
             let global_val = self.module.add_global(llvm_ty, None, &g.name);
             global_val.set_constant(!g.is_mut);
 
-            // 如果是 extern 的，设置链接属性
             if g.is_extern {
                 global_val.set_linkage(inkwell::module::Linkage::External);
             } else {
-                // TODO: 全局变量的常量初始化 (Constant Initializer)
-                // LLVM 要求全局变量必须有一个常量初始化器。
-                // 我们需要在编译常量表达式后，调用 global_val.set_initializer(&const_val)
-                // 暂时用 null / zero 占位：
                 global_val.set_initializer(&llvm_ty.const_zero());
             }
 
@@ -201,7 +214,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 声明函数签名
     fn declare_functions(&mut self, functions: &[MastFunction]) {
         for f in functions {
             let ret_ty = self.get_llvm_type(f.ret_ty);
@@ -211,22 +223,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 param_types.push(self.get_llvm_type(p.ty).into());
             }
 
-            // 构造函数签名类型
-            let fn_type = match ret_ty {
-                BasicTypeEnum::IntType(i) => i.fn_type(&param_types, f.is_variadic),
-                BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, f.is_variadic),
-                BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, f.is_variadic),
-                BasicTypeEnum::StructType(s) => s.fn_type(&param_types, f.is_variadic),
-                BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, f.is_variadic),
-                BasicTypeEnum::VectorType(v) => v.fn_type(&param_types, f.is_variadic),
-                BasicTypeEnum::ScalableVectorType(sv) => sv.fn_type(&param_types, f.is_variadic),
-            };
-
-            // 特殊处理 void 返回值
             let fn_type = if f.ret_ty == TypeId::VOID {
                 self.context.void_type().fn_type(&param_types, f.is_variadic)
             } else {
-                fn_type
+                match ret_ty {
+                    BasicTypeEnum::IntType(i) => i.fn_type(&param_types, f.is_variadic),
+                    BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, f.is_variadic),
+                    BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, f.is_variadic),
+                    BasicTypeEnum::StructType(s) => s.fn_type(&param_types, f.is_variadic),
+                    BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, f.is_variadic),
+                    _ => unreachable!("Invalid return type"),
+                }
             };
 
             let llvm_func = self.module.add_function(&f.name, fn_type, None);
@@ -238,112 +245,84 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     //          Phase 2: Code Generation
     // ==========================================
 
-    /// 编译单个函数体
     pub fn compile_function(&mut self, func: &MastFunction) {
         let llvm_func = self.functions.get(&func.id).unwrap().clone();
         
-        // 1. 创建入口基本块 (Entry Basic Block)
         let entry_block = self.context.append_basic_block(llvm_func, "entry");
         self.builder.position_at_end(entry_block);
-
-        // 2. 清空上一段函数的局部变量映射表
         self.locals.clear();
 
-        // 3. 将所有传入的参数在栈上分配内存，并将传进来的值 Store 进去
-        // 这样参数就变成了普通的局部变量，完美统一 `Var` 的寻址逻辑
         for (i, param) in func.params.iter().enumerate() {
             let param_val = llvm_func.get_nth_param(i as u32).unwrap();
             let param_ty = self.get_llvm_type(param.ty);
             
-            // 在当前入口块分配栈内存
             let alloca = self.builder.build_alloca(param_ty, &format!("arg_{}", param.name.0)).unwrap();
-            
-            // 将参数值存入栈中
             self.builder.build_store(alloca, param_val).unwrap();
-            
-            // 记录到本地变量映射表中
             self.locals.insert(param.name, alloca);
         }
 
-        // 4. 编译函数体 (Block)
         if let Some(body) = &func.body {
-            self.compile_block(body);
+            // 🌟 1. 捕获 Block 执行完抛出的最后那个值 (比如 test3 里的 0)
+            let block_res = self.compile_block(body);
             
-            // 兜底：如果函数没有显式 Return，且返回类型是 Void，自动补上 return void
-            // （在真正的编译器中，最好在 MAST lowering 阶段就保证所有的末尾都有 return）
             let current_block = self.builder.get_insert_block().unwrap();
             if current_block.get_terminator().is_none() {
-                if func.ret_ty == TypeId::VOID {
+                // 🌟 2. 如果 Block 有返回值，自动帮它生成 ret 指令！
+                if let Some(val) = block_res {
+                    self.builder.build_return(Some(&val)).unwrap();
+                } else if func.ret_ty == TypeId::VOID {
                     self.builder.build_return(None).unwrap();
                 } else {
-                    // 对于必须有返回值的函数，如果没有 return，这是一个严重错误
-                    // LLVM 会生成一个 unreachable 指令
                     self.builder.build_unreachable().unwrap();
                 }
             }
         }
     }
 
-    /// 编译代码块
     fn compile_block(&mut self, block: &MastBlock) -> Option<BasicValueEnum<'ctx>> {
         for stmt in &block.stmts {
-            self.compile_stmt(stmt);
+            let current_block = self.builder.get_insert_block().unwrap();
+            if current_block.get_terminator().is_some() {
+                break;
+            }
+
+            match stmt {
+                MastStmt::Let { name, ty, init } => {
+                    let init_val = self.compile_expr(init);
+                    let llvm_ty = self.get_llvm_type(*ty);
+                    let alloca = self.builder.build_alloca(llvm_ty, &format!("let_{}", name.0)).unwrap();
+                    self.builder.build_store(alloca, init_val).unwrap();
+                    self.locals.insert(*name, alloca);
+                }
+                MastStmt::Expr(expr) => {
+                    self.compile_expr(expr);
+                }
+            }
         }
         
-        // 如果 Block 有返回值，编译并返回它
+        let current_block = self.builder.get_insert_block().unwrap();
+        if current_block.get_terminator().is_some() {
+            return None; // 已经被终止了，不需要再返回结果
+        }
+
         if let Some(result_expr) = &block.result {
             return Some(self.compile_expr(result_expr));
         }
         None
     }
 
-    /// 编译单条语句
-    fn compile_stmt(&mut self, stmt: &MastStmt) {
-        match stmt {
-            MastStmt::Let { name, ty, init } => {
-                let init_val = self.compile_expr(init);
-                let llvm_ty = self.get_llvm_type(*ty);
-                
-                // Let 语句等价于：分配内存 -> 求出初始值 -> 写入内存 -> 登记到字典
-                let alloca = self.builder.build_alloca(llvm_ty, &format!("let_{}", name.0)).unwrap();
-                self.builder.build_store(alloca, init_val).unwrap();
-                self.locals.insert(*name, alloca);
-            }
-            MastStmt::Expr(expr) => {
-                // 单纯执行表达式，丢弃返回值 (比如单独的函数调用)
-                self.compile_expr(expr);
-            }
-        }
-    }
-
-    /// 核心：将 MAST 表达式编译为具体的 LLVM 指令 (Value)
-    fn compile_expr(&mut self, expr: &crate::mast::ast::MastExpr) -> inkwell::values::BasicValueEnum<'ctx> {
+    fn compile_expr(&mut self, expr: &MastExpr) -> inkwell::values::BasicValueEnum<'ctx> {
         let expected_llvm_ty = self.get_llvm_type(expr.ty);
 
-        use crate::mast::ast::MastExprKind;
         match &expr.kind {
-            // === 1. 字面量 ===
-            MastExprKind::Undef => expected_llvm_ty.const_zero(), // 使用 const_zero 完美替代 undef
-            MastExprKind::Integer(val) => {
-                let int_type = expected_llvm_ty.into_int_type();
-                int_type.const_int(*val as u64, false).into()
-            }
-            MastExprKind::Float(val) => {
-                let float_type = expected_llvm_ty.into_float_type();
-                float_type.const_float(*val).into()
-            }
-            MastExprKind::Bool(val) => {
-                let bool_type = self.context.bool_type();
-                bool_type.const_int(if *val { 1 } else { 0 }, false).into()
-            }
-            MastExprKind::StringLiteral(s) => {
-                // LLVM 中字符串是全局常量数组，返回指向它的指针
-                self.builder.build_global_string_ptr(s, "str_lit").unwrap().as_pointer_value().into()
-            }
+            MastExprKind::Undef => expected_llvm_ty.const_zero(),
+            MastExprKind::Integer(val) => expected_llvm_ty.into_int_type().const_int(*val as u64, false).into(),
+            MastExprKind::Float(val) => expected_llvm_ty.into_float_type().const_float(*val).into(),
+            MastExprKind::Bool(val) => self.context.bool_type().const_int(if *val { 1 } else { 0 }, false).into(),
+            MastExprKind::StringLiteral(_) => unreachable!("Handled dynamically in Globals"),
 
-            // === 2. 内存与寻址 ===
             MastExprKind::Var(name) => {
-                let ptr = self.locals.get(name).expect("Local variable not found in LLVM codegen");
+                let ptr = self.locals.get(name).expect("Local variable not found");
                 self.builder.build_load(expected_llvm_ty, *ptr, &format!("load_{}", name.0)).unwrap()
             }
             MastExprKind::GlobalRef(mono_id) => {
@@ -352,81 +331,84 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.builder.build_load(expected_llvm_ty, ptr, "global_load").unwrap()
             }
             MastExprKind::FuncRef(mono_id) => {
-                // 函数本身在 LLVM 中就是一个全局指针
                 let func_val = self.functions.get(mono_id).expect("Function not found");
                 func_val.as_global_value().as_pointer_value().into()
             }
-            MastExprKind::AddressOf(operand) => {
-                self.compile_lvalue(operand).into()
-            }
+            MastExprKind::AddressOf(operand) => self.compile_lvalue(operand).into(),
             MastExprKind::Deref(operand) => {
                 let ptr_val = self.compile_expr(operand).into_pointer_value();
                 self.builder.build_load(expected_llvm_ty, ptr_val, "deref").unwrap()
             }
 
-            // === 3. 聚合类型操作 (Struct / Array / Field / Index) ===
             MastExprKind::StructInit { struct_id, fields } => {
-                // ✅ 核心修复：无视带有 Mut 外壳的 expected_llvm_ty，直接从字典中取出 100% 纯净的 StructType
                 let struct_llvm_ty = self.structs.get(struct_id).unwrap();
-                
-                // 无论字典里存的是 BasicTypeEnum 还是 StructType，这一步都能安全拿到 StructValue 的 zero 底板
-                use inkwell::types::BasicType;
                 let mut current_struct = struct_llvm_ty.as_basic_type_enum().into_struct_type().const_zero();
                 
-                // 按照字段索引，将值逐个“塞入”结构体中
                 for (idx, field_expr) in fields.iter().enumerate() {
                     let field_val = self.compile_expr(field_expr);
-                    current_struct = self.builder
-                        .build_insert_value(current_struct, field_val, idx as u32, "struct_init")
-                        .unwrap()
-                        .into_struct_value();
+                    current_struct = self.builder.build_insert_value(current_struct, field_val, idx as u32, "s_init").unwrap().into_struct_value();
                 }
-                
                 current_struct.into()
+            }
+            
+            MastExprKind::UnionInit { union_id, field_idx: _, value } => {
+                // 加上 .copied() (或者解引用 *)，立刻释放对 self.structs 的不可变借用
+                let union_llvm_ty = *self.structs.get(union_id).unwrap();
+                
+                // 分配内存 (此时 self 可以被可变借用了)
+                let alloca = self.builder.build_alloca(union_llvm_ty, "union_init").unwrap();
+                let val = self.compile_expr(value);
+                
+                self.builder.build_store(alloca, val).unwrap();
+                
+                self.builder.build_load(union_llvm_ty.as_basic_type_enum(), alloca, "union_load").unwrap()
             }
 
             MastExprKind::ArrayInit(elems) => {
-                // 对于 Array，为了防止 Mut 外壳干扰，我们在这里手动剥离
-                let norm_ty = self.type_registry.normalize(expr.ty);
-                let base_ty = if let crate::sema::ty::TypeKind::Mut(inner) = self.type_registry.get(norm_ty) {
-                    *inner
-                } else {
-                    norm_ty
-                };
-                
-                // 获取纯净的 ArrayType
-                let array_llvm_ty = self.get_llvm_type(base_ty).into_array_type();
+                let array_llvm_ty = expected_llvm_ty.into_array_type();
                 let mut current_array = array_llvm_ty.const_zero();
-
                 for (idx, elem_expr) in elems.iter().enumerate() {
                     let elem_val = self.compile_expr(elem_expr);
-                    current_array = self.builder
-                        .build_insert_value(current_array, elem_val, idx as u32, "array_init")
-                        .unwrap()
-                        .into_array_value();
+                    current_array = self.builder.build_insert_value(current_array, elem_val, idx as u32, "arr_init").unwrap().into_array_value();
                 }
-
                 current_array.into()
             }
+
             MastExprKind::FieldAccess { lhs, struct_id, field_idx } => {
-                let struct_ptr = self.compile_expr(lhs).into_pointer_value();
+                let struct_ptr = self.compile_lvalue(lhs);
                 let struct_llvm_ty = self.structs.get(struct_id).unwrap();
                 let field_ptr = self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, *field_idx as u32, "field_gep").unwrap();
                 self.builder.build_load(expected_llvm_ty, field_ptr, "field_load").unwrap()
             }
-            MastExprKind::IndexAccess { lhs, index } => {
-                let array_ptr = self.compile_lvalue(lhs);
+
+            // ✅ 核心修复：安全区分 Slice 索引和 Array 索引
+           MastExprKind::IndexAccess { lhs, index } => {
                 let idx_val = self.compile_expr(index).into_int_value();
-                let zero = self.context.i64_type().const_zero();
-                let array_llvm_ty = self.get_llvm_type(lhs.ty);
+                let norm_lhs = self.type_registry.normalize(lhs.ty);
                 
-                let elem_ptr = unsafe {
-                    self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "idx_gep").unwrap()
+                let elem_ptr = if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
+                    let slice_val = self.compile_expr(lhs).into_struct_value();
+                    let ptr_val = self.builder.build_extract_value(slice_val, 0, "slice_ptr").unwrap().into_pointer_value();
+                    let elem_ty = self.get_llvm_type(expr.ty);
+                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_idx").unwrap() }
+                } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
+                    // 🌟 修复 1：支持对裸指针直接进行索引！直接 compile_expr 当做右值指针
+                    let ptr_val = self.compile_expr(lhs).into_pointer_value();
+                    let elem_ty = self.get_llvm_type(expr.ty);
+                    // 注意：指针的 GEP 只需要一个索引参数 `[idx_val]`
+                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_idx").unwrap() }
+                } else {
+                    let array_ptr = self.compile_lvalue(lhs);
+                    let zero = self.context.i64_type().const_zero();
+                    let array_llvm_ty = self.get_llvm_type(lhs.ty);
+                    // 注意：数组的 GEP 需要两个索引参数 `[0, idx_val]`
+                    unsafe { self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_idx").unwrap() }
                 };
+                
+                // IndexAccess 本身自带 Load
                 self.builder.build_load(expected_llvm_ty, elem_ptr, "idx_load").unwrap()
             }
 
-            // === 4. 调用机制 ===
             MastExprKind::Call { callee, args } => {
                 let mut llvm_args = Vec::new();
                 for arg in args {
@@ -440,41 +422,34 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let ptr_val = self.compile_expr(callee).into_pointer_value();
                     let norm_ty = self.type_registry.normalize(callee.ty);
                     
-                    let fn_type = if let crate::sema::ty::TypeKind::Function { params, ret, is_variadic } = self.type_registry.get(norm_ty) {
+                    let fn_type = if let TypeKind::Function { params, ret, is_variadic } = self.type_registry.get(norm_ty) {
                         let mut param_types = Vec::new();
-                        for p in params {
-                            param_types.push(self.get_llvm_type(*p).into());
-                        }
-                        let ret_ty = *ret;
-                        
-                        if ret_ty == crate::sema::ty::TypeId::VOID {
+                        for p in params { param_types.push(self.get_llvm_type(*p).into()); }
+                        if *ret == TypeId::VOID {
                             self.context.void_type().fn_type(&param_types, *is_variadic)
                         } else {
-                            match self.get_llvm_type(ret_ty) {
-                                inkwell::types::BasicTypeEnum::IntType(i) => i.fn_type(&param_types, *is_variadic),
-                                inkwell::types::BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, *is_variadic),
-                                inkwell::types::BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, *is_variadic),
-                                inkwell::types::BasicTypeEnum::StructType(s) => s.fn_type(&param_types, *is_variadic),
-                                inkwell::types::BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, *is_variadic),
-                                inkwell::types::BasicTypeEnum::VectorType(v) => v.fn_type(&param_types, *is_variadic),
-                                inkwell::types::BasicTypeEnum::ScalableVectorType(sv) => sv.fn_type(&param_types, *is_variadic),
+                            let ret_t = self.get_llvm_type(*ret);
+                            match ret_t {
+                                BasicTypeEnum::IntType(i) => i.fn_type(&param_types, *is_variadic),
+                                BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, *is_variadic),
+                                BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, *is_variadic),
+                                BasicTypeEnum::StructType(s) => s.fn_type(&param_types, *is_variadic),
+                                BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, *is_variadic),
+                                _ => unreachable!(),
                             }
                         }
-                    } else {
-                        unreachable!("Callee must be a function type");
-                    };
+                    } else { unreachable!() };
                     
                     self.builder.build_indirect_call(fn_type, ptr_val, &llvm_args, "icall").unwrap()
                 };
                 
-                if expr.ty == crate::sema::ty::TypeId::VOID {
+                if expr.ty == TypeId::VOID || expr.ty == TypeId::ERROR {
                     self.context.i8_type().const_zero().into() 
                 } else {
                     call_site.try_as_basic_value().unwrap_basic() 
                 }
             }
 
-            // === 5. 简单的算术运算 ===
             MastExprKind::Binary { op, lhs, rhs } => {
                 let l_val = self.compile_expr(lhs);
                 let r_val = self.compile_expr(rhs);
@@ -488,8 +463,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         crate::ast::BinaryOperator::Multiply => self.builder.build_int_mul(l_int, r_int, "mul").unwrap().into(),
                         crate::ast::BinaryOperator::Divide => self.builder.build_int_signed_div(l_int, r_int, "sdiv").unwrap().into(),
                         crate::ast::BinaryOperator::Modulo => self.builder.build_int_signed_rem(l_int, r_int, "srem").unwrap().into(),
-                        crate::ast::BinaryOperator::BitwiseAnd | crate::ast::BinaryOperator::LogicalAnd => self.builder.build_and(l_int, r_int, "and").unwrap().into(),
-                        crate::ast::BinaryOperator::BitwiseOr | crate::ast::BinaryOperator::LogicalOr => self.builder.build_or(l_int, r_int, "or").unwrap().into(),
+                        crate::ast::BinaryOperator::BitwiseAnd => self.builder.build_and(l_int, r_int, "and").unwrap().into(),
+                        crate::ast::BinaryOperator::BitwiseOr => self.builder.build_or(l_int, r_int, "or").unwrap().into(),
                         crate::ast::BinaryOperator::BitwiseXor => self.builder.build_xor(l_int, r_int, "xor").unwrap().into(),
                         crate::ast::BinaryOperator::ShiftLeft => self.builder.build_left_shift(l_int, r_int, "shl").unwrap().into(),
                         crate::ast::BinaryOperator::ShiftRight => self.builder.build_right_shift(l_int, r_int, false, "shr").unwrap().into(),
@@ -499,6 +474,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         crate::ast::BinaryOperator::LessOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SLE, l_int, r_int, "sle").unwrap().into(),
                         crate::ast::BinaryOperator::GreaterThan => self.builder.build_int_compare(inkwell::IntPredicate::SGT, l_int, r_int, "sgt").unwrap().into(),
                         crate::ast::BinaryOperator::GreaterOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SGE, l_int, r_int, "sge").unwrap().into(),
+                        _ => unreachable!("Operator handled elsewhere"),
                     }
                 } else if l_val.is_float_value() && r_val.is_float_value() {
                     let l_float = l_val.into_float_value();
@@ -515,14 +491,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         crate::ast::BinaryOperator::LessOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle").unwrap().into(),
                         crate::ast::BinaryOperator::GreaterThan => self.builder.build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt").unwrap().into(),
                         crate::ast::BinaryOperator::GreaterOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge").unwrap().into(),
-                        _ => unreachable!("Invalid binary operator for float"),
+                        _ => unreachable!(),
                     }
-                } else {
-                    unreachable!("Binary operation on incompatible types");
-                }
+                } else { unreachable!() }
             }
-            
-            // === 6. 单目运算 ===
+
             MastExprKind::Unary { op, operand } => {
                 let op_val = self.compile_expr(operand);
                 match op {
@@ -537,19 +510,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         self.builder.build_not(op_val.into_int_value(), "not").unwrap().into()
                     }
                     crate::ast::UnaryOperator::LengthOf => {
-                        let norm_ty = self.type_registry.normalize(operand.ty);
+                        // 🌟 修复：给操作数剥离 Mut
+                        let mut norm_ty = self.type_registry.normalize(operand.ty);
+                        if let TypeKind::Mut(inner) = self.type_registry.get(norm_ty) {
+                            norm_ty = *inner;
+                        }
+                        
                         match self.type_registry.get(norm_ty) {
-                            crate::sema::ty::TypeKind::Array { len, .. } => {
-                                self.context.i64_type().const_int(*len, false).into()
-                            }
-                            crate::sema::ty::TypeKind::Slice(_) => {
-                                // Slice 在 LLVM 是胖指针 { ptr, len }，len 在索引 1
-                                self.builder.build_extract_value(op_val.into_struct_value(), 1, "slice_len").unwrap()
-                            }
-                            _ => unreachable!("LengthOf on invalid type")
+                            TypeKind::Array { len, .. } => self.context.i64_type().const_int(*len, false).into(),
+                            TypeKind::Slice(_) => self.builder.build_extract_value(op_val.into_struct_value(), 1, "slice_len").unwrap(),
+                            _ => unreachable!()
                         }
                     }
-                    _ => unreachable!() // AddressOf 和 Deref 已经是独立 MastExprKind
+                    _ => unreachable!() 
                 }
             }
 
@@ -587,21 +560,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             crate::ast::AssignmentOperator::BitwiseXorAssign => self.builder.build_xor(l_int, r_int, "xor_a").unwrap().into(),
                             crate::ast::AssignmentOperator::ShiftLeftAssign => self.builder.build_left_shift(l_int, r_int, "shl_a").unwrap().into(),
                             crate::ast::AssignmentOperator::ShiftRightAssign => self.builder.build_right_shift(l_int, r_int, false, "shr_a").unwrap().into(),
-                            _ => unreachable!("Invalid integer assignment operator"),
-                        }
-                    } else if lhs_val.is_float_value() {
-                        let l_float = lhs_val.into_float_value();
-                        let r_float = rhs_val.into_float_value();
-                        match op {
-                            crate::ast::AssignmentOperator::AddAssign => self.builder.build_float_add(l_float, r_float, "fadd_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::SubtractAssign => self.builder.build_float_sub(l_float, r_float, "fsub_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::MultiplyAssign => self.builder.build_float_mul(l_float, r_float, "fmul_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::DivideAssign => self.builder.build_float_div(l_float, r_float, "fdiv_a").unwrap().into(),
-                            crate::ast::AssignmentOperator::ModuloAssign => self.builder.build_float_rem(l_float, r_float, "frem_a").unwrap().into(),
-                            _ => unreachable!("Invalid float assignment operator"),
+                            _ => unreachable!(),
                         }
                     } else {
-                        unreachable!("Compound assignment on unsupported type");
+                        unreachable!();
                     };
                     self.builder.build_store(ptr, new_val).unwrap();
                 }
@@ -640,7 +602,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
 
                 self.builder.position_at_end(merge_bb);
-                if expr.ty != crate::sema::ty::TypeId::VOID && then_result.is_some() && else_result.is_some() {
+                if expr.ty != TypeId::VOID && then_result.is_some() && else_result.is_some() {
                     let phi = self.builder.build_phi(expected_llvm_ty, "iftmp").unwrap();
                     phi.add_incoming(&[
                         (&then_result.unwrap(), then_exit_bb),
@@ -701,9 +663,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
                 self.builder.build_switch(target_val, default_bb, &llvm_cases).unwrap();
 
+                // 🌟 核心修复：收集所有分支的返回值和对应的 Block，供 PHI 节点使用
+                let mut incoming = Vec::new(); 
+
                 self.builder.position_at_end(default_bb);
                 if let Some(def_block) = default_case {
-                    self.compile_block(def_block);
+                    if let Some(val) = self.compile_block(def_block) {
+                        incoming.push((val, self.builder.get_insert_block().unwrap()));
+                    }
+                    if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+                        self.builder.build_unconditional_branch(merge_bb).unwrap();
+                    }
+                } else {
+                    // 🌟 核心修复：前端保证了穷尽性，这里如果走到 default 就是不可达的
+                    self.builder.build_unreachable().unwrap();
                 }
                 if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
                     self.builder.build_unconditional_branch(merge_bb).unwrap();
@@ -711,41 +684,67 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
                 for (i, case) in cases.iter().enumerate() {
                     self.builder.position_at_end(case_blocks[i]);
-                    self.compile_block(&case.body);
+                    if let Some(val) = self.compile_block(&case.body) {
+                        incoming.push((val, self.builder.get_insert_block().unwrap()));
+                    }
                     if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
                         self.builder.build_unconditional_branch(merge_bb).unwrap();
                     }
                 }
 
                 self.builder.position_at_end(merge_bb);
-                self.context.i8_type().const_zero().into()
+                
+                // 生成汇编级的 PHI (多路选择) 节点
+                if expr.ty != TypeId::VOID && !incoming.is_empty() {
+                    let phi = self.builder.build_phi(expected_llvm_ty, "switchtmp").unwrap();
+                    let mut incoming_refs = Vec::new();
+                    for (val, bb) in &incoming {
+                        incoming_refs.push((val as &dyn inkwell::values::BasicValue<'ctx>, *bb));
+                    }
+                    phi.add_incoming(&incoming_refs);
+                    phi.as_basic_value()
+                } else {
+                    self.context.i8_type().const_zero().into()
+                }
             }
 
-            // === 7. 详尽的类型转换 Cast ===
             MastExprKind::Cast { kind, operand } => {
                 let val = self.compile_expr(operand);
                 let target_llvm_ty = expected_llvm_ty;
 
-                use crate::mast::ast::MastCastKind::*;
                 match kind {
-                    Bitcast => self.builder.build_bit_cast(val, target_llvm_ty, "bitcast").unwrap(),
-                    PtrToInt => self.builder.build_ptr_to_int(val.into_pointer_value(), target_llvm_ty.into_int_type(), "ptr2int").unwrap().into(),
-                    IntToPtr => self.builder.build_int_to_ptr(val.into_int_value(), target_llvm_ty.into_pointer_type(), "int2ptr").unwrap().into(),
-                    ZeroExt => self.builder.build_int_z_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "zext").unwrap().into(),
-                    SignExt => self.builder.build_int_s_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "sext").unwrap().into(),
-                    Trunc => self.builder.build_int_truncate(val.into_int_value(), target_llvm_ty.into_int_type(), "trunc").unwrap().into(),
-                    IntToFloat => self.builder.build_signed_int_to_float(val.into_int_value(), target_llvm_ty.into_float_type(), "i2f").unwrap().into(),
-                    FloatToInt => self.builder.build_float_to_signed_int(val.into_float_value(), target_llvm_ty.into_int_type(), "f2i").unwrap().into(),
-                    FloatCast => self.builder.build_float_cast(val.into_float_value(), target_llvm_ty.into_float_type(), "fcast").unwrap().into(),
-                    ArrayToSlice => {
-                        // 切片是一个胖指针 { ptr, len }
+                    MastCastKind::Bitcast => {
+                        // 防御性修复：如果前端错误地将 Slice 转 Ptr 标记为了 Bitcast
+                        if val.is_struct_value() && target_llvm_ty.is_pointer_type() {
+                            let fat_ptr = val.into_struct_value();
+                            self.builder.build_extract_value(fat_ptr, 0, "slice_ptr_fallback").unwrap()
+                                .into_pointer_value().into()
+                        } else {
+                            self.builder.build_bit_cast(val, target_llvm_ty, "bitcast").unwrap()
+                        }
+                    }
+                    MastCastKind::PtrToInt => self.builder.build_ptr_to_int(val.into_pointer_value(), target_llvm_ty.into_int_type(), "ptr2int").unwrap().into(),
+                    MastCastKind::IntToPtr => self.builder.build_int_to_ptr(val.into_int_value(), target_llvm_ty.into_pointer_type(), "int2ptr").unwrap().into(),
+                    MastCastKind::ZeroExt => self.builder.build_int_z_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "zext").unwrap().into(),
+                    MastCastKind::SignExt => self.builder.build_int_s_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "sext").unwrap().into(),
+                    MastCastKind::Trunc => self.builder.build_int_truncate(val.into_int_value(), target_llvm_ty.into_int_type(), "trunc").unwrap().into(),
+                    MastCastKind::IntToFloat => self.builder.build_signed_int_to_float(val.into_int_value(), target_llvm_ty.into_float_type(), "i2f").unwrap().into(),
+                    MastCastKind::FloatToInt => self.builder.build_float_to_signed_int(val.into_float_value(), target_llvm_ty.into_int_type(), "f2i").unwrap().into(),
+                    MastCastKind::FloatCast => self.builder.build_float_cast(val.into_float_value(), target_llvm_ty.into_float_type(), "fcast").unwrap().into(),
+                    MastCastKind::ArrayToSlice => {
                         let slice_ty = target_llvm_ty.into_struct_type();
                         let mut slice_val = slice_ty.const_zero();
                         
                         let array_ptr = self.compile_lvalue(operand);
                         slice_val = self.builder.build_insert_value(slice_val, array_ptr, 0, "slice_ptr").unwrap().into_struct_value();
                         
-                        let len = if let crate::sema::ty::TypeKind::Array { len, .. } = self.type_registry.get(self.type_registry.normalize(operand.ty)) {
+                        // 🌟 修复：剥离 Mut 以获取数组真实长度
+                        let mut base_op_ty = self.type_registry.normalize(operand.ty);
+                        if let TypeKind::Mut(inner) = self.type_registry.get(base_op_ty) {
+                            base_op_ty = *inner;
+                        }
+                        
+                        let len = if let TypeKind::Array { len, .. } = self.type_registry.get(base_op_ty) {
                             *len
                         } else { 0 };
                         
@@ -754,24 +753,33 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         
                         slice_val.into()
                     }
+                    MastCastKind::SliceToPtr => {
+                        let fat_ptr = val.into_struct_value();
+                        
+                        // 提取第 0 个元素 (即裸指针)
+                        self.builder.build_extract_value(fat_ptr, 0, "slice_ptr").unwrap()
+                            .into_pointer_value().into()
+                    }
                 }
             }
 
-            // === 8. 胖指针 / Trait Object ===
-            MastExprKind::ConstructFatPointer { data_ptr, vtable_ptr } => {
-                let fat_ptr_ty = expected_llvm_ty.into_struct_type();
+            MastExprKind::ConstructFatPointer { data_ptr, meta } => {
+                let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                let len_ty = self.context.i64_type();
+                // 显式声明这是一个 { ptr, i64 } 的结构体
+                let fat_ptr_ty = self.context.struct_type(&[ptr_ty.into(), len_ty.into()], false);
+                
                 let mut fat_ptr = fat_ptr_ty.const_zero(); 
                 
                 let data_val = self.compile_expr(data_ptr);
                 fat_ptr = self.builder.build_insert_value(fat_ptr, data_val, 0, "fat_data").unwrap().into_struct_value();
                 
-                let vtable_val = self.globals.get(vtable_ptr).unwrap().as_pointer_value();
-                fat_ptr = self.builder.build_insert_value(fat_ptr, vtable_val, 1, "fat_vtable").unwrap().into_struct_value();
+                let meta_val = self.compile_expr(meta);
+                fat_ptr = self.builder.build_insert_value(fat_ptr, meta_val, 1, "fat_meta").unwrap().into_struct_value();
                 
                 fat_ptr.into()
             }
 
-            // === 9. 块表达式 ===
             MastExprKind::Block(block) => {
                 if let Some(res) = self.compile_block(block) {
                     res
@@ -779,11 +787,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.context.i8_type().const_zero().into()
                 }
             }
+
+            MastExprKind::ExtractFatPtrData(fat_ptr_expr) => {
+                let fat_ptr_val = self.compile_expr(fat_ptr_expr).into_struct_value();
+                // 提取 0 号索引，即 data_ptr (*void)
+                self.builder.build_extract_value(fat_ptr_val, 0, "extract_data").unwrap()
+            }
+            MastExprKind::ExtractFatPtrMeta(fat_ptr_expr) => {
+                let fat_ptr_val = self.compile_expr(fat_ptr_expr).into_struct_value();
+                // 提取 1 号索引，即 meta (usize)
+                self.builder.build_extract_value(fat_ptr_val, 1, "extract_meta").unwrap()
+            }
         }
     }
 
-    /// 计算左值表达式的内存地址 (Pointer)
-    /// 用于赋值 (=, +=) 和 取址 (.&) 操作
     fn compile_lvalue(&mut self, expr: &MastExpr) -> PointerValue<'ctx> {
         match &expr.kind {
             MastExprKind::Var(name) => {
@@ -798,22 +815,72 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, *field_idx as u32, "lvalue_gep").unwrap()
             }
             MastExprKind::IndexAccess { lhs, index } => {
-                let array_ptr = self.compile_lvalue(lhs);
                 let idx_val = self.compile_expr(index).into_int_value();
+                let norm_lhs = self.type_registry.normalize(lhs.ty);
                 
-                // 对于数组索引，LLVM GEP 需要两个索引：一个是解开指针本身的 0，一个是数组实际的 index
-                let zero = self.context.i64_type().const_zero();
-                
-                let array_llvm_ty = self.get_llvm_type(lhs.ty); // 获取具体的 ArrayType
-                unsafe {
-                    self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "lvalue_idx").unwrap()
+                if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
+                    let slice_val = self.compile_expr(lhs).into_struct_value();
+                    let ptr_val = self.builder.build_extract_value(slice_val, 0, "slice_ptr").unwrap().into_pointer_value();
+                    let elem_ty = self.get_llvm_type(expr.ty);
+                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_lvalue").unwrap() }
+                } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
+                    // 🌟 修复 2：支持裸指针的左值推导
+                    let ptr_val = self.compile_expr(lhs).into_pointer_value();
+                    let elem_ty = self.get_llvm_type(expr.ty);
+                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_lvalue").unwrap() }
+                } else {
+                    let array_ptr = self.compile_lvalue(lhs);
+                    let zero = self.context.i64_type().const_zero();
+                    let array_llvm_ty = self.get_llvm_type(lhs.ty);
+                    unsafe { self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_lvalue").unwrap() }
                 }
             }
             MastExprKind::Deref(operand) => {
-                // 指针解引用的左值，就是指针本身的值！
                 self.compile_expr(operand).into_pointer_value()
             }
             _ => panic!("Expression is not a valid l-value: {:?}", expr.kind),
         }
+    }
+
+    // ==========================================
+    //          Object File Generation
+    // ==========================================
+
+    pub fn emit_to_file(&self, target_triple_str: &str, output_path: &str) -> Result<(), String> {
+        // 1. 初始化所有的 LLVM Target (x86, ARM, RISCV 等)
+        Target::initialize_all(&InitializationConfig::default());
+
+        // 2. 解析目标架构三元组
+        let triple = inkwell::targets::TargetTriple::create(target_triple_str);
+        
+        let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
+        
+        // 3. 创建目标机器实例 (配置优化级别、重定位模式等)
+        let target_machine = target.create_target_machine(
+            &triple,
+            "generic", // CPU 类型
+            "",        // 特性 (Features)
+            inkwell::OptimizationLevel::Default, // 可根据传入的 OptLevel 动态调整
+            RelocMode::Default,
+            CodeModel::Default,
+        ).ok_or("Failed to create target machine")?;
+
+        // 4. 将目标机器的数据布局 (Data Layout) 和三元组写入当前 Module
+        self.module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+        self.module.set_triple(&triple);
+
+        if let Err(err) = self.module.verify() {
+            // 如果 IR 有问题，它会打印出极其详细的错误信息（比如哪一行的 PHI 节点类型不对）
+            eprintln!("🔥 LLVM IR Verification Failed:\n{}", err.to_string());
+            // 顺便把畸形的 IR 打印出来，方便我们肉眼对比
+            self.print_ir();
+            return Err("Invalid LLVM IR generated".to_string());
+        }
+        
+        // 5. 触发 LLVM 后端，直接将 IR 编译为二进制的 Object (.o) 文件！
+        let path = std::path::Path::new(output_path);
+        target_machine.write_to_file(&self.module, FileType::Object, path).map_err(|e| e.to_string())?;
+
+        Ok(())
     }
 }

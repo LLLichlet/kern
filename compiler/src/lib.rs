@@ -9,3 +9,5 @@ pub mod context;
 pub mod sema;
 pub mod mast;
 pub mod codegen;
+pub mod config;
+pub mod driver;

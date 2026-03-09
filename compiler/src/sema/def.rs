@@ -6,8 +6,8 @@ use crate::sema::{
     ty::{DefId, TypeId},
 };
 use crate::utils::{Span, SymbolId};
-use std::path::PathBuf;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// 定义的可见性
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +71,7 @@ pub struct ModuleDef {
     // 用于处理相对导入 `use .xxx` 时，作为基准路径
     // 如果该模块是 a/b.kn，dir_path 就是 a/
     // 如果该模块是 a/b/init.kn，dir_path 就是 a/b/
-    pub dir_path: PathBuf, 
+    pub dir_path: PathBuf,
     pub file_id: crate::utils::FileId,
     // 子模块注册表
     // 只有真正在文件系统中被按需加载的子模块，才会存在这里

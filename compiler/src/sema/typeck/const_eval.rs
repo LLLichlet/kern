@@ -1,5 +1,5 @@
-use crate::parser::ast::{self, BinaryOperator, Expr, ExprKind, UnaryOperator};
 use crate::driver::Context;
+use crate::parser::ast::{self, BinaryOperator, Expr, ExprKind, UnaryOperator};
 use crate::sema::def::Def;
 use crate::sema::scope::SymbolKind;
 use crate::sema::ty::{TypeId, TypeKind};

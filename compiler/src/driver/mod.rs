@@ -5,13 +5,13 @@ pub mod diagnostic;
 pub use context::Context;
 
 use crate::codegen::llvm::CodeGenerator;
-use config::CompileOptions;
 use crate::mast::lower::Lowerer;
 use crate::sema::builtin::BuiltinInjector;
 use crate::sema::collect::Collector;
 use crate::sema::resolve_imports::ImportResolver;
 use crate::sema::resolve_types::TypeResolver;
 use crate::sema::typeck::TypeckDriver;
+use config::CompileOptions;
 use inkwell::context::Context as LlvmContext;
 
 use std::fs;
@@ -56,7 +56,7 @@ impl CompilerDriver {
             let mut loader = crate::sema::module_loader::ModuleLoader::new(&mut ctx);
             loader.load_root(&self.options.input_file);
             std::mem::take(&mut loader.asts)
-        }; 
+        };
 
         if ctx.has_errors() {
             ctx.print_diagnostics();
@@ -64,7 +64,7 @@ impl CompilerDriver {
         }
 
         // 5. 符号收集：遍历 Loader 解析出的所有 AST
-        let mut collector = Collector::new(&mut ctx); 
+        let mut collector = Collector::new(&mut ctx);
         for (mod_id, ast) in asts {
             collector.collect_ast(mod_id, &ast);
         }

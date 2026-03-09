@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::path::PathBuf;
-use crate::parser::ast;
 use crate::driver::context::Context;
 use crate::parser::Parser;
+use crate::parser::ast;
 use crate::sema::def::{Def, ModuleDef};
 use crate::sema::ty::DefId;
 use crate::utils::SymbolId;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 pub struct ModuleLoader<'a> {
     pub ctx: &'a mut Context,
@@ -32,9 +32,14 @@ impl<'a> ModuleLoader<'a> {
     }
 
     /// 核心算法：递归按需加载
-    fn load_module(&mut self, path: PathBuf, parent: Option<DefId>, name: SymbolId) -> Option<DefId> {
+    fn load_module(
+        &mut self,
+        path: PathBuf,
+        parent: Option<DefId>,
+        name: SymbolId,
+    ) -> Option<DefId> {
         let abs_path = std::fs::canonicalize(&path).unwrap_or(path.clone());
-        
+
         // 1. 查重，防止循环引用 (A 引用 B，B 引用 A)
         if let Some(&mod_id) = self.loaded_files.get(&abs_path) {
             return Some(mod_id);
@@ -47,7 +52,11 @@ impl<'a> ModuleLoader<'a> {
         let src = match std::fs::read_to_string(&abs_path) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Error: Cannot read module file '{}': {}", abs_path.display(), e);
+                eprintln!(
+                    "Error: Cannot read module file '{}': {}",
+                    abs_path.display(),
+                    e
+                );
                 return None;
             }
         };
@@ -59,16 +68,25 @@ impl<'a> ModuleLoader<'a> {
             abs_path.parent().unwrap().to_path_buf()
         };
 
-        let file_id = self.ctx.source_manager.add_file(abs_path.to_string_lossy().to_string(), src.clone());
+        let file_id = self
+            .ctx
+            .source_manager
+            .add_file(abs_path.to_string_lossy().to_string(), src.clone());
 
         // 预创建一个空的 ModuleDef，提前分配 Scope
         let scope_id = self.ctx.scopes.enter_scope();
         self.ctx.scopes.exit_scope();
 
         let dummy_def = ModuleDef {
-            id: mod_id, name, parent, scope_id,
-            dir_path: dir_path.clone(), file_id,
-            submodules: HashMap::new(), items: Vec::new(), imports: Vec::new(),
+            id: mod_id,
+            name,
+            parent,
+            scope_id,
+            dir_path: dir_path.clone(),
+            file_id,
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
         };
         self.ctx.add_def(Def::Module(dummy_def));
 
@@ -84,12 +102,17 @@ impl<'a> ModuleLoader<'a> {
 
         // 4. 扫描文件内部的 `use .xxx`，按需去文件系统寻找子模块
         for decl in &ast.decls {
-            if let ast::DeclKind::Use { kind, path: use_path, .. } = &decl.kind {
+            if let ast::DeclKind::Use {
+                kind,
+                path: use_path,
+                ..
+            } = &decl.kind
+            {
                 if *kind == ast::UsePathKind::Relative {
                     if let Some(&first_seg) = use_path.first() {
                         if !submodules.contains_key(&first_seg) {
                             let mod_name_str = self.ctx.resolve(first_seg);
-                            
+
                             // Kern 路径嗅探规则：优先找 mod_name/init.kn，其次找 mod_name.kn
                             let dir_init = dir_path.join(mod_name_str).join("init.kn");
                             let file_kn = dir_path.join(format!("{}.kn", mod_name_str));

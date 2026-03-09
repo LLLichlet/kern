@@ -1,7 +1,5 @@
-use crate::parser::ast::{
-    self, BinaryOperator, Expr, ExprKind, StmtKind, UnaryOperator,
-};
 use crate::driver::Context;
+use crate::parser::ast::{self, BinaryOperator, Expr, ExprKind, StmtKind, UnaryOperator};
 use crate::sema::def::Def;
 use crate::sema::resolve_types::TypeResolver;
 use crate::sema::scope::SymbolInfo;
@@ -51,7 +49,7 @@ impl<'a> ExprChecker<'a> {
             ExprKind::Unary { op, operand } => {
                 self.check_unary(*op, operand, expr.span, expected_ty)
             }
-            ExprKind::Assign { lhs, rhs, ..  } => self.check_assign(lhs, rhs, expr.span),
+            ExprKind::Assign { lhs, rhs, .. } => self.check_assign(lhs, rhs, expr.span),
 
             // === 5. 转换 ===
             ExprKind::As { lhs, target } => self.check_as_expr(lhs, target),
@@ -127,7 +125,10 @@ impl<'a> ExprChecker<'a> {
     fn check_identifier(&mut self, name: crate::utils::SymbolId, span: Span) -> TypeId {
         if let Some(info) = self.ctx.scopes.resolve(name) {
             if info.kind == SymbolKind::Function {
-                return self.ctx.type_registry.intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
+                return self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
             }
             info.type_id
         } else {
@@ -793,12 +794,7 @@ impl<'a> ExprChecker<'a> {
         }
     }
 
-    fn check_assign(
-        &mut self,
-        lhs: &Expr,
-        rhs: &Expr,
-        span: Span,
-    ) -> TypeId {
+    fn check_assign(&mut self, lhs: &Expr, rhs: &Expr, span: Span) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
 
         if !self.is_mut_type(lhs_ty) && lhs_ty != TypeId::ERROR {
@@ -1056,7 +1052,9 @@ impl<'a> ExprChecker<'a> {
                     // 去那个模块的作用域里寻找真实的符号
                     if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field) {
                         let real_ty = if target_info.kind == SymbolKind::Function {
-                            self.ctx.type_registry.intern(TypeKind::FnDef(target_info.def_id.unwrap(), vec![]))
+                            self.ctx
+                                .type_registry
+                                .intern(TypeKind::FnDef(target_info.def_id.unwrap(), vec![]))
                         } else {
                             target_info.type_id
                         };
@@ -1066,7 +1064,15 @@ impl<'a> ExprChecker<'a> {
                     } else {
                         let mod_name = self.ctx.resolve(*name);
                         let field_name = self.ctx.resolve(field);
-                        self.ctx.struct_error(span, format!("module `{}` has no public member `{}`", mod_name, field_name)).emit();
+                        self.ctx
+                            .struct_error(
+                                span,
+                                format!(
+                                    "module `{}` has no public member `{}`",
+                                    mod_name, field_name
+                                ),
+                            )
+                            .emit();
                         return TypeId::ERROR;
                     }
                 }
@@ -1399,7 +1405,6 @@ impl<'a> ExprChecker<'a> {
     /// 助手 2：判断这是否是一个方法调用，如果是，提取它的 Receiver 类型 (LHS)
     fn resolve_method_context(&self, callee: &Expr) -> (bool, TypeId) {
         if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
-            
             // 拦截：如果 lhs 是一个模块，则绝对不是运行时的方法调用
             if let ExprKind::Identifier(name) = &lhs.kind {
                 if let Some(info) = self.ctx.scopes.resolve(*name) {

@@ -8,9 +8,9 @@ use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use std::collections::HashMap;
 
 use crate::mast::ast::*;
+use crate::parser::ast;
 use crate::sema::def::Def;
 use crate::sema::ty::{PrimitiveType, TypeId, TypeKind, TypeRegistry};
-use crate::parser::ast;
 
 pub struct CodeGenerator<'ctx, 'a> {
     pub context: &'ctx LlvmContext,

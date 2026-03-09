@@ -1,7 +1,7 @@
 #![allow(unused)]
 
-use crate::parser::ast::{UsePathKind, UseTarget};
 use crate::driver::context::Context;
+use crate::parser::ast::{UsePathKind, UseTarget};
 use crate::sema::def::{Def, ImportDef, Visibility};
 use crate::sema::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::sema::ty::DefId;
@@ -83,7 +83,7 @@ impl<'a> ImportResolver<'a> {
                 let (parent_mod_id, parent_scope) = match self.resolve_path(
                     current_mod_id,
                     import.path_kind,
-                    parent_path, 
+                    parent_path,
                     import.span,
                     emit_errors,
                 ) {
@@ -95,7 +95,12 @@ impl<'a> ImportResolver<'a> {
                     if !self.check_visibility(symbol_info.def_id, current_mod_id, parent_mod_id) {
                         if emit_errors {
                             let name_str = self.ctx.resolve(target_name).to_string();
-                            self.ctx.struct_error(import.span, format!("Symbol `{}` is private", name_str)).emit();
+                            self.ctx
+                                .struct_error(
+                                    import.span,
+                                    format!("Symbol `{}` is private", name_str),
+                                )
+                                .emit();
                         }
                         return false;
                     }
@@ -113,7 +118,12 @@ impl<'a> ImportResolver<'a> {
                 } else {
                     if emit_errors {
                         let name_str = self.ctx.resolve(target_name).to_string();
-                        self.ctx.struct_error(import.span, format!("Cannot find module or symbol `{}`", name_str)).emit();
+                        self.ctx
+                            .struct_error(
+                                import.span,
+                                format!("Cannot find module or symbol `{}`", name_str),
+                            )
+                            .emit();
                     }
                     false
                 }
@@ -133,11 +143,21 @@ impl<'a> ImportResolver<'a> {
 
                 let mut all_resolved = true;
                 for member in members {
-                    if let Some(symbol_info) = self.ctx.scopes.resolve_in(target_scope, member.name) {
-                        if !self.check_visibility(symbol_info.def_id, current_mod_id, target_mod_id) {
+                    if let Some(symbol_info) = self.ctx.scopes.resolve_in(target_scope, member.name)
+                    {
+                        if !self.check_visibility(symbol_info.def_id, current_mod_id, target_mod_id)
+                        {
                             if emit_errors {
                                 let name_str = self.ctx.resolve(member.name).to_string();
-                                self.ctx.struct_error(member.span, format!("Symbol `{}` is private and cannot be imported", name_str)).emit();
+                                self.ctx
+                                    .struct_error(
+                                        member.span,
+                                        format!(
+                                            "Symbol `{}` is private and cannot be imported",
+                                            name_str
+                                        ),
+                                    )
+                                    .emit();
                             }
                             all_resolved = false;
                             continue;
@@ -155,7 +175,12 @@ impl<'a> ImportResolver<'a> {
                     } else {
                         if emit_errors {
                             let name_str = self.ctx.resolve(member.name).to_string();
-                            self.ctx.struct_error(member.span, format!("Cannot find `{}` in the target module", name_str)).emit();
+                            self.ctx
+                                .struct_error(
+                                    member.span,
+                                    format!("Cannot find `{}` in the target module", name_str),
+                                )
+                                .emit();
                         }
                         all_resolved = false;
                     }
@@ -327,8 +352,15 @@ impl<'a> ImportResolver<'a> {
                     // 一切正常，它本来就在这里
                 } else {
                     let name_str = self.ctx.resolve(name).to_string();
-                    self.ctx.struct_error(span, format!("the name `{}` is defined multiple times", name_str))
-                        .with_hint(format!("`{}` was already imported or defined in this module", name_str))
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!("the name `{}` is defined multiple times", name_str),
+                        )
+                        .with_hint(format!(
+                            "`{}` was already imported or defined in this module",
+                            name_str
+                        ))
                         .with_span_label(old_info.span, "previous definition was here")
                         .emit();
                 }

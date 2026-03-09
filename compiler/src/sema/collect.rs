@@ -1,5 +1,5 @@
-use crate::parser::ast::{self, Decl, DeclKind, TypeKind};
 use crate::driver::Context;
+use crate::parser::ast::{self, Decl, DeclKind, TypeKind};
 use crate::sema::def::*;
 use crate::sema::scope::{SymbolInfo, SymbolKind};
 use crate::sema::ty::{DefId, TypeId};
@@ -28,18 +28,18 @@ impl<'a> Collector<'a> {
 
         let parent_module = self.current_module;
         self.current_module = Some(mod_id);
-        
+
         let prev_scope = self.ctx.scopes.current_scope_id();
         // 切换到 Loader 提前建立好的作用域
         self.ctx.scopes.set_current_scope(scope_id);
 
         // 将子模块注入到当前作用域中！
         for (sub_name, sub_id) in submodules {
-            let dummy_node_id = self.ctx.next_node_id(); 
+            let dummy_node_id = self.ctx.next_node_id();
             self.define_symbol(
                 sub_name,
                 SymbolKind::Module,
-                dummy_node_id, 
+                dummy_node_id,
                 Some(sub_id),
                 crate::utils::Span::default(),
                 true, // 子模块在自身内部视为可见
@@ -48,9 +48,15 @@ impl<'a> Collector<'a> {
 
         let mut item_ids = Vec::new();
         let mut imports = Vec::new();
-        
+
         for decl in &module.decls {
-            if let DeclKind::Use { kind, path, target, is_reexport } = &decl.kind {
+            if let DeclKind::Use {
+                kind,
+                path,
+                target,
+                is_reexport,
+            } = &decl.kind
+            {
                 imports.push(ImportDef {
                     path_kind: *kind,
                     path: path.clone(),
@@ -146,8 +152,8 @@ impl<'a> Collector<'a> {
                 // Extern 块是一种特殊的顶层容器，必须在 collect_ast 级别被展开平铺。
                 // 如果走到这里，说明出现了非法的嵌套（例如 impl 块内部嵌套了 extern 块）。
                 self.ctx.emit_error(
-                    decl.span, 
-                    "`extern` blocks are only allowed at the module top-level"
+                    decl.span,
+                    "`extern` blocks are only allowed at the module top-level",
                 );
                 None
             }

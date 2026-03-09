@@ -1,5 +1,5 @@
-use kernc::driver::config::{CompileOptions, OptLevel, TargetMachine};
 use kernc::driver::CompilerDriver;
+use kernc::driver::config::{CompileOptions, OptLevel, TargetMachine};
 use std::env;
 use std::process;
 

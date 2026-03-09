@@ -1,5 +1,5 @@
-use crate::parser::ast;
 use crate::driver::Context;
+use crate::parser::ast;
 use crate::sema::def::Def;
 use crate::sema::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::sema::ty::{DefId, TypeId, TypeKind};

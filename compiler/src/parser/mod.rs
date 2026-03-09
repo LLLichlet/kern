@@ -3,14 +3,14 @@ pub mod lexer;
 pub mod stream;
 pub mod token;
 
-use ast::*;
 use crate::driver::context::Context;
 use crate::driver::diagnostic::DiagnosticLevel;
+use crate::utils::FileId;
+use crate::utils::{Span, SymbolId};
+use ast::*;
 use lexer::Lexer;
 use stream::TokenStream;
 use token::{Token, TokenType};
-use crate::utils::FileId;
-use crate::utils::{Span, SymbolId};
 
 /// 解析结果类型
 /// Err(()) 表示错误已经报告给 Context，调用者应该进行恢复或向上传播
@@ -1138,10 +1138,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_slice_or_index_expr(
-        &mut self,
-        left: Expr,
-    ) -> ParseResult<Expr> {
+    fn parse_slice_or_index_expr(&mut self, left: Expr) -> ParseResult<Expr> {
         let mut start = None;
         let mut end = None;
         let mut is_range = false;
@@ -1193,10 +1190,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_generic_instantiation_expr(
-        &mut self,
-        left: Expr,
-    ) -> ParseResult<Expr> {
+    fn parse_generic_instantiation_expr(&mut self, left: Expr) -> ParseResult<Expr> {
         let mut types = Vec::new();
         if !self.check(TokenType::RBracket) {
             loop {
@@ -1940,29 +1934,32 @@ impl<'a> Parser<'a> {
 
     fn parse_use_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
         self.advance(); // 消费 `use`
-        
+
         let mut kind = UsePathKind::Absolute;
-        if self.match_token(&[TokenType::Dot]) { kind = UsePathKind::Relative; }
-        else if self.match_token(&[TokenType::DotDot]) { kind = UsePathKind::Super; }
-        
+        if self.match_token(&[TokenType::Dot]) {
+            kind = UsePathKind::Relative;
+        } else if self.match_token(&[TokenType::DotDot]) {
+            kind = UsePathKind::Super;
+        }
+
         let mut path = Vec::new();
         let target: UseTarget;
         loop {
             // 情况 1: 遇到纯粹的 `{` (比如 `use .{ ... }` 或者路径已经被处理完)
-            if self.match_token(&[TokenType::LBrace]) { 
+            if self.match_token(&[TokenType::LBrace]) {
                 target = self.parse_use_members()?;
-                break; 
+                break;
             }
             // 情况 2: 核心修复，处理被 Lexer 捏合在一起的 `.{` Token
             if self.match_token(&[TokenType::DotLBrace]) {
                 target = self.parse_use_members()?;
                 break;
             }
-            
+
             // 正常读取路径段
             let id = self.expect(TokenType::Identifier)?;
             path.push(self.intern_token(id));
-            
+
             // 在路径段之后再次检查是否直接跟着 `.{`
             if self.match_token(&[TokenType::DotLBrace]) {
                 target = self.parse_use_members()?;
@@ -1981,14 +1978,26 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        
+
         self.expect(TokenType::Semicolon)?;
-        
-        let name = if let Some(&last) = path.last() { last } else { self.context.intern("root") };
-        
+
+        let name = if let Some(&last) = path.last() {
+            last
+        } else {
+            self.context.intern("root")
+        };
+
         Ok(Decl {
-             id: self.new_id(), span: start.to(self.stream.prev_span()), name, is_pub,
-             kind: DeclKind::Use { kind, path, target, is_reexport: is_pub }
+            id: self.new_id(),
+            span: start.to(self.stream.prev_span()),
+            name,
+            is_pub,
+            kind: DeclKind::Use {
+                kind,
+                path,
+                target,
+                is_reexport: is_pub,
+            },
         })
     }
 
@@ -1996,15 +2005,21 @@ impl<'a> Parser<'a> {
     fn parse_use_members(&mut self) -> ParseResult<UseTarget> {
         let mut members = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-             let m_tok = self.expect(TokenType::Identifier)?;
-             let m_id = self.intern_token(m_tok);
-             let mut alias = None;
-             if self.match_token(&[TokenType::As]) {
-                 let a_tok = self.expect(TokenType::Identifier)?;
-                 alias = Some(self.intern_token(a_tok));
-             }
-             members.push(UseMember { name: m_id, alias, span: m_tok.span });
-             if !self.match_token(&[TokenType::Comma]) { break; }
+            let m_tok = self.expect(TokenType::Identifier)?;
+            let m_id = self.intern_token(m_tok);
+            let mut alias = None;
+            if self.match_token(&[TokenType::As]) {
+                let a_tok = self.expect(TokenType::Identifier)?;
+                alias = Some(self.intern_token(a_tok));
+            }
+            members.push(UseMember {
+                name: m_id,
+                alias,
+                span: m_tok.span,
+            });
+            if !self.match_token(&[TokenType::Comma]) {
+                break;
+            }
         }
         self.expect(TokenType::RBrace)?;
         Ok(UseTarget::Members(members))

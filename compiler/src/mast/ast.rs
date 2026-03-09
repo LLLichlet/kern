@@ -1,6 +1,6 @@
+use crate::parser::ast;
 use crate::sema::ty::TypeId;
 use crate::utils::{Span, SymbolId};
-use crate::parser::ast;
 
 /// 单态化 ID (Monomorphized ID)
 /// 与前端的 DefId 不同，前端一个泛型 `List[T]` 只有一个 DefId，

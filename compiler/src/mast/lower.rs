@@ -1,7 +1,7 @@
 // src/mast/lower.rs
 use super::ast::*;
-use crate::parser::ast::{self, Expr, ExprKind};
 use crate::driver::Context;
+use crate::parser::ast::{self, Expr, ExprKind};
 use crate::sema::def::Def;
 use crate::sema::ty::{PrimitiveType, TypeId, TypeKind};
 use crate::sema::typeck::subst::Substituter;
@@ -439,10 +439,7 @@ impl<'a> Lowerer<'a> {
 
         if exp_ty == TypeId::ERROR {
             self.ctx
-                .emit_ice(
-                    expr.span, 
-                    "Lowering encountered an unresolved ERROR type."
-                );
+                .emit_ice(expr.span, "Lowering encountered an unresolved ERROR type.");
             // 立即打印并终止降级，防止带着污染数据进入 LLVM 导致玄学 Panic
             self.ctx.print_diagnostics();
             std::process::exit(1);
@@ -458,10 +455,16 @@ impl<'a> Lowerer<'a> {
             ExprKind::String(s) => self.lower_string_literal(s, expr.span),
             ExprKind::Identifier(name) => {
                 // [FIX 3]: 优先检查是否为函数，规避外部导入函数在当前作用域找不到的问题
-                let expr_ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
+                let expr_ty = self
+                    .ctx
+                    .node_types
+                    .get(&expr.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let norm_ty = self.ctx.type_registry.normalize(expr_ty);
 
-                if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone() {
+                if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone()
+                {
                     let mono_id = self.instantiate_function(fn_id, &fn_args);
                     MastExprKind::FuncRef(mono_id)
                 } else {
@@ -485,10 +488,16 @@ impl<'a> Lowerer<'a> {
             ExprKind::FieldAccess { lhs, field } => {
                 // [FIX 2]: 通过 AST 节点的推导类型直接判断是否是静态函数
                 // 完美解决跨模块调用时，Scope 丢失导致的误判问题
-                let expr_ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
+                let expr_ty = self
+                    .ctx
+                    .node_types
+                    .get(&expr.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let norm_ty = self.ctx.type_registry.normalize(expr_ty);
 
-                if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone() {
+                if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone()
+                {
                     let mono_id = self.instantiate_function(fn_id, &fn_args);
                     return MastExpr::new(exp_ty, MastExprKind::FuncRef(mono_id), expr.span);
                 }
@@ -815,18 +824,31 @@ impl<'a> Lowerer<'a> {
 
         // 1. 嗅探是否为方法调用
         if let ExprKind::FieldAccess { lhs, field } = &callee.kind {
-            let lhs_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
+            let lhs_ty = self
+                .ctx
+                .node_types
+                .get(&lhs.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
             let is_module = matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(_));
 
             if !is_module {
-                let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
+                let callee_ty = self
+                    .ctx
+                    .node_types
+                    .get(&callee.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let norm_callee = self.ctx.type_registry.normalize(callee_ty);
-                
-                if matches!(self.ctx.type_registry.get(norm_callee), TypeKind::FnDef(..) | TypeKind::Function {..}) {
+
+                if matches!(
+                    self.ctx.type_registry.get(norm_callee),
+                    TypeKind::FnDef(..) | TypeKind::Function { .. }
+                ) {
                     is_method = true;
                     method_field_sym = Some(*field);
-                    receiver_mast = Some(self.lower_expr(lhs, subst_map, None)); 
+                    receiver_mast = Some(self.lower_expr(lhs, subst_map, None));
                 }
             }
         }

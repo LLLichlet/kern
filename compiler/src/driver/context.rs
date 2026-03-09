@@ -1,9 +1,9 @@
 #![allow(unused)]
 use super::config::TargetMachine;
 use super::diagnostic::{Diagnostic, DiagnosticLevel};
+use crate::parser::ast::NodeId;
 use crate::sema::*;
 use crate::utils::*;
-use crate::parser::ast::NodeId;
 
 use std::collections::HashMap;
 

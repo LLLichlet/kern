@@ -266,16 +266,13 @@ impl<'a> Parser<'a> {
 
     pub fn synchronize(&mut self) {
         self.panic_mode = false;
+        if !self.check(TokenType::Eof) {
+            self.advance();
+        }
 
         while !self.check(TokenType::Eof) {
-            if self.stream.prev_span().end > 0 && self.stream.prev_span() != Span::default() {
-                 // 简单的近似：如果 TokenStream 可以访问上一个 Token 的类型最好
-                 // 但这里我们根据 current token 判断
-            }
-            
-            // 如果碰到了分号，很可能上一个语句结束了
+             // 如果碰到了分号，很可能上一个语句结束了
              if self.stream.peek_nth(0).tag == TokenType::Semicolon {
-                // 如果当前是分号，消耗它，然后结束 sync
                 self.advance();
                 return;
             }
@@ -1069,7 +1066,14 @@ impl<'a> Parser<'a> {
                 continue;
             }
 
-            let expr = self.parse_expression(Precedence::Lowest)?;
+            let expr = match self.parse_expression(Precedence::Lowest) {
+                Ok(e) => e,
+                Err(_) => {
+                    // 如果块内的表达式解析失败，就在块内部同步，跳到下一个分号
+                    self.synchronize();
+                    continue; 
+                }
+            };
             
             // 判断当前表达式是否是自带大括号的“块级表达式”
             let is_block_like = matches!(
@@ -1208,13 +1212,11 @@ impl<'a> Parser<'a> {
         match tag {
             TokenType::Static => Ok(Expr {
                 id: self.new_id(), span,
-                // ✅ 初始化直接接管全部语义
                 kind: ExprKind::Static { name: name_id, init: Box::new(init) } 
             }),
             TokenType::Let | TokenType::Const => {
                 Ok(Expr {
                     id: self.new_id(), span,
-                    // ✅ 瘦身后的 Let
                     kind: ExprKind::Let { name: name_id, init: Box::new(init) }
                 })
             },

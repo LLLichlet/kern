@@ -1,6 +1,6 @@
 #![allow(unused)]
 
-use crate::ast;
+use crate::parser::ast;
 use crate::sema::{
     scope::ScopeId,
     ty::{DefId, TypeId},

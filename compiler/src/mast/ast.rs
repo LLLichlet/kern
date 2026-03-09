@@ -1,6 +1,6 @@
-#![allow(unused)]
 use crate::sema::ty::TypeId;
 use crate::utils::{Span, SymbolId};
+use crate::parser::ast;
 
 /// 单态化 ID (Monomorphized ID)
 /// 与前端的 DefId 不同，前端一个泛型 `List[T]` 只有一个 DefId，
@@ -174,16 +174,16 @@ pub enum MastExprKind {
 
     // --- 6. 运算 ---
     Binary {
-        op: crate::ast::BinaryOperator,
+        op: ast::BinaryOperator,
         lhs: Box<MastExpr>,
         rhs: Box<MastExpr>,
     },
     Unary {
-        op: crate::ast::UnaryOperator,
+        op: ast::UnaryOperator,
         operand: Box<MastExpr>,
     },
     Assign {
-        op: crate::ast::AssignmentOperator,
+        op: ast::AssignmentOperator,
         lhs: Box<MastExpr>,
         rhs: Box<MastExpr>,
     },

@@ -1,11 +1,9 @@
-#![allow(unused)]
-
-use crate::ast::{self, Decl, DeclKind, TypeKind};
-use crate::context::Context;
+use crate::parser::ast::{self, Decl, DeclKind, TypeKind};
+use crate::driver::Context;
 use crate::sema::def::*;
 use crate::sema::scope::{SymbolInfo, SymbolKind};
 use crate::sema::ty::{DefId, TypeId};
-use crate::utils::{Span, SymbolId};
+use crate::utils::SymbolId;
 
 pub struct Collector<'a> {
     pub ctx: &'a mut Context,

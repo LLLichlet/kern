@@ -1,7 +1,7 @@
 #![allow(unused)]
 
-use crate::ast::{UsePathKind, UseTarget};
-use crate::context::Context;
+use crate::parser::ast::{UsePathKind, UseTarget};
+use crate::driver::context::Context;
 use crate::sema::def::{Def, ImportDef, Visibility};
 use crate::sema::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::sema::ty::DefId;

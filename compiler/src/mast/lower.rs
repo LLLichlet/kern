@@ -1,7 +1,7 @@
 // src/mast/lower.rs
 use super::ast::*;
-use crate::ast::{self, Expr, ExprKind};
-use crate::context::Context;
+use crate::parser::ast::{self, Expr, ExprKind};
+use crate::driver::Context;
 use crate::sema::def::Def;
 use crate::sema::ty::{PrimitiveType, TypeId, TypeKind};
 use crate::sema::typeck::subst::Substituter;
@@ -681,12 +681,12 @@ impl<'a> Lowerer<'a> {
     fn lower_binary(
         &mut self,
         lhs: &Expr,
-        op: crate::ast::BinaryOperator,
+        op: ast::BinaryOperator,
         rhs: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExprKind {
-        if op == crate::ast::BinaryOperator::LogicalAnd {
+        if op == ast::BinaryOperator::LogicalAnd {
             let l = self.lower_expr(lhs, subst_map, Some(TypeId::BOOL));
             let r = self.lower_expr(rhs, subst_map, Some(TypeId::BOOL));
             MastExprKind::If {
@@ -706,7 +706,7 @@ impl<'a> Lowerer<'a> {
                     defers: vec![],
                 }),
             }
-        } else if op == crate::ast::BinaryOperator::LogicalOr {
+        } else if op == ast::BinaryOperator::LogicalOr {
             let l = self.lower_expr(lhs, subst_map, Some(TypeId::BOOL));
             let r = self.lower_expr(rhs, subst_map, Some(TypeId::BOOL));
             MastExprKind::If {
@@ -739,14 +739,14 @@ impl<'a> Lowerer<'a> {
 
     fn lower_unary(
         &mut self,
-        op: crate::ast::UnaryOperator,
+        op: ast::UnaryOperator,
         operand: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let op_mast = self.lower_expr(operand, subst_map, None);
         match op {
-            crate::ast::UnaryOperator::AddressOf => MastExprKind::AddressOf(Box::new(op_mast)),
-            crate::ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
+            ast::UnaryOperator::AddressOf => MastExprKind::AddressOf(Box::new(op_mast)),
+            ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
             _ => MastExprKind::Unary {
                 op,
                 operand: Box::new(op_mast),
@@ -757,7 +757,7 @@ impl<'a> Lowerer<'a> {
     fn lower_assign(
         &mut self,
         lhs: &Expr,
-        op: crate::ast::AssignmentOperator,
+        op: ast::AssignmentOperator,
         rhs: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
@@ -1339,7 +1339,7 @@ impl<'a> Lowerer<'a> {
             let not_c = MastExpr::new(
                 TypeId::BOOL,
                 MastExprKind::Unary {
-                    op: crate::ast::UnaryOperator::LogicalNot,
+                    op: ast::UnaryOperator::LogicalNot,
                     operand: Box::new(c_expr),
                 },
                 c.span,

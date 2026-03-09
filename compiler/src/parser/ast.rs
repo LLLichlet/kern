@@ -1,5 +1,4 @@
-#![allow(unused)]
-use crate::token::{Token, TokenType};
+use super::token::TokenType;
 use crate::utils::{Span, SymbolId};
 
 // ==========================================

@@ -1,14 +1,12 @@
-#![allow(unused)]
-
-use crate::ast::{
-    self, AssignmentOperator, BinaryOperator, Expr, ExprKind, StmtKind, UnaryOperator,
+use crate::parser::ast::{
+    self, BinaryOperator, Expr, ExprKind, StmtKind, UnaryOperator,
 };
-use crate::context::Context;
+use crate::driver::Context;
 use crate::sema::def::Def;
 use crate::sema::resolve_types::TypeResolver;
 use crate::sema::scope::SymbolInfo;
 use crate::sema::scope::SymbolKind;
-use crate::sema::ty::{PrimitiveType, TypeId, TypeKind};
+use crate::sema::ty::{TypeId, TypeKind};
 use crate::utils::Span;
 
 pub struct ExprChecker<'a> {
@@ -53,13 +51,13 @@ impl<'a> ExprChecker<'a> {
             ExprKind::Unary { op, operand } => {
                 self.check_unary(*op, operand, expr.span, expected_ty)
             }
-            ExprKind::Assign { lhs, op, rhs } => self.check_assign(lhs, *op, rhs, expr.span),
+            ExprKind::Assign { lhs, rhs, ..  } => self.check_assign(lhs, rhs, expr.span),
 
             // === 5. 转换 ===
             ExprKind::As { lhs, target } => self.check_as_expr(lhs, target),
 
             // === 6. 内存访问 (索引, 字段, 切片) ===
-            ExprKind::IndexAccess { lhs, index } => self.check_index_access(lhs, index, expr.span),
+            ExprKind::IndexAccess { lhs, index } => self.check_index_access(lhs, index),
             ExprKind::FieldAccess { lhs, field } => self.check_field_access(lhs, *field, expr.span),
             ExprKind::SliceOp {
                 lhs,
@@ -198,7 +196,7 @@ impl<'a> ExprChecker<'a> {
         target_ty
     }
 
-    fn check_index_access(&mut self, lhs: &Expr, index: &Expr, span: Span) -> TypeId {
+    fn check_index_access(&mut self, lhs: &Expr, index: &Expr) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
         let idx_ty = self.check_expr(index, Some(TypeId::USIZE));
 
@@ -792,14 +790,12 @@ impl<'a> ExprChecker<'a> {
                 }
                 op_ty
             }
-            _ => TypeId::ERROR,
         }
     }
 
     fn check_assign(
         &mut self,
         lhs: &Expr,
-        _op: AssignmentOperator,
         rhs: &Expr,
         span: Span,
     ) -> TypeId {

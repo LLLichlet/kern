@@ -1,9 +1,8 @@
-#![allow(unused)]
-use crate::ast;
-use crate::context::Context;
-use crate::sema::def::{Def, ImplDef};
+use crate::parser::ast;
+use crate::driver::Context;
+use crate::sema::def::Def;
 use crate::sema::scope::{ScopeId, SymbolInfo, SymbolKind};
-use crate::sema::ty::{DefId, PrimitiveType, TypeId, TypeKind};
+use crate::sema::ty::{DefId, TypeId, TypeKind};
 use crate::sema::typeck::const_eval::ConstEvaluator;
 use crate::utils::SymbolId;
 

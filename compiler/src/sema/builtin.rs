@@ -1,9 +1,5 @@
-// src/sema/builtin.rs
-#![allow(unused)]
-use std::env::var;
-
-use crate::ast::{GenericParam, NodeId, TypeNode};
-use crate::context::Context;
+use crate::parser::ast::{self, GenericParam, TypeNode};
+use crate::driver::Context;
 use crate::sema::def::*;
 use crate::sema::scope::{SymbolInfo, SymbolKind};
 use crate::sema::ty::{DefId, TypeId, TypeKind};
@@ -101,12 +97,12 @@ impl<'a> BuiltinInjector<'a> {
         let target_node = TypeNode {
             id: target_id,
             span: Default::default(),
-            kind: crate::ast::TypeKind::Infer,
+            kind: ast::TypeKind::Infer,
         };
         let trait_node = TypeNode {
             id: trait_id,
             span: Default::default(),
-            kind: crate::ast::TypeKind::Infer,
+            kind: ast::TypeKind::Infer,
         };
 
         // 直接在 node_types 缓存中写入它们真实的语义类型
@@ -164,7 +160,7 @@ impl<'a> BuiltinInjector<'a> {
             ret_type: TypeNode {
                 id: ret_type_id,
                 span: Default::default(),
-                kind: crate::ast::TypeKind::Infer,
+                kind: ast::TypeKind::Infer,
             },
             body: None,
             is_extern: false,
@@ -203,12 +199,12 @@ impl<'a> BuiltinInjector<'a> {
         let c_int = TypeNode {
             id: c_int_id,
             span: Default::default(),
-            kind: crate::ast::TypeKind::Infer,
+            kind: ast::TypeKind::Infer,
         };
         let c_float = TypeNode {
             id: c_float_id,
             span: Default::default(),
-            kind: crate::ast::TypeKind::Infer,
+            kind: ast::TypeKind::Infer,
         };
         self.ctx.node_types.insert(
             c_int.id,
@@ -255,19 +251,19 @@ impl<'a> BuiltinInjector<'a> {
             parent: None,
             generics: vec![param_t, param_u],
             // 伪造一个 FuncParam 供后续解构，虽然内置函数体为空
-            params: vec![crate::ast::FuncParam {
+            params: vec![ast::FuncParam {
                 name: self.ctx.intern("val"),
                 type_node: TypeNode {
                     id: val_param_id,
                     span: Default::default(),
-                    kind: crate::ast::TypeKind::Infer,
+                    kind: ast::TypeKind::Infer,
                 },
                 span: Default::default(),
             }],
             ret_type: TypeNode {
                 id: ret_id,
                 span: Default::default(),
-                kind: crate::ast::TypeKind::Infer,
+                kind: ast::TypeKind::Infer,
             },
             body: None,
             is_extern: false,
@@ -307,12 +303,12 @@ impl<'a> BuiltinInjector<'a> {
         let c_float1 = TypeNode {
             id: id1,
             span: Default::default(),
-            kind: crate::ast::TypeKind::Infer,
+            kind: ast::TypeKind::Infer,
         };
         let c_float2 = TypeNode {
             id: id2,
             span: Default::default(),
-            kind: crate::ast::TypeKind::Infer,
+            kind: ast::TypeKind::Infer,
         };
         self.ctx.node_types.insert(
             c_float1.id,
@@ -357,19 +353,19 @@ impl<'a> BuiltinInjector<'a> {
             vis: Visibility::Public,
             parent: None,
             generics: vec![param_t, param_u],
-            params: vec![crate::ast::FuncParam {
+            params: vec![ast::FuncParam {
                 name: self.ctx.intern("val"),
                 type_node: TypeNode {
                     id: val_param_id,
                     span: Default::default(),
-                    kind: crate::ast::TypeKind::Infer,
+                    kind: ast::TypeKind::Infer,
                 },
                 span: Default::default(),
             }],
             ret_type: TypeNode {
                 id: ret_id,
                 span: Default::default(),
-                kind: crate::ast::TypeKind::Infer,
+                kind: ast::TypeKind::Infer,
             },
             body: None,
             is_extern: false,

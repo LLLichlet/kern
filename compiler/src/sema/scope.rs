@@ -1,7 +1,5 @@
-#![allow(unused)]
-
 use super::ty::{DefId, TypeId};
-use crate::ast::NodeId;
+use crate::parser::ast::NodeId;
 use crate::utils::{Span, SymbolId};
 use std::collections::HashMap;
 

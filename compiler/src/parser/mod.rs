@@ -1,10 +1,14 @@
-#![allow(unused)]
-use crate::ast::*;
-use crate::context::Context;
-use crate::diagnostic::DiagnosticLevel;
-use crate::lexer::Lexer;
-use crate::stream::TokenStream;
-use crate::token::{Token, TokenType};
+pub mod ast;
+pub mod lexer;
+pub mod stream;
+pub mod token;
+
+use ast::*;
+use crate::driver::context::Context;
+use crate::driver::diagnostic::DiagnosticLevel;
+use lexer::Lexer;
+use stream::TokenStream;
+use token::{Token, TokenType};
 use crate::utils::FileId;
 use crate::utils::{Span, SymbolId};
 
@@ -73,8 +77,6 @@ impl Precedence {
 pub struct Parser<'a> {
     stream: TokenStream<'a>,
     context: &'a mut Context,
-    file_id: FileId,
-
     // 状态标记
     panic_mode: bool,
 }
@@ -86,7 +88,6 @@ impl<'a> Parser<'a> {
         Self {
             stream,
             context,
-            file_id,
             panic_mode: false,
         }
     }
@@ -796,8 +797,8 @@ impl<'a> Parser<'a> {
             | TokenType::RShift => self.parse_binary_expr(left, token),
 
             // Field & Method Access
-            TokenType::Dot => self.parse_field_access_expr(left, token),
-            TokenType::LParen => self.parse_call_expr(left, token),
+            TokenType::Dot => self.parse_field_access_expr(left),
+            TokenType::LParen => self.parse_call_expr(left),
 
             // Pointer Deref & AddressOf
             TokenType::DotStar => Ok(Expr {
@@ -831,9 +832,9 @@ impl<'a> Parser<'a> {
             | TokenType::RShiftAssign => self.parse_assignment_expr(left, token),
 
             // Casts & Indexing/Slicing
-            TokenType::As => self.parse_as_cast_expr(left, token),
-            TokenType::DotLBracket => self.parse_slice_or_index_expr(left, token),
-            TokenType::LBracket => self.parse_generic_instantiation_expr(left, token),
+            TokenType::As => self.parse_as_cast_expr(left),
+            TokenType::DotLBracket => self.parse_slice_or_index_expr(left),
+            TokenType::LBracket => self.parse_generic_instantiation_expr(left),
 
             // Type-affixed Data Init (Type.{...})
             TokenType::DotLBrace => {
@@ -1077,7 +1078,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_field_access_expr(&mut self, left: Expr, dot_token: Token) -> ParseResult<Expr> {
+    fn parse_field_access_expr(&mut self, left: Expr) -> ParseResult<Expr> {
         let field_token = self.expect(TokenType::Identifier)?;
         let field_id = self.intern_token(field_token);
         Ok(Expr {
@@ -1090,7 +1091,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_call_expr(&mut self, left: Expr, lparen_token: Token) -> ParseResult<Expr> {
+    fn parse_call_expr(&mut self, left: Expr) -> ParseResult<Expr> {
         let mut args = Vec::new();
         if !self.check(TokenType::RParen) {
             loop {
@@ -1125,7 +1126,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_as_cast_expr(&mut self, left: Expr, as_token: Token) -> ParseResult<Expr> {
+    fn parse_as_cast_expr(&mut self, left: Expr) -> ParseResult<Expr> {
         let target = self.parse_type()?;
         Ok(Expr {
             id: self.new_id(),
@@ -1140,7 +1141,6 @@ impl<'a> Parser<'a> {
     fn parse_slice_or_index_expr(
         &mut self,
         left: Expr,
-        lbracket_token: Token,
     ) -> ParseResult<Expr> {
         let mut start = None;
         let mut end = None;
@@ -1196,7 +1196,6 @@ impl<'a> Parser<'a> {
     fn parse_generic_instantiation_expr(
         &mut self,
         left: Expr,
-        lbracket_token: Token,
     ) -> ParseResult<Expr> {
         let mut types = Vec::new();
         if !self.check(TokenType::RBracket) {
@@ -1334,7 +1333,6 @@ impl<'a> Parser<'a> {
     fn parse_block_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
         let mut stmts = Vec::new();
         let mut result = None;
-        let mut end_span = start_span;
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
             if self.check(TokenType::Defer) {
@@ -1401,7 +1399,7 @@ impl<'a> Parser<'a> {
             }
         }
         let rb = self.expect(TokenType::RBrace)?;
-        end_span = rb.span;
+        let end_span = rb.span;
         Ok(Expr {
             id: self.new_id(),
             span: start_span.to(end_span),
@@ -1551,7 +1549,7 @@ impl<'a> Parser<'a> {
         if self.match_token(&[TokenType::Colon]) {
             let err_span = self.stream.prev_span();
             // 假装解析掉类型，防止后续连锁报错
-            let parsed_type = self.parse_type();
+            let _ = self.parse_type();
 
             self.context.struct_error(err_span, "type annotations on the left side of declarations are strictly forbidden in Kern")
                 .with_hint("Kern uses explicit constructor syntax on the right side")
@@ -1948,8 +1946,7 @@ impl<'a> Parser<'a> {
         else if self.match_token(&[TokenType::DotDot]) { kind = UsePathKind::Super; }
         
         let mut path = Vec::new();
-        let mut target = UseTarget::Module(None);
-        
+        let target: UseTarget;
         loop {
             // 情况 1: 遇到纯粹的 `{` (比如 `use .{ ... }` 或者路径已经被处理完)
             if self.match_token(&[TokenType::LBrace]) { 

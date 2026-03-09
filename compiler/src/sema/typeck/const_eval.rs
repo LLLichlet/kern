@@ -1,5 +1,5 @@
-use crate::ast::{self, BinaryOperator, Expr, ExprKind, UnaryOperator};
-use crate::context::Context;
+use crate::parser::ast::{self, BinaryOperator, Expr, ExprKind, UnaryOperator};
+use crate::driver::Context;
 use crate::sema::def::Def;
 use crate::sema::scope::SymbolKind;
 use crate::sema::ty::{TypeId, TypeKind};
@@ -540,7 +540,7 @@ impl<'a> ConstEvaluator<'a> {
     /// 构建泛型替换映射表
     fn prepare_generic_subst(
         &self,
-        generics: &[crate::ast::GenericParam],
+        generics: &[ast::GenericParam],
         args: &[TypeId],
     ) -> std::collections::HashMap<crate::utils::SymbolId, TypeId> {
         let mut map = std::collections::HashMap::new();
@@ -555,7 +555,7 @@ impl<'a> ConstEvaluator<'a> {
     /// 获取字段的 AST 类型，并在需要时应用泛型替换
     fn resolve_field_type(
         &mut self,
-        type_node: &crate::ast::TypeNode,
+        type_node: &ast::TypeNode,
         map: &std::collections::HashMap<crate::utils::SymbolId, TypeId>,
     ) -> TypeId {
         let mut f_ty = self

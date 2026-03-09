@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
-use crate::ast;
-use crate::context::Context;
+use crate::parser::ast;
+use crate::driver::context::Context;
 use crate::parser::Parser;
 use crate::sema::def::{Def, ModuleDef};
 use crate::sema::ty::DefId;

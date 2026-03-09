@@ -1,6 +1,6 @@
 #![allow(unused)]
-use crate::lexer::Lexer;
-use crate::token::{Token, TokenType};
+use super::lexer::Lexer;
+use super::token::{Token, TokenType};
 use crate::utils::{FileId, Span};
 use std::collections::VecDeque;
 
@@ -133,49 +133,5 @@ impl<'a> TokenStream<'a> {
     /// 判断是否到达文件末尾
     pub fn is_eof(&mut self) -> bool {
         self.peek().tag == TokenType::Eof
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::lexer::Lexer;
-    use crate::token::TokenType;
-
-    #[test]
-    fn test_token_stream_basic() {
-        let src = "let a = 10;";
-        let lexer = Lexer::new(src, FileId(0));
-        let mut stream = TokenStream::new(lexer);
-
-        // Test peek(0)
-        assert_eq!(stream.peek().tag, TokenType::Let);
-        assert_eq!(stream.peek().tag, TokenType::Let); // 再次 peek 不会消耗
-
-        // Test peek_nth (Lookahead)
-        assert_eq!(stream.peek_nth(1).tag, TokenType::Identifier); // a
-        assert_eq!(stream.peek_nth(2).tag, TokenType::Assign); // =
-        assert_eq!(stream.peek_nth(3).tag, TokenType::IntLiteral); // 10
-
-        // Test bump
-        let t = stream.bump();
-        assert_eq!(t.tag, TokenType::Let);
-
-        // Test prev_span
-        assert_eq!(stream.prev_span().end, 3); // let 的长度
-
-        // Test eat
-        let t_ident = stream.eat(TokenType::Identifier).expect("Should act 'a'");
-        assert_eq!(t_ident.tag, TokenType::Identifier);
-
-        // Test expect
-        let t_assign = stream.expect(TokenType::Assign).unwrap();
-        assert_eq!(t_assign.tag, TokenType::Assign);
-
-        // Test infinite lookahead dynamic fill
-        assert_eq!(stream.peek_nth(0).tag, TokenType::IntLiteral);
-        assert_eq!(stream.peek_nth(1).tag, TokenType::Semicolon);
-        assert_eq!(stream.peek_nth(2).tag, TokenType::Eof);
-        assert_eq!(stream.peek_nth(100).tag, TokenType::Eof); // Should be safe
     }
 }

@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::token::{Token, TokenType};
+use super::token::{Token, TokenType};
 use crate::utils::{FileId, Span};
 use std::str;
 

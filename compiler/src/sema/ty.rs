@@ -1,5 +1,5 @@
 #![allow(unused)]
-use crate::ast::NodeId;
+use crate::parser::ast::NodeId;
 use crate::utils::SymbolId;
 use std::collections::HashMap;
 

@@ -1,8 +1,9 @@
 #![allow(unused)]
-use crate::config::TargetMachine;
-use crate::diagnostic::{Diagnostic, DiagnosticLevel};
+use super::config::TargetMachine;
+use super::diagnostic::{Diagnostic, DiagnosticLevel};
 use crate::sema::*;
 use crate::utils::*;
+use crate::parser::ast::NodeId;
 
 use std::collections::HashMap;
 
@@ -14,7 +15,7 @@ pub struct Context {
     pub type_registry: ty::TypeRegistry,
     pub defs: Vec<def::Def>,
     pub scopes: scope::SymbolTable,
-    pub node_types: HashMap<crate::ast::NodeId, ty::TypeId>,
+    pub node_types: HashMap<NodeId, ty::TypeId>,
     pub target: TargetMachine,
     pub next_node_id: u32,
 }
@@ -35,10 +36,10 @@ impl Context {
         }
     }
 
-    pub fn next_node_id(&mut self) -> crate::ast::NodeId {
+    pub fn next_node_id(&mut self) -> NodeId {
         let id = self.next_node_id;
         self.next_node_id += 1;
-        crate::ast::NodeId(id)
+        NodeId(id)
     }
 
     /// 核心方法：报告诊断信息

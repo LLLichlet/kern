@@ -1,7 +1,11 @@
-// src/driver.rs
+pub mod config;
+pub mod context;
+pub mod diagnostic;
+
+pub use context::Context;
+
 use crate::codegen::llvm::CodeGenerator;
-use crate::config::CompileOptions;
-use crate::context::Context;
+use config::CompileOptions;
 use crate::mast::lower::Lowerer;
 use crate::sema::builtin::BuiltinInjector;
 use crate::sema::collect::Collector;

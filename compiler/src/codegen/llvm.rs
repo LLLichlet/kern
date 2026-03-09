@@ -1,5 +1,3 @@
-// src/codegen/llvm.rs
-
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
@@ -12,6 +10,7 @@ use std::collections::HashMap;
 use crate::mast::ast::*;
 use crate::sema::def::Def;
 use crate::sema::ty::{PrimitiveType, TypeId, TypeKind, TypeRegistry};
+use crate::parser::ast;
 
 pub struct CodeGenerator<'ctx, 'a> {
     pub context: &'ctx LlvmContext,
@@ -711,7 +710,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     // --- 运算与赋值 ---
     fn compile_binary(
         &mut self,
-        op: crate::ast::BinaryOperator,
+        op: ast::BinaryOperator,
         lhs: &MastExpr,
         rhs: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
@@ -721,7 +720,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         if l_val.is_int_value() && r_val.is_int_value() {
             let l_int = l_val.into_int_value();
             let r_int = r_val.into_int_value();
-            use crate::ast::BinaryOperator::*;
+            use crate::parser::ast::BinaryOperator::*;
             match op {
                 Add => self
                     .builder
@@ -796,7 +795,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         } else if l_val.is_float_value() && r_val.is_float_value() {
             let l_float = l_val.into_float_value();
             let r_float = r_val.into_float_value();
-            use crate::ast::BinaryOperator::*;
+            use ast::BinaryOperator::*;
             match op {
                 Add => self
                     .builder
@@ -862,12 +861,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     fn compile_unary(
         &mut self,
-        op: crate::ast::UnaryOperator,
+        op: ast::UnaryOperator,
         operand: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
         let op_val = self.compile_expr(operand);
         match op {
-            crate::ast::UnaryOperator::Negate => {
+            ast::UnaryOperator::Negate => {
                 if op_val.is_int_value() {
                     self.builder
                         .build_int_neg(op_val.into_int_value(), "neg")
@@ -880,12 +879,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .into()
                 }
             }
-            crate::ast::UnaryOperator::LogicalNot | crate::ast::UnaryOperator::BitwiseNot => self
+            ast::UnaryOperator::LogicalNot | ast::UnaryOperator::BitwiseNot => self
                 .builder
                 .build_not(op_val.into_int_value(), "not")
                 .unwrap()
                 .into(),
-            crate::ast::UnaryOperator::LengthOf => {
+            ast::UnaryOperator::LengthOf => {
                 // MAST 保证了此时的类型已经是纯物理类型
                 let norm_ty = self.type_registry.normalize(operand.ty);
                 match self.type_registry.get(norm_ty) {
@@ -905,14 +904,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     fn compile_assign(
         &mut self,
-        op: crate::ast::AssignmentOperator,
+        op: ast::AssignmentOperator,
         lhs: &MastExpr,
         rhs: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
         let ptr = self.compile_lvalue(lhs);
         let rhs_val = self.compile_expr(rhs);
 
-        if op == crate::ast::AssignmentOperator::Assign {
+        if op == ast::AssignmentOperator::Assign {
             self.builder.build_store(ptr, rhs_val).unwrap();
         } else {
             let expected_lhs_ty = self.get_llvm_type(lhs.ty);
@@ -924,7 +923,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let new_val: inkwell::values::BasicValueEnum<'ctx> = if lhs_val.is_int_value() {
                 let l_int = lhs_val.into_int_value();
                 let r_int = rhs_val.into_int_value();
-                use crate::ast::AssignmentOperator::*;
+                use ast::AssignmentOperator::*;
                 match op {
                     AddAssign => self
                         .builder

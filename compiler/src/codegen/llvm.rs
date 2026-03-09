@@ -229,6 +229,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     fn declare_globals(&mut self, globals: &[MastGlobal]) {
         for g in globals {
+            // 防止同名 extern 全局变量冲突
+            if let Some(existing_global) = self.module.get_global(&g.name) {
+                self.globals.insert(g.id, existing_global);
+                continue;
+            }
+
             let llvm_ty = self.get_llvm_type(g.ty);
 
             let global_val = self.module.add_global(llvm_ty, None, &g.name);
@@ -267,6 +273,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     _ => unreachable!("Invalid return type"),
                 }
             };
+
+            // 防止同名 extern 函数被 LLVM 自动重命名为 `.1`
+            // 如果 LLVM 符号表中已经有了这个名字的函数，直接取出复用
+            if let Some(existing_func) = self.module.get_function(&f.name) {
+                self.functions.insert(f.id, existing_func);
+                continue;
+            }
 
             let llvm_func = self.module.add_function(&f.name, fn_type, None);
             self.functions.insert(f.id, llvm_func);

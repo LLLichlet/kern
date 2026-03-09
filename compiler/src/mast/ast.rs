@@ -25,6 +25,8 @@ pub struct MastStruct {
     pub name: String, // 扁平化后的全限定名，例如 "std_collections_ArrayList_i32"
     pub fields: Vec<MastField>,
     pub is_extern: bool, // 用于对接 C 的 struct
+    pub is_union: bool,
+    pub largest_field_idx: usize,
 }
 
 #[derive(Debug, Clone)]

@@ -204,7 +204,7 @@ impl<'a> Lowerer<'a> {
         }
 
         self.module.structs.push(MastStruct {
-            id, name: mangled_name, fields: mast_fields, is_extern: def.is_extern,
+            id, name: mangled_name, fields: mast_fields, is_extern: def.is_extern, is_union: false, largest_field_idx: 0,
         });
         id
     }
@@ -221,16 +221,29 @@ impl<'a> Lowerer<'a> {
         for arg in args { mangled_name.push_str(&format!("_{}", arg.0)); }
 
         let mut mast_fields = Vec::new();
-        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-        
-        for f in &def.fields {
+        let mut max_size = 0;
+        let mut largest_field_idx = 0;
+
+        for (idx, f) in def.fields.iter().enumerate() {
             let raw_ty = self.ctx.node_types.get(&f.type_node.id).copied().unwrap_or(TypeId::ERROR);
-            let conc_ty = subst.substitute(raw_ty);
+            let conc_ty = {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                subst.substitute(raw_ty)
+            };
             mast_fields.push(MastField { name: f.name, ty: conc_ty });
+            let mut ce = crate::sema::typeck::const_eval::ConstEvaluator::new(self.ctx);
+            let size = ce.compute_type_size(conc_ty);
+            
+            if size > max_size {
+                max_size = size;
+                largest_field_idx = idx;
+            }
         }
 
         self.module.structs.push(MastStruct {
             id, name: mangled_name, fields: mast_fields, is_extern: false, 
+            is_union: true, 
+            largest_field_idx,
         });
         id
     }

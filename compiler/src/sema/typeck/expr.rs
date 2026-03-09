@@ -1092,7 +1092,7 @@ impl<'a> ExprChecker<'a> {
                 self.check_repeat_literal(value, count, expected, exp_norm, span)
             }
             ast::DataLiteralKind::Struct(init_fields) => {
-                self.check_struct_literal(init_fields, expected, exp_norm, span)
+                self.check_struct_or_union_literal(init_fields, expected, exp_norm, span)
             }
             ast::DataLiteralKind::Scalar(inner) => {
                 self.check_scalar_literal(inner, expected)
@@ -1145,32 +1145,38 @@ impl<'a> ExprChecker<'a> {
         }
     }
 
-    /// 辅助方法 3：校验结构体初始化 `.{ x: 10, y: 20 }`
-    fn check_struct_literal(&mut self, init_fields: &[ast::StructFieldInit], expected: TypeId, exp_norm: TypeId, span: Span) -> TypeId {
-        // 1. 提取结构体定义信息与泛型实参
-        let (struct_fields, struct_name, struct_generics, generic_args) = if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
-            if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] {
-                (s.fields.clone(), self.ctx.resolve(s.name).to_string(), s.generics.clone(), args.clone())
-            } else {
-                self.ctx.struct_error(span, "expected a struct type for struct literal").emit();
-                return TypeId::ERROR;
+    /// 辅助方法 3：校验结构体或联合体初始化 `.{ x: 10, y: 20 }` 或 Union `.{ as_int: 123 }`
+    fn check_struct_or_union_literal(&mut self, init_fields: &[ast::StructFieldInit], expected: TypeId, exp_norm: TypeId, span: Span) -> TypeId {
+        // 1. 提取定义信息与泛型实参，同时识别是 Struct 还是 Union
+        let (def_fields, def_name, def_generics, generic_args, is_union) = if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
+            match &self.ctx.defs[def_id.0 as usize] {
+                Def::Struct(s) => {
+                    (s.fields.clone(), self.ctx.resolve(s.name).to_string(), s.generics.clone(), args.clone(), false)
+                }
+                Def::Union(u) => {
+                    (u.fields.clone(), self.ctx.resolve(u.name).to_string(), u.generics.clone(), args.clone(), true)
+                }
+                _ => {
+                    self.ctx.struct_error(span, "expected a struct or union type for literal initialization").emit();
+                    return TypeId::ERROR;
+                }
             }
         } else {
-            self.ctx.struct_error(span, "expected a struct type for struct literal").emit();
+            self.ctx.struct_error(span, "expected a struct or union type for literal initialization").emit();
             return TypeId::ERROR;
         };
 
         let mut initialized = std::collections::HashSet::new();
 
-        // 2. 校验用户提供的初始化字段
+        // 2. 校验用户提供的初始化字段的类型
         for init_f in init_fields {
-            if let Some(def_f) = struct_fields.iter().find(|f| f.name == init_f.name) {
+            if let Some(def_f) = def_fields.iter().find(|f| f.name == init_f.name) {
                 let mut f_ty = self.ctx.node_types.get(&def_f.type_node.id).copied().unwrap_or(TypeId::ERROR);
                 
-                // 🌟 Bugfix: 处理泛型结构体的字段类型替换 (之前丢失了这段逻辑)
-                if !struct_generics.is_empty() && !generic_args.is_empty() {
+                // 处理泛型字段类型替换 
+                if !def_generics.is_empty() && !generic_args.is_empty() {
                     let mut map = std::collections::HashMap::new();
-                    for (i, param) in struct_generics.iter().enumerate() {
+                    for (i, param) in def_generics.iter().enumerate() {
                         map.insert(param.name, generic_args[i]);
                     }
                     let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
@@ -1179,21 +1185,37 @@ impl<'a> ExprChecker<'a> {
 
                 let val_ty = self.check_expr(&init_f.value, Some(f_ty)); 
                 self.check_coercion(init_f.span, f_ty, val_ty);
-                initialized.insert(init_f.name);
+                
+                // 检查重复初始化的字段（对 struct 和 union 都有效）
+                if !initialized.insert(init_f.name) {
+                    let name_str = self.ctx.resolve(init_f.name);
+                    self.ctx.struct_error(init_f.span, format!("field `{}` is initialized more than once", name_str)).emit();
+                }
             } else {
                 let name_str = self.ctx.resolve(init_f.name);
-                self.ctx.struct_error(init_f.span, format!("field `{}` does not exist in struct `{}`", name_str, struct_name)).emit();
+                self.ctx.struct_error(init_f.span, format!("field `{}` does not exist in `{}`", name_str, def_name)).emit();
             }
         }
 
-        // 3. 校验 Kern 核心规则：无隐式零初始化。漏掉字段必须显式使用 undef 或具有默认值
-        for def_f in &struct_fields {
-            if !initialized.contains(&def_f.name) && def_f.default_value.is_none() {
-                let name_str = self.ctx.resolve(def_f.name).to_string(); 
-                self.ctx.struct_error(span, format!("field `{}` is missing and has no default value", name_str))
-                    .with_hint("Kern structs do not zero-initialize implicitly.")
-                    .with_hint(format!("use `{}: type.{{undef}}` if you intentionally want to leave memory uninitialized", name_str))
+        // 3. 校验 Kern 核心规则：针对 Struct 和 Union 分别处理
+        if is_union {
+            // Kern Union 规则：必须且只能初始化 1 个字段
+            if initialized.len() != 1 {
+                self.ctx.struct_error(span, format!("union `{}` must be initialized with exactly one field", def_name))
+                    .with_hint(format!("you provided {} fields", initialized.len()))
+                    .with_hint("unions share memory across fields, so multiple initializers are ambiguous")
                     .emit();
+            }
+        } else {
+            // Kern Struct 规则：无隐式零初始化。漏掉字段必须显式使用 undef 或具有默认值
+            for def_f in &def_fields {
+                if !initialized.contains(&def_f.name) && def_f.default_value.is_none() {
+                    let name_str = self.ctx.resolve(def_f.name).to_string(); 
+                    self.ctx.struct_error(span, format!("field `{}` is missing and has no default value", name_str))
+                        .with_hint("Kern structs do not zero-initialize implicitly.")
+                        .with_hint(format!("use `{}: type.{{undef}}` if you intentionally want to leave memory uninitialized", name_str))
+                        .emit();
+                }
             }
         }
         

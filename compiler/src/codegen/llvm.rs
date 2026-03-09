@@ -188,11 +188,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         for s in structs {
             let llvm_struct = self.structs.get(&s.id).unwrap();
-            let mut field_types = Vec::new();
-            for field in &s.fields {
-                field_types.push(self.get_llvm_type(field.ty));
+            
+            if s.is_union {
+                let target_ty = self.get_llvm_type(s.fields[s.largest_field_idx].ty);
+                llvm_struct.set_body(&[target_ty], false);
+            } else {
+                let mut field_types = Vec::new();
+                for field in &s.fields {
+                    field_types.push(self.get_llvm_type(field.ty));
+                }
+                llvm_struct.set_body(&field_types, false);
             }
-            llvm_struct.set_body(&field_types, false);
         }
     }
 
@@ -420,8 +426,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn compile_field_access(&mut self, lhs: &MastExpr, struct_id: MonoId, field_idx: usize, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
         let struct_ptr = self.compile_lvalue(lhs);
         let struct_llvm_ty = self.structs.get(&struct_id).unwrap();
-        let field_ptr = self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, field_idx as u32, "field_gep").unwrap();
-        self.builder.build_load(expected_ty, field_ptr, "field_load").unwrap()
+        
+        // 检查原类型是否是 Union (通过从 registry 里查)
+        let is_union = if let TypeKind::Def(def_id, _) = self.type_registry.get(self.type_registry.normalize(lhs.ty)) {
+            matches!(self.ctx_defs[def_id.0 as usize], Def::Union(_))
+        } else { false };
+
+        if is_union {
+            // 对于 Union，偏移量永远是 0。直接从 struct_ptr 按照 expected_ty 加载
+            self.builder.build_load(expected_ty, struct_ptr, "union_field_load").unwrap()
+        } else {
+            let field_ptr = self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, field_idx as u32, "field_gep").unwrap();
+            self.builder.build_load(expected_ty, field_ptr, "field_load").unwrap()
+        }
     }
 
     fn compile_index_access(&mut self, lhs: &MastExpr, index: &MastExpr, expected_ty: BasicTypeEnum<'ctx>, expr_ty: TypeId) -> BasicValueEnum<'ctx> {

@@ -29,7 +29,7 @@ impl Interner {
         sym
     }
 
-   pub fn resolve(&self, sym: SymbolId) -> Option<&str> {
+    pub fn resolve(&self, sym: SymbolId) -> Option<&str> {
         self.vec.get(sym.0).map(|s| s.as_str())
     }
 }

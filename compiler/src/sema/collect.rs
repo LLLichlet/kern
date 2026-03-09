@@ -22,20 +22,20 @@ impl<'a> Collector<'a> {
 
     /// 收集整个模块
     pub fn collect_module(&mut self, module: &ast::Module) -> DefId {
-        let mod_name = self.ctx.intern(&module.path); 
+        let mod_name = self.ctx.intern(&module.path);
         let mod_id = DefId(self.ctx.defs.len() as u32);
-        
+
         let parent_module = self.current_module;
-        
+
         // 开启模块的专属作用域，并获取其持久化的 ScopeId
         let scope_id = self.ctx.scopes.enter_scope();
-        
+
         // 预先注册 ModuleDef，并绑定 scope_id
         self.ctx.add_def(Def::Module(ModuleDef {
             id: mod_id,
             name: mod_name,
-            parent: parent_module, 
-            scope_id, 
+            parent: parent_module,
+            scope_id,
             items: Vec::new(),
             imports: Vec::new(),
         }));
@@ -45,7 +45,13 @@ impl<'a> Collector<'a> {
         let mut imports = Vec::new();
         // 遍历并收集模块内的所有顶层声明
         for decl in &module.decls {
-            if let DeclKind::Use { kind, path, target, is_reexport } = &decl.kind {
+            if let DeclKind::Use {
+                kind,
+                path,
+                target,
+                is_reexport,
+            } = &decl.kind
+            {
                 imports.push(ImportDef {
                     path_kind: *kind,
                     path: path.clone(),
@@ -79,29 +85,64 @@ impl<'a> Collector<'a> {
     /// 收集单个声明
     /// `parent_impl`: 如果当前声明位于 impl 块内，传入 impl 的 DefId
     /// `force_extern`: 如果当前声明位于 extern 块内，强制标记为 extern
-    fn collect_decl(&mut self, decl: &Decl, parent_impl: Option<DefId>, force_extern: bool, impl_generics: &[ast::GenericParam]) -> Option<DefId> {
+    fn collect_decl(
+        &mut self,
+        decl: &Decl,
+        parent_impl: Option<DefId>,
+        force_extern: bool,
+        impl_generics: &[ast::GenericParam],
+    ) -> Option<DefId> {
         let vis = decl.is_pub.into();
 
         match &decl.kind {
-            DeclKind::Function { generics, params, ret_type, body, is_extern, is_variadic } => {
+            DeclKind::Function {
+                generics,
+                params,
+                ret_type,
+                body,
+                is_extern,
+                is_variadic,
+            } => {
                 // 合并 impl 块的泛型和函数自身的泛型
                 let mut combined_generics = impl_generics.to_vec();
                 combined_generics.extend_from_slice(generics);
 
                 self.collect_function(
-                    decl, vis, parent_impl, force_extern || *is_extern, 
-                    &combined_generics, params, ret_type, body, *is_variadic
+                    decl,
+                    vis,
+                    parent_impl,
+                    force_extern || *is_extern,
+                    &combined_generics,
+                    params,
+                    ret_type,
+                    body,
+                    *is_variadic,
                 )
             }
-            DeclKind::Var { value, is_static, is_extern } => {
-                self.collect_global(decl, vis, force_extern || *is_extern, value, *is_static)
-            }
-            DeclKind::TypeAlias { generics, target, is_extern, bounds } => {
-                self.collect_type_alias_or_struct(decl, vis, bounds, force_extern || *is_extern, generics, target)
-            }
-            DeclKind::Impl { generics, target_type, trait_type, decls } => {
-                self.collect_impl(decl, generics, target_type, trait_type, decls)
-            }
+            DeclKind::Var {
+                value,
+                is_static,
+                is_extern,
+            } => self.collect_global(decl, vis, force_extern || *is_extern, value, *is_static),
+            DeclKind::TypeAlias {
+                generics,
+                target,
+                is_extern,
+                bounds,
+            } => self.collect_type_alias_or_struct(
+                decl,
+                vis,
+                bounds,
+                force_extern || *is_extern,
+                generics,
+                target,
+            ),
+            DeclKind::Impl {
+                generics,
+                target_type,
+                trait_type,
+                decls,
+            } => self.collect_impl(decl, generics, target_type, trait_type, decls),
             DeclKind::ExternBlock { abi: _, decls } => {
                 for ext_decl in decls {
                     // Extern 块不传递泛型
@@ -109,7 +150,7 @@ impl<'a> Collector<'a> {
                 }
                 None
             }
-            DeclKind::Use { .. } => None 
+            DeclKind::Use { .. } => None,
         }
     }
 
@@ -126,22 +167,25 @@ impl<'a> Collector<'a> {
         is_variadic: bool,
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
-        
+
         let mut actual_params = params.to_vec();
-        
+
         if parent_impl.is_some() {
             let self_sym = self.ctx.intern("self");
-            let node_id = self.ctx.next_node_id(); 
-            
-            actual_params.insert(0, ast::FuncParam {
-                name: self_sym,
-                type_node: ast::TypeNode {
-                    id: node_id,
+            let node_id = self.ctx.next_node_id();
+
+            actual_params.insert(
+                0,
+                ast::FuncParam {
+                    name: self_sym,
+                    type_node: ast::TypeNode {
+                        id: node_id,
+                        span: decl.span,
+                        kind: ast::TypeKind::SelfType,
+                    },
                     span: decl.span,
-                    kind: ast::TypeKind::SelfType,
                 },
-                span: decl.span,
-            });
+            );
         }
 
         let func_def = FunctionDef {
@@ -165,7 +209,14 @@ impl<'a> Collector<'a> {
         // 如果不是 impl 块中的方法，则将其注册到当前词法作用域
         if parent_impl.is_none() {
             let is_pub = vis == Visibility::Public;
-            self.define_symbol(decl.name, SymbolKind::Function, decl.id, Some(def_id), decl.span, is_pub);
+            self.define_symbol(
+                decl.name,
+                SymbolKind::Function,
+                decl.id,
+                Some(def_id),
+                decl.span,
+                is_pub,
+            );
         }
 
         Some(def_id)
@@ -193,9 +244,20 @@ impl<'a> Collector<'a> {
 
         self.ctx.add_def(Def::Global(global_def));
 
-        let sym_kind = if is_static { SymbolKind::Static } else { SymbolKind::Const };
+        let sym_kind = if is_static {
+            SymbolKind::Static
+        } else {
+            SymbolKind::Const
+        };
         let is_pub = vis == Visibility::Public;
-        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span, is_pub);
+        self.define_symbol(
+            decl.name,
+            sym_kind,
+            decl.id,
+            Some(def_id),
+            decl.span,
+            is_pub,
+        );
 
         Some(def_id)
     }
@@ -237,7 +299,10 @@ impl<'a> Collector<'a> {
                     span: decl.span,
                 })
             }
-            TypeKind::Enum { backing_type, variants } => {
+            TypeKind::Enum {
+                backing_type,
+                variants,
+            } => {
                 sym_kind = SymbolKind::Enum;
                 Def::Enum(EnumDef {
                     id: def_id,
@@ -256,7 +321,7 @@ impl<'a> Collector<'a> {
                     name: decl.name,
                     vis,
                     generics: generics.to_vec(),
-                    supertraits: bounds.to_vec(), 
+                    supertraits: bounds.to_vec(),
                     methods: fields.clone(),
                     resolved_methods: Vec::new(),
                     is_builtin: false,
@@ -278,7 +343,14 @@ impl<'a> Collector<'a> {
 
         self.ctx.add_def(def);
         let is_pub = vis == Visibility::Public;
-        self.define_symbol(decl.name, sym_kind, decl.id, Some(def_id), decl.span, is_pub);
+        self.define_symbol(
+            decl.name,
+            sym_kind,
+            decl.id,
+            Some(def_id),
+            decl.span,
+            is_pub,
+        );
 
         Some(def_id)
     }
@@ -301,7 +373,7 @@ impl<'a> Collector<'a> {
             generics: generics.to_vec(),
             target_type: target_type.clone(),
             trait_type: trait_type.clone(),
-            methods: Vec::new(), 
+            methods: Vec::new(),
             span: decl.span,
         }));
 
@@ -314,7 +386,10 @@ impl<'a> Collector<'a> {
                     method_ids.push(m_id);
                 }
             } else {
-                self.ctx.emit_error(method_decl.span, "Only functions are allowed inside `impl` blocks");
+                self.ctx.emit_error(
+                    method_decl.span,
+                    "Only functions are allowed inside `impl` blocks",
+                );
             }
         }
 
@@ -340,7 +415,7 @@ impl<'a> Collector<'a> {
         node_id: ast::NodeId,
         def_id: Option<DefId>,
         span: crate::utils::Span,
-        is_pub: bool
+        is_pub: bool,
     ) {
         let info = SymbolInfo {
             kind,
@@ -354,23 +429,33 @@ impl<'a> Collector<'a> {
         // 利用 DiagnosticBuilder 提供多 Span 的关联报错
         if let Err(old_info) = self.ctx.scopes.define(name, info) {
             let name_str = self.ctx.resolve(name).to_string();
-            
-            self.ctx.struct_error(span, format!("the name `{}` is defined multiple times", name_str))
-                .with_hint(format!("`{}` must be defined only once in the same scope", name_str))
-                .with_span_label(old_info.span, format!("previous definition of `{}` was here", name_str)) 
+
+            self.ctx
+                .struct_error(
+                    span,
+                    format!("the name `{}` is defined multiple times", name_str),
+                )
+                .with_hint(format!(
+                    "`{}` must be defined only once in the same scope",
+                    name_str
+                ))
+                .with_span_label(
+                    old_info.span,
+                    format!("previous definition of `{}` was here", name_str),
+                )
                 .emit();
         }
     }
-    
+
     fn inject_generic_params(&mut self, generics: &[ast::GenericParam]) {
         for param in generics {
             let generic_node_id = self.ctx.next_node_id();
-            
+
             self.define_symbol(
                 param.name,
                 SymbolKind::TypeParam,
-                generic_node_id, 
-                None, 
+                generic_node_id,
+                None,
                 param.span,
                 false,
             );

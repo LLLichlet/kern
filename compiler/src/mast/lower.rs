@@ -1,18 +1,18 @@
 // src/mast/lower.rs
-use std::collections::HashMap;
+use super::ast::*;
 use crate::ast::{self, Expr, ExprKind};
 use crate::context::Context;
 use crate::sema::def::Def;
-use crate::sema::ty::{TypeId, TypeKind, PrimitiveType};
+use crate::sema::ty::{PrimitiveType, TypeId, TypeKind};
 use crate::sema::typeck::subst::Substituter;
-use crate::utils::{SymbolId, Span};
-use super::ast::*; 
+use crate::utils::{Span, SymbolId};
+use std::collections::HashMap;
 
 /// MAST 降级引擎 (Monomorphization & Lowering)
 pub struct Lowerer<'a> {
     pub ctx: &'a mut Context,
     pub module: MastModule,
-    
+
     /// 单态化缓存：记录 `(DefId, [TypeId, ...])` 对应的 MonoId，防止重复克隆
     mono_cache: HashMap<(crate::sema::ty::DefId, Vec<TypeId>), MonoId>,
     next_mono_id: u32,
@@ -41,7 +41,7 @@ impl<'a> Lowerer<'a> {
                 functions: Vec::new(),
             },
             mono_cache: HashMap::new(),
-            next_mono_id: 1, 
+            next_mono_id: 1,
             defer_stack: Vec::new(),
             global_map: HashMap::new(),
             vtable_cache: HashMap::new(),
@@ -84,7 +84,7 @@ impl<'a> Lowerer<'a> {
                             }
                         }
                     }
-                    
+
                     if !is_generic {
                         self.instantiate_function(id, &[]);
                     }
@@ -93,7 +93,7 @@ impl<'a> Lowerer<'a> {
                 _ => {}
             }
         }
-        
+
         self.module.clone()
     }
 
@@ -110,19 +110,23 @@ impl<'a> Lowerer<'a> {
         let id = self.new_mono_id();
         self.mono_cache.insert(key, id);
 
-        let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] { f.clone() } else { unreachable!() };
-        
+        let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
+            f.clone()
+        } else {
+            unreachable!()
+        };
+
         // 合并父级作用域 (Impl 块) 的泛型参数
         // 泛型参数环境 = [Impl 泛型] + [函数自身泛型]
         let mut all_generic_params = Vec::new();
-        
+
         // 1. 如果这个函数属于某个 Impl 块，先把它身上的 T, U 拿过来
         if let Some(parent_id) = def.parent {
             if let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize] {
                 all_generic_params.extend(impl_def.generics.clone());
             }
         }
-        
+
         // 2. 追加函数自身的泛型参数
         all_generic_params.extend(def.generics.clone());
 
@@ -140,18 +144,30 @@ impl<'a> Lowerer<'a> {
         }
 
         let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
-            if let TypeKind::Function { ret, .. } = self.ctx.type_registry.get(sig) { *ret } else { TypeId::VOID }
+            if let TypeKind::Function { ret, .. } = self.ctx.type_registry.get(sig) {
+                *ret
+            } else {
+                TypeId::VOID
+            }
         });
 
         let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-        
+
         let mut mast_params = Vec::new();
         for p in &def.params {
-            let raw_ty = self.ctx.node_types.get(&p.type_node.id).copied().unwrap_or(TypeId::ERROR);
+            let raw_ty = self
+                .ctx
+                .node_types
+                .get(&p.type_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let conc_ty = subst.substitute(raw_ty);
-            mast_params.push(MastParam { name: p.name, ty: conc_ty });
+            mast_params.push(MastParam {
+                name: p.name,
+                ty: conc_ty,
+            });
         }
-        
+
         let conc_ret = subst.substitute(raw_ret);
 
         self.local_types.push(std::collections::HashMap::new());
@@ -161,13 +177,20 @@ impl<'a> Lowerer<'a> {
 
         let body = if let Some(body_expr) = &def.body {
             Some(self.lower_block_as_body(body_expr, &subst_map, conc_ret))
-        } else { None };
+        } else {
+            None
+        };
 
         self.local_types.pop();
-        
+
         let mast_fn = MastFunction {
-            id, name: mangled_name, params: mast_params, ret_ty: conc_ret,
-            body, is_extern: def.is_extern, is_variadic: def.is_variadic,
+            id,
+            name: mangled_name,
+            params: mast_params,
+            ret_ty: conc_ret,
+            body,
+            is_extern: def.is_extern,
+            is_variadic: def.is_variadic,
         };
 
         self.module.functions.push(mast_fn);
@@ -176,64 +199,103 @@ impl<'a> Lowerer<'a> {
 
     fn instantiate_struct(&mut self, def_id: crate::sema::ty::DefId, args: &[TypeId]) -> MonoId {
         let key = (def_id, args.to_vec());
-        if let Some(&id) = self.mono_cache.get(&key) { return id; }
+        if let Some(&id) = self.mono_cache.get(&key) {
+            return id;
+        }
 
         let id = self.new_mono_id();
         self.mono_cache.insert(key, id);
 
-        let def = if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] { s.clone() } 
-                  else if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
-                      return self.instantiate_union(def_id, args, id);
-                  } else { unreachable!() };
-        
+        let def = if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] {
+            s.clone()
+        } else if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
+            return self.instantiate_union(def_id, args, id);
+        } else {
+            unreachable!()
+        };
+
         let mut subst_map = HashMap::new();
         for (i, param) in def.generics.iter().enumerate() {
             subst_map.insert(param.name, args[i]);
         }
 
         let mut mangled_name = self.ctx.resolve(def.name).to_string();
-        for arg in args { mangled_name.push_str(&format!("_{}", arg.0)); }
+        for arg in args {
+            mangled_name.push_str(&format!("_{}", arg.0));
+        }
 
         let mut mast_fields = Vec::new();
         let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-        
+
         for f in &def.fields {
-            let raw_ty = self.ctx.node_types.get(&f.type_node.id).copied().unwrap_or(TypeId::ERROR);
+            let raw_ty = self
+                .ctx
+                .node_types
+                .get(&f.type_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let conc_ty = subst.substitute(raw_ty);
-            mast_fields.push(MastField { name: f.name, ty: conc_ty });
+            mast_fields.push(MastField {
+                name: f.name,
+                ty: conc_ty,
+            });
         }
 
         self.module.structs.push(MastStruct {
-            id, name: mangled_name, fields: mast_fields, is_extern: def.is_extern, is_union: false, largest_field_idx: 0,
+            id,
+            name: mangled_name,
+            fields: mast_fields,
+            is_extern: def.is_extern,
+            is_union: false,
+            largest_field_idx: 0,
         });
         id
     }
 
-    fn instantiate_union(&mut self, def_id: crate::sema::ty::DefId, args: &[TypeId], id: MonoId) -> MonoId {
-        let def = if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] { u.clone() } else { unreachable!() };
-        
+    fn instantiate_union(
+        &mut self,
+        def_id: crate::sema::ty::DefId,
+        args: &[TypeId],
+        id: MonoId,
+    ) -> MonoId {
+        let def = if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
+            u.clone()
+        } else {
+            unreachable!()
+        };
+
         let mut subst_map = HashMap::new();
         for (i, param) in def.generics.iter().enumerate() {
             subst_map.insert(param.name, args[i]);
         }
 
         let mut mangled_name = self.ctx.resolve(def.name).to_string();
-        for arg in args { mangled_name.push_str(&format!("_{}", arg.0)); }
+        for arg in args {
+            mangled_name.push_str(&format!("_{}", arg.0));
+        }
 
         let mut mast_fields = Vec::new();
         let mut max_size = 0;
         let mut largest_field_idx = 0;
 
         for (idx, f) in def.fields.iter().enumerate() {
-            let raw_ty = self.ctx.node_types.get(&f.type_node.id).copied().unwrap_or(TypeId::ERROR);
+            let raw_ty = self
+                .ctx
+                .node_types
+                .get(&f.type_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let conc_ty = {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
                 subst.substitute(raw_ty)
             };
-            mast_fields.push(MastField { name: f.name, ty: conc_ty });
+            mast_fields.push(MastField {
+                name: f.name,
+                ty: conc_ty,
+            });
             let mut ce = crate::sema::typeck::const_eval::ConstEvaluator::new(self.ctx);
             let size = ce.compute_type_size(conc_ty);
-            
+
             if size > max_size {
                 max_size = size;
                 largest_field_idx = idx;
@@ -241,28 +303,48 @@ impl<'a> Lowerer<'a> {
         }
 
         self.module.structs.push(MastStruct {
-            id, name: mangled_name, fields: mast_fields, is_extern: false, 
-            is_union: true, 
+            id,
+            name: mangled_name,
+            fields: mast_fields,
+            is_extern: false,
+            is_union: true,
             largest_field_idx,
         });
         id
     }
 
     fn lower_global(&mut self, g: &crate::sema::def::GlobalDef) {
-        let id = *self.global_map.get(&g.id).expect("Global MonoId should be pre-allocated");
-        let ty = self.ctx.node_types.get(&g.value.id).copied().unwrap_or(TypeId::ERROR);
-        
+        let id = *self
+            .global_map
+            .get(&g.id)
+            .expect("Global MonoId should be pre-allocated");
+        let ty = self
+            .ctx
+            .node_types
+            .get(&g.value.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+
         let is_mut = matches!(
-            self.ctx.type_registry.get(self.ctx.type_registry.normalize(ty)), 
+            self.ctx
+                .type_registry
+                .get(self.ctx.type_registry.normalize(ty)),
             TypeKind::Mut(_)
         );
 
         let init = if !g.is_extern {
             Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty)))
-        } else { None };
+        } else {
+            None
+        };
 
         self.module.globals.push(MastGlobal {
-            id, name: self.ctx.resolve(g.name).to_string(), ty, is_mut, init, is_extern: g.is_extern,
+            id,
+            name: self.ctx.resolve(g.name).to_string(),
+            ty,
+            is_mut,
+            init,
+            is_extern: g.is_extern,
         });
     }
 
@@ -270,14 +352,23 @@ impl<'a> Lowerer<'a> {
     //          Block & Defer Unrolling
     // ==========================================
 
-    fn lower_block_as_body(&mut self, block_expr: &Expr, subst_map: &HashMap<SymbolId, TypeId>, expected_ty: TypeId) -> MastBlock {
+    fn lower_block_as_body(
+        &mut self,
+        block_expr: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        expected_ty: TypeId,
+    ) -> MastBlock {
         self.defer_stack.push(Vec::new());
         self.local_types.push(HashMap::new());
 
         let mut stmts = Vec::new();
         let mut result = None;
 
-        if let ExprKind::Block { stmts: ast_stmts, result: ast_res } = &block_expr.kind {
+        if let ExprKind::Block {
+            stmts: ast_stmts,
+            result: ast_res,
+        } = &block_expr.kind
+        {
             for stmt in ast_stmts {
                 match &stmt.kind {
                     ast::StmtKind::ExprStmt(e) | ast::StmtKind::ExprValue(e) => {
@@ -288,9 +379,13 @@ impl<'a> Lowerer<'a> {
                             if let ExprKind::Let { name, init } = &e.kind {
                                 let init_mast = self.lower_expr(init, subst_map, None);
                                 let var_ty = init_mast.ty; // 绝对信任右侧推导出的类型
-                                
+
                                 self.local_types.last_mut().unwrap().insert(*name, var_ty);
-                                stmts.push(MastStmt::Let { name: *name, ty: var_ty, init: init_mast });
+                                stmts.push(MastStmt::Let {
+                                    name: *name,
+                                    ty: var_ty,
+                                    init: init_mast,
+                                });
                             } else {
                                 let lowered = self.lower_expr(e, subst_map, None);
                                 if !matches!(e.kind, ExprKind::Static { .. }) {
@@ -305,7 +400,11 @@ impl<'a> Lowerer<'a> {
                 result = Some(Box::new(self.lower_expr(res, subst_map, Some(expected_ty))));
             }
         } else {
-            result = Some(Box::new(self.lower_expr(block_expr, subst_map, Some(expected_ty))));
+            result = Some(Box::new(self.lower_expr(
+                block_expr,
+                subst_map,
+                Some(expected_ty),
+            )));
         }
 
         let popped_defers = self.defer_stack.pop().unwrap();
@@ -313,22 +412,31 @@ impl<'a> Lowerer<'a> {
         for d in popped_defers.into_iter().rev() {
             defers.push(d); // 保持 LIFO 顺序存入单独的数组
         }
-        
+
         self.local_types.pop();
-        MastBlock { stmts, result, defers } // 将 defers 独立传递给后端
+        MastBlock {
+            stmts,
+            result,
+            defers,
+        } // 将 defers 独立传递给后端
     }
 
     // ==========================================
     //          Expression Lowering Dispatcher
     // ==========================================
 
-    fn lower_expr(&mut self, expr: &Expr, subst_map: &HashMap<SymbolId, TypeId>, expected_ty: Option<TypeId>) -> MastExpr {
+    fn lower_expr(
+        &mut self,
+        expr: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        expected_ty: Option<TypeId>,
+    ) -> MastExpr {
         let raw_ty = self.resolve_expr_type(expr);
-        
+
         let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
         let concrete_ty = subst.substitute(raw_ty);
         let mut exp_ty = expected_ty.unwrap_or(concrete_ty);
-        
+
         if exp_ty == TypeId::ERROR {
             println!("--------------------------------------------------");
             println!("🔥 [LOWER TRAP] Lowering an expression with ERROR type!");
@@ -346,37 +454,77 @@ impl<'a> Lowerer<'a> {
             ExprKind::Bool(val) => MastExprKind::Bool(*val),
             ExprKind::String(s) => self.lower_string_literal(s, expr.span),
             ExprKind::Identifier(name) => self.lower_identifier(*name),
-            
-            ExprKind::Let { init, .. } => return self.lower_expr(init, subst_map, Some(concrete_ty)),
-            ExprKind::Static { name, init } => self.lower_static_decl(*name, init, subst_map, concrete_ty),
-            
-            ExprKind::Binary { lhs, op, rhs } => self.lower_binary(lhs, *op, rhs, subst_map, expr.span),
+
+            ExprKind::Let { init, .. } => {
+                return self.lower_expr(init, subst_map, Some(concrete_ty));
+            }
+            ExprKind::Static { name, init } => {
+                self.lower_static_decl(*name, init, subst_map, concrete_ty)
+            }
+
+            ExprKind::Binary { lhs, op, rhs } => {
+                self.lower_binary(lhs, *op, rhs, subst_map, expr.span)
+            }
             ExprKind::Unary { op, operand } => self.lower_unary(*op, operand, subst_map),
-            
+
             ExprKind::Call { callee, args } => self.lower_call(callee, args, subst_map, expr.span),
-            ExprKind::FieldAccess { lhs, field } => self.lower_field_access(lhs, *field, subst_map, expr.span),
+            ExprKind::FieldAccess { lhs, field } => {
+                self.lower_field_access(lhs, *field, subst_map, expr.span)
+            }
             ExprKind::IndexAccess { lhs, index } => self.lower_index_access(lhs, index, subst_map),
-            
-            ExprKind::DataInit { literal, .. } => self.lower_data_init(literal, subst_map, concrete_ty),
-            ExprKind::EnumLiteral(variant_name) => self.lower_enum_literal(*variant_name, concrete_ty),
-            
-            ExprKind::As { lhs, target } => return self.lower_as_expr(lhs, target, concrete_ty, subst_map, expr.span),
-            
-            ExprKind::If { cond, then_branch, else_branch } => self.lower_if(cond, then_branch, else_branch.as_deref(), subst_map, exp_ty),
-            ExprKind::For { init, cond, post, body } => self.lower_for(init.as_deref(), cond.as_deref(), post.as_deref(), body, subst_map, expr.span),
-            ExprKind::Switch { target, cases, default_case } => self.lower_switch(target, cases, default_case.as_deref(), subst_map, exp_ty),
-            ExprKind::Block { .. } => MastExprKind::Block(self.lower_block_as_body(expr, subst_map, exp_ty)),
-            
-            ExprKind::Return(val) => self.lower_return(val.as_deref(), subst_map, expected_ty, expr.span),
+
+            ExprKind::DataInit { literal, .. } => {
+                self.lower_data_init(literal, subst_map, concrete_ty)
+            }
+            ExprKind::EnumLiteral(variant_name) => {
+                self.lower_enum_literal(*variant_name, concrete_ty)
+            }
+
+            ExprKind::As { lhs, target } => {
+                return self.lower_as_expr(lhs, target, concrete_ty, subst_map, expr.span);
+            }
+
+            ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.lower_if(cond, then_branch, else_branch.as_deref(), subst_map, exp_ty),
+            ExprKind::For {
+                init,
+                cond,
+                post,
+                body,
+            } => self.lower_for(
+                init.as_deref(),
+                cond.as_deref(),
+                post.as_deref(),
+                body,
+                subst_map,
+                expr.span,
+            ),
+            ExprKind::Switch {
+                target,
+                cases,
+                default_case,
+            } => self.lower_switch(target, cases, default_case.as_deref(), subst_map, exp_ty),
+            ExprKind::Block { .. } => {
+                MastExprKind::Block(self.lower_block_as_body(expr, subst_map, exp_ty))
+            }
+
+            ExprKind::Return(val) => {
+                self.lower_return(val.as_deref(), subst_map, expected_ty, expr.span)
+            }
             ExprKind::Assign { lhs, op, rhs } => self.lower_assign(lhs, *op, rhs, subst_map),
             ExprKind::GenericInstantiation { .. } => self.lower_generic_instantiation(concrete_ty),
-            
+
             ExprKind::SelfValue => MastExprKind::Var(self.ctx.intern("self")),
             ExprKind::Break => MastExprKind::Break,
             ExprKind::Continue => MastExprKind::Continue,
             ExprKind::Undef => MastExprKind::Undef,
 
-            ExprKind::SliceOp { .. } => unreachable!("SliceOp should be handled or forbidden before lowering"),
+            ExprKind::SliceOp { .. } => {
+                unreachable!("SliceOp should be handled or forbidden before lowering")
+            }
             _ => unreachable!("Unhandled ExprKind in lowering: {:?}", expr.kind),
         };
 
@@ -388,7 +536,12 @@ impl<'a> Lowerer<'a> {
     // ==========================================
 
     fn resolve_expr_type(&self, expr: &Expr) -> TypeId {
-        let raw_ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
+        let raw_ty = self
+            .ctx
+            .node_types
+            .get(&expr.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         if raw_ty == TypeId::ERROR {
             if let ExprKind::Identifier(name) = &expr.kind {
                 for scope in self.local_types.iter().rev() {
@@ -415,25 +568,39 @@ impl<'a> Lowerer<'a> {
     fn lower_string_literal(&mut self, s: &str, span: Span) -> MastExprKind {
         let global_id = self.new_mono_id();
         let len = s.len() as u64;
-        let array_ty = self.ctx.type_registry.intern(TypeKind::Array { elem: TypeId::U8, len });
-        
+        let array_ty = self.ctx.type_registry.intern(TypeKind::Array {
+            elem: TypeId::U8,
+            len,
+        });
+
         self.module.globals.push(MastGlobal {
             id: global_id,
             name: format!(".str.{}", global_id.0),
             ty: array_ty,
             is_mut: false,
-            init: Some(MastExpr::new(array_ty, MastExprKind::StringLiteral(s.to_string()), span)),
+            init: Some(MastExpr::new(
+                array_ty,
+                MastExprKind::StringLiteral(s.to_string()),
+                span,
+            )),
             is_extern: false,
         });
 
         let data_ptr = MastExpr::new(
             self.ctx.type_registry.intern(TypeKind::Pointer(array_ty)),
-            MastExprKind::AddressOf(Box::new(MastExpr::new(array_ty, MastExprKind::GlobalRef(global_id), span))),
-            span
+            MastExprKind::AddressOf(Box::new(MastExpr::new(
+                array_ty,
+                MastExprKind::GlobalRef(global_id),
+                span,
+            ))),
+            span,
         );
         let meta = MastExpr::new(TypeId::USIZE, MastExprKind::Integer(len as u128), span);
 
-        MastExprKind::ConstructFatPointer { data_ptr: Box::new(data_ptr), meta: Box::new(meta) }
+        MastExprKind::ConstructFatPointer {
+            data_ptr: Box::new(data_ptr),
+            meta: Box::new(meta),
+        }
     }
 
     fn lower_identifier(&mut self, name: SymbolId) -> MastExprKind {
@@ -443,7 +610,9 @@ impl<'a> Lowerer<'a> {
                     let def_id = info.def_id.unwrap();
                     if let Some(&mono_id) = self.global_map.get(&def_id) {
                         MastExprKind::GlobalRef(mono_id)
-                    } else { unreachable!() }
+                    } else {
+                        unreachable!()
+                    }
                 }
                 crate::sema::scope::SymbolKind::Function => {
                     let fn_def_id = info.def_id.unwrap();
@@ -457,101 +626,204 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    fn lower_static_decl(&mut self, name: SymbolId, init: &Expr, subst_map: &HashMap<SymbolId, TypeId>, concrete_ty: TypeId) -> MastExprKind {
+    fn lower_static_decl(
+        &mut self,
+        name: SymbolId,
+        init: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        concrete_ty: TypeId,
+    ) -> MastExprKind {
         let global_id = self.new_mono_id();
         let lower_init = self.lower_expr(init, subst_map, Some(concrete_ty));
         let is_mut = matches!(
-            self.ctx.type_registry.get(self.ctx.type_registry.normalize(concrete_ty)), 
+            self.ctx
+                .type_registry
+                .get(self.ctx.type_registry.normalize(concrete_ty)),
             TypeKind::Mut(_)
         );
 
         self.module.globals.push(MastGlobal {
             id: global_id,
             name: format!("local_static_{}_{}", self.ctx.resolve(name), global_id.0),
-            ty: concrete_ty, is_mut, init: Some(lower_init), is_extern: false,
+            ty: concrete_ty,
+            is_mut,
+            init: Some(lower_init),
+            is_extern: false,
         });
         MastExprKind::GlobalRef(global_id)
     }
 
-    fn lower_binary(&mut self, lhs: &Expr, op: crate::ast::BinaryOperator, rhs: &Expr, subst_map: &HashMap<SymbolId, TypeId>, span: Span) -> MastExprKind {
+    fn lower_binary(
+        &mut self,
+        lhs: &Expr,
+        op: crate::ast::BinaryOperator,
+        rhs: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        span: Span,
+    ) -> MastExprKind {
         if op == crate::ast::BinaryOperator::LogicalAnd {
             let l = self.lower_expr(lhs, subst_map, Some(TypeId::BOOL));
             let r = self.lower_expr(rhs, subst_map, Some(TypeId::BOOL));
             MastExprKind::If {
                 cond: Box::new(l),
-                then_branch: MastBlock { stmts: vec![], result: Some(Box::new(r)), defers: vec![] },
-                else_branch: Some(MastBlock { stmts: vec![], result: Some(Box::new(MastExpr::new(TypeId::BOOL, MastExprKind::Bool(false), span))), defers: vec![] }),
+                then_branch: MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(r)),
+                    defers: vec![],
+                },
+                else_branch: Some(MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(MastExpr::new(
+                        TypeId::BOOL,
+                        MastExprKind::Bool(false),
+                        span,
+                    ))),
+                    defers: vec![],
+                }),
             }
         } else if op == crate::ast::BinaryOperator::LogicalOr {
             let l = self.lower_expr(lhs, subst_map, Some(TypeId::BOOL));
             let r = self.lower_expr(rhs, subst_map, Some(TypeId::BOOL));
             MastExprKind::If {
                 cond: Box::new(l),
-                then_branch: MastBlock { stmts: vec![], result: Some(Box::new(MastExpr::new(TypeId::BOOL, MastExprKind::Bool(true), span))), defers: vec![] },
-                else_branch: Some(MastBlock { stmts: vec![], result: Some(Box::new(r)), defers: vec![] }),
+                then_branch: MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(MastExpr::new(
+                        TypeId::BOOL,
+                        MastExprKind::Bool(true),
+                        span,
+                    ))),
+                    defers: vec![],
+                },
+                else_branch: Some(MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(r)),
+                    defers: vec![],
+                }),
             }
         } else {
             let l = self.lower_expr(lhs, subst_map, None);
             let r = self.lower_expr(rhs, subst_map, Some(l.ty));
-            MastExprKind::Binary { op, lhs: Box::new(l), rhs: Box::new(r) }
+            MastExprKind::Binary {
+                op,
+                lhs: Box::new(l),
+                rhs: Box::new(r),
+            }
         }
     }
 
-    fn lower_unary(&mut self, op: crate::ast::UnaryOperator, operand: &Expr, subst_map: &HashMap<SymbolId, TypeId>) -> MastExprKind {
+    fn lower_unary(
+        &mut self,
+        op: crate::ast::UnaryOperator,
+        operand: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> MastExprKind {
         let op_mast = self.lower_expr(operand, subst_map, None);
         match op {
             crate::ast::UnaryOperator::AddressOf => MastExprKind::AddressOf(Box::new(op_mast)),
             crate::ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
-            _ => MastExprKind::Unary { op, operand: Box::new(op_mast) }
+            _ => MastExprKind::Unary {
+                op,
+                operand: Box::new(op_mast),
+            },
         }
     }
 
-    fn lower_assign(&mut self, lhs: &Expr, op: crate::ast::AssignmentOperator, rhs: &Expr, subst_map: &HashMap<SymbolId, TypeId>) -> MastExprKind {
+    fn lower_assign(
+        &mut self,
+        lhs: &Expr,
+        op: crate::ast::AssignmentOperator,
+        rhs: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> MastExprKind {
         let l = self.lower_expr(lhs, subst_map, None);
         let r = self.lower_expr(rhs, subst_map, Some(l.ty));
-        MastExprKind::Assign { op, lhs: Box::new(l), rhs: Box::new(r) }
+        MastExprKind::Assign {
+            op,
+            lhs: Box::new(l),
+            rhs: Box::new(r),
+        }
     }
 
-    fn lower_index_access(&mut self, lhs: &Expr, index: &Expr, subst_map: &HashMap<SymbolId, TypeId>) -> MastExprKind {
+    fn lower_index_access(
+        &mut self,
+        lhs: &Expr,
+        index: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> MastExprKind {
         let l = self.lower_expr(lhs, subst_map, None);
         let idx = self.lower_expr(index, subst_map, Some(TypeId::USIZE));
-        MastExprKind::IndexAccess { lhs: Box::new(l), index: Box::new(idx) }
+        MastExprKind::IndexAccess {
+            lhs: Box::new(l),
+            index: Box::new(idx),
+        }
     }
 
-    fn lower_if(&mut self, cond: &Expr, then_branch: &Expr, else_branch: Option<&Expr>, subst_map: &HashMap<SymbolId, TypeId>, exp_ty: TypeId) -> MastExprKind {
+    fn lower_if(
+        &mut self,
+        cond: &Expr,
+        then_branch: &Expr,
+        else_branch: Option<&Expr>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        exp_ty: TypeId,
+    ) -> MastExprKind {
         let c = self.lower_expr(cond, subst_map, Some(TypeId::BOOL));
         let t = self.lower_block_as_body(then_branch, subst_map, exp_ty);
         let e = else_branch.map(|eb| self.lower_block_as_body(eb, subst_map, exp_ty));
-        MastExprKind::If { cond: Box::new(c), then_branch: t, else_branch: e }
+        MastExprKind::If {
+            cond: Box::new(c),
+            then_branch: t,
+            else_branch: e,
+        }
     }
 
-    fn lower_call(&mut self, callee: &Expr, args: &[Expr], subst_map: &HashMap<SymbolId, TypeId>, span: Span) -> MastExprKind {
+    fn lower_call(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+        subst_map: &HashMap<SymbolId, TypeId>,
+        span: Span,
+    ) -> MastExprKind {
         let mut receiver_mast = None;
         let mut is_method = false;
         let mut method_field_sym = None;
-        
+
         // 1. 嗅探是否为方法调用，并提前独占式提取 Receiver
         if let ExprKind::FieldAccess { lhs, field } = &callee.kind {
-            let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
+            let callee_ty = self
+                .ctx
+                .node_types
+                .get(&callee.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let norm_callee = self.ctx.type_registry.normalize(callee_ty);
-            
-            if matches!(self.ctx.type_registry.get(norm_callee), TypeKind::FnDef(..) | TypeKind::Function {..}) {
+
+            if matches!(
+                self.ctx.type_registry.get(norm_callee),
+                TypeKind::FnDef(..) | TypeKind::Function { .. }
+            ) {
                 is_method = true;
                 method_field_sym = Some(*field);
-                receiver_mast = Some(self.lower_expr(lhs, subst_map, None)); 
+                receiver_mast = Some(self.lower_expr(lhs, subst_map, None));
             }
         }
 
         // 2. 提取预期的参数签名 (处理泛型替换)
-        let norm_callee = self.ctx.type_registry.normalize(self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR));
+        let norm_callee = self.ctx.type_registry.normalize(
+            self.ctx
+                .node_types
+                .get(&callee.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR),
+        );
         let expected_param_tys = self.get_callee_expected_params(norm_callee);
 
         // 3. 准备实参 (处理方法调用的参数偏移)
         let mut arg_masts = Vec::new();
-        for (i, a) in args.iter().enumerate() { 
+        for (i, a) in args.iter().enumerate() {
             let param_idx = if is_method { i + 1 } else { i };
             let exp_ty = expected_param_tys.get(param_idx).copied();
-            arg_masts.push(self.lower_expr(a, subst_map, exp_ty)); 
+            arg_masts.push(self.lower_expr(a, subst_map, exp_ty));
         }
 
         // 4. 执行调用的具体分发
@@ -564,12 +836,21 @@ impl<'a> Lowerer<'a> {
         }
     }
 
-    fn lower_method_call(&mut self, recv: MastExpr, field: SymbolId, mut arg_masts: Vec<MastExpr>, norm_callee: TypeId, span: Span) -> MastExprKind {
+    fn lower_method_call(
+        &mut self,
+        recv: MastExpr,
+        field: SymbolId,
+        mut arg_masts: Vec<MastExpr>,
+        norm_callee: TypeId,
+        span: Span,
+    ) -> MastExprKind {
         let mut base_ty = recv.ty;
         loop {
             let norm = self.ctx.type_registry.normalize(base_ty);
             match self.ctx.type_registry.get(norm) {
-                TypeKind::Mut(inner) | TypeKind::Pointer(inner) | TypeKind::VolatilePtr(inner) => base_ty = *inner,
+                TypeKind::Mut(inner) | TypeKind::Pointer(inner) | TypeKind::VolatilePtr(inner) => {
+                    base_ty = *inner
+                }
                 _ => break,
             }
         }
@@ -577,62 +858,121 @@ impl<'a> Lowerer<'a> {
 
         // 分支 A：动态分发 (Trait Object 虚表查表)
         if let TypeKind::TraitObject(trait_id, _) = self.ctx.type_registry.get(norm_base) {
-            let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_id.0 as usize] { t } else { unreachable!() };
-            let vtable_idx = trait_def.methods.iter().position(|m| m.name == field).expect("Method not found in trait");
-            let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer(TypeId::VOID));
+            let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_id.0 as usize] {
+                t
+            } else {
+                unreachable!()
+            };
+            let vtable_idx = trait_def
+                .methods
+                .iter()
+                .position(|m| m.name == field)
+                .expect("Method not found in trait");
+            let void_ptr_ty = self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Pointer(TypeId::VOID));
 
-            let data_ptr = MastExpr::new(void_ptr_ty, MastExprKind::ExtractFatPtrData(Box::new(recv.clone())), span);
+            let data_ptr = MastExpr::new(
+                void_ptr_ty,
+                MastExprKind::ExtractFatPtrData(Box::new(recv.clone())),
+                span,
+            );
             arg_masts.insert(0, data_ptr);
 
-            let vtable_meta = MastExpr::new(TypeId::USIZE, MastExprKind::ExtractFatPtrMeta(Box::new(recv)), span);
-            let vtable_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer(void_ptr_ty));
-            
+            let vtable_meta = MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::ExtractFatPtrMeta(Box::new(recv)),
+                span,
+            );
+            let vtable_ptr_ty = self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Pointer(void_ptr_ty));
+
             let vtable_ptr = MastExpr::new(
-                vtable_ptr_ty, 
-                MastExprKind::Cast { kind: MastCastKind::IntToPtr, operand: Box::new(vtable_meta) }, 
-                span
+                vtable_ptr_ty,
+                MastExprKind::Cast {
+                    kind: MastCastKind::IntToPtr,
+                    operand: Box::new(vtable_meta),
+                },
+                span,
             );
 
             let func_ptr = MastExpr::new(
                 void_ptr_ty,
                 MastExprKind::IndexAccess {
                     lhs: Box::new(vtable_ptr),
-                    index: Box::new(MastExpr::new(TypeId::USIZE, MastExprKind::Integer(vtable_idx as u128), span))
+                    index: Box::new(MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Integer(vtable_idx as u128),
+                        span,
+                    )),
                 },
-                span
+                span,
             );
 
-            let (ret_ty, is_variadic, mut patched_params) = if let TypeKind::Function { ret, is_variadic, params } = self.ctx.type_registry.get(norm_callee) {
+            let (ret_ty, is_variadic, mut patched_params) = if let TypeKind::Function {
+                ret,
+                is_variadic,
+                params,
+            } =
+                self.ctx.type_registry.get(norm_callee)
+            {
                 (*ret, *is_variadic, params.clone())
-            } else { unreachable!() };
+            } else {
+                unreachable!()
+            };
 
-            if !patched_params.is_empty() { patched_params[0] = void_ptr_ty; }
-            
-            let patched_fn_ty = self.ctx.type_registry.intern(TypeKind::Function { params: patched_params, ret: ret_ty, is_variadic });
+            if !patched_params.is_empty() {
+                patched_params[0] = void_ptr_ty;
+            }
+
+            let patched_fn_ty = self.ctx.type_registry.intern(TypeKind::Function {
+                params: patched_params,
+                ret: ret_ty,
+                is_variadic,
+            });
             let func_ptr_typed = MastExpr::new(
-                patched_fn_ty, 
-                MastExprKind::Cast { kind: MastCastKind::Bitcast, operand: Box::new(func_ptr) }, 
-                span
+                patched_fn_ty,
+                MastExprKind::Cast {
+                    kind: MastCastKind::Bitcast,
+                    operand: Box::new(func_ptr),
+                },
+                span,
             );
 
-            return MastExprKind::Call { callee: Box::new(func_ptr_typed), args: arg_masts };
-        } 
-        
+            return MastExprKind::Call {
+                callee: Box::new(func_ptr_typed),
+                args: arg_masts,
+            };
+        }
+
         // 分支 B：静态分发 (普通泛型方法)
-        if let TypeKind::FnDef(method_id, generics) = self.ctx.type_registry.get(norm_callee).clone() {
+        if let TypeKind::FnDef(method_id, generics) =
+            self.ctx.type_registry.get(norm_callee).clone()
+        {
             arg_masts.insert(0, recv);
             let func_id = self.instantiate_function(method_id, &generics);
             let func_ref = MastExpr::new(norm_callee, MastExprKind::FuncRef(func_id), span);
-            return MastExprKind::Call { callee: Box::new(func_ref), args: arg_masts };
+            return MastExprKind::Call {
+                callee: Box::new(func_ref),
+                args: arg_masts,
+            };
         }
 
         unreachable!("Invalid method call resolution")
     }
 
-    fn lower_normal_call(&mut self, callee: &Expr, mut arg_masts: Vec<MastExpr>, subst_map: &HashMap<SymbolId, TypeId>) -> MastExprKind {
+    fn lower_normal_call(
+        &mut self,
+        callee: &Expr,
+        mut arg_masts: Vec<MastExpr>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> MastExprKind {
         let callee_mast = self.lower_expr(callee, subst_map, None);
-        if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone() {
-            
+        if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
+        {
             // 拦截内置函数 (Intrinsic)
             if let Def::Function(f) = &self.ctx.defs[fn_id.0 as usize] {
                 if f.is_intrinsic {
@@ -655,118 +995,206 @@ impl<'a> Lowerer<'a> {
 
             // 如果不是内置函数，走正常的实例化和函数调用逻辑
             let mono_id = self.instantiate_function(fn_id, &fn_args);
-            let func_ref = MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), callee.span);
-            MastExprKind::Call { callee: Box::new(func_ref), args: arg_masts }
+            let func_ref =
+                MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), callee.span);
+            MastExprKind::Call {
+                callee: Box::new(func_ref),
+                args: arg_masts,
+            }
         } else {
-            MastExprKind::Call { callee: Box::new(callee_mast), args: arg_masts }
+            MastExprKind::Call {
+                callee: Box::new(callee_mast),
+                args: arg_masts,
+            }
         }
     }
 
-    fn lower_field_access(&mut self, lhs: &Expr, field: SymbolId, subst_map: &HashMap<SymbolId, TypeId>, span: Span) -> MastExprKind {
-        let expr_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
+    fn lower_field_access(
+        &mut self,
+        lhs: &Expr,
+        field: SymbolId,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        span: Span,
+    ) -> MastExprKind {
+        let expr_ty = self
+            .ctx
+            .node_types
+            .get(&lhs.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         let norm_expr = self.ctx.type_registry.normalize(expr_ty);
 
-        if matches!(self.ctx.type_registry.get(norm_expr), TypeKind::FnDef(..) | TypeKind::Function {..}) {
-            unreachable!("Attempted to access method `{}` without calling it. Bound Methods are not supported.", self.ctx.resolve(field));
+        if matches!(
+            self.ctx.type_registry.get(norm_expr),
+            TypeKind::FnDef(..) | TypeKind::Function { .. }
+        ) {
+            unreachable!(
+                "Attempted to access method `{}` without calling it. Bound Methods are not supported.",
+                self.ctx.resolve(field)
+            );
         }
 
         let l = self.lower_expr(lhs, subst_map, None);
         let mut base_ty = l.ty;
         let mut deref_expr = l.clone();
-        
+
         loop {
             let norm = self.ctx.type_registry.normalize(base_ty);
             match self.ctx.type_registry.get(norm) {
                 TypeKind::Mut(inner) => base_ty = *inner,
                 TypeKind::Pointer(inner) | TypeKind::VolatilePtr(inner) => {
                     base_ty = *inner;
-                    deref_expr = MastExpr::new(base_ty, MastExprKind::Deref(Box::new(deref_expr)), span);
+                    deref_expr =
+                        MastExpr::new(base_ty, MastExprKind::Deref(Box::new(deref_expr)), span);
                 }
                 _ => break,
             }
         }
 
         // 拦截 Enum 变体的访问 (例如 Color.Red)
-        if let TypeKind::Def(def_id, _) = self.ctx.type_registry.get(self.ctx.type_registry.normalize(base_ty)) {
+        if let TypeKind::Def(def_id, _) = self
+            .ctx
+            .type_registry
+            .get(self.ctx.type_registry.normalize(base_ty))
+        {
             if let Def::Enum(_) = &self.ctx.defs[def_id.0 as usize] {
                 return self.lower_enum_literal(field, expr_ty); // 复用 enum literal 逻辑
             }
         }
 
         let field_idx = self.get_field_index(base_ty, field);
-        let struct_def_info = if let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(self.ctx.type_registry.normalize(base_ty)) {
+        let struct_def_info = if let TypeKind::Def(def_id, gen_args) = self
+            .ctx
+            .type_registry
+            .get(self.ctx.type_registry.normalize(base_ty))
+        {
             Some((*def_id, gen_args.clone()))
-        } else { None };
-        
+        } else {
+            None
+        };
+
         let struct_id = if let Some((def_id, gen_args)) = struct_def_info {
             self.instantiate_struct(def_id, &gen_args)
-        } else { 
-            unreachable!("Field access on non-struct type"); 
+        } else {
+            unreachable!("Field access on non-struct type");
         };
-        
-        MastExprKind::FieldAccess { lhs: Box::new(deref_expr), struct_id, field_idx }
+
+        MastExprKind::FieldAccess {
+            lhs: Box::new(deref_expr),
+            struct_id,
+            field_idx,
+        }
     }
 
-    fn lower_data_init(&mut self, literal: &ast::DataLiteralKind, subst_map: &HashMap<SymbolId, TypeId>, concrete_ty: TypeId) -> MastExprKind {
+    fn lower_data_init(
+        &mut self,
+        literal: &ast::DataLiteralKind,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        concrete_ty: TypeId,
+    ) -> MastExprKind {
         match literal {
             ast::DataLiteralKind::Struct(fields) => {
                 let base_ty = self.strip_mut_modifier(concrete_ty);
-                let (def_id, gen_args) = if let TypeKind::Def(id, args) = self.ctx.type_registry.get(base_ty) {
-                    (*id, args.clone())
-                } else { unreachable!() };
-                
+                let (def_id, gen_args) =
+                    if let TypeKind::Def(id, args) = self.ctx.type_registry.get(base_ty) {
+                        (*id, args.clone())
+                    } else {
+                        unreachable!()
+                    };
+
                 let mono_id = self.instantiate_struct(def_id, &gen_args);
                 let def = self.ctx.defs[def_id.0 as usize].clone();
-                
+
                 match def {
                     Def::Struct(s) => {
                         let mut struct_subst_map = HashMap::new();
                         for (i, param) in s.generics.iter().enumerate() {
                             struct_subst_map.insert(param.name, gen_args[i]);
                         }
-                        
+
                         let mut ordered_fields = Vec::new();
                         for f_def in &s.fields {
-                            let raw_f_ty = self.ctx.node_types.get(&f_def.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                            let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map).substitute(raw_f_ty); 
+                            let raw_f_ty = self
+                                .ctx
+                                .node_types
+                                .get(&f_def.type_node.id)
+                                .copied()
+                                .unwrap_or(TypeId::ERROR);
+                            let conc_f_ty =
+                                Substituter::new(&mut self.ctx.type_registry, &struct_subst_map)
+                                    .substitute(raw_f_ty);
 
                             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
-                                ordered_fields.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
+                                ordered_fields.push(self.lower_expr(
+                                    &init_f.value,
+                                    subst_map,
+                                    Some(conc_f_ty),
+                                ));
                             } else {
-                                ordered_fields.push(self.lower_expr(f_def.default_value.as_ref().unwrap(), subst_map, Some(conc_f_ty)));
+                                ordered_fields.push(self.lower_expr(
+                                    f_def.default_value.as_ref().unwrap(),
+                                    subst_map,
+                                    Some(conc_f_ty),
+                                ));
                             }
                         }
-                        MastExprKind::StructInit { struct_id: mono_id, fields: ordered_fields }
+                        MastExprKind::StructInit {
+                            struct_id: mono_id,
+                            fields: ordered_fields,
+                        }
                     }
                     Def::Union(u) => {
                         let mut union_subst_map = HashMap::new();
                         for (i, param) in u.generics.iter().enumerate() {
                             union_subst_map.insert(param.name, gen_args[i]);
                         }
-                        let init_f = &fields[0]; 
-                        let field_idx = u.fields.iter().position(|f| f.name == init_f.name).unwrap();
-                        let raw_f_ty = self.ctx.node_types.get(&u.fields[field_idx].type_node.id).copied().unwrap_or(TypeId::ERROR);
-                        let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &union_subst_map).substitute(raw_f_ty); 
-                        
+                        let init_f = &fields[0];
+                        let field_idx =
+                            u.fields.iter().position(|f| f.name == init_f.name).unwrap();
+                        let raw_f_ty = self
+                            .ctx
+                            .node_types
+                            .get(&u.fields[field_idx].type_node.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+                        let conc_f_ty =
+                            Substituter::new(&mut self.ctx.type_registry, &union_subst_map)
+                                .substitute(raw_f_ty);
+
                         let val_expr = self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty));
-                        MastExprKind::UnionInit { union_id: mono_id, field_idx, value: Box::new(val_expr) }
+                        MastExprKind::UnionInit {
+                            union_id: mono_id,
+                            field_idx,
+                            value: Box::new(val_expr),
+                        }
                     }
-                    _ => unreachable!()
+                    _ => unreachable!(),
                 }
             }
             ast::DataLiteralKind::Array(elems) => {
                 let elem_ty = self.ctx.type_registry.get_elem_type(concrete_ty);
-                let lowered_elems = elems.iter().map(|e| self.lower_expr(e, subst_map, elem_ty)).collect();
+                let lowered_elems = elems
+                    .iter()
+                    .map(|e| self.lower_expr(e, subst_map, elem_ty))
+                    .collect();
                 MastExprKind::ArrayInit(lowered_elems)
             }
             ast::DataLiteralKind::Repeat { value, .. } => {
                 let elem_ty = self.ctx.type_registry.get_elem_type(concrete_ty);
                 let elem = self.lower_expr(value, subst_map, elem_ty);
-                let array_len = if let TypeKind::Array { len, .. } = self.ctx.type_registry.get(self.ctx.type_registry.normalize(concrete_ty)) { *len } else { 0 };
+                let array_len = if let TypeKind::Array { len, .. } = self
+                    .ctx
+                    .type_registry
+                    .get(self.ctx.type_registry.normalize(concrete_ty))
+                {
+                    *len
+                } else {
+                    0
+                };
                 MastExprKind::ArrayInit(vec![elem; array_len as usize])
             }
             ast::DataLiteralKind::Scalar(inner) => {
-                self.lower_expr(inner, subst_map, Some(concrete_ty)).kind 
+                self.lower_expr(inner, subst_map, Some(concrete_ty)).kind
             }
         }
     }
@@ -774,33 +1202,67 @@ impl<'a> Lowerer<'a> {
     fn lower_enum_literal(&mut self, variant_name: SymbolId, concrete_ty: TypeId) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
         let enum_def = if let TypeKind::Def(def_id, _) = self.ctx.type_registry.get(norm_ty) {
-            if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] { e.clone() } else { unreachable!() }
-        } else { unreachable!() };
+            if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
+                e.clone()
+            } else {
+                unreachable!()
+            }
+        } else {
+            unreachable!()
+        };
 
         let mut current_val: i128 = 0;
-        for v in enum_def.variants { 
+        for v in enum_def.variants {
             if let Some(v_expr) = v.value {
                 let mut ce = crate::sema::typeck::const_eval::ConstEvaluator::new(self.ctx);
-                if let Ok(val) = ce.eval_math(&v_expr) { current_val = val; }
+                if let Ok(val) = ce.eval_math(&v_expr) {
+                    current_val = val;
+                }
             }
-            if v.name == variant_name { return MastExprKind::Integer(current_val as u128); }
+            if v.name == variant_name {
+                return MastExprKind::Integer(current_val as u128);
+            }
             current_val += 1;
         }
-        unreachable!("Enum variant `{}` not found in lowered Enum", self.ctx.resolve(variant_name));
+        unreachable!(
+            "Enum variant `{}` not found in lowered Enum",
+            self.ctx.resolve(variant_name)
+        );
     }
 
-    fn lower_as_expr(&mut self, lhs: &Expr, target: &ast::TypeNode, concrete_ty: TypeId, subst_map: &HashMap<SymbolId, TypeId>, span: Span) -> MastExpr {
-        let target_ty = self.ctx.node_types.get(&target.id).copied().unwrap_or(concrete_ty);
+    fn lower_as_expr(
+        &mut self,
+        lhs: &Expr,
+        target: &ast::TypeNode,
+        concrete_ty: TypeId,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        span: Span,
+    ) -> MastExpr {
+        let target_ty = self
+            .ctx
+            .node_types
+            .get(&target.id)
+            .copied()
+            .unwrap_or(concrete_ty);
         let l = self.lower_expr(lhs, subst_map, None);
-        
+
         let target_norm = self.strip_mut_modifier(target_ty);
-        
+
         if let TypeKind::TraitObject(def_id, _) = self.ctx.type_registry.get(target_norm) {
             if let Def::Trait(_) = &self.ctx.defs[def_id.0 as usize] {
                 let vtable_id = self.get_or_create_vtable(l.ty, target_ty);
-                let global_array_ty = self.module.globals.iter().find(|g| g.id == vtable_id).unwrap().ty;
-                let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer(global_array_ty));
-                
+                let global_array_ty = self
+                    .module
+                    .globals
+                    .iter()
+                    .find(|g| g.id == vtable_id)
+                    .unwrap()
+                    .ty;
+                let array_ptr_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Pointer(global_array_ty));
+
                 return MastExpr::new(
                     target_ty,
                     MastExprKind::ConstructFatPointer {
@@ -811,57 +1273,124 @@ impl<'a> Lowerer<'a> {
                                 kind: MastCastKind::PtrToInt,
                                 operand: Box::new(MastExpr::new(
                                     array_ptr_ty,
-                                    MastExprKind::AddressOf(Box::new(MastExpr::new(global_array_ty, MastExprKind::GlobalRef(vtable_id), span))),
-                                    span
-                                ))
+                                    MastExprKind::AddressOf(Box::new(MastExpr::new(
+                                        global_array_ty,
+                                        MastExprKind::GlobalRef(vtable_id),
+                                        span,
+                                    ))),
+                                    span,
+                                )),
                             },
-                            span
-                        ))
+                            span,
+                        )),
                     },
-                    span
+                    span,
                 );
             }
         }
 
         let cast_kind = self.determine_cast_kind(l.ty, target_ty);
-        MastExpr::new(target_ty, MastExprKind::Cast { kind: cast_kind, operand: Box::new(l) }, span)
+        MastExpr::new(
+            target_ty,
+            MastExprKind::Cast {
+                kind: cast_kind,
+                operand: Box::new(l),
+            },
+            span,
+        )
     }
 
-    fn lower_for(&mut self, init: Option<&Expr>, cond: Option<&Expr>, post: Option<&Expr>, body: &Expr, subst_map: &HashMap<SymbolId, TypeId>, span: Span) -> MastExprKind {
+    fn lower_for(
+        &mut self,
+        init: Option<&Expr>,
+        cond: Option<&Expr>,
+        post: Option<&Expr>,
+        body: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        span: Span,
+    ) -> MastExprKind {
         let mut loop_stmts = Vec::new();
-        
+
         if let Some(c) = cond {
             let c_expr = self.lower_expr(c, subst_map, Some(TypeId::BOOL));
-            let not_c = MastExpr::new(TypeId::BOOL, MastExprKind::Unary { op: crate::ast::UnaryOperator::LogicalNot, operand: Box::new(c_expr) }, c.span);
-            
-            loop_stmts.push(MastStmt::Expr(MastExpr::new(TypeId::VOID, MastExprKind::If {
-                cond: Box::new(not_c),
-                then_branch: MastBlock { stmts: vec![MastStmt::Expr(MastExpr::new(TypeId::VOID, MastExprKind::Break, c.span))], result: None, defers: vec![] },
-                else_branch: None,
-            }, c.span)));
-        }
-        
-        loop_stmts.push(MastStmt::Expr(self.lower_expr(body, subst_map, None)));
-        if let Some(p) = post { loop_stmts.push(MastStmt::Expr(self.lower_expr(p, subst_map, None))); }
+            let not_c = MastExpr::new(
+                TypeId::BOOL,
+                MastExprKind::Unary {
+                    op: crate::ast::UnaryOperator::LogicalNot,
+                    operand: Box::new(c_expr),
+                },
+                c.span,
+            );
 
-        let loop_expr = MastExpr::new(TypeId::VOID, MastExprKind::Loop(MastBlock { stmts: loop_stmts, result: None, defers: vec![] }), span);
+            loop_stmts.push(MastStmt::Expr(MastExpr::new(
+                TypeId::VOID,
+                MastExprKind::If {
+                    cond: Box::new(not_c),
+                    then_branch: MastBlock {
+                        stmts: vec![MastStmt::Expr(MastExpr::new(
+                            TypeId::VOID,
+                            MastExprKind::Break,
+                            c.span,
+                        ))],
+                        result: None,
+                        defers: vec![],
+                    },
+                    else_branch: None,
+                },
+                c.span,
+            )));
+        }
+
+        loop_stmts.push(MastStmt::Expr(self.lower_expr(body, subst_map, None)));
+        if let Some(p) = post {
+            loop_stmts.push(MastStmt::Expr(self.lower_expr(p, subst_map, None)));
+        }
+
+        let loop_expr = MastExpr::new(
+            TypeId::VOID,
+            MastExprKind::Loop(MastBlock {
+                stmts: loop_stmts,
+                result: None,
+                defers: vec![],
+            }),
+            span,
+        );
 
         if let Some(i) = init {
             let mut outer_stmts = Vec::new();
-            if let ExprKind::Let { name, init: let_init } = &i.kind {
+            if let ExprKind::Let {
+                name,
+                init: let_init,
+            } = &i.kind
+            {
                 let lowered_init = self.lower_expr(let_init, subst_map, None);
-                outer_stmts.push(MastStmt::Let { name: *name, ty: lowered_init.ty, init: lowered_init });
+                outer_stmts.push(MastStmt::Let {
+                    name: *name,
+                    ty: lowered_init.ty,
+                    init: lowered_init,
+                });
             } else {
                 outer_stmts.push(MastStmt::Expr(self.lower_expr(i, subst_map, None)));
             }
             outer_stmts.push(MastStmt::Expr(loop_expr));
-            MastExprKind::Block(MastBlock { stmts: outer_stmts, result: None, defers: vec![] })
+            MastExprKind::Block(MastBlock {
+                stmts: outer_stmts,
+                result: None,
+                defers: vec![],
+            })
         } else {
             loop_expr.kind
         }
     }
 
-    fn lower_switch(&mut self, target: &Expr, cases: &[ast::SwitchCase], default_case: Option<&Expr>, subst_map: &HashMap<SymbolId, TypeId>, exp_ty: TypeId) -> MastExprKind {
+    fn lower_switch(
+        &mut self,
+        target: &Expr,
+        cases: &[ast::SwitchCase],
+        default_case: Option<&Expr>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        exp_ty: TypeId,
+    ) -> MastExprKind {
         let t = self.lower_expr(target, subst_map, None);
         let mut mast_cases = Vec::new();
 
@@ -870,53 +1399,86 @@ impl<'a> Lowerer<'a> {
             for pat in &case.patterns {
                 match pat {
                     ast::SwitchPattern::Value(val_expr) => {
-                        if let Ok(val) = crate::sema::typeck::const_eval::ConstEvaluator::new(self.ctx).eval_math(val_expr) { case_vals.push(val as u128); }
+                        if let Ok(val) =
+                            crate::sema::typeck::const_eval::ConstEvaluator::new(self.ctx)
+                                .eval_math(val_expr)
+                        {
+                            case_vals.push(val as u128);
+                        }
                     }
-                    ast::SwitchPattern::Range { start, end, inclusive } => {
+                    ast::SwitchPattern::Range {
+                        start,
+                        end,
+                        inclusive,
+                    } => {
                         let mut ce = crate::sema::typeck::const_eval::ConstEvaluator::new(self.ctx);
                         if let (Ok(s), Ok(e)) = (ce.eval_math(start), ce.eval_math(end)) {
                             let end_bound = if *inclusive { e } else { e - 1 };
-                            for v in s..=end_bound { case_vals.push(v as u128); }
+                            for v in s..=end_bound {
+                                case_vals.push(v as u128);
+                            }
                         }
                     }
                 }
-            } 
-            mast_cases.push(MastSwitchCase { values: case_vals, body: self.lower_block_as_body(&case.body, subst_map, exp_ty) });
+            }
+            mast_cases.push(MastSwitchCase {
+                values: case_vals,
+                body: self.lower_block_as_body(&case.body, subst_map, exp_ty),
+            });
         }
         let def_case = default_case.map(|b| self.lower_block_as_body(b, subst_map, exp_ty));
-        MastExprKind::Switch { target: Box::new(t), cases: mast_cases, default_case: def_case }
+        MastExprKind::Switch {
+            target: Box::new(t),
+            cases: mast_cases,
+            default_case: def_case,
+        }
     }
 
-    fn lower_return(&mut self, val: Option<&Expr>, subst_map: &HashMap<SymbolId, TypeId>, expected_ty: Option<TypeId>, span: Span) -> MastExprKind {
+    fn lower_return(
+        &mut self,
+        val: Option<&Expr>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        expected_ty: Option<TypeId>,
+        span: Span,
+    ) -> MastExprKind {
         let v = val.map(|e| Box::new(self.lower_expr(e, subst_map, expected_ty)));
         let mut defer_stmts = Vec::new();
-        
+
         // 倒序展开当前作用域栈中所有的 defer
         for stack in self.defer_stack.iter().rev() {
             for d in stack.iter().rev() {
                 defer_stmts.push(MastStmt::Expr(d.clone()));
             }
         }
-        
+
         if defer_stmts.is_empty() {
             MastExprKind::Return(v)
         } else {
-            defer_stmts.push(MastStmt::Expr(MastExpr::new(TypeId::VOID, MastExprKind::Return(v), span)));
-            MastExprKind::Block(MastBlock { stmts: defer_stmts, result: None, defers: vec![] })
+            defer_stmts.push(MastStmt::Expr(MastExpr::new(
+                TypeId::VOID,
+                MastExprKind::Return(v),
+                span,
+            )));
+            MastExprKind::Block(MastBlock {
+                stmts: defer_stmts,
+                result: None,
+                defers: vec![],
+            })
         }
     }
 
     fn lower_generic_instantiation(&mut self, concrete_ty: TypeId) -> MastExprKind {
-        let fn_info = if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(concrete_ty) {
-            Some((*fn_id, fn_args.clone()))
-        } else { 
-            None 
-        };
+        let fn_info =
+            if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(concrete_ty) {
+                Some((*fn_id, fn_args.clone()))
+            } else {
+                None
+            };
         if let Some((fn_id, fn_args)) = fn_info {
             let mono_id = self.instantiate_function(fn_id, &fn_args);
             MastExprKind::FuncRef(mono_id)
         } else {
-            MastExprKind::Integer(0) 
+            MastExprKind::Integer(0)
         }
     }
 
@@ -927,7 +1489,13 @@ impl<'a> Lowerer<'a> {
                 if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
                     if let Some(sig) = f.resolved_sig {
                         let norm_sig = self.ctx.type_registry.normalize(sig);
-                        let raw_params = if let TypeKind::Function { params, .. } = self.ctx.type_registry.get(norm_sig).clone() { params } else { Vec::new() };
+                        let raw_params = if let TypeKind::Function { params, .. } =
+                            self.ctx.type_registry.get(norm_sig).clone()
+                        {
+                            params
+                        } else {
+                            Vec::new()
+                        };
 
                         let mut all_generic_params = Vec::new();
                         if let Some(parent_id) = f.parent {
@@ -936,23 +1504,39 @@ impl<'a> Lowerer<'a> {
                             }
                         }
                         all_generic_params.extend(f.generics.clone());
-                        
+
                         let mut sig_subst_map = HashMap::new();
                         for (idx, param) in all_generic_params.iter().enumerate() {
-                            if idx < gen_args.len() { sig_subst_map.insert(param.name, gen_args[idx]); }
+                            if idx < gen_args.len() {
+                                sig_subst_map.insert(param.name, gen_args[idx]);
+                            }
                         }
-                        
-                        let mut sig_subst = Substituter::new(&mut self.ctx.type_registry, &sig_subst_map);
-                        raw_params.into_iter().map(|p| sig_subst.substitute(p)).collect()
-                    } else { Vec::new() }
-                } else { Vec::new() }
-            },
+
+                        let mut sig_subst =
+                            Substituter::new(&mut self.ctx.type_registry, &sig_subst_map);
+                        raw_params
+                            .into_iter()
+                            .map(|p| sig_subst.substitute(p))
+                            .collect()
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    Vec::new()
+                }
+            }
             _ => Vec::new(),
         }
     }
 
     /// 应用 Kern 的核心隐式转换规则：不可变/可变数组可以退化为对应切片
-    fn apply_implicit_cast(&mut self, mut mast_kind: MastExprKind, concrete_ty: TypeId, exp_ty: TypeId, span: Span) -> MastExpr {
+    fn apply_implicit_cast(
+        &mut self,
+        mut mast_kind: MastExprKind,
+        concrete_ty: TypeId,
+        exp_ty: TypeId,
+        span: Span,
+    ) -> MastExpr {
         let conc_base = self.strip_mut_modifier(concrete_ty);
         let exp_base = self.strip_mut_modifier(exp_ty);
 
@@ -966,7 +1550,6 @@ impl<'a> Lowerer<'a> {
         }
         MastExpr::new(exp_ty, mast_kind, span)
     }
-    
 
     // ==========================================
     //          Helpers
@@ -984,21 +1567,35 @@ impl<'a> Lowerer<'a> {
         0
     }
 
-   fn determine_cast_kind(&mut self, from: TypeId, to: TypeId) -> MastCastKind {
+    fn determine_cast_kind(&mut self, from: TypeId, to: TypeId) -> MastCastKind {
         let f_norm = self.ctx.type_registry.normalize(from);
         let t_norm = self.ctx.type_registry.normalize(to);
 
         let f_int = self.ctx.type_registry.is_integer(f_norm);
         let t_int = self.ctx.type_registry.is_integer(t_norm);
-        let f_ptr = matches!(self.ctx.type_registry.get(f_norm), TypeKind::Pointer(_) | TypeKind::VolatilePtr(_));
-        let t_ptr = matches!(self.ctx.type_registry.get(t_norm), TypeKind::Pointer(_) | TypeKind::VolatilePtr(_));
+        let f_ptr = matches!(
+            self.ctx.type_registry.get(f_norm),
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_)
+        );
+        let t_ptr = matches!(
+            self.ctx.type_registry.get(t_norm),
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_)
+        );
         let f_slice = matches!(self.ctx.type_registry.get(f_norm), TypeKind::Slice(_));
 
         // 1. 指针与整数的相互转换 (Bit-pattern preserving)
-        if f_ptr && t_ptr { return MastCastKind::Bitcast; }
-        if f_int && t_ptr { return MastCastKind::IntToPtr; }
-        if f_ptr && t_int { return MastCastKind::PtrToInt; }
-        if f_slice && t_ptr { return MastCastKind::SliceToPtr; }
+        if f_ptr && t_ptr {
+            return MastCastKind::Bitcast;
+        }
+        if f_int && t_ptr {
+            return MastCastKind::IntToPtr;
+        }
+        if f_ptr && t_int {
+            return MastCastKind::PtrToInt;
+        }
+        if f_slice && t_ptr {
+            return MastCastKind::SliceToPtr;
+        }
 
         // 2. 整数到整数的精细转换
         if f_int && t_int {
@@ -1020,13 +1617,20 @@ impl<'a> Lowerer<'a> {
         } else if f_size < t_size {
             // 判断目标类型是否为有符号整数
             let is_signed = matches!(
-                self.ctx.type_registry.get(to), 
-                TypeKind::Primitive(PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::I128 | PrimitiveType::ISize)
+                self.ctx.type_registry.get(to),
+                TypeKind::Primitive(
+                    PrimitiveType::I8
+                        | PrimitiveType::I16
+                        | PrimitiveType::I32
+                        | PrimitiveType::I64
+                        | PrimitiveType::I128
+                        | PrimitiveType::ISize
+                )
             );
-            if is_signed { 
-                MastCastKind::SignExt 
-            } else { 
-                MastCastKind::ZeroExt 
+            if is_signed {
+                MastCastKind::SignExt
+            } else {
+                MastCastKind::ZeroExt
             }
         } else {
             // 大小相等 (例如 i32 到 u32，或者 i64 到 usize 在 64位机器上)
@@ -1044,27 +1648,44 @@ impl<'a> Lowerer<'a> {
 
         // 2. 检查缓存，防止重复生成相同的 VTable
         let key = (source_ty, actual_trait_ty);
-        if let Some(&id) = self.vtable_cache.get(&key) { return id; }
+        if let Some(&id) = self.vtable_cache.get(&key) {
+            return id;
+        }
 
         // 3. 解析 Trait 定义
         let trait_def_id = match self.ctx.type_registry.get(actual_trait_ty) {
             TypeKind::TraitObject(id, _) => *id,
-            _ => unreachable!("Target must be a TraitObject, found: {:?}", self.ctx.type_registry.get(actual_trait_ty)),
+            _ => unreachable!(
+                "Target must be a TraitObject, found: {:?}",
+                self.ctx.type_registry.get(actual_trait_ty)
+            ),
         };
-        let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_def_id.0 as usize] { t.clone() } else { unreachable!() };
+        let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_def_id.0 as usize] {
+            t.clone()
+        } else {
+            unreachable!()
+        };
 
         // 4. 解析来源类型的基底 (跳过多层指针) 并获取其实参
         let (base_source_ty, source_args) = self.resolve_vtable_source_base(source_ty);
 
         // 5. 在全局 Defs 中寻找匹配的 Impl 块
-        let impl_def = self.find_matching_impl_block(base_source_ty, trait_def_id)
+        let impl_def = self
+            .find_matching_impl_block(base_source_ty, trait_def_id)
             .expect("Impl block must exist for valid Trait Object cast. Sema missed this.");
 
         // 6. 生成 VTable 内容并注入全局常量区
         let vtable_id = self.new_mono_id();
         self.vtable_cache.insert(key, vtable_id);
-        
-        self.build_and_inject_vtable_global(vtable_id, source_ty, actual_trait_ty, &trait_def, &impl_def, &source_args);
+
+        self.build_and_inject_vtable_global(
+            vtable_id,
+            source_ty,
+            actual_trait_ty,
+            &trait_def,
+            &impl_def,
+            &source_args,
+        );
 
         vtable_id
     }
@@ -1080,33 +1701,53 @@ impl<'a> Lowerer<'a> {
                 _ => break,
             }
         }
-        
+
         let source_args = if let TypeKind::Def(_, args) = self.ctx.type_registry.get(base_ty) {
             args.clone()
-        } else { 
-            Vec::new() 
+        } else {
+            Vec::new()
         };
 
         (base_ty, source_args)
     }
 
     /// 辅助方法 2：在全局寻找 (SourceBaseType -> TargetTrait) 的确切 Impl 块实现
-    fn find_matching_impl_block(&self, base_source_ty: TypeId, target_trait_id: crate::sema::ty::DefId) -> Option<crate::sema::def::ImplDef> {
+    fn find_matching_impl_block(
+        &self,
+        base_source_ty: TypeId,
+        target_trait_id: crate::sema::ty::DefId,
+    ) -> Option<crate::sema::def::ImplDef> {
         for def in &self.ctx.defs {
             if let Def::Impl(impl_def) = def {
                 if let Some(impl_trait_node) = &impl_def.trait_type {
                     // 检查 Impl 块声称实现的 Trait
-                    let i_trait_ty = self.ctx.node_types.get(&impl_trait_node.id).copied().unwrap_or(TypeId::ERROR);
+                    let i_trait_ty = self
+                        .ctx
+                        .node_types
+                        .get(&impl_trait_node.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
                     let i_trait_norm = self.strip_mut_modifier(i_trait_ty);
-                    
-                    if let TypeKind::TraitObject(i_trait_id, _) = self.ctx.type_registry.get(i_trait_norm) {
+
+                    if let TypeKind::TraitObject(i_trait_id, _) =
+                        self.ctx.type_registry.get(i_trait_norm)
+                    {
                         if *i_trait_id == target_trait_id {
                             // 检查 Impl 块的目标类型是否匹配我们的 base_source_ty
-                            let i_target_ty = self.ctx.node_types.get(&impl_def.target_type.id).copied().unwrap_or(TypeId::ERROR);
+                            let i_target_ty = self
+                                .ctx
+                                .node_types
+                                .get(&impl_def.target_type.id)
+                                .copied()
+                                .unwrap_or(TypeId::ERROR);
                             let (i_target_base, _) = self.resolve_vtable_source_base(i_target_ty);
 
-                            if let TypeKind::Def(i_target_id, _) = self.ctx.type_registry.get(i_target_base) {
-                                if let TypeKind::Def(src_base_id, _) = self.ctx.type_registry.get(base_source_ty) {
+                            if let TypeKind::Def(i_target_id, _) =
+                                self.ctx.type_registry.get(i_target_base)
+                            {
+                                if let TypeKind::Def(src_base_id, _) =
+                                    self.ctx.type_registry.get(base_source_ty)
+                                {
                                     if *i_target_id == *src_base_id {
                                         return Some(impl_def.clone());
                                     }
@@ -1122,21 +1763,24 @@ impl<'a> Lowerer<'a> {
 
     /// 辅助方法 3：将提取出来的方法单态化，组装成数组，并插入到全局 MastGlobal
     fn build_and_inject_vtable_global(
-        &mut self, 
-        vtable_id: MonoId, 
-        source_ty: TypeId, 
-        actual_trait_ty: TypeId, 
-        trait_def: &crate::sema::def::TraitDef, 
-        impl_def: &crate::sema::def::ImplDef, 
-        source_args: &[TypeId]
+        &mut self,
+        vtable_id: MonoId,
+        source_ty: TypeId,
+        actual_trait_ty: TypeId,
+        trait_def: &crate::sema::def::TraitDef,
+        impl_def: &crate::sema::def::ImplDef,
+        source_args: &[TypeId],
     ) {
-        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer(TypeId::VOID));
+        let void_ptr_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Pointer(TypeId::VOID));
         let mut vtable_methods = Vec::new();
-        
+
         // 遍历 Trait 定义的每一个方法契约
         for trait_method in &trait_def.methods {
             let mut method_mono_id = None;
-            
+
             // 在 Impl 块中找到对应的实现
             for &m_id in &impl_def.methods {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize] {
@@ -1146,34 +1790,35 @@ impl<'a> Lowerer<'a> {
                     }
                 }
             }
-            
-            let m_id = method_mono_id.expect("Missing trait method implementation. Sema failed to enforce contract.");
-            
+
+            let m_id = method_mono_id
+                .expect("Missing trait method implementation. Sema failed to enforce contract.");
+
             // 将单态化后的函数指针强转为 *void 存入虚表
             vtable_methods.push(MastExpr::new(
-                void_ptr_ty, 
+                void_ptr_ty,
                 MastExprKind::FuncRef(m_id),
-                crate::utils::Span::default()
+                crate::utils::Span::default(),
             ));
         }
 
         let vtable_len = vtable_methods.len() as u64;
-        let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array { 
-            elem: void_ptr_ty, 
-            len: vtable_len 
+        let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array {
+            elem: void_ptr_ty,
+            len: vtable_len,
         });
 
         let vtable_init = MastExpr::new(
             vtable_array_ty,
             MastExprKind::ArrayInit(vtable_methods),
-            crate::utils::Span::default()
+            crate::utils::Span::default(),
         );
 
         self.module.globals.push(MastGlobal {
             id: vtable_id,
             name: format!("__vtable_{}_{}", source_ty.0, actual_trait_ty.0),
-            ty: vtable_array_ty, 
-            is_mut: false,  // 虚表永远是静态不可变的只读数据
+            ty: vtable_array_ty,
+            is_mut: false, // 虚表永远是静态不可变的只读数据
             init: Some(vtable_init),
             is_extern: false,
         });

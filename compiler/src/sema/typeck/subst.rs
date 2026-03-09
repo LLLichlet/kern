@@ -1,7 +1,7 @@
 // src/sema/typeck/subst.rs
-use std::collections::HashMap;
 use crate::sema::ty::{TypeId, TypeKind, TypeRegistry};
 use crate::utils::SymbolId;
+use std::collections::HashMap;
 
 pub struct Substituter<'a> {
     pub registry: &'a mut TypeRegistry,
@@ -14,13 +14,15 @@ impl<'a> Substituter<'a> {
     }
 
     pub fn substitute(&mut self, ty: TypeId) -> TypeId {
-        if ty == TypeId::ERROR || self.map.is_empty() { return ty; }
-        
+        if ty == TypeId::ERROR || self.map.is_empty() {
+            return ty;
+        }
+
         let kind = self.registry.get(ty).clone();
-        
+
         match kind {
             TypeKind::Primitive(_) | TypeKind::Error => ty,
-            
+
             // 命中泛型参数，执行替换
             TypeKind::Param(name) => {
                 if let Some(&new_ty) = self.map.get(&name) {
@@ -29,7 +31,7 @@ impl<'a> Substituter<'a> {
                     ty
                 }
             }
-            
+
             TypeKind::Mut(inner) => {
                 let new_inner = self.substitute(inner);
                 self.registry.intern(TypeKind::Mut(new_inner))
@@ -48,12 +50,23 @@ impl<'a> Substituter<'a> {
             }
             TypeKind::Array { elem, len } => {
                 let new_elem = self.substitute(elem);
-                self.registry.intern(TypeKind::Array { elem: new_elem, len })
+                self.registry.intern(TypeKind::Array {
+                    elem: new_elem,
+                    len,
+                })
             }
-            TypeKind::Function { params, ret, is_variadic } => {
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => {
                 let new_params = params.into_iter().map(|p| self.substitute(p)).collect();
                 let new_ret = self.substitute(ret);
-                self.registry.intern(TypeKind::Function { params: new_params, ret: new_ret, is_variadic })
+                self.registry.intern(TypeKind::Function {
+                    params: new_params,
+                    ret: new_ret,
+                    is_variadic,
+                })
             }
             TypeKind::Def(def_id, args) => {
                 let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
@@ -69,7 +82,8 @@ impl<'a> Substituter<'a> {
             }
             TypeKind::TraitObject(def_id, args) => {
                 let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
-                self.registry.intern(TypeKind::TraitObject(def_id, new_args))
+                self.registry
+                    .intern(TypeKind::TraitObject(def_id, new_args))
             }
         }
     }

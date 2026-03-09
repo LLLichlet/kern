@@ -10,11 +10,11 @@ pub struct Token {
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TokenType {
     // === 标识符与字面量 ===
-    Identifier, // abc, my_var
-    IntLiteral, // 123, 0xFF, 10u8
-    FloatLiteral, // 3.14
+    Identifier,    // abc, my_var
+    IntLiteral,    // 123, 0xFF, 10u8
+    FloatLiteral,  // 3.14
     StringLiteral, // "hello"
-    CharLiteral, // 'a'
+    CharLiteral,   // 'a'
 
     // === 关键字 ===
     Fn,
@@ -59,15 +59,15 @@ pub enum TokenType {
     Percent,
 
     // 特殊前缀
-    Hash, // #arr (长度)
-    At, // @intToFloat (内置函数)
+    Hash,  // #arr (长度)
+    At,    // @intToFloat (内置函数)
     Caret, // ^T (易失性指针) / Bitwise XOR
 
     // 逻辑/位运算
-    Bang, // ! (宏调用 / 逻辑非)
+    Bang,      // ! (宏调用 / 逻辑非)
     Ampersand, // & (取地址 / 按位与)
-    Pipe, // | (按位或)
-    Tilde, // ~ (按位取反)
+    Pipe,      // | (按位或)
+    Tilde,     // ~ (按位取反)
 
     // 比较: == != < <= > >=
     EqualEqual,
@@ -95,20 +95,19 @@ pub enum TokenType {
     RShiftAssign,
 
     // === 标点 ===
-
-    Dot, // . (字段访问)
-    DotDot, // .. (Range)
-    DotDotEqual, // ..= (Range Inclusive)
+    Dot,          // . (字段访问)
+    DotDot,       // .. (Range)
+    DotDotEqual,  // ..= (Range Inclusive)
     DotAmpersand, // .&
-    DotStar, // .* (指针解引用)
+    DotStar,      // .* (指针解引用)
 
     DotLBracket, // .[ (切片/数组索引)
-    DotLBrace, // .{ (匿名结构体初始化)
+    DotLBrace,   // .{ (匿名结构体初始化)
 
     Ellipsis, // ...
 
-    Comma, // ,
-    Colon, // :
+    Comma,     // ,
+    Colon,     // :
     Semicolon, // ;
 
     // ( )

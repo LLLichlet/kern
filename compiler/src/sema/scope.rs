@@ -1,9 +1,9 @@
 #![allow(unused)]
 
-use std::collections::HashMap;
-use crate::utils::{SymbolId, Span};
+use super::ty::{DefId, TypeId};
 use crate::ast::NodeId;
-use super::ty::{TypeId, DefId};
+use crate::utils::{Span, SymbolId};
+use std::collections::HashMap;
 
 /// 全局唯一的作用域 ID
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -12,16 +12,16 @@ pub struct ScopeId(pub usize);
 /// 符号种类
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    Var,         // 变量 (let, param)
-    Const,       // 常量
-    Static,      // 静态变量
-    Function,    // 函数
-    Struct,      // 结构体定义
-    Enum,        // 枚举定义
-    Union,       // 联合体定义
-    Trait,       // 特征定义
-    Module,      // 模块
-    TypeAlias,   // 类型别名
+    Var,       // 变量 (let, param)
+    Const,     // 常量
+    Static,    // 静态变量
+    Function,  // 函数
+    Struct,    // 结构体定义
+    Enum,      // 枚举定义
+    Union,     // 联合体定义
+    Trait,     // 特征定义
+    Module,    // 模块
+    TypeAlias, // 类型别名
     TypeParam,
 }
 
@@ -29,9 +29,9 @@ pub enum SymbolKind {
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
     pub kind: SymbolKind,
-    pub node_id: NodeId,      // 对应的 AST 节点
-    pub type_id: TypeId,      // 语义类型
-    pub def_id: Option<DefId>,// 指向具体的定义表
+    pub node_id: NodeId,       // 对应的 AST 节点
+    pub type_id: TypeId,       // 语义类型
+    pub def_id: Option<DefId>, // 指向具体的定义表
     pub span: Span,
     pub is_pub: bool,
 }
@@ -41,7 +41,7 @@ pub struct SymbolInfo {
 pub struct Scope {
     pub id: ScopeId,
     /// 指向父作用域。对于模块的顶层作用域，可能是 None 或者指向全局 Builtin 作用域
-    pub parent: Option<ScopeId>, 
+    pub parent: Option<ScopeId>,
     pub symbols: HashMap<SymbolId, SymbolInfo>,
 }
 
@@ -114,9 +114,11 @@ impl SymbolTable {
     /// 如果成功，返回 Ok(())。
     /// 如果失败（发生同名冲突），返回 Err(旧的 SymbolInfo)，以便调用者可以报出极具建设性的错误
     pub fn define(&mut self, name: SymbolId, info: SymbolInfo) -> Result<(), SymbolInfo> {
-        let current_id = self.current_scope.expect("No active scope to define symbol");
+        let current_id = self
+            .current_scope
+            .expect("No active scope to define symbol");
         let current_scope = &mut self.scopes[current_id.0];
-        
+
         if let Some(existing) = current_scope.symbols.get(&name) {
             // 返回旧变量的信息，方便报错时指出 "previous definition was here"
             return Err(existing.clone());
@@ -128,7 +130,7 @@ impl SymbolTable {
     /// 查找符号 (沿 Scope Tree 向上追溯)
     pub fn resolve(&self, name: SymbolId) -> Option<&SymbolInfo> {
         let mut curr = self.current_scope;
-        
+
         while let Some(id) = curr {
             let scope = &self.scopes[id.0];
             if let Some(info) = scope.symbols.get(&name) {
@@ -138,7 +140,7 @@ impl SymbolTable {
         }
         None
     }
-    
+
     /// 仅在当前作用域查找 (用于检查重定义)
     pub fn resolve_local(&self, name: SymbolId) -> Option<&SymbolInfo> {
         let current_id = self.current_scope?;
@@ -154,7 +156,7 @@ impl SymbolTable {
     /// 更新已存在符号的类型 (用于 let 绑定的类型推导回填)
     pub fn update_type(&mut self, name: SymbolId, ty: TypeId) {
         let mut curr = self.current_scope;
-        
+
         // 沿作用域链向上找，找到在哪定义的，就更新哪里的 info
         while let Some(id) = curr {
             let scope = &mut self.scopes[id.0];

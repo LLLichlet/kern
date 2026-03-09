@@ -19,9 +19,18 @@ impl<'a> TypeResolver<'a> {
     /// 执行完整的类型解析 Pass
     pub fn resolve_all(&mut self) {
         // 基于模块层级进行遍历，以获取正确的词法作用域上下文
-        let module_ids: Vec<DefId> = self.ctx.defs.iter().filter_map(|def| {
-            if let Def::Module(m) = def { Some(m.id) } else { None }
-        }).collect();
+        let module_ids: Vec<DefId> = self
+            .ctx
+            .defs
+            .iter()
+            .filter_map(|def| {
+                if let Def::Module(m) = def {
+                    Some(m.id)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         for mod_id in module_ids {
             self.resolve_module(mod_id);
@@ -50,11 +59,16 @@ impl<'a> TypeResolver<'a> {
             Def::Function(f) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let func_scope = self.ctx.scopes.enter_scope();
-                
+
                 self.bind_generics(&f.generics, func_scope);
                 if let Some(parent_id) = f.parent {
                     if let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize] {
-                        let target_ty = self.ctx.node_types.get(&i.target_type.id).copied().unwrap_or(TypeId::ERROR);
+                        let target_ty = self
+                            .ctx
+                            .node_types
+                            .get(&i.target_type.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
                         self.bind_self_type(target_ty, func_scope, f.span);
                     }
                 }
@@ -87,16 +101,19 @@ impl<'a> TypeResolver<'a> {
                 for param in &f.generics {
                     gen_args.push(self.ctx.type_registry.intern(TypeKind::Param(param.name)));
                 }
-                let fn_def_ty = self.ctx.type_registry.intern(TypeKind::FnDef(item_id, gen_args));
-                
+                let fn_def_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(item_id, gen_args));
+
                 // 切换回父作用域
                 self.ctx.scopes.set_current_scope(parent_scope);
-                
+
                 // 只有普通的独立函数才需要在当前作用域更新类型。
                 let is_impl_method = f.parent.map_or(false, |p_id| {
                     matches!(self.ctx.defs[p_id.0 as usize], Def::Impl(_))
                 });
-                
+
                 if !is_impl_method {
                     self.ctx.scopes.update_type(f.name, fn_def_ty);
                 }
@@ -104,46 +121,58 @@ impl<'a> TypeResolver<'a> {
             Def::Struct(s) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let struct_scope = self.ctx.scopes.enter_scope();
-                
+
                 self.bind_generics(&s.generics, struct_scope);
 
                 for field in &s.fields {
                     self.resolve_type(&field.type_node, struct_scope);
                 }
                 self.ctx.scopes.exit_scope();
-                let struct_ty = self.ctx.type_registry.intern(TypeKind::Def(item_id, Vec::new()));
+                let struct_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Def(item_id, Vec::new()));
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(s.name, struct_ty);
             }
             Def::Union(u) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let union_scope = self.ctx.scopes.enter_scope();
-                
+
                 self.bind_generics(&u.generics, union_scope);
 
                 for field in &u.fields {
                     self.resolve_type(&field.type_node, union_scope);
                 }
                 self.ctx.scopes.exit_scope();
-                let union_ty = self.ctx.type_registry.intern(TypeKind::Def(item_id, Vec::new()));
+                let union_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Def(item_id, Vec::new()));
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(u.name, union_ty);
             }
             Def::Enum(e) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let enum_scope = self.ctx.scopes.enter_scope();
-                
+
                 self.bind_generics(&e.generics, enum_scope);
 
                 if let Some(backing_ty) = &e.backing_type {
                     let resolved_ty = self.resolve_type(backing_ty, enum_scope);
                     // 严格检查 backing type 必须是整数类型
-                    if !self.ctx.type_registry.is_integer(resolved_ty) && resolved_ty != TypeId::ERROR {
-                        self.ctx.emit_error(backing_ty.span, "Enum backing type must be an integer");
+                    if !self.ctx.type_registry.is_integer(resolved_ty)
+                        && resolved_ty != TypeId::ERROR
+                    {
+                        self.ctx
+                            .emit_error(backing_ty.span, "Enum backing type must be an integer");
                     }
                 }
                 self.ctx.scopes.exit_scope();
-                let enum_ty = self.ctx.type_registry.intern(TypeKind::Def(item_id, Vec::new()));
+                let enum_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Def(item_id, Vec::new()));
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(e.name, enum_ty);
             }
@@ -152,8 +181,11 @@ impl<'a> TypeResolver<'a> {
                 let trait_scope = self.ctx.scopes.enter_scope();
 
                 // 为 Trait 强制绑定 Self 类型
-                let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(item_id, vec![]));
-                self.bind_self_type(self_ty, trait_scope, t.span); 
+                let self_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::TraitObject(item_id, vec![]));
+                self.bind_self_type(self_ty, trait_scope, t.span);
 
                 // 解析方法签名并收集
                 let mut resolved_methods = Vec::new();
@@ -172,10 +204,10 @@ impl<'a> TypeResolver<'a> {
             Def::TypeAlias(t) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let alias_scope = self.ctx.scopes.enter_scope();
-                
+
                 self.bind_generics(&t.generics, alias_scope);
                 let target_ty = self.resolve_type(&t.target, alias_scope);
-                
+
                 self.ctx.scopes.exit_scope();
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(t.name, target_ty);
@@ -183,7 +215,7 @@ impl<'a> TypeResolver<'a> {
             Def::Impl(i) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let impl_scope = self.ctx.scopes.enter_scope();
-                
+
                 self.bind_generics(&i.generics, impl_scope);
 
                 // 绑定 Self 类型到上下文中
@@ -203,7 +235,12 @@ impl<'a> TypeResolver<'a> {
             }
             Def::Global(g) => {
                 self.resolve_expr(&g.value, parent_scope);
-                let val_ty = self.ctx.node_types.get(&g.value.id).copied().unwrap_or(TypeId::ERROR);
+                let val_ty = self
+                    .ctx
+                    .node_types
+                    .get(&g.value.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(g.name, val_ty);
             }
@@ -237,14 +274,21 @@ impl<'a> TypeResolver<'a> {
                 let base = self.resolve_type(elem, env_scope);
                 self.ctx.type_registry.intern(TypeKind::Slice(base))
             }
-            ast::TypeKind::Array { elem, len} => {
+            ast::TypeKind::Array { elem, len } => {
                 let base = self.resolve_type(elem, env_scope);
                 let mut evaluator = ConstEvaluator::new(self.ctx);
-                let length = evaluator.eval_usize(len); 
-                
-                self.ctx.type_registry.intern(TypeKind::Array { elem: base, len: length })
+                let length = evaluator.eval_usize(len);
+
+                self.ctx.type_registry.intern(TypeKind::Array {
+                    elem: base,
+                    len: length,
+                })
             }
-            ast::TypeKind::Function { params, ret, is_variadic } => {
+            ast::TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => {
                 let mut param_tys = Vec::with_capacity(params.len());
                 for p in params {
                     param_tys.push(self.resolve_type(p, env_scope));
@@ -253,7 +297,11 @@ impl<'a> TypeResolver<'a> {
                     Some(r) => self.resolve_type(r, env_scope),
                     None => TypeId::VOID,
                 };
-                self.ctx.type_registry.intern(TypeKind::Function { params: param_tys, ret: ret_ty, is_variadic: *is_variadic})
+                self.ctx.type_registry.intern(TypeKind::Function {
+                    params: param_tys,
+                    ret: ret_ty,
+                    is_variadic: *is_variadic,
+                })
             }
             ast::TypeKind::SelfType => {
                 self.ctx.scopes.set_current_scope(env_scope);
@@ -275,7 +323,8 @@ impl<'a> TypeResolver<'a> {
             }
             // Struct/Enum/Union/Trait 在这里不会直接作为匿名类型出现 (已被 Collect 提取)
             _ => {
-                self.ctx.emit_error(ty_node.span, "Invalid or unsupported type construction");
+                self.ctx
+                    .emit_error(ty_node.span, "Invalid or unsupported type construction");
                 TypeId::ERROR
             }
         };
@@ -306,10 +355,16 @@ impl<'a> TypeResolver<'a> {
                     self.resolve_expr(r, scope);
                 }
             }
-            ast::ExprKind::If { cond, then_branch, else_branch } => {
+            ast::ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 self.resolve_expr(cond, scope);
                 self.resolve_expr(then_branch, scope);
-                if let Some(e) = else_branch { self.resolve_expr(e, scope); }
+                if let Some(e) = else_branch {
+                    self.resolve_expr(e, scope);
+                }
             }
             ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
                 self.resolve_expr(lhs, scope);
@@ -317,11 +372,15 @@ impl<'a> TypeResolver<'a> {
             }
             ast::ExprKind::Call { callee, args } => {
                 self.resolve_expr(callee, scope);
-                for arg in args { self.resolve_expr(arg, scope); }
+                for arg in args {
+                    self.resolve_expr(arg, scope);
+                }
             }
             ast::ExprKind::GenericInstantiation { target, types } => {
                 self.resolve_expr(target, scope);
-                for ty in types { self.resolve_type(ty, scope); }
+                for ty in types {
+                    self.resolve_type(ty, scope);
+                }
             }
             ast::ExprKind::DataInit { type_node, literal } => {
                 if let Some(ty) = type_node {
@@ -330,10 +389,14 @@ impl<'a> TypeResolver<'a> {
                 // 递归解析数据负载
                 match literal {
                     ast::DataLiteralKind::Struct(fields) => {
-                        for f in fields { self.resolve_expr(&f.value, scope); }
+                        for f in fields {
+                            self.resolve_expr(&f.value, scope);
+                        }
                     }
                     ast::DataLiteralKind::Array(elems) => {
-                        for e in elems { self.resolve_expr(e, scope); }
+                        for e in elems {
+                            self.resolve_expr(e, scope);
+                        }
                     }
                     ast::DataLiteralKind::Repeat { value, count } => {
                         self.resolve_expr(value, scope);
@@ -350,13 +413,15 @@ impl<'a> TypeResolver<'a> {
 
     /// 严格的路径类型解析 (支持 `module.submodule.Type[Generic]`)
     fn resolve_path_type(
-        &mut self, 
-        segments: &[SymbolId], 
-        generics: &[ast::TypeNode], 
-        env_scope: ScopeId, 
-        span: crate::utils::Span
+        &mut self,
+        segments: &[SymbolId],
+        generics: &[ast::TypeNode],
+        env_scope: ScopeId,
+        span: crate::utils::Span,
     ) -> TypeId {
-        if segments.is_empty() { return TypeId::ERROR; }
+        if segments.is_empty() {
+            return TypeId::ERROR;
+        }
 
         let mut curr_scope = env_scope;
         let mut target_symbol = None;
@@ -369,7 +434,8 @@ impl<'a> TypeResolver<'a> {
                     let name_str = self.ctx.resolve(segment);
                     if let Some(prim_id) = self.resolve_builtin_primitive(name_str) {
                         if !generics.is_empty() {
-                            self.ctx.emit_error(span, "Primitive types do not take generic arguments");
+                            self.ctx
+                                .emit_error(span, "Primitive types do not take generic arguments");
                         }
                         return prim_id;
                     }
@@ -388,9 +454,13 @@ impl<'a> TypeResolver<'a> {
                 None => {
                     let name = self.ctx.resolve(segment).to_string();
                     if i == 0 {
-                        self.ctx.emit_error(span, format!("Cannot find type `{}` in this scope", name));
+                        self.ctx
+                            .emit_error(span, format!("Cannot find type `{}` in this scope", name));
                     } else {
-                        self.ctx.emit_error(span, format!("Cannot find `{}` in the target module", name));
+                        self.ctx.emit_error(
+                            span,
+                            format!("Cannot find `{}` in the target module", name),
+                        );
                     }
                     return TypeId::ERROR;
                 }
@@ -402,10 +472,13 @@ impl<'a> TypeResolver<'a> {
                     let mod_def_id = sym.def_id.unwrap();
                     if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                         curr_scope = m.scope_id;
-                    } else { unreachable!() }
+                    } else {
+                        unreachable!()
+                    }
                 } else {
                     let name = self.ctx.resolve(segment).to_string();
-                    self.ctx.emit_error(span, format!("`{}` is not a module", name));
+                    self.ctx
+                        .emit_error(span, format!("`{}` is not a module", name));
                     return TypeId::ERROR;
                 }
             }
@@ -423,15 +496,20 @@ impl<'a> TypeResolver<'a> {
         match final_sym.kind {
             SymbolKind::Struct | SymbolKind::Union | SymbolKind::Enum => {
                 let def_id = final_sym.def_id.unwrap();
-                self.ctx.type_registry.intern(TypeKind::Def(def_id, resolved_generics))
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Def(def_id, resolved_generics))
             }
             SymbolKind::Trait => {
                 let def_id = final_sym.def_id.unwrap();
-                self.ctx.type_registry.intern(TypeKind::TraitObject(def_id, resolved_generics))
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::TraitObject(def_id, resolved_generics))
             }
             SymbolKind::TypeParam => {
                 if !resolved_generics.is_empty() {
-                    self.ctx.emit_error(span, "Type parameters cannot take generic arguments");
+                    self.ctx
+                        .emit_error(span, "Type parameters cannot take generic arguments");
                 }
                 final_sym.type_id // 直接返回 Param(SymbolId)
             }
@@ -455,7 +533,10 @@ impl<'a> TypeResolver<'a> {
                         for (i, param) in t_def.generics.iter().enumerate() {
                             map.insert(param.name, resolved_generics[i]);
                         }
-                        let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
+                        let mut subst = crate::sema::typeck::subst::Substituter::new(
+                            &mut self.ctx.type_registry,
+                            &map,
+                        );
                         subst.substitute(target_ty)
                     } else {
                         unreachable!()
@@ -464,7 +545,14 @@ impl<'a> TypeResolver<'a> {
             }
             _ => {
                 let name = self.ctx.resolve(*segments.last().unwrap()).to_string();
-                self.ctx.emit_error(span, format!("`{}` is a {}, not a type", name, self.kind_to_string(final_sym.kind)));
+                self.ctx.emit_error(
+                    span,
+                    format!(
+                        "`{}` is a {}, not a type",
+                        name,
+                        self.kind_to_string(final_sym.kind)
+                    ),
+                );
                 TypeId::ERROR
             }
         }
@@ -476,12 +564,22 @@ impl<'a> TypeResolver<'a> {
 
     fn resolve_builtin_primitive(&self, name: &str) -> Option<TypeId> {
         match name {
-            "void" => Some(TypeId::VOID), "bool" => Some(TypeId::BOOL),
-            "i8" => Some(TypeId::I8), "i16" => Some(TypeId::I16), "i32" => Some(TypeId::I32), 
-            "i64" => Some(TypeId::I64), "i128" => Some(TypeId::I128), "isize" => Some(TypeId::ISIZE),
-            "u8" => Some(TypeId::U8), "u16" => Some(TypeId::U16), "u32" => Some(TypeId::U32), 
-            "u64" => Some(TypeId::U64), "u128" => Some(TypeId::U128), "usize" => Some(TypeId::USIZE),
-            "f32" => Some(TypeId::F32), "f64" => Some(TypeId::F64),
+            "void" => Some(TypeId::VOID),
+            "bool" => Some(TypeId::BOOL),
+            "i8" => Some(TypeId::I8),
+            "i16" => Some(TypeId::I16),
+            "i32" => Some(TypeId::I32),
+            "i64" => Some(TypeId::I64),
+            "i128" => Some(TypeId::I128),
+            "isize" => Some(TypeId::ISIZE),
+            "u8" => Some(TypeId::U8),
+            "u16" => Some(TypeId::U16),
+            "u32" => Some(TypeId::U32),
+            "u64" => Some(TypeId::U64),
+            "u128" => Some(TypeId::U128),
+            "usize" => Some(TypeId::USIZE),
+            "f32" => Some(TypeId::F32),
+            "f64" => Some(TypeId::F64),
             _ => None,
         }
     }
@@ -491,12 +589,12 @@ impl<'a> TypeResolver<'a> {
         for param in generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let info = SymbolInfo {
-                kind: SymbolKind::TypeParam, 
-                node_id: self.ctx.next_node_id(), 
+                kind: SymbolKind::TypeParam,
+                node_id: self.ctx.next_node_id(),
                 type_id: param_ty,
                 def_id: None,
-                span: param.span, 
-                is_pub: false,    
+                span: param.span,
+                is_pub: false,
             };
             let _ = self.ctx.scopes.define(param.name, info);
         }
@@ -507,11 +605,11 @@ impl<'a> TypeResolver<'a> {
         let self_sym = self.ctx.intern("Self");
         let info = SymbolInfo {
             kind: SymbolKind::TypeAlias,
-            node_id: self.ctx.next_node_id(), 
+            node_id: self.ctx.next_node_id(),
             type_id: target_ty,
             def_id: None,
-            span,             
-            is_pub: false,   
+            span,
+            is_pub: false,
         };
         // 允许重复定义（覆盖外部可能存在的同名绑定）
         let _ = self.ctx.scopes.define(self_sym, info);
@@ -519,9 +617,12 @@ impl<'a> TypeResolver<'a> {
 
     fn kind_to_string(&self, kind: SymbolKind) -> &'static str {
         match kind {
-            SymbolKind::Var => "variable", SymbolKind::Const => "constant",
-            SymbolKind::Static => "static variable", SymbolKind::Function => "function",
-            SymbolKind::Module => "module", _ => "symbol",
+            SymbolKind::Var => "variable",
+            SymbolKind::Const => "constant",
+            SymbolKind::Static => "static variable",
+            SymbolKind::Function => "function",
+            SymbolKind::Module => "module",
+            _ => "symbol",
         }
     }
 }

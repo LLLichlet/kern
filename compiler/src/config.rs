@@ -20,7 +20,7 @@ impl TargetMachine {
     /// 从字符串解析目标架构 (例如 "x86_64-unknown-linux-gnu")
     pub fn new(triple_str: &str) -> Result<Self, String> {
         let triple = Triple::from_str(triple_str).map_err(|e| e.to_string())?;
-        
+
         let pointer_size = match triple.pointer_width() {
             Ok(PointerWidth::U16) => 2,
             Ok(PointerWidth::U32) => 4,
@@ -28,7 +28,10 @@ impl TargetMachine {
             Err(_) => 8, // 默认 fallback 到 64-bit
         };
 
-        Ok(Self { triple, pointer_size })
+        Ok(Self {
+            triple,
+            pointer_size,
+        })
     }
 }
 
@@ -42,7 +45,10 @@ impl Default for TargetMachine {
             Ok(PointerWidth::U64) => 8,
             Err(_) => 8,
         };
-        Self { triple, pointer_size }
+        Self {
+            triple,
+            pointer_size,
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 #![allow(unused)]
+pub mod const_eval;
 pub mod expr;
 pub mod subst;
-pub mod const_eval;
 
 use crate::ast;
 use crate::context::Context;
@@ -11,7 +11,7 @@ use crate::sema::ty::{TypeId, TypeKind};
 use crate::sema::typeck::const_eval::ConstEvaluator;
 use crate::sema::typeck::expr::ExprChecker;
 
-/// 类型检查的主驱动器 
+/// 类型检查的主驱动器
 pub struct TypeckDriver<'a> {
     pub ctx: &'a mut Context,
 }
@@ -24,12 +24,12 @@ impl<'a> TypeckDriver<'a> {
     /// 核心入口：按模块层级遍历，以保证顶级作用域正确
     pub fn check_all(&mut self) {
         let defs_clone = self.ctx.defs.clone();
-        
+
         for def in defs_clone {
             if let Def::Module(m) = def {
                 // 切换到模块的词法作用域
                 self.ctx.scopes.set_current_scope(m.scope_id);
-                
+
                 for item_id in m.items {
                     self.check_item(item_id, m.scope_id);
                 }
@@ -55,13 +55,15 @@ impl<'a> TypeckDriver<'a> {
     fn check_function(&mut self, f: &FunctionDef, parent_scope: ScopeId) {
         // 1. 验证 Extern 规则
         if f.is_extern && f.body.is_some() {
-            self.ctx.struct_error(f.span, "extern functions cannot have a body")
+            self.ctx
+                .struct_error(f.span, "extern functions cannot have a body")
                 .with_hint("extern functions are defined in other object files")
                 .emit();
             return;
         }
         if !f.is_extern && f.body.is_none() {
-            self.ctx.emit_error(f.span, "Non-extern functions must have a body");
+            self.ctx
+                .emit_error(f.span, "Non-extern functions must have a body");
             return;
         }
 
@@ -84,11 +86,11 @@ impl<'a> TypeckDriver<'a> {
             if i < param_tys.len() {
                 let info = SymbolInfo {
                     kind: SymbolKind::Var,
-                    node_id: param_ast.type_node.id, 
+                    node_id: param_ast.type_node.id,
                     type_id: param_tys[i],
                     def_id: None,
-                    span: param_ast.span, 
-                    is_pub: false,        
+                    span: param_ast.span,
+                    is_pub: false,
                 };
                 let _ = self.ctx.scopes.define(param_ast.name, info);
             }
@@ -96,7 +98,7 @@ impl<'a> TypeckDriver<'a> {
 
         // 4. 启动表达式检查器
         let mut checker = ExprChecker::new(self.ctx, Some(ret_ty));
-        
+
         let body_eval_ty = checker.check_expr(body_expr, Some(ret_ty));
 
         // 5. 校验函数的最终末尾表达式是否匹配签名
@@ -108,9 +110,9 @@ impl<'a> TypeckDriver<'a> {
                 // 强制检查 Coercion（会打印 Type mismatch）
                 if !checker.check_coercion(body_expr.span, ret_ty, body_eval_ty) {
                     self.ctx.emit_error(
-                        body_expr.span, 
+                        body_expr.span,
                         "Function body evaluates to a type that does not match its signature. \
-                        (Hint: Missing a return statement or a trailing semicolon?)"
+                        (Hint: Missing a return statement or a trailing semicolon?)",
                     );
                 }
             }
@@ -124,16 +126,24 @@ impl<'a> TypeckDriver<'a> {
         let impl_scope = self.ctx.scopes.enter_scope();
 
         // 为 Impl 块注入 `Self` 类型
-        let target_ty = self.ctx.node_types.get(&i.target_type.id).copied().unwrap_or(TypeId::ERROR);
+        let target_ty = self
+            .ctx
+            .node_types
+            .get(&i.target_type.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         let self_sym = self.ctx.intern("Self");
-        let _ = self.ctx.scopes.define(self_sym, SymbolInfo {
-            kind: SymbolKind::TypeAlias,
-            node_id: i.target_type.id,
-            type_id: target_ty,
-            def_id: None,
-            span: i.span,
-            is_pub: false
-        });
+        let _ = self.ctx.scopes.define(
+            self_sym,
+            SymbolInfo {
+                kind: SymbolKind::TypeAlias,
+                node_id: i.target_type.id,
+                type_id: target_ty,
+                def_id: None,
+                span: i.span,
+                is_pub: false,
+            },
+        );
 
         // 递归检查所有方法
         for &method_id in &i.methods {
@@ -154,16 +164,26 @@ impl<'a> TypeckDriver<'a> {
             self.ctx.scopes.update_type(g.name, init_ty);
         } else {
             // 如果走到这里，说明 Collector 没扫到这个全局变量，这是编译器本身的 Bug
-            self.ctx.emit_ice(g.span, format!("global symbol `{}` was not collected during the collection pass", self.ctx.resolve(g.name)));
-            
+            self.ctx.emit_ice(
+                g.span,
+                format!(
+                    "global symbol `{}` was not collected during the collection pass",
+                    self.ctx.resolve(g.name)
+                ),
+            );
+
             // 为了让编译器能继续跑完 Typeck 以发现更多错误，这里可以保留定义
             let info = SymbolInfo {
-                kind: if g.is_static { SymbolKind::Static } else { SymbolKind::Const },
+                kind: if g.is_static {
+                    SymbolKind::Static
+                } else {
+                    SymbolKind::Const
+                },
                 node_id: g.value.id,
                 type_id: init_ty,
                 def_id: Some(g.id),
                 span: g.span,
-                is_pub: g.vis == crate::sema::def::Visibility::Public, 
+                is_pub: g.vis == crate::sema::def::Visibility::Public,
             };
             let _ = self.ctx.scopes.define(g.name, info);
         }
@@ -174,13 +194,17 @@ impl<'a> TypeckDriver<'a> {
                 self.ctx.emit_error(g.span, "Global variables cannot be initialized with `undef`. Must provide a constant value.");
             } else {
                 let mut evaluator = ConstEvaluator::new(self.ctx);
-                let _ = evaluator.eval_math(&g.value); 
+                let _ = evaluator.eval_math(&g.value);
             }
         } else {
             // 如果是 extern，确保推导出了合法类型
             if init_ty == TypeId::ERROR {
-                self.ctx.emit_error(g.span, "Extern statics must have a concrete type, e.g., `static X = i32.{undef};`");
-            } else if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef)) {
+                self.ctx.emit_error(
+                    g.span,
+                    "Extern statics must have a concrete type, e.g., `static X = i32.{undef};`",
+                );
+            } else if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef))
+            {
                 // 确保 extern 不会被赋真实的值
                 self.ctx.emit_error(g.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
             }

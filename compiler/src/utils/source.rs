@@ -1,7 +1,7 @@
 #![allow(unused)]
-use std::{fs, io};
+use super::Span;
 use std::path::{Path, PathBuf};
-use super::Span; 
+use std::{fs, io};
 
 /// =========================================================
 /// 基础类型定义
@@ -19,8 +19,8 @@ impl FileId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Location {
     pub file_id: FileId,
-    pub line: usize,   // 1-based 行号
-    pub col: usize,    // 1-based 列号
+    pub line: usize, // 1-based 行号
+    pub col: usize,  // 1-based 列号
 }
 
 /// =========================================================
@@ -73,10 +73,10 @@ impl SourceFile {
         if line == 0 || line > self.line_starts.len() {
             return None;
         }
-        
+
         let line_idx = line - 1; // 转为 0-based 索引
         let start = self.line_starts[line_idx];
-        
+
         let end = if line_idx + 1 < self.line_starts.len() {
             self.line_starts[line_idx + 1] - 1 // -1 是为了去掉换行符
         } else {
@@ -98,7 +98,7 @@ impl SourceFile {
         if line == 0 || line > self.line_starts.len() {
             return None;
         }
-        
+
         let line_idx = line - 1;
         let start = self.line_starts[line_idx];
 
@@ -166,7 +166,7 @@ impl SourceManager {
     pub fn lookup_location(&self, span: Span) -> Option<Location> {
         let file = self.files.get(span.file.get())?;
         let (line, col) = file.lookup_line_col(span.start);
-        
+
         Some(Location {
             file_id: span.file,
             line,

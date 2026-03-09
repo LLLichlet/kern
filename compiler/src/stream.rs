@@ -1,8 +1,8 @@
 #![allow(unused)]
-use std::collections::VecDeque;
 use crate::lexer::Lexer;
 use crate::token::{Token, TokenType};
-use crate::utils::{Span, FileId};
+use crate::utils::{FileId, Span};
+use std::collections::VecDeque;
 
 pub struct TokenStream<'a> {
     lexer: Lexer<'a>,
@@ -28,7 +28,7 @@ impl<'a> TokenStream<'a> {
             let token = self.lexer.next();
             let is_eof = token.tag == TokenType::Eof;
             self.buffer.push_back(token);
-            
+
             // 优化：一旦遇到 EOF，就没必要继续填充了
             // 后续的 peek 都会落入 EOF 处理逻辑
             if is_eof {
@@ -41,16 +41,16 @@ impl<'a> TokenStream<'a> {
     /// n=0 是当前 Token，n=1 是下一个，以此类推
     pub fn peek_nth(&mut self, n: usize) -> Token {
         self.fill_buffer(n);
-        
+
         // 如果请求的索引超出了缓冲区长度（说明中间遇到了 EOF）
         // 直接返回缓冲区最后一个元素（即 EOF）
         if n >= self.buffer.len() {
             return self.buffer.back().copied().unwrap_or_else(|| {
                 // 理论上不可能进入这里，除非 fill_buffer 逻辑有误
                 // 造一个假的 EOF
-                Token { 
-                    tag: TokenType::Eof, 
-                    span: self.last_span 
+                Token {
+                    tag: TokenType::Eof,
+                    span: self.last_span,
                 }
             });
         }
@@ -154,13 +154,13 @@ mod tests {
 
         // Test peek_nth (Lookahead)
         assert_eq!(stream.peek_nth(1).tag, TokenType::Identifier); // a
-        assert_eq!(stream.peek_nth(2).tag, TokenType::Assign);     // =
+        assert_eq!(stream.peek_nth(2).tag, TokenType::Assign); // =
         assert_eq!(stream.peek_nth(3).tag, TokenType::IntLiteral); // 10
 
         // Test bump
         let t = stream.bump();
         assert_eq!(t.tag, TokenType::Let);
-        
+
         // Test prev_span
         assert_eq!(stream.prev_span().end, 3); // let 的长度
 

@@ -40,7 +40,7 @@ pub struct MastGlobal {
     pub id: MonoId,
     pub name: String, // 扁平化的全局符号名
     pub ty: TypeId,
-    pub is_mut: bool, // 对应 static mut
+    pub is_mut: bool,           // 对应 static mut
     pub init: Option<MastExpr>, // extern 的时候为 None。初始化必须是常量表达式。
     pub is_extern: bool,
 }
@@ -109,22 +109,22 @@ pub enum MastExprKind {
     Bool(bool),
     /// 字符串在 LLVM 中通常生成一个全局常量数组。
     /// 保留 StringLiteral 方便 Codegen 时自动生成 Global Variable 并返回指针。
-    StringLiteral(String), 
+    StringLiteral(String),
 
     // --- 2. 引用 ---
-    Var(SymbolId),         // 局部变量/函数参数引用
-    GlobalRef(MonoId),     // 引用 static 全局变量 (返回的是指针)
-    FuncRef(MonoId),       // 引用具体的函数 (返回函数指针)
+    Var(SymbolId),     // 局部变量/函数参数引用
+    GlobalRef(MonoId), // 引用 static 全局变量 (返回的是指针)
+    FuncRef(MonoId),   // 引用具体的函数 (返回函数指针)
 
     // --- 3. 内存操作 ---
     AddressOf(Box<MastExpr>),
     Deref(Box<MastExpr>),
-    
+
     // --- 4. 聚合数据访问与构造 ---
     StructInit {
         struct_id: MonoId,
         /// 已经按照结构体内存布局排序好的字段初始化值
-        fields: Vec<MastExpr>, 
+        fields: Vec<MastExpr>,
     },
     UnionInit {
         union_id: MonoId,
@@ -132,14 +132,14 @@ pub enum MastExprKind {
         value: Box<MastExpr>,
     },
     ArrayInit(Vec<MastExpr>),
-    
+
     /// 结构体字段访问
     FieldAccess {
         lhs: Box<MastExpr>,
         struct_id: MonoId, // 显式记录所属结构体的具体 MonoId
-        field_idx: usize, 
+        field_idx: usize,
     },
-    
+
     /// 数组或切片索引
     IndexAccess {
         lhs: Box<MastExpr>,
@@ -158,9 +158,9 @@ pub enum MastExprKind {
         then_branch: MastBlock,
         else_branch: Option<MastBlock>,
     },
-    
-    Loop(MastBlock), 
-    
+
+    Loop(MastBlock),
+
     /// Switch 被保留，因为 LLVM 有原生的 `switch` 指令，比 if-else 链快得多。
     Switch {
         target: Box<MastExpr>,
@@ -183,7 +183,7 @@ pub enum MastExprKind {
         operand: Box<MastExpr>,
     },
     Assign {
-        op: crate::ast::AssignmentOperator, 
+        op: crate::ast::AssignmentOperator,
         lhs: Box<MastExpr>,
         rhs: Box<MastExpr>,
     },
@@ -201,7 +201,7 @@ pub enum MastExprKind {
         data_ptr: Box<MastExpr>,
         /// 如果是 Trait Object，这是 vtable_ptr；
         /// 如果是 Slice/String，这是一个常量 Integer 表示长度！
-        meta: Box<MastExpr>, 
+        meta: Box<MastExpr>,
     },
 
     /// 提取胖指针的数据指针 (相当于 llvm extractvalue 0)
@@ -217,22 +217,22 @@ pub enum MastExprKind {
 #[derive(Debug, Clone)]
 pub struct MastSwitchCase {
     // 经过 Const Eval 后，所有的 case pattern 都变成了确定的整数值
-    pub values: Vec<u128>, 
+    pub values: Vec<u128>,
     pub body: MastBlock,
 }
 
 /// 详尽的类型转换分类，与 LLVM IR 指令一一对应
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MastCastKind {
-    Bitcast,     // 相同大小的位模式转换 (如 *i32 到 *u8)
-    PtrToInt,    // 指针转整数 (如 *u8 到 usize)
-    IntToPtr,    // 整数转指针 (如 usize 到 *u8)
-    SignExt,     // 有符号整数扩展 (如 i8 到 i32)
-    ZeroExt,     // 无符号整数扩展 (如 u8 到 u32)
-    Trunc,       // 整数截断 (如 i32 到 i8)
-    IntToFloat,  // 整数转浮点数 (如 i32 到 f32)
-    FloatToInt,  // 浮点数转整数
-    FloatCast,   // 浮点数精度转换 (f32 <=> f64)
-    ArrayToSlice,// 隐式降级：构造切片胖指针
+    Bitcast,      // 相同大小的位模式转换 (如 *i32 到 *u8)
+    PtrToInt,     // 指针转整数 (如 *u8 到 usize)
+    IntToPtr,     // 整数转指针 (如 usize 到 *u8)
+    SignExt,      // 有符号整数扩展 (如 i8 到 i32)
+    ZeroExt,      // 无符号整数扩展 (如 u8 到 u32)
+    Trunc,        // 整数截断 (如 i32 到 i8)
+    IntToFloat,   // 整数转浮点数 (如 i32 到 f32)
+    FloatToInt,   // 浮点数转整数
+    FloatCast,    // 浮点数精度转换 (f32 <=> f64)
+    ArrayToSlice, // 隐式降级：构造切片胖指针
     SliceToPtr,
 }

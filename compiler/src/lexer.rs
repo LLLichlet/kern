@@ -1,6 +1,6 @@
 #![allow(unused)]
-use crate::utils::{FileId, Span};
 use crate::token::{Token, TokenType};
+use crate::utils::{FileId, Span};
 use std::str;
 
 pub struct Lexer<'a> {
@@ -56,7 +56,7 @@ impl<'a> Lexer<'a> {
             b':' => self.make_token(TokenType::Colon),
             b'#' => self.make_token(TokenType::Hash),
             b'@' => self.make_token(TokenType::At),
-            
+
             // Dot 家族处理
             b'.' => {
                 // 1. 检查 .. 开头的情况
@@ -353,14 +353,14 @@ impl<'a> Lexer<'a> {
                 }
                 _ => return self.make_token(TokenType::Illegal),
             }
-        } 
+        }
         // 2. 处理普通字符 (包括 UTF-8 多字节字符)
         else if c != b'\'' && c != 0 {
             let len = utf8_byte_sequence_length(c);
             if len == 0 {
                 return self.make_token(TokenType::Illegal);
             }
-            
+
             for _ in 0..len {
                 self.advance();
             }
@@ -535,7 +535,7 @@ fn utf8_byte_sequence_length(c: u8) -> usize {
     }
 }
 
-// 关键字映射 
+// 关键字映射
 fn resolve_keyword(text: &[u8]) -> TokenType {
     match text {
         b"fn" => TokenType::Fn,

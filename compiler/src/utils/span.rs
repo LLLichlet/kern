@@ -10,10 +10,13 @@ pub struct Span {
 
 impl Span {
     pub fn to(self, other: Span) -> Self {
-        assert_eq!(self.file, other.file, "Cannot merge spans from different files!");
-        
+        assert_eq!(
+            self.file, other.file,
+            "Cannot merge spans from different files!"
+        );
+
         Self {
-            file: self.file, 
+            file: self.file,
             start: std::cmp::min(self.start, other.start),
             end: std::cmp::max(self.end, other.end),
         }

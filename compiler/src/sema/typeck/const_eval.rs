@@ -1,4 +1,4 @@
-use crate::ast::{self, Expr, ExprKind, BinaryOperator, UnaryOperator};
+use crate::ast::{self, BinaryOperator, Expr, ExprKind, UnaryOperator};
 use crate::context::Context;
 use crate::sema::def::Def;
 use crate::sema::scope::SymbolKind;
@@ -20,7 +20,11 @@ impl<'a> ConstEvaluator<'a> {
         match self.eval_math_inner(expr, 0) {
             Ok(val) => {
                 if val < 0 {
-                    self.ctx.struct_error(expr.span, "constant expression cannot evaluate to a negative number here")
+                    self.ctx
+                        .struct_error(
+                            expr.span,
+                            "constant expression cannot evaluate to a negative number here",
+                        )
                         .with_hint("array lengths and similar contexts require positive integers")
                         .emit();
                     0
@@ -39,7 +43,11 @@ impl<'a> ConstEvaluator<'a> {
     /// 核心递归求值引擎 (带有深度限制防死循环，中央分派器)
     fn eval_math_inner(&mut self, expr: &Expr, depth: usize) -> Result<i128, ()> {
         if depth > 100 {
-            self.ctx.struct_error(expr.span, "constant evaluation exceeded maximum recursion depth")
+            self.ctx
+                .struct_error(
+                    expr.span,
+                    "constant evaluation exceeded maximum recursion depth",
+                )
                 .with_hint("check for circular references in your `const` declarations")
                 .emit();
             return Err(());
@@ -57,19 +65,21 @@ impl<'a> ConstEvaluator<'a> {
 
             // === 3. 查表代入全局 Const 变量 ===
             ExprKind::Identifier(name) => self.eval_identifier(*name, depth, expr.span),
-            
+
             // === 4. 内置常量函数调用 (Intrinsics) ===
             ExprKind::Call { callee, .. } => self.eval_intrinsic_call(callee, expr.span),
 
             // === 5. 枚举字面量求值 ===
-            ExprKind::EnumLiteral(variant_name) => self.eval_enum_literal(expr.id, *variant_name, depth, expr.span),
+            ExprKind::EnumLiteral(variant_name) => {
+                self.eval_enum_literal(expr.id, *variant_name, depth, expr.span)
+            }
 
             // === 6. 数据初始化 ===
             ExprKind::DataInit { literal, .. } => {
                 match literal {
                     // 如果是一个纯量初始化（如 mut i32.{ 0 }），直接穿透求值
                     ast::DataLiteralKind::Scalar(inner) => self.eval_math_inner(inner, depth + 1),
-                    
+
                     // TODO: 如果是复杂的数组/结构体，由于当前 evaluator 只能返回 i128，我们暂时报错
                     // (后续如果需要支持 const arr = [3]i32.{1,2,3}，你需要重构 evaluator 返回 ConstantValue)
                     _ => {
@@ -81,13 +91,19 @@ impl<'a> ConstEvaluator<'a> {
 
             // === 7. 不支持的表达式 ===
             ExprKind::GenericInstantiation { .. } => {
-                self.ctx.struct_error(expr.span, "generic instantiation cannot be evaluated as a standalone constant value")
+                self.ctx
+                    .struct_error(
+                        expr.span,
+                        "generic instantiation cannot be evaluated as a standalone constant value",
+                    )
                     .with_hint("did you mean to call it like `@sizeof[T]()`?")
                     .emit();
                 Err(())
             }
             _ => {
-                self.ctx.struct_error(expr.span, "expected a constant expression").emit();
+                self.ctx
+                    .struct_error(expr.span, "expected a constant expression")
+                    .emit();
                 Err(())
             }
         }
@@ -97,7 +113,14 @@ impl<'a> ConstEvaluator<'a> {
     //            Const Eval Helpers
     // ==========================================
 
-    fn eval_binary(&mut self, lhs: &Expr, op: BinaryOperator, rhs: &Expr, depth: usize, span: Span) -> Result<i128, ()> {
+    fn eval_binary(
+        &mut self,
+        lhs: &Expr,
+        op: BinaryOperator,
+        rhs: &Expr,
+        depth: usize,
+        span: Span,
+    ) -> Result<i128, ()> {
         let left = self.eval_math_inner(lhs, depth + 1)?;
         let right = self.eval_math_inner(rhs, depth + 1)?;
 
@@ -107,7 +130,9 @@ impl<'a> ConstEvaluator<'a> {
             BinaryOperator::Multiply => Ok(left.wrapping_mul(right)),
             BinaryOperator::Divide => {
                 if right == 0 {
-                    self.ctx.struct_error(rhs.span, "division by zero in constant expression").emit();
+                    self.ctx
+                        .struct_error(rhs.span, "division by zero in constant expression")
+                        .emit();
                     Err(())
                 } else {
                     Ok(left / right)
@@ -115,7 +140,9 @@ impl<'a> ConstEvaluator<'a> {
             }
             BinaryOperator::Modulo => {
                 if right == 0 {
-                    self.ctx.struct_error(rhs.span, "modulo by zero in constant expression").emit();
+                    self.ctx
+                        .struct_error(rhs.span, "modulo by zero in constant expression")
+                        .emit();
                     Err(())
                 } else {
                     Ok(left % right)
@@ -127,28 +154,43 @@ impl<'a> ConstEvaluator<'a> {
             BinaryOperator::BitwiseOr => Ok(left | right),
             BinaryOperator::BitwiseXor => Ok(left ^ right),
             _ => {
-                self.ctx.struct_error(span, "operator not supported in constant expression").emit();
+                self.ctx
+                    .struct_error(span, "operator not supported in constant expression")
+                    .emit();
                 Err(())
             }
         }
     }
 
-    fn eval_unary(&mut self, op: UnaryOperator, operand: &Expr, depth: usize, span: Span) -> Result<i128, ()> {
+    fn eval_unary(
+        &mut self,
+        op: UnaryOperator,
+        operand: &Expr,
+        depth: usize,
+        span: Span,
+    ) -> Result<i128, ()> {
         let val = self.eval_math_inner(operand, depth + 1)?;
         match op {
             UnaryOperator::Negate => Ok(-val),
             UnaryOperator::BitwiseNot => Ok(!val),
             UnaryOperator::LogicalNot => Ok(if val == 0 { 1 } else { 0 }),
             _ => {
-                self.ctx.struct_error(span, "unary operator not supported in constant expression").emit();
+                self.ctx
+                    .struct_error(span, "unary operator not supported in constant expression")
+                    .emit();
                 Err(())
             }
         }
     }
 
-    fn eval_identifier(&mut self, name: crate::utils::SymbolId, depth: usize, span: Span) -> Result<i128, ()> {
+    fn eval_identifier(
+        &mut self,
+        name: crate::utils::SymbolId,
+        depth: usize,
+        span: Span,
+    ) -> Result<i128, ()> {
         let sym_info = self.ctx.scopes.resolve(name).cloned();
-        
+
         if let Some(info) = sym_info {
             if info.kind == SymbolKind::Const {
                 if let Some(def_id) = info.def_id {
@@ -157,26 +199,43 @@ impl<'a> ConstEvaluator<'a> {
                     } else {
                         return Err(());
                     };
-                    
+
                     return self.eval_math_inner(&const_expr, depth + 1);
                 }
             } else {
                 let name_str = self.ctx.resolve(name).to_string();
-                self.ctx.struct_error(span, format!("`{}` is a {}, not a compile-time constant", name_str, self.kind_to_string(info.kind)))
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!(
+                            "`{}` is a {}, not a compile-time constant",
+                            name_str,
+                            self.kind_to_string(info.kind)
+                        ),
+                    )
                     .with_hint("only `const` variables can be used in constant expressions")
                     .emit();
                 return Err(());
             }
         }
-        self.ctx.struct_error(span, "use of undeclared identifier in constant expression").emit();
+        self.ctx
+            .struct_error(span, "use of undeclared identifier in constant expression")
+            .emit();
         Err(())
     }
 
     fn eval_intrinsic_call(&mut self, callee: &Expr, span: Span) -> Result<i128, ()> {
-        let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
+        let callee_ty = self
+            .ctx
+            .node_types
+            .get(&callee.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         let norm_callee = self.ctx.type_registry.normalize(callee_ty);
-        
-        if let TypeKind::FnDef(def_id, generic_args) = self.ctx.type_registry.get(norm_callee).clone() {
+
+        if let TypeKind::FnDef(def_id, generic_args) =
+            self.ctx.type_registry.get(norm_callee).clone()
+        {
             if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
                 if f.is_intrinsic {
                     let name_str = self.ctx.resolve(f.name);
@@ -194,34 +253,66 @@ impl<'a> ConstEvaluator<'a> {
                             }
                         }
                         _ => {
-                            self.ctx.struct_error(span, format!("intrinsic `{}` cannot be evaluated at compile time", name_str)).emit();
+                            self.ctx
+                                .struct_error(
+                                    span,
+                                    format!(
+                                        "intrinsic `{}` cannot be evaluated at compile time",
+                                        name_str
+                                    ),
+                                )
+                                .emit();
                             return Err(());
                         }
                     }
                 }
             }
         }
-        
-        self.ctx.struct_error(span, "function calls are not allowed in constant expressions")
-            .with_hint("only compile-time intrinsics like `@sizeof` or `@alignof` are permitted here")
+
+        self.ctx
+            .struct_error(
+                span,
+                "function calls are not allowed in constant expressions",
+            )
+            .with_hint(
+                "only compile-time intrinsics like `@sizeof` or `@alignof` are permitted here",
+            )
             .emit();
         Err(())
     }
 
-    fn eval_enum_literal(&mut self, node_id: ast::NodeId, variant_name: crate::utils::SymbolId, depth: usize, span: Span) -> Result<i128, ()> {
-        let ty = self.ctx.node_types.get(&node_id).copied().unwrap_or(TypeId::ERROR);
+    fn eval_enum_literal(
+        &mut self,
+        node_id: ast::NodeId,
+        variant_name: crate::utils::SymbolId,
+        depth: usize,
+        span: Span,
+    ) -> Result<i128, ()> {
+        let ty = self
+            .ctx
+            .node_types
+            .get(&node_id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         let norm_ty = self.ctx.type_registry.normalize(ty);
-        
+
         let def_id = if let TypeKind::Def(id, _) = self.ctx.type_registry.get(norm_ty) {
             *id
         } else {
-            self.ctx.struct_error(span, "enum literal type could not be resolved during constant evaluation").emit();
+            self.ctx
+                .struct_error(
+                    span,
+                    "enum literal type could not be resolved during constant evaluation",
+                )
+                .emit();
             return Err(());
         };
-        
+
         let enum_def = if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
-            e.clone() 
-        } else { return Err(()); };
+            e.clone()
+        } else {
+            return Err(());
+        };
 
         let mut current_val: i128 = 0;
         for v in enum_def.variants {
@@ -233,9 +324,11 @@ impl<'a> ConstEvaluator<'a> {
             }
             current_val += 1;
         }
-        
+
         let v_str = self.ctx.resolve(variant_name).to_string();
-        self.ctx.struct_error(span, format!("variant `.{}` not found in enum", v_str)).emit();
+        self.ctx
+            .struct_error(span, format!("variant `.{}` not found in enum", v_str))
+            .emit();
         Err(())
     }
 
@@ -258,19 +351,25 @@ impl<'a> ConstEvaluator<'a> {
     }
 
     fn compute_type_align_inner(&mut self, ty: TypeId, depth: usize) -> u64 {
-        if depth > 100 { return 1; /* 防止非法嵌套结构体导致死循环崩溃 */ }
+        if depth > 100 {
+            return 1; /* 防止非法嵌套结构体导致死循环崩溃 */
+        }
 
         let norm = self.ctx.type_registry.normalize(ty);
         let kind = self.ctx.type_registry.get(norm).clone();
 
         match kind {
             TypeKind::Primitive(p) => self.primitive_align(p),
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => self.ctx.target.pointer_size, 
-            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size, 
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => {
+                self.ctx.target.pointer_size
+            }
+            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size,
             TypeKind::Mut(inner) => self.compute_type_align_inner(inner, depth + 1),
             TypeKind::Array { elem, .. } => self.compute_type_align_inner(elem, depth + 1),
-            
-            TypeKind::Def(def_id, generic_args) => self.compute_def_align(def_id, &generic_args, depth),
+
+            TypeKind::Def(def_id, generic_args) => {
+                self.compute_def_align(def_id, &generic_args, depth)
+            }
             _ => 1,
         }
     }
@@ -280,19 +379,25 @@ impl<'a> ConstEvaluator<'a> {
     }
 
     fn compute_type_size_inner(&mut self, ty: TypeId, depth: usize) -> u64 {
-        if depth > 100 { return 0; /* 防止非法嵌套结构体导致死循环崩溃 */ }
+        if depth > 100 {
+            return 0; /* 防止非法嵌套结构体导致死循环崩溃 */
+        }
 
         let norm = self.ctx.type_registry.normalize(ty);
         let kind = self.ctx.type_registry.get(norm).clone();
 
         match kind {
             TypeKind::Primitive(p) => self.primitive_size(p),
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => self.ctx.target.pointer_size,
-            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size * 2, 
+            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => {
+                self.ctx.target.pointer_size
+            }
+            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size * 2,
             TypeKind::Mut(inner) => self.compute_type_size_inner(inner, depth + 1),
             TypeKind::Array { elem, len } => self.compute_type_size_inner(elem, depth + 1) * len,
-            
-            TypeKind::Def(def_id, generic_args) => self.compute_def_size(def_id, &generic_args, depth),
+
+            TypeKind::Def(def_id, generic_args) => {
+                self.compute_def_size(def_id, &generic_args, depth)
+            }
             _ => 0,
         }
     }
@@ -313,7 +418,7 @@ impl<'a> ConstEvaluator<'a> {
             I32 | U32 | F32 => 4,
             I64 | U64 | F64 => 8,
             // 动态读取目标机器的指针大小 (例如 32 位架构返回 4, 64 位架构返回 8)
-            ISize | USize => self.ctx.target.pointer_size, 
+            ISize | USize => self.ctx.target.pointer_size,
             I128 | U128 => 16,
             _ => 1,
         }
@@ -337,7 +442,12 @@ impl<'a> ConstEvaluator<'a> {
     //       Layout Helpers (Complex Defs)
     // ==========================================
 
-    fn compute_def_align(&mut self, def_id: crate::sema::ty::DefId, generic_args: &[TypeId], depth: usize) -> u64 {
+    fn compute_def_align(
+        &mut self,
+        def_id: crate::sema::ty::DefId,
+        generic_args: &[TypeId],
+        depth: usize,
+    ) -> u64 {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
@@ -346,7 +456,9 @@ impl<'a> ConstEvaluator<'a> {
                 for field in &s.fields {
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
                     let align = self.compute_type_align_inner(f_ty, depth + 1);
-                    if align > max_align { max_align = align; }
+                    if align > max_align {
+                        max_align = align;
+                    }
                 }
                 max_align
             }
@@ -356,7 +468,9 @@ impl<'a> ConstEvaluator<'a> {
                 for field in &u.fields {
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
                     let align = self.compute_type_align_inner(f_ty, depth + 1);
-                    if align > max_align { max_align = align; }
+                    if align > max_align {
+                        max_align = align;
+                    }
                 }
                 max_align
             }
@@ -368,7 +482,12 @@ impl<'a> ConstEvaluator<'a> {
         }
     }
 
-    fn compute_def_size(&mut self, def_id: crate::sema::ty::DefId, generic_args: &[TypeId], depth: usize) -> u64 {
+    fn compute_def_size(
+        &mut self,
+        def_id: crate::sema::ty::DefId,
+        generic_args: &[TypeId],
+        depth: usize,
+    ) -> u64 {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
@@ -380,8 +499,10 @@ impl<'a> ConstEvaluator<'a> {
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
                     let f_align = self.compute_type_align_inner(f_ty, depth + 1);
                     let f_size = self.compute_type_size_inner(f_ty, depth + 1);
-                    
-                    if f_align > max_align { max_align = f_align; }
+
+                    if f_align > max_align {
+                        max_align = f_align;
+                    }
                     offset = Self::align_to(offset, f_align);
                     offset += f_size;
                 }
@@ -397,9 +518,13 @@ impl<'a> ConstEvaluator<'a> {
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
                     let f_align = self.compute_type_align_inner(f_ty, depth + 1);
                     let f_size = self.compute_type_size_inner(f_ty, depth + 1);
-                    
-                    if f_align > max_align { max_align = f_align; }
-                    if f_size > max_size { max_size = f_size; }
+
+                    if f_align > max_align {
+                        max_align = f_align;
+                    }
+                    if f_size > max_size {
+                        max_size = f_size;
+                    }
                 }
                 // 联合体总大小也必须对其最大对齐要求进行对齐
                 Self::align_to(max_size, max_align)
@@ -413,7 +538,11 @@ impl<'a> ConstEvaluator<'a> {
     }
 
     /// 构建泛型替换映射表
-    fn prepare_generic_subst(&self, generics: &[crate::ast::GenericParam], args: &[TypeId]) -> std::collections::HashMap<crate::utils::SymbolId, TypeId> {
+    fn prepare_generic_subst(
+        &self,
+        generics: &[crate::ast::GenericParam],
+        args: &[TypeId],
+    ) -> std::collections::HashMap<crate::utils::SymbolId, TypeId> {
         let mut map = std::collections::HashMap::new();
         if !generics.is_empty() && !args.is_empty() {
             for (i, param) in generics.iter().enumerate() {
@@ -424,10 +553,20 @@ impl<'a> ConstEvaluator<'a> {
     }
 
     /// 获取字段的 AST 类型，并在需要时应用泛型替换
-    fn resolve_field_type(&mut self, type_node: &crate::ast::TypeNode, map: &std::collections::HashMap<crate::utils::SymbolId, TypeId>) -> TypeId {
-        let mut f_ty = self.ctx.node_types.get(&type_node.id).copied().unwrap_or(TypeId::ERROR);
+    fn resolve_field_type(
+        &mut self,
+        type_node: &crate::ast::TypeNode,
+        map: &std::collections::HashMap<crate::utils::SymbolId, TypeId>,
+    ) -> TypeId {
+        let mut f_ty = self
+            .ctx
+            .node_types
+            .get(&type_node.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         if !map.is_empty() {
-            let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, map);
+            let mut subst =
+                crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, map);
             f_ty = subst.substitute(f_ty);
         }
         f_ty
@@ -436,7 +575,11 @@ impl<'a> ConstEvaluator<'a> {
     /// 获取枚举的底层表示类型
     fn resolve_enum_backing_type(&self, e: &crate::sema::def::EnumDef) -> TypeId {
         if let Some(bt) = &e.backing_type {
-            self.ctx.node_types.get(&bt.id).copied().unwrap_or(TypeId::U32)
+            self.ctx
+                .node_types
+                .get(&bt.id)
+                .copied()
+                .unwrap_or(TypeId::U32)
         } else {
             TypeId::U32
         }

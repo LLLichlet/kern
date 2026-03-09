@@ -22,24 +22,24 @@ impl NodeId {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOperator {
-    Add,          // +
-    Subtract,     // -
-    Multiply,     // *
-    Divide,       // /
-    Modulo,       // %
-    Equal,        // ==
-    NotEqual,     // !=
-    LessThan,     // <
-    GreaterThan,  // >
-    LessOrEqual,  // <=
+    Add,            // +
+    Subtract,       // -
+    Multiply,       // *
+    Divide,         // /
+    Modulo,         // %
+    Equal,          // ==
+    NotEqual,       // !=
+    LessThan,       // <
+    GreaterThan,    // >
+    LessOrEqual,    // <=
     GreaterOrEqual, // >=
-    LogicalAnd,   // and
-    LogicalOr,    // or
-    BitwiseAnd,   // &
-    BitwiseOr,    // |
-    BitwiseXor,   // ^
-    ShiftLeft,    // <<
-    ShiftRight,   // >>
+    LogicalAnd,     // and
+    LogicalOr,      // or
+    BitwiseAnd,     // &
+    BitwiseOr,      // |
+    BitwiseXor,     // ^
+    ShiftLeft,      // <<
+    ShiftRight,     // >>
 }
 
 impl BinaryOperator {
@@ -132,14 +132,10 @@ pub enum TypeKind {
     },
 
     /// 指针: `*T`, `*mut T`
-    Pointer {
-        elem: Box<TypeNode>,
-    },
+    Pointer { elem: Box<TypeNode> },
 
     /// 易失指针: `^T`, `^mut T`
-    VolatilePtr {
-        elem: Box<TypeNode>,
-    },
+    VolatilePtr { elem: Box<TypeNode> },
 
     /// 数组: `[N]T`
     Array {
@@ -148,9 +144,7 @@ pub enum TypeKind {
     },
 
     /// 切片: `[]T`
-    Slice {
-        elem: Box<TypeNode>,
-    },
+    Slice { elem: Box<TypeNode> },
 
     /// 可变类型修饰符 `mut T`
     Mut(Box<TypeNode>),
@@ -163,16 +157,11 @@ pub enum TypeKind {
     },
 
     // === 匿名/内联类型定义 (Structural Types) ===
-
     /// 结构体定义
-    Struct {
-        fields: Vec<StructFieldDef>,
-    },
+    Struct { fields: Vec<StructFieldDef> },
 
     /// 联合体定义
-    Union {
-        fields: Vec<StructFieldDef>,
-    },
+    Union { fields: Vec<StructFieldDef> },
 
     /// 枚举定义
     Enum {
@@ -181,9 +170,7 @@ pub enum TypeKind {
     },
 
     /// 特征定义 (Trait)
-    Trait {
-        fields: Vec<StructFieldDef>, 
-    },
+    Trait { fields: Vec<StructFieldDef> },
 
     /// 推导占位符 `_`
     Infer,
@@ -196,7 +183,7 @@ pub enum TypeKind {
 pub struct StructFieldDef {
     pub name: SymbolId,
     pub type_node: TypeNode, // TypeNode 结构体大小固定，可以直接嵌入
-    pub default_value: Option<Box<Expr>>, 
+    pub default_value: Option<Box<Expr>>,
     pub span: Span,
 }
 
@@ -236,8 +223,8 @@ pub enum ExprKind {
     Integer(u128),
     Float(f64),
     Bool(bool),
-    Char(char), 
-    String(String), 
+    Char(char),
+    String(String),
     Identifier(SymbolId),
 
     // --- Ops ---
@@ -262,11 +249,10 @@ pub enum ExprKind {
     },
     Call {
         callee: Box<Expr>,
-        args: Vec<Expr>, 
+        args: Vec<Expr>,
     },
 
     // --- Constructors ---
-
     /// 统一的数据字面量初始化，支持 Type.{ ... } 和 .{ ... }
     DataInit {
         /// 如果是 `.{ ... }`，此字段为 None；
@@ -280,7 +266,6 @@ pub enum ExprKind {
     EnumLiteral(SymbolId),
 
     // --- Control Flow ---
-
     If {
         cond: Box<Expr>,
         then_branch: Box<Expr>,
@@ -357,12 +342,9 @@ pub enum DataLiteralKind {
     Array(Vec<Expr>),
 
     /// 数组重复模式: `.{ 0; 1024 }`
-    Repeat {
-        value: Box<Expr>,
-        count: Box<Expr>,
-    },
+    Repeat { value: Box<Expr>, count: Box<Expr> },
 
-    /// 标量/单值构造模式: `.{ 10 }` 
+    /// 标量/单值构造模式: `.{ 10 }`
     Scalar(Box<Expr>),
 }
 
@@ -395,9 +377,7 @@ impl SwitchPattern {
     pub fn span(&self) -> Span {
         match self {
             SwitchPattern::Value(expr) => expr.span,
-            SwitchPattern::Range { start, end, .. } => {
-                start.span.to(end.span)
-            }
+            SwitchPattern::Range { start, end, .. } => start.span.to(end.span),
         }
     }
 }
@@ -525,6 +505,6 @@ pub struct FuncParam {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Module {
-    pub path: String, 
+    pub path: String,
     pub decls: Vec<Decl>,
 }

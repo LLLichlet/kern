@@ -1,8 +1,8 @@
 #![allow(unused)]
-use crate::diagnostic::{Diagnostic, DiagnosticLevel};
-use crate::utils::*;
-use crate::sema::*;
 use crate::config::TargetMachine;
+use crate::diagnostic::{Diagnostic, DiagnosticLevel};
+use crate::sema::*;
+use crate::utils::*;
 
 use std::collections::HashMap;
 
@@ -49,7 +49,7 @@ impl Context {
 
         self.diagnostics.push(Diagnostic::new(level, span, msg));
     }
-    
+
     /// 快捷方法：报告 Warning
     pub fn emit_warning(&mut self, span: Span, msg: String) {
         self.report(span, DiagnosticLevel::Warning, msg);
@@ -69,7 +69,7 @@ impl Context {
     pub fn resolve(&self, sym: SymbolId) -> &str {
         self.interner.resolve(sym).unwrap_or("<unknown>")
     }
-    
+
     /// 加载文件 (代理 SourceManager)
     pub fn load_file<P: AsRef<std::path::Path>>(&mut self, path: P) -> std::io::Result<FileId> {
         self.source_manager.load_file(path)
@@ -110,21 +110,26 @@ impl Context {
 
     fn print_single_diagnostic(&self, diag: &Diagnostic) {
         let location = self.source_manager.lookup_location(diag.primary_span);
-        
+
         let (filename, line, col) = match &location {
             Some(loc) => {
-                let fname = self.source_manager.get_file_path(loc.file_id)
+                let fname = self
+                    .source_manager
+                    .get_file_path(loc.file_id)
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| "<unknown>".to_string());
                 (fname, loc.line, loc.col)
-            },
+            }
             None => ("<unknown>".to_string(), 0, 0),
         };
 
         // 1. 打印带颜色的 Header
-        eprintln!("\x1b[1m{}:{}:{}: {} \x1b[1m{}\x1b[0m", 
-            filename, line, col, 
-            diag.level.color_name(), 
+        eprintln!(
+            "\x1b[1m{}:{}:{}: {} \x1b[1m{}\x1b[0m",
+            filename,
+            line,
+            col,
+            diag.level.color_name(),
             diag.message
         );
 
@@ -141,7 +146,7 @@ impl Context {
         for hint in &diag.hints {
             eprintln!("   \x1b[36;1m=\x1b[0m \x1b[1mhelp:\x1b[0m {}", hint);
         }
-        
+
         eprintln!(); // 分隔空行
     }
 
@@ -155,12 +160,17 @@ impl Context {
                 eprintln!(" {} |", padding);
                 eprintln!(" {} | {}", line_num_str, line_text.trim_end());
                 eprint!(" {} | ", padding);
-                
+
                 let span_len = std::cmp::max(1, span.end.saturating_sub(span.start));
                 let carets = "^".repeat(span_len);
-                
+
                 // 使用传入的颜色打印波浪线
-                eprintln!("{}{}{}\x1b[0m", " ".repeat(loc.col.saturating_sub(1)), caret_color, carets);
+                eprintln!(
+                    "{}{}{}\x1b[0m",
+                    " ".repeat(loc.col.saturating_sub(1)),
+                    caret_color,
+                    carets
+                );
             }
         }
     }
@@ -189,7 +199,7 @@ impl Context {
                 ty::PrimitiveType::F64 => "f64".to_string(),
                 ty::PrimitiveType::Str => "str".to_string(),
             },
-            
+
             // 组合类型：由于 Parser 的 AST 结构是 Mut(Elem)，
             // *mut T 会被解析为 Pointer(Mut(T))，这里打印出来刚好就是 "*mut T"
             ty::TypeKind::Pointer(elem) => format!("*{}", self.ty_to_string(*elem)),
@@ -197,45 +207,58 @@ impl Context {
             ty::TypeKind::Slice(elem) => format!("[]{}", self.ty_to_string(*elem)),
             ty::TypeKind::Array { elem, len } => format!("[{}]{}", len, self.ty_to_string(*elem)),
             ty::TypeKind::Mut(inner) => format!("mut {}", self.ty_to_string(*inner)),
-            
+
             // 具名类型：去 defs 里查真名，并拼接泛型
             ty::TypeKind::Def(def_id, generics) | ty::TypeKind::TraitObject(def_id, generics) => {
                 let def = &self.defs[def_id.0 as usize];
-                let name = def.name().map(|sym| self.resolve(sym)).unwrap_or("<anonymous>");
-                
+                let name = def
+                    .name()
+                    .map(|sym| self.resolve(sym))
+                    .unwrap_or("<anonymous>");
+
                 if generics.is_empty() {
                     name.to_string()
                 } else {
-                    let gen_strs: Vec<String> = generics.iter().map(|g| self.ty_to_string(*g)).collect();
+                    let gen_strs: Vec<String> =
+                        generics.iter().map(|g| self.ty_to_string(*g)).collect();
                     format!("{}[{}]", name, gen_strs.join(", "))
                 }
             }
-            
+
             // 别名与占位符：打印名字，不展开底层目标（对用户更直观）
             ty::TypeKind::Alias(sym, _) => self.resolve(*sym).to_string(),
             ty::TypeKind::Param(sym) => self.resolve(*sym).to_string(),
-            
+
             // 函数与方法签名
-            ty::TypeKind::Function { params, ret, is_variadic } => {
-                let mut param_strs: Vec<String> = params.iter().map(|p| self.ty_to_string(*p)).collect();
+            ty::TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => {
+                let mut param_strs: Vec<String> =
+                    params.iter().map(|p| self.ty_to_string(*p)).collect();
                 if *is_variadic {
                     param_strs.push("...".to_string());
                 }
                 format!("fn({}) {}", param_strs.join(", "), self.ty_to_string(*ret))
             }
-            
+
             // 特指某个具体的函数项 (比如传函数指针时报错)
             ty::TypeKind::FnDef(def_id, generics) => {
                 let def = &self.defs[def_id.0 as usize];
-                let name = def.name().map(|sym| self.resolve(sym)).unwrap_or("<anonymous fn>");
+                let name = def
+                    .name()
+                    .map(|sym| self.resolve(sym))
+                    .unwrap_or("<anonymous fn>");
                 if generics.is_empty() {
                     format!("fn item `{}`", name)
                 } else {
-                    let gen_strs: Vec<String> = generics.iter().map(|g| self.ty_to_string(*g)).collect();
+                    let gen_strs: Vec<String> =
+                        generics.iter().map(|g| self.ty_to_string(*g)).collect();
                     format!("fn item `{}[{}]`", name, gen_strs.join(", "))
                 }
             }
-            
+
             ty::TypeKind::Error => "{error}".to_string(),
         }
     }

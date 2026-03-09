@@ -1,7 +1,7 @@
 #![allow(unused)]
-use std::collections::HashMap;
-use crate::utils::SymbolId;
 use crate::ast::NodeId;
+use crate::utils::SymbolId;
+use std::collections::HashMap;
 
 /// 类型的唯一 ID (轻量级 Handle)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -26,7 +26,7 @@ impl TypeId {
     pub const ISIZE: Self = Self(14);
     pub const USIZE: Self = Self(15);
     // 字符串字面量类型 (只读切片)
-    pub const STR: Self = Self(16); 
+    pub const STR: Self = Self(16);
     // 错误占位符 (防止级联报错)
     pub const ERROR: Self = Self(17);
 }
@@ -39,7 +39,7 @@ pub enum TypeKind {
     /// 基础类型 (i32, bool, void...)
     Primitive(PrimitiveType),
 
-   /// 普通指针: *T (如果是 *mut T，则 base 指向一个 Mut 类型)
+    /// 普通指针: *T (如果是 *mut T，则 base 指向一个 Mut 类型)
     Pointer(TypeId),
 
     /// 易失指针: ^T
@@ -90,10 +90,22 @@ pub enum TypeKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PrimitiveType {
-    Void, Bool,
-    I8, I16, I32, I64, I128, ISize,
-    U8, U16, U32, U64, U128, USize,
-    F32, F64,
+    Void,
+    Bool,
+    I8,
+    I16,
+    I32,
+    I64,
+    I128,
+    ISize,
+    U8,
+    U16,
+    U32,
+    U64,
+    U128,
+    USize,
+    F32,
+    F64,
     Str, // 内部使用的字符串字面量类型
 }
 
@@ -105,7 +117,7 @@ pub struct DefId(pub u32);
 pub struct TypeRegistry {
     /// 存储具体的类型结构
     types: Vec<TypeKind>,
-    
+
     /// 去重表：保证相同的类型 (如 *i32) 永远拥有相同的 TypeId
     interner: HashMap<TypeKind, TypeId>,
 }
@@ -122,24 +134,24 @@ impl TypeRegistry {
 
     fn init_primitives(&mut self) {
         // 顺序必须与 TypeId 中的常量对应
-        self.add_primitive(PrimitiveType::Void);  // 0
-        self.add_primitive(PrimitiveType::Bool);  // 1
-        self.add_primitive(PrimitiveType::I8);    // 2
-        self.add_primitive(PrimitiveType::I16);   // 3
-        self.add_primitive(PrimitiveType::I32);   // 4
-        self.add_primitive(PrimitiveType::I64);   // 5
-        self.add_primitive(PrimitiveType::I128);  // 6
-        self.add_primitive(PrimitiveType::U8);    // 7
-        self.add_primitive(PrimitiveType::U16);   // 8
-        self.add_primitive(PrimitiveType::U32);   // 9
-        self.add_primitive(PrimitiveType::U64);   // 10
-        self.add_primitive(PrimitiveType::U128);  // 11
-        self.add_primitive(PrimitiveType::F32);   // 12
-        self.add_primitive(PrimitiveType::F64);   // 13
+        self.add_primitive(PrimitiveType::Void); // 0
+        self.add_primitive(PrimitiveType::Bool); // 1
+        self.add_primitive(PrimitiveType::I8); // 2
+        self.add_primitive(PrimitiveType::I16); // 3
+        self.add_primitive(PrimitiveType::I32); // 4
+        self.add_primitive(PrimitiveType::I64); // 5
+        self.add_primitive(PrimitiveType::I128); // 6
+        self.add_primitive(PrimitiveType::U8); // 7
+        self.add_primitive(PrimitiveType::U16); // 8
+        self.add_primitive(PrimitiveType::U32); // 9
+        self.add_primitive(PrimitiveType::U64); // 10
+        self.add_primitive(PrimitiveType::U128); // 11
+        self.add_primitive(PrimitiveType::F32); // 12
+        self.add_primitive(PrimitiveType::F64); // 13
         self.add_primitive(PrimitiveType::ISize); // 14
         self.add_primitive(PrimitiveType::USize); // 15
-        self.add_primitive(PrimitiveType::Str);   // 16
-        
+        self.add_primitive(PrimitiveType::Str); // 16
+
         // 17: Error
         self.types.push(TypeKind::Error);
     }
@@ -181,13 +193,24 @@ impl TypeRegistry {
             }
         }
     }
-    
+
     /// 判断是否是整数 (辅助函数)
     pub fn is_integer(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
-            TypeKind::Primitive(p) => matches!(p, 
-                PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::I128 | PrimitiveType::ISize |
-                PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64 | PrimitiveType::U128 | PrimitiveType::USize
+            TypeKind::Primitive(p) => matches!(
+                p,
+                PrimitiveType::I8
+                    | PrimitiveType::I16
+                    | PrimitiveType::I32
+                    | PrimitiveType::I64
+                    | PrimitiveType::I128
+                    | PrimitiveType::ISize
+                    | PrimitiveType::U8
+                    | PrimitiveType::U16
+                    | PrimitiveType::U32
+                    | PrimitiveType::U64
+                    | PrimitiveType::U128
+                    | PrimitiveType::USize
             ),
             _ => false,
         }
@@ -218,9 +241,9 @@ impl TypeRegistry {
     /// （可选但很有用）获取指针或切片的底层元素类型
     pub fn get_elem_type(&self, id: TypeId) -> Option<TypeId> {
         match self.get(self.normalize(id)) {
-            TypeKind::Pointer(elem) | 
-            TypeKind::VolatilePtr(elem) | 
-            TypeKind::Slice(elem) => Some(*elem),
+            TypeKind::Pointer(elem) | TypeKind::VolatilePtr(elem) | TypeKind::Slice(elem) => {
+                Some(*elem)
+            }
             TypeKind::Array { elem, .. } => Some(*elem),
             TypeKind::Mut(inner) => self.get_elem_type(*inner), // 穿透 Mut 找元素
             _ => None,

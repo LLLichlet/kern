@@ -18,9 +18,18 @@ impl<'a> ImportResolver<'a> {
 
     /// 执行完整的导入解析 Pass (支持不动点迭代)
     pub fn resolve_all(&mut self) {
-        let module_ids: Vec<DefId> = self.ctx.defs.iter().filter_map(|def| {
-            if let Def::Module(m) = def { Some(m.id) } else { None }
-        }).collect();
+        let module_ids: Vec<DefId> = self
+            .ctx
+            .defs
+            .iter()
+            .filter_map(|def| {
+                if let Def::Module(m) = def {
+                    Some(m.id)
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         let mut pending_imports: Vec<(DefId, ImportDef)> = Vec::new();
         for mod_id in module_ids {
@@ -55,11 +64,22 @@ impl<'a> ImportResolver<'a> {
         }
     }
 
-    fn resolve_single_import(&mut self, current_mod_id: DefId, import: &ImportDef, emit_errors: bool) -> bool {
+    fn resolve_single_import(
+        &mut self,
+        current_mod_id: DefId,
+        import: &ImportDef,
+        emit_errors: bool,
+    ) -> bool {
         let current_scope = self.get_module_scope(current_mod_id);
 
         // 1. 定位目标路径的 Module DefId 和 ScopeId
-        let (target_mod_id, target_scope) = match self.resolve_path(current_mod_id, import.path_kind, &import.path, import.span, emit_errors) {
+        let (target_mod_id, target_scope) = match self.resolve_path(
+            current_mod_id,
+            import.path_kind,
+            &import.path,
+            import.span,
+            emit_errors,
+        ) {
             Some(res) => res,
             None => return false, // 寻址失败
         };
@@ -70,7 +90,13 @@ impl<'a> ImportResolver<'a> {
                 let (parent_path, last_segment) = import.path.split_at(import.path.len() - 1);
                 let target_name = last_segment[0];
 
-                let (parent_mod_id, parent_scope) = match self.resolve_path(current_mod_id, import.path_kind, parent_path, import.span, emit_errors) {
+                let (parent_mod_id, parent_scope) = match self.resolve_path(
+                    current_mod_id,
+                    import.path_kind,
+                    parent_path,
+                    import.span,
+                    emit_errors,
+                ) {
                     Some(res) => res,
                     None => return false,
                 };
@@ -79,18 +105,35 @@ impl<'a> ImportResolver<'a> {
                     if !self.check_visibility(symbol_info.def_id, current_mod_id, parent_mod_id) {
                         if emit_errors {
                             let name_str = self.ctx.resolve(target_name).to_string();
-                            self.ctx.struct_error(import.span, format!("Symbol `{}` is private", name_str)).emit();
+                            self.ctx
+                                .struct_error(
+                                    import.span,
+                                    format!("Symbol `{}` is private", name_str),
+                                )
+                                .emit();
                         }
                         return false;
                     }
 
                     let name_to_bind = alias.unwrap_or(target_name);
-                    self.define_import(current_scope, name_to_bind, symbol_info.clone(), import.is_reexport, import.span, emit_errors);
+                    self.define_import(
+                        current_scope,
+                        name_to_bind,
+                        symbol_info.clone(),
+                        import.is_reexport,
+                        import.span,
+                        emit_errors,
+                    );
                     true
                 } else {
                     if emit_errors {
                         let name_str = self.ctx.resolve(target_name).to_string();
-                        self.ctx.struct_error(import.span, format!("Cannot find module or symbol `{}`", name_str)).emit();
+                        self.ctx
+                            .struct_error(
+                                import.span,
+                                format!("Cannot find module or symbol `{}`", name_str),
+                            )
+                            .emit();
                     }
                     false
                 }
@@ -98,23 +141,44 @@ impl<'a> ImportResolver<'a> {
             UseTarget::Members(members) => {
                 let mut all_resolved = true;
                 for member in members {
-                    if let Some(symbol_info) = self.ctx.scopes.resolve_in(target_scope, member.name) {
-                        
-                        if !self.check_visibility(symbol_info.def_id, current_mod_id, target_mod_id) {
+                    if let Some(symbol_info) = self.ctx.scopes.resolve_in(target_scope, member.name)
+                    {
+                        if !self.check_visibility(symbol_info.def_id, current_mod_id, target_mod_id)
+                        {
                             if emit_errors {
                                 let name_str = self.ctx.resolve(member.name).to_string();
-                                self.ctx.struct_error(member.span, format!("Symbol `{}` is private and cannot be imported", name_str)).emit();
+                                self.ctx
+                                    .struct_error(
+                                        member.span,
+                                        format!(
+                                            "Symbol `{}` is private and cannot be imported",
+                                            name_str
+                                        ),
+                                    )
+                                    .emit();
                             }
                             all_resolved = false;
                             continue;
                         }
 
                         let name_to_bind = member.alias.unwrap_or(member.name);
-                        self.define_import(current_scope, name_to_bind, symbol_info.clone(), import.is_reexport, member.span, emit_errors);
+                        self.define_import(
+                            current_scope,
+                            name_to_bind,
+                            symbol_info.clone(),
+                            import.is_reexport,
+                            member.span,
+                            emit_errors,
+                        );
                     } else {
                         if emit_errors {
                             let name_str = self.ctx.resolve(member.name).to_string();
-                            self.ctx.struct_error(member.span, format!("Cannot find `{}` in the target module", name_str)).emit();
+                            self.ctx
+                                .struct_error(
+                                    member.span,
+                                    format!("Cannot find `{}` in the target module", name_str),
+                                )
+                                .emit();
                         }
                         all_resolved = false;
                     }
@@ -137,14 +201,9 @@ impl<'a> ImportResolver<'a> {
         span: crate::utils::Span,
         emit_errors: bool, // 🌟 新增静默开关
     ) -> Option<(DefId, ScopeId)> {
-        
         let (mut curr_mod_id, mut curr_scope) = match kind {
-            UsePathKind::Absolute => {
-                (DefId(0), ScopeId(0)) 
-            }
-            UsePathKind::Relative => {
-                (current_mod_id, self.get_module_scope(current_mod_id))
-            }
+            UsePathKind::Absolute => (DefId(0), ScopeId(0)),
+            UsePathKind::Relative => (current_mod_id, self.get_module_scope(current_mod_id)),
             UsePathKind::Super => {
                 if let Def::Module(m) = &self.ctx.defs[current_mod_id.0 as usize] {
                     if let Some(parent_id) = m.parent {
@@ -167,7 +226,9 @@ impl<'a> ImportResolver<'a> {
             }
         };
 
-        if path.is_empty() { return Some((curr_mod_id, curr_scope)); }
+        if path.is_empty() {
+            return Some((curr_mod_id, curr_scope));
+        }
 
         for &segment in path {
             if let Some(symbol) = self.ctx.scopes.resolve_in(curr_scope, segment) {
@@ -178,7 +239,7 @@ impl<'a> ImportResolver<'a> {
                         continue;
                     }
                 }
-                
+
                 if emit_errors {
                     let name = self.ctx.resolve(segment).to_string();
                     self.ctx.struct_error(span, format!("`{}` is not a module", name))
@@ -186,11 +247,15 @@ impl<'a> ImportResolver<'a> {
                         .emit();
                 }
                 return None;
-
             } else {
                 if emit_errors {
                     let name = self.ctx.resolve(segment).to_string();
-                    self.ctx.struct_error(span, format!("Unresolved import: cannot find module `{}`", name)).emit();
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!("Unresolved import: cannot find module `{}`", name),
+                        )
+                        .emit();
                 }
                 return None;
             }
@@ -200,7 +265,12 @@ impl<'a> ImportResolver<'a> {
     }
 
     /// 检查符号是否对当前模块可见
-    fn check_visibility(&self, symbol_def_id: Option<DefId>, current_mod: DefId, target_mod: DefId) -> bool {
+    fn check_visibility(
+        &self,
+        symbol_def_id: Option<DefId>,
+        current_mod: DefId,
+        target_mod: DefId,
+    ) -> bool {
         // 如果是从当前模块自身导入，永远可见
         if current_mod == target_mod {
             return true;
@@ -212,7 +282,7 @@ impl<'a> ImportResolver<'a> {
         };
 
         let def = &self.ctx.defs[def_id.0 as usize];
-        
+
         // 提取定义本身的可见性
         let vis = match def {
             Def::Function(d) => d.vis,
@@ -230,7 +300,7 @@ impl<'a> ImportResolver<'a> {
             Visibility::Public => true,
             Visibility::Private => {
                 // 私有成员仅对同模块可见。
-                false 
+                false
             }
         }
     }
@@ -258,19 +328,34 @@ impl<'a> ImportResolver<'a> {
     }
 
     /// 将解析好的符号注入到当前模块的作用域
-    fn define_import(&mut self, target_scope: ScopeId, name: SymbolId, mut info: SymbolInfo, is_reexport: bool, span: crate::utils::Span, emit_errors: bool) {
+    fn define_import(
+        &mut self,
+        target_scope: ScopeId,
+        name: SymbolId,
+        mut info: SymbolInfo,
+        is_reexport: bool,
+        span: crate::utils::Span,
+        emit_errors: bool,
+    ) {
         info.is_pub = is_reexport;
-        info.span = span; 
-        
+        info.span = span;
+
         let prev_scope = self.ctx.scopes.current_scope_id();
         self.ctx.scopes.set_current_scope(target_scope);
-        
+
         if let Err(old_info) = self.ctx.scopes.define(name, info) {
             // 在不动点迭代中，重复解析成功的符号会导致“重定义”报错，我们必须根据 emit_errors 拦截
             if emit_errors && old_info.span != span {
                 let name_str = self.ctx.resolve(name).to_string();
-                self.ctx.struct_error(span, format!("the name `{}` is defined multiple times", name_str))
-                    .with_hint(format!("`{}` was already imported or defined in this module", name_str))
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!("the name `{}` is defined multiple times", name_str),
+                    )
+                    .with_hint(format!(
+                        "`{}` was already imported or defined in this module",
+                        name_str
+                    ))
                     .with_hint(format!("previous definition was here: {:?}", old_info.span))
                     .emit();
             }

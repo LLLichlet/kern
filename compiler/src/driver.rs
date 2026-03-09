@@ -1,14 +1,14 @@
 // src/driver.rs
+use crate::codegen::llvm::CodeGenerator;
 use crate::config::CompileOptions;
 use crate::context::Context;
+use crate::mast::lower::Lowerer;
 use crate::parser::Parser;
 use crate::sema::builtin::BuiltinInjector;
 use crate::sema::collect::Collector;
-use crate::sema::resolve_imports::ImportResolver; 
+use crate::sema::resolve_imports::ImportResolver;
 use crate::sema::resolve_types::TypeResolver;
 use crate::sema::typeck::TypeckDriver;
-use crate::mast::lower::Lowerer;
-use crate::codegen::llvm::CodeGenerator;
 use inkwell::context::Context as LlvmContext;
 
 use std::fs;
@@ -32,12 +32,17 @@ impl CompilerDriver {
         let source_code = match fs::read_to_string(&self.options.input_file) {
             Ok(s) => s,
             Err(e) => {
-                eprintln!("Error: Cannot read input file '{}': {}", self.options.input_file, e);
+                eprintln!(
+                    "Error: Cannot read input file '{}': {}",
+                    self.options.input_file, e
+                );
                 return false;
             }
         };
 
-        let file_id = ctx.source_manager.add_file(self.options.input_file.clone(), source_code.clone());
+        let file_id = ctx
+            .source_manager
+            .add_file(self.options.input_file.clone(), source_code.clone());
 
         // 3. 注入内置宏与特性
         let mut builtin = BuiltinInjector::new(&mut ctx);
@@ -65,17 +70,26 @@ impl CompilerDriver {
         // 6. 语义分析 Pass 2: 模块导入解析 (如果你写了的话)
         let mut import_resolver = ImportResolver::new(&mut ctx);
         import_resolver.resolve_all();
-        if ctx.has_errors() { ctx.print_diagnostics(); return false; }
+        if ctx.has_errors() {
+            ctx.print_diagnostics();
+            return false;
+        }
 
         // 7. 语义分析 Pass 3: 类型解析
         let mut type_resolver = TypeResolver::new(&mut ctx);
         type_resolver.resolve_all();
-        if ctx.has_errors() { ctx.print_diagnostics(); return false; }
+        if ctx.has_errors() {
+            ctx.print_diagnostics();
+            return false;
+        }
 
         // 8. 语义分析 Pass 4: 类型检查与推导
         let mut typeck = TypeckDriver::new(&mut ctx);
         typeck.check_all();
-        if ctx.has_errors() { ctx.print_diagnostics(); return false; }
+        if ctx.has_errors() {
+            ctx.print_diagnostics();
+            return false;
+        }
 
         // 9. MAST 降级与单态化
         let mut lowerer = Lowerer::new(&mut ctx);
@@ -85,27 +99,37 @@ impl CompilerDriver {
         let llvm_ctx = LlvmContext::create();
         // 取文件名作为 module 名字
         let mod_name = std::path::Path::new(&self.options.input_file)
-            .file_stem().unwrap_or_default().to_str().unwrap_or("kern_module");
-            
+            .file_stem()
+            .unwrap_or_default()
+            .to_str()
+            .unwrap_or("kern_module");
+
         let resolve_fn = |sym| ctx.resolve(sym);
-        let mut codegen = CodeGenerator::new(&llvm_ctx, mod_name, &ctx.type_registry, &ctx.defs, &resolve_fn);
-        
+        let mut codegen = CodeGenerator::new(
+            &llvm_ctx,
+            mod_name,
+            &ctx.type_registry,
+            &ctx.defs,
+            &resolve_fn,
+        );
+
         // 传递目标架构给 LLVM
         // codegen.set_target_machine(&self.options.target); // 如果你在 codegen 里加了这个方法
-        
+
         codegen.compile(&mast_module);
 
         if self.options.emit_llvm_ir {
-            codegen.print_ir(); 
+            codegen.print_ir();
             return true; // 如果只打印 IR，就不需要走后续的二进制生成了
-        } 
+        }
 
         // 决定临时 .o 文件的路径 (比如把 a.out 变成 a.out.o)
         let obj_path = std::path::Path::new(&self.options.output_file).with_extension("o");
         let obj_path_str = obj_path.to_str().unwrap();
 
         // 1. 调用刚刚写的 emit_to_file 生成 .o 文件
-        if let Err(e) = codegen.emit_to_file(&self.options.target.triple.to_string(), obj_path_str) {
+        if let Err(e) = codegen.emit_to_file(&self.options.target.triple.to_string(), obj_path_str)
+        {
             eprintln!("Error: LLVM failed to generate object file: {}", e);
             return false;
         }
@@ -130,7 +154,10 @@ impl CompilerDriver {
                 false
             }
             Err(e) => {
-                eprintln!("Error: Failed to invoke linker (`cc`). Make sure a C compiler is installed. ({})", e);
+                eprintln!(
+                    "Error: Failed to invoke linker (`cc`). Make sure a C compiler is installed. ({})",
+                    e
+                );
                 false
             }
         }

@@ -17,7 +17,7 @@ fn print_usage(program_name: &str) {
 fn parse_args() -> CompileOptions {
     let mut args = env::args();
     let program_name = args.next().unwrap_or_else(|| "kernc".to_string());
-    
+
     let mut options = CompileOptions::default();
     let mut input_file_set = false;
 
@@ -75,7 +75,7 @@ fn parse_args() -> CompileOptions {
 fn main() {
     let options = parse_args();
     let driver = CompilerDriver::new(options);
-    
+
     if !driver.compile() {
         process::exit(1);
     }

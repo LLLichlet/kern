@@ -1,40 +1,43 @@
 // src/codegen/llvm.rs
 
-use std::collections::HashMap;
+use inkwell::AddressSpace;
+use inkwell::builder::Builder;
 use inkwell::context::Context as LlvmContext;
 use inkwell::module::Module as LlvmModule;
-use inkwell::builder::Builder;
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue, GlobalValue};
+use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target};
 use inkwell::types::{BasicType, BasicTypeEnum, StructType};
-use inkwell::AddressSpace;
-use inkwell::targets::{Target, RelocMode, CodeModel, FileType, InitializationConfig};
+use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
+use std::collections::HashMap;
 
 use crate::mast::ast::*;
-use crate::sema::ty::{TypeId, TypeKind, PrimitiveType, TypeRegistry};
 use crate::sema::def::Def;
+use crate::sema::ty::{PrimitiveType, TypeId, TypeKind, TypeRegistry};
 
 pub struct CodeGenerator<'ctx, 'a> {
     pub context: &'ctx LlvmContext,
     pub builder: Builder<'ctx>,
     pub module: LlvmModule<'ctx>,
-    
+
     // 前端类型注册表与原始定义，用于反查结构体名
     pub type_registry: &'a TypeRegistry,
-    pub ctx_defs: &'a Vec<Def>, 
+    pub ctx_defs: &'a Vec<Def>,
     pub ctx_resolve: &'a dyn Fn(crate::utils::SymbolId) -> &'a str,
 
     pub structs: HashMap<MonoId, StructType<'ctx>>,
     pub globals: HashMap<MonoId, GlobalValue<'ctx>>,
     pub functions: HashMap<MonoId, FunctionValue<'ctx>>,
-    
+
     pub locals: HashMap<crate::utils::SymbolId, PointerValue<'ctx>>,
-    pub loop_targets: Vec<(inkwell::basic_block::BasicBlock<'ctx>, inkwell::basic_block::BasicBlock<'ctx>)>,
+    pub loop_targets: Vec<(
+        inkwell::basic_block::BasicBlock<'ctx>,
+        inkwell::basic_block::BasicBlock<'ctx>,
+    )>,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub fn new(
-        context: &'ctx LlvmContext, 
-        module_name: &str, 
+        context: &'ctx LlvmContext,
+        module_name: &str,
         type_registry: &'a TypeRegistry,
         ctx_defs: &'a Vec<Def>,
         ctx_resolve: &'a dyn Fn(crate::utils::SymbolId) -> &'a str,
@@ -67,20 +70,25 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.declare_functions(&real_functions);
 
         for global in &module.globals {
-            self.compile_global(global); 
+            self.compile_global(global);
         }
 
         for function in &real_functions {
             if !function.is_extern {
-                self.compile_function(function); 
+                self.compile_function(function);
             }
         }
     }
 
     fn compile_global(&mut self, global: &MastGlobal) {
-        if global.is_extern { return; }
-        let global_val = *self.globals.get(&global.id).expect("Global should be declared");
-        
+        if global.is_extern {
+            return;
+        }
+        let global_val = *self
+            .globals
+            .get(&global.id)
+            .expect("Global should be declared");
+
         if let Some(init) = &global.init {
             let const_val: inkwell::values::BasicValueEnum<'ctx> = match &init.kind {
                 MastExprKind::Integer(val) => {
@@ -91,9 +99,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let float_type = self.get_llvm_type(init.ty).into_float_type();
                     float_type.const_float(*val).into()
                 }
-                MastExprKind::Bool(val) => {
-                    self.context.bool_type().const_int(if *val { 1 } else { 0 }, false).into()
-                }
+                MastExprKind::Bool(val) => self
+                    .context
+                    .bool_type()
+                    .const_int(if *val { 1 } else { 0 }, false)
+                    .into(),
                 MastExprKind::StringLiteral(s) => {
                     let bytes = self.context.const_string(s.as_bytes(), false);
                     bytes.into()
@@ -106,15 +116,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             ptr_vals.push(func_val.as_global_value().as_pointer_value());
                         } else {
                             // 如果不是函数引用，塞入 Null 指针
-                            ptr_vals.push(self.context.ptr_type(AddressSpace::default()).const_null());
+                            ptr_vals
+                                .push(self.context.ptr_type(AddressSpace::default()).const_null());
                         }
                     }
                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
                     ptr_ty.const_array(&ptr_vals).into()
                 }
-                _ => self.get_llvm_type(global.ty).const_zero()
+                _ => self.get_llvm_type(global.ty).const_zero(),
             };
-            
+
             global_val.set_initializer(&const_val);
         } else if !global.is_extern {
             let llvm_ty = self.get_llvm_type(global.ty);
@@ -143,7 +154,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::I8 | PrimitiveType::U8 => self.context.i8_type().into(),
                 PrimitiveType::I16 | PrimitiveType::U16 => self.context.i16_type().into(),
                 PrimitiveType::I32 | PrimitiveType::U32 => self.context.i32_type().into(),
-                PrimitiveType::I64 | PrimitiveType::U64 | PrimitiveType::ISize | PrimitiveType::USize => self.context.i64_type().into(),
+                PrimitiveType::I64
+                | PrimitiveType::U64
+                | PrimitiveType::ISize
+                | PrimitiveType::USize => self.context.i64_type().into(),
                 PrimitiveType::I128 | PrimitiveType::U128 => self.context.i128_type().into(),
                 PrimitiveType::F32 => self.context.f32_type().into(),
                 PrimitiveType::F64 => self.context.f64_type().into(),
@@ -151,24 +165,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::Str => self.context.ptr_type(AddressSpace::default()).into(),
                 PrimitiveType::Void => self.context.i8_type().into(),
             },
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) 
-            | TypeKind::Function { .. } | TypeKind::FnDef(..) => {
-                self.context.ptr_type(AddressSpace::default()).into()
-            }
+            TypeKind::Pointer(_)
+            | TypeKind::VolatilePtr(_)
+            | TypeKind::Function { .. }
+            | TypeKind::FnDef(..) => self.context.ptr_type(AddressSpace::default()).into(),
             TypeKind::Array { elem, len } => {
                 let elem_ty = self.get_llvm_type(*elem);
                 elem_ty.array_type(*len as u32).into()
             }
             TypeKind::TraitObject(_, _) | TypeKind::Slice(_) => {
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
-                let len_ty = self.context.i64_type(); 
-                self.context.struct_type(&[ptr_ty.into(), len_ty.into()], false).into()
+                let len_ty = self.context.i64_type();
+                self.context
+                    .struct_type(&[ptr_ty.into(), len_ty.into()], false)
+                    .into()
             }
             TypeKind::Def(def_id, args) => {
                 let def = &self.ctx_defs[def_id.0 as usize];
                 let mut mangled_name = (self.ctx_resolve)(def.name().unwrap()).to_string();
-                for arg in args { mangled_name.push_str(&format!("_{}", arg.0)); }
-                
+                for arg in args {
+                    mangled_name.push_str(&format!("_{}", arg.0));
+                }
+
                 if let Some(struct_ty) = self.module.get_struct_type(&mangled_name) {
                     struct_ty.into()
                 } else {
@@ -176,8 +194,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
             _ => unreachable!(
-                "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}", 
-                norm, 
+                "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}",
+                norm,
                 self.type_registry.get(norm)
             ),
         }
@@ -195,7 +213,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         for s in structs {
             let llvm_struct = self.structs.get(&s.id).unwrap();
-            
+
             if s.is_union {
                 let target_ty = self.get_llvm_type(s.fields[s.largest_field_idx].ty);
                 llvm_struct.set_body(&[target_ty], false);
@@ -229,14 +247,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn declare_functions(&mut self, functions: &[MastFunction]) {
         for f in functions {
             let ret_ty = self.get_llvm_type(f.ret_ty);
-            
+
             let mut param_types = Vec::new();
             for p in &f.params {
                 param_types.push(self.get_llvm_type(p.ty).into());
             }
 
             let fn_type = if f.ret_ty == TypeId::VOID {
-                self.context.void_type().fn_type(&param_types, f.is_variadic)
+                self.context
+                    .void_type()
+                    .fn_type(&param_types, f.is_variadic)
             } else {
                 match ret_ty {
                     BasicTypeEnum::IntType(i) => i.fn_type(&param_types, f.is_variadic),
@@ -259,7 +279,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     pub fn compile_function(&mut self, func: &MastFunction) {
         let llvm_func = self.functions.get(&func.id).unwrap().clone();
-        
+
         let entry_block = self.context.append_basic_block(llvm_func, "entry");
         self.builder.position_at_end(entry_block);
         self.locals.clear();
@@ -267,8 +287,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         for (i, param) in func.params.iter().enumerate() {
             let param_val = llvm_func.get_nth_param(i as u32).unwrap();
             let param_ty = self.get_llvm_type(param.ty);
-            
-            let alloca = self.builder.build_alloca(param_ty, &format!("arg_{}", param.name.0)).unwrap();
+
+            let alloca = self
+                .builder
+                .build_alloca(param_ty, &format!("arg_{}", param.name.0))
+                .unwrap();
             self.builder.build_store(alloca, param_val).unwrap();
             self.locals.insert(param.name, alloca);
         }
@@ -276,7 +299,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         if let Some(body) = &func.body {
             // 1. 捕获 Block 执行完抛出的最后那个值 (比如 test3 里的 0)
             let block_res = self.compile_block(body);
-            
+
             let current_block = self.builder.get_insert_block().unwrap();
             if current_block.get_terminator().is_none() {
                 // 2. 如果 Block 有返回值，自动帮它生成 ret 指令
@@ -295,13 +318,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         // 1. 执行普通语句
         for stmt in &block.stmts {
             let current_block = self.builder.get_insert_block().unwrap();
-            if current_block.get_terminator().is_some() { break; }
+            if current_block.get_terminator().is_some() {
+                break;
+            }
 
             match stmt {
                 MastStmt::Let { name, ty, init } => {
                     let init_val = self.compile_expr(init);
                     let llvm_ty = self.get_llvm_type(*ty);
-                    let alloca = self.builder.build_alloca(llvm_ty, &format!("let_{}", name.0)).unwrap();
+                    let alloca = self
+                        .builder
+                        .build_alloca(llvm_ty, &format!("let_{}", name.0))
+                        .unwrap();
                     self.builder.build_store(alloca, init_val).unwrap();
                     self.locals.insert(*name, alloca);
                 }
@@ -310,7 +338,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
         }
-        
+
         let current_block = self.builder.get_insert_block().unwrap();
         if current_block.get_terminator().is_some() {
             return None;
@@ -341,9 +369,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match &expr.kind {
             // === 1. 字面量与常量 ===
             MastExprKind::Undef => expected_llvm_ty.const_zero(),
-            MastExprKind::Integer(val) => expected_llvm_ty.into_int_type().const_int(*val as u64, false).into(),
+            MastExprKind::Integer(val) => expected_llvm_ty
+                .into_int_type()
+                .const_int(*val as u64, false)
+                .into(),
             MastExprKind::Float(val) => expected_llvm_ty.into_float_type().const_float(*val).into(),
-            MastExprKind::Bool(val) => self.context.bool_type().const_int(if *val { 1 } else { 0 }, false).into(),
+            MastExprKind::Bool(val) => self
+                .context
+                .bool_type()
+                .const_int(if *val { 1 } else { 0 }, false)
+                .into(),
             MastExprKind::StringLiteral(_) => unreachable!("Handled dynamically in Globals"),
 
             // === 2. 引用与解引用 ===
@@ -354,11 +389,21 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MastExprKind::Deref(operand) => self.compile_deref(operand, expected_llvm_ty),
 
             // === 3. 聚合数据 (Struct/Union/Array) 构造与访问 ===
-            MastExprKind::StructInit { struct_id, fields } => self.compile_struct_init(*struct_id, fields),
-            MastExprKind::UnionInit { union_id, value, .. } => self.compile_union_init(*union_id, value),
+            MastExprKind::StructInit { struct_id, fields } => {
+                self.compile_struct_init(*struct_id, fields)
+            }
+            MastExprKind::UnionInit {
+                union_id, value, ..
+            } => self.compile_union_init(*union_id, value),
             MastExprKind::ArrayInit(elems) => self.compile_array_init(elems, expected_llvm_ty),
-            MastExprKind::FieldAccess { lhs, struct_id, field_idx } => self.compile_field_access(lhs, *struct_id, *field_idx, expected_llvm_ty),
-            MastExprKind::IndexAccess { lhs, index } => self.compile_index_access(lhs, index, expected_llvm_ty, expr.ty),
+            MastExprKind::FieldAccess {
+                lhs,
+                struct_id,
+                field_idx,
+            } => self.compile_field_access(lhs, *struct_id, *field_idx, expected_llvm_ty),
+            MastExprKind::IndexAccess { lhs, index } => {
+                self.compile_index_access(lhs, index, expected_llvm_ty, expr.ty)
+            }
 
             // === 4. 运算与赋值 ===
             MastExprKind::Call { callee, args } => self.compile_call(callee, args, expr.ty),
@@ -367,19 +412,47 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MastExprKind::Assign { op, lhs, rhs } => self.compile_assign(*op, lhs, rhs),
 
             // === 5. 控制流与块级作用域 ===
-            MastExprKind::If { cond, then_branch, else_branch } => self.compile_if(cond, then_branch, else_branch.as_ref(), expr.ty, expected_llvm_ty),
+            MastExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => self.compile_if(
+                cond,
+                then_branch,
+                else_branch.as_ref(),
+                expr.ty,
+                expected_llvm_ty,
+            ),
             MastExprKind::Loop(body) => self.compile_loop(body),
             MastExprKind::Break => self.compile_break(),
             MastExprKind::Continue => self.compile_continue(),
-            MastExprKind::Switch { target, cases, default_case } => self.compile_switch(target, cases, default_case.as_ref(), expr.ty, expected_llvm_ty),
+            MastExprKind::Switch {
+                target,
+                cases,
+                default_case,
+            } => self.compile_switch(
+                target,
+                cases,
+                default_case.as_ref(),
+                expr.ty,
+                expected_llvm_ty,
+            ),
             MastExprKind::Block(block) => self.compile_block_expr(block),
             MastExprKind::Return(ret_val) => self.compile_return(ret_val.as_deref()),
 
             // === 6. 类型转换与胖指针底层操作 ===
-            MastExprKind::Cast { kind, operand } => self.compile_cast(*kind, operand, expected_llvm_ty),
-            MastExprKind::ConstructFatPointer { data_ptr, meta } => self.compile_construct_fat_ptr(data_ptr, meta),
-            MastExprKind::ExtractFatPtrData(fat_ptr_expr) => self.compile_extract_fat_ptr(fat_ptr_expr, 0, "extract_data"),
-            MastExprKind::ExtractFatPtrMeta(fat_ptr_expr) => self.compile_extract_fat_ptr(fat_ptr_expr, 1, "extract_meta"),
+            MastExprKind::Cast { kind, operand } => {
+                self.compile_cast(*kind, operand, expected_llvm_ty)
+            }
+            MastExprKind::ConstructFatPointer { data_ptr, meta } => {
+                self.compile_construct_fat_ptr(data_ptr, meta)
+            }
+            MastExprKind::ExtractFatPtrData(fat_ptr_expr) => {
+                self.compile_extract_fat_ptr(fat_ptr_expr, 0, "extract_data")
+            }
+            MastExprKind::ExtractFatPtrMeta(fat_ptr_expr) => {
+                self.compile_extract_fat_ptr(fat_ptr_expr, 1, "extract_meta")
+            }
         }
     }
 
@@ -387,15 +460,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     //          LLVM Generation Helpers
     // ==========================================
 
-    fn compile_var_ref(&self, name: crate::utils::SymbolId, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_var_ref(
+        &self,
+        name: crate::utils::SymbolId,
+        expected_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let ptr = self.locals.get(&name).expect("Local variable not found");
-        self.builder.build_load(expected_ty, *ptr, &format!("load_{}", name.0)).unwrap()
+        self.builder
+            .build_load(expected_ty, *ptr, &format!("load_{}", name.0))
+            .unwrap()
     }
 
-    fn compile_global_ref(&self, mono_id: MonoId, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_global_ref(
+        &self,
+        mono_id: MonoId,
+        expected_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let global_val = self.globals.get(&mono_id).expect("Global not found");
         let ptr = global_val.as_pointer_value();
-        self.builder.build_load(expected_ty, ptr, "global_load").unwrap()
+        self.builder
+            .build_load(expected_ty, ptr, "global_load")
+            .unwrap()
     }
 
     fn compile_func_ref(&self, mono_id: MonoId) -> BasicValueEnum<'ctx> {
@@ -403,83 +488,161 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         func_val.as_global_value().as_pointer_value().into()
     }
 
-    fn compile_deref(&mut self, operand: &MastExpr, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_deref(
+        &mut self,
+        operand: &MastExpr,
+        expected_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let ptr_val = self.compile_expr(operand).into_pointer_value();
-        self.builder.build_load(expected_ty, ptr_val, "deref").unwrap()
+        self.builder
+            .build_load(expected_ty, ptr_val, "deref")
+            .unwrap()
     }
 
-    fn compile_struct_init(&mut self, struct_id: MonoId, fields: &[MastExpr]) -> BasicValueEnum<'ctx> {
+    fn compile_struct_init(
+        &mut self,
+        struct_id: MonoId,
+        fields: &[MastExpr],
+    ) -> BasicValueEnum<'ctx> {
         let struct_llvm_ty = self.structs.get(&struct_id).unwrap();
-        let mut current_struct = struct_llvm_ty.as_basic_type_enum().into_struct_type().const_zero();
-        
+        let mut current_struct = struct_llvm_ty
+            .as_basic_type_enum()
+            .into_struct_type()
+            .const_zero();
+
         for (idx, field_expr) in fields.iter().enumerate() {
             let field_val = self.compile_expr(field_expr);
-            current_struct = self.builder.build_insert_value(current_struct, field_val, idx as u32, "s_init").unwrap().into_struct_value();
+            current_struct = self
+                .builder
+                .build_insert_value(current_struct, field_val, idx as u32, "s_init")
+                .unwrap()
+                .into_struct_value();
         }
         current_struct.into()
     }
 
     fn compile_union_init(&mut self, union_id: MonoId, value: &MastExpr) -> BasicValueEnum<'ctx> {
         let union_llvm_ty = *self.structs.get(&union_id).unwrap();
-        let alloca = self.builder.build_alloca(union_llvm_ty, "union_init").unwrap();
-        
+        let alloca = self
+            .builder
+            .build_alloca(union_llvm_ty, "union_init")
+            .unwrap();
+
         let val = self.compile_expr(value);
         self.builder.build_store(alloca, val).unwrap();
-        self.builder.build_load(union_llvm_ty.as_basic_type_enum(), alloca, "union_load").unwrap()
+        self.builder
+            .build_load(union_llvm_ty.as_basic_type_enum(), alloca, "union_load")
+            .unwrap()
     }
 
-    fn compile_array_init(&mut self, elems: &[MastExpr], expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_array_init(
+        &mut self,
+        elems: &[MastExpr],
+        expected_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let array_llvm_ty = expected_ty.into_array_type();
         let mut current_array = array_llvm_ty.const_zero();
         for (idx, elem_expr) in elems.iter().enumerate() {
             let elem_val = self.compile_expr(elem_expr);
-            current_array = self.builder.build_insert_value(current_array, elem_val, idx as u32, "arr_init").unwrap().into_array_value();
+            current_array = self
+                .builder
+                .build_insert_value(current_array, elem_val, idx as u32, "arr_init")
+                .unwrap()
+                .into_array_value();
         }
         current_array.into()
     }
 
-    fn compile_field_access(&mut self, lhs: &MastExpr, struct_id: MonoId, field_idx: usize, expected_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_field_access(
+        &mut self,
+        lhs: &MastExpr,
+        struct_id: MonoId,
+        field_idx: usize,
+        expected_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let struct_ptr = self.compile_lvalue(lhs);
         let struct_llvm_ty = self.structs.get(&struct_id).unwrap();
-        
+
         // 检查原类型是否是 Union (通过从 registry 里查)
-        let is_union = if let TypeKind::Def(def_id, _) = self.type_registry.get(self.type_registry.normalize(lhs.ty)) {
+        let is_union = if let TypeKind::Def(def_id, _) =
+            self.type_registry.get(self.type_registry.normalize(lhs.ty))
+        {
             matches!(self.ctx_defs[def_id.0 as usize], Def::Union(_))
-        } else { false };
+        } else {
+            false
+        };
 
         if is_union {
             // 对于 Union，偏移量永远是 0。直接从 struct_ptr 按照 expected_ty 加载
-            self.builder.build_load(expected_ty, struct_ptr, "union_field_load").unwrap()
+            self.builder
+                .build_load(expected_ty, struct_ptr, "union_field_load")
+                .unwrap()
         } else {
-            let field_ptr = self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, field_idx as u32, "field_gep").unwrap();
-            self.builder.build_load(expected_ty, field_ptr, "field_load").unwrap()
+            let field_ptr = self
+                .builder
+                .build_struct_gep(*struct_llvm_ty, struct_ptr, field_idx as u32, "field_gep")
+                .unwrap();
+            self.builder
+                .build_load(expected_ty, field_ptr, "field_load")
+                .unwrap()
         }
     }
 
-    fn compile_index_access(&mut self, lhs: &MastExpr, index: &MastExpr, expected_ty: BasicTypeEnum<'ctx>, expr_ty: TypeId) -> BasicValueEnum<'ctx> {
+    fn compile_index_access(
+        &mut self,
+        lhs: &MastExpr,
+        index: &MastExpr,
+        expected_ty: BasicTypeEnum<'ctx>,
+        expr_ty: TypeId,
+    ) -> BasicValueEnum<'ctx> {
         let idx_val = self.compile_expr(index).into_int_value();
         let norm_lhs = self.type_registry.normalize(lhs.ty);
-        
+
         let elem_ptr = if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
             let slice_val = self.compile_expr(lhs).into_struct_value();
-            let ptr_val = self.builder.build_extract_value(slice_val, 0, "slice_ptr").unwrap().into_pointer_value();
+            let ptr_val = self
+                .builder
+                .build_extract_value(slice_val, 0, "slice_ptr")
+                .unwrap()
+                .into_pointer_value();
             let elem_ty = self.get_llvm_type(expr_ty);
-            unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_idx").unwrap() }
-        } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
+            unsafe {
+                self.builder
+                    .build_gep(elem_ty, ptr_val, &[idx_val], "slice_idx")
+                    .unwrap()
+            }
+        } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) =
+            self.type_registry.get(norm_lhs)
+        {
             let ptr_val = self.compile_expr(lhs).into_pointer_value();
             let elem_ty = self.get_llvm_type(expr_ty);
-            unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_idx").unwrap() }
+            unsafe {
+                self.builder
+                    .build_gep(elem_ty, ptr_val, &[idx_val], "ptr_idx")
+                    .unwrap()
+            }
         } else {
             let array_ptr = self.compile_lvalue(lhs);
             let zero = self.context.i64_type().const_zero();
             let array_llvm_ty = self.get_llvm_type(lhs.ty);
-            unsafe { self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_idx").unwrap() }
+            unsafe {
+                self.builder
+                    .build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_idx")
+                    .unwrap()
+            }
         };
-        
-        self.builder.build_load(expected_ty, elem_ptr, "idx_load").unwrap()
+
+        self.builder
+            .build_load(expected_ty, elem_ptr, "idx_load")
+            .unwrap()
     }
 
-    fn compile_call(&mut self, callee: &MastExpr, args: &[MastExpr], expr_ty: TypeId) -> BasicValueEnum<'ctx> {
+    fn compile_call(
+        &mut self,
+        callee: &MastExpr,
+        args: &[MastExpr],
+        expr_ty: TypeId,
+    ) -> BasicValueEnum<'ctx> {
         let mut llvm_args = Vec::new();
         for arg in args {
             llvm_args.push(self.compile_expr(arg).into());
@@ -487,14 +650,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let call_site = if let MastExprKind::FuncRef(mono_id) = callee.kind {
             let llvm_func = self.functions.get(&mono_id).unwrap();
-            self.builder.build_call(*llvm_func, &llvm_args, "call_ret").unwrap()
+            self.builder
+                .build_call(*llvm_func, &llvm_args, "call_ret")
+                .unwrap()
         } else {
             let ptr_val = self.compile_expr(callee).into_pointer_value();
             let norm_ty = self.type_registry.normalize(callee.ty);
-            
-            let fn_type = if let TypeKind::Function { params, ret, is_variadic } = self.type_registry.get(norm_ty) {
+
+            let fn_type = if let TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } = self.type_registry.get(norm_ty)
+            {
                 let mut param_types = Vec::new();
-                for p in params { param_types.push(self.get_llvm_type(*p).into()); }
+                for p in params {
+                    param_types.push(self.get_llvm_type(*p).into());
+                }
                 if *ret == TypeId::VOID {
                     self.context.void_type().fn_type(&param_types, *is_variadic)
                 } else {
@@ -507,44 +679,105 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         _ => unreachable!(),
                     }
                 }
-            } else { unreachable!() };
-            
-            self.builder.build_indirect_call(fn_type, ptr_val, &llvm_args, "icall").unwrap()
+            } else {
+                unreachable!()
+            };
+
+            self.builder
+                .build_indirect_call(fn_type, ptr_val, &llvm_args, "icall")
+                .unwrap()
         };
-        
+
         if expr_ty == TypeId::VOID || expr_ty == TypeId::ERROR {
-            self.context.i8_type().const_zero().into() 
+            self.context.i8_type().const_zero().into()
         } else {
-            call_site.try_as_basic_value().unwrap_basic() 
+            call_site.try_as_basic_value().unwrap_basic()
         }
     }
 
     // --- 运算与赋值 ---
-    fn compile_binary(&mut self, op: crate::ast::BinaryOperator, lhs: &MastExpr, rhs: &MastExpr) -> BasicValueEnum<'ctx> {
+    fn compile_binary(
+        &mut self,
+        op: crate::ast::BinaryOperator,
+        lhs: &MastExpr,
+        rhs: &MastExpr,
+    ) -> BasicValueEnum<'ctx> {
         let l_val = self.compile_expr(lhs);
         let r_val = self.compile_expr(rhs);
-        
+
         if l_val.is_int_value() && r_val.is_int_value() {
             let l_int = l_val.into_int_value();
             let r_int = r_val.into_int_value();
             use crate::ast::BinaryOperator::*;
             match op {
-                Add => self.builder.build_int_add(l_int, r_int, "add").unwrap().into(),
-                Subtract => self.builder.build_int_sub(l_int, r_int, "sub").unwrap().into(),
-                Multiply => self.builder.build_int_mul(l_int, r_int, "mul").unwrap().into(),
-                Divide => self.builder.build_int_signed_div(l_int, r_int, "sdiv").unwrap().into(),
-                Modulo => self.builder.build_int_signed_rem(l_int, r_int, "srem").unwrap().into(),
+                Add => self
+                    .builder
+                    .build_int_add(l_int, r_int, "add")
+                    .unwrap()
+                    .into(),
+                Subtract => self
+                    .builder
+                    .build_int_sub(l_int, r_int, "sub")
+                    .unwrap()
+                    .into(),
+                Multiply => self
+                    .builder
+                    .build_int_mul(l_int, r_int, "mul")
+                    .unwrap()
+                    .into(),
+                Divide => self
+                    .builder
+                    .build_int_signed_div(l_int, r_int, "sdiv")
+                    .unwrap()
+                    .into(),
+                Modulo => self
+                    .builder
+                    .build_int_signed_rem(l_int, r_int, "srem")
+                    .unwrap()
+                    .into(),
                 BitwiseAnd => self.builder.build_and(l_int, r_int, "and").unwrap().into(),
                 BitwiseOr => self.builder.build_or(l_int, r_int, "or").unwrap().into(),
                 BitwiseXor => self.builder.build_xor(l_int, r_int, "xor").unwrap().into(),
-                ShiftLeft => self.builder.build_left_shift(l_int, r_int, "shl").unwrap().into(),
-                ShiftRight => self.builder.build_right_shift(l_int, r_int, false, "shr").unwrap().into(),
-                Equal => self.builder.build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "eq").unwrap().into(),
-                NotEqual => self.builder.build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ne").unwrap().into(),
-                LessThan => self.builder.build_int_compare(inkwell::IntPredicate::SLT, l_int, r_int, "slt").unwrap().into(),
-                LessOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SLE, l_int, r_int, "sle").unwrap().into(),
-                GreaterThan => self.builder.build_int_compare(inkwell::IntPredicate::SGT, l_int, r_int, "sgt").unwrap().into(),
-                GreaterOrEqual => self.builder.build_int_compare(inkwell::IntPredicate::SGE, l_int, r_int, "sge").unwrap().into(),
+                ShiftLeft => self
+                    .builder
+                    .build_left_shift(l_int, r_int, "shl")
+                    .unwrap()
+                    .into(),
+                ShiftRight => self
+                    .builder
+                    .build_right_shift(l_int, r_int, false, "shr")
+                    .unwrap()
+                    .into(),
+                Equal => self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "eq")
+                    .unwrap()
+                    .into(),
+                NotEqual => self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ne")
+                    .unwrap()
+                    .into(),
+                LessThan => self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::SLT, l_int, r_int, "slt")
+                    .unwrap()
+                    .into(),
+                LessOrEqual => self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::SLE, l_int, r_int, "sle")
+                    .unwrap()
+                    .into(),
+                GreaterThan => self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::SGT, l_int, r_int, "sgt")
+                    .unwrap()
+                    .into(),
+                GreaterOrEqual => self
+                    .builder
+                    .build_int_compare(inkwell::IntPredicate::SGE, l_int, r_int, "sge")
+                    .unwrap()
+                    .into(),
                 _ => unreachable!("Operator handled elsewhere"),
             }
         } else if l_val.is_float_value() && r_val.is_float_value() {
@@ -552,73 +785,180 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let r_float = r_val.into_float_value();
             use crate::ast::BinaryOperator::*;
             match op {
-                Add => self.builder.build_float_add(l_float, r_float, "fadd").unwrap().into(),
-                Subtract => self.builder.build_float_sub(l_float, r_float, "fsub").unwrap().into(),
-                Multiply => self.builder.build_float_mul(l_float, r_float, "fmul").unwrap().into(),
-                Divide => self.builder.build_float_div(l_float, r_float, "fdiv").unwrap().into(),
-                Modulo => self.builder.build_float_rem(l_float, r_float, "frem").unwrap().into(),
-                Equal => self.builder.build_float_compare(inkwell::FloatPredicate::OEQ, l_float, r_float, "feq").unwrap().into(),
-                NotEqual => self.builder.build_float_compare(inkwell::FloatPredicate::ONE, l_float, r_float, "fne").unwrap().into(),
-                LessThan => self.builder.build_float_compare(inkwell::FloatPredicate::OLT, l_float, r_float, "flt").unwrap().into(),
-                LessOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle").unwrap().into(),
-                GreaterThan => self.builder.build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt").unwrap().into(),
-                GreaterOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge").unwrap().into(),
+                Add => self
+                    .builder
+                    .build_float_add(l_float, r_float, "fadd")
+                    .unwrap()
+                    .into(),
+                Subtract => self
+                    .builder
+                    .build_float_sub(l_float, r_float, "fsub")
+                    .unwrap()
+                    .into(),
+                Multiply => self
+                    .builder
+                    .build_float_mul(l_float, r_float, "fmul")
+                    .unwrap()
+                    .into(),
+                Divide => self
+                    .builder
+                    .build_float_div(l_float, r_float, "fdiv")
+                    .unwrap()
+                    .into(),
+                Modulo => self
+                    .builder
+                    .build_float_rem(l_float, r_float, "frem")
+                    .unwrap()
+                    .into(),
+                Equal => self
+                    .builder
+                    .build_float_compare(inkwell::FloatPredicate::OEQ, l_float, r_float, "feq")
+                    .unwrap()
+                    .into(),
+                NotEqual => self
+                    .builder
+                    .build_float_compare(inkwell::FloatPredicate::ONE, l_float, r_float, "fne")
+                    .unwrap()
+                    .into(),
+                LessThan => self
+                    .builder
+                    .build_float_compare(inkwell::FloatPredicate::OLT, l_float, r_float, "flt")
+                    .unwrap()
+                    .into(),
+                LessOrEqual => self
+                    .builder
+                    .build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle")
+                    .unwrap()
+                    .into(),
+                GreaterThan => self
+                    .builder
+                    .build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt")
+                    .unwrap()
+                    .into(),
+                GreaterOrEqual => self
+                    .builder
+                    .build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge")
+                    .unwrap()
+                    .into(),
                 _ => unreachable!(),
             }
-        } else { unreachable!() }
+        } else {
+            unreachable!()
+        }
     }
 
-    fn compile_unary(&mut self, op: crate::ast::UnaryOperator, operand: &MastExpr) -> BasicValueEnum<'ctx> {
+    fn compile_unary(
+        &mut self,
+        op: crate::ast::UnaryOperator,
+        operand: &MastExpr,
+    ) -> BasicValueEnum<'ctx> {
         let op_val = self.compile_expr(operand);
         match op {
             crate::ast::UnaryOperator::Negate => {
                 if op_val.is_int_value() {
-                    self.builder.build_int_neg(op_val.into_int_value(), "neg").unwrap().into()
+                    self.builder
+                        .build_int_neg(op_val.into_int_value(), "neg")
+                        .unwrap()
+                        .into()
                 } else {
-                    self.builder.build_float_neg(op_val.into_float_value(), "fneg").unwrap().into()
+                    self.builder
+                        .build_float_neg(op_val.into_float_value(), "fneg")
+                        .unwrap()
+                        .into()
                 }
             }
-            crate::ast::UnaryOperator::LogicalNot | crate::ast::UnaryOperator::BitwiseNot => {
-                self.builder.build_not(op_val.into_int_value(), "not").unwrap().into()
-            }
+            crate::ast::UnaryOperator::LogicalNot | crate::ast::UnaryOperator::BitwiseNot => self
+                .builder
+                .build_not(op_val.into_int_value(), "not")
+                .unwrap()
+                .into(),
             crate::ast::UnaryOperator::LengthOf => {
                 // MAST 保证了此时的类型已经是纯物理类型
                 let norm_ty = self.type_registry.normalize(operand.ty);
                 match self.type_registry.get(norm_ty) {
-                    TypeKind::Array { len, .. } => self.context.i64_type().const_int(*len, false).into(),
-                    TypeKind::Slice(_) => self.builder.build_extract_value(op_val.into_struct_value(), 1, "slice_len").unwrap(),
-                    _ => unreachable!()
+                    TypeKind::Array { len, .. } => {
+                        self.context.i64_type().const_int(*len, false).into()
+                    }
+                    TypeKind::Slice(_) => self
+                        .builder
+                        .build_extract_value(op_val.into_struct_value(), 1, "slice_len")
+                        .unwrap(),
+                    _ => unreachable!(),
                 }
             }
-            _ => unreachable!() 
+            _ => unreachable!(),
         }
     }
 
-    fn compile_assign(&mut self, op: crate::ast::AssignmentOperator, lhs: &MastExpr, rhs: &MastExpr) -> BasicValueEnum<'ctx> {
+    fn compile_assign(
+        &mut self,
+        op: crate::ast::AssignmentOperator,
+        lhs: &MastExpr,
+        rhs: &MastExpr,
+    ) -> BasicValueEnum<'ctx> {
         let ptr = self.compile_lvalue(lhs);
         let rhs_val = self.compile_expr(rhs);
-        
+
         if op == crate::ast::AssignmentOperator::Assign {
             self.builder.build_store(ptr, rhs_val).unwrap();
         } else {
             let expected_lhs_ty = self.get_llvm_type(lhs.ty);
-            let lhs_val = self.builder.build_load(expected_lhs_ty, ptr, "assign_load").unwrap();
-            
+            let lhs_val = self
+                .builder
+                .build_load(expected_lhs_ty, ptr, "assign_load")
+                .unwrap();
+
             let new_val: inkwell::values::BasicValueEnum<'ctx> = if lhs_val.is_int_value() {
                 let l_int = lhs_val.into_int_value();
                 let r_int = rhs_val.into_int_value();
                 use crate::ast::AssignmentOperator::*;
                 match op {
-                    AddAssign => self.builder.build_int_add(l_int, r_int, "add_a").unwrap().into(),
-                    SubtractAssign => self.builder.build_int_sub(l_int, r_int, "sub_a").unwrap().into(),
-                    MultiplyAssign => self.builder.build_int_mul(l_int, r_int, "mul_a").unwrap().into(),
-                    DivideAssign => self.builder.build_int_signed_div(l_int, r_int, "div_a").unwrap().into(),
-                    ModuloAssign => self.builder.build_int_signed_rem(l_int, r_int, "rem_a").unwrap().into(),
-                    BitwiseAndAssign => self.builder.build_and(l_int, r_int, "and_a").unwrap().into(),
+                    AddAssign => self
+                        .builder
+                        .build_int_add(l_int, r_int, "add_a")
+                        .unwrap()
+                        .into(),
+                    SubtractAssign => self
+                        .builder
+                        .build_int_sub(l_int, r_int, "sub_a")
+                        .unwrap()
+                        .into(),
+                    MultiplyAssign => self
+                        .builder
+                        .build_int_mul(l_int, r_int, "mul_a")
+                        .unwrap()
+                        .into(),
+                    DivideAssign => self
+                        .builder
+                        .build_int_signed_div(l_int, r_int, "div_a")
+                        .unwrap()
+                        .into(),
+                    ModuloAssign => self
+                        .builder
+                        .build_int_signed_rem(l_int, r_int, "rem_a")
+                        .unwrap()
+                        .into(),
+                    BitwiseAndAssign => self
+                        .builder
+                        .build_and(l_int, r_int, "and_a")
+                        .unwrap()
+                        .into(),
                     BitwiseOrAssign => self.builder.build_or(l_int, r_int, "or_a").unwrap().into(),
-                    BitwiseXorAssign => self.builder.build_xor(l_int, r_int, "xor_a").unwrap().into(),
-                    ShiftLeftAssign => self.builder.build_left_shift(l_int, r_int, "shl_a").unwrap().into(),
-                    ShiftRightAssign => self.builder.build_right_shift(l_int, r_int, false, "shr_a").unwrap().into(),
+                    BitwiseXorAssign => self
+                        .builder
+                        .build_xor(l_int, r_int, "xor_a")
+                        .unwrap()
+                        .into(),
+                    ShiftLeftAssign => self
+                        .builder
+                        .build_left_shift(l_int, r_int, "shl_a")
+                        .unwrap()
+                        .into(),
+                    ShiftRightAssign => self
+                        .builder
+                        .build_right_shift(l_int, r_int, false, "shr_a")
+                        .unwrap()
+                        .into(),
                     _ => unreachable!(),
                 }
             } else {
@@ -631,18 +971,34 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     // --- 控制流 (Control Flow) ---
 
-    fn compile_if(&mut self, cond: &MastExpr, then_branch: &MastBlock, else_branch: Option<&MastBlock>, expr_ty: TypeId, expected_llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_if(
+        &mut self,
+        cond: &MastExpr,
+        then_branch: &MastBlock,
+        else_branch: Option<&MastBlock>,
+        expr_ty: TypeId,
+        expected_llvm_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let cond_val = self.compile_expr(cond).into_int_value();
-        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let parent_func = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
 
         let then_bb = self.context.append_basic_block(parent_func, "then");
         let else_bb = self.context.append_basic_block(parent_func, "else");
         let merge_bb = self.context.append_basic_block(parent_func, "ifcont");
 
         if else_branch.is_some() {
-            self.builder.build_conditional_branch(cond_val, then_bb, else_bb).unwrap();
+            self.builder
+                .build_conditional_branch(cond_val, then_bb, else_bb)
+                .unwrap();
         } else {
-            self.builder.build_conditional_branch(cond_val, then_bb, merge_bb).unwrap();
+            self.builder
+                .build_conditional_branch(cond_val, then_bb, merge_bb)
+                .unwrap();
         }
 
         // 编译 Then 分支
@@ -679,21 +1035,26 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     fn compile_loop(&mut self, body: &MastBlock) -> BasicValueEnum<'ctx> {
-        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let parent_func = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
         let loop_bb = self.context.append_basic_block(parent_func, "loop");
         let merge_bb = self.context.append_basic_block(parent_func, "loopcont");
 
         self.builder.build_unconditional_branch(loop_bb).unwrap();
         self.builder.position_at_end(loop_bb);
         self.loop_targets.push((loop_bb, merge_bb));
-        
+
         self.compile_block(body);
-        
+
         let loop_exit_bb = self.builder.get_insert_block().unwrap();
         if loop_exit_bb.get_terminator().is_none() {
             self.builder.build_unconditional_branch(loop_bb).unwrap();
         }
-        
+
         self.loop_targets.pop();
         self.builder.position_at_end(merge_bb);
         self.context.i8_type().const_zero().into()
@@ -711,27 +1072,41 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.context.i8_type().const_zero().into()
     }
 
-    fn compile_switch(&mut self, target: &MastExpr, cases: &[MastSwitchCase], default_case: Option<&MastBlock>, expr_ty: TypeId, expected_llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_switch(
+        &mut self,
+        target: &MastExpr,
+        cases: &[MastSwitchCase],
+        default_case: Option<&MastBlock>,
+        expr_ty: TypeId,
+        expected_llvm_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let target_val = self.compile_expr(target).into_int_value();
-        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let parent_func = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
 
         let merge_bb = self.context.append_basic_block(parent_func, "switchcont");
         let default_bb = self.context.append_basic_block(parent_func, "default");
-        let mut case_blocks = Vec::new(); 
+        let mut case_blocks = Vec::new();
         let mut llvm_cases = Vec::new();
 
         for case in cases {
             let case_bb = self.context.append_basic_block(parent_func, "case");
-            case_blocks.push(case_bb); 
+            case_blocks.push(case_bb);
             for &val in &case.values {
                 let int_val = target_val.get_type().const_int(val as u64, false);
                 llvm_cases.push((int_val, case_bb));
             }
         }
 
-        self.builder.build_switch(target_val, default_bb, &llvm_cases).unwrap();
+        self.builder
+            .build_switch(target_val, default_bb, &llvm_cases)
+            .unwrap();
 
-        let mut incoming = Vec::new(); 
+        let mut incoming = Vec::new();
 
         // 编译 Default 分支
         self.builder.position_at_end(default_bb);
@@ -739,13 +1114,25 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             if let Some(val) = self.compile_block(def_block) {
                 incoming.push((val, self.builder.get_insert_block().unwrap()));
             }
-            if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+            if self
+                .builder
+                .get_insert_block()
+                .unwrap()
+                .get_terminator()
+                .is_none()
+            {
                 self.builder.build_unconditional_branch(merge_bb).unwrap();
             }
         } else {
             self.builder.build_unreachable().unwrap(); // 前端已保证穷尽性
         }
-        if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+        if self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_terminator()
+            .is_none()
+        {
             self.builder.build_unconditional_branch(merge_bb).unwrap();
         }
 
@@ -755,7 +1142,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             if let Some(val) = self.compile_block(&case.body) {
                 incoming.push((val, self.builder.get_insert_block().unwrap()));
             }
-            if self.builder.get_insert_block().unwrap().get_terminator().is_none() {
+            if self
+                .builder
+                .get_insert_block()
+                .unwrap()
+                .get_terminator()
+                .is_none()
+            {
                 self.builder.build_unconditional_branch(merge_bb).unwrap();
             }
         }
@@ -763,7 +1156,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         // 构建 PHI 返回值
         self.builder.position_at_end(merge_bb);
         if expr_ty != TypeId::VOID && !incoming.is_empty() {
-            let phi = self.builder.build_phi(expected_llvm_ty, "switchtmp").unwrap();
+            let phi = self
+                .builder
+                .build_phi(expected_llvm_ty, "switchtmp")
+                .unwrap();
             let mut incoming_refs = Vec::new();
             for (val, bb) in &incoming {
                 incoming_refs.push((val as &dyn inkwell::values::BasicValue<'ctx>, *bb));
@@ -795,107 +1191,232 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     // --- 类型转换 (Casts) ---
 
-    fn compile_cast(&mut self, kind: MastCastKind, operand: &MastExpr, target_llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
+    fn compile_cast(
+        &mut self,
+        kind: MastCastKind,
+        operand: &MastExpr,
+        target_llvm_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
         let val = self.compile_expr(operand);
         match kind {
             MastCastKind::Bitcast => {
                 if val.is_struct_value() && target_llvm_ty.is_pointer_type() {
                     let fat_ptr = val.into_struct_value();
-                    self.builder.build_extract_value(fat_ptr, 0, "slice_ptr_fallback").unwrap()
-                        .into_pointer_value().into()
+                    self.builder
+                        .build_extract_value(fat_ptr, 0, "slice_ptr_fallback")
+                        .unwrap()
+                        .into_pointer_value()
+                        .into()
                 } else {
-                    self.builder.build_bit_cast(val, target_llvm_ty, "bitcast").unwrap()
+                    self.builder
+                        .build_bit_cast(val, target_llvm_ty, "bitcast")
+                        .unwrap()
                 }
             }
-            MastCastKind::PtrToInt => self.builder.build_ptr_to_int(val.into_pointer_value(), target_llvm_ty.into_int_type(), "ptr2int").unwrap().into(),
-            MastCastKind::IntToPtr => self.builder.build_int_to_ptr(val.into_int_value(), target_llvm_ty.into_pointer_type(), "int2ptr").unwrap().into(),
-            MastCastKind::ZeroExt => self.builder.build_int_z_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "zext").unwrap().into(),
-            MastCastKind::SignExt => self.builder.build_int_s_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "sext").unwrap().into(),
-            MastCastKind::Trunc => self.builder.build_int_truncate(val.into_int_value(), target_llvm_ty.into_int_type(), "trunc").unwrap().into(),
-            MastCastKind::IntToFloat => self.builder.build_signed_int_to_float(val.into_int_value(), target_llvm_ty.into_float_type(), "i2f").unwrap().into(),
-            MastCastKind::FloatToInt => self.builder.build_float_to_signed_int(val.into_float_value(), target_llvm_ty.into_int_type(), "f2i").unwrap().into(),
-            MastCastKind::FloatCast => self.builder.build_float_cast(val.into_float_value(), target_llvm_ty.into_float_type(), "fcast").unwrap().into(),
-            
+            MastCastKind::PtrToInt => self
+                .builder
+                .build_ptr_to_int(
+                    val.into_pointer_value(),
+                    target_llvm_ty.into_int_type(),
+                    "ptr2int",
+                )
+                .unwrap()
+                .into(),
+            MastCastKind::IntToPtr => self
+                .builder
+                .build_int_to_ptr(
+                    val.into_int_value(),
+                    target_llvm_ty.into_pointer_type(),
+                    "int2ptr",
+                )
+                .unwrap()
+                .into(),
+            MastCastKind::ZeroExt => self
+                .builder
+                .build_int_z_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "zext")
+                .unwrap()
+                .into(),
+            MastCastKind::SignExt => self
+                .builder
+                .build_int_s_extend(val.into_int_value(), target_llvm_ty.into_int_type(), "sext")
+                .unwrap()
+                .into(),
+            MastCastKind::Trunc => self
+                .builder
+                .build_int_truncate(
+                    val.into_int_value(),
+                    target_llvm_ty.into_int_type(),
+                    "trunc",
+                )
+                .unwrap()
+                .into(),
+            MastCastKind::IntToFloat => self
+                .builder
+                .build_signed_int_to_float(
+                    val.into_int_value(),
+                    target_llvm_ty.into_float_type(),
+                    "i2f",
+                )
+                .unwrap()
+                .into(),
+            MastCastKind::FloatToInt => self
+                .builder
+                .build_float_to_signed_int(
+                    val.into_float_value(),
+                    target_llvm_ty.into_int_type(),
+                    "f2i",
+                )
+                .unwrap()
+                .into(),
+            MastCastKind::FloatCast => self
+                .builder
+                .build_float_cast(
+                    val.into_float_value(),
+                    target_llvm_ty.into_float_type(),
+                    "fcast",
+                )
+                .unwrap()
+                .into(),
+
             // ArrayDecay: [N]T -> []T (将数组隐式转换为带长度的胖指针)
             MastCastKind::ArrayToSlice => {
                 let slice_ty = target_llvm_ty.into_struct_type();
                 let mut slice_val = slice_ty.const_zero();
-                
+
                 let array_ptr = self.compile_lvalue(operand);
-                slice_val = self.builder.build_insert_value(slice_val, array_ptr, 0, "slice_ptr").unwrap().into_struct_value();
-                
+                slice_val = self
+                    .builder
+                    .build_insert_value(slice_val, array_ptr, 0, "slice_ptr")
+                    .unwrap()
+                    .into_struct_value();
+
                 let norm_op_ty = self.type_registry.normalize(operand.ty);
-                let len = if let TypeKind::Array { len, .. } = self.type_registry.get(norm_op_ty) { *len } else { 0 };
-                
+                let len = if let TypeKind::Array { len, .. } = self.type_registry.get(norm_op_ty) {
+                    *len
+                } else {
+                    0
+                };
+
                 let len_val = self.context.i64_type().const_int(len, false);
-                slice_val = self.builder.build_insert_value(slice_val, len_val, 1, "slice_len").unwrap().into_struct_value();
-                
+                slice_val = self
+                    .builder
+                    .build_insert_value(slice_val, len_val, 1, "slice_len")
+                    .unwrap()
+                    .into_struct_value();
+
                 slice_val.into()
             }
             MastCastKind::SliceToPtr => {
                 let fat_ptr = val.into_struct_value();
-                self.builder.build_extract_value(fat_ptr, 0, "slice_ptr").unwrap().into_pointer_value().into()
+                self.builder
+                    .build_extract_value(fat_ptr, 0, "slice_ptr")
+                    .unwrap()
+                    .into_pointer_value()
+                    .into()
             }
         }
     }
 
-    fn compile_construct_fat_ptr(&mut self, data_ptr: &MastExpr, meta: &MastExpr) -> BasicValueEnum<'ctx> {
+    fn compile_construct_fat_ptr(
+        &mut self,
+        data_ptr: &MastExpr,
+        meta: &MastExpr,
+    ) -> BasicValueEnum<'ctx> {
         let ptr_ty = self.context.ptr_type(AddressSpace::default());
         let len_ty = self.context.i64_type();
-        let fat_ptr_ty = self.context.struct_type(&[ptr_ty.into(), len_ty.into()], false);
-        
-        let mut fat_ptr = fat_ptr_ty.const_zero(); 
-        
+        let fat_ptr_ty = self
+            .context
+            .struct_type(&[ptr_ty.into(), len_ty.into()], false);
+
+        let mut fat_ptr = fat_ptr_ty.const_zero();
+
         let data_val = self.compile_expr(data_ptr);
-        fat_ptr = self.builder.build_insert_value(fat_ptr, data_val, 0, "fat_data").unwrap().into_struct_value();
-        
+        fat_ptr = self
+            .builder
+            .build_insert_value(fat_ptr, data_val, 0, "fat_data")
+            .unwrap()
+            .into_struct_value();
+
         let meta_val = self.compile_expr(meta);
-        fat_ptr = self.builder.build_insert_value(fat_ptr, meta_val, 1, "fat_meta").unwrap().into_struct_value();
-        
+        fat_ptr = self
+            .builder
+            .build_insert_value(fat_ptr, meta_val, 1, "fat_meta")
+            .unwrap()
+            .into_struct_value();
+
         fat_ptr.into()
     }
 
-    fn compile_extract_fat_ptr(&mut self, fat_ptr_expr: &MastExpr, index: u32, name: &str) -> BasicValueEnum<'ctx> {
+    fn compile_extract_fat_ptr(
+        &mut self,
+        fat_ptr_expr: &MastExpr,
+        index: u32,
+        name: &str,
+    ) -> BasicValueEnum<'ctx> {
         let fat_ptr_val = self.compile_expr(fat_ptr_expr).into_struct_value();
-        self.builder.build_extract_value(fat_ptr_val, index, name).unwrap()
+        self.builder
+            .build_extract_value(fat_ptr_val, index, name)
+            .unwrap()
     }
 
     fn compile_lvalue(&mut self, expr: &MastExpr) -> PointerValue<'ctx> {
         match &expr.kind {
-            MastExprKind::Var(name) => {
-                *self.locals.get(name).expect("Local variable not found")
-            }
-            MastExprKind::GlobalRef(mono_id) => {
-                self.globals.get(mono_id).expect("Global not found").as_pointer_value()
-            }
-            MastExprKind::FieldAccess { lhs, struct_id, field_idx } => {
+            MastExprKind::Var(name) => *self.locals.get(name).expect("Local variable not found"),
+            MastExprKind::GlobalRef(mono_id) => self
+                .globals
+                .get(mono_id)
+                .expect("Global not found")
+                .as_pointer_value(),
+            MastExprKind::FieldAccess {
+                lhs,
+                struct_id,
+                field_idx,
+            } => {
                 let struct_ptr = self.compile_lvalue(lhs);
-                let struct_llvm_ty = self.structs.get(struct_id).unwrap();            
-                self.builder.build_struct_gep(*struct_llvm_ty, struct_ptr, *field_idx as u32, "lvalue_gep").unwrap()
+                let struct_llvm_ty = self.structs.get(struct_id).unwrap();
+                self.builder
+                    .build_struct_gep(*struct_llvm_ty, struct_ptr, *field_idx as u32, "lvalue_gep")
+                    .unwrap()
             }
             MastExprKind::IndexAccess { lhs, index } => {
                 let idx_val = self.compile_expr(index).into_int_value();
                 let norm_lhs = self.type_registry.normalize(lhs.ty);
-                
+
                 if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
                     let slice_val = self.compile_expr(lhs).into_struct_value();
-                    let ptr_val = self.builder.build_extract_value(slice_val, 0, "slice_ptr").unwrap().into_pointer_value();
+                    let ptr_val = self
+                        .builder
+                        .build_extract_value(slice_val, 0, "slice_ptr")
+                        .unwrap()
+                        .into_pointer_value();
                     let elem_ty = self.get_llvm_type(expr.ty);
-                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "slice_lvalue").unwrap() }
-                } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) = self.type_registry.get(norm_lhs) {
+                    unsafe {
+                        self.builder
+                            .build_gep(elem_ty, ptr_val, &[idx_val], "slice_lvalue")
+                            .unwrap()
+                    }
+                } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) =
+                    self.type_registry.get(norm_lhs)
+                {
                     let ptr_val = self.compile_expr(lhs).into_pointer_value();
                     let elem_ty = self.get_llvm_type(expr.ty);
-                    unsafe { self.builder.build_gep(elem_ty, ptr_val, &[idx_val], "ptr_lvalue").unwrap() }
+                    unsafe {
+                        self.builder
+                            .build_gep(elem_ty, ptr_val, &[idx_val], "ptr_lvalue")
+                            .unwrap()
+                    }
                 } else {
                     let array_ptr = self.compile_lvalue(lhs);
                     let zero = self.context.i64_type().const_zero();
                     let array_llvm_ty = self.get_llvm_type(lhs.ty);
-                    unsafe { self.builder.build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_lvalue").unwrap() }
+                    unsafe {
+                        self.builder
+                            .build_gep(array_llvm_ty, array_ptr, &[zero, idx_val], "array_lvalue")
+                            .unwrap()
+                    }
                 }
             }
-            MastExprKind::Deref(operand) => {
-                self.compile_expr(operand).into_pointer_value()
-            }
+            MastExprKind::Deref(operand) => self.compile_expr(operand).into_pointer_value(),
             _ => panic!("Expression is not a valid l-value: {:?}", expr.kind),
         }
     }
@@ -910,21 +1431,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // 2. 解析目标架构三元组
         let triple = inkwell::targets::TargetTriple::create(target_triple_str);
-        
+
         let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
-        
+
         // 3. 创建目标机器实例 (配置优化级别、重定位模式等)
-        let target_machine = target.create_target_machine(
-            &triple,
-            "generic", // CPU 类型
-            "",        // 特性 
-            inkwell::OptimizationLevel::Default, // 可根据传入的 OptLevel 动态调整
-            RelocMode::Default,
-            CodeModel::Default,
-        ).ok_or("Failed to create target machine")?;
+        let target_machine = target
+            .create_target_machine(
+                &triple,
+                "generic",                           // CPU 类型
+                "",                                  // 特性
+                inkwell::OptimizationLevel::Default, // 可根据传入的 OptLevel 动态调整
+                RelocMode::Default,
+                CodeModel::Default,
+            )
+            .ok_or("Failed to create target machine")?;
 
         // 4. 将目标机器的数据布局 (Data Layout) 和三元组写入当前 Module
-        self.module.set_data_layout(&target_machine.get_target_data().get_data_layout());
+        self.module
+            .set_data_layout(&target_machine.get_target_data().get_data_layout());
         self.module.set_triple(&triple);
 
         if let Err(err) = self.module.verify() {
@@ -934,10 +1458,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.print_ir();
             return Err("Invalid LLVM IR generated".to_string());
         }
-        
+
         // 5. 触发 LLVM 后端，直接将 IR 编译为二进制的 Object (.o) 文件
         let path = std::path::Path::new(output_path);
-        target_machine.write_to_file(&self.module, FileType::Object, path).map_err(|e| e.to_string())?;
+        target_machine
+            .write_to_file(&self.module, FileType::Object, path)
+            .map_err(|e| e.to_string())?;
 
         Ok(())
     }

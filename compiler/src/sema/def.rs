@@ -1,7 +1,10 @@
 #![allow(unused)]
 
 use crate::ast;
-use crate::sema::{ty::{DefId, TypeId}, scope::ScopeId};
+use crate::sema::{
+    scope::ScopeId,
+    ty::{DefId, TypeId},
+};
 use crate::utils::{Span, SymbolId};
 
 /// 定义的可见性
@@ -62,7 +65,7 @@ pub struct ModuleDef {
     pub name: SymbolId,
     pub parent: Option<DefId>, // 记录父模块 (例如 std.io 的父模块是 std)
     pub scope_id: ScopeId,
-    pub items: Vec<DefId>,     // 模块内定义的成员
+    pub items: Vec<DefId>,       // 模块内定义的成员
     pub imports: Vec<ImportDef>, // 记录所有的 use 声明，留给下一阶段解析
 }
 
@@ -132,7 +135,7 @@ pub struct TraitDef {
     pub generics: Vec<ast::GenericParam>,
     pub supertraits: Vec<ast::TypeNode>,
     // 特征中定义的方法契约
-    pub methods: Vec<ast::StructFieldDef>, 
+    pub methods: Vec<ast::StructFieldDef>,
     pub resolved_methods: Vec<(SymbolId, TypeId)>,
     pub span: Span,
     pub is_builtin: bool,

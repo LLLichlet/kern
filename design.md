@@ -502,6 +502,8 @@ match (res) {
 
 ## 10. Classes and Component Polymorphism
 
+> *RFC: Thick Objects for GUI/VFS (Pending Real-world Validation)*
+
 While Kern’s `trait` system provides type-level polymorphism via external static VTables, certain domains (e.g., GUI frameworks, state machines, file operation tables) require **instance-level polymorphism**. Kern addresses this with the `class` keyword, which implements a "Thick Object" model.
 
 ### 10.1 Memory Layout and Internal Methods

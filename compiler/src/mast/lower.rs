@@ -308,13 +308,14 @@ impl<'a> Lowerer<'a> {
             result = Some(Box::new(self.lower_expr(block_expr, subst_map, Some(expected_ty))));
         }
 
-        let defers = self.defer_stack.pop().unwrap();
-        for d in defers.into_iter().rev() {
-            stmts.push(MastStmt::Expr(d));
+        let popped_defers = self.defer_stack.pop().unwrap();
+        let mut defers = Vec::new();
+        for d in popped_defers.into_iter().rev() {
+            defers.push(d); // 保持 LIFO 顺序存入单独的数组
         }
         
         self.local_types.pop();
-        MastBlock { stmts, result }
+        MastBlock { stmts, result, defers } // 将 defers 独立传递给后端
     }
 
     // ==========================================
@@ -478,16 +479,16 @@ impl<'a> Lowerer<'a> {
             let r = self.lower_expr(rhs, subst_map, Some(TypeId::BOOL));
             MastExprKind::If {
                 cond: Box::new(l),
-                then_branch: MastBlock { stmts: vec![], result: Some(Box::new(r)) },
-                else_branch: Some(MastBlock { stmts: vec![], result: Some(Box::new(MastExpr::new(TypeId::BOOL, MastExprKind::Bool(false), span))) }),
+                then_branch: MastBlock { stmts: vec![], result: Some(Box::new(r)), defers: vec![] },
+                else_branch: Some(MastBlock { stmts: vec![], result: Some(Box::new(MastExpr::new(TypeId::BOOL, MastExprKind::Bool(false), span))), defers: vec![] }),
             }
         } else if op == crate::ast::BinaryOperator::LogicalOr {
             let l = self.lower_expr(lhs, subst_map, Some(TypeId::BOOL));
             let r = self.lower_expr(rhs, subst_map, Some(TypeId::BOOL));
             MastExprKind::If {
                 cond: Box::new(l),
-                then_branch: MastBlock { stmts: vec![], result: Some(Box::new(MastExpr::new(TypeId::BOOL, MastExprKind::Bool(true), span))) },
-                else_branch: Some(MastBlock { stmts: vec![], result: Some(Box::new(r)) }),
+                then_branch: MastBlock { stmts: vec![], result: Some(Box::new(MastExpr::new(TypeId::BOOL, MastExprKind::Bool(true), span))), defers: vec![] },
+                else_branch: Some(MastBlock { stmts: vec![], result: Some(Box::new(r)), defers: vec![] }),
             }
         } else {
             let l = self.lower_expr(lhs, subst_map, None);
@@ -628,9 +629,31 @@ impl<'a> Lowerer<'a> {
         unreachable!("Invalid method call resolution")
     }
 
-    fn lower_normal_call(&mut self, callee: &Expr, arg_masts: Vec<MastExpr>, subst_map: &HashMap<SymbolId, TypeId>) -> MastExprKind {
+    fn lower_normal_call(&mut self, callee: &Expr, mut arg_masts: Vec<MastExpr>, subst_map: &HashMap<SymbolId, TypeId>) -> MastExprKind {
         let callee_mast = self.lower_expr(callee, subst_map, None);
         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone() {
+            
+            // 拦截内置函数 (Intrinsic)
+            if let Def::Function(f) = &self.ctx.defs[fn_id.0 as usize] {
+                if f.is_intrinsic {
+                    let name_str = self.ctx.resolve(f.name);
+                    // 在 MAST 阶段，将内置函数的“伪调用”直接降级为原生的运算指令
+                    if name_str == "@floatCast" {
+                        return MastExprKind::Cast {
+                            kind: MastCastKind::FloatCast,
+                            operand: Box::new(arg_masts.remove(0)),
+                        };
+                    } else if name_str == "@intToFloat" {
+                        return MastExprKind::Cast {
+                            kind: MastCastKind::IntToFloat,
+                            operand: Box::new(arg_masts.remove(0)),
+                        };
+                    }
+                    // TODO: 未来你可以在这里继续添加 @sizeof 等内置函数的拦截展开逻辑
+                }
+            }
+
+            // 如果不是内置函数，走正常的实例化和函数调用逻辑
             let mono_id = self.instantiate_function(fn_id, &fn_args);
             let func_ref = MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), callee.span);
             MastExprKind::Call { callee: Box::new(func_ref), args: arg_masts }
@@ -813,7 +836,7 @@ impl<'a> Lowerer<'a> {
             
             loop_stmts.push(MastStmt::Expr(MastExpr::new(TypeId::VOID, MastExprKind::If {
                 cond: Box::new(not_c),
-                then_branch: MastBlock { stmts: vec![MastStmt::Expr(MastExpr::new(TypeId::VOID, MastExprKind::Break, c.span))], result: None },
+                then_branch: MastBlock { stmts: vec![MastStmt::Expr(MastExpr::new(TypeId::VOID, MastExprKind::Break, c.span))], result: None, defers: vec![] },
                 else_branch: None,
             }, c.span)));
         }
@@ -821,7 +844,7 @@ impl<'a> Lowerer<'a> {
         loop_stmts.push(MastStmt::Expr(self.lower_expr(body, subst_map, None)));
         if let Some(p) = post { loop_stmts.push(MastStmt::Expr(self.lower_expr(p, subst_map, None))); }
 
-        let loop_expr = MastExpr::new(TypeId::VOID, MastExprKind::Loop(MastBlock { stmts: loop_stmts, result: None }), span);
+        let loop_expr = MastExpr::new(TypeId::VOID, MastExprKind::Loop(MastBlock { stmts: loop_stmts, result: None, defers: vec![] }), span);
 
         if let Some(i) = init {
             let mut outer_stmts = Vec::new();
@@ -832,7 +855,7 @@ impl<'a> Lowerer<'a> {
                 outer_stmts.push(MastStmt::Expr(self.lower_expr(i, subst_map, None)));
             }
             outer_stmts.push(MastStmt::Expr(loop_expr));
-            MastExprKind::Block(MastBlock { stmts: outer_stmts, result: None })
+            MastExprKind::Block(MastBlock { stmts: outer_stmts, result: None, defers: vec![] })
         } else {
             loop_expr.kind
         }
@@ -879,7 +902,7 @@ impl<'a> Lowerer<'a> {
             MastExprKind::Return(v)
         } else {
             defer_stmts.push(MastStmt::Expr(MastExpr::new(TypeId::VOID, MastExprKind::Return(v), span)));
-            MastExprKind::Block(MastBlock { stmts: defer_stmts, result: None })
+            MastExprKind::Block(MastBlock { stmts: defer_stmts, result: None, defers: vec![] })
         }
     }
 

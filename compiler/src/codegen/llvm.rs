@@ -57,13 +57,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub fn compile(&mut self, module: &MastModule) {
         self.declare_structs(&module.structs);
         self.declare_globals(&module.globals);
-        self.declare_functions(&module.functions);
+        let mut real_functions = Vec::new();
+        for f in &module.functions {
+            // TODO: 通过名字前缀拦截（或者你在 MastFunction 里加个 is_intrinsic 字段更好，这里我们用名字黑客一下）
+            if !f.name.starts_with("@") {
+                real_functions.push(f.clone());
+            }
+        }
+        self.declare_functions(&real_functions);
 
         for global in &module.globals {
             self.compile_global(global); 
         }
 
-        for function in &module.functions {
+        for function in &real_functions {
             if !function.is_extern {
                 self.compile_function(function); 
             }
@@ -285,11 +292,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     fn compile_block(&mut self, block: &MastBlock) -> Option<BasicValueEnum<'ctx>> {
+        // 1. 执行普通语句
         for stmt in &block.stmts {
             let current_block = self.builder.get_insert_block().unwrap();
-            if current_block.get_terminator().is_some() {
-                break;
-            }
+            if current_block.get_terminator().is_some() { break; }
 
             match stmt {
                 MastStmt::Let { name, ty, init } => {
@@ -307,13 +313,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         
         let current_block = self.builder.get_insert_block().unwrap();
         if current_block.get_terminator().is_some() {
-            return None; // 已经被终止了，不需要再返回结果
+            return None;
         }
 
+        // 2. 求出返回值，用 SSA 寄存器暂存
+        let mut result_val = None;
         if let Some(result_expr) = &block.result {
-            return Some(self.compile_expr(result_expr));
+            result_val = Some(self.compile_expr(result_expr));
         }
-        None
+
+        // 3. 在求出返回值之后，块退出之前，执行所有的 defer
+        for defer_expr in &block.defers {
+            self.compile_expr(defer_expr);
+        }
+
+        // 4. Yield 这个在 defer 执行前就已经算好的值
+        result_val
     }
 
     // ==========================================

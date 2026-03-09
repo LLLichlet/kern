@@ -70,6 +70,7 @@ pub struct MastParam {
 pub struct MastBlock {
     pub stmts: Vec<MastStmt>,
     pub result: Option<Box<MastExpr>>, // 块的返回值
+    pub defers: Vec<MastExpr>,
 }
 
 #[derive(Debug, Clone)]

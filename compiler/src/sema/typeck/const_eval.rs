@@ -64,7 +64,22 @@ impl<'a> ConstEvaluator<'a> {
             // === 5. 枚举字面量求值 ===
             ExprKind::EnumLiteral(variant_name) => self.eval_enum_literal(expr.id, *variant_name, depth, expr.span),
 
-            // === 6. 不支持的表达式 ===
+            // === 6. 数据初始化 ===
+            ExprKind::DataInit { literal, .. } => {
+                match literal {
+                    // 如果是一个纯量初始化（如 mut i32.{ 0 }），直接穿透求值
+                    ast::DataLiteralKind::Scalar(inner) => self.eval_math_inner(inner, depth + 1),
+                    
+                    // TODO: 如果是复杂的数组/结构体，由于当前 evaluator 只能返回 i128，我们暂时报错
+                    // (后续如果需要支持 const arr = [3]i32.{1,2,3}，你需要重构 evaluator 返回 ConstantValue)
+                    _ => {
+                        self.ctx.struct_error(expr.span, "complex data initialization (arrays, structs) is not yet supported in simple constant math evaluation").emit();
+                        Err(())
+                    }
+                }
+            }
+
+            // === 7. 不支持的表达式 ===
             ExprKind::GenericInstantiation { .. } => {
                 self.ctx.struct_error(expr.span, "generic instantiation cannot be evaluated as a standalone constant value")
                     .with_hint("did you mean to call it like `@sizeof[T]()`?")

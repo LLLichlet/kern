@@ -1941,76 +1941,76 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_use_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
-        self.advance();
+        self.advance(); // 消费 `use`
+        
         let mut kind = UsePathKind::Absolute;
-        if self.match_token(&[TokenType::Dot]) {
-            kind = UsePathKind::Relative;
-        } else if self.match_token(&[TokenType::DotDot]) {
-            kind = UsePathKind::Super;
-        }
-
+        if self.match_token(&[TokenType::Dot]) { kind = UsePathKind::Relative; }
+        else if self.match_token(&[TokenType::DotDot]) { kind = UsePathKind::Super; }
+        
         let mut path = Vec::new();
+        let mut target = UseTarget::Module(None);
+        
         loop {
-            if self.check(TokenType::LBrace) {
+            // 情况 1: 遇到纯粹的 `{` (比如 `use .{ ... }` 或者路径已经被处理完)
+            if self.match_token(&[TokenType::LBrace]) { 
+                target = self.parse_use_members()?;
+                break; 
+            }
+            // 情况 2: 核心修复，处理被 Lexer 捏合在一起的 `.{` Token
+            if self.match_token(&[TokenType::DotLBrace]) {
+                target = self.parse_use_members()?;
                 break;
             }
+            
+            // 正常读取路径段
             let id = self.expect(TokenType::Identifier)?;
             path.push(self.intern_token(id));
-            if !self.match_token(&[TokenType::Dot]) {
+            
+            // 在路径段之后再次检查是否直接跟着 `.{`
+            if self.match_token(&[TokenType::DotLBrace]) {
+                target = self.parse_use_members()?;
+                break;
+            } else if self.match_token(&[TokenType::Dot]) {
+                // 如果后面跟着普通的点号，继续循环读取下一个段
+                continue;
+            } else {
+                // 没有任何后缀，跳出循环，按普通模块导入处理
+                let mut alias = None;
+                if self.match_token(&[TokenType::As]) {
+                    let a = self.expect(TokenType::Identifier)?;
+                    alias = Some(self.intern_token(a));
+                }
+                target = UseTarget::Module(alias);
                 break;
             }
         }
-
-        let target;
-        if self.check(TokenType::LBrace) {
-            self.advance();
-            let mut members = Vec::new();
-            while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-                let m_tok = self.expect(TokenType::Identifier)?;
-                let m_id = self.intern_token(m_tok);
-                let mut alias = None;
-                if self.match_token(&[TokenType::As]) {
-                    let a_tok = self.expect(TokenType::Identifier)?;
-                    alias = Some(self.intern_token(a_tok));
-                }
-                members.push(UseMember {
-                    name: m_id,
-                    alias,
-                    span: m_tok.span,
-                });
-                if !self.match_token(&[TokenType::Comma]) {
-                    break;
-                }
-            }
-            self.expect(TokenType::RBrace)?;
-            target = UseTarget::Members(members);
-        } else {
-            let mut alias = None;
-            if self.match_token(&[TokenType::As]) {
-                let a = self.expect(TokenType::Identifier)?;
-                alias = Some(self.intern_token(a));
-            }
-            target = UseTarget::Module(alias);
-        }
+        
         self.expect(TokenType::Semicolon)?;
-        let name = if let Some(&last) = path.last() {
-            last
-        } else {
-            self.context.intern("root")
-        };
-
+        
+        let name = if let Some(&last) = path.last() { last } else { self.context.intern("root") };
+        
         Ok(Decl {
-            id: self.new_id(),
-            span: start.to(self.stream.prev_span()),
-            name,
-            is_pub,
-            kind: DeclKind::Use {
-                kind,
-                path,
-                target,
-                is_reexport: is_pub,
-            },
+             id: self.new_id(), span: start.to(self.stream.prev_span()), name, is_pub,
+             kind: DeclKind::Use { kind, path, target, is_reexport: is_pub }
         })
+    }
+
+    // 辅助方法：专门解析大括号里的重导出成员 `{ Point, new_point as np }`
+    fn parse_use_members(&mut self) -> ParseResult<UseTarget> {
+        let mut members = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+             let m_tok = self.expect(TokenType::Identifier)?;
+             let m_id = self.intern_token(m_tok);
+             let mut alias = None;
+             if self.match_token(&[TokenType::As]) {
+                 let a_tok = self.expect(TokenType::Identifier)?;
+                 alias = Some(self.intern_token(a_tok));
+             }
+             members.push(UseMember { name: m_id, alias, span: m_tok.span });
+             if !self.match_token(&[TokenType::Comma]) { break; }
+        }
+        self.expect(TokenType::RBrace)?;
+        Ok(UseTarget::Members(members))
     }
 
     /// 将一个路径表达式强制转换为 TypeNode（用于处理 Type.{...} 的左侧）

@@ -3,7 +3,6 @@ use crate::codegen::llvm::CodeGenerator;
 use crate::config::CompileOptions;
 use crate::context::Context;
 use crate::mast::lower::Lowerer;
-use crate::parser::Parser;
 use crate::sema::builtin::BuiltinInjector;
 use crate::sema::collect::Collector;
 use crate::sema::resolve_imports::ImportResolver;
@@ -40,7 +39,7 @@ impl CompilerDriver {
             }
         };
 
-        let file_id = ctx
+        let _ = ctx
             .source_manager
             .add_file(self.options.input_file.clone(), source_code.clone());
 
@@ -48,26 +47,30 @@ impl CompilerDriver {
         let mut builtin = BuiltinInjector::new(&mut ctx);
         builtin.inject();
 
-        // 4. 词法与语法分析
-        let mut parser = Parser::new(&source_code, file_id, &mut ctx);
-        let module_ast = match parser.parse_module() {
-            Ok(ast) => ast,
-            Err(_) => {
-                ctx.print_diagnostics();
-                return false;
-            }
-        };
+        // 4. 智能按需模块加载
+        let asts = {
+            let mut loader = crate::sema::module_loader::ModuleLoader::new(&mut ctx);
+            loader.load_root(&self.options.input_file);
+            std::mem::take(&mut loader.asts)
+        }; 
 
         if ctx.has_errors() {
             ctx.print_diagnostics();
             return false;
         }
 
-        // 5. 语义分析 Pass 1: 符号收集
-        let mut collector = Collector::new(&mut ctx);
-        let _mod_id = collector.collect_module(&module_ast);
+        // 5. 符号收集：遍历 Loader 解析出的所有 AST
+        let mut collector = Collector::new(&mut ctx); 
+        for (mod_id, ast) in asts {
+            collector.collect_ast(mod_id, &ast);
+        }
 
-        // 6. 语义分析 Pass 2: 模块导入解析 (如果你写了的话)
+        if ctx.has_errors() {
+            ctx.print_diagnostics();
+            return false;
+        }
+
+        // 6. 语义分析 Pass 2: 模块导入解析
         let mut import_resolver = ImportResolver::new(&mut ctx);
         import_resolver.resolve_all();
         if ctx.has_errors() {

@@ -21,7 +21,7 @@ impl<'a> Substituter<'a> {
         let kind = self.registry.get(ty).clone();
 
         match kind {
-            TypeKind::Primitive(_) | TypeKind::Error => ty,
+            TypeKind::Primitive(_) | TypeKind::Error | TypeKind::Module(_) => ty,
 
             // 命中泛型参数，执行替换
             TypeKind::Param(name) => {

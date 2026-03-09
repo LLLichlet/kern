@@ -6,3 +6,4 @@ pub mod resolve_types;
 pub mod scope;
 pub mod ty;
 pub mod typeck;
+pub mod module_loader;

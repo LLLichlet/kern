@@ -259,6 +259,15 @@ impl Context {
                 }
             }
 
+            ty::TypeKind::Module(def_id) => {
+                let def = &self.defs[def_id.0 as usize];
+                let name = def
+                    .name()
+                    .map(|sym| self.resolve(sym))
+                    .unwrap_or("<anonymous>");
+                format!("module `{}`", name)
+            }
+
             ty::TypeKind::Error => "{error}".to_string(),
         }
     }

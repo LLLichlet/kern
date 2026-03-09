@@ -86,6 +86,9 @@ pub enum TypeKind {
 
     /// 未知/错误类型
     Error,
+
+    /// 专门用于表示这是一个模块（Namespace），防止与普通值混淆
+    Module(DefId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

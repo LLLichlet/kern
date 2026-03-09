@@ -438,11 +438,14 @@ impl<'a> Lowerer<'a> {
         let mut exp_ty = expected_ty.unwrap_or(concrete_ty);
 
         if exp_ty == TypeId::ERROR {
-            println!("--------------------------------------------------");
-            println!("🔥 [LOWER TRAP] Lowering an expression with ERROR type!");
-            println!("Span: {:?}", expr.span);
-            println!("ExprKind: {:#?}", expr.kind);
-            println!("--------------------------------------------------");
+            self.ctx
+                .emit_ice(
+                    expr.span, 
+                    "Lowering encountered an unresolved ERROR type."
+                );
+            // 立即打印并终止降级，防止带着污染数据进入 LLVM 导致玄学 Panic
+            self.ctx.print_diagnostics();
+            std::process::exit(1);
         }
 
         // 统一剥离最外层的 Mut (后端只需要物理类型)
@@ -453,7 +456,18 @@ impl<'a> Lowerer<'a> {
             ExprKind::Float(val) => MastExprKind::Float(*val),
             ExprKind::Bool(val) => MastExprKind::Bool(*val),
             ExprKind::String(s) => self.lower_string_literal(s, expr.span),
-            ExprKind::Identifier(name) => self.lower_identifier(*name),
+            ExprKind::Identifier(name) => {
+                // [FIX 3]: 优先检查是否为函数，规避外部导入函数在当前作用域找不到的问题
+                let expr_ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
+                let norm_ty = self.ctx.type_registry.normalize(expr_ty);
+
+                if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone() {
+                    let mono_id = self.instantiate_function(fn_id, &fn_args);
+                    MastExprKind::FuncRef(mono_id)
+                } else {
+                    self.lower_identifier(*name)
+                }
+            }
 
             ExprKind::Let { init, .. } => {
                 return self.lower_expr(init, subst_map, Some(concrete_ty));
@@ -469,6 +483,17 @@ impl<'a> Lowerer<'a> {
 
             ExprKind::Call { callee, args } => self.lower_call(callee, args, subst_map, expr.span),
             ExprKind::FieldAccess { lhs, field } => {
+                // [FIX 2]: 通过 AST 节点的推导类型直接判断是否是静态函数
+                // 完美解决跨模块调用时，Scope 丢失导致的误判问题
+                let expr_ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
+                let norm_ty = self.ctx.type_registry.normalize(expr_ty);
+
+                if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone() {
+                    let mono_id = self.instantiate_function(fn_id, &fn_args);
+                    return MastExpr::new(exp_ty, MastExprKind::FuncRef(mono_id), expr.span);
+                }
+
+                // 老老实实走普通的结构体/联合体字段访问
                 self.lower_field_access(lhs, *field, subst_map, expr.span)
             }
             ExprKind::IndexAccess { lhs, index } => self.lower_index_access(lhs, index, subst_map),
@@ -788,23 +813,21 @@ impl<'a> Lowerer<'a> {
         let mut is_method = false;
         let mut method_field_sym = None;
 
-        // 1. 嗅探是否为方法调用，并提前独占式提取 Receiver
+        // 1. 嗅探是否为方法调用
         if let ExprKind::FieldAccess { lhs, field } = &callee.kind {
-            let callee_ty = self
-                .ctx
-                .node_types
-                .get(&callee.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let norm_callee = self.ctx.type_registry.normalize(callee_ty);
+            let lhs_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
+            let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
+            let is_module = matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(_));
 
-            if matches!(
-                self.ctx.type_registry.get(norm_callee),
-                TypeKind::FnDef(..) | TypeKind::Function { .. }
-            ) {
-                is_method = true;
-                method_field_sym = Some(*field);
-                receiver_mast = Some(self.lower_expr(lhs, subst_map, None));
+            if !is_module {
+                let callee_ty = self.ctx.node_types.get(&callee.id).copied().unwrap_or(TypeId::ERROR);
+                let norm_callee = self.ctx.type_registry.normalize(callee_ty);
+                
+                if matches!(self.ctx.type_registry.get(norm_callee), TypeKind::FnDef(..) | TypeKind::Function {..}) {
+                    is_method = true;
+                    method_field_sym = Some(*field);
+                    receiver_mast = Some(self.lower_expr(lhs, subst_map, None)); 
+                }
             }
         }
 

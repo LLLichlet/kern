@@ -72,28 +72,18 @@ impl<'a> ImportResolver<'a> {
     ) -> bool {
         let current_scope = self.get_module_scope(current_mod_id);
 
-        // 1. 定位目标路径的 Module DefId 和 ScopeId
-        let (target_mod_id, target_scope) = match self.resolve_path(
-            current_mod_id,
-            import.path_kind,
-            &import.path,
-            import.span,
-            emit_errors,
-        ) {
-            Some(res) => res,
-            None => return false, // 寻址失败
-        };
-
-        // 2. 根据 Target 类型，将符号注入到当前作用域
         match &import.target {
             UseTarget::Module(alias) => {
+                // 分离父路径和目标名
+                // 对于 `use .utils.print_point;`，path 是 [utils, print_point]
+                // parent_path 是 [utils]，target_name 是 print_point
                 let (parent_path, last_segment) = import.path.split_at(import.path.len() - 1);
                 let target_name = last_segment[0];
 
                 let (parent_mod_id, parent_scope) = match self.resolve_path(
                     current_mod_id,
                     import.path_kind,
-                    parent_path,
+                    parent_path, 
                     import.span,
                     emit_errors,
                 ) {
@@ -105,12 +95,7 @@ impl<'a> ImportResolver<'a> {
                     if !self.check_visibility(symbol_info.def_id, current_mod_id, parent_mod_id) {
                         if emit_errors {
                             let name_str = self.ctx.resolve(target_name).to_string();
-                            self.ctx
-                                .struct_error(
-                                    import.span,
-                                    format!("Symbol `{}` is private", name_str),
-                                )
-                                .emit();
+                            self.ctx.struct_error(import.span, format!("Symbol `{}` is private", name_str)).emit();
                         }
                         return false;
                     }
@@ -128,34 +113,31 @@ impl<'a> ImportResolver<'a> {
                 } else {
                     if emit_errors {
                         let name_str = self.ctx.resolve(target_name).to_string();
-                        self.ctx
-                            .struct_error(
-                                import.span,
-                                format!("Cannot find module or symbol `{}`", name_str),
-                            )
-                            .emit();
+                        self.ctx.struct_error(import.span, format!("Cannot find module or symbol `{}`", name_str)).emit();
                     }
                     false
                 }
             }
             UseTarget::Members(members) => {
+                // 对于 `use .math.geometry.{Point};`，path 就是 [math, geometry]，直接整体作为模块解析
+                let (target_mod_id, target_scope) = match self.resolve_path(
+                    current_mod_id,
+                    import.path_kind,
+                    &import.path, // 👈 完整解析
+                    import.span,
+                    emit_errors,
+                ) {
+                    Some(res) => res,
+                    None => return false,
+                };
+
                 let mut all_resolved = true;
                 for member in members {
-                    if let Some(symbol_info) = self.ctx.scopes.resolve_in(target_scope, member.name)
-                    {
-                        if !self.check_visibility(symbol_info.def_id, current_mod_id, target_mod_id)
-                        {
+                    if let Some(symbol_info) = self.ctx.scopes.resolve_in(target_scope, member.name) {
+                        if !self.check_visibility(symbol_info.def_id, current_mod_id, target_mod_id) {
                             if emit_errors {
                                 let name_str = self.ctx.resolve(member.name).to_string();
-                                self.ctx
-                                    .struct_error(
-                                        member.span,
-                                        format!(
-                                            "Symbol `{}` is private and cannot be imported",
-                                            name_str
-                                        ),
-                                    )
-                                    .emit();
+                                self.ctx.struct_error(member.span, format!("Symbol `{}` is private and cannot be imported", name_str)).emit();
                             }
                             all_resolved = false;
                             continue;
@@ -173,12 +155,7 @@ impl<'a> ImportResolver<'a> {
                     } else {
                         if emit_errors {
                             let name_str = self.ctx.resolve(member.name).to_string();
-                            self.ctx
-                                .struct_error(
-                                    member.span,
-                                    format!("Cannot find `{}` in the target module", name_str),
-                                )
-                                .emit();
+                            self.ctx.struct_error(member.span, format!("Cannot find `{}` in the target module", name_str)).emit();
                         }
                         all_resolved = false;
                     }
@@ -343,21 +320,18 @@ impl<'a> ImportResolver<'a> {
         let prev_scope = self.ctx.scopes.current_scope_id();
         self.ctx.scopes.set_current_scope(target_scope);
 
-        if let Err(old_info) = self.ctx.scopes.define(name, info) {
-            // 在不动点迭代中，重复解析成功的符号会导致“重定义”报错，我们必须根据 emit_errors 拦截
+        if let Err(old_info) = self.ctx.scopes.define(name, info.clone()) {
             if emit_errors && old_info.span != span {
-                let name_str = self.ctx.resolve(name).to_string();
-                self.ctx
-                    .struct_error(
-                        span,
-                        format!("the name `{}` is defined multiple times", name_str),
-                    )
-                    .with_hint(format!(
-                        "`{}` was already imported or defined in this module",
-                        name_str
-                    ))
-                    .with_hint(format!("previous definition was here: {:?}", old_info.span))
-                    .emit();
+                // 容忍特判：如果是导入同一个东西（比如显式的 use 和隐式的子模块同名），直接放行
+                if old_info.def_id == info.def_id && old_info.kind == info.kind {
+                    // 一切正常，它本来就在这里
+                } else {
+                    let name_str = self.ctx.resolve(name).to_string();
+                    self.ctx.struct_error(span, format!("the name `{}` is defined multiple times", name_str))
+                        .with_hint(format!("`{}` was already imported or defined in this module", name_str))
+                        .with_span_label(old_info.span, "previous definition was here")
+                        .emit();
+                }
             }
         }
 

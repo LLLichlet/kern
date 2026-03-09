@@ -20,38 +20,39 @@ impl<'a> Collector<'a> {
         }
     }
 
-    /// 收集整个模块
-    pub fn collect_module(&mut self, module: &ast::Module) -> DefId {
-        let mod_name = self.ctx.intern(&module.path);
-        let mod_id = DefId(self.ctx.defs.len() as u32);
+    /// 收集特定模块 AST 的内部成员
+    pub fn collect_ast(&mut self, mod_id: DefId, module: &ast::Module) {
+        let (scope_id, submodules) = if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
+            (m.scope_id, m.submodules.clone())
+        } else {
+            unreachable!()
+        };
 
         let parent_module = self.current_module;
-
-        // 开启模块的专属作用域，并获取其持久化的 ScopeId
-        let scope_id = self.ctx.scopes.enter_scope();
-
-        // 预先注册 ModuleDef，并绑定 scope_id
-        self.ctx.add_def(Def::Module(ModuleDef {
-            id: mod_id,
-            name: mod_name,
-            parent: parent_module,
-            scope_id,
-            items: Vec::new(),
-            imports: Vec::new(),
-        }));
-
         self.current_module = Some(mod_id);
+        
+        let prev_scope = self.ctx.scopes.current_scope_id();
+        // 切换到 Loader 提前建立好的作用域
+        self.ctx.scopes.set_current_scope(scope_id);
+
+        // 将子模块注入到当前作用域中！
+        for (sub_name, sub_id) in submodules {
+            let dummy_node_id = self.ctx.next_node_id(); 
+            self.define_symbol(
+                sub_name,
+                SymbolKind::Module,
+                dummy_node_id, 
+                Some(sub_id),
+                crate::utils::Span::default(),
+                true, // 子模块在自身内部视为可见
+            );
+        }
+
         let mut item_ids = Vec::new();
         let mut imports = Vec::new();
-        // 遍历并收集模块内的所有顶层声明
+        
         for decl in &module.decls {
-            if let DeclKind::Use {
-                kind,
-                path,
-                target,
-                is_reexport,
-            } = &decl.kind
-            {
+            if let DeclKind::Use { kind, path, target, is_reexport } = &decl.kind {
                 imports.push(ImportDef {
                     path_kind: *kind,
                     path: path.clone(),
@@ -60,7 +61,6 @@ impl<'a> Collector<'a> {
                     span: decl.span,
                 });
             } else if let DeclKind::ExternBlock { decls, .. } = &decl.kind {
-                // 展平 Extern 块，将内部的 C 函数注册到模块成员中
                 for ext_decl in decls {
                     if let Some(def_id) = self.collect_decl(ext_decl, None, true, &[]) {
                         item_ids.push(def_id);
@@ -70,16 +70,17 @@ impl<'a> Collector<'a> {
                 item_ids.push(def_id);
             }
         }
-        // 收集完毕，将内部成员和导入列表更新回 ModuleDef
+
         if let Def::Module(m) = &mut self.ctx.defs[mod_id.0 as usize] {
             m.items = item_ids;
             m.imports = imports;
         }
-        // 退出当前作用域，恢复上下文
-        self.ctx.scopes.exit_scope();
-        self.current_module = parent_module;
 
-        mod_id
+        // 恢复上下文
+        if let Some(prev) = prev_scope {
+            self.ctx.scopes.set_current_scope(prev);
+        }
+        self.current_module = parent_module;
     }
 
     /// 收集单个声明
@@ -143,11 +144,13 @@ impl<'a> Collector<'a> {
                 trait_type,
                 decls,
             } => self.collect_impl(decl, generics, target_type, trait_type, decls),
-            DeclKind::ExternBlock { abi: _, decls } => {
-                for ext_decl in decls {
-                    // Extern 块不传递泛型
-                    self.collect_decl(ext_decl, parent_impl, true, &[]);
-                }
+            DeclKind::ExternBlock { .. } => {
+                // Extern 块是一种特殊的顶层容器，必须在 collect_ast 级别被展开平铺。
+                // 如果走到这里，说明出现了非法的嵌套（例如 impl 块内部嵌套了 extern 块）。
+                self.ctx.emit_error(
+                    decl.span, 
+                    "`extern` blocks are only allowed at the module top-level"
+                );
                 None
             }
             DeclKind::Use { .. } => None,

@@ -128,6 +128,9 @@ impl<'a> ExprChecker<'a> {
 
     fn check_identifier(&mut self, name: crate::utils::SymbolId, span: Span) -> TypeId {
         if let Some(info) = self.ctx.scopes.resolve(name) {
+            if info.kind == SymbolKind::Function {
+                return self.ctx.type_registry.intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
+            }
             info.type_id
         } else {
             let name_str = self.ctx.resolve(name).to_string();
@@ -1044,6 +1047,36 @@ impl<'a> ExprChecker<'a> {
         field: crate::utils::SymbolId,
         span: Span,
     ) -> TypeId {
+        if let ExprKind::Identifier(name) = &lhs.kind {
+            if let Some(info) = self.ctx.scopes.resolve(*name) {
+                if info.kind == SymbolKind::Module {
+                    let mod_def_id = info.def_id.unwrap();
+                    let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
+                        m.scope_id
+                    } else {
+                        unreachable!()
+                    };
+
+                    // 去那个模块的作用域里寻找真实的符号
+                    if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field) {
+                        let real_ty = if target_info.kind == SymbolKind::Function {
+                            self.ctx.type_registry.intern(TypeKind::FnDef(target_info.def_id.unwrap(), vec![]))
+                        } else {
+                            target_info.type_id
+                        };
+                        let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
+                        self.ctx.node_types.insert(lhs.id, mod_ty);
+                        return real_ty;
+                    } else {
+                        let mod_name = self.ctx.resolve(*name);
+                        let field_name = self.ctx.resolve(field);
+                        self.ctx.struct_error(span, format!("module `{}` has no public member `{}`", mod_name, field_name)).emit();
+                        return TypeId::ERROR;
+                    }
+                }
+            }
+        }
+
         let lhs_ty = self.check_expr(lhs, None);
         if lhs_ty == TypeId::ERROR {
             return TypeId::ERROR;
@@ -1295,6 +1328,10 @@ impl<'a> ExprChecker<'a> {
         let norm_callee = self.strip_mut(callee_ty);
 
         if norm_callee == TypeId::ERROR {
+            // 确保每个实参节点都能被推导并注册到 ctx.node_types 中，防止产生 AST 空洞。
+            for arg in args {
+                self.check_expr(arg, None);
+            }
             return TypeId::ERROR;
         }
 
@@ -1366,6 +1403,16 @@ impl<'a> ExprChecker<'a> {
     /// 助手 2：判断这是否是一个方法调用，如果是，提取它的 Receiver 类型 (LHS)
     fn resolve_method_context(&self, callee: &Expr) -> (bool, TypeId) {
         if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
+            
+            // 拦截：如果 lhs 是一个模块，则绝对不是运行时的方法调用
+            if let ExprKind::Identifier(name) = &lhs.kind {
+                if let Some(info) = self.ctx.scopes.resolve(*name) {
+                    if info.kind == SymbolKind::Module {
+                        return (false, TypeId::ERROR);
+                    }
+                }
+            }
+
             let callee_node_ty = self
                 .ctx
                 .node_types

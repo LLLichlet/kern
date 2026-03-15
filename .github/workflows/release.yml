@@ -24,11 +24,24 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
-      # 在 Ubuntu 虚拟机上安装 LLVM 开发库
-      - name: Install LLVM
+     # 使用 LLVM 官方脚本安装 LLVM 21 及其完整依赖
+      - name: Install LLVM 21
         run: |
-          sudo apt-get update
-          sudo apt-get install -y llvm-dev libclang-dev
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          # 安装 LLVM 核心库、Clang 库、Polly 优化器以及底层的压缩依赖库
+          sudo apt-get install -y \
+            llvm-21-dev \
+            libclang-21-dev \
+            libpolly-21-dev \
+            libzstd-dev \
+            zlib1g-dev
+
+      # 提取 LLVM 的安装路径，并注入到全局环境变量中
+      - name: Configure LLVM Environment
+        run: |
+          echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> $GITHUB_ENV
 
       # 3. 运行测试（如果有错误，发布会自动中止）
       - name: Run Tests

@@ -10,7 +10,7 @@ fn fib(src: i64) i64 {
     return fib(src - 1) + fib(src - 2);
 }
 
-fn main() i32 {
+fn main(argc: i32, argv: *mut u8) i32 {
     let a = fib(35);
     let _ = printf("Hello World from Kern %d.%d.%d!\n\0".[0].&, i32.{0}, i32.{3}, a);
     return 0;

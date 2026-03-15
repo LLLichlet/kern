@@ -1758,13 +1758,13 @@ impl<'a> Parser<'a> {
                     }
                 }
 
-               // 判断是否有数据绑定: `: val`
+                // 判断是否有数据绑定: `: val`
                 let mut binding = None;
                 if self.match_token(&[TokenType::Colon]) {
                     // 为丢弃符开绿灯
                     if self.match_token(&[TokenType::Underscore]) {
                         // 把它统一转换成名为 "_" 的符号存入 AST
-                        binding = Some(self.context.intern("_")); 
+                        binding = Some(self.context.intern("_"));
                     } else {
                         // 否则走正常的标识符解析
                         let bind_token = self.expect(TokenType::Identifier)?;

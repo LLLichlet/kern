@@ -24,6 +24,12 @@ jobs:
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
 
+      # 在 Ubuntu 虚拟机上安装 LLVM 开发库
+      - name: Install LLVM
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y llvm-dev libclang-dev
+
       # 3. 运行测试（如果有错误，发布会自动中止）
       - name: Run Tests
         run: cargo test

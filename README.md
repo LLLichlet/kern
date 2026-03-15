@@ -13,6 +13,7 @@ Kern is built on the observation that languages often trade off abstraction capa
 * **Explicit over Implicit:** Mutability must be explicitly declared (`mut T`). Pointer mathematics is restricted. Return values cannot be silently ignored. No background magic.
 * **Zero-Cost Abstractions:** Features like monomorphized Generics, Algebraic Data Types (ADT), and strictly Stateless Lambdas compile down to highly optimized, flat LLVM IR with zero runtime overhead.
 * **Seamless Interoperability:** The C ABI is the universal language. Kern communicates natively with C and Assembly without complex bindings.
+* **Freestanding by Default:** Kern assumes nothing about your target environment. Out of the box, it is a pure bare-metal compiler with zero OS dependencies—ideal for kernel development. You must explicitly opt-in to the Kern standard library (`--use-std`) or the C hosted environment (`--link-libc`), and the compiler enforces strict mutual exclusivity between the two to maintain environmental purity.
 
 ## A Taste of Kern
 

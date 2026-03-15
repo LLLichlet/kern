@@ -79,6 +79,7 @@ pub struct CompileOptions {
     pub asm_dialect: AsmDialect,
     pub link_libc: bool,
     pub linker_cmd: String,
+    pub use_std: bool,
 }
 
 impl Default for CompileOptions {
@@ -94,6 +95,7 @@ impl Default for CompileOptions {
             asm_dialect: AsmDialect::default(),
             link_libc: false,
             linker_cmd: "cc".to_string(),
+            use_std: false,
         }
     }
 }

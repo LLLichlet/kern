@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="v0.4.0"
+VERSION="v0.4.1"
 # 动态探测操作系统
 OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
 if [ "$OS_NAME" = "linux" ]; then

@@ -1,0 +1,63 @@
+name: Release Kern Compiler
+
+# 触发条件：当推送一个以 'v' 开头的 tag 时（例如 v0.4.1）
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    name: Build and Publish Release
+    runs-on: ubuntu-latest # 在 GitHub 的 Linux 服务器上运行
+    
+    # 赋予 GITHUB_TOKEN 创建 Release 和上传文件的权限
+    permissions:
+      contents: write
+
+    steps:
+      # 1. 拉取项目代码
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. 安装 Rust 工具链
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # 3. 运行测试（如果有错误，发布会自动中止）
+      - name: Run Tests
+        run: cargo test
+
+      # 4. 编译 Release 版本的编译器
+      - name: Build Compiler
+        run: cargo build --release
+
+      # 5. 自动打包
+      - name: Package Toolchain
+        run: |
+          # 从触发的 tag 中提取版本号，例如 v0.4.1
+          VERSION=${GITHUB_REF#refs/tags/}
+          TARGET="x86_64-linux-gnu"
+          DIST_NAME="kern-${VERSION}-${TARGET}"
+          TARBALL="${DIST_NAME}.tar.gz"
+          
+          echo "Packaging ${DIST_NAME}..."
+          mkdir -p "${DIST_NAME}/bin" "${DIST_NAME}/lib/kern"
+          
+          # 组装文件
+          cp target/release/kernc "${DIST_NAME}/bin/"
+          cp -r library/std "${DIST_NAME}/lib/kern/"
+          cp README.md LICENSE "${DIST_NAME}/"
+          
+          # 压缩
+          tar -czf "${TARBALL}" "${DIST_NAME}"
+          
+          # 把文件名存入环境变量，供下一步使用
+          echo "TARBALL_NAME=${TARBALL}" >> $GITHUB_ENV
+
+      # 6. 自动创建 GitHub Release 并上传压缩包
+      - name: Upload Release Artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: kern-*.tar.gz
+          generate_release_notes: true

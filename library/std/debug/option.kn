@@ -2,3 +2,30 @@ pub type Option[T] = adt {
     Some: T,
     None,
 };
+
+impl[T] Option[T] {
+    pub fn is_none() bool {
+        match (self) {
+            .Some: _ => false,
+            .None => true,
+        }
+    }
+
+    pub fn is_some() bool {
+        return !self.is_none();
+    }
+
+    pub fn is_none_or(call_back: fn(T) bool) bool {
+        match (self) {
+            .None => true,
+            .Some: a => call_back(a),
+        }
+    }
+
+    pub fn is_some_and(call_back: fn(T) bool) bool {
+        match (self) {
+            .None => false,
+            .Some: a => call_back(a),
+        }
+    }
+}

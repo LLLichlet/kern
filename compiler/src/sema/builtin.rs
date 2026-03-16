@@ -91,6 +91,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
+            is_mut: false,
         };
         let root_scope = crate::sema::scope::ScopeId(0);
         self.ctx.scopes.set_current_scope(root_scope);
@@ -197,6 +198,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: crate::utils::Span::default(),
             is_pub: true, // 全局内置函数都是 Public
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -257,6 +259,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -325,7 +328,11 @@ impl<'a> BuiltinInjector<'a> {
             generics: vec![param_t, param_u],
             // 伪造一个 FuncParam 供后续解构，虽然内置函数体为空
             params: vec![ast::FuncParam {
-                name: self.ctx.intern("val"),
+                pattern: ast::BindingPattern {
+                    name: self.ctx.intern("val"),
+                    is_mut: false,
+                    span: Default::default(),
+                },
                 type_node: TypeNode {
                     id: val_param_id,
                     span: Default::default(),
@@ -361,6 +368,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: crate::utils::Span::default(),
             is_pub: true, // 全局内置函数都是 Public
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -428,7 +436,11 @@ impl<'a> BuiltinInjector<'a> {
             parent: None,
             generics: vec![param_t, param_u],
             params: vec![ast::FuncParam {
-                name: self.ctx.intern("val"),
+                pattern: ast::BindingPattern {
+                    name: self.ctx.intern("val"),
+                    is_mut: false,
+                    span: Default::default(),
+                },
                 type_node: TypeNode {
                     id: val_param_id,
                     span: Default::default(),
@@ -463,6 +475,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: crate::utils::Span::default(),
             is_pub: true,
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -526,7 +539,11 @@ impl<'a> BuiltinInjector<'a> {
             parent: None,
             generics: vec![param_t, param_u],
             params: vec![ast::FuncParam {
-                name: self.ctx.intern("val"),
+                pattern: ast::BindingPattern {
+                    name: self.ctx.intern("val"),
+                    is_mut: false,
+                    span: Default::default(),
+                },
                 type_node: TypeNode {
                     id: val_param_id,
                     span: Default::default(),
@@ -561,6 +578,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -629,7 +647,11 @@ impl<'a> BuiltinInjector<'a> {
             parent: None,
             generics: vec![param_t, param_u],
             params: vec![ast::FuncParam {
-                name: self.ctx.intern("val"),
+                pattern: ast::BindingPattern {
+                    name: self.ctx.intern("val"),
+                    is_mut: false,
+                    span: Default::default(),
+                },
                 type_node: TypeNode {
                     id: val_param_id,
                     span: Default::default(),
@@ -664,6 +686,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -717,6 +740,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -763,7 +787,11 @@ impl<'a> BuiltinInjector<'a> {
             parent: None,
             generics: vec![param_t],
             params: vec![ast::FuncParam {
-                name: self.ctx.intern("val"),
+                pattern: ast::BindingPattern {
+                    name: self.ctx.intern("val"),
+                    is_mut: false,
+                    span: Default::default(),
+                },
                 type_node: ast::TypeNode {
                     id: val_param_id,
                     span: Default::default(),
@@ -798,6 +826,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -862,6 +891,7 @@ impl<'a> BuiltinInjector<'a> {
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
+            is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
@@ -871,9 +901,14 @@ impl<'a> BuiltinInjector<'a> {
         let def_id = DefId(self.ctx.defs.len() as u32);
 
         // 类型准备：dest: *mut u8, src: *u8, val: u8, len: usize
-        let type_u8 = self.ctx.type_registry.intern(TypeKind::Mut(TypeId::U8));
-        let ptr_mut_u8 = self.ctx.type_registry.intern(TypeKind::Pointer(type_u8));
-        let ptr_u8 = self.ctx.type_registry.intern(TypeKind::Pointer(TypeId::U8));
+        let ptr_mut_u8 = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: TypeId::U8,
+        });
+        let ptr_u8 = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::U8,
+        });
 
         let param_dest_id = self.ctx.next_node_id();
         let param_src_val_id = self.ctx.next_node_id();
@@ -908,7 +943,11 @@ impl<'a> BuiltinInjector<'a> {
             generics: vec![], // 内存函数不需要泛型，强制按字节(u8)操作
             params: vec![
                 ast::FuncParam {
-                    name: self.ctx.intern("dest"),
+                    pattern: ast::BindingPattern {
+                        name: self.ctx.intern("dest"),
+                        is_mut: false,
+                        span: Default::default(),
+                    },
                     type_node: ast::TypeNode {
                         id: param_dest_id,
                         span: Default::default(),
@@ -917,7 +956,11 @@ impl<'a> BuiltinInjector<'a> {
                     span: Default::default(),
                 },
                 ast::FuncParam {
-                    name: self.ctx.intern(if is_memcpy { "src" } else { "val" }),
+                    pattern: ast::BindingPattern {
+                        name: self.ctx.intern(if is_memcpy { "src" } else { "val" }),
+                        is_mut: false,
+                        span: Default::default(),
+                    },
                     type_node: ast::TypeNode {
                         id: param_src_val_id,
                         span: Default::default(),
@@ -926,7 +969,11 @@ impl<'a> BuiltinInjector<'a> {
                     span: Default::default(),
                 },
                 ast::FuncParam {
-                    name: self.ctx.intern("len"),
+                    pattern: ast::BindingPattern {
+                        name: self.ctx.intern("len"),
+                        is_mut: false,
+                        span: Default::default(),
+                    },
                     type_node: ast::TypeNode {
                         id: param_len_id,
                         span: Default::default(),
@@ -963,6 +1010,7 @@ impl<'a> BuiltinInjector<'a> {
                 def_id: Some(def_id),
                 span: Default::default(),
                 is_pub: true,
+                is_mut: false,
             },
         );
     }

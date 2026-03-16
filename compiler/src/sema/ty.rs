@@ -39,39 +39,31 @@ pub enum TypeKind {
     /// 基础类型 (i32, bool, void...)
     Primitive(PrimitiveType),
 
-    /// 普通指针: *T (如果是 *mut T，则 base 指向一个 Mut 类型)
-    Pointer(TypeId),
+    /// 普通指针: *T 或 *mut T
+    Pointer { is_mut: bool, elem: TypeId },
 
-    /// 易失指针: ^T
-    VolatilePtr(TypeId),
+    /// 易失指针: ^T 或 ^mut T
+    VolatilePtr { is_mut: bool, elem: TypeId },
 
-    /// 数组: [N]T
-    Array {
-        elem: TypeId,
-        len: u64, // 数组长度必须是常量
-    },
+    /// 数组: [N]T 或 [N]mut T
+    Array { is_mut: bool, elem: TypeId, len: u64 },
 
-    // 长度待推导的数组 `[_]T`
-    ArrayInfer(TypeId),
+    /// 长度待推导的数组 `[_]T` 或 `[_]mut T`
+    ArrayInfer { is_mut: bool, elem: TypeId },
 
-    /// 切片: []T (胖指针)
-    Slice(TypeId),
+    /// 切片: []T 或 []mut T
+    Slice { is_mut: bool, elem: TypeId },
 
-    /// 可变类型修饰符 mut T
-    Mut(TypeId),
-
-    /// 引用具体的定义 (Struct/Enum/Union)
-    /// 我们只存 ID。具体字段信息去 Context 里查。
+    /// 引用具体的定义 (Struct/Union)
+    /// 这里只存 ID。具体字段信息去 Context 里查。
     /// 这样设计是为了处理递归类型 (e.g., struct Node { next: *Node })
     Def(DefId, Vec<TypeId>),
 
-    /// 代数数据类型 (ADT)
-    /// 存储其 DefId 以及可能绑定的泛型参数
-    Adt(DefId, Vec<TypeId>),
+    /// 代数数据类型 (Data，融合 Enum 和 ADT)
+    Data(DefId, Vec<TypeId>),
 
-    /// 专门用于表示 ADT 在底层的物理 Union 负载 (Tag 之后的部分)
-    /// 依然绑定原 ADT 的 DefId 和泛型
-    AdtPayload(DefId, Vec<TypeId>),
+    /// 专门用于表示 Data 在底层的物理 Union 负载 (Tag 之后的部分)
+    DataPayload(DefId, Vec<TypeId>),
 
     /// 特征对象 (Trait Object)
     /// 内存布局：胖指针 { data_ptr: *mut void, vtable: *mut VTable }
@@ -100,6 +92,9 @@ pub enum TypeKind {
 
     /// 专门用于表示这是一个模块（Namespace），防止与普通值混淆
     Module(DefId),
+
+    // 类型变量，用于 let a = 10; 的局部推导 (Hindley-Milner 合一引擎使用)
+    TypeVar(u32),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -239,30 +234,25 @@ impl TypeRegistry {
         }
     }
 
-    /// 剥离外层的 Mut 包裹，返回底层类型。
-    /// 如果原来不是 Mut，原样返回。
-    /// 极其重要：后端 Lowering 和类型兼容性检查必备！
-    pub fn strip_mut(&self, id: TypeId) -> TypeId {
+    /// 检查一个类型是否是可变引用/指针
+    pub fn is_mut_reference(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
-            TypeKind::Mut(inner) => *inner,
-            _ => id,
+            TypeKind::Pointer { is_mut, .. } 
+            | TypeKind::VolatilePtr { is_mut, .. } 
+            | TypeKind::Slice { is_mut, .. } 
+            | TypeKind::Array { is_mut, .. } 
+            | TypeKind::ArrayInfer { is_mut, .. } => *is_mut,
+            _ => false,
         }
     }
 
-    /// 检查一个类型是否显式声明了可变性
-    pub fn is_mut(&self, id: TypeId) -> bool {
-        matches!(self.get(self.normalize(id)), TypeKind::Mut(_))
-    }
-
-    /// （可选但很有用）获取指针或切片的底层元素类型
     pub fn get_elem_type(&self, id: TypeId) -> Option<TypeId> {
         match self.get(self.normalize(id)) {
-            TypeKind::Pointer(elem) | TypeKind::VolatilePtr(elem) | TypeKind::Slice(elem) => {
-                Some(*elem)
-            }
-            TypeKind::Array { elem, .. } => Some(*elem),
-            TypeKind::ArrayInfer(elem) => Some(*elem),
-            TypeKind::Mut(inner) => self.get_elem_type(*inner), // 穿透 Mut 找元素
+            TypeKind::Pointer { elem, .. } 
+            | TypeKind::VolatilePtr { elem, .. } 
+            | TypeKind::Slice { elem, .. } 
+            | TypeKind::Array { elem, .. } 
+            | TypeKind::ArrayInfer { elem, .. } => Some(*elem),
             _ => None,
         }
     }
@@ -296,16 +286,31 @@ impl<'a> TypeFormatter<'a> {
                 PrimitiveType::Str => "str".to_string(),
                 PrimitiveType::Never => "!".to_string(),
             },
-            TypeKind::Pointer(elem) => format!("*{}", self.format(*elem)),
-            TypeKind::VolatilePtr(elem) => format!("^{}", self.format(*elem)),
-            TypeKind::Slice(elem) => format!("[]{}", self.format(*elem)),
-            TypeKind::Array { elem, len } => format!("[{}]{}", len, self.format(*elem)),
-            TypeKind::ArrayInfer(elem) => format!("[_]{}", self.format(*elem)),
-            TypeKind::Mut(inner) => format!("mut {}", self.format(*inner)),
+            TypeKind::Pointer { is_mut, elem } => {
+                let m = if *is_mut { "mut " } else { "" };
+                format!("*{}{}", m, self.format(*elem))
+            }
+            TypeKind::VolatilePtr { is_mut, elem } => {
+                let m = if *is_mut { "mut " } else { "" };
+                format!("^{}{}", m, self.format(*elem))
+            }
+            TypeKind::Slice { is_mut, elem } => {
+                let m = if *is_mut { "mut " } else { "" };
+                format!("[]{}{}", m, self.format(*elem))
+            }
+            TypeKind::Array { is_mut, elem, len } => {
+                let m = if *is_mut { "mut " } else { "" };
+                format!("[{}]{}{}", len, m, self.format(*elem))
+            }
+            TypeKind::ArrayInfer { is_mut, elem } => {
+                let m = if *is_mut { "mut " } else { "" };
+                format!("[_]{}{}", m, self.format(*elem))
+            }
+            TypeKind::TypeVar(vid) => format!("?T{}", vid),
 
             TypeKind::Def(def_id, generics)
             | TypeKind::TraitObject(def_id, generics)
-            | TypeKind::Adt(def_id, generics) => {
+            | TypeKind::Data(def_id, generics) => {
                 let def = &self.ctx.defs[def_id.0 as usize];
                 let name = def
                     .name()
@@ -319,7 +324,7 @@ impl<'a> TypeFormatter<'a> {
                 }
             }
 
-            TypeKind::AdtPayload(def_id, generics) => {
+            TypeKind::DataPayload(def_id, generics) => {
                 let def = &self.ctx.defs[def_id.0 as usize];
                 let name = def
                     .name()

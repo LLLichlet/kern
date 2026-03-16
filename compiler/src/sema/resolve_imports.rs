@@ -337,11 +337,10 @@ impl<'a> ImportResolver<'a> {
             Def::Function(d) => d.vis,
             Def::Struct(d) => d.vis,
             Def::Union(d) => d.vis,
-            Def::Enum(d) => d.vis,
+            Def::Data(d) => d.vis,
             Def::Trait(d) => d.vis,
             Def::Global(d) => d.vis,
             Def::TypeAlias(d) => d.vis,
-            Def::Adt(d) => d.vis,
             // 模块本体视为公开，它的真正可见性已经被上面的 `!symbol_info.is_pub` 控制了
             Def::Module(_) => Visibility::Public,
             Def::Impl(_) => return true,

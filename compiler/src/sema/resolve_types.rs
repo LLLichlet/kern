@@ -163,30 +163,6 @@ impl<'a> TypeResolver<'a> {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(u.name, union_ty);
             }
-            Def::Enum(e) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let enum_scope = self.ctx.scopes.enter_scope();
-
-                self.bind_generics(&e.generics, enum_scope);
-
-                if let Some(backing_ty) = &e.backing_type {
-                    let resolved_ty = self.resolve_type(backing_ty, enum_scope);
-                    // 严格检查 backing type 必须是整数类型
-                    if !self.ctx.type_registry.is_integer(resolved_ty)
-                        && resolved_ty != TypeId::ERROR
-                    {
-                        self.ctx
-                            .emit_error(backing_ty.span, "Enum backing type must be an integer");
-                    }
-                }
-                self.ctx.scopes.exit_scope();
-                let enum_ty = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::Def(item_id, Vec::new()));
-                self.ctx.scopes.set_current_scope(parent_scope);
-                self.ctx.scopes.update_type(e.name, enum_ty);
-            }
             Def::Trait(t) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let trait_scope = self.ctx.scopes.enter_scope();
@@ -255,7 +231,7 @@ impl<'a> TypeResolver<'a> {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(g.name, val_ty);
             }
-            Def::Adt(a) => {
+            Def::Data(a) => {
                 self.ctx.scopes.set_current_scope(parent_scope);
                 let adt_scope = self.ctx.scopes.enter_scope();
 
@@ -269,7 +245,7 @@ impl<'a> TypeResolver<'a> {
                         && resolved_ty != TypeId::ERROR
                     {
                         self.ctx
-                            .emit_error(backing_ty.span, "ADT backing type must be an integer");
+                            .emit_error(backing_ty.span, "Data backing type must be an integer");
                     }
                 }
 
@@ -286,7 +262,7 @@ impl<'a> TypeResolver<'a> {
                 let adt_ty = self
                     .ctx
                     .type_registry
-                    .intern(TypeKind::Adt(item_id, Vec::new()));
+                    .intern(TypeKind::Data(item_id, Vec::new()));
 
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(a.name, adt_ty);
@@ -305,37 +281,37 @@ impl<'a> TypeResolver<'a> {
             ast::TypeKind::Path { segments, generics } => {
                 self.resolve_path_type(segments, generics, env_scope, ty_node.span)
             }
-            ast::TypeKind::Mut(elem) => {
+            ast::TypeKind::Pointer { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Mut(base))
+                self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: *is_mut, elem: base })
             }
-            ast::TypeKind::Pointer { elem } => {
+            ast::TypeKind::VolatilePtr { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Pointer(base))
+                self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: *is_mut, elem: base })
             }
-            ast::TypeKind::VolatilePtr { elem } => {
+            ast::TypeKind::Slice { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::VolatilePtr(base))
+                self.ctx.type_registry.intern(TypeKind::Slice { is_mut: *is_mut, elem: base })
             }
-            ast::TypeKind::Slice { elem } => {
+            ast::TypeKind::Array { is_mut, elem, len } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Slice(base))
+                let mut evaluator = ConstEvaluator::new(self.ctx);
+                let length = match evaluator.eval_usize(len) {
+                    Ok(l) => l,
+                    Err(_) => 0, // 错误已经在 evaluator 内部 emit
+                };
+                self.ctx.type_registry.intern(TypeKind::Array {
+                    is_mut: *is_mut,
+                    elem: base,
+                    len: length,
+                })
             }
-            ast::TypeKind::Array { elem, len } => {
+            ast::TypeKind::ArrayInfer { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                if let ast::ExprKind::Infer = len.kind {
-                    self.ctx.type_registry.intern(TypeKind::ArrayInfer(base))
-                } else {
-                    let mut evaluator = ConstEvaluator::new(self.ctx);
-                    let length = match evaluator.eval_usize(len) {
-                        Ok(l) => l,
-                        Err(_) => 0, // 错误已经在 evaluator 内部 emit
-                    };
-                    self.ctx.type_registry.intern(TypeKind::Array {
-                        elem: base,
-                        len: length,
-                    })
-                }
+                self.ctx.type_registry.intern(TypeKind::ArrayInfer {
+                    is_mut: *is_mut,
+                    elem: base,
+                })
             }
             ast::TypeKind::Function {
                 params,
@@ -496,7 +472,7 @@ impl<'a> TypeResolver<'a> {
             ast::ExprKind::FieldAccess { lhs, .. } => {
                 self.resolve_expr(lhs, scope);
             }
-            ast::ExprKind::IndexAccess { lhs, index } => {
+            ast::ExprKind::IndexAccess { lhs, index, .. } => {
                 self.resolve_expr(lhs, scope);
                 self.resolve_expr(index, scope);
             }
@@ -640,17 +616,17 @@ impl<'a> TypeResolver<'a> {
 
         // 验证最终符号的类型
         match final_sym.kind {
-            SymbolKind::Struct | SymbolKind::Union | SymbolKind::Enum => {
+            SymbolKind::Struct | SymbolKind::Union => {
                 let def_id = final_sym.def_id.unwrap();
                 self.ctx
                     .type_registry
                     .intern(TypeKind::Def(def_id, resolved_generics))
             }
-            SymbolKind::Adt => {
+            SymbolKind::Data => {
                 let def_id = final_sym.def_id.unwrap();
                 self.ctx
                     .type_registry
-                    .intern(TypeKind::Adt(def_id, resolved_generics))
+                    .intern(TypeKind::Data(def_id, resolved_generics))
             }
             SymbolKind::Trait => {
                 let def_id = final_sym.def_id.unwrap();
@@ -768,6 +744,7 @@ impl<'a> TypeResolver<'a> {
                 def_id: None,
                 span: param.span,
                 is_pub: false,
+                is_mut: false,
             };
             let _ = self.ctx.scopes.define(param.name, info);
         }
@@ -783,6 +760,7 @@ impl<'a> TypeResolver<'a> {
             def_id: None,
             span,
             is_pub: false,
+            is_mut: false,
         };
         // 允许重复定义（覆盖外部可能存在的同名绑定）
         let _ = self.ctx.scopes.define(self_sym, info);
@@ -796,9 +774,8 @@ impl<'a> TypeResolver<'a> {
             SymbolKind::Function => "function",
             SymbolKind::Module => "module",
             SymbolKind::Struct => "struct",
-            SymbolKind::Enum => "enum",
             SymbolKind::Union => "union",
-            SymbolKind::Adt => "algebraic data type",
+            SymbolKind::Data => "algebraic data type",
             SymbolKind::Trait => "trait",
             SymbolKind::TypeAlias => "type alias",
             SymbolKind::TypeParam => "type parameter",

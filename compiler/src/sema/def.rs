@@ -1,5 +1,3 @@
-#![allow(unused)]
-
 use crate::parser::ast;
 use crate::sema::{
     scope::ScopeId,
@@ -34,8 +32,7 @@ pub enum Def {
     Function(FunctionDef),
     Struct(StructDef),
     Union(UnionDef),
-    Enum(EnumDef),
-    Adt(AdtDef),
+    Data(DataDef),
     Trait(TraitDef),
     Impl(ImplDef),
     Global(GlobalDef),
@@ -49,8 +46,7 @@ impl Def {
             Def::Function(d) => Some(d.name),
             Def::Struct(d) => Some(d.name),
             Def::Union(d) => Some(d.name),
-            Def::Enum(d) => Some(d.name),
-            Def::Adt(d) => Some(d.name),
+            Def::Data(d) => Some(d.name),
             Def::Trait(d) => Some(d.name),
             Def::Global(d) => Some(d.name),
             Def::TypeAlias(d) => Some(d.name),
@@ -133,25 +129,13 @@ pub struct UnionDef {
 }
 
 #[derive(Debug, Clone)]
-pub struct EnumDef {
+pub struct DataDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
     pub generics: Vec<ast::GenericParam>,
     pub backing_type: Option<Box<ast::TypeNode>>,
-    pub variants: Vec<ast::EnumVariant>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone)]
-pub struct AdtDef {
-    pub id: DefId,
-    pub name: SymbolId,
-    pub vis: Visibility,
-    pub generics: Vec<ast::GenericParam>,
-    pub backing_type: Option<Box<ast::TypeNode>>,
-    // 变体列表：记录变体名和可选的负载类型 (未 Resolve 的 AST 类型)
-    pub variants: Vec<ast::AdtVariant>,
+    pub variants: Vec<ast::DataVariant>,
     pub span: Span,
 }
 
@@ -199,6 +183,7 @@ pub struct GlobalDef {
     pub value: ast::Expr,
     pub is_static: bool,
     pub is_extern: bool,
+    pub is_mut: bool,
     pub span: Span,
     pub attributes: Vec<crate::parser::ast::Attribute>,
 }

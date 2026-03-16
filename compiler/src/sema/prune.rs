@@ -126,7 +126,7 @@ impl<'a> Pruner<'a> {
             }
             ExprKind::Unary { operand, .. } => self.prune_expr(operand),
             ExprKind::FieldAccess { lhs, .. } | ExprKind::As { lhs, .. } => self.prune_expr(lhs),
-            ExprKind::IndexAccess { lhs, index } => {
+            ExprKind::IndexAccess { lhs, index, .. } => {
                 self.prune_expr(lhs);
                 self.prune_expr(index);
             }

@@ -61,6 +61,7 @@ impl<'a> Collector<'a> {
                             Some(sub_id),
                             decl.span,
                             *is_pub, // 精确提取可见性
+                            false,
                         );
                     }
                 }
@@ -131,7 +132,8 @@ impl<'a> Collector<'a> {
                 value,
                 is_static,
                 is_extern,
-            } => self.collect_global(decl, vis, force_extern || *is_extern, value, *is_static),
+                is_mut,
+            } => self.collect_global(decl, vis, force_extern || *is_extern, value, *is_static, *is_mut),
             DeclKind::TypeAlias {
                 generics,
                 target,
@@ -189,7 +191,11 @@ impl<'a> Collector<'a> {
             actual_params.insert(
                 0,
                 ast::FuncParam {
-                    name: self_sym,
+                    pattern: ast::BindingPattern {
+                        name: self_sym,
+                        is_mut: false, 
+                        span: decl.span,
+                    },
                     type_node: ast::TypeNode {
                         id: node_id,
                         span: decl.span,
@@ -229,6 +235,7 @@ impl<'a> Collector<'a> {
                 Some(def_id),
                 decl.span,
                 is_pub,
+                false,
             );
         }
 
@@ -242,6 +249,7 @@ impl<'a> Collector<'a> {
         is_extern: bool,
         value: &ast::Expr,
         is_static: bool,
+        is_mut: bool, 
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
 
@@ -252,18 +260,16 @@ impl<'a> Collector<'a> {
             value: value.clone(),
             is_static,
             is_extern,
+            is_mut, 
             span: decl.span,
             attributes: decl.attributes.clone(),
         };
 
         self.ctx.add_def(Def::Global(global_def));
 
-        let sym_kind = if is_static {
-            SymbolKind::Static
-        } else {
-            SymbolKind::Const
-        };
+        let sym_kind = if is_static { SymbolKind::Static } else { SymbolKind::Const };
         let is_pub = vis == Visibility::Public;
+        
         self.define_symbol(
             decl.name,
             sym_kind,
@@ -271,6 +277,7 @@ impl<'a> Collector<'a> {
             Some(def_id),
             decl.span,
             is_pub,
+            is_mut, 
         );
 
         Some(def_id)
@@ -314,27 +321,12 @@ impl<'a> Collector<'a> {
                     span: decl.span,
                 })
             }
-            TypeKind::Enum {
+            TypeKind::Data {
                 backing_type,
                 variants,
             } => {
-                sym_kind = SymbolKind::Enum;
-                Def::Enum(EnumDef {
-                    id: def_id,
-                    name: decl.name,
-                    vis,
-                    generics: generics.to_vec(),
-                    backing_type: backing_type.clone(),
-                    variants: variants.clone(),
-                    span: decl.span,
-                })
-            }
-            TypeKind::Adt {
-                backing_type,
-                variants,
-            } => {
-                sym_kind = SymbolKind::Adt;
-                Def::Adt(AdtDef {
+                sym_kind = SymbolKind::Data;
+                Def::Data(DataDef {
                     id: def_id,
                     name: decl.name,
                     vis,
@@ -380,6 +372,7 @@ impl<'a> Collector<'a> {
             Some(def_id),
             decl.span,
             is_pub,
+            false,
         );
 
         Some(def_id)
@@ -395,8 +388,6 @@ impl<'a> Collector<'a> {
     ) -> Option<DefId> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
         let mut method_ids = Vec::new();
-
-        // 1. 占位（此时 methods 为空）
         self.ctx.add_def(Def::Impl(ImplDef {
             id: impl_id,
             parent_module: self.current_module,
@@ -425,7 +416,6 @@ impl<'a> Collector<'a> {
 
         self.ctx.scopes.exit_scope();
 
-        // 2. 🌟 绝对正确的原地更新：直接修改占位符，不新增任何元素！
         if let Def::Impl(i) = &mut self.ctx.defs[impl_id.0 as usize] {
             i.methods = method_ids;
         }
@@ -446,6 +436,7 @@ impl<'a> Collector<'a> {
         def_id: Option<DefId>,
         span: crate::utils::Span,
         is_pub: bool,
+        is_mut: bool,
     ) {
         // 如果是 `_`，直接忽略，不存入作用域
         if self.ctx.resolve(name) == "_" {
@@ -458,6 +449,7 @@ impl<'a> Collector<'a> {
             def_id,
             span, // 记录符号的诞生位置
             is_pub,
+            is_mut,
         };
 
         // 利用 DiagnosticBuilder 提供多 Span 的关联报错
@@ -491,6 +483,7 @@ impl<'a> Collector<'a> {
                 generic_node_id,
                 None,
                 param.span,
+                false,
                 false,
             );
         }

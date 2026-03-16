@@ -153,7 +153,7 @@ impl<'a> ConstEvaluator<'a> {
                 }
             }
 
-            ExprKind::IndexAccess { lhs, index } => {
+            ExprKind::IndexAccess { lhs, index, .. } => {
                 let base = self.eval_inner(lhs, depth + 1)?;
                 let idx = self.eval_usize(index)?;
                 if let ConstValue::Array(arr) = base {
@@ -550,26 +550,26 @@ impl<'a> ConstEvaluator<'a> {
             .unwrap_or(TypeId::ERROR);
         let norm_ty = self.ctx.type_registry.normalize(ty);
 
-        let def_id = if let TypeKind::Def(id, _) = self.ctx.type_registry.get(norm_ty) {
+        let def_id = if let TypeKind::Data(id, _) = self.ctx.type_registry.get(norm_ty) {
             *id
         } else {
             self.ctx
                 .struct_error(
                     span,
-                    "enum literal type could not be resolved during constant evaluation",
+                    "variant literal type could not be resolved to a data type during constant evaluation",
                 )
                 .emit();
             return Err(());
         };
 
-        let enum_def = if let Def::Enum(e) = &self.ctx.defs[def_id.0 as usize] {
-            e.clone()
+        let data_def = if let Def::Data(d) = &self.ctx.defs[def_id.0 as usize] {
+            d.clone()
         } else {
             return Err(());
         };
 
         let mut current_val: i128 = 0;
-        for v in enum_def.variants {
+        for v in data_def.variants {
             if let Some(v_expr) = v.value {
                 if let Ok(ConstValue::Int(val)) = self.eval_inner(&v_expr, depth + 1) {
                     current_val = val;
@@ -583,7 +583,7 @@ impl<'a> ConstEvaluator<'a> {
 
         let v_str = self.ctx.resolve(variant_name).to_string();
         self.ctx
-            .struct_error(span, format!("variant `.{}` not found in enum", v_str))
+            .struct_error(span, format!("variant `.{}` not found in data type", v_str))
             .emit();
         Err(())
     }
@@ -594,6 +594,7 @@ impl<'a> ConstEvaluator<'a> {
             SymbolKind::Static => "static variable",
             SymbolKind::Function => "function",
             SymbolKind::Struct => "struct",
+            SymbolKind::Data => "data type",
             _ => "symbol",
         }
     }
@@ -615,18 +616,22 @@ impl<'a> ConstEvaluator<'a> {
         let kind = self.ctx.type_registry.get(norm).clone();
 
         match kind {
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => {
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Function { .. } => {
                 self.ctx.target.pointer_size
             }
-            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size,
-            TypeKind::Mut(inner) => self.compute_type_align_inner(inner, depth + 1),
-            TypeKind::Array { elem, .. } => self.compute_type_align_inner(elem, depth + 1),
+            TypeKind::Slice { .. } | TypeKind::TraitObject(..) => self.ctx.target.pointer_size,
+            
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
+                self.compute_type_align_inner(elem, depth + 1)
+            }
 
-            TypeKind::Def(def_id, generic_args) | TypeKind::Adt(def_id, generic_args) => {
+            TypeKind::Def(def_id, generic_args) | TypeKind::Data(def_id, generic_args) => {
                 self.compute_def_align(def_id, &generic_args, depth)
             }
             TypeKind::Primitive(PrimitiveType::Never) | TypeKind::Error => 1,
             TypeKind::Primitive(p) => self.primitive_align(p),
+            
+            // TODO: 如果遇到 TypeVar 等其他推导中的未知类型，兜底对齐为 1
             _ => 1,
         }
     }
@@ -644,18 +649,25 @@ impl<'a> ConstEvaluator<'a> {
         let kind = self.ctx.type_registry.get(norm).clone();
 
         match kind {
-            TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) | TypeKind::Function { .. } => {
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Function { .. } => {
                 self.ctx.target.pointer_size
             }
-            TypeKind::Slice(_) | TypeKind::TraitObject(..) => self.ctx.target.pointer_size * 2,
-            TypeKind::Mut(inner) => self.compute_type_size_inner(inner, depth + 1),
-            TypeKind::Array { elem, len } => self.compute_type_size_inner(elem, depth + 1) * len,
+            TypeKind::Slice { .. } | TypeKind::TraitObject(..) => self.ctx.target.pointer_size * 2,
 
-            TypeKind::Def(def_id, generic_args) | TypeKind::Adt(def_id, generic_args) => {
+            // 处理定长数组，ArrayInfer 属于未知长度，暂时返回 0
+            TypeKind::Array { elem, len, .. } => {
+                self.compute_type_size_inner(elem, depth + 1) * len
+            }
+            // TODO:
+            TypeKind::ArrayInfer { .. } => 0,
+
+            TypeKind::Def(def_id, generic_args) | TypeKind::Data(def_id, generic_args) => {
                 self.compute_def_size(def_id, &generic_args, depth)
             }
             TypeKind::Error | TypeKind::Primitive(PrimitiveType::Never) => 0,
             TypeKind::Primitive(p) => self.primitive_size(p),
+            
+            // TODO: 兜底推导中未解出的 TypeVar 为 0
             _ => 0,
         }
     }
@@ -722,11 +734,7 @@ impl<'a> ConstEvaluator<'a> {
                 }
                 max_align
             }
-            Def::Enum(e) => {
-                let back_ty = self.resolve_enum_backing_type(&e);
-                self.compute_type_align_inner(back_ty, depth + 1)
-            }
-            Def::Adt(a) => {
+            Def::Data(a) => {
                 let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
                     self.ctx
                         .node_types
@@ -797,13 +805,9 @@ impl<'a> ConstEvaluator<'a> {
                 }
                 Self::align_to(max_size, max_align)
             }
-            Def::Enum(e) => {
-                let back_ty = self.resolve_enum_backing_type(&e);
-                self.compute_type_size_inner(back_ty, depth + 1)
-            }
-            Def::Adt(a) => {
-                // ADT Size = align_to(TagSize, MaxAlign) + align_to(MaxPayloadSize, MaxAlign)
-                // (简化版的 C 布局，实际以 target data_layout 为准)
+            Def::Data(a) => {
+                // Data Size = align_to(TagSize, MaxAlign) + align_to(MaxPayloadSize, MaxAlign)
+                // TODO: (简化版的 C 布局，实际以 target data_layout 为准)
                 let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
                     self.ctx
                         .node_types
@@ -871,17 +875,5 @@ impl<'a> ConstEvaluator<'a> {
             f_ty = subst.substitute(f_ty);
         }
         f_ty
-    }
-
-    fn resolve_enum_backing_type(&self, e: &crate::sema::def::EnumDef) -> TypeId {
-        if let Some(bt) = &e.backing_type {
-            self.ctx
-                .node_types
-                .get(&bt.id)
-                .copied()
-                .unwrap_or(TypeId::U32)
-        } else {
-            TypeId::U32
-        }
     }
 }

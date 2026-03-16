@@ -21,7 +21,7 @@ impl<'a> Substituter<'a> {
         let kind = self.registry.get(ty).clone();
 
         match kind {
-            TypeKind::Primitive(_) | TypeKind::Error | TypeKind::Module(_) => ty,
+            TypeKind::Primitive(_) | TypeKind::Error | TypeKind::Module(_) | TypeKind::TypeVar(_) => ty,
 
             // 命中泛型参数，执行替换
             TypeKind::Param(name) => {
@@ -32,32 +32,25 @@ impl<'a> Substituter<'a> {
                 }
             }
 
-            TypeKind::Mut(inner) => {
-                let new_inner = self.substitute(inner);
-                self.registry.intern(TypeKind::Mut(new_inner))
-            }
-            TypeKind::Pointer(inner) => {
-                let new_inner = self.substitute(inner);
-                self.registry.intern(TypeKind::Pointer(new_inner))
-            }
-            TypeKind::VolatilePtr(inner) => {
-                let new_inner = self.substitute(inner);
-                self.registry.intern(TypeKind::VolatilePtr(new_inner))
-            }
-            TypeKind::Slice(inner) => {
-                let new_inner = self.substitute(inner);
-                self.registry.intern(TypeKind::Slice(new_inner))
-            }
-            TypeKind::Array { elem, len } => {
+            TypeKind::Pointer { is_mut, elem } => {
                 let new_elem = self.substitute(elem);
-                self.registry.intern(TypeKind::Array {
-                    elem: new_elem,
-                    len,
-                })
+                self.registry.intern(TypeKind::Pointer { is_mut, elem: new_elem })
             }
-            TypeKind::ArrayInfer(elem) => {
+            TypeKind::VolatilePtr { is_mut, elem } => {
                 let new_elem = self.substitute(elem);
-                self.registry.intern(TypeKind::ArrayInfer(new_elem))
+                self.registry.intern(TypeKind::VolatilePtr { is_mut, elem: new_elem })
+            }
+            TypeKind::Slice { is_mut, elem } => {
+                let new_elem = self.substitute(elem);
+                self.registry.intern(TypeKind::Slice { is_mut, elem: new_elem })
+            }
+            TypeKind::Array { is_mut, elem, len } => {
+                let new_elem = self.substitute(elem);
+                self.registry.intern(TypeKind::Array { is_mut, elem: new_elem, len })
+            }
+            TypeKind::ArrayInfer { is_mut, elem } => {
+                let new_elem = self.substitute(elem);
+                self.registry.intern(TypeKind::ArrayInfer { is_mut, elem: new_elem })
             }
             TypeKind::Function {
                 params,
@@ -76,13 +69,13 @@ impl<'a> Substituter<'a> {
                 let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
                 self.registry.intern(TypeKind::Def(def_id, new_args))
             }
-            TypeKind::Adt(def_id, args) => {
+            TypeKind::Data(def_id, args) => {
                 let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
-                self.registry.intern(TypeKind::Adt(def_id, new_args))
+                self.registry.intern(TypeKind::Data(def_id, new_args))
             }
-            TypeKind::AdtPayload(def_id, args) => {
+            TypeKind::DataPayload(def_id, args) => {
                 let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
-                self.registry.intern(TypeKind::AdtPayload(def_id, new_args))
+                self.registry.intern(TypeKind::DataPayload(def_id, new_args))
             }
             TypeKind::FnDef(def_id, args) => {
                 let new_args = args.into_iter().map(|a| self.substitute(a)).collect();

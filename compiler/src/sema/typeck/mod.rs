@@ -83,8 +83,9 @@ impl<'a> TypeckDriver<'a> {
                     def_id: None,
                     span: param_ast.span,
                     is_pub: false,
+                    is_mut: param_ast.pattern.is_mut, 
                 };
-                let _ = self.ctx.scopes.define(param_ast.name, info);
+                let _ = self.ctx.scopes.define(param_ast.pattern.name, info);
             }
         }
 
@@ -134,6 +135,7 @@ impl<'a> TypeckDriver<'a> {
                 def_id: None,
                 span: i.span,
                 is_pub: false,
+                is_mut: false,
             },
         );
 
@@ -176,6 +178,7 @@ impl<'a> TypeckDriver<'a> {
                 def_id: Some(g.id),
                 span: g.span,
                 is_pub: g.vis == crate::sema::def::Visibility::Public,
+                is_mut: false,
             };
             let _ = self.ctx.scopes.define(g.name, info);
         }

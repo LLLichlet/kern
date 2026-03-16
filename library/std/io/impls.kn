@@ -36,35 +36,13 @@ fn write_u64_to_writer(val: u64, writer: mut Writer) void {
 fn write_i64_to_writer(val: i64, writer: mut Writer) void {
     if (val < i64.{0}) {
         let _ = writer.write("-");
-        // TODO: 这里如果 val 是 i64 的最小值，0 - val 会溢出。未来可以使用位运算优化。
-        let pos_val = @intCast[i64, u64](i64.{0} - val);
+        // 1. 保持二进制 bit-pattern 不变，强转为 u64
+        let unsigned_val = @intCast[i64, u64](val);
+        // 2. 在无符号空间内执行补码的取反加一，处理 i64::MIN
+        let pos_val = (~unsigned_val) + u64.{1};
         write_u64_to_writer(pos_val, writer);
     } else {
         write_u64_to_writer(@intCast[i64, u64](val), writer);
-    }
-}
-
-/// u64
-impl *u64 : Printable {
-    pub fn fmt(writer: mut Writer) void {
-        write_u64_to_writer(self.*, writer);
-    }
-}
-
-// i64
-impl *i64 : Printable {
-    pub fn fmt(writer: mut Writer) void {
-        let val = self.*;
-        if (val < 0) {
-            let _ = writer.write("-");
-            // 处理负数，转为无符号格式化
-            // 负数转正：0 - val
-            // TODO: i64::MIN
-            let pos_val = @intCast[i64, u64](0 - val);
-            write_u64_to_writer(pos_val, writer);
-        } else {
-            write_u64_to_writer(@intCast[i64, u64](val), writer);
-        }
     }
 }
 
@@ -94,7 +72,7 @@ impl *u8 : Printable {
 
 impl *usize : Printable {
     pub fn fmt(writer: mut Writer) void {
-        // 在 32 位和 64 位系统上，usize 转换为 u64 都是安全的
+        //TODO: 在 32 位和 64 位系统上，usize 转换为 u64 都是安全的
         write_u64_to_writer(@intCast[usize, u64](self.*), writer);
     }
 }

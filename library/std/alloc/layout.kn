@@ -1,0 +1,4 @@
+pub type Layout = struct {
+    size: usize,
+    align: usize,
+};

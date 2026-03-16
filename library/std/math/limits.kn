@@ -1,0 +1,4 @@
+
+pub const USIZE_MAX = ~usize.{0}; // 利用位运算全 1 自动计算
+pub const I32_MAX   = i32.{2147483647};
+pub const I32_MIN   = ~I32_MAX; 

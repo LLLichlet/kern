@@ -1,0 +1,7 @@
+fn max(a: usize, b: usize) usize {
+    return if (a > b) a else b;
+}
+
+fn min(a: usize, b: usize) usize {
+    return if (a > b) b else a;
+}

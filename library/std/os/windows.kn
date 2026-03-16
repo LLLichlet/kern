@@ -44,3 +44,13 @@ pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     let _ = WriteFile(handle, ptr, @intCast[usize, u32](len), written.&, 0 as *mut void);
     return @intCast[u32, usize](written);
 }
+
+extern {
+    pub fn VirtualAlloc(lpAddress: *mut void, dwSize: usize, flAllocationType: u32, flProtect: u32) *mut u8;
+    pub fn VirtualFree(lpAddress: *mut void, dwSize: usize, dwFreeType: u32) i32;
+}
+
+pub const MEM_COMMIT  = 4096;  // 0x1000
+pub const MEM_RESERVE = 8192;  // 0x2000
+pub const PAGE_READWRITE = 4;  // 0x04
+pub const MEM_RELEASE = 32768; // 0x8000

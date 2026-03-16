@@ -1,0 +1,8 @@
+use std.debug.Option;
+use ..Layout;
+
+pub type Allocator = trait {
+    // 可能 OOM
+    alloc: fn(Layout) Option[*mut u8],
+    free: fn(*mut u8, Layout) void,
+};

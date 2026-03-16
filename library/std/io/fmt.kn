@@ -10,11 +10,13 @@ pub fn format_to(writer: mut Writer, fmt: []u8, args: []mut Printable) void {
     let arg_idx = 0;
     let last_pos = 0;
     let i = 0;
+    let l_bracket = @intCast[u32, u8]('{');
+    let r_bracket = @intCast[u32, u8]('}');
 
     for (; i < fmt_len; ) {
-        if (fmt.[i] == 123) {
+        if (fmt.[i] == l_bracket) {
             if (i + 1 < fmt_len) {
-                if (fmt.[i + 1] == 125) {
+                if (fmt.[i + 1] == r_bracket) {
                     if (i > last_pos) {
                         let text_slice = fmt.[last_pos .. i];
                         let _ = writer.write(text_slice);
@@ -46,9 +48,9 @@ pub fn print(fmt: []u8, args: []mut Printable) void {
     format_to(writer, fmt, args);
 }
 
-pub fn println(fmt: []u8, args: []mut Printable) void {
-    let out_file = mut File.{stdout()};
-    let writer = mut Writer.{ out_file.& };
+pub fn println(fmt: []u8, args: []*mut Printable) void {
+    let mut out_file = stdout();
+    let writer = Writer.{ out_file..& }; // *mut Writer
     format_to(writer, fmt, args);
     let _ = writer.write("\n");
 }

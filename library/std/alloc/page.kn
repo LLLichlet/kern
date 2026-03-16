@@ -1,0 +1,56 @@
+use std.debug.Option;
+use std.os;
+use ..traits.Allocer;
+use ..traits.Layout;
+
+/// 系统页分配器 (无状态)
+pub type PageAllocer = struct {};
+
+impl *mut PageAllocer : Allocer {
+    pub fn alloc(layout: Layout) Option[*mut u8] {
+        if (layout.size == 0) return .{ None };
+
+        #[if(os == "linux")]
+        {
+            let flags = os.linux.MAP_PRIVATE | os.linux.MAP_ANONYMOUS;
+            let prot = os.linux.PROT_READ | os.linux.PROT_WRITE;
+            // 对于匿名映射，fd 传 -1 (即全 1)，offset 传 0
+            let fd = ~usize.{0}; 
+            
+            let result = os.linux.mmap(0, layout.size, prot, flags, fd, 0);
+            
+            if (result == os.linux.MAP_FAILED) {
+                return .{ None };
+            }
+            return .{ Some: result as *mut u8 };
+        }
+
+        #[if(os == "windows")]
+        {
+            let alloc_type = os.windows.MEM_COMMIT | os.windows.MEM_RESERVE;
+            let prot = os.windows.PAGE_READWRITE;
+            
+            let result = os.windows.VirtualAlloc(0 as *mut void, layout.size, alloc_type, prot);
+            
+            if ((result as usize) == 0) {
+                return .{ None };
+            }
+            return .{ Some: result };
+        }
+    }
+
+    pub fn free(ptr: *mut u8, layout: Layout) void {
+        if (layout.size == 0) return;
+
+        #[if(os == "linux")]
+        {
+            let _ = os.linux.munmap(ptr as usize, layout.size);
+        }
+
+        #[if(os == "windows")]
+        {
+            // Windows 中 MEM_RELEASE 要求 size 必须传 0
+            let _ = os.windows.VirtualFree(ptr as *mut void, 0, os.windows.MEM_RELEASE);
+        }
+    }
+}

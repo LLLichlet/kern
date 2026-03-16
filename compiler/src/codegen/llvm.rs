@@ -139,14 +139,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     // ==========================================
 
     pub fn get_llvm_type(&self, ty: TypeId) -> BasicTypeEnum<'ctx> {
-        let mut norm = self.type_registry.normalize(ty);
-        loop {
-            match self.type_registry.get(norm) {
-                TypeKind::Mut(inner) => norm = *inner,
-                _ => break,
-            }
-        }
-        match self.type_registry.get(norm) {
+        let norm = self.type_registry.normalize(ty);
+        
+        match self.type_registry.get(norm).clone() {
             TypeKind::Primitive(p) => match p {
                 PrimitiveType::I8 | PrimitiveType::U8 => self.context.i8_type().into(),
                 PrimitiveType::I16 | PrimitiveType::U16 => self.context.i16_type().into(),
@@ -162,24 +157,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::Str => self.context.ptr_type(AddressSpace::default()).into(),
                 PrimitiveType::Void | PrimitiveType::Never => self.context.i8_type().into(),
             },
-            TypeKind::Pointer(_)
-            | TypeKind::VolatilePtr(_)
+            TypeKind::Pointer { .. }
+            | TypeKind::VolatilePtr { .. }
             | TypeKind::Function { .. }
             | TypeKind::FnDef(..) => self.context.ptr_type(AddressSpace::default()).into(),
-            TypeKind::Array { elem, len } => {
-                let elem_ty = self.get_llvm_type(*elem);
-                elem_ty.array_type(*len as u32).into()
+            
+            TypeKind::Array { elem, len, .. } => {
+                let elem_ty = self.get_llvm_type(elem);
+                elem_ty.array_type(len as u32).into()
             }
-            TypeKind::TraitObject(_, _) | TypeKind::Slice(_) => {
+            
+            TypeKind::TraitObject(_, _) | TypeKind::Slice { .. } => {
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
                 let len_ty = self.context.i64_type();
                 self.context
                     .struct_type(&[ptr_ty.into(), len_ty.into()], false)
                     .into()
             }
-            TypeKind::Def(def_id, args) | TypeKind::Adt(def_id, args) => {
-                // 如果 def_id 越界了，说明是在 Lowering 时生成的“伪 Union”
-                // 它的 def_id.0 其实就是 MonoId.0
+            TypeKind::Def(def_id, args) | TypeKind::Data(def_id, args) => {
                 if def_id.0 as usize >= self.ctx_defs.len() {
                     return self
                         .structs
@@ -200,19 +195,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.context.i8_type().into()
                 }
             }
-            TypeKind::AdtPayload(def_id, args) => {
+            TypeKind::DataPayload(def_id, args) => {
                 let def = &self.ctx_defs[def_id.0 as usize];
                 let mut mangled_name = (self.ctx_resolve)(def.name().unwrap()).to_string();
                 for arg in args {
                     mangled_name.push_str(&format!("_{}", arg.0));
                 }
-                mangled_name.push_str("_payload"); // 重点：加上 _payload 后缀寻找 Union 表
+                mangled_name.push_str("_payload");
 
                 if let Some(struct_ty) = self.module.get_struct_type(&mangled_name) {
                     struct_ty.into()
                 } else {
                     self.context.i8_type().into()
                 }
+            }
+            TypeKind::TypeVar(vid) => {
+                panic!("Kern ICE: Unresolved TypeVar `?T{}` leaked into LLVM Codegen! Sema missed it.", vid);
             }
             _ => unreachable!(
                 "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}",
@@ -237,13 +235,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     /// 判断当前类型是否在物理上是 Void
     fn is_void_type(&self, ty: TypeId) -> bool {
-        let mut norm = self.type_registry.normalize(ty);
-        loop {
-            match self.type_registry.get(norm) {
-                TypeKind::Mut(inner) => norm = *inner,
-                _ => break,
-            }
-        }
+        let norm = self.type_registry.normalize(ty);
         matches!(
             self.type_registry.get(norm),
             TypeKind::Primitive(PrimitiveType::Void)
@@ -495,9 +487,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
 
             match stmt {
-                MastStmt::Let { name, ty, init } => {
+               MastStmt::Let { name, ty, is_mut: _, init } => {
                     let init_val = self.compile_expr(init);
                     let llvm_ty = self.get_llvm_type(*ty);
+                    // 无论可不可变，统一 alloca，交给 LLVM 的 mem2reg pass 去做寄存器提升优化
                     let alloca =
                         self.create_entry_block_alloca(llvm_ty, &format!("let_{}", name.0));
                     self.builder.build_store(alloca, init_val).unwrap();
@@ -592,11 +585,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MastExprKind::UnionInit {
                 union_id, value, ..
             } => self.compile_union_init(*union_id, value),
-            MastExprKind::AdtInit {
-                adt_struct_id,
+            MastExprKind::DataInit {
+                data_struct_id,
                 tag_value,
                 payload,
-            } => self.compile_adt_init(*adt_struct_id, *tag_value, payload),
+            } => self.compile_data_init(*data_struct_id, *tag_value, payload),
             MastExprKind::ArrayInit(elems) => self.compile_array_init(elems, expected_llvm_ty),
             MastExprKind::FieldAccess {
                 lhs,
@@ -788,13 +781,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap()
     }
 
-    fn compile_adt_init(
+    /// 编译带有负载的 Data (等同于 Tagged Union)
+    fn compile_data_init(
         &mut self,
-        adt_struct_id: MonoId,
+        data_struct_id: MonoId,
         tag_value: u128,
         payload: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
-        let struct_llvm_ty = *self.structs.get(&adt_struct_id).unwrap();
+        let struct_llvm_ty = *self.structs.get(&data_struct_id).unwrap();
 
         let tag_llvm_ty = struct_llvm_ty
             .get_field_type_at_index(0)
@@ -803,32 +797,34 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let tag_val = tag_llvm_ty.const_int(tag_value as u64, false);
 
         let union_llvm_ty = struct_llvm_ty.get_field_type_at_index(1).unwrap();
+        let union_alloca = self.create_entry_block_alloca(union_llvm_ty, "data_union_init");
 
-        let union_alloca = self.create_entry_block_alloca(union_llvm_ty, "adt_union_init");
-
+        // 将负载写入 Union 内存
         if payload.ty != TypeId::VOID && payload.ty != TypeId::ERROR {
             let payload_val = self.compile_expr(payload);
             self.builder.build_store(union_alloca, payload_val).unwrap();
         }
 
+        // 把 Union 的内容作为整体加载出来
         let union_val = self
             .builder
-            .build_load(union_llvm_ty, union_alloca, "adt_union_load")
+            .build_load(union_llvm_ty, union_alloca, "data_union_load")
             .unwrap();
 
-        let mut adt_struct = struct_llvm_ty.const_zero();
-        adt_struct = self
+        // 组装最终的 { Tag, Union } 结构体
+        let mut data_struct = struct_llvm_ty.const_zero();
+        data_struct = self
             .builder
-            .build_insert_value(adt_struct, tag_val, 0, "adt_insert_tag")
+            .build_insert_value(data_struct, tag_val, 0, "data_insert_tag")
             .unwrap()
             .into_struct_value();
-        adt_struct = self
+        data_struct = self
             .builder
-            .build_insert_value(adt_struct, union_val, 1, "adt_insert_union")
+            .build_insert_value(data_struct, union_val, 1, "data_insert_union")
             .unwrap()
             .into_struct_value();
 
-        adt_struct.into()
+        data_struct.into()
     }
 
     fn compile_array_init(
@@ -885,7 +881,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let idx_val = self.compile_expr(index).into_int_value();
         let norm_lhs = self.type_registry.normalize(lhs.ty);
 
-        let elem_ptr = if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
+        let elem_ptr = if let TypeKind::Slice{ .. } = self.type_registry.get(norm_lhs) {
             let slice_val = self.compile_expr(lhs).into_struct_value();
             let ptr_val = self
                 .builder
@@ -898,7 +894,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .build_gep(elem_ty, ptr_val, &[idx_val], "slice_idx")
                     .unwrap()
             }
-        } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) =
+        } else if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } =
             self.type_registry.get(norm_lhs)
         {
             let ptr_val = self.compile_expr(lhs).into_pointer_value();
@@ -938,11 +934,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // 1. 提取基底指针和基底长度
         let (base_ptr, base_len) = match self.type_registry.get(norm_lhs) {
-            crate::sema::ty::TypeKind::Pointer(_) | crate::sema::ty::TypeKind::VolatilePtr(_) => {
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } => {
                 // 原始指针没有长度，完全依赖用户提供的 end
                 (lhs_val.into_pointer_value(), None)
             }
-            crate::sema::ty::TypeKind::Slice(_) => {
+            TypeKind::Slice{ .. } => {
                 // 从现有的 Fat Pointer 结构体中提取
                 let struct_val = lhs_val.into_struct_value();
                 let ptr = self
@@ -957,7 +953,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .into_int_value();
                 (ptr, Some(len))
             }
-            crate::sema::ty::TypeKind::Array { len, .. } => {
+            TypeKind::Array { len, .. } => {
                 // 获取数组的内存地址
                 let ptr = if lhs_val.is_pointer_value() {
                     lhs_val.into_pointer_value()
@@ -1001,10 +997,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // 5. 偏移基底指针: ptr = base_ptr + start
         let elem_ty = match self.type_registry.get(norm_lhs) {
-            crate::sema::ty::TypeKind::Pointer(e)
-            | crate::sema::ty::TypeKind::VolatilePtr(e)
-            | crate::sema::ty::TypeKind::Slice(e) => *e,
-            crate::sema::ty::TypeKind::Array { elem, .. } => *elem,
+            TypeKind::Pointer { elem, .. } 
+            | TypeKind::VolatilePtr { elem, .. } 
+            | TypeKind::Slice { elem, .. } => *elem, 
+            TypeKind::Array { elem, .. } => *elem,
             _ => unreachable!(),
         };
         let llvm_elem_ty = self.get_llvm_type(elem_ty);
@@ -1358,7 +1354,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     TypeKind::Array { len, .. } => {
                         self.context.i64_type().const_int(*len, false).into()
                     }
-                    TypeKind::Slice(_) => self
+                    TypeKind::Slice{ .. } => self
                         .builder
                         .build_extract_value(op_val.into_struct_value(), 1, "slice_len")
                         .unwrap(),
@@ -1969,7 +1965,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let idx_val = self.compile_expr(index).into_int_value();
                 let norm_lhs = self.type_registry.normalize(lhs.ty);
 
-                if let TypeKind::Slice(_) = self.type_registry.get(norm_lhs) {
+                if let TypeKind::Slice{ .. } = self.type_registry.get(norm_lhs) {
                     let slice_val = self.compile_expr(lhs).into_struct_value();
                     let ptr_val = self
                         .builder
@@ -1982,7 +1978,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .build_gep(elem_ty, ptr_val, &[idx_val], "slice_lvalue")
                             .unwrap()
                     }
-                } else if let TypeKind::Pointer(_) | TypeKind::VolatilePtr(_) =
+                } else if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } =
                     self.type_registry.get(norm_lhs)
                 {
                     let ptr_val = self.compile_expr(lhs).into_pointer_value();

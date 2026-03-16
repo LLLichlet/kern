@@ -24,8 +24,8 @@ pub enum TokenType {
     Static,
     Type,
     Struct,
-    Enum,
     Union,
+    Data,
     Trait,
     If,
     Else,
@@ -48,7 +48,6 @@ pub enum TokenType {
     Underscore,
     SelfType,
     SelfValue,
-    Adt,   // adt
     Match, // match
     Mod,
 
@@ -101,11 +100,14 @@ pub enum TokenType {
     Dot,          // . (字段访问)
     DotDot,       // .. (Range)
     DotDotEqual,  // ..= (Range Inclusive)
-    DotAmpersand, // .&
+    DotAmpersand, // .& (不可变取地址)
     DotStar,      // .* (指针解引用)
 
-    DotLBracket, // .[ (切片/数组索引)
+    DotLBracket, // .[ (不可变切片/数组索引)
     DotLBrace,   // .{ (匿名结构体初始化)
+
+    DotDotAmpersand, // ..& (可变取地址)
+    DotDotLBracket,  // ..[ (可变切片)
 
     Ellipsis, // ...
 

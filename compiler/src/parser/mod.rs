@@ -36,11 +36,13 @@ impl Precedence {
         match t {
             TokenType::Dot
             | TokenType::DotLBracket
+            | TokenType::DotDotLBracket
             | TokenType::DotLBrace
             | TokenType::DotStar
             | TokenType::LParen
             | TokenType::LBracket
             | TokenType::DotAmpersand
+            | TokenType::DotDotAmpersand
             | TokenType::Bang => Self::Call,
 
             TokenType::As => Self::Cast,
@@ -311,7 +313,7 @@ impl<'a> Parser<'a> {
                 | TokenType::Let
                 | TokenType::Const
                 | TokenType::Struct
-                | TokenType::Enum
+                | TokenType::Data
                 | TokenType::If
                 | TokenType::For
                 | TokenType::Return => return,
@@ -336,8 +338,6 @@ impl<'a> Parser<'a> {
             TokenType::LBracket => self.parse_array_or_slice_type(),
             TokenType::Fn => self.parse_fn_type(),
             TokenType::Identifier => self.parse_path_type(),
-            TokenType::Mut => self.parse_mut_type(),
-
             TokenType::Bang => {
                 self.advance();
                 Ok(TypeNode {
@@ -365,9 +365,8 @@ impl<'a> Parser<'a> {
 
             TokenType::Struct => self.parse_struct_type(false),
             TokenType::Union => self.parse_struct_type(true),
-            TokenType::Enum => self.parse_enum_type(),
+            TokenType::Data => self.parse_data_type(),
             TokenType::Trait => self.parse_trait_type(),
-            TokenType::Adt => self.parse_adt_type(),
 
             _ => {
                 let token = self.peek();
@@ -389,12 +388,14 @@ impl<'a> Parser<'a> {
 
     fn parse_pointer_type(&mut self) -> ParseResult<TypeNode> {
         let start_span = self.advance().span; // 消费 '*'
+        let is_mut = self.match_token(&[TokenType::Mut]); // 核心：拦截 mut
         let elem = self.parse_type()?;
 
         Ok(TypeNode {
             id: self.new_id(),
             span: start_span.to(elem.span),
             kind: TypeKind::Pointer {
+                is_mut,
                 elem: Box::new(elem),
             },
         })
@@ -402,12 +403,14 @@ impl<'a> Parser<'a> {
 
     fn parse_volatile_pointer_type(&mut self) -> ParseResult<TypeNode> {
         let start_span = self.advance().span; // 消费 '^'
+        let is_mut = self.match_token(&[TokenType::Mut]); 
         let elem = self.parse_type()?;
 
         Ok(TypeNode {
             id: self.new_id(),
             span: start_span.to(elem.span),
             kind: TypeKind::VolatilePtr {
+                is_mut,
                 elem: Box::new(elem),
             },
         })
@@ -418,35 +421,43 @@ impl<'a> Parser<'a> {
 
         // A. 切片 []T
         if self.match_token(&[TokenType::RBracket]) {
+            let is_mut = self.match_token(&[TokenType::Mut]); 
             let elem = self.parse_type()?;
             Ok(TypeNode {
                 id: self.new_id(),
                 span: start_span.to(elem.span),
                 kind: TypeKind::Slice {
+                    is_mut,
                     elem: Box::new(elem),
                 },
             })
         }
-        // B. 数组推导 [_]T (为 .{ 1, 2, 3 } 准备)
+        // B. 数组推导 [_]T
         else if self.match_token(&[TokenType::Underscore]) {
             self.expect(TokenType::RBracket)?;
+            let is_mut = self.match_token(&[TokenType::Mut]);
             let elem = self.parse_type()?;
             Ok(TypeNode {
                 id: self.new_id(),
                 span: start_span.to(elem.span),
-                kind: TypeKind::ArrayInfer(Box::new(elem)),
+                kind: TypeKind::ArrayInfer {
+                    is_mut,
+                    elem: Box::new(elem),
+                },
             })
         }
         // C. 数组 [expr]T
         else {
             let len_expr = self.parse_expression(Precedence::Lowest)?;
             self.expect(TokenType::RBracket)?;
+            let is_mut = self.match_token(&[TokenType::Mut]); 
             let elem = self.parse_type()?;
 
             Ok(TypeNode {
                 id: self.new_id(),
                 span: start_span.to(elem.span),
                 kind: TypeKind::Array {
+                    is_mut,
                     elem: Box::new(elem),
                     len: Box::new(len_expr),
                 },
@@ -519,25 +530,6 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_mut_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // 消费 'mut'
-        let elem = self.parse_type()?;
-
-        // 护城河：拦截 mut *, mut ^, mut []
-        if matches!(
-            elem.kind,
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Slice { .. }
-        ) {
-            self.add_error(start_span.to(elem.span), "Forbidden: cannot apply 'mut' directly to pointers or slices (e.g., 'mut *T'). Pointer arithmetic is disabled.".to_string());
-        }
-
-        Ok(TypeNode {
-            id: self.new_id(),
-            span: start_span.to(elem.span),
-            kind: TypeKind::Mut(Box::new(elem)),
-        })
-    }
-
     fn parse_type_args(&mut self) -> ParseResult<Vec<TypeNode>> {
         self.expect(TokenType::LBracket)?;
         let mut args = Vec::new();
@@ -604,8 +596,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_enum_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance();
+    fn parse_data_type(&mut self) -> ParseResult<TypeNode> {
+        let start_token = self.advance(); // 消费 'data'
+        
+        // 解析可选的底层存储类型 
         let mut backing_type = None;
         if self.match_token(&[TokenType::Colon]) {
             backing_type = Some(Box::new(self.parse_type()?));
@@ -618,22 +612,29 @@ impl<'a> Parser<'a> {
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
 
+            let mut payload_type = None;
             let mut value = None;
-            if self.match_token(&[TokenType::Assign]) {
+
+            // 1. 嗅探数据负载: `Variant: Type`
+            if self.match_token(&[TokenType::Colon]) {
+                payload_type = Some(Box::new(self.parse_type()?));
+            } 
+            // 2. 嗅探显式赋值: `Variant = Expr`
+            else if self.match_token(&[TokenType::Assign]) {
                 value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
             }
 
-            let span = name_token.span.to(if let Some(ref v) = value {
-                v.span
-            } else {
-                name_token.span
-            });
+            let mut span = name_token.span;
+            if let Some(ref p) = payload_type { span = span.to(p.span); }
+            if let Some(ref v) = value { span = span.to(v.span); }
 
-            variants.push(EnumVariant {
+            variants.push(DataVariant {
                 name: name_id,
+                payload_type,
                 value,
                 span,
             });
+
             if !self.match_token(&[TokenType::Comma]) {
                 break;
             }
@@ -644,7 +645,7 @@ impl<'a> Parser<'a> {
         Ok(TypeNode {
             id: self.new_id(),
             span: start_token.span.to(end_token.span),
-            kind: TypeKind::Enum {
+            kind: TypeKind::Data {
                 backing_type,
                 variants,
             },
@@ -704,61 +705,43 @@ impl<'a> Parser<'a> {
             kind: TypeKind::Trait { fields },
         })
     }
-
-    fn parse_adt_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance(); // 消费 'adt'
-        // 解析可选的基础类型 (Backing Type)
-        let mut backing_type = None;
-        if self.match_token(&[TokenType::Colon]) {
-            backing_type = Some(Box::new(self.parse_type()?));
-        }
-        self.expect(TokenType::LBrace)?;
-
-        let mut variants = Vec::new();
-        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let name_token = self.expect(TokenType::Identifier)?;
-            let name_id = self.intern_token(name_token);
-
-            let mut payload_type = None;
-            // 如果遇到冒号，说明有数据负载 (Payload)
-            if self.match_token(&[TokenType::Colon]) {
-                payload_type = Some(Box::new(self.parse_type()?));
-            }
-
-            let span = name_token.span.to(if let Some(ref p) = payload_type {
-                p.span
-            } else {
-                name_token.span
-            });
-
-            variants.push(AdtVariant {
-                name: name_id,
-                payload_type,
-                span,
-            });
-
-            if !self.match_token(&[TokenType::Comma]) {
-                break;
-            }
-        }
-
-        let end_token = self.expect(TokenType::RBrace)?;
-
-        Ok(TypeNode {
-            id: self.new_id(),
-            span: start_token.span.to(end_token.span),
-            kind: TypeKind::Adt {
-                backing_type,
-                variants,
-            },
-        })
-    }
 }
 
 // ==========================================
 //            Expression Parsing
 // ==========================================
 impl<'a> Parser<'a> {
+    //  Binding Pattern
+    fn parse_binding_pattern(&mut self) -> ParseResult<BindingPattern> {
+        let mut is_mut = false;
+        let start_span = self.peek().span;
+
+        if self.match_token(&[TokenType::Mut]) {
+            is_mut = true;
+        }
+
+        let name_token = if self.match_token(&[TokenType::Underscore]) {
+            Token {
+                tag: TokenType::Underscore,
+                span: self.stream.prev_span(),
+            }
+        } else {
+            self.expect(TokenType::Identifier)?
+        };
+
+        let span = if is_mut {
+            start_span.to(name_token.span)
+        } else {
+            name_token.span
+        };
+
+        Ok(BindingPattern {
+            name: self.intern_token(name_token),
+            is_mut,
+            span,
+        })
+    }
+
     pub fn parse_expression(&mut self, precedence: Precedence) -> ParseResult<Expr> {
         let prefix_token = self.advance();
         let mut left = self.parse_prefix(prefix_token)?;
@@ -856,8 +839,8 @@ impl<'a> Parser<'a> {
             }),
             TokenType::At => self.parse_intrinsic_expr(token),
 
-            // Explicitly Typed Initializations (e.g., mut T.{...}, [N]T.{...}, *T.{...})
-            TokenType::Mut | TokenType::LBracket | TokenType::Star | TokenType::Caret => {
+            // Explicitly Typed Initializations (e.g., [N]T.{...}, *T.{...})
+            TokenType::LBracket | TokenType::Star | TokenType::Caret => {
                 self.parse_typed_data_init_prefix(token)
             }
 
@@ -920,6 +903,14 @@ impl<'a> Parser<'a> {
                     operand: Box::new(left),
                 },
             }),
+            TokenType::DotDotAmpersand => Ok(Expr { 
+                id: self.new_id(),
+                span: left.span.to(token.span),
+                kind: ExprKind::Unary {
+                    op: UnaryOperator::MutAddressOf,
+                    operand: Box::new(left),
+                },
+            }),
 
             // Assignments
             TokenType::Assign
@@ -936,7 +927,8 @@ impl<'a> Parser<'a> {
 
             // Casts & Indexing/Slicing
             TokenType::As => self.parse_as_cast_expr(left),
-            TokenType::DotLBracket => self.parse_slice_or_index_expr(left),
+            TokenType::DotLBracket => self.parse_slice_or_index_expr(left, false),
+            TokenType::DotDotLBracket => self.parse_slice_or_index_expr(left, true),
             TokenType::LBracket => self.parse_generic_instantiation_expr(left),
 
             // Type-affixed Data Init (Type.{...})
@@ -1127,34 +1119,32 @@ impl<'a> Parser<'a> {
     fn parse_typed_data_init_prefix(&mut self, start_token: Token) -> ParseResult<Expr> {
         let span = start_token.span;
 
-        // 我们利用了 parse_type 的递归结构，但是需要为第一步的特殊 token 手动桥接
+        // 这里利用了 parse_type 的递归结构，但是需要为第一步的特殊 token 手动桥接
         let type_node = match start_token.tag {
-            TokenType::Mut => {
-                let elem = self.parse_type()?;
-                TypeNode {
-                    id: self.new_id(),
-                    span: span.to(elem.span),
-                    kind: TypeKind::Mut(Box::new(elem)),
-                }
-            }
             TokenType::LBracket => {
                 if self.match_token(&[TokenType::RBracket]) {
+                    // 解析切片: []mut T
+                    let is_mut = self.match_token(&[TokenType::Mut]);
                     let elem = self.parse_type()?;
                     TypeNode {
                         id: self.new_id(),
                         span: span.to(elem.span),
                         kind: TypeKind::Slice {
+                            is_mut,
                             elem: Box::new(elem),
                         },
                     }
                 } else {
+                    // 解析数组: [N]mut T
                     let len_expr = self.parse_expression(Precedence::Lowest)?;
                     self.expect(TokenType::RBracket)?;
+                    let is_mut = self.match_token(&[TokenType::Mut]);
                     let elem = self.parse_type()?;
                     TypeNode {
                         id: self.new_id(),
                         span: span.to(elem.span),
                         kind: TypeKind::Array {
+                            is_mut,
                             elem: Box::new(elem),
                             len: Box::new(len_expr),
                         },
@@ -1162,21 +1152,27 @@ impl<'a> Parser<'a> {
                 }
             }
             TokenType::Star => {
+                // 解析指针: *mut T
+                let is_mut = self.match_token(&[TokenType::Mut]);
                 let elem = self.parse_type()?;
                 TypeNode {
                     id: self.new_id(),
                     span: span.to(elem.span),
                     kind: TypeKind::Pointer {
+                        is_mut,
                         elem: Box::new(elem),
                     },
                 }
             }
             TokenType::Caret => {
+                // 解析易失指针: ^mut T
+                let is_mut = self.match_token(&[TokenType::Mut]);
                 let elem = self.parse_type()?;
                 TypeNode {
                     id: self.new_id(),
                     span: span.to(elem.span),
                     kind: TypeKind::VolatilePtr {
+                        is_mut,
                         elem: Box::new(elem),
                     },
                 }
@@ -1299,7 +1295,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_slice_or_index_expr(&mut self, left: Expr) -> ParseResult<Expr> {
+    fn parse_slice_or_index_expr(&mut self, left: Expr, is_mut: bool) -> ParseResult<Expr> {
         let mut start = None;
         let mut end = None;
         let mut is_range = false;
@@ -1337,6 +1333,7 @@ impl<'a> Parser<'a> {
                     start,
                     end,
                     is_inclusive,
+                    is_mut,
                 },
             })
         } else {
@@ -1346,6 +1343,7 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::IndexAccess {
                     lhs: Box::new(left),
                     index: start.unwrap(),
+                    is_mut,
                 },
             })
         }
@@ -1758,25 +1756,17 @@ impl<'a> Parser<'a> {
                     }
                 }
 
-                // 判断是否有数据绑定: `: val`
+                // 判断是否有数据绑定: `: mut val`
                 let mut binding = None;
                 if self.match_token(&[TokenType::Colon]) {
-                    // 为丢弃符开绿灯
-                    if self.match_token(&[TokenType::Underscore]) {
-                        // 把它统一转换成名为 "_" 的符号存入 AST
-                        binding = Some(self.context.intern("_"));
-                    } else {
-                        // 否则走正常的标识符解析
-                        let bind_token = self.expect(TokenType::Identifier)?;
-                        binding = Some(self.intern_token(bind_token));
-                    }
+                    binding = Some(self.parse_binding_pattern()?);
                 }
 
                 let pat_span = arm_start.to(self.stream.prev_span());
                 MatchPattern::Variant {
                     target_type,
                     variant_name,
-                    binding,
+                    binding, 
                     span: pat_span,
                 }
             };
@@ -1808,24 +1798,16 @@ impl<'a> Parser<'a> {
     fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {
         let tag = start_token.tag;
 
-        let name_token = if self.match_token(&[TokenType::Underscore]) {
-            Token {
-                tag: TokenType::Underscore,
-                span: self.stream.prev_span(),
-            }
-        } else {
-            self.expect(TokenType::Identifier)?
-        };
-        let name_id = self.intern_token(name_token);
+        // 直接解析绑定模式 (支持 `let mut a` 或 `let a`)
+        let pattern = self.parse_binding_pattern()?;
 
         if self.match_token(&[TokenType::Colon]) {
             let err_span = self.stream.prev_span();
-            // 假装解析掉类型，防止后续连锁报错
-            let _ = self.parse_type();
+            let _ = self.parse_type(); // 吃掉类型防报错
 
             self.context.struct_error(err_span, "type annotations on the left side of declarations are strictly forbidden in Kern")
                 .with_hint("Kern uses explicit constructor syntax on the right side")
-                .with_hint("try rewriting this as: `let x = mut Type.{ ... };`")
+                .with_hint("try rewriting this as: `let [mut] name = Type.{ ... };`")
                 .emit();
             self.panic_mode = true;
         }
@@ -1839,7 +1821,7 @@ impl<'a> Parser<'a> {
                 id: self.new_id(),
                 span,
                 kind: ExprKind::Static {
-                    name: name_id,
+                    pattern,
                     init: Box::new(init),
                 },
             }),
@@ -1847,7 +1829,7 @@ impl<'a> Parser<'a> {
                 id: self.new_id(),
                 span,
                 kind: ExprKind::Let {
-                    name: name_id,
+                    pattern,
                     init: Box::new(init),
                 },
             }),
@@ -1905,14 +1887,14 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            let name = self.expect(TokenType::Identifier)?;
-            let name_id = self.intern_token(name);
+            let pattern = self.parse_binding_pattern()?;
             self.expect(TokenType::Colon)?;
             let type_node = self.parse_type()?;
+            let span = pattern.span.to(type_node.span);
 
             params.push(FuncParam {
-                name: name_id,
-                span: name.span.to(type_node.span),
+                pattern, 
+                span,
                 type_node,
             });
 
@@ -2179,6 +2161,15 @@ impl<'a> Parser<'a> {
         let kw = self.advance();
         let is_static = kw.tag == TokenType::Static;
 
+        // 嗅探是否带有 mut (仅对 static 有效，const 不能 mut)
+        let mut is_mut = false;
+        if self.match_token(&[TokenType::Mut]) {
+            if !is_static {
+                self.context.struct_error(self.stream.prev_span(), "`const` variables cannot be mutable").emit();
+            }
+            is_mut = true;
+        }
+
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
@@ -2194,7 +2185,7 @@ impl<'a> Parser<'a> {
         if self.match_token(&[TokenType::Assign]) {
             value = self.parse_expression(Precedence::Lowest)?;
         } else {
-            // 不再自动补齐，无论是 extern 还是普通全局变量，都必须带 =
+            // 无论是 extern 还是普通全局变量，都必须带 =
             self.add_error(
                 start,
                 "Global/extern vars must be initialized (use `= Type.{undef};` for externs)"
@@ -2215,6 +2206,7 @@ impl<'a> Parser<'a> {
                 value,
                 is_static,
                 is_extern,
+                is_mut,
             },
         })
     }

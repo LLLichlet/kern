@@ -73,6 +73,7 @@ pub enum UnaryOperator {
     LogicalNot,   // !
     BitwiseNot,   // ~
     AddressOf,    // .&
+    MutAddressOf, // ..&
     LengthOf,     // #
     PointerDeRef, // .*
 }
@@ -132,30 +133,34 @@ pub enum TypeKind {
 
     /// 指针: `*T`, `*mut T`
     Pointer {
+        is_mut: bool,
         elem: Box<TypeNode>,
     },
 
     /// 易失指针: `^T`, `^mut T`
     VolatilePtr {
+        is_mut: bool,
         elem: Box<TypeNode>,
     },
 
     /// 数组: `[N]T`
     Array {
+        is_mut: bool,
         elem: Box<TypeNode>,
         len: Box<Expr>, // 必须是常量表达式
     },
 
     // 长度推导数组: `[_]T` (用于 .{ 1, 2, 3 } 赋值时的类型推导)
-    ArrayInfer(Box<TypeNode>),
-
-    /// 切片: `[]T`
-    Slice {
+    ArrayInfer {
+        is_mut: bool,
         elem: Box<TypeNode>,
     },
 
-    /// 可变类型修饰符 `mut T`
-    Mut(Box<TypeNode>),
+    /// 切片: `[]T`
+    Slice {
+        is_mut: bool,
+        elem: Box<TypeNode>,
+    },
 
     /// 函数指针类型: `fn(i32) bool`
     Function {
@@ -175,22 +180,16 @@ pub enum TypeKind {
         fields: Vec<StructFieldDef>,
     },
 
-    /// 枚举定义
-    Enum {
-        backing_type: Option<Box<TypeNode>>, // : u8 = enum { ... }
-        variants: Vec<EnumVariant>,
+    /// 代数数据类型
+    /// type Result[T]: u8 = data { Ok: T, Err, None = 0xFF }
+    Data {
+        backing_type: Option<Box<TypeNode>>,
+        variants: Vec<DataVariant>,
     },
 
     /// 特征定义 (Trait)
     Trait {
         fields: Vec<StructFieldDef>,
-    },
-
-    /// 代数数据类型定义 (Algebraic Data Type)
-    /// 例如: adt { Some: T, None }
-    Adt {
-        backing_type: Option<Box<TypeNode>>,
-        variants: Vec<AdtVariant>,
     },
 
     /// 推导占位符 `_`
@@ -212,17 +211,12 @@ pub struct StructFieldDef {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct EnumVariant {
+pub struct DataVariant {
     pub name: SymbolId,
-    pub value: Option<Box<Expr>>,
-    pub span: Span,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct AdtVariant {
-    pub name: SymbolId,
-    /// 负载类型。如果像 `None` 一样没有数据负载，则为 None
+    /// 负载类型。例如 `Ok: i32`
     pub payload_type: Option<Box<TypeNode>>,
+    /// 显式赋值鉴别器。例如 `Red = 0`
+    pub value: Option<Box<Expr>>,
     pub span: Span,
 }
 
@@ -253,15 +247,15 @@ impl Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
-    /// `let x = v` (可变性包含在 v 的类型中，例如 let x = mut i32.{10})
+    /// `let mut x = v` 或 `let x = v`
     Let {
-        name: SymbolId,
+        pattern: BindingPattern,
         init: Box<Expr>,
     },
 
     /// `static x = v`
     Static {
-        name: SymbolId,
+        pattern: BindingPattern,
         init: Box<Expr>,
     },
 
@@ -292,6 +286,7 @@ pub enum ExprKind {
     IndexAccess {
         lhs: Box<Expr>,
         index: Box<Expr>,
+        is_mut: bool,
     },
     Call {
         callee: Box<Expr>,
@@ -346,6 +341,7 @@ pub enum ExprKind {
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
         is_inclusive: bool,
+        is_mut: bool,
     },
 
     /// 延迟执行: defer expr
@@ -389,6 +385,14 @@ pub enum ExprKind {
         ret_type: Box<TypeNode>,
         body: Box<Expr>, // 必定是一个 Block 表达式
     },
+}
+
+/// 局部绑定模式，处理类似 `mut a` 或 `a` 的逻辑
+#[derive(Debug, Clone, PartialEq)]
+pub struct BindingPattern {
+    pub name: SymbolId,
+    pub is_mut: bool,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -458,7 +462,7 @@ pub enum MatchPattern {
         /// 变体名称 (例如 `Ok`, `None`)
         variant_name: SymbolId,
         /// 提取的数据绑定 (例如 `: val`)。如果变体无负载则为 None
-        binding: Option<SymbolId>,
+        binding: Option<BindingPattern>,
         /// 整个 pattern 的 span
         span: Span,
     },
@@ -536,6 +540,7 @@ pub enum DeclKind {
         value: Expr,
         is_static: bool,
         is_extern: bool,
+        is_mut: bool,
     },
 
     /// `type Name[T] = Target;`
@@ -597,7 +602,7 @@ pub struct UseMember {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FuncParam {
-    pub name: SymbolId,
+    pub pattern: BindingPattern,
     pub type_node: TypeNode,
     pub span: Span,
 }

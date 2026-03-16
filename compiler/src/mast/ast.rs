@@ -16,7 +16,8 @@ pub struct MastModule {
     pub structs: Vec<MastStruct>,
     pub globals: Vec<MastGlobal>, // 所有 static (含全局和局部) 都被提升到这里
     pub functions: Vec<MastFunction>,
-    // Trait, Enum(被降级为整数和常量), TypeAlias 在这里彻底消失
+    // Trait, TypeAlias 在这里彻底消失。
+    // Data 根据是否携带负载，被降级为 Struct 或纯 Integer 常量。
 }
 
 #[derive(Debug, Clone)]
@@ -63,6 +64,7 @@ pub struct MastFunction {
 pub struct MastParam {
     pub name: SymbolId,
     pub ty: TypeId,
+    pub is_mut: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +105,7 @@ pub enum MastStmt {
     Let {
         name: SymbolId,
         ty: TypeId,
+        is_mut: bool,
         init: MastExpr,
     },
     /// 表达式语句
@@ -246,12 +249,12 @@ pub enum MastExprKind {
     /// 作为一个整体表达式执行的代码块 (用于嵌套作用域和 Defer 展开)
     Block(MastBlock),
 
-    // --- 10. ADT 原语 (实际上背后是 Struct+Union 布局) ---
-    /// 构建一个 ADT 实例。
+    // --- 10. Data 原语 (背后是 Struct+Union 或 纯整数 布局) ---
+    /// 构建一个带负载的 Data 实例。
     /// 在物理上，LLVM 把它当作一个 `{ TagType, UnionType }` 的结构体。
-    AdtInit {
-        adt_struct_id: MonoId, // 降级后的包装结构体 ID
-        tag_value: u128,       // 具体的枚举鉴别器
+    DataInit {
+        data_struct_id: MonoId, // 降级后的包装结构体 ID
+        tag_value: u128,        // 具体的枚举鉴别器
         /// 变体的具体负载，如果没有负载就是 Undef
         payload: Box<MastExpr>,
     },

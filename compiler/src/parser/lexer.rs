@@ -55,6 +55,12 @@ impl<'a> Lexer<'a> {
                         return self.make_token(TokenType::Ellipsis);
                     } else if self.match_char(b'=') {
                         return self.make_token(TokenType::DotDotEqual);
+                    } else if self.match_char(b'&') {
+                        // 解析为 ..& (可变取地址)
+                        return self.make_token(TokenType::DotDotAmpersand);
+                    } else if self.match_char(b'[') {
+                        // 解析为 ..[ (可变切片)
+                        return self.make_token(TokenType::DotDotLBracket);
                     }
                     return self.make_token(TokenType::DotDot);
                 } else if self.match_char(b'*') {
@@ -526,8 +532,8 @@ fn resolve_keyword(text: &[u8]) -> TokenType {
         b"static" => TokenType::Static,
         b"type" => TokenType::Type,
         b"struct" => TokenType::Struct,
-        b"enum" => TokenType::Enum,
         b"union" => TokenType::Union,
+        b"data" => TokenType::Data,
         b"trait" => TokenType::Trait,
         b"if" => TokenType::If,
         b"else" => TokenType::Else,
@@ -550,7 +556,6 @@ fn resolve_keyword(text: &[u8]) -> TokenType {
         b"_" => TokenType::Underscore,
         b"Self" => TokenType::SelfType,
         b"self" => TokenType::SelfValue,
-        b"adt" => TokenType::Adt,
         b"match" => TokenType::Match,
         b"mod" => TokenType::Mod,
         _ => TokenType::Identifier,

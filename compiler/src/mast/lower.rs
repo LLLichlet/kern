@@ -3,7 +3,7 @@ use super::ast::*;
 use crate::driver::Context;
 use crate::parser::ast::{self, Expr, ExprKind};
 use crate::sema::def::Def;
-use crate::sema::ty::{PrimitiveType, TypeId, TypeKind, DefId};
+use crate::sema::ty::{DefId, PrimitiveType, TypeId, TypeKind};
 use crate::sema::typeck::subst::Substituter;
 use crate::utils::{Span, SymbolId};
 use std::collections::HashMap;
@@ -23,7 +23,7 @@ pub struct Lowerer<'a> {
     // 维护前端 Global DefId 到 MAST MonoId 的映射
     global_map: HashMap<crate::sema::ty::DefId, MonoId>,
 
-    pub global_symbol_map: HashMap<crate::utils::SymbolId, MonoId>, 
+    pub global_symbol_map: HashMap<crate::utils::SymbolId, MonoId>,
 
     // VTable 缓存，键是 (SourceType, TraitType)
     vtable_cache: HashMap<(TypeId, TypeId), MonoId>,
@@ -159,8 +159,8 @@ impl<'a> Lowerer<'a> {
 
         // 3. 将外部传入的具体类型 args 依次与收集到的泛型名对齐
         assert_eq!(
-            all_generic_params.len(), 
-            args.len(), 
+            all_generic_params.len(),
+            args.len(),
             "Kern ICE: Generics mismatch during monomorphization. Sema missed this."
         );
         let mut subst_map = HashMap::new();
@@ -203,7 +203,10 @@ impl<'a> Lowerer<'a> {
 
         self.local_types.push(std::collections::HashMap::new());
         for p in &mast_params {
-            self.local_types.last_mut().unwrap().insert(p.name, (p.ty, p.is_mut));
+            self.local_types
+                .last_mut()
+                .unwrap()
+                .insert(p.name, (p.ty, p.is_mut));
         }
 
         let body = if let Some(body_expr) = &def.body {
@@ -532,13 +535,16 @@ impl<'a> Lowerer<'a> {
                                     stmts.push(MastStmt::Expr(init_mast));
                                 } else {
                                     let var_ty = init_mast.ty;
-                                    let is_mut = pattern.is_mut; 
-                                    
-                                    self.local_types.last_mut().unwrap().insert(pattern.name, (var_ty, is_mut));
+                                    let is_mut = pattern.is_mut;
+
+                                    self.local_types
+                                        .last_mut()
+                                        .unwrap()
+                                        .insert(pattern.name, (var_ty, is_mut));
                                     stmts.push(MastStmt::Let {
                                         name: pattern.name,
                                         ty: var_ty,
-                                        is_mut, 
+                                        is_mut,
                                         init: init_mast,
                                     });
                                 }
@@ -606,9 +612,9 @@ impl<'a> Lowerer<'a> {
         let mut mast_params = Vec::new();
         for (i, p) in params.iter().enumerate() {
             mast_params.push(MastParam {
-                name: p.pattern.name, 
+                name: p.pattern.name,
                 ty: param_tys[i],
-                is_mut: p.pattern.is_mut, 
+                is_mut: p.pattern.is_mut,
             });
         }
 
@@ -619,7 +625,10 @@ impl<'a> Lowerer<'a> {
         // 为 Lambda 开启自己独有的局部作用域
         self.local_types.push(HashMap::new());
         for p in &mast_params {
-            self.local_types.last_mut().unwrap().insert(p.name, (p.ty, p.is_mut)); 
+            self.local_types
+                .last_mut()
+                .unwrap()
+                .insert(p.name, (p.ty, p.is_mut));
         }
 
         // 3. 降级 Lambda 的函数体 (Block)
@@ -716,7 +725,7 @@ impl<'a> Lowerer<'a> {
                 }
             }
 
-            ExprKind::Let { init, ..  } => { 
+            ExprKind::Let { init, .. } => {
                 return self.lower_expr(init, subst_map, Some(concrete_ty));
             }
             ExprKind::Static { pattern, init } => {
@@ -749,7 +758,9 @@ impl<'a> Lowerer<'a> {
                 // 老老实实走普通的结构体/联合体字段访问
                 self.lower_field_access(lhs, *field, subst_map, expr.span)
             }
-            ExprKind::IndexAccess { lhs, index, .. } => self.lower_index_access(lhs, index, subst_map),
+            ExprKind::IndexAccess { lhs, index, .. } => {
+                self.lower_index_access(lhs, index, subst_map)
+            }
 
             ExprKind::DataInit { literal, .. } => {
                 self.lower_data_init(literal, subst_map, concrete_ty, expr.span)
@@ -846,7 +857,7 @@ impl<'a> Lowerer<'a> {
         if raw_ty == TypeId::ERROR {
             if let ExprKind::Identifier(name) = &expr.kind {
                 for scope in self.local_types.iter().rev() {
-                    if let Some(&(local_ty, _)) = scope.get(name) { 
+                    if let Some(&(local_ty, _)) = scope.get(name) {
                         return local_ty;
                     }
                 }
@@ -932,7 +943,7 @@ impl<'a> Lowerer<'a> {
         init: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
         concrete_ty: TypeId,
-        is_mut: bool, 
+        is_mut: bool,
     ) -> MastExprKind {
         let global_id = self.new_mono_id();
         let lower_init = self.lower_expr(init, subst_map, Some(concrete_ty));
@@ -941,7 +952,7 @@ impl<'a> Lowerer<'a> {
             id: global_id,
             name: format!("local_static_{}_{}", self.ctx.resolve(name), global_id.0),
             ty: concrete_ty,
-            is_mut, 
+            is_mut,
             init: Some(lower_init),
             is_extern: false,
             attributes: vec![],
@@ -1325,8 +1336,17 @@ impl<'a> Lowerer<'a> {
         // 2. 根据基底类型，决定是动态分发还是静态分发
         if let TypeKind::TraitObject(trait_id, _) = self.ctx.type_registry.get(norm_base) {
             self.lower_dynamic_method_dispatch(recv, field, arg_masts, *trait_id, norm_callee, span)
-        } else if let TypeKind::FnDef(method_id, generics) = self.ctx.type_registry.get(norm_callee).clone() {
-            self.lower_static_method_dispatch(recv, arg_masts, method_id, &generics, norm_callee, span)
+        } else if let TypeKind::FnDef(method_id, generics) =
+            self.ctx.type_registry.get(norm_callee).clone()
+        {
+            self.lower_static_method_dispatch(
+                recv,
+                arg_masts,
+                method_id,
+                &generics,
+                norm_callee,
+                span,
+            )
         } else {
             unreachable!("Invalid method call resolution")
         }
@@ -1371,8 +1391,11 @@ impl<'a> Lowerer<'a> {
             .iter()
             .position(|m| m.name == field)
             .expect("Method not found in trait");
-            
-        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem: TypeId::VOID });
+
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
 
         // 数据指针 (传递给方法的 self)
         let data_ptr = MastExpr::new(
@@ -1388,8 +1411,11 @@ impl<'a> Lowerer<'a> {
             MastExprKind::ExtractFatPtrMeta(Box::new(recv)),
             span,
         );
-        let vtable_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem: void_ptr_ty });
-        
+        let vtable_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: void_ptr_ty,
+        });
+
         let vtable_ptr = MastExpr::new(
             vtable_ptr_ty,
             MastExprKind::Cast {
@@ -1415,10 +1441,17 @@ impl<'a> Lowerer<'a> {
 
         // 拼接签名
         let (ret_ty, is_variadic, mut patched_params) = if let TypeKind::Function {
-            ret, is_variadic, params, ..
-        } = self.ctx.type_registry.get(norm_callee) {
+            ret,
+            is_variadic,
+            params,
+            ..
+        } =
+            self.ctx.type_registry.get(norm_callee)
+        {
             (*ret, *is_variadic, params.clone())
-        } else { unreachable!() };
+        } else {
+            unreachable!()
+        };
 
         if !patched_params.is_empty() {
             patched_params[0] = void_ptr_ty;
@@ -1634,16 +1667,17 @@ impl<'a> Lowerer<'a> {
         // 如果是 Data 变体的访问 (例如 Color.Red)，复用枚举字面量提取逻辑
         if let TypeKind::Data(def_id, _) = self.ctx.type_registry.get(norm_base) {
             if let Def::Data(_) = &self.ctx.defs[def_id.0 as usize] {
-                return self.lower_enum_literal(field, expr_ty); 
+                return self.lower_enum_literal(field, expr_ty);
             }
         }
 
         let field_idx = self.get_field_index(base_ty, field);
-        let struct_def_info = if let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm_base) {
-            Some((*def_id, gen_args.clone()))
-        } else {
-            None
-        };
+        let struct_def_info =
+            if let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm_base) {
+                Some((*def_id, gen_args.clone()))
+            } else {
+                None
+            };
 
         let struct_id = if let Some((def_id, gen_args)) = struct_def_info {
             self.instantiate_struct(def_id, &gen_args)
@@ -1674,7 +1708,7 @@ impl<'a> Lowerer<'a> {
             ast::DataLiteralKind::Array(elems) => {
                 let is_target_array_like = matches!(
                     norm,
-                    TypeKind::Array { .. } | TypeKind::ArrayInfer{ .. } | TypeKind::Slice{ .. }
+                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } | TypeKind::Slice { .. }
                 );
                 if elems.is_empty() && !is_target_array_like {
                     // 当作空结构体/联合体/ADT处理，确保它们被正确 Instantiate
@@ -1708,8 +1742,12 @@ impl<'a> Lowerer<'a> {
             TypeKind::Def(def_id, gen_args) => {
                 let def = self.ctx.defs[def_id.0 as usize].clone();
                 match def {
-                    Def::Struct(s) => self.lower_struct_init(fields, def_id, &s, &gen_args, subst_map),
-                    Def::Union(u) => self.lower_union_init(fields, def_id, &u, &gen_args, subst_map),
+                    Def::Struct(s) => {
+                        self.lower_struct_init(fields, def_id, &s, &gen_args, subst_map)
+                    }
+                    Def::Union(u) => {
+                        self.lower_union_init(fields, def_id, &u, &gen_args, subst_map)
+                    }
                     _ => unreachable!("Def must be struct or union"),
                 }
             }
@@ -1788,16 +1826,11 @@ impl<'a> Lowerer<'a> {
                 .get(&f_def.type_node.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let conc_f_ty =
-                Substituter::new(&mut self.ctx.type_registry, &struct_subst_map)
-                    .substitute(raw_f_ty);
+            let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map)
+                .substitute(raw_f_ty);
 
             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
-                ordered_fields.push(self.lower_expr(
-                    &init_f.value,
-                    subst_map,
-                    Some(conc_f_ty),
-                ));
+                ordered_fields.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
             } else {
                 ordered_fields.push(self.lower_expr(
                     f_def.default_value.as_ref().unwrap(),
@@ -1806,7 +1839,7 @@ impl<'a> Lowerer<'a> {
                 ));
             }
         }
-        
+
         MastExprKind::StructInit {
             struct_id: mono_id,
             fields: ordered_fields,
@@ -1828,21 +1861,21 @@ impl<'a> Lowerer<'a> {
         for (i, param) in u.generics.iter().enumerate() {
             union_subst_map.insert(param.name, gen_args[i]);
         }
-        
+
         let init_f = &fields[0];
         let field_idx = u.fields.iter().position(|f| f.name == init_f.name).unwrap();
-        
+
         let raw_f_ty = self
             .ctx
             .node_types
             .get(&u.fields[field_idx].type_node.id)
             .copied()
             .unwrap_or(TypeId::ERROR);
-        let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &union_subst_map)
-            .substitute(raw_f_ty);
+        let conc_f_ty =
+            Substituter::new(&mut self.ctx.type_registry, &union_subst_map).substitute(raw_f_ty);
 
         let val_expr = self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty));
-        
+
         MastExprKind::UnionInit {
             union_id: mono_id,
             field_idx,
@@ -1906,33 +1939,41 @@ impl<'a> Lowerer<'a> {
                 // 如果不是 Trait，当做普通单值
                 self.lower_expr(inner, subst_map, Some(concrete_ty)).kind
             }
-            _ => {
-                self.lower_expr(inner, subst_map, Some(concrete_ty)).kind
-            }
+            _ => self.lower_expr(inner, subst_map, Some(concrete_ty)).kind,
         }
     }
 
     /// 辅助：构建没有负载的 Data (例如 Option.None)
-    fn lower_data_scalar_init( 
+    fn lower_data_scalar_init(
         &mut self,
         inner: &Expr,
         def_id: DefId,
         gen_args: &[TypeId],
     ) -> MastExprKind {
-        let def = if let Def::Data(d) = &self.ctx.defs[def_id.0 as usize] { d.clone() } else { unreachable!() };
+        let def = if let Def::Data(d) = &self.ctx.defs[def_id.0 as usize] {
+            d.clone()
+        } else {
+            unreachable!()
+        };
 
         let variant_name = if let ExprKind::Identifier(id) = &inner.kind {
             *id
-        } else { unreachable!() };
+        } else {
+            unreachable!()
+        };
 
-        let tag_val = def.variants.iter().position(|v| v.name == variant_name).unwrap() as u128;
+        let tag_val = def
+            .variants
+            .iter()
+            .position(|v| v.name == variant_name)
+            .unwrap() as u128;
 
         // 纯数据优化：如果没有任何负载，直接降级为硬编码整数
         if self.is_pure_data(&def) {
             MastExprKind::Integer(tag_val)
         } else {
-            let mono_id = self.instantiate_data(def_id, gen_args); 
-            MastExprKind::DataInit { 
+            let mono_id = self.instantiate_data(def_id, gen_args);
+            MastExprKind::DataInit {
                 data_struct_id: mono_id,
                 tag_value: tag_val,
                 payload: Box::new(MastExpr::new(TypeId::VOID, MastExprKind::Undef, inner.span)),
@@ -1945,16 +1986,25 @@ impl<'a> Lowerer<'a> {
         &mut self,
         inner: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
-        trait_norm: TypeId,     
+        trait_norm: TypeId,
         span: Span,
     ) -> MastExprKind {
         let l = self.lower_expr(inner, subst_map, None);
-        
+
         // 查找或生成 VTable
         let vtable_id = self.get_or_create_vtable(l.ty, trait_norm);
 
-        let global_array_ty = self.module.globals.iter().find(|g| g.id == vtable_id).unwrap().ty;
-        let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem: global_array_ty });
+        let global_array_ty = self
+            .module
+            .globals
+            .iter()
+            .find(|g| g.id == vtable_id)
+            .unwrap()
+            .ty;
+        let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: global_array_ty,
+        });
 
         // 生成底层构造器
         MastExprKind::ConstructFatPointer {
@@ -1980,11 +2030,18 @@ impl<'a> Lowerer<'a> {
 
     fn lower_enum_literal(&mut self, variant_name: SymbolId, concrete_ty: TypeId) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
-        let (def_id, gen_args) = if let TypeKind::Data(id, args) = self.ctx.type_registry.get(norm_ty) {
-            (*id, args.clone())
-        } else { unreachable!() };
+        let (def_id, gen_args) =
+            if let TypeKind::Data(id, args) = self.ctx.type_registry.get(norm_ty) {
+                (*id, args.clone())
+            } else {
+                unreachable!()
+            };
 
-        let data_def = if let Def::Data(d) = &self.ctx.defs[def_id.0 as usize] { d.clone() } else { unreachable!() };
+        let data_def = if let Def::Data(d) = &self.ctx.defs[def_id.0 as usize] {
+            d.clone()
+        } else {
+            unreachable!()
+        };
 
         let mut current_val: i128 = 0;
         for v in &data_def.variants {
@@ -2003,7 +2060,11 @@ impl<'a> Lowerer<'a> {
                     return MastExprKind::DataInit {
                         data_struct_id: mono_id,
                         tag_value: current_val as u128,
-                        payload: Box::new(MastExpr::new(TypeId::VOID, MastExprKind::Undef, Span::default())),
+                        payload: Box::new(MastExpr::new(
+                            TypeId::VOID,
+                            MastExprKind::Undef,
+                            Span::default(),
+                        )),
                     };
                 }
             }
@@ -2084,20 +2145,20 @@ impl<'a> Lowerer<'a> {
         self.loop_frames.push(self.defer_stack.len());
         // 仅仅降级循环体，不包含 post
         loop_stmts.push(MastStmt::Expr(self.lower_expr(body, subst_map, None)));
-        
+
         let body_block = MastBlock {
             stmts: loop_stmts,
             result: None,
             defers: vec![],
         };
-        
+
         // 独立降级 post 语句，将其作为 Latch 块
         let latch_block = post.map(|p| MastBlock {
             stmts: vec![MastStmt::Expr(self.lower_expr(p, subst_map, None))],
             result: None,
             defers: vec![],
         });
-        
+
         // 退出循环体，弹出边界
         self.loop_frames.pop();
 
@@ -2199,11 +2260,18 @@ impl<'a> Lowerer<'a> {
     ) -> MastExprKind {
         let t = self.lower_expr(target, subst_map, None);
 
-        let (def_id, gen_args) = if let TypeKind::Data(id, args) = self.ctx.type_registry.get(t.ty).clone() {
-            (id, args)
-        } else { unreachable!() };
-        
-        let def = if let Def::Data(d) = &self.ctx.defs[def_id.0 as usize] { d.clone() } else { unreachable!() };
+        let (def_id, gen_args) =
+            if let TypeKind::Data(id, args) = self.ctx.type_registry.get(t.ty).clone() {
+                (id, args)
+            } else {
+                unreachable!()
+            };
+
+        let def = if let Def::Data(d) = &self.ctx.defs[def_id.0 as usize] {
+            d.clone()
+        } else {
+            unreachable!()
+        };
         let is_pure = self.is_pure_data(&def);
 
         let mono_id = if !is_pure {
@@ -2221,7 +2289,7 @@ impl<'a> Lowerer<'a> {
                 MastExprKind::FieldAccess {
                     lhs: Box::new(t.clone()),
                     struct_id: mono_id,
-                    field_idx: 0, 
+                    field_idx: 0,
                 },
                 target.span,
             )
@@ -2232,24 +2300,32 @@ impl<'a> Lowerer<'a> {
 
         for arm in arms {
             match &arm.pattern {
-                ast::MatchPattern::Variant { variant_name, binding, .. } => {
-                    let tag_idx = def.variants.iter().position(|v| v.name == *variant_name).unwrap();
+                ast::MatchPattern::Variant {
+                    variant_name,
+                    binding,
+                    ..
+                } => {
+                    let tag_idx = def
+                        .variants
+                        .iter()
+                        .position(|v| v.name == *variant_name)
+                        .unwrap();
                     let variant_def = &def.variants[tag_idx];
 
                     let block = self.lower_match_variant_arm(
-                        arm, 
-                        binding.as_ref(), 
-                        &t, 
-                        mono_id, 
-                        tag_idx, 
-                        variant_def, 
-                        &def.generics, 
-                        &gen_args, 
-                        subst_map, 
+                        arm,
+                        binding.as_ref(),
+                        &t,
+                        mono_id,
+                        tag_idx,
+                        variant_def,
+                        &def.generics,
+                        &gen_args,
+                        subst_map,
                         exp_ty,
-                        is_pure 
+                        is_pure,
                     );
-                    
+
                     mast_cases.push(MastSwitchCase {
                         values: vec![tag_idx as u128], // 枚举鉴别器
                         body: block,
@@ -2275,12 +2351,12 @@ impl<'a> Lowerer<'a> {
         target_expr: &MastExpr,
         mono_id: MonoId,
         tag_idx: usize,
-        variant_def: &ast::DataVariant, 
+        variant_def: &ast::DataVariant,
         def_generics: &[ast::GenericParam],
         gen_args: &[TypeId],
         subst_map: &HashMap<SymbolId, TypeId>,
         exp_ty: TypeId,
-        is_pure: bool, 
+        is_pure: bool,
     ) -> MastBlock {
         self.local_types.push(HashMap::new());
         let mut arm_stmts = Vec::new();
@@ -2288,7 +2364,12 @@ impl<'a> Lowerer<'a> {
         // 如果不是 Pure 且用户要求绑定变量，提取负载
         if !is_pure {
             if let Some(bind_pattern) = binding {
-                let mut payload_ty = self.ctx.node_types.get(&variant_def.payload_type.as_ref().unwrap().id).copied().unwrap();
+                let mut payload_ty = self
+                    .ctx
+                    .node_types
+                    .get(&variant_def.payload_type.as_ref().unwrap().id)
+                    .copied()
+                    .unwrap();
 
                 if !def_generics.is_empty() && !gen_args.is_empty() {
                     let mut var_map = HashMap::new();
@@ -2309,7 +2390,10 @@ impl<'a> Lowerer<'a> {
                     arm.span,
                 );
 
-                let target_union_id = *self.adt_union_map.get(&mono_id).expect("Missing Data mapping");
+                let target_union_id = *self
+                    .adt_union_map
+                    .get(&mono_id)
+                    .expect("Missing Data mapping");
 
                 let payload_extract = MastExpr::new(
                     payload_ty,
@@ -2321,7 +2405,10 @@ impl<'a> Lowerer<'a> {
                     arm.span,
                 );
 
-                self.local_types.last_mut().unwrap().insert(bind_pattern.name, (payload_ty, bind_pattern.is_mut));
+                self.local_types
+                    .last_mut()
+                    .unwrap()
+                    .insert(bind_pattern.name, (payload_ty, bind_pattern.is_mut));
                 arm_stmts.push(MastStmt::Let {
                     name: bind_pattern.name,
                     ty: payload_ty,
@@ -2503,8 +2590,17 @@ impl<'a> Lowerer<'a> {
                 if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind {
                     let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
 
-                    let global_array_ty = self.module.globals.iter().find(|g| g.id == vtable_id).unwrap().ty;
-                    let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem: global_array_ty });
+                    let global_array_ty = self
+                        .module
+                        .globals
+                        .iter()
+                        .find(|g| g.id == vtable_id)
+                        .unwrap()
+                        .ty;
+                    let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem: global_array_ty,
+                    });
 
                     let concrete_expr = MastExpr::new(concrete_ty, mast_kind, span);
                     let meta_expr = MastExpr::new(
@@ -2525,18 +2621,18 @@ impl<'a> Lowerer<'a> {
                     );
 
                     return MastExpr::new(
-                        exp_ty, 
+                        exp_ty,
                         MastExprKind::ConstructFatPointer {
                             data_ptr: Box::new(concrete_expr),
                             meta: Box::new(meta_expr),
-                        }, 
-                        span
+                        },
+                        span,
                     );
                 }
             }
         }
-        
-        // 兜底返回 
+
+        // 兜底返回
         MastExpr::new(exp_ty, mast_kind, span)
     }
 
@@ -2564,11 +2660,11 @@ impl<'a> Lowerer<'a> {
         let t_int = self.ctx.type_registry.is_integer(t_norm);
         let f_ptr = matches!(
             self.ctx.type_registry.get(f_norm),
-            TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
         let t_ptr = matches!(
             self.ctx.type_registry.get(t_norm),
-            TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
 
         // 1. 指针与整数的相互转换 (Bit-pattern preserving)
@@ -2772,10 +2868,10 @@ impl<'a> Lowerer<'a> {
         impl_def: &crate::sema::def::ImplDef,
         source_args: &[TypeId],
     ) {
-        let void_ptr_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Pointer { is_mut: false, elem: TypeId::VOID });
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
         let mut vtable_methods = Vec::new();
 
         // 遍历 Trait 定义的每一个方法契约

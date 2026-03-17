@@ -40,19 +40,35 @@ pub enum TypeKind {
     Primitive(PrimitiveType),
 
     /// 普通指针: *T 或 *mut T
-    Pointer { is_mut: bool, elem: TypeId },
+    Pointer {
+        is_mut: bool,
+        elem: TypeId,
+    },
 
     /// 易失指针: ^T 或 ^mut T
-    VolatilePtr { is_mut: bool, elem: TypeId },
+    VolatilePtr {
+        is_mut: bool,
+        elem: TypeId,
+    },
 
     /// 数组: [N]T 或 [N]mut T
-    Array { is_mut: bool, elem: TypeId, len: u64 },
+    Array {
+        is_mut: bool,
+        elem: TypeId,
+        len: u64,
+    },
 
     /// 长度待推导的数组 `[_]T` 或 `[_]mut T`
-    ArrayInfer { is_mut: bool, elem: TypeId },
+    ArrayInfer {
+        is_mut: bool,
+        elem: TypeId,
+    },
 
     /// 切片: []T 或 []mut T
-    Slice { is_mut: bool, elem: TypeId },
+    Slice {
+        is_mut: bool,
+        elem: TypeId,
+    },
 
     /// 引用具体的定义 (Struct/Union)
     /// 这里只存 ID。具体字段信息去 Context 里查。
@@ -237,10 +253,10 @@ impl TypeRegistry {
     /// 检查一个类型是否是可变引用/指针
     pub fn is_mut_reference(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
-            TypeKind::Pointer { is_mut, .. } 
-            | TypeKind::VolatilePtr { is_mut, .. } 
-            | TypeKind::Slice { is_mut, .. } 
-            | TypeKind::Array { is_mut, .. } 
+            TypeKind::Pointer { is_mut, .. }
+            | TypeKind::VolatilePtr { is_mut, .. }
+            | TypeKind::Slice { is_mut, .. }
+            | TypeKind::Array { is_mut, .. }
             | TypeKind::ArrayInfer { is_mut, .. } => *is_mut,
             _ => false,
         }
@@ -248,10 +264,10 @@ impl TypeRegistry {
 
     pub fn get_elem_type(&self, id: TypeId) -> Option<TypeId> {
         match self.get(self.normalize(id)) {
-            TypeKind::Pointer { elem, .. } 
-            | TypeKind::VolatilePtr { elem, .. } 
-            | TypeKind::Slice { elem, .. } 
-            | TypeKind::Array { elem, .. } 
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Array { elem, .. }
             | TypeKind::ArrayInfer { elem, .. } => Some(*elem),
             _ => None,
         }

@@ -133,7 +133,14 @@ impl<'a> Collector<'a> {
                 is_static,
                 is_extern,
                 is_mut,
-            } => self.collect_global(decl, vis, force_extern || *is_extern, value, *is_static, *is_mut),
+            } => self.collect_global(
+                decl,
+                vis,
+                force_extern || *is_extern,
+                value,
+                *is_static,
+                *is_mut,
+            ),
             DeclKind::TypeAlias {
                 generics,
                 target,
@@ -193,7 +200,7 @@ impl<'a> Collector<'a> {
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
                         name: self_sym,
-                        is_mut: false, 
+                        is_mut: false,
                         span: decl.span,
                     },
                     type_node: ast::TypeNode {
@@ -249,7 +256,7 @@ impl<'a> Collector<'a> {
         is_extern: bool,
         value: &ast::Expr,
         is_static: bool,
-        is_mut: bool, 
+        is_mut: bool,
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
 
@@ -260,16 +267,20 @@ impl<'a> Collector<'a> {
             value: value.clone(),
             is_static,
             is_extern,
-            is_mut, 
+            is_mut,
             span: decl.span,
             attributes: decl.attributes.clone(),
         };
 
         self.ctx.add_def(Def::Global(global_def));
 
-        let sym_kind = if is_static { SymbolKind::Static } else { SymbolKind::Const };
+        let sym_kind = if is_static {
+            SymbolKind::Static
+        } else {
+            SymbolKind::Const
+        };
         let is_pub = vis == Visibility::Public;
-        
+
         self.define_symbol(
             decl.name,
             sym_kind,
@@ -277,7 +288,7 @@ impl<'a> Collector<'a> {
             Some(def_id),
             decl.span,
             is_pub,
-            is_mut, 
+            is_mut,
         );
 
         Some(def_id)

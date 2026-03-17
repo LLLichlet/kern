@@ -48,13 +48,13 @@ impl Precedence {
             TokenType::As => Self::Cast,
 
             TokenType::Star | TokenType::Slash | TokenType::Percent => Self::Factor,
-            
-            TokenType::Plus 
-            | TokenType::Minus 
-            | TokenType::Pipe 
-            | TokenType::Caret 
-            | TokenType::Ampersand 
-            | TokenType::LShift 
+
+            TokenType::Plus
+            | TokenType::Minus
+            | TokenType::Pipe
+            | TokenType::Caret
+            | TokenType::Ampersand
+            | TokenType::LShift
             | TokenType::RShift => Self::Term,
 
             TokenType::LessThan
@@ -410,7 +410,7 @@ impl<'a> Parser<'a> {
 
     fn parse_volatile_pointer_type(&mut self) -> ParseResult<TypeNode> {
         let start_span = self.advance().span; // 消费 '^'
-        let is_mut = self.match_token(&[TokenType::Mut]); 
+        let is_mut = self.match_token(&[TokenType::Mut]);
         let elem = self.parse_type()?;
 
         Ok(TypeNode {
@@ -428,7 +428,7 @@ impl<'a> Parser<'a> {
 
         // A. 切片 []T
         if self.match_token(&[TokenType::RBracket]) {
-            let is_mut = self.match_token(&[TokenType::Mut]); 
+            let is_mut = self.match_token(&[TokenType::Mut]);
             let elem = self.parse_type()?;
             Ok(TypeNode {
                 id: self.new_id(),
@@ -457,7 +457,7 @@ impl<'a> Parser<'a> {
         else {
             let len_expr = self.parse_expression(Precedence::Lowest)?;
             self.expect(TokenType::RBracket)?;
-            let is_mut = self.match_token(&[TokenType::Mut]); 
+            let is_mut = self.match_token(&[TokenType::Mut]);
             let elem = self.parse_type()?;
 
             Ok(TypeNode {
@@ -605,8 +605,8 @@ impl<'a> Parser<'a> {
 
     fn parse_data_type(&mut self) -> ParseResult<TypeNode> {
         let start_token = self.advance(); // 消费 'data'
-        
-        // 解析可选的底层存储类型 
+
+        // 解析可选的底层存储类型
         let mut backing_type = None;
         if self.match_token(&[TokenType::Colon]) {
             backing_type = Some(Box::new(self.parse_type()?));
@@ -625,15 +625,19 @@ impl<'a> Parser<'a> {
             // 1. 嗅探数据负载: `Variant: Type`
             if self.match_token(&[TokenType::Colon]) {
                 payload_type = Some(Box::new(self.parse_type()?));
-            } 
+            }
             // 2. 嗅探显式赋值: `Variant = Expr`
             else if self.match_token(&[TokenType::Assign]) {
                 value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
             }
 
             let mut span = name_token.span;
-            if let Some(ref p) = payload_type { span = span.to(p.span); }
-            if let Some(ref v) = value { span = span.to(v.span); }
+            if let Some(ref p) = payload_type {
+                span = span.to(p.span);
+            }
+            if let Some(ref v) = value {
+                span = span.to(v.span);
+            }
 
             variants.push(DataVariant {
                 name: name_id,
@@ -910,7 +914,7 @@ impl<'a> Parser<'a> {
                     operand: Box::new(left),
                 },
             }),
-            TokenType::DotDotAmpersand => Ok(Expr { 
+            TokenType::DotDotAmpersand => Ok(Expr {
                 id: self.new_id(),
                 span: left.span.to(token.span),
                 kind: ExprKind::Unary {
@@ -1773,7 +1777,7 @@ impl<'a> Parser<'a> {
                 MatchPattern::Variant {
                     target_type,
                     variant_name,
-                    binding, 
+                    binding,
                     span: pat_span,
                 }
             };
@@ -1900,7 +1904,7 @@ impl<'a> Parser<'a> {
             let span = pattern.span.to(type_node.span);
 
             params.push(FuncParam {
-                pattern, 
+                pattern,
                 span,
                 type_node,
             });
@@ -2172,7 +2176,12 @@ impl<'a> Parser<'a> {
         let mut is_mut = false;
         if self.match_token(&[TokenType::Mut]) {
             if !is_static {
-                self.context.struct_error(self.stream.prev_span(), "`const` variables cannot be mutable").emit();
+                self.context
+                    .struct_error(
+                        self.stream.prev_span(),
+                        "`const` variables cannot be mutable",
+                    )
+                    .emit();
             }
             is_mut = true;
         }

@@ -2,10 +2,10 @@ use crate::driver::Context;
 use crate::parser::ast::{self, BinaryOperator, Expr, ExprKind, StmtKind, UnaryOperator};
 use crate::sema::def::Def;
 use crate::sema::resolve_types::TypeResolver;
-use crate::sema::typeck::subst::Substituter;
 use crate::sema::scope::SymbolInfo;
 use crate::sema::scope::SymbolKind;
 use crate::sema::ty::{TypeId, TypeKind};
+use crate::sema::typeck::subst::Substituter;
 use crate::utils::Span;
 
 use std::collections::HashMap;
@@ -41,21 +41,29 @@ impl<'a> ExprChecker<'a> {
         let ty = match &expr.kind {
             // === 1. 基础字面量 ===
             ExprKind::Integer(_) => {
-                let mut res_ty = self.ctx.type_registry.intern(TypeKind::Primitive(crate::sema::ty::PrimitiveType::USize));
+                let mut res_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Primitive(crate::sema::ty::PrimitiveType::USize));
                 if let Some(exp) = expected_ty {
                     let norm = self.resolve_tv(exp);
-                    if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
-                        res_ty = exp; 
+                    if self.ctx.type_registry.is_integer(norm)
+                        || self.ctx.type_registry.is_float(norm)
+                    {
+                        res_ty = exp;
                     }
                 }
                 res_ty
             }
             ExprKind::Float(_) => {
-                let mut res_ty = self.ctx.type_registry.intern(TypeKind::Primitive(crate::sema::ty::PrimitiveType::F64));
+                let mut res_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Primitive(crate::sema::ty::PrimitiveType::F64));
                 if let Some(exp) = expected_ty {
                     let norm = self.resolve_tv(exp);
                     if self.ctx.type_registry.is_float(norm) {
-                        res_ty = exp; 
+                        res_ty = exp;
                     }
                 }
                 res_ty
@@ -95,9 +103,18 @@ impl<'a> ExprChecker<'a> {
             }
             ExprKind::FieldAccess { lhs, field } => self.check_field_access(lhs, *field, expr.span),
             ExprKind::SliceOp {
-                lhs, start, end, is_inclusive, is_mut,
+                lhs,
+                start,
+                end,
+                is_inclusive,
+                is_mut,
             } => self.check_slice_op(
-                lhs, start.as_deref(), end.as_deref(), *is_inclusive, *is_mut, expr.span,
+                lhs,
+                start.as_deref(),
+                end.as_deref(),
+                *is_inclusive,
+                *is_mut,
+                expr.span,
             ),
 
             // === 7. 函数/宏调用 ===
@@ -230,7 +247,7 @@ impl<'a> ExprChecker<'a> {
     fn check_let_or_static(
         &mut self,
         node_id: ast::NodeId,
-        pattern: &ast::BindingPattern, 
+        pattern: &ast::BindingPattern,
         init: &Expr,
         expected_ty: Option<TypeId>,
         is_static: bool,
@@ -238,12 +255,22 @@ impl<'a> ExprChecker<'a> {
     ) -> TypeId {
         let init_ty = self.check_expr(init, expected_ty);
         let norm_init = self.resolve_tv(init_ty);
-        if matches!(self.ctx.type_registry.get(norm_init), TypeKind::TraitObject(..)) {
-            self.ctx.struct_error(span, "cannot store a naked trait object in a variable")
-                .with_hint("trait objects are dynamically sized; store a pointer (`*mut Trait`) instead")
+        if matches!(
+            self.ctx.type_registry.get(norm_init),
+            TypeKind::TraitObject(..)
+        ) {
+            self.ctx
+                .struct_error(span, "cannot store a naked trait object in a variable")
+                .with_hint(
+                    "trait objects are dynamically sized; store a pointer (`*mut Trait`) instead",
+                )
                 .emit();
         }
-        let sym_kind = if is_static { SymbolKind::Static } else { SymbolKind::Var };
+        let sym_kind = if is_static {
+            SymbolKind::Static
+        } else {
+            SymbolKind::Var
+        };
 
         let info = SymbolInfo {
             kind: sym_kind,
@@ -252,7 +279,7 @@ impl<'a> ExprChecker<'a> {
             def_id: None,
             span,
             is_pub: false,
-            is_mut: pattern.is_mut, 
+            is_mut: pattern.is_mut,
         };
         let _ = self.ctx.scopes.define(pattern.name, info);
         TypeId::VOID
@@ -270,8 +297,14 @@ impl<'a> ExprChecker<'a> {
 
     fn check_index_access(&mut self, lhs: &Expr, index: &Expr, is_mut: bool, span: Span) -> TypeId {
         if is_mut {
-            self.ctx.struct_error(span, "mutable indexing `..[]` is not supported for single elements")
-                .with_hint("use standard indexing `.[]` instead. Mutability is inherited automatically.")
+            self.ctx
+                .struct_error(
+                    span,
+                    "mutable indexing `..[]` is not supported for single elements",
+                )
+                .with_hint(
+                    "use standard indexing `.[]` instead. Mutability is inherited automatically.",
+                )
                 .emit();
         }
 
@@ -280,7 +313,9 @@ impl<'a> ExprChecker<'a> {
 
         let norm_idx = self.resolve_tv(idx_ty);
         if !self.ctx.type_registry.is_integer(norm_idx) && norm_idx != TypeId::ERROR {
-            self.ctx.struct_error(index.span, "index must be an integer type").emit();
+            self.ctx
+                .struct_error(index.span, "index must be an integer type")
+                .emit();
         }
 
         let norm_lhs = self.resolve_tv(lhs_ty);
@@ -288,7 +323,9 @@ impl<'a> ExprChecker<'a> {
             TypeKind::Array { elem, .. } | TypeKind::Slice { elem, .. } => elem,
             TypeKind::Error => TypeId::ERROR,
             _ => {
-                self.ctx.struct_error(lhs.span, "cannot index into a non-array/non-slice type").emit();
+                self.ctx
+                    .struct_error(lhs.span, "cannot index into a non-array/non-slice type")
+                    .emit();
                 TypeId::ERROR
             }
         }
@@ -309,20 +346,28 @@ impl<'a> ExprChecker<'a> {
             let s_ty = self.check_expr(s, Some(TypeId::USIZE));
             let s_ty_id = self.resolve_tv(s_ty);
             if !self.ctx.type_registry.is_integer(s_ty_id) {
-                self.ctx.struct_error(s.span, "slice start index must be an integer").emit();
+                self.ctx
+                    .struct_error(s.span, "slice start index must be an integer")
+                    .emit();
             }
         }
         if let Some(e) = end {
             let e_ty = self.check_expr(e, Some(TypeId::USIZE));
             let e_ty_id = self.resolve_tv(e_ty);
             if !self.ctx.type_registry.is_integer(e_ty_id) {
-                self.ctx.struct_error(e.span, "slice end index must be an integer").emit();
+                self.ctx
+                    .struct_error(e.span, "slice end index must be an integer")
+                    .emit();
             }
         }
 
         // 如果是 `..[`，必须确保目标内存具有可变性
         if is_mut && !self.is_lvalue_mutable(lhs) && lhs_ty != TypeId::ERROR {
-            self.ctx.struct_error(span, "cannot create a mutable slice from an immutable location")
+            self.ctx
+                .struct_error(
+                    span,
+                    "cannot create a mutable slice from an immutable location",
+                )
                 .with_hint("ensure the target is bound with `let mut` or is a mutable pointer")
                 .emit();
         }
@@ -332,12 +377,15 @@ impl<'a> ExprChecker<'a> {
             TypeKind::Array { elem, .. }
             | TypeKind::Slice { elem, .. }
             | TypeKind::Pointer { elem, .. }
-            | TypeKind::VolatilePtr { elem, .. } => {
-                self.ctx.type_registry.intern(TypeKind::Slice { is_mut, elem })
-            }
+            | TypeKind::VolatilePtr { elem, .. } => self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Slice { is_mut, elem }),
             TypeKind::Error => TypeId::ERROR,
             _ => {
-                self.ctx.struct_error(lhs.span, "cannot slice a non-array/non-slice type").emit();
+                self.ctx
+                    .struct_error(lhs.span, "cannot slice a non-array/non-slice type")
+                    .emit();
                 TypeId::ERROR
             }
         }
@@ -646,9 +694,9 @@ impl<'a> ExprChecker<'a> {
                 def_id: None,
                 span: param.span,
                 is_pub: false,
-                is_mut: param.pattern.is_mut, 
+                is_mut: param.pattern.is_mut,
             };
-            let _ = self.ctx.scopes.define(param.pattern.name, info); 
+            let _ = self.ctx.scopes.define(param.pattern.name, info);
         }
 
         // 保存外部函数的返回上下文，防止内部 return 污染外部
@@ -745,11 +793,11 @@ impl<'a> ExprChecker<'a> {
 
         let is_l_ptr = matches!(
             self.ctx.type_registry.get(l_norm),
-            TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
         let is_r_ptr = matches!(
             self.ctx.type_registry.get(r_norm),
-            TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
 
         use BinaryOperator::*;
@@ -826,14 +874,20 @@ impl<'a> ExprChecker<'a> {
         match op {
             UnaryOperator::AddressOf | UnaryOperator::MutAddressOf => {
                 let is_mut = op == UnaryOperator::MutAddressOf;
-                
+
                 // 不允许对不可变的左值使用 `..&` 获取可变指针
                 if is_mut && !self.is_lvalue_mutable(operand) {
-                    self.ctx.struct_error(span, "cannot take mutable address `..&` of immutable memory")
-                        .with_hint("declare the variable with `let mut` or ensure the target is mutable")
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "cannot take mutable address `..&` of immutable memory",
+                        )
+                        .with_hint(
+                            "declare the variable with `let mut` or ensure the target is mutable",
+                        )
                         .emit();
                 }
-                
+
                 self.ctx.type_registry.intern(TypeKind::Pointer {
                     is_mut,
                     elem: op_ty,
@@ -900,9 +954,15 @@ impl<'a> ExprChecker<'a> {
 
         // 使用继承可变性分析器
         if !self.is_lvalue_mutable(lhs) && lhs_ty != TypeId::ERROR {
-            self.ctx.struct_error(lhs.span, "cannot assign to an immutable variable or location")
+            self.ctx
+                .struct_error(
+                    lhs.span,
+                    "cannot assign to an immutable variable or location",
+                )
                 .with_hint("if this is a variable, declare it with `let mut`")
-                .with_hint("if this is a pointer dereference, ensure it is a mutable pointer (`*mut T`)")
+                .with_hint(
+                    "if this is a pointer dereference, ensure it is a mutable pointer (`*mut T`)",
+                )
                 .emit();
         }
 
@@ -926,13 +986,17 @@ impl<'a> ExprChecker<'a> {
         let exp = self.resolve_tv(expected);
         let act = self.resolve_tv(actual);
 
-        if exp == act || exp == TypeId::ERROR || act == TypeId::ERROR { return true; }
-        if act == TypeId::NEVER { return true; }
+        if exp == act || exp == TypeId::ERROR || act == TypeId::ERROR {
+            return true;
+        }
+        if act == TypeId::NEVER {
+            return true;
+        }
 
         let exp_kind = self.ctx.type_registry.get(exp).clone();
         let act_kind = self.ctx.type_registry.get(act).clone();
 
-        // 1. 触发类型合一 
+        // 1. 触发类型合一
         if let TypeKind::TypeVar(vid) = act_kind {
             self.type_vars[vid as usize] = Some(exp);
             return true;
@@ -942,17 +1006,27 @@ impl<'a> ExprChecker<'a> {
             return true;
         }
 
-        // 2. 指针降级与 Trait Object 隐式打包 
-        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
-            if let TypeKind::Pointer { is_mut: a_mut, elem: a_inner } = act_kind {
+        // 2. 指针降级与 Trait Object 隐式打包
+        if let TypeKind::Pointer {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
+            if let TypeKind::Pointer {
+                is_mut: a_mut,
+                elem: a_inner,
+            } = act_kind
+            {
                 // 权限校验：不可变指针绝不能升级为可变指针
                 if !e_mut || (e_mut && a_mut) {
                     let e_norm = self.resolve_tv(e_inner);
                     let a_norm = self.resolve_tv(a_inner);
-                    
+
                     // a) 基础指针安全降级 (*mut T -> *T)
-                    if e_norm == a_norm { return true; }
-                    
+                    if e_norm == a_norm {
+                        return true;
+                    }
+
                     // b) 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
                         if self.check_trait_impl(act, e_norm) {
@@ -962,25 +1036,47 @@ impl<'a> ExprChecker<'a> {
                 }
             }
         }
-        
+
         // 同样处理易失指针
-        if let TypeKind::VolatilePtr { is_mut: e_mut, elem: e_inner } = exp_kind {
-            if let TypeKind::VolatilePtr { is_mut: a_mut, elem: a_inner } = act_kind {
+        if let TypeKind::VolatilePtr {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
+            if let TypeKind::VolatilePtr {
+                is_mut: a_mut,
+                elem: a_inner,
+            } = act_kind
+            {
                 if !e_mut || (e_mut && a_mut) {
                     let e_norm = self.resolve_tv(e_inner);
                     let a_norm = self.resolve_tv(a_inner);
-                    if e_norm == a_norm { return true; }
+                    if e_norm == a_norm {
+                        return true;
+                    }
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
-                        if self.check_trait_impl(act, e_norm) { return true; }
+                        if self.check_trait_impl(act, e_norm) {
+                            return true;
+                        }
                     }
                 }
             }
         }
 
         // 3. 切片降级与数组退化
-        if let TypeKind::Slice { is_mut: e_mut, elem: exp_elem } = exp_kind {
-            if let TypeKind::Slice { is_mut: act_mut, elem: act_elem } = act_kind {
-                if (!e_mut || (e_mut && act_mut)) && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem) {
+        if let TypeKind::Slice {
+            is_mut: e_mut,
+            elem: exp_elem,
+        } = exp_kind
+        {
+            if let TypeKind::Slice {
+                is_mut: act_mut,
+                elem: act_elem,
+            } = act_kind
+            {
+                if (!e_mut || (e_mut && act_mut))
+                    && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem)
+                {
                     return true;
                 }
             }
@@ -996,8 +1092,19 @@ impl<'a> ExprChecker<'a> {
     }
 
     /// 助手 3：数组到切片的退化
-    fn check_array_decay(&mut self, exp_is_mut: bool, exp_elem: TypeId, act_kind: &TypeKind, span: Span) -> Result<bool, ()> {
-        if let TypeKind::Array { is_mut: act_mut, elem: act_elem, .. } = act_kind {
+    fn check_array_decay(
+        &mut self,
+        exp_is_mut: bool,
+        exp_elem: TypeId,
+        act_kind: &TypeKind,
+        span: Span,
+    ) -> Result<bool, ()> {
+        if let TypeKind::Array {
+            is_mut: act_mut,
+            elem: act_elem,
+            ..
+        } = act_kind
+        {
             let exp_base = self.resolve_tv(exp_elem);
             let act_base = self.resolve_tv(*act_elem);
 
@@ -1036,23 +1143,30 @@ impl<'a> ExprChecker<'a> {
         let is_t_int = self.ctx.type_registry.is_integer(t_norm);
         let is_f_ptr = matches!(
             self.ctx.type_registry.get(f_norm),
-            TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
         let is_t_ptr = matches!(
             self.ctx.type_registry.get(t_norm),
-            TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
 
         // 1. 允许指针视角转换 (例如 *i32 as *u8)
         if is_f_ptr && is_t_ptr {
             let t_inner = self.ctx.type_registry.get_elem_type(t_norm).unwrap();
             let t_inner_id = self.resolve_tv(t_inner);
-            
-            let t_is_fat = matches!(self.ctx.type_registry.get(t_inner_id), TypeKind::TraitObject(..) | TypeKind::Slice{..});
-            
+
+            let t_is_fat = matches!(
+                self.ctx.type_registry.get(t_inner_id),
+                TypeKind::TraitObject(..) | TypeKind::Slice { .. }
+            );
+
             // Kern 的设计中，胖指针只能通过 Constructor `Trait.{ ptr }` 构造，禁止 as 强转
             if t_is_fat {
-                self.ctx.struct_error(span, "cannot cast a thin pointer to a fat pointer using `as`")
+                self.ctx
+                    .struct_error(
+                        span,
+                        "cannot cast a thin pointer to a fat pointer using `as`",
+                    )
                     .with_hint("use explicit constructor syntax: `TargetType.{ pointer }`")
                     .emit();
                 return;
@@ -1150,19 +1264,23 @@ impl<'a> ExprChecker<'a> {
         let current_norm = self.get_base_type(lhs_ty);
 
         // 2. 如果是 Trait Object，走虚表方法解析路径
-       if let TypeKind::TraitObject(trait_def_id, trait_args) =
+        if let TypeKind::TraitObject(trait_def_id, trait_args) =
             self.ctx.type_registry.get(current_norm).clone()
         {
-            return self.resolve_trait_object_method(trait_def_id, &trait_args, field, lhs_ty, span);
+            return self.resolve_trait_object_method(
+                trait_def_id,
+                &trait_args,
+                field,
+                lhs_ty,
+                span,
+            );
         }
 
         // 3. 如果是具名类型 (Struct/Union/Enum)，查找字段或变体
         if let TypeKind::Def(def_id, generic_args) =
             self.ctx.type_registry.get(current_norm).clone()
         {
-            if let Some(field_ty) =
-                self.resolve_def_field(def_id, &generic_args, field)
-            {
+            if let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field) {
                 return field_ty;
             }
         }
@@ -1228,10 +1346,15 @@ impl<'a> ExprChecker<'a> {
             .find(|(m_name, _)| *m_name == field)
         {
             // 将原本的 SelfType(也就是 Writer) 强行替换为实际的指针类型 (*mut Writer)
-            if let TypeKind::Function { params, ret, is_variadic } = self.ctx.type_registry.get(method_ty).clone() {
+            if let TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } = self.ctx.type_registry.get(method_ty).clone()
+            {
                 let mut new_params = params.clone();
                 if !new_params.is_empty() {
-                    new_params[0] = receiver_ty; 
+                    new_params[0] = receiver_ty;
                 }
                 method_ty = self.ctx.type_registry.intern(TypeKind::Function {
                     params: new_params,
@@ -1246,8 +1369,7 @@ impl<'a> ExprChecker<'a> {
                 for (i, param) in trait_def.generics.iter().enumerate() {
                     map.insert(param.name, trait_args[i]);
                 }
-                let mut subst =
-                    Substituter::new(&mut self.ctx.type_registry, &map);
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                 method_ty = subst.substitute(method_ty);
             }
             return method_ty;
@@ -1320,8 +1442,8 @@ impl<'a> ExprChecker<'a> {
                 crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
             field_ty = subst.substitute(field_ty);
         }
-        
-        field_ty 
+
+        field_ty
     }
 
     /// 辅助方法 4：通过全局 Impl 块进行方法分发 (Method Dispatch)
@@ -1334,13 +1456,18 @@ impl<'a> ExprChecker<'a> {
         let mut resolved_impl_args = Vec::new();
 
         // TODO: 注意：未来可以考虑在 Sema 收集阶段将这些方法缓存到 Context 中避免每次 O(N) 遍历
-        let impl_blocks: Vec<_> = self.ctx.defs.iter().filter_map(|def| {
-            if let Def::Impl(impl_def) = def {
-                Some(impl_def.clone())
-            } else {
-                None
-            }
-        }).collect();
+        let impl_blocks: Vec<_> = self
+            .ctx
+            .defs
+            .iter()
+            .filter_map(|def| {
+                if let Def::Impl(impl_def) = def {
+                    Some(impl_def.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         for impl_def in impl_blocks {
             let impl_target_ty = self
@@ -1354,8 +1481,7 @@ impl<'a> ExprChecker<'a> {
             if self.unify(impl_target_ty, lhs_ty, &mut map) {
                 // 将 Impl 块捕获的泛型参数提取出来
                 for param in &impl_def.generics {
-                    resolved_impl_args
-                        .push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
+                    resolved_impl_args.push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
                 }
                 // 在匹配的 Impl 块内寻找目标函数
                 for &method_id in &impl_def.methods {
@@ -1480,8 +1606,7 @@ impl<'a> ExprChecker<'a> {
                 for (i, param) in generics.iter().enumerate() {
                     map.insert(param.name, explicit_args[i]);
                 }
-                let mut subst =
-                    Substituter::new(&mut self.ctx.type_registry, &map);
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                 return (subst.substitute(raw_sig), None);
             }
 
@@ -1558,8 +1683,7 @@ impl<'a> ExprChecker<'a> {
                 .type_registry
                 .intern(TypeKind::FnDef(def_id, resolved_args));
 
-            let mut subst =
-                Substituter::new(&mut self.ctx.type_registry, &map);
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
             return (subst.substitute(raw_sig), Some(inferred_callee_ty));
         }
 
@@ -1651,7 +1775,7 @@ impl<'a> ExprChecker<'a> {
         if !self.check_coercion(span, expected_self, receiver_ty) {
             let is_exp_ptr = matches!(
                 self.ctx.type_registry.get(norm_expected),
-                TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
+                TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
             );
 
             if is_exp_ptr {
@@ -1768,7 +1892,7 @@ impl<'a> ExprChecker<'a> {
         // 4. 返回最终确定的类型
         if expected_len.is_none() {
             self.ctx.type_registry.intern(TypeKind::Array {
-                is_mut: exp_is_mut, 
+                is_mut: exp_is_mut,
                 elem: exp_elem_ty,
                 len: elems.len() as u64,
             })
@@ -1827,7 +1951,7 @@ impl<'a> ExprChecker<'a> {
             };
 
             self.ctx.type_registry.intern(TypeKind::Array {
-                is_mut: exp_is_mut, 
+                is_mut: exp_is_mut,
                 elem: exp_elem_ty,
                 len: actual_len,
             })
@@ -1907,10 +2031,7 @@ impl<'a> ExprChecker<'a> {
                     for (i, param) in def_generics.iter().enumerate() {
                         map.insert(param.name, generic_args[i]);
                     }
-                    let mut subst = Substituter::new(
-                        &mut self.ctx.type_registry,
-                        &map,
-                    );
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                     f_ty = subst.substitute(f_ty);
                 }
 
@@ -1993,21 +2114,27 @@ impl<'a> ExprChecker<'a> {
         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
 
         // 拦截 Trait Object 构造（*Trait.{ ... } 或 *mut Trait.{ ... }）
-        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } = kind_enum {
+        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
+            kind_enum
+        {
             let elem_norm = self.resolve_tv(elem);
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(elem_norm) {
                 if let ast::DataLiteralKind::Scalar(inner) = kind {
                     // 进入胖指针构造器
                     return self.check_trait_object_init(inner, expected, elem_norm, is_mut, span);
                 } else {
-                    self.ctx.struct_error(span, "trait objects must be initialized with a single pointer")
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "trait objects must be initialized with a single pointer",
+                        )
                         .with_hint("example: `*mut Reader.{ file_ptr }`")
                         .emit();
                     return TypeId::ERROR;
                 }
             }
         }
-        
+
         // 🌟 统一识别 Data 类型
         let is_data = matches!(kind_enum, TypeKind::Data(..));
 
@@ -2015,7 +2142,7 @@ impl<'a> ExprChecker<'a> {
             ast::DataLiteralKind::Array(elems) => {
                 let is_target_array_like = matches!(
                     kind_enum,
-                    TypeKind::Array { .. } | TypeKind::ArrayInfer{ .. } | TypeKind::Slice{ .. }
+                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } | TypeKind::Slice { .. }
                 );
                 if elems.is_empty() && !is_target_array_like {
                     if is_data {
@@ -2044,7 +2171,12 @@ impl<'a> ExprChecker<'a> {
                     if let ExprKind::Identifier(variant_name) = &inner.kind {
                         self.check_enum_literal(*variant_name, Some(expected), inner.span)
                     } else {
-                        self.ctx.struct_error(inner.span, "expected a simple variant name for data literal").emit();
+                        self.ctx
+                            .struct_error(
+                                inner.span,
+                                "expected a simple variant name for data literal",
+                            )
+                            .emit();
                         TypeId::ERROR
                     }
                 } else {
@@ -2070,7 +2202,11 @@ impl<'a> ExprChecker<'a> {
                         // 如果有 payload，必须使用 Struct() 初始化，不能用这种标量形式
                         if v.payload_type.is_some() {
                             let v_str = self.ctx.resolve(variant_name).to_string();
-                            self.ctx.struct_error(span, format!("variant `{}` requires a payload", v_str))
+                            self.ctx
+                                .struct_error(
+                                    span,
+                                    format!("variant `{}` requires a payload", v_str),
+                                )
                                 .with_hint(format!("initialize it as `.{{ {}: value }}`", v_str))
                                 .emit();
                         } else {
@@ -2079,26 +2215,44 @@ impl<'a> ExprChecker<'a> {
                     } else {
                         let v_str = self.ctx.resolve(variant_name).to_string();
                         let exp_str = self.ctx.ty_to_string(norm_exp);
-                        let available_variants: Vec<String> = d.variants.iter()
+                        let available_variants: Vec<String> = d
+                            .variants
+                            .iter()
                             .map(|v| format!(".{}", self.ctx.resolve(v.name)))
                             .collect();
-                        let mut diag = self.ctx.struct_error(span, format!("variant `.{}` does not exist in the expected data type", v_str))
+                        let mut diag = self
+                            .ctx
+                            .struct_error(
+                                span,
+                                format!(
+                                    "variant `.{}` does not exist in the expected data type",
+                                    v_str
+                                ),
+                            )
                             .with_hint(format!("expected data type is `{}`", exp_str));
 
                         if !available_variants.is_empty() {
-                            diag = diag.with_hint(format!("available variants: {}", available_variants.join(", ")));
+                            diag = diag.with_hint(format!(
+                                "available variants: {}",
+                                available_variants.join(", ")
+                            ));
                         }
                         diag.emit();
                     }
                 }
             } else if norm_exp != TypeId::ERROR {
                 let exp_str = self.ctx.ty_to_string(norm_exp);
-                self.ctx.struct_error(span, "expected a data/enum type for variant literal")
+                self.ctx
+                    .struct_error(span, "expected a data/enum type for variant literal")
                     .with_hint(format!("but context expects `{}`", exp_str))
                     .emit();
             }
         } else {
-            self.ctx.struct_error(span, "cannot infer data type for variant literal without context")
+            self.ctx
+                .struct_error(
+                    span,
+                    "cannot infer data type for variant literal without context",
+                )
                 .with_hint("try prepending the type name, e.g., `Result.Ok` instead of `.Ok`")
                 .emit();
         }
@@ -2126,7 +2280,9 @@ impl<'a> ExprChecker<'a> {
         };
 
         if init_fields.len() != 1 {
-            self.ctx.struct_error(span, "Data literal must specify exactly one variant").emit();
+            self.ctx
+                .struct_error(span, "Data literal must specify exactly one variant")
+                .emit();
             return TypeId::ERROR;
         }
 
@@ -2135,7 +2291,12 @@ impl<'a> ExprChecker<'a> {
 
         if let Some(v) = variant {
             if let Some(payload_ast) = &v.payload_type {
-                let mut payload_ty = self.ctx.node_types.get(&payload_ast.id).copied().unwrap_or(TypeId::ERROR);
+                let mut payload_ty = self
+                    .ctx
+                    .node_types
+                    .get(&payload_ast.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
 
                 if !data_def.generics.is_empty() && !generic_args.is_empty() {
                     let mut map = HashMap::new();
@@ -2150,14 +2311,23 @@ impl<'a> ExprChecker<'a> {
                 self.check_coercion(init_f.span, payload_ty, val_ty);
             } else {
                 let v_str = self.ctx.resolve(v.name).to_string();
-                self.ctx.struct_error(init_f.span, format!("variant `{}` does not take a payload", v_str))
+                self.ctx
+                    .struct_error(
+                        init_f.span,
+                        format!("variant `{}` does not take a payload", v_str),
+                    )
                     .with_hint(format!("initialize it as `.{{ {} }}` instead", v_str))
                     .emit();
             }
         } else {
             let v_str = self.ctx.resolve(init_f.name);
             let data_str = self.ctx.resolve(data_def.name);
-            self.ctx.struct_error(init_f.span, format!("variant `{}` not found in data type `{}`", v_str, data_str)).emit();
+            self.ctx
+                .struct_error(
+                    init_f.span,
+                    format!("variant `{}` not found in data type `{}`", v_str, data_str),
+                )
+                .emit();
         }
 
         expected
@@ -2166,36 +2336,54 @@ impl<'a> ExprChecker<'a> {
     fn check_trait_object_init(
         &mut self,
         inner: &Expr,
-        expected_ptr_ty: TypeId, 
-        trait_norm: TypeId,     
-        is_mut_expected: bool,  
+        expected_ptr_ty: TypeId,
+        trait_norm: TypeId,
+        is_mut_expected: bool,
         span: Span,
     ) -> TypeId {
         let inner_ty = self.check_expr(inner, None);
-        if inner_ty == TypeId::ERROR { return TypeId::ERROR; }
+        if inner_ty == TypeId::ERROR {
+            return TypeId::ERROR;
+        }
 
         let inner_ty_id = self.resolve_tv(inner_ty);
-        
+
         // 1. 必须传入指针
         let is_inner_ptr_mut = match self.ctx.type_registry.get(inner_ty_id) {
             TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
             _ => {
-                self.ctx.struct_error(inner.span, "trait objects can only be constructed from pointers").emit();
+                self.ctx
+                    .struct_error(
+                        inner.span,
+                        "trait objects can only be constructed from pointers",
+                    )
+                    .emit();
                 return TypeId::ERROR;
             }
         };
 
         // 2. 不允许把不可变指针塞进可变胖指针
         if is_mut_expected && !is_inner_ptr_mut {
-            self.ctx.struct_error(inner.span, "cannot create a mutable trait object from an immutable pointer")
-                .with_hint("expected a mutable pointer (like `val..&`), but found an immutable pointer")
+            self.ctx
+                .struct_error(
+                    inner.span,
+                    "cannot create a mutable trait object from an immutable pointer",
+                )
+                .with_hint(
+                    "expected a mutable pointer (like `val..&`), but found an immutable pointer",
+                )
                 .emit();
             return TypeId::ERROR;
         }
 
         // 3. 校验方法契约
         if !self.check_trait_impl(inner_ty_id, trait_norm) {
-            self.ctx.struct_error(span, "the provided pointer type does not implement the target trait").emit();
+            self.ctx
+                .struct_error(
+                    span,
+                    "the provided pointer type does not implement the target trait",
+                )
+                .emit();
             return TypeId::ERROR;
         }
 
@@ -2215,7 +2403,9 @@ impl<'a> ExprChecker<'a> {
         let norm_target = self.resolve_tv(target_ty);
 
         if norm_target == TypeId::ERROR {
-            for arm in arms { self.check_expr(&arm.body, None); }
+            for arm in arms {
+                self.check_expr(&arm.body, None);
+            }
             return TypeId::ERROR;
         }
 
@@ -2223,8 +2413,12 @@ impl<'a> ExprChecker<'a> {
             if let TypeKind::Data(id, args) = self.ctx.type_registry.get(norm_target) {
                 (*id, args.clone())
             } else {
-                self.ctx.struct_error(target.span, "match expression target must be an ADT").emit();
-                for arm in arms { self.check_expr(&arm.body, None); }
+                self.ctx
+                    .struct_error(target.span, "match expression target must be an ADT")
+                    .emit();
+                for arm in arms {
+                    self.check_expr(&arm.body, None);
+                }
                 return TypeId::ERROR;
             };
 
@@ -2239,8 +2433,13 @@ impl<'a> ExprChecker<'a> {
 
         for arm in arms {
             let body_ty = self.check_match_arm(
-                arm, &adt_def, &generic_args, norm_target, common_ret_ty,
-                &mut handled_variants, &mut has_catch_all
+                arm,
+                &adt_def,
+                &generic_args,
+                norm_target,
+                common_ret_ty,
+                &mut handled_variants,
+                &mut has_catch_all,
             );
 
             if common_ret_ty.is_none() {
@@ -2252,13 +2451,16 @@ impl<'a> ExprChecker<'a> {
 
         // 详尽性检查
         if !has_catch_all {
-            let missing: Vec<_> = adt_def.variants.iter()
+            let missing: Vec<_> = adt_def
+                .variants
+                .iter()
                 .filter(|v| !handled_variants.contains(&v.name))
                 .map(|v| self.ctx.resolve(v.name).to_string())
                 .collect();
 
             if !missing.is_empty() {
-                self.ctx.struct_error(span, "match expression is not exhaustive")
+                self.ctx
+                    .struct_error(span, "match expression is not exhaustive")
                     .with_hint(format!("missing variants: {}", missing.join(", ")))
                     .emit();
             }
@@ -2281,7 +2483,12 @@ impl<'a> ExprChecker<'a> {
         self.ctx.scopes.enter_scope();
 
         match &arm.pattern {
-            ast::MatchPattern::Variant { target_type, variant_name, binding, span: pat_span } => {
+            ast::MatchPattern::Variant {
+                target_type,
+                variant_name,
+                binding,
+                span: pat_span,
+            } => {
                 if let Some(explicit_ty_ast) = target_type {
                     let mut resolver = TypeResolver::new(self.ctx);
                     let scope = resolver.ctx.scopes.current_scope_id().unwrap();
@@ -2294,14 +2501,22 @@ impl<'a> ExprChecker<'a> {
 
                     if let Some(bind_pattern) = binding {
                         if let Some(payload_ast) = &v.payload_type {
-                            let mut payload_ty = self.ctx.node_types.get(&payload_ast.id).copied().unwrap_or(TypeId::ERROR);
+                            let mut payload_ty = self
+                                .ctx
+                                .node_types
+                                .get(&payload_ast.id)
+                                .copied()
+                                .unwrap_or(TypeId::ERROR);
 
                             if !adt_def.generics.is_empty() && !generic_args.is_empty() {
                                 let mut map = std::collections::HashMap::new();
                                 for (i, param) in adt_def.generics.iter().enumerate() {
                                     map.insert(param.name, generic_args[i]);
                                 }
-                                let mut subst = crate::sema::typeck::subst::Substituter::new(&mut self.ctx.type_registry, &map);
+                                let mut subst = crate::sema::typeck::subst::Substituter::new(
+                                    &mut self.ctx.type_registry,
+                                    &map,
+                                );
                                 payload_ty = subst.substitute(payload_ty);
                             }
 
@@ -2317,13 +2532,31 @@ impl<'a> ExprChecker<'a> {
                             };
                             let _ = self.ctx.scopes.define(bind_pattern.name, info);
                         } else {
-                            self.ctx.struct_error(*pat_span, format!("variant `{}` has no payload", self.ctx.resolve(*variant_name))).emit();
+                            self.ctx
+                                .struct_error(
+                                    *pat_span,
+                                    format!(
+                                        "variant `{}` has no payload",
+                                        self.ctx.resolve(*variant_name)
+                                    ),
+                                )
+                                .emit();
                         }
                     } else if v.payload_type.is_some() {
-                        self.ctx.struct_error(*pat_span, format!("variant `{}` requires a binding for its payload", self.ctx.resolve(*variant_name))).emit();
+                        self.ctx
+                            .struct_error(
+                                *pat_span,
+                                format!(
+                                    "variant `{}` requires a binding for its payload",
+                                    self.ctx.resolve(*variant_name)
+                                ),
+                            )
+                            .emit();
                     }
                 } else {
-                    self.ctx.struct_error(*pat_span, "variant not found in ADT").emit();
+                    self.ctx
+                        .struct_error(*pat_span, "variant not found in ADT")
+                        .emit();
                 }
             }
             ast::MatchPattern::CatchAll(_) => {
@@ -2358,25 +2591,44 @@ impl<'a> ExprChecker<'a> {
         match &expr.kind {
             ExprKind::Identifier(name) => {
                 if let Some(info) = self.ctx.scopes.resolve(*name) {
-                    info.is_mut 
-                } else { false }
+                    info.is_mut
+                } else {
+                    false
+                }
             }
-            ExprKind::Unary { op: UnaryOperator::PointerDeRef, operand } => {
-                let ptr_ty = self.ctx.node_types.get(&operand.id).copied().unwrap_or(TypeId::ERROR);
+            ExprKind::Unary {
+                op: UnaryOperator::PointerDeRef,
+                operand,
+            } => {
+                let ptr_ty = self
+                    .ctx
+                    .node_types
+                    .get(&operand.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let norm = self.resolve_tv(ptr_ty);
                 match self.ctx.type_registry.get(norm) {
-                    TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
+                    TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => {
+                        *is_mut
+                    }
                     _ => false,
                 }
             }
             ExprKind::FieldAccess { lhs, .. } | ExprKind::IndexAccess { lhs, .. } => {
-                let lhs_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
+                let lhs_ty = self
+                    .ctx
+                    .node_types
+                    .get(&lhs.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let norm_lhs = self.resolve_tv(lhs_ty);
-                
+
                 match self.ctx.type_registry.get(norm_lhs).clone() {
-                    TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,
+                    TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => {
+                        is_mut
+                    }
                     TypeKind::Slice { is_mut, .. } => is_mut,
-                    TypeKind::Array { is_mut, .. } => is_mut, 
+                    TypeKind::Array { is_mut, .. } => is_mut,
                     _ => self.is_lvalue_mutable(lhs),
                 }
             }
@@ -2426,10 +2678,7 @@ impl<'a> ExprChecker<'a> {
 
                 if self.unify(impl_target_ty, source_ty, &mut map) {
                     let instantiated_trait_ty = {
-                        let mut subst = Substituter::new(
-                            &mut self.ctx.type_registry,
-                            &map,
-                        );
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                         subst.substitute(impl_trait_ty)
                     };
 
@@ -2457,10 +2706,7 @@ impl<'a> ExprChecker<'a> {
                                         .unwrap_or(TypeId::ERROR);
                                     let inst_super_ty = {
                                         let mut subst =
-                                            Substituter::new(
-                                                &mut self.ctx.type_registry,
-                                                &map,
-                                            );
+                                            Substituter::new(&mut self.ctx.type_registry, &map);
                                         subst.substitute(super_ty)
                                     };
 
@@ -2552,33 +2798,87 @@ impl<'a> ExprChecker<'a> {
                 }
             }
             // 指针和切片的 Unify 必须同时匹配其 mut 属性
-            (TypeKind::Pointer { is_mut: g_m, elem: g_e }, TypeKind::Pointer { is_mut: c_m, elem: c_e }) => {
-                g_m == c_m && self.unify(g_e, c_e, map)
-            }
-            (TypeKind::VolatilePtr { is_mut: g_m, elem: g_e }, TypeKind::VolatilePtr { is_mut: c_m, elem: c_e }) => {
-                g_m == c_m && self.unify(g_e, c_e, map)
-            }
-            (TypeKind::Slice { is_mut: g_m, elem: g_e }, TypeKind::Slice { is_mut: c_m, elem: c_e }) => {
-                g_m == c_m && self.unify(g_e, c_e, map)
-            }
-            (TypeKind::Array { is_mut: g_m, elem: g_e, len: g_l }, TypeKind::Array { is_mut: c_m, elem: c_e, len: c_l }) => {
-                g_m == c_m && g_l == c_l && self.unify(g_e, c_e, map)
-            }
-            (TypeKind::ArrayInfer { is_mut: g_m, elem: g_e }, TypeKind::ArrayInfer { is_mut: c_m, elem: c_e }) => {
-                g_m == c_m && self.unify(g_e, c_e, map)
-            }
-            
+            (
+                TypeKind::Pointer {
+                    is_mut: g_m,
+                    elem: g_e,
+                },
+                TypeKind::Pointer {
+                    is_mut: c_m,
+                    elem: c_e,
+                },
+            ) => g_m == c_m && self.unify(g_e, c_e, map),
+            (
+                TypeKind::VolatilePtr {
+                    is_mut: g_m,
+                    elem: g_e,
+                },
+                TypeKind::VolatilePtr {
+                    is_mut: c_m,
+                    elem: c_e,
+                },
+            ) => g_m == c_m && self.unify(g_e, c_e, map),
+            (
+                TypeKind::Slice {
+                    is_mut: g_m,
+                    elem: g_e,
+                },
+                TypeKind::Slice {
+                    is_mut: c_m,
+                    elem: c_e,
+                },
+            ) => g_m == c_m && self.unify(g_e, c_e, map),
+            (
+                TypeKind::Array {
+                    is_mut: g_m,
+                    elem: g_e,
+                    len: g_l,
+                },
+                TypeKind::Array {
+                    is_mut: c_m,
+                    elem: c_e,
+                    len: c_l,
+                },
+            ) => g_m == c_m && g_l == c_l && self.unify(g_e, c_e, map),
+            (
+                TypeKind::ArrayInfer {
+                    is_mut: g_m,
+                    elem: g_e,
+                },
+                TypeKind::ArrayInfer {
+                    is_mut: c_m,
+                    elem: c_e,
+                },
+            ) => g_m == c_m && self.unify(g_e, c_e, map),
+
             (TypeKind::Def(g_id, g_args), TypeKind::Def(c_id, c_args)) if g_id == c_id => {
-                if g_args.len() != c_args.len() { return false; }
-                g_args.iter().zip(c_args.iter()).all(|(ga, ca)| self.unify(*ga, *ca, map))
+                if g_args.len() != c_args.len() {
+                    return false;
+                }
+                g_args
+                    .iter()
+                    .zip(c_args.iter())
+                    .all(|(ga, ca)| self.unify(*ga, *ca, map))
             }
             (TypeKind::Data(g_id, g_args), TypeKind::Data(c_id, c_args)) if g_id == c_id => {
-                if g_args.len() != c_args.len() { return false; }
-                g_args.iter().zip(c_args.iter()).all(|(ga, ca)| self.unify(*ga, *ca, map))
+                if g_args.len() != c_args.len() {
+                    return false;
+                }
+                g_args
+                    .iter()
+                    .zip(c_args.iter())
+                    .all(|(ga, ca)| self.unify(*ga, *ca, map))
             }
-            (TypeKind::TraitObject(g_id, g_args), TypeKind::TraitObject(c_id, c_args)) if g_id == c_id => {
-                if g_args.len() != c_args.len() { return false; }
-                g_args.iter().zip(c_args.iter()).all(|(ga, ca)| self.unify(*ga, *ca, map))
+            (TypeKind::TraitObject(g_id, g_args), TypeKind::TraitObject(c_id, c_args))
+                if g_id == c_id =>
+            {
+                if g_args.len() != c_args.len() {
+                    return false;
+                }
+                g_args
+                    .iter()
+                    .zip(c_args.iter())
+                    .all(|(ga, ca)| self.unify(*ga, *ca, map))
             }
             _ => gen_norm == con_norm,
         }
@@ -2727,12 +3027,10 @@ impl<'a> ExprChecker<'a> {
     }
 
     /// 辅助方法：判断内联汇编 output 绑定的类型是否为可变指针 (`*mut T` 或 `^mut T`)
-    fn is_mut_pointer(&mut self, ty: TypeId) -> bool { 
+    fn is_mut_pointer(&mut self, ty: TypeId) -> bool {
         let norm = self.resolve_tv(ty);
         match self.ctx.type_registry.get(norm).clone() {
-            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => {
-                is_mut 
-            }
+            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,
             _ => false,
         }
     }

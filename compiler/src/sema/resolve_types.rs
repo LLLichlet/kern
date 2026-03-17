@@ -87,7 +87,7 @@ impl<'a> TypeResolver<'a> {
                 let mut param_tys = Vec::new();
                 for param in &f.params {
                     let p_ty = self.resolve_type(&param.type_node, func_scope);
-                    self.ensure_sized(p_ty, param.type_node.span); 
+                    self.ensure_sized(p_ty, param.type_node.span);
                     param_tys.push(p_ty);
                 }
                 let ret_ty = self.resolve_type(&f.ret_type, func_scope);
@@ -291,15 +291,24 @@ impl<'a> TypeResolver<'a> {
             }
             ast::TypeKind::Pointer { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: *is_mut, elem: base })
+                self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: *is_mut,
+                    elem: base,
+                })
             }
             ast::TypeKind::VolatilePtr { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: *is_mut, elem: base })
+                self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut: *is_mut,
+                    elem: base,
+                })
             }
             ast::TypeKind::Slice { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
-                self.ctx.type_registry.intern(TypeKind::Slice { is_mut: *is_mut, elem: base })
+                self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut: *is_mut,
+                    elem: base,
+                })
             }
             ast::TypeKind::Array { is_mut, elem, len } => {
                 let base = self.resolve_type(elem, env_scope);

@@ -620,7 +620,7 @@ impl<'a> ConstEvaluator<'a> {
                 self.ctx.target.pointer_size
             }
             TypeKind::Slice { .. } | TypeKind::TraitObject(..) => self.ctx.target.pointer_size,
-            
+
             TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
                 self.compute_type_align_inner(elem, depth + 1)
             }
@@ -630,7 +630,7 @@ impl<'a> ConstEvaluator<'a> {
             }
             TypeKind::Primitive(PrimitiveType::Never) | TypeKind::Error => 1,
             TypeKind::Primitive(p) => self.primitive_align(p),
-            
+
             // TODO: 如果遇到 TypeVar 等其他推导中的未知类型，兜底对齐为 1
             _ => 1,
         }
@@ -666,7 +666,7 @@ impl<'a> ConstEvaluator<'a> {
             }
             TypeKind::Error | TypeKind::Primitive(PrimitiveType::Never) => 0,
             TypeKind::Primitive(p) => self.primitive_size(p),
-            
+
             // TODO: 兜底推导中未解出的 TypeVar 为 0
             _ => 0,
         }

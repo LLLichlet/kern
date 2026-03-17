@@ -140,7 +140,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     pub fn get_llvm_type(&self, ty: TypeId) -> BasicTypeEnum<'ctx> {
         let norm = self.type_registry.normalize(ty);
-        
+
         match self.type_registry.get(norm).clone() {
             TypeKind::Primitive(p) => match p {
                 PrimitiveType::I8 | PrimitiveType::U8 => self.context.i8_type().into(),
@@ -163,23 +163,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 if matches!(self.type_registry.get(elem_norm), TypeKind::TraitObject(..)) {
                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
                     let meta_ty = self.context.i64_type(); // 虚表指针/元数据 统一用 i64 (usize) 存储
-                    return self.context
+                    return self
+                        .context
                         .struct_type(&[ptr_ty.into(), meta_ty.into()], false)
                         .into();
                 }
-                
+
                 // 普通指针，正常降级为单指针
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             TypeKind::Function { .. } | TypeKind::FnDef(..) => {
                 self.context.ptr_type(AddressSpace::default()).into()
             }
-            
+
             TypeKind::Array { elem, len, .. } => {
                 let elem_ty = self.get_llvm_type(elem);
                 elem_ty.array_type(len as u32).into()
             }
-            
+
             TypeKind::TraitObject(_, _) | TypeKind::Slice { .. } => {
                 let ptr_ty = self.context.ptr_type(AddressSpace::default());
                 let len_ty = self.context.i64_type();
@@ -223,7 +224,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
             TypeKind::TypeVar(vid) => {
-                panic!("Kern ICE: Unresolved TypeVar `?T{}` leaked into LLVM Codegen! Sema missed it.", vid);
+                panic!(
+                    "Kern ICE: Unresolved TypeVar `?T{}` leaked into LLVM Codegen! Sema missed it.",
+                    vid
+                );
             }
             _ => unreachable!(
                 "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}",
@@ -500,7 +504,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
 
             match stmt {
-               MastStmt::Let { name, ty, is_mut: _, init } => {
+                MastStmt::Let {
+                    name,
+                    ty,
+                    is_mut: _,
+                    init,
+                } => {
                     let init_val = self.compile_expr(init);
                     let llvm_ty = self.get_llvm_type(*ty);
                     // 无论可不可变，统一 alloca，交给 LLVM 的 mem2reg pass 去做寄存器提升优化
@@ -894,7 +903,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let idx_val = self.compile_expr(index).into_int_value();
         let norm_lhs = self.type_registry.normalize(lhs.ty);
 
-        let elem_ptr = if let TypeKind::Slice{ .. } = self.type_registry.get(norm_lhs) {
+        let elem_ptr = if let TypeKind::Slice { .. } = self.type_registry.get(norm_lhs) {
             let slice_val = self.compile_expr(lhs).into_struct_value();
             let ptr_val = self
                 .builder
@@ -951,7 +960,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 // 原始指针没有长度，完全依赖用户提供的 end
                 (lhs_val.into_pointer_value(), None)
             }
-            TypeKind::Slice{ .. } => {
+            TypeKind::Slice { .. } => {
                 // 从现有的 Fat Pointer 结构体中提取
                 let struct_val = lhs_val.into_struct_value();
                 let ptr = self
@@ -1010,9 +1019,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // 5. 偏移基底指针: ptr = base_ptr + start
         let elem_ty = match self.type_registry.get(norm_lhs) {
-            TypeKind::Pointer { elem, .. } 
-            | TypeKind::VolatilePtr { elem, .. } 
-            | TypeKind::Slice { elem, .. } => *elem, 
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. } => *elem,
             TypeKind::Array { elem, .. } => *elem,
             _ => unreachable!(),
         };
@@ -1367,7 +1376,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     TypeKind::Array { len, .. } => {
                         self.context.i64_type().const_int(*len, false).into()
                     }
-                    TypeKind::Slice{ .. } => self
+                    TypeKind::Slice { .. } => self
                         .builder
                         .build_extract_value(op_val.into_struct_value(), 1, "slice_len")
                         .unwrap(),
@@ -1978,7 +1987,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let idx_val = self.compile_expr(index).into_int_value();
                 let norm_lhs = self.type_registry.normalize(lhs.ty);
 
-                if let TypeKind::Slice{ .. } = self.type_registry.get(norm_lhs) {
+                if let TypeKind::Slice { .. } = self.type_registry.get(norm_lhs) {
                     let slice_val = self.compile_expr(lhs).into_struct_value();
                     let ptr_val = self
                         .builder

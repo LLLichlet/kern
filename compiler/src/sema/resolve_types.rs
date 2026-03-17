@@ -86,9 +86,14 @@ impl<'a> TypeResolver<'a> {
 
                 let mut param_tys = Vec::new();
                 for param in &f.params {
-                    param_tys.push(self.resolve_type(&param.type_node, func_scope));
+                    let p_ty = self.resolve_type(&param.type_node, func_scope);
+                    self.ensure_sized(p_ty, param.type_node.span); 
+                    param_tys.push(p_ty);
                 }
                 let ret_ty = self.resolve_type(&f.ret_type, func_scope);
+                if ret_ty != TypeId::VOID {
+                    self.ensure_sized(ret_ty, f.ret_type.span);
+                }
 
                 let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
                     params: param_tys,
@@ -136,7 +141,8 @@ impl<'a> TypeResolver<'a> {
                 self.bind_generics(&s.generics, struct_scope);
 
                 for field in &s.fields {
-                    self.resolve_type(&field.type_node, struct_scope);
+                    let f_ty = self.resolve_type(&field.type_node, struct_scope);
+                    self.ensure_sized(f_ty, field.type_node.span);
                 }
                 self.ctx.scopes.exit_scope();
                 let struct_ty = self
@@ -153,7 +159,8 @@ impl<'a> TypeResolver<'a> {
                 self.bind_generics(&u.generics, union_scope);
 
                 for field in &u.fields {
-                    self.resolve_type(&field.type_node, union_scope);
+                    let f_ty = self.resolve_type(&field.type_node, union_scope);
+                    self.ensure_sized(f_ty, field.type_node.span);
                 }
                 self.ctx.scopes.exit_scope();
                 let union_ty = self
@@ -228,6 +235,7 @@ impl<'a> TypeResolver<'a> {
                     .get(&g.value.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR);
+                self.ensure_sized(val_ty, g.value.span);
                 self.ctx.scopes.set_current_scope(parent_scope);
                 self.ctx.scopes.update_type(g.name, val_ty);
             }
@@ -779,6 +787,15 @@ impl<'a> TypeResolver<'a> {
             SymbolKind::Trait => "trait",
             SymbolKind::TypeAlias => "type alias",
             SymbolKind::TypeParam => "type parameter",
+        }
+    }
+
+    fn ensure_sized(&mut self, ty: TypeId, span: crate::utils::Span) {
+        let norm = self.ctx.type_registry.normalize(ty);
+        if matches!(self.ctx.type_registry.get(norm), TypeKind::TraitObject(..)) {
+            self.ctx.struct_error(span, "trait objects have dynamic size and cannot be used as naked types")
+                .with_hint("in Kern, you must explicitly use a pointer for dynamic dispatch, e.g., `*Trait` or `*mut Trait`")
+                .emit();
         }
     }
 }

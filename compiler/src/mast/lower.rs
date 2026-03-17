@@ -158,11 +158,14 @@ impl<'a> Lowerer<'a> {
         all_generic_params.extend(def.generics.clone());
 
         // 3. 将外部传入的具体类型 args 依次与收集到的泛型名对齐
+        assert_eq!(
+            all_generic_params.len(), 
+            args.len(), 
+            "Kern ICE: Generics mismatch during monomorphization. Sema missed this."
+        );
         let mut subst_map = HashMap::new();
         for (i, param) in all_generic_params.iter().enumerate() {
-            if i < args.len() {
-                subst_map.insert(param.name, args[i]);
-            }
+            subst_map.insert(param.name, args[i]);
         }
 
         let mut mangled_name = self.ctx.resolve(def.name).to_string();
@@ -1018,7 +1021,9 @@ impl<'a> Lowerer<'a> {
     ) -> MastExprKind {
         let op_mast = self.lower_expr(operand, subst_map, None);
         match op {
-            ast::UnaryOperator::AddressOf => MastExprKind::AddressOf(Box::new(op_mast)),
+            ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf => {
+                MastExprKind::AddressOf(Box::new(op_mast))
+            }
             ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
             _ => MastExprKind::Unary {
                 op,
@@ -1892,11 +1897,16 @@ impl<'a> Lowerer<'a> {
             TypeKind::Data(def_id, gen_args) => {
                 self.lower_data_scalar_init(inner, def_id, &gen_args)
             }
-            TypeKind::TraitObject(..) => {
-                self.lower_trait_object_init(inner, subst_map, concrete_ty, span)
+            // 拦截胖指针降级
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem_norm = self.ctx.type_registry.normalize(elem);
+                if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(elem_norm) {
+                    return self.lower_trait_object_init(inner, subst_map, elem_norm, span);
+                }
+                // 如果不是 Trait，当做普通单值
+                self.lower_expr(inner, subst_map, Some(concrete_ty)).kind
             }
             _ => {
-                // 3. 基础标量兜底
                 self.lower_expr(inner, subst_map, Some(concrete_ty)).kind
             }
         }
@@ -1935,15 +1945,18 @@ impl<'a> Lowerer<'a> {
         &mut self,
         inner: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
-        concrete_ty: TypeId,
+        trait_norm: TypeId,     
         span: Span,
     ) -> MastExprKind {
         let l = self.lower_expr(inner, subst_map, None);
-        let vtable_id = self.get_or_create_vtable(l.ty, concrete_ty);
+        
+        // 查找或生成 VTable
+        let vtable_id = self.get_or_create_vtable(l.ty, trait_norm);
 
         let global_array_ty = self.module.globals.iter().find(|g| g.id == vtable_id).unwrap().ty;
         let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem: global_array_ty });
 
+        // 生成底层构造器
         MastExprKind::ConstructFatPointer {
             data_ptr: Box::new(l),
             meta: Box::new(MastExpr::new(
@@ -2071,21 +2084,22 @@ impl<'a> Lowerer<'a> {
         self.loop_frames.push(self.defer_stack.len());
         // 仅仅降级循环体，不包含 post
         loop_stmts.push(MastStmt::Expr(self.lower_expr(body, subst_map, None)));
-        // 退出循环体，弹出边界
-        self.loop_frames.pop();
-
+        
         let body_block = MastBlock {
             stmts: loop_stmts,
             result: None,
             defers: vec![],
         };
-
+        
         // 独立降级 post 语句，将其作为 Latch 块
         let latch_block = post.map(|p| MastBlock {
             stmts: vec![MastStmt::Expr(self.lower_expr(p, subst_map, None))],
             result: None,
             defers: vec![],
         });
+        
+        // 退出循环体，弹出边界
+        self.loop_frames.pop();
 
         let loop_expr = MastExpr::new(
             TypeId::VOID,
@@ -2472,7 +2486,7 @@ impl<'a> Lowerer<'a> {
         let exp_kind = self.ctx.type_registry.get(exp_base).clone();
 
         // 1. Array 到 Slice 的隐式转换
-        if let TypeKind::Slice{ .. } = exp_kind {
+        if let TypeKind::Slice { .. } = exp_kind {
             if let TypeKind::Array { .. } = conc_kind {
                 mast_kind = MastExprKind::Cast {
                     kind: MastCastKind::ArrayToSlice,
@@ -2482,22 +2496,17 @@ impl<'a> Lowerer<'a> {
             }
         }
 
-        // 2. 具体类型指针到 Trait Object 的隐式转换
+        // 2. 具体类型指针隐式转换为 Trait Object 胖指针
         if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
-            if let TypeKind::Pointer { .. } = conc_kind {
-                let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
-                if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
-                    
-                    // 将原来的指针包装成 MAST 表达式
-                    let concrete_expr = MastExpr::new(concrete_ty, mast_kind, span);
-                    
-                    // 动态获取或生成 VTable
+            let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
+                if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind {
                     let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
 
                     let global_array_ty = self.module.globals.iter().find(|g| g.id == vtable_id).unwrap().ty;
                     let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem: global_array_ty });
 
-                    // 构建指向 VTable 的元数据指针
+                    let concrete_expr = MastExpr::new(concrete_ty, mast_kind, span);
                     let meta_expr = MastExpr::new(
                         TypeId::USIZE,
                         MastExprKind::Cast {
@@ -2515,7 +2524,6 @@ impl<'a> Lowerer<'a> {
                         span,
                     );
 
-                    // 自动打包成 ConstructFatPointer
                     return MastExpr::new(
                         exp_ty, 
                         MastExprKind::ConstructFatPointer {
@@ -2527,7 +2535,8 @@ impl<'a> Lowerer<'a> {
                 }
             }
         }
-
+        
+        // 兜底返回 
         MastExpr::new(exp_ty, mast_kind, span)
     }
 
@@ -2620,7 +2629,9 @@ impl<'a> Lowerer<'a> {
 
     fn get_or_create_vtable(&mut self, source_ty: TypeId, trait_ty: TypeId) -> MonoId {
         // 1. 检查缓存，防止重复生成相同的 VTable
-        let key = (source_ty, trait_ty);
+        let norm_source = self.ctx.type_registry.normalize(source_ty);
+        let norm_trait = self.ctx.type_registry.normalize(trait_ty);
+        let key = (norm_source, norm_trait);
         if let Some(&id) = self.vtable_cache.get(&key) {
             return id;
         }

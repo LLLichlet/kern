@@ -157,10 +157,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::Str => self.context.ptr_type(AddressSpace::default()).into(),
                 PrimitiveType::Void | PrimitiveType::Never => self.context.i8_type().into(),
             },
-            TypeKind::Pointer { .. }
-            | TypeKind::VolatilePtr { .. }
-            | TypeKind::Function { .. }
-            | TypeKind::FnDef(..) => self.context.ptr_type(AddressSpace::default()).into(),
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem_norm = self.type_registry.normalize(elem);
+                // 特判：指向 Trait Object 的指针，其物理布局是一个包含两个字段的结构体
+                if matches!(self.type_registry.get(elem_norm), TypeKind::TraitObject(..)) {
+                    let ptr_ty = self.context.ptr_type(AddressSpace::default());
+                    let meta_ty = self.context.i64_type(); // 虚表指针/元数据 统一用 i64 (usize) 存储
+                    return self.context
+                        .struct_type(&[ptr_ty.into(), meta_ty.into()], false)
+                        .into();
+                }
+                
+                // 普通指针，正常降级为单指针
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
+            TypeKind::Function { .. } | TypeKind::FnDef(..) => {
+                self.context.ptr_type(AddressSpace::default()).into()
+            }
             
             TypeKind::Array { elem, len, .. } => {
                 let elem_ty = self.get_llvm_type(elem);

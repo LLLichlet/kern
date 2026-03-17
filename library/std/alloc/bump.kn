@@ -1,12 +1,13 @@
 use std.debug.Option;
-use ..traits.Allocer;
-use ..traits.Layout;
+use ..Allocator;
+use ..Layout;
+use ..align_forward;
 
 // ==========================================
 // 1. Math Utils & Constants
 // ==========================================
 
-const CHUNK_ALIGN = usize.{16};
+const CHUNK_ALIGN = 16;
 
 // ==========================================
 // 2. Types & Sentinel
@@ -22,26 +23,26 @@ pub type ChunkFooter = struct {
 
 pub type Bump = struct {
     current_chunk: *mut ChunkFooter,
-    backing: mut Allocer, // Trait Object
+    backing: *mut Allocator, // Trait Object
     limit: usize,
     min_align: usize,
 };
 
 // 全局静态哨兵节点 (避免 fast_path 中的 nullptr 检查)
-static EMPTY_CHUNK = mut ChunkFooter.{undef};
-static EMPTY_INIT = mut bool.{false};
+static mut EMPTY_CHUNK = ChunkFooter.{undef};
+static mut EMPTY_INIT = false;
 
 fn get_empty_chunk() *mut ChunkFooter {
     if (!EMPTY_INIT) {
         EMPTY_CHUNK.data_start = EMPTY_CHUNK.& as *mut u8;
         EMPTY_CHUNK.chunk_size = 0;
-        EMPTY_CHUNK.prev = EMPTY_CHUNK.&; // 这里需要地址来形成自环
+        EMPTY_CHUNK.prev = EMPTY_CHUNK..&; // 这里需要地址来形成自环
         EMPTY_CHUNK.ptr = EMPTY_CHUNK.& as *mut u8;
         EMPTY_CHUNK.allocated_bytes = 0;
         
         EMPTY_INIT = true; // 直接赋值
     }
-    return EMPTY_CHUNK.&; // 返回单例的指针
+    return EMPTY_CHUNK..&; // 返回单例的指针
 }
 
 fn chunk_is_empty(footer: *mut ChunkFooter) bool {
@@ -54,7 +55,7 @@ fn chunk_is_empty(footer: *mut ChunkFooter) bool {
 
 impl *mut Bump {
     fn dealloc_chunk_list(footer_ptr: *mut ChunkFooter) void {
-        let current = mut *mut ChunkFooter.{footer_ptr};
+        let mut current = *mut ChunkFooter.{footer_ptr};
         for (; !chunk_is_empty(current); ) {
             let prev = current.prev;
             
@@ -71,25 +72,25 @@ impl *mut Bump {
         // 确保分配器的 Chunk 步长至少符合 Footer 的原生要求，且不低于 16
         let min_chunk_align = if (CHUNK_ALIGN > struct_align) CHUNK_ALIGN else struct_align;
         
-        let footer_size = align_up(@sizeOf[ChunkFooter](), min_chunk_align);
-        let aligned_size_no_footer = align_up(size_no_footer, min_chunk_align);
+        let footer_size = align_forward(@sizeOf[ChunkFooter](), min_chunk_align);
+        let aligned_size_no_footer = align_forward(size_no_footer, min_chunk_align);
         
-        let alloc_size = align_up(aligned_size_no_footer + footer_size, align);
+        let alloc_size = align_forward(aligned_size_no_footer + footer_size, align);
         if (alloc_size == 0) return .{ None };
 
         let l = Layout.{ size: alloc_size, align: align };
         
         // 调用底部分配器分配大块内存
-        let data = match (self.backing.alloc(l)) {
+        let data_ptr = match (self.backing.alloc(l)) {
             .Some: ptr => ptr,
             .None => return .{ None },
         };
 
         // Footer 放在内存块的末尾
-        let footer_addr = (data as usize) + aligned_size_no_footer;
+        let footer_addr = (data_ptr as usize) + aligned_size_no_footer;
         let footer_ptr = footer_addr as *mut ChunkFooter;
 
-        footer_ptr.data_start = data;
+        footer_ptr.data_start = data_ptr;
         footer_ptr.chunk_size = alloc_size;
         footer_ptr.prev = prev;
         footer_ptr.allocated_bytes = prev.allocated_bytes + aligned_size_no_footer;
@@ -111,15 +112,15 @@ impl *mut Bump {
         let ptr_addr = footer.ptr as usize;
         let start_addr = footer.data_start as usize;
         
-        let result_addr = mut usize.{0};
+        let mut result_addr = 0;
 
         if (layout.align <= self.min_align) {
-            let aligned_size = align_up(layout.size, self.min_align);
+            let aligned_size = align_forward(layout.size, self.min_align);
             let capacity = ptr_addr - start_addr;
             if (aligned_size > capacity) return .{ None };
             result_addr = ptr_addr - aligned_size;
         } else {
-            let aligned_size = align_up(layout.size, layout.align);
+            let aligned_size = align_forward(layout.size, layout.align);
             let aligned_ptr_end = align_down(ptr_addr, layout.align);
             
             if (aligned_ptr_end < start_addr) return .{ None };
@@ -137,22 +138,22 @@ impl *mut Bump {
     fn alloc_slow(layout: Layout) Option[*mut u8] {
         let current_footer = self.current_chunk;
         
-        let footer_size = align_up(@sizeOf[ChunkFooter](), CHUNK_ALIGN);
+        let footer_size = align_forward(@sizeOf[ChunkFooter](), CHUNK_ALIGN);
         let default_size_no_footer = 4096 - footer_size;
 
         // 1. Double the size strategy
-        let prev_usable = 0;
+        let mut prev_usable = 0;
         if (!chunk_is_empty(current_footer)) {
             prev_usable = current_footer.chunk_size - footer_size;
         }
 
-        let new_size = prev_usable * 2 ;
+        let mut new_size = prev_usable * 2 ;
         if (new_size < default_size_no_footer) {
             new_size = default_size_no_footer;
         }
 
         let requested_align = max(layout.align, self.min_align);
-        let requested_size = align_up(layout.size, requested_align);
+        let requested_size = align_forward(layout.size, requested_align);
 
         if (new_size < requested_size) {
             new_size = requested_size;
@@ -182,7 +183,7 @@ impl *mut Bump {
         }
 
         // 3. 确定对齐并分配新 Chunk
-        let chunk_align = max(CHUNK_ALIGN, self.min_align);
+        let mut chunk_align = max(CHUNK_ALIGN, self.min_align);
         if (layout.align > chunk_align) {
             chunk_align = layout.align;
         }
@@ -190,9 +191,9 @@ impl *mut Bump {
         match (self.new_chunk(new_size, chunk_align, current_footer)) {
             .Some: new_f => {
                 self.current_chunk = new_f;
-                return self.try_alloc_fast(layout);
+                self.try_alloc_fast(layout)
             },
-            .None => return .{ None },
+            .None => .{ None },
         }
     }
 
@@ -200,7 +201,7 @@ impl *mut Bump {
 // 5. Public API & Trait Implementation
 // ==========================================
 
-    pub fn init(backing: mut Allocer, min_align: usize) void {
+    pub fn init(backing: *mut Allocator, min_align: usize) void {
         self.current_chunk = get_empty_chunk();
         self.backing = backing;
         self.limit = std.math.USIZE_MAX;
@@ -213,12 +214,12 @@ impl *mut Bump {
     }
 }
 
-// 核心：直接为 *mut Bump 实现 Allocer Trait！
-impl *mut Bump : Allocer {
+// 核心：直接为 *mut Bump 实现 Allocator Trait！
+impl *mut Bump : Allocator {
     pub fn alloc(layout: Layout) Option[*mut u8] {
         if (layout.size == 0) return .{ None };
         
-        let fixed_layout = mut Layout.{ layout.size, layout.align };
+        let mut fixed_layout = Layout.{ size: layout.size, align: layout.align };
         if (fixed_layout.align == 0) {
             fixed_layout.align = 1;
         }

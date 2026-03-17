@@ -1,4 +1,4 @@
-pub type Option[T] = adt {
+pub type Option[T] = data {
     Some: T,
     None,
 };

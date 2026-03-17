@@ -47,34 +47,34 @@ extern fn _start_windows() void {
     // 1. 获取 Windows 传来的完整命令行字符串指针
     let cmd_line = os.windows.GetCommandLineA();
     
-    let argc = mut i32.{0};
-    let i = mut usize.{0};
-    let in_word = mut bool.{false};
+    let mut argc = i32.{0};
+    let mut i = 0;
+    let mut in_word = false;
     
     // 2. 极简的就地解析器 (In-place Parser)
     for (;;) {
         let current_char_ptr = (cmd_line as usize + i) as *mut u8;
         let c = current_char_ptr.*;
         
-        if (c == u8.{0}) { // 遇到字符串末尾 \0
+        if (c == 0) { // 遇到字符串末尾 \0
             break;
         }
         
-        if (c == u8.{32} or c == u8.{9}) { // 空格或 Tab
+        if (c == 32 or c == 9) { // 空格或 Tab
             // 截断上一个单词
-            current_char_ptr.* = u8.{0};
+            current_char_ptr.* = 0;
             in_word = false;
         } else {
             if (!in_word) {
-                // 发现新单词的开头！
-                if (argc < i32.{64}) {
+                // 发现新单词的开头
+                if (argc < 64) {
                     ARGV_BUFFER.[@intCast[i32, usize](argc)] = current_char_ptr;
-                    argc += i32.{1};
+                    argc += 1;
                 }
                 in_word = true;
             }
         }
-        i += usize.{1};
+        i += 1;
     }
     
     // 3. 将静态数组的首地址转换为 **u8 传递给 main

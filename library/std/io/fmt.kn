@@ -5,11 +5,11 @@ use ..stdout;
 
 
 /// 通用的格式化引擎
-pub fn format_to(writer: mut Writer, fmt: []u8, args: []mut Printable) void {
+pub fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
     let fmt_len = #fmt;
-    let arg_idx = 0;
-    let last_pos = 0;
-    let i = 0;
+    let mut arg_idx = 0;
+    let mut last_pos = 0;
+    let mut i = 0;
     let l_bracket = @intCast[u32, u8]('{');
     let r_bracket = @intCast[u32, u8]('}');
 
@@ -33,7 +33,7 @@ pub fn format_to(writer: mut Writer, fmt: []u8, args: []mut Printable) void {
                 }
             }
         }
-        i += usize.{1};
+        i += 1;
     }
 
     if (last_pos < fmt_len) {
@@ -42,15 +42,15 @@ pub fn format_to(writer: mut Writer, fmt: []u8, args: []mut Printable) void {
     }
 }
 
-pub fn print(fmt: []u8, args: []mut Printable) void {
-    let out_file = mut File.{stdout()}; 
-    let writer = mut Writer.{ out_file.& };
+pub fn print(fmt: []u8, args: []*Printable) void {
+    let mut out_file = stdout(); 
+    let writer = *mut Writer.{ out_file..& };
     format_to(writer, fmt, args);
 }
 
-pub fn println(fmt: []u8, args: []*mut Printable) void {
+pub fn println(fmt: []u8, args: []*Printable) void {
     let mut out_file = stdout();
-    let writer = Writer.{ out_file..& }; // *mut Writer
+    let writer = *mut Writer.{ out_file..& }; // *mut Writer
     format_to(writer, fmt, args);
     let _ = writer.write("\n");
 }

@@ -1,6 +1,6 @@
 use ..Option;
 
-pub type Result[T, E] = adt {
+pub type Result[T, E] = data {
     Ok: T,
     Err: E,
 };

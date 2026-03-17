@@ -2,12 +2,12 @@
 
 // 基础的 3 参数系统调用封装
 pub fn syscall3(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) usize {
-    let ret = mut usize.{undef};
+    let mut ret = usize.{undef};
 
     @asm(.{
         asm: .{ "syscall", },
         // 将输出绑定到内核的 ret 变量
-        outputs: .{ rax: ret.& },
+        outputs: .{ rax: ret..& },
         // 将输入变量绑定到对应的物理寄存器
         inputs: .{ 
             rax: sys_num, 
@@ -37,7 +37,7 @@ pub fn exit(code: i32) ! {
 pub type Handle = usize;
 
 pub fn get_stdout_handle() Handle {
-    return usize.{1}; // Linux 的 stdout fd 是 1
+    return 1; // Linux 的 stdout fd 是 1
 }
 
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
@@ -47,11 +47,11 @@ pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
 
 // 增加 syscall6
 pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize) usize {
-    let ret = mut usize.{undef};
+    let mut ret = usize.{undef};
 
     @asm(.{
         asm: .{ "syscall", },
-        outputs: .{ rax: ret.& },
+        outputs: .{ rax: ret..& },
         inputs: .{ 
             rax: sys_num, 
             rdi: arg1, 

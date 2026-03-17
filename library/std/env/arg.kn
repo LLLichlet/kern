@@ -4,15 +4,15 @@ use std.debug.Option;
 pub type Args = struct {
     argv: **u8,
     argc: i32,
-    current: mut i32 = 0,
+    current: i32 = 0,
 };
 
 // 辅助函数：计算 C 字符串长度
 fn c_strlen(str: *u8) usize {
-    let len = 0;
+    let mut len = 0;
     for (;;) {
         let current_ptr = (str as usize + len) as *u8;
-        if (current_ptr.* == u8.{0}) {
+        if (current_ptr.* == 0) {
             return len;
         }
         len += 1;
@@ -38,7 +38,7 @@ impl *mut Args {
         // 构造切片
         let kern_slice = c_str.[0 .. len];
         
-        self.current += i32.{1};
+        self.current += 1;
         
         return .{ Some: kern_slice };
     }

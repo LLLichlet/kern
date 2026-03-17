@@ -3,6 +3,7 @@ mod layout;
 mod traits;
 
 pub use .layout.Layout;
+pub use .traits.Allocator;
 
 pub fn align_forward(addr: usize, align: usize) usize {
     let mask = ~(align - 1);

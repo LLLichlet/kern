@@ -31,6 +31,8 @@ impl<'a> ExprChecker<'a> {
     pub fn new_type_var(&mut self) -> TypeId {
         let vid = self.type_vars.len() as u32;
         self.type_vars.push(None);
+        // TODO: 确保在检查完一个独立的函数或顶层表达式后，清理这个 type_vars 数组
+        // 从而优化性能
         self.ctx.type_registry.intern(TypeKind::TypeVar(vid))
     }
 
@@ -38,8 +40,26 @@ impl<'a> ExprChecker<'a> {
     pub fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
         let ty = match &expr.kind {
             // === 1. 基础字面量 ===
-            ExprKind::Integer(_) => expected_ty.unwrap_or_else(|| self.new_type_var()),
-            ExprKind::Float(_) => expected_ty.unwrap_or_else(|| self.new_type_var()),
+            ExprKind::Integer(_) => {
+                let mut res_ty = self.ctx.type_registry.intern(TypeKind::Primitive(crate::sema::ty::PrimitiveType::USize));
+                if let Some(exp) = expected_ty {
+                    let norm = self.resolve_tv(exp);
+                    if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
+                        res_ty = exp; 
+                    }
+                }
+                res_ty
+            }
+            ExprKind::Float(_) => {
+                let mut res_ty = self.ctx.type_registry.intern(TypeKind::Primitive(crate::sema::ty::PrimitiveType::F64));
+                if let Some(exp) = expected_ty {
+                    let norm = self.resolve_tv(exp);
+                    if self.ctx.type_registry.is_float(norm) {
+                        res_ty = exp; 
+                    }
+                }
+                res_ty
+            }
             ExprKind::Bool(_) => TypeId::BOOL,
             ExprKind::Char(_) => TypeId::U32,
             ExprKind::String(_) => self.ctx.type_registry.intern(TypeKind::Slice {
@@ -217,6 +237,12 @@ impl<'a> ExprChecker<'a> {
         span: Span,
     ) -> TypeId {
         let init_ty = self.check_expr(init, expected_ty);
+        let norm_init = self.resolve_tv(init_ty);
+        if matches!(self.ctx.type_registry.get(norm_init), TypeKind::TraitObject(..)) {
+            self.ctx.struct_error(span, "cannot store a naked trait object in a variable")
+                .with_hint("trait objects are dynamically sized; store a pointer (`*mut Trait`) instead")
+                .emit();
+        }
         let sym_kind = if is_static { SymbolKind::Static } else { SymbolKind::Var };
 
         let info = SymbolInfo {
@@ -801,7 +827,7 @@ impl<'a> ExprChecker<'a> {
             UnaryOperator::AddressOf | UnaryOperator::MutAddressOf => {
                 let is_mut = op == UnaryOperator::MutAddressOf;
                 
-                // 🌟 核心拦截：不允许对不可变的左值使用 `..&` 获取可变指针
+                // 不允许对不可变的左值使用 `..&` 获取可变指针
                 if is_mut && !self.is_lvalue_mutable(operand) {
                     self.ctx.struct_error(span, "cannot take mutable address `..&` of immutable memory")
                         .with_hint("declare the variable with `let mut` or ensure the target is mutable")
@@ -906,7 +932,7 @@ impl<'a> ExprChecker<'a> {
         let exp_kind = self.ctx.type_registry.get(exp).clone();
         let act_kind = self.ctx.type_registry.get(act).clone();
 
-        // 1. 触发类型合一 (Unification)
+        // 1. 触发类型合一 
         if let TypeKind::TypeVar(vid) = act_kind {
             self.type_vars[vid as usize] = Some(exp);
             return true;
@@ -916,12 +942,48 @@ impl<'a> ExprChecker<'a> {
             return true;
         }
 
-        // 2. 指针与易失指针安全降级
-        if self.check_pointer_downgrade(&exp_kind, &act_kind) { return true; }
+        // 2. 指针降级与 Trait Object 隐式打包 
+        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
+            if let TypeKind::Pointer { is_mut: a_mut, elem: a_inner } = act_kind {
+                // 权限校验：不可变指针绝不能升级为可变指针
+                if !e_mut || (e_mut && a_mut) {
+                    let e_norm = self.resolve_tv(e_inner);
+                    let a_norm = self.resolve_tv(a_inner);
+                    
+                    // a) 基础指针安全降级 (*mut T -> *T)
+                    if e_norm == a_norm { return true; }
+                    
+                    // b) 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
+                    if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
+                        if self.check_trait_impl(act, e_norm) {
+                            return true; // 放行
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 同样处理易失指针
+        if let TypeKind::VolatilePtr { is_mut: e_mut, elem: e_inner } = exp_kind {
+            if let TypeKind::VolatilePtr { is_mut: a_mut, elem: a_inner } = act_kind {
+                if !e_mut || (e_mut && a_mut) {
+                    let e_norm = self.resolve_tv(e_inner);
+                    let a_norm = self.resolve_tv(a_inner);
+                    if e_norm == a_norm { return true; }
+                    if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
+                        if self.check_trait_impl(act, e_norm) { return true; }
+                    }
+                }
+            }
+        }
 
-        // 3. 切片降级与数组退化 (逻辑保持原样，但依赖修改后的 downgrade 助手)
+        // 3. 切片降级与数组退化
         if let TypeKind::Slice { is_mut: e_mut, elem: exp_elem } = exp_kind {
-            if self.check_slice_downgrade(e_mut, exp_elem, &act_kind) { return true; }
+            if let TypeKind::Slice { is_mut: act_mut, elem: act_elem } = act_kind {
+                if (!e_mut || (e_mut && act_mut)) && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem) {
+                    return true;
+                }
+            }
             match self.check_array_decay(e_mut, exp_elem, &act_kind, span) {
                 Ok(true) => return true,
                 Err(()) => return false,
@@ -929,44 +991,8 @@ impl<'a> ExprChecker<'a> {
             }
         }
 
-        // 4. 指针到 Trait Object 的隐式转换 
-        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
-            if let TypeKind::Pointer { is_mut: a_mut, .. } = act_kind {
-                // 确保可变性安全：不能把不可变指针隐式塞进期望可变指针的 TraitObject 里
-                if !(e_mut && !a_mut) {
-                    let e_inner_norm = self.resolve_tv(e_inner);
-                    if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
-                        // 校验底层指针类型是否实现了该 Trait
-                        if self.check_trait_impl(act, e_inner_norm) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
         self.emit_mismatch_error(span, expected, actual);
         false
-    }
-
-    /// 助手 1：指针降级校验
-    fn check_pointer_downgrade(&mut self, exp_kind: &TypeKind, act_kind: &TypeKind) -> bool {
-        match (exp_kind, act_kind) {
-            (TypeKind::Pointer { is_mut: e_mut, elem: e_inner }, TypeKind::Pointer { is_mut: a_mut, elem: a_inner })
-            | (TypeKind::VolatilePtr { is_mut: e_mut, elem: e_inner }, TypeKind::VolatilePtr { is_mut: a_mut, elem: a_inner }) => {
-                if *e_mut && !*a_mut { return false; }
-                self.check_coercion(Span::default(), *e_inner, *a_inner)
-            }
-            _ => false,
-        }
-    }
-
-    /// 助手 2：切片降级校验
-    fn check_slice_downgrade(&mut self, exp_is_mut: bool, exp_elem: TypeId, act_kind: &TypeKind) -> bool {
-        if let TypeKind::Slice { is_mut: act_mut, elem: act_elem } = act_kind {
-            if exp_is_mut && !*act_mut { return false; }
-            self.check_coercion(Span::default(), exp_elem, *act_elem)
-        } else { false }
     }
 
     /// 助手 3：数组到切片的退化
@@ -1019,7 +1045,19 @@ impl<'a> ExprChecker<'a> {
 
         // 1. 允许指针视角转换 (例如 *i32 as *u8)
         if is_f_ptr && is_t_ptr {
-            return;
+            let t_inner = self.ctx.type_registry.get_elem_type(t_norm).unwrap();
+            let t_inner_id = self.resolve_tv(t_inner);
+            
+            let t_is_fat = matches!(self.ctx.type_registry.get(t_inner_id), TypeKind::TraitObject(..) | TypeKind::Slice{..});
+            
+            // Kern 的设计中，胖指针只能通过 Constructor `Trait.{ ptr }` 构造，禁止 as 强转
+            if t_is_fat {
+                self.ctx.struct_error(span, "cannot cast a thin pointer to a fat pointer using `as`")
+                    .with_hint("use explicit constructor syntax: `TargetType.{ pointer }`")
+                    .emit();
+                return;
+            }
+            return; // 其他普通指针互转放行
         }
 
         // 2. 允许指针和 usize 互转 (用于底层地址算术和 0 as *T)
@@ -1051,14 +1089,6 @@ impl<'a> ExprChecker<'a> {
                 from_str, to_str
             ))
             .emit();
-    }
-
-    fn is_mutable_pointer(&mut self, ty: TypeId) -> bool {
-        let norm = self.resolve_tv(ty);
-        match self.ctx.type_registry.get(norm).clone() {
-            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,
-            _ => false,
-        }
     }
 
     // ==========================================
@@ -1120,10 +1150,10 @@ impl<'a> ExprChecker<'a> {
         let current_norm = self.get_base_type(lhs_ty);
 
         // 2. 如果是 Trait Object，走虚表方法解析路径
-        if let TypeKind::TraitObject(trait_def_id, trait_args) =
+       if let TypeKind::TraitObject(trait_def_id, trait_args) =
             self.ctx.type_registry.get(current_norm).clone()
         {
-            return self.resolve_trait_object_method(trait_def_id, &trait_args, field, span);
+            return self.resolve_trait_object_method(trait_def_id, &trait_args, field, lhs_ty, span);
         }
 
         // 3. 如果是具名类型 (Struct/Union/Enum)，查找字段或变体
@@ -1184,6 +1214,7 @@ impl<'a> ExprChecker<'a> {
         trait_def_id: crate::sema::ty::DefId,
         trait_args: &[TypeId],
         field: crate::utils::SymbolId,
+        receiver_ty: TypeId,
         span: Span,
     ) -> TypeId {
         let trait_def = match &self.ctx.defs[trait_def_id.0 as usize] {
@@ -1196,6 +1227,19 @@ impl<'a> ExprChecker<'a> {
             .iter()
             .find(|(m_name, _)| *m_name == field)
         {
+            // 将原本的 SelfType(也就是 Writer) 强行替换为实际的指针类型 (*mut Writer)
+            if let TypeKind::Function { params, ret, is_variadic } = self.ctx.type_registry.get(method_ty).clone() {
+                let mut new_params = params.clone();
+                if !new_params.is_empty() {
+                    new_params[0] = receiver_ty; 
+                }
+                method_ty = self.ctx.type_registry.intern(TypeKind::Function {
+                    params: new_params,
+                    ret,
+                    is_variadic,
+                });
+            }
+
             // 泛型实例化替换
             if !trait_def.generics.is_empty() && !trait_args.is_empty() {
                 let mut map = HashMap::new();
@@ -1602,8 +1646,9 @@ impl<'a> ExprChecker<'a> {
 
     /// 助手 4：Kern 专属校验 - 方法调用的接收者类型匹配
     fn check_method_receiver(&mut self, expected_self: TypeId, receiver_ty: TypeId, span: Span) {
+        let norm_expected = self.resolve_tv(expected_self);
+
         if !self.check_coercion(span, expected_self, receiver_ty) {
-            let norm_expected = self.resolve_tv(expected_self);
             let is_exp_ptr = matches!(
                 self.ctx.type_registry.get(norm_expected),
                 TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
@@ -1947,19 +1992,19 @@ impl<'a> ExprChecker<'a> {
         let exp_norm = self.resolve_tv(expected);
         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
 
-        // 拦截 Trait Object 构造
-        if let TypeKind::TraitObject(..) = kind_enum {
-            if let ast::DataLiteralKind::Scalar(inner) = kind {
-                return self.check_trait_object_init(inner, expected, exp_norm, span);
-            } else {
-                self.ctx
-                    .struct_error(
-                        span,
-                        "trait objects must be initialized with a single pointer",
-                    )
-                    .with_hint("example: `Reader.{ file_ptr }`")
-                    .emit();
-                return TypeId::ERROR;
+        // 拦截 Trait Object 构造（*Trait.{ ... } 或 *mut Trait.{ ... }）
+        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } = kind_enum {
+            let elem_norm = self.resolve_tv(elem);
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(elem_norm) {
+                if let ast::DataLiteralKind::Scalar(inner) = kind {
+                    // 进入胖指针构造器
+                    return self.check_trait_object_init(inner, expected, elem_norm, is_mut, span);
+                } else {
+                    self.ctx.struct_error(span, "trait objects must be initialized with a single pointer")
+                        .with_hint("example: `*mut Reader.{ file_ptr }`")
+                        .emit();
+                    return TypeId::ERROR;
+                }
             }
         }
         
@@ -2121,35 +2166,41 @@ impl<'a> ExprChecker<'a> {
     fn check_trait_object_init(
         &mut self,
         inner: &Expr,
-        expected: TypeId,
-        exp_norm: TypeId, // 这里 exp_norm 是 TraitObject 本身
+        expected_ptr_ty: TypeId, 
+        trait_norm: TypeId,     
+        is_mut_expected: bool,  
         span: Span,
     ) -> TypeId {
         let inner_ty = self.check_expr(inner, None);
         if inner_ty == TypeId::ERROR { return TypeId::ERROR; }
 
-        let is_inner_mut = self.is_mutable_pointer(inner_ty);
         let inner_ty_id = self.resolve_tv(inner_ty);
-        let is_inner_ptr = matches!(
-            self.ctx.type_registry.get(inner_ty_id),
-            TypeKind::Pointer{ .. } | TypeKind::VolatilePtr{ .. }
-        );
+        
+        // 1. 必须传入指针
+        let is_inner_ptr_mut = match self.ctx.type_registry.get(inner_ty_id) {
+            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
+            _ => {
+                self.ctx.struct_error(inner.span, "trait objects can only be constructed from pointers").emit();
+                return TypeId::ERROR;
+            }
+        };
 
-        if !is_inner_ptr {
-            self.ctx.struct_error(inner.span, "trait objects can only be constructed from pointers").emit();
+        // 2. 不允许把不可变指针塞进可变胖指针
+        if is_mut_expected && !is_inner_ptr_mut {
+            self.ctx.struct_error(inner.span, "cannot create a mutable trait object from an immutable pointer")
+                .with_hint("expected a mutable pointer (like `val..&`), but found an immutable pointer")
+                .emit();
             return TypeId::ERROR;
         }
 
-        if !self.check_trait_impl(inner_ty, exp_norm) {
+        // 3. 校验方法契约
+        if !self.check_trait_impl(inner_ty_id, trait_norm) {
             self.ctx.struct_error(span, "the provided pointer type does not implement the target trait").emit();
             return TypeId::ERROR;
         }
 
-        // 将底层的 TraitObject 包上指针，并将传入指针的 is_mut 原样传递
-        self.ctx.type_registry.intern(TypeKind::Pointer {
-            is_mut: is_inner_mut,
-            elem: expected, // 保留原有的 TraitObject ID
-        })
+        // 4. 返回构造好的胖指针类型
+        expected_ptr_ty
     }
 
     /// 核心 Match 检查逻辑：环境提取与详尽性检查
@@ -2307,11 +2358,11 @@ impl<'a> ExprChecker<'a> {
         match &expr.kind {
             ExprKind::Identifier(name) => {
                 if let Some(info) = self.ctx.scopes.resolve(*name) {
-                    info.is_mut // 普通变量：取决于是不是 `let mut a` 定义的
+                    info.is_mut 
                 } else { false }
             }
             ExprKind::Unary { op: UnaryOperator::PointerDeRef, operand } => {
-                let ptr_ty = self.check_expr(operand, None);
+                let ptr_ty = self.ctx.node_types.get(&operand.id).copied().unwrap_or(TypeId::ERROR);
                 let norm = self.resolve_tv(ptr_ty);
                 match self.ctx.type_registry.get(norm) {
                     TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
@@ -2319,27 +2370,16 @@ impl<'a> ExprChecker<'a> {
                 }
             }
             ExprKind::FieldAccess { lhs, .. } | ExprKind::IndexAccess { lhs, .. } => {
-                // 检查 lhs 的真实类型。如果是指针或切片，说明发生了自动解引用或索引。
-                // 此时的可变性取决于指针/切片本身，而不是包裹它的变量
-                let lhs_ty = self.check_expr(lhs, None);
+                let lhs_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
                 let norm_lhs = self.resolve_tv(lhs_ty);
                 
                 match self.ctx.type_registry.get(norm_lhs).clone() {
-                    TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => {
-                        is_mut // 指针的自动解引用 (e.g. ptr.field)
-                    }
-                    TypeKind::Slice { is_mut, .. } => {
-                        is_mut // 切片索引 (e.g. slice.[0])
-                    }
-                    _ => {
-                        // 普通的值类型，严格继承父级左值的可变性
-                        self.is_lvalue_mutable(lhs)
-                    }
+                    TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,
+                    TypeKind::Slice { is_mut, .. } => is_mut,
+                    TypeKind::Array { is_mut, .. } => is_mut, 
+                    _ => self.is_lvalue_mutable(lhs),
                 }
             }
-            // SliceOp (如 a.[0..2]) 产生的是一个新的切片视图值（右值），
-            // 在 Rust 的语义中，它只有赋值给变量或传递给函数时才有意义。
-            // 它的 is_mut 只代表切片本身的类型属性。
             ExprKind::SliceOp { is_mut, .. } => *is_mut,
             _ => false,
         }
@@ -2621,7 +2661,7 @@ impl<'a> ExprChecker<'a> {
 
                             if field_name == "outputs" && val_ty != TypeId::ERROR {
                                 if !self.is_mut_pointer(val_ty) {
-                                    self.ctx.struct_error(reg_field.value.span, "inline assembly outputs must be bound to mutable pointers (e.g., `status.&`)")
+                                    self.ctx.struct_error(reg_field.value.span, "inline assembly outputs must be bound to mutable pointers (e.g., `status..&`)")
                                         .with_hint(format!("type found: {}", val_ty_str))
                                         .emit();
                                 }

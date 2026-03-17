@@ -48,7 +48,14 @@ impl Precedence {
             TokenType::As => Self::Cast,
 
             TokenType::Star | TokenType::Slash | TokenType::Percent => Self::Factor,
-            TokenType::Plus | TokenType::Minus | TokenType::Pipe | TokenType::Caret => Self::Term,
+            
+            TokenType::Plus 
+            | TokenType::Minus 
+            | TokenType::Pipe 
+            | TokenType::Caret 
+            | TokenType::Ampersand 
+            | TokenType::LShift 
+            | TokenType::RShift => Self::Term,
 
             TokenType::LessThan
             | TokenType::LessEqual

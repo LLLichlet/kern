@@ -55,56 +55,46 @@ To achieve “high abstraction, low policy”, Kern provides three core mechanis
 
 ## 2. Type System
 
-> **Crucial Concept:** Kern employs a **Top-Down Bidirectional Type Checking** model. Before diving into the specific types, it is highly recommended to read [The Kern Type System](kern_type.md) to understand how types flow from explicitly declared "Anchors of Truth" down to literals, avoiding common pitfalls for users coming from languages with bottom-up inference (like Rust or C++).
-
 ### 2.1 Primitive Types
-
 * **Integers**: `i8`, `i16`, `i32`, `i64`, `i128` (signed); `u8`, `u16`, `u32`, `u64`, `u128` (unsigned); `usize`, `isize` (pointer‑sized).
 * **Floats**: `f32`, `f64`.
-* **Boolean**: `bool` (1 byte, no arithmetic).
-* **Never**: `!` (represents computations that never resolve, e.g., infinite loops or fatal halts).
+* **Boolean**: `bool` (1 byte).
+* **Never**: `!` (diverging computations).
 
-### 2.2 Mutability and Scalar Initialization
+### 2.2 Mutability Model
+In Kern, **mutability is a property of storage, not an intrinsic part of the base type.** This means `i32` is the only integer type, but it can be stored in either mutable or immutable memory.
 
-Kern **does not have a concept of "default types"** derived from compiler assumptions. Mutability and typing are absolutely controlled by the programmer via **Scalar Initialization Syntax**: `Type.{value}`. The type `T` and its mutable variant `mut T` are distinct types.
-
-* **Explicit Initialization**: To declare a variable, you explicitly define its type and mutability.
-`let a = i32.{10};` (immutable `i32`)
-`let b = mut i32.{20};` (mutable `i32`)
-* **Address‑of (`.&`)**: Strictly preserves mutability based on the source scalar.
-`let ptr = mut i32.{10}.&;` (constructs a scalar `mut i32` with value `10`, then takes its address, yielding `*mut i32`).
-* **The `mut usize` / `mut f32` Sugar**: As a pragmatic exception for ergonomics (primarily for `for` loops and basic math), Kern allows raw literals `let a = 10;` and `let f = 3.14;`. These do not imply a "default type flaw" but are strict syntactic sugar expanding directly to `let a = mut usize.{10};` and `let f = mut f32.{3.14};`.
+* **Variable Bindings**: Controlled by the `mut` keyword in the binding pattern.
+    * `let x = i32.{10};` (Immutable binding)
+    * `let mut y = i32.{20};` (Mutable binding)
+* **Top-Down Bidirectional Flow**: Kern uses contextual typing. Literals like `10` are "type-neutral" and absorb the **Expected Type** flowing down from declarations or function signatures.
 
 ### 2.3 Pointers and Volatility
+Pointers explicitly carry mutability permissions for the memory they point to.
 
-* **Normal pointers**: `*T`, `*mut T` – ordinary memory, compiler may optimise.
-* **Volatile pointers**: `^T`, `^mut T` – MMIO/hardware registers, no optimisations.
-* **Dereference**: `ptr.*` (postfix, allows chained access like `ptr.*.field`).
-* **Null pointer**: literal `0` must be explicitly cast to a pointer type (e.g., `0 as *i32`).
-* **Pointer Arithmetic**: Implicit pointer arithmetic (e.g., `ptr + 1`) is **strictly forbidden**. To compute addresses, you must either:
+* **Normal Pointers**: 
+    * `*T`: Immutable pointer. Allows reading from `T`.
+    * `*mut T`: Mutable pointer. Allows reading and writing to `T`.
+* **Volatile Pointers**: Used for hardware MMIO.
+    * `^T`: Immutable volatile pointer.
+    * `^mut T`: Mutable volatile pointer.
+* **Address-of Operator (`.&` / `..&`)**:
+    * `obj.&`: Obtains an immutable pointer (`*T`).
+    * `obj..&`: Obtains a mutable pointer (`*mut T`). This is only valid if `obj` is a mutable location (e.g., declared with `let mut`).
+* **Dereference**: `ptr.*` (postfix).
+* **Pointer Arithmetic**: Implicit arithmetic is forbidden. Use `(ptr as usize + offset) as *T`.
 
-1. Cast to `usize`, perform the math, and cast back (e.g., `(ptr as usize + 4) as *u32`).
-2. Use standard library pointer methods.
-
-* **Casts**: explicit conversion required using `as`, preserving bit-patterns only.
-
-### 2.4 Arrays, Slices, and Strings
-
-* **Arrays**: `[N]T`, `[N]mut T` – value type, copy on assignment/parameter passing.
-* **Array initialisers**: `.{1, 2, 3}`, `.{0; 1024}`.
-* **Slices**: `[]T`, `[]mut T` – fat pointer (pointer + length).
-* **Slice creation**: `arr.[start..end]`, `arr.[..]`, `ptr.[0..10]`.
-* **Indexing**: `arr.[i]` (dot notation).
-* **Length operator**: `#arr` (prefix `#`).
-* **Strings**: String literals (e.g., `"Hello"`) inherently evaluate to `[]u8`. Kern strictly avoids C-style implicit `\0` termination. If passing strings to C-ABI functions, the null terminator must be manually included (e.g., `"Hello\0"`).
+### 2.4 Arrays and Slices
+* **Arrays**: `[N]T` – Fixed-size value type.
+* **Slices**: `[]T` or `[]mut T` – A fat pointer containing a pointer and a `usize` length.
+* **String Literals**: `"Hello"` evaluates to `[]u8` (an immutable slice).
 
 ## 3. Declarations and Storage
 
-* **Stack (local)**: `let name = Type.{value};`.
-* **Static (global)**: `static name = Type.{value};`
-* **Compile‑time constant**: `const NAME = Type.{value};` (inlined, no memory location).
-* **Uninitialized Storage**: Use the `undef` keyword within the literal to leave memory uninitialized intentionally: `let name = mut T.{undef};`.
-* **External Storage**: For variables defined in external object files or C code, use an `extern` block and the `undef` keyword within the literal: `extern { static name = T.{undef}; }` (resolved at link time, see Section 8).
+* **Local Variables**: `let [mut] name = Expr;`
+* **Global Statics**: `static [mut] name = Expr;`
+* **Constants**: `const NAME = Expr;`
+* **Uninitialized Memory**: `let mut x = Type.{undef};`
 
 ## 4. Data Structures
 
@@ -178,86 +168,42 @@ let color = switch (raw_data) {
 
 ## 5. Functions and Traits
 
-### 5.1 Free Functions
-
-Defined at module level.
-
-```kern
-pub fn max(a: i32, b: i32) i32 {
-    if (a > b) a else b
-}
-
-```
-
 ### 5.2 Implementation Blocks (`impl`)
-
-* `impl` blocks attach methods to a type.
-* **Absolute Contextual Binding**: Because the `impl` block defines an unambiguous target type, Kern enforces extreme syntactical minimalism: the `self` parameter **must be omitted** from the method signature. The Semantic Analyzer (Sema) implicitly and strictly injects `self` based on the target type.
+`impl` blocks attach methods to a concrete type (including pointer types). The `self` parameter is implicitly injected and managed by the Semantic Analyzer.
 
 ```kern
 type Point = struct { x: i32, y: i32 };
 
 impl *mut Point {
-    // Signature omits 'self'. 'self' is inherently available as *mut Point.
-    pub fn move_by(dx: i32, dy: i32) void {
-        self.x += dx;
-        self.y += dy;
-    }
+    // 'self' is implicitly available as *mut Point
+    pub fn move_by(dx: i32, dy: i32) void {
+        self.x += dx; 
+        self.y += dy;
+    }
 }
-
 ```
-
-### 5.3 Generics and Elision
-
-Kern uses zero-cost monomorphisation for generics.
-To maintain high abstraction without losing predictability, Kern enforces **Strict Parameter-Driven Deduction** for function calls:
-
-1. **Explicit Instantiation**: You can always provide the explicit generic type: `max[u32](a, b)`.
-2. **Safe Elision**: If the generic parameter `T` appears in the function's parameter list, it can be safely elided. The compiler will implicitly deduce `T` from the arguments: `max(u32.{10}, u32.{20})`.
-3. **No Implicit Casting**: If deduction finds conflicting types (e.g., `u32` vs `u8`), the compiler will strictly throw an error. It will not attempt to implicitly cast them.
-4. **Mandatory Instantiation**: If `T` only appears in the return type (e.g., `@sizeOf[T]() -> usize`), it **must** be explicitly provided.
 
 ### 5.4 Traits
-
-Traits define a set of pure function signatures representing a VTable. Similar to `impl` blocks, the first parameter (`self`) is intrinsically understood and **must be omitted** from the signature.
-
-```kern
-type Reader = trait {
-    read: fn([]u8) usize,
-};
-
-// Pure semantic composition
-type ReadWriter: Reader + Writer = trait {
-    flush: fn() void,
-};
-
-```
-
-### 5.5 Trait Objects
-
-A trait object is a built-in primitive representing a fat pointer (data pointer + vtable pointer). It is constructed using the **uniform initialization syntax**, eliminating the need for `as` casting.
+Traits define a VTable contract. Methods implicitly receive a `self` reference.
 
 ```kern
-type File = struct { ... };
-impl *mut File : Reader { ... }
-
-let file = mut File.{ ... };
-// Step 1: Obtain the concrete pointer
-let p = file.&; 
-
-// Step 2: Construct the trait object via explicit initialization
-let r = mut Reader.{p}; 
-
-// Step 3: Call methods directly
-let bytes_read = r.read(buf);
-
+type Writer = trait {
+    write: fn([]u8) usize,
+};
 ```
 
-* **Pointer Matching Rule**: Constructing a trait object is **strictly forbidden** unless the implementation target is explicitly a pointer type (e.g., `impl *mut T : Trait`). This guarantees the compiler always knows the exact stack size during dynamic dispatch.
+### 5.5 Trait Objects (Fat Pointers)
+A Trait Object is a runtime-dynamic fat pointer consisting of a data pointer and a VTable pointer. They are constructed using **Explicit Constructor Syntax**.
 
-### 5.6 Error Handling
+* **Construction**: You assemble a trait object by passing a concrete pointer to the Trait's constructor.
+* **Safety Rule**: To prevent stack-size ambiguity, a Trait Object can only be constructed from a pointer type.
 
-No built‑in policy. No exceptions, no panic. Use `adt`, `union` + `enum`, or integer error codes.
+```kern
+let mut file = File.{ ... };
+// Assemble a mutable Trait Object from a mutable pointer
+let w = *mut Writer.{ file..& }; 
+w.write("Kern\0");
+```
 
 ## 6. Control Flow
 
@@ -412,19 +358,16 @@ extern {
 
 ```
 
-## 9. Algebraic Data Types (ADT) and Pattern Matching
+## 9. Algebraic Data Types (Data) and Pattern Matching
 
-An `adt` is implemented at the physical memory level as a Tagged Union (a hidden scalar discriminant tag followed by a union aligned to its largest variant).
-Like enums, the backing integer type of an ADT tag can be strictly defined (e.g., `type Status: u8 = adt { ... }`).
-
-### 9.1 Defining ADTs
+### 9.1 Defining Data Types
+Use the `data` keyword to define tagged unions.
 
 ```kern
-pub type Result[T, E] = adt {
-    Ok: T,
-    Err: E,
+pub type Option[T] = data {
+    Some: T,
+    None,
 };
-
 ```
 
 ### 9.2 Elided Initialization Syntax
@@ -440,21 +383,17 @@ fn safe_divide(a: i32, b: i32) Result[i32, i32] {
 ```
 
 ### 9.3 Pattern Matching (`match`)
-
-Destructuring requires the `match` expression. `match` bindings perfectly mirror the `adt` definition syntax using a colon (`:`).
-
-* **Syntax and Elision**: Data extraction is performed by mapping the variant to a local binding name: `Variant: binding_name`.
-* **Exhaustiveness**: `match` blocks must be strictly exhaustive. Provide all variants or a catch-all `else =>`.
+Pattern matching is the only way to access the payload of a `data` variant. Bindings within a match arm can be made mutable.
 
 ```kern
-match (res) {
-    .Ok: val => printf("Result: %d\n\0", val),
-    .Err: code => printf("Error code: %d\n\0", code),
+match (opt) {
+    .Some: mut val => { 
+        val += 1; 
+        printf("%d\n\0", val);
+    },
+    .None => printf("Nothing\n\0"),
 }
-
 ```
-
-* **No Direct Access**: Attempting to access an ADT's internal payload without a `match` statement is a strict compile-time error.
 
 ## 10. Stateless Anonymous Functions (Lambdas)
 
@@ -492,7 +431,7 @@ pub fn outb_and_read(port: u16, data: u8) u8 {
             "out dx, al",
             "in al, dx"
         },
-        outputs: .{ al: status.& },   // Binds register to mutable pointer
+        outputs: .{ al: status..& },   // Binds register to mutable pointer
         inputs: .{ dx: port, al: data },
         clobbers: .{ "memory" },      // Compile-time known
         volatile: true                // Compile-time known

@@ -5,16 +5,16 @@
 #[cold, export_name("_start")]
 extern fn _start() void {
     let port = u16.{0x3F8};
-    let data = u8.{0x41};
-    let status = mut u8.{undef};
+    let data_ = u8.{0x41};
+    let mut status = u8.{undef};
 
     @asm(.{
         asm: .{
             "out dx, al",
             "in al, dx"
         },
-        outputs: .{ al: status.& }, 
-        inputs: .{ dx: port, al: data },
+        outputs: .{ al: status..& }, 
+        inputs: .{ dx: port, al: data_ },
         clobbers: .{ "memory", },
         volatile: true
     });

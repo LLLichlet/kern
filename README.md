@@ -123,7 +123,7 @@ cargo build --release
 
 ## Contributing
 
-Contributions are welcome\! Whether it's reporting a bug, improving documentation, or proposing new features. Please see our [CONTRIBUTING.md](https://www.google.com/search?q=CONTRIBUTING.md) for guidelines.
+Contributions are welcome\! Whether it's reporting a bug, improving documentation, or proposing new features. Please see our [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 **Note on language design:** Kern is a founder-led project. To maintain a cohesive language architecture, major design changes and new syntax proposals will be evaluated strictly against the core philosophy of "High abstraction, low policy." Please open an issue to discuss significant changes before writing code.
 

@@ -3,5 +3,6 @@ pub mod runtime;
 pub mod os;
 pub mod env;
 pub mod debug;
+pub mod cffi;
 
 pub use .debug.{Result, Option};

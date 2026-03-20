@@ -1,0 +1,14 @@
+[package]
+name = "kernc_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "kernc"        
+path = "src/main.rs"
+
+[dependencies]
+kernc_utils = { workspace = true }
+kernc_driver = { workspace = true }

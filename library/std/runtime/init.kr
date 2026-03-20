@@ -1,0 +1,76 @@
+use std.os;
+pub use std.env.Args; 
+
+extern {
+    fn main(args: Args) i32;
+}
+
+#[if(os == "linux")]
+#[export_name("_start")]
+#[naked]
+extern fn _start_linux() void {
+    @asm(.{
+        asm: .{
+            "mov rdi, [rsp]",
+            "lea rsi, [rsp + 8]",
+            "and rsp, -16",
+            "call kern_entry",
+        },
+        clobbers: .{ "memory", "rdi", "rsi" },
+        volatile: true
+    });
+}
+
+#[if(os == "linux")]
+extern fn kern_entry(argc: usize, argv: **u8) void {
+    let args = argv.to_args(argc as i32);
+    let exit_code = main(args);
+    os.exit(exit_code);
+}
+
+#[if(os == "windows")]
+static ARGV_BUFFER = [64]*mut u8.{undef};
+
+#[if(os == "windows")]
+#[export_name("mainCRTStartup")] 
+extern fn _start_windows() void {
+    // 获取 Windows 传来的完整命令行字符串指针
+    let cmd_line = os.windows.GetCommandLineA();
+    
+    let mut argc = i32.{0};
+    let mut i = 0;
+    let mut in_word = false;
+    
+    // 就地解析器
+    for (;;) {
+        let current_char_ptr = cmd_line + i;
+        let c = current_char_ptr.*;
+        
+        if (c == 0) { // 遇到字符串末尾 \0
+            break;
+        }
+        
+        if (c == 32 or c == 9) { // 空格或 Tab
+            // 截断上一个单词
+            current_char_ptr.* = 0;
+            in_word = false;
+        } else {
+            if (!in_word) {
+                // 发现新单词的开头
+                if (argc < 64) {
+                    ARGV_BUFFER.[argc as usize] = current_char_ptr;
+                    argc += 1;
+                }
+                in_word = true;
+            }
+        }
+        i += 1;
+    }
+    
+    // 将静态数组的首地址转换为 **u8 传递给 main
+    let argv_ptr = ARGV_BUFFER.[0].& as **u8;
+    
+    let args = argv_ptr.to_args(argc);
+    let exit_code = main(args);
+    os.exit(exit_code);
+}

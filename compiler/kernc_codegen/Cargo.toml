@@ -1,0 +1,13 @@
+[package]
+name = "kernc_codegen"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+inkwell = { workspace = true }
+kernc_utils = { workspace = true }
+kernc_ast = { workspace = true }
+kernc_sema = { workspace = true }
+kernc_mast = { workspace = true }

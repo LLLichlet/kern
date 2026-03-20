@@ -1,0 +1,64 @@
+name: Release Kern Compiler
+
+on:
+  push:
+    # 仅在推送形如 v0.5.0 的 tag 时触发
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build-and-release:
+    name: Build and Publish Release
+    runs-on: ubuntu-latest
+    
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache LLVM
+        id: cache-llvm
+        uses: actions/cache@v3
+        with:
+          path: /usr/lib/llvm-21
+          key: ${{ runner.os }}-llvm-21
+
+      - name: Install LLVM 21
+        if: steps.cache-llvm.outputs.cache-hit != 'true'
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 21
+          sudo apt-get install -y \
+            llvm-21-dev \
+            libclang-21-dev \
+            libpolly-21-dev \
+            libzstd-dev \
+            zlib1g-dev
+
+      - name: Configure LLVM Environment
+        run: echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> $GITHUB_ENV
+
+      - name: Run Tests
+        run: cargo test --workspace
+
+      - name: Build Compiler
+        run: cargo build --release
+
+      - name: Package Toolchain
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/}
+          TARGET="x86_64-linux-gnu"
+          ./scripts/package_release.sh $VERSION $TARGET
+          echo "TARBALL_NAME=kern-${VERSION}-${TARGET}.tar.gz" >> $GITHUB_ENV
+
+      - name: Upload Release Artifact
+        uses: softprops/action-gh-release@v2
+        with:
+          files: kern-*.tar.gz
+          generate_release_notes: true

@@ -1,0 +1,10 @@
+[package]
+name = "kernc_ast"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+kernc_lexer = { workspace = true }
+kernc_utils = { workspace = true }

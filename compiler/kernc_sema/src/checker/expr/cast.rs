@@ -1,0 +1,82 @@
+use super::ExprChecker;
+use crate::passes::TypeResolver;
+use crate::ty::{TypeId, TypeKind};
+use kernc_ast::{self as ast, Expr};
+use kernc_utils::Span;
+
+impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    pub(crate) fn check_as_expr(&mut self, lhs: &Expr, target: &ast::TypeNode) -> TypeId {
+        let lhs_ty = self.check_expr(lhs, None);
+        let mut resolver = TypeResolver::new(self.ctx);
+        let scope = resolver.ctx.scopes.current_scope_id().unwrap();
+        let target_ty = resolver.resolve_type(target, scope);
+
+        self.check_cast(lhs.span, lhs_ty, target_ty);
+        target_ty
+    }
+
+    fn check_cast(&mut self, span: Span, from: TypeId, to: TypeId) {
+        if from == to || from == TypeId::ERROR || to == TypeId::ERROR {
+            return;
+        }
+
+        let f_norm = self.resolve_tv(from);
+        let t_norm = self.resolve_tv(to);
+
+        let is_f_int = self.ctx.type_registry.is_integer(f_norm);
+        let is_t_int = self.ctx.type_registry.is_integer(t_norm);
+        let is_f_float = self.ctx.type_registry.is_float(f_norm);
+        let is_t_float = self.ctx.type_registry.is_float(t_norm);
+        
+        let is_f_ptr = matches!(
+            self.ctx.type_registry.get(f_norm),
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        );
+        let is_t_ptr = matches!(
+            self.ctx.type_registry.get(t_norm),
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        );
+
+        // 1. 允许指针视角转换 (例如 *i32 as *u8)
+        if is_f_ptr && is_t_ptr {
+            let t_inner = self.ctx.type_registry.get_elem_type(t_norm).unwrap();
+            let t_inner_id = self.resolve_tv(t_inner);
+
+            let t_is_fat = matches!(
+                self.ctx.type_registry.get(t_inner_id),
+                TypeKind::TraitObject(..) | TypeKind::Slice { .. }
+            );
+            if t_is_fat {
+                self.ctx
+                    .struct_error(span, "cannot cast a thin pointer to a fat pointer using `as`")
+                    .with_hint("use explicit constructor syntax: `TargetType.{ pointer }`")
+                    .emit();
+            }
+            return;
+        }
+
+        // 2. 允许指针与底层整数互转 (usize / isize)
+        let is_f_ptr_int = f_norm == TypeId::USIZE || f_norm == TypeId::ISIZE;
+        let is_t_ptr_int = t_norm == TypeId::USIZE || t_norm == TypeId::ISIZE;
+        if (is_f_ptr && is_t_ptr_int) || (is_f_ptr_int && is_t_ptr) {
+            return;
+        }
+
+        // 3. 全面放开数值类型的转换 (包括 int <-> int, float <-> float, int <-> float, bool -> int)
+        let is_f_numeric = is_f_int || is_f_float || f_norm == TypeId::BOOL;
+        let is_t_numeric = is_t_int || is_t_float;
+        if is_f_numeric && is_t_numeric {
+            return;
+        }
+
+        // 4. 兜底报错：依然拦截非法转换 (如 struct 转 int，或 int 强转 data enum)
+        let from_str = self.ctx.ty_to_string(from);
+        let to_str = self.ctx.ty_to_string(to);
+        self.ctx
+            .struct_error(span, "invalid `as` cast")
+            .with_hint("`as` supports numeric conversions, pointer casting, and pointer-integer conversions")
+            .with_hint("for trait objects or slices, use explicit constructor syntax")
+            .with_hint(format!("attempted to cast from `{}` to `{}`", from_str, to_str))
+            .emit();
+    }
+}

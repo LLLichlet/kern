@@ -1,0 +1,21 @@
+use std.os;
+use ..traits.Writer;
+
+pub type File = struct {
+    handle: os.Handle,
+};
+
+impl *mut File : Writer {
+    pub fn write(buf: []u8) usize {
+        let len = #buf;
+        if (len == 0) return 0;
+        
+        let ptr = buf.[0].&;
+        return os.write(self.handle, ptr, len); 
+    }
+}
+
+// 构造 标准输出 File 的工厂函数
+pub fn stdout() File {
+    return .{ handle: os.get_stdout_handle() };
+}

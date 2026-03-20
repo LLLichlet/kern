@@ -1,0 +1,12 @@
+[package]
+name = "kernc_lower"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+kernc_utils = { workspace = true }
+kernc_ast = { workspace = true }
+kernc_sema = { workspace = true }
+kernc_mast = { workspace = true }

@@ -1,0 +1,9 @@
+#[if(os == "linux")]
+mod linux;
+#[if(os == "linux")]
+pub use .linux.{Handle, get_stdout_handle, write, exit};
+
+#[if(os == "windows")]
+mod windows;
+#[if(os == "windows")]
+pub use .windows.{Handle, get_stdout_handle, write, exit};

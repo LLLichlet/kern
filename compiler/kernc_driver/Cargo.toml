@@ -1,0 +1,15 @@
+[package]
+name = "kernc_driver"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+inkwell = { workspace = true }
+kernc_utils = { workspace = true }
+kernc_ast = { workspace = true }
+kernc_parser = { workspace = true }
+kernc_sema = { workspace = true }
+kernc_codegen = { workspace = true }
+kernc_lower = { workspace = true }

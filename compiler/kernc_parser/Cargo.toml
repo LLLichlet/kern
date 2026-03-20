@@ -1,0 +1,11 @@
+[package]
+name = "kernc_parser"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+kernc_utils = { workspace = true }
+kernc_ast = { workspace = true }
+kernc_lexer = { workspace = true }

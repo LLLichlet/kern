@@ -16,6 +16,7 @@ pub enum ConstValue {
     Array(Vec<ConstValue>),
     Struct(HashMap<SymbolId, ConstValue>),
     Void,
+    Undef,
 }
 
 pub struct ConstEvaluator<'a, 'ctx> {
@@ -88,7 +89,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Bool(b) => Ok(ConstValue::Bool(*b)),
             ExprKind::Char(c) => Ok(ConstValue::Int(*c as u32 as i128)),
             ExprKind::String(s) => Ok(ConstValue::String(s.clone())),
-
+            ExprKind::Undef => Ok(ConstValue::Undef),
+            
             // === 2. 算术与逻辑运算 ===
             ExprKind::Binary { lhs, op, rhs } => self.eval_binary(lhs, *op, rhs, depth, expr.span),
             ExprKind::Unary { op, operand } => self.eval_unary(*op, operand, depth, expr.span),

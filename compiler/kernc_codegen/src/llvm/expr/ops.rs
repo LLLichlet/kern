@@ -21,8 +21,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 Add => {
                     // ptr + int 或 int + ptr
                     let (ptr_val, int_val) = if l_val.is_pointer_value() {
+                        if !r_val.is_int_value() {
+                            panic!("ICE: Expected integer for RHS of pointer addition, got {:?}", r_val);
+                        }
                         (l_val.into_pointer_value(), r_val.into_int_value())
                     } else {
+                        if !l_val.is_int_value() {
+                            panic!("ICE: Expected integer for LHS of pointer addition, got {:?}", l_val);
+                        }
                         (r_val.into_pointer_value(), l_val.into_int_value())
                     };
                     

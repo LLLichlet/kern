@@ -188,12 +188,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         // === 常量与 extern 规则约束 ===
-        if !g.is_extern {
+       if !g.is_extern {
             if let ast::ExprKind::Undef = g.value.kind {
-                self.ctx.emit_error(g.span, "Global variables cannot be initialized with `undef`. Must provide a constant value.");
+                self.ctx.emit_error(g.span, "Global variables cannot be initialized with bare `undef`. Must provide a typed constant value (e.g., `.{undef}`).");
             } else {
                 let mut evaluator = ConstEvaluator::new(self.ctx);
-                let _ = evaluator.eval_math(&g.value);
+                // 使用 eval_inner 允许任何形式的合法常量（数组、结构体、Undef、整数等）
+                let _ = evaluator.eval_inner(&g.value, 0); 
             }
         } else {
             // 如果是 extern，确保推导出了合法类型

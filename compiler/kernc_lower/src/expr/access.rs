@@ -4,13 +4,12 @@ use std::collections::HashMap;
 use kernc_ast::Expr;
 use kernc_mast::*;
 use kernc_sema::def::Def;
-use kernc_sema::scope::SymbolKind;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_identifier(&mut self, name: SymbolId) -> MastExprKind {
-        // 优先检查是否是顶层全局变量
+        // 优先检查是否是顶层全局变量 (静态数组、全局字符串等)
         if let Some(&mono_id) = self.global_symbol_map.get(&name) {
             return MastExprKind::GlobalRef(mono_id);
         }
@@ -22,19 +21,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 走到这里，说明它要么是函数，要么是普通的局部变量(let/param)
-        if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
-            match info.kind {
-                SymbolKind::Function => {
-                    let fn_def_id = info.def_id.unwrap();
-                    let mono_id = self.instantiate_function(fn_def_id, &[]);
-                    MastExprKind::FuncRef(mono_id)
-                }
-                _ => MastExprKind::Var(name),
-            }
-        } else {
-            MastExprKind::Var(name)
-        }
+        // 因为在外层 (mod.rs) 已经通过 node_types 拦截了 FnDef (函数引用)
+        // 走到这里，它一定是一个普通的局部变量 (let 绑定或函数参数)
+        MastExprKind::Var(name)
     }
 
     pub(crate) fn lower_field_access(

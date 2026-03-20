@@ -10,7 +10,7 @@
 6.  [Control Flow](#6-control-flow)
 7.  [Modules](#7-modules)
 8.  [Interoperability](#8-interoperability)
-9.  [Enum Types (`data`) and Pattern Matching](#9-enum-types-enum-and-pattern-matching)
+9.  [Enum Types (`enum`) and Pattern Matching](#9-enum-types-enum-and-pattern-matching)
 10. [Stateless Anonymous Functions (Lambdas)](#10-stateless-anonymous-functions-lambdas)
 11. [Inline Assembly (`@asm`)](#11-inline-assembly-asm)
 12. [AST Attributes and Metadata (`#[...]`)](#12-ast-attributes-and-metadata--and-)
@@ -144,10 +144,10 @@ No active‑field tracking; no default values.
 
 ### 4.3 Simple Enum (formerly Enums)
 
-In Kern v0.5.0, C-style integer constant sets and complex Algebraic Enum Types are unified under the `data` keyword. For simple sets, the backing type can be explicitly defined (defaults to `u32`).
+In Kern v0.5.0, C-style integer constant sets and complex Algebraic Enum Types are unified under the `enum` keyword. For simple sets, the backing type can be explicitly defined (defaults to `u32`).
 
 ```kern
-type Color: u8 = data {
+type Color: u8 = enum {
     Red = 0,
     Green, // 1
     Blue,  // 2
@@ -232,7 +232,7 @@ let a = if (b < 10) i32.{10} else i32.{20};
 
 ### 6.2 Match Expressions
 
-Enhanced pattern matching and branching. In Kern v0.5.0, `match` completely replaces `switch` for all branching logic (integers, strings, and `data` variants). No fallthrough.
+Enhanced pattern matching and branching. In Kern v0.5.0, `match` completely replaces `switch` for all branching logic (integers, strings, and `enum` variants). No fallthrough.
 
   * **Ranges**: `..` defines a left-closed, right-open range. `..=` defines a fully inclusive range.
 
@@ -247,7 +247,7 @@ let result = match (val) {
 };
 ```
 
-  * **Exhaustiveness**: Match expressions must be exhaustive. When matching on a `data` type, `else =>` is not required if all variants are explicitly matched.
+  * **Exhaustiveness**: Match expressions must be exhaustive. When matching on a `enum` type, `_ =>` is not required if all variants are explicitly matched.
 
 ### 6.3 For Loops
 

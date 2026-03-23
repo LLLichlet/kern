@@ -1,6 +1,6 @@
 # Kern Programming Language
 
-> **Status:** v0.5.0 (Experimental)  
+> **Status:** v0.5.2 (Experimental)  
 > *High Abstraction, Low Policy.*
 
 Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.

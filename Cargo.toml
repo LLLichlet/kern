@@ -6,7 +6,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.5.0"
+version = "0.5.2"
 edition = "2024"
 authors = ["softfault <givenyoung46@gmail.com>"]
 license = "MIT" 
@@ -25,5 +25,12 @@ kernc_codegen = { path = "compiler/kernc_codegen" }
 kernc_driver = { path = "compiler/kernc_driver" }
 
 # deps
-inkwell = { version = "0.8.0", features = ["llvm21-1"] }
+inkwell = { version = "0.8.0", default-features = false, features = [
+    "llvm21-1",
+    "target-x86",       
+    "target-aarch64",  
+    "target-riscv",     
+    "target-arm",
+    "target-webassembly"
+] }
 target-lexicon = "0.13.5"

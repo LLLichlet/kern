@@ -82,7 +82,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Err(());
         }
 
-        match &expr.kind {
+        let eval_result = match &expr.kind {
             // === 1. 基础字面量 ===
             ExprKind::Integer(val) => Ok(ConstValue::Int(*val as i128)),
             ExprKind::Float(val) => Ok(ConstValue::Float(*val)),
@@ -93,11 +93,24 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
             // === 2. 算术与逻辑运算 ===
             ExprKind::Binary { lhs, op, rhs } => self.eval_binary(lhs, *op, rhs, depth, expr.span),
-            ExprKind::Unary { op, operand } => self.eval_unary(*op, operand, depth, expr.span),
+            ExprKind::Unary { op, operand } => {
+                // 提前折叠负数字面量
+                // 拦截 `-` 后面紧跟数字的情况，跳过对内部正数 (如 128) 的独立求值和越界检查，直接返回整体负数。
+                if *op == UnaryOperator::Negate {
+                    if let ExprKind::Integer(val) = &operand.kind {
+                        Ok(ConstValue::Int(-(*val as i128)))
+                    } else if let ExprKind::Float(val) = &operand.kind {
+                        Ok(ConstValue::Float(-*val))
+                    } else {
+                        self.eval_unary(*op, operand, depth, expr.span)
+                    }
+                } else {
+                    self.eval_unary(*op, operand, depth, expr.span)
+                }
+            },
+            
             ExprKind::As { lhs, .. } => {
                 let val = self.eval_inner(lhs, depth + 1)?;
-
-                // 从 node_types 中获取当前 Cast 表达式最终的类型
                 let target_ty = self
                     .ctx
                     .node_types
@@ -108,26 +121,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 if let ConstValue::Int(v) = val {
                     let mut layout = LayoutEngine::new(self.ctx);
                     let bit_width = layout.compute_type_size(target_ty) * 8;
-
-                    let mask = if bit_width >= 128 {
-                        u128::MAX
-                    } else {
-                        (1 << bit_width) - 1
-                    };
-
+                    let mask = if bit_width >= 128 { u128::MAX } else { (1 << bit_width) - 1 };
                     let u_val = (v as u128) & mask;
-
-                    // TODO: 这里可以根据 target_ty 判断是否需要符号扩展
-                    // 简化处理直接返回截断/扩展后的整数
-                    return Ok(ConstValue::Int(u_val as i128));
+                    
+                    Ok(ConstValue::Int(u_val as i128))
                 } else {
-                    self.ctx
-                        .struct_error(
-                            expr.span,
-                            "only integer casts are supported in const context currently",
-                        )
-                        .emit();
-                    return Err(());
+                    self.ctx.struct_error(expr.span, "only integer casts are supported in const context currently").emit();
+                    Err(())
                 }
             }
 
@@ -135,30 +135,22 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Identifier(name) => self.eval_identifier(*name, depth, expr.span),
 
             // === 4. 内置常量函数调用 (Intrinsics) ===
-            ExprKind::Call { callee, args } => {
-                self.eval_intrinsic_call(callee, args, depth, expr.span)
-            }
+            ExprKind::Call { callee, args } => self.eval_intrinsic_call(callee, args, depth, expr.span),
 
             // === 5. 枚举字面量求值 ===
-            ExprKind::EnumLiteral(variant_name) => {
-                self.eval_enum_literal(expr.id, *variant_name, depth, expr.span)
-            }
+            ExprKind::EnumLiteral(variant_name) => self.eval_enum_literal(expr.id, *variant_name, depth, expr.span),
 
             // === 6. 数据初始化 (支持嵌套 Array 和 Struct) ===
             ExprKind::DataInit { literal, .. } => match literal {
                 ast::DataLiteralKind::Scalar(inner) => self.eval_inner(inner, depth + 1),
                 ast::DataLiteralKind::Array(elems) => {
                     let mut arr = Vec::new();
-                    for e in elems {
-                        arr.push(self.eval_inner(e, depth + 1)?);
-                    }
+                    for e in elems { arr.push(self.eval_inner(e, depth + 1)?); }
                     Ok(ConstValue::Array(arr))
                 }
                 ast::DataLiteralKind::Struct(fields) => {
                     let mut map = HashMap::new();
-                    for f in fields {
-                        map.insert(f.name, self.eval_inner(&f.value, depth + 1)?);
-                    }
+                    for f in fields { map.insert(f.name, self.eval_inner(&f.value, depth + 1)?); }
                     Ok(ConstValue::Struct(map))
                 }
                 ast::DataLiteralKind::Repeat { value, count } => {
@@ -170,81 +162,41 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
             // === 7. 常量聚合访问 (提取结构体字段和数组索引) ===
             ExprKind::FieldAccess { lhs, field } => {
-                // 核心修复：首先去 node_types 查一下左侧表达式的类型
-                let lhs_ty = self
-                    .ctx
-                    .node_types
-                    .get(&lhs.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+                let lhs_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
                 let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
 
-                // 如果左侧是一个模块 (比如 `os.linux`)，说明这是跨模块常量访问！
                 if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_lhs).clone() {
-                    let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
-                        m.scope_id
-                    } else {
-                        unreachable!()
-                    };
-
+                    let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] { m.scope_id } else { unreachable!() };
                     if let Some(info) = self.ctx.scopes.resolve_in(mod_scope, *field).cloned() {
                         if info.kind == SymbolKind::Const {
                             if let Some(def_id) = info.def_id {
-                                let const_expr =
-                                    if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                                        g.value.clone()
-                                    } else {
-                                        return Err(());
-                                    };
-
-                                return self.eval_inner(&const_expr, depth + 1);
-                            }
+                                let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] { g.value.clone() } else { return Err(()); };
+                                self.eval_inner(&const_expr, depth + 1)
+                            } else { Err(()) }
                         } else {
                             let field_str = self.ctx.resolve(*field);
-                            self.ctx
-                                .struct_error(
-                                    expr.span,
-                                    format!(
-                                        "`{}` is a {}, not a compile-time constant",
-                                        field_str,
-                                        self.kind_to_string(info.kind)
-                                    ),
-                                )
-                                .emit();
-                            return Err(());
+                            self.ctx.struct_error(expr.span, format!("`{}` is a {}, not a compile-time constant", field_str, self.kind_to_string(info.kind))).emit();
+                            Err(())
                         }
-                    }
-
-                    let field_str = self.ctx.resolve(*field);
-                    self.ctx
-                        .struct_error(
-                            expr.span,
-                            format!("constant `{}` not found in module", field_str),
-                        )
-                        .emit();
-                    return Err(());
-                }
-
-                // 如果不是模块，说明是普通的 Struct 字段访问，走原有逻辑：
-                let base = self.eval_inner(lhs, depth + 1)?;
-                if let ConstValue::Struct(map) = base {
-                    if let Some(val) = map.get(field) {
-                        Ok(val.clone())
                     } else {
                         let field_str = self.ctx.resolve(*field);
-                        self.ctx
-                            .struct_error(
-                                expr.span,
-                                format!("field `{}` not found in constant struct", field_str),
-                            )
-                            .emit();
+                        self.ctx.struct_error(expr.span, format!("constant `{}` not found in module", field_str)).emit();
                         Err(())
                     }
                 } else {
-                    self.ctx
-                        .struct_error(expr.span, "attempted field access on a non-struct constant")
-                        .emit();
-                    Err(())
+                    let base = self.eval_inner(lhs, depth + 1)?;
+                    if let ConstValue::Struct(map) = base {
+                        if let Some(val) = map.get(field) {
+                            Ok(val.clone())
+                        } else {
+                            let field_str = self.ctx.resolve(*field);
+                            self.ctx.struct_error(expr.span, format!("field `{}` not found in constant struct", field_str)).emit();
+                            Err(())
+                        }
+                    } else {
+                        self.ctx.struct_error(expr.span, "attempted field access on a non-struct constant").emit();
+                        Err(())
+                    }
                 }
             }
 
@@ -255,36 +207,81 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     if idx < arr.len() as u64 {
                         Ok(arr[idx as usize].clone())
                     } else {
-                        self.ctx
-                            .struct_error(expr.span, "constant array index out of bounds")
-                            .emit();
+                        self.ctx.struct_error(expr.span, "constant array index out of bounds").emit();
                         Err(())
                     }
                 } else {
-                    self.ctx
-                        .struct_error(expr.span, "attempted indexing into a non-array constant")
-                        .emit();
+                    self.ctx.struct_error(expr.span, "attempted indexing into a non-array constant").emit();
                     Err(())
                 }
             }
 
-            // === 8. 不支持的表达式 ===
             ExprKind::GenericInstantiation { .. } => {
-                self.ctx
-                    .struct_error(
-                        expr.span,
-                        "generic instantiation cannot be evaluated directly as a value",
-                    )
-                    .emit();
+                self.ctx.struct_error(expr.span, "generic instantiation cannot be evaluated directly as a value").emit();
                 Err(())
             }
             _ => {
-                self.ctx
-                    .struct_error(expr.span, "expected a valid constant expression")
-                    .emit();
+                self.ctx.struct_error(expr.span, "expected a valid constant expression").emit();
                 Err(())
             }
+        };
+
+        // 获取刚刚求出的结果
+        let mut val = eval_result?;
+
+        // 越界与符号断言
+        if let ConstValue::Int(mut v) = val {
+            let ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
+            let norm = self.ctx.type_registry.normalize(ty);
+            
+            if let TypeKind::Primitive(p) = self.ctx.type_registry.get(norm).clone() {
+                let is_signed = matches!(p, PrimitiveType::I8 | PrimitiveType::I16 | PrimitiveType::I32 | PrimitiveType::I64 | PrimitiveType::I128 | PrimitiveType::ISize);
+                let is_unsigned = matches!(p, PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64 | PrimitiveType::U128 | PrimitiveType::USize);
+                
+                // 洗白 i128 算出来的伪负数（比如 !0 -> -1）
+                if is_unsigned {
+                    let mut layout = crate::LayoutEngine::new(self.ctx);
+                    let bit_width = layout.compute_type_size(norm) * 8;
+                    if bit_width < 128 {
+                        let mask = (1i128 << bit_width) - 1;
+                        v &= mask; // 此时 -1 会被截断为的 0xFF...FF
+                    }
+                }
+                
+                // 1. 无符号类型不接受负数(经过洗白和 Unary 拦截后，走到这里的都是非法越界的硬编码值)
+                if is_unsigned && v < 0 {
+                    self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", v, self.ctx.ty_to_string(ty)))
+                        .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
+                        .emit();
+                    return Err(());
+                }
+                
+                // 2. 检查数值是否溢出相应的位宽容量
+                if (is_signed || is_unsigned) && p != PrimitiveType::I128 && p != PrimitiveType::U128 {
+                    let mut layout = crate::LayoutEngine::new(self.ctx);
+                    let bit_width = layout.compute_type_size(norm) * 8;
+                    
+                    let (min, max) = if is_signed {
+                        let max = (1i128 << (bit_width - 1)) - 1;
+                        let min = -(1i128 << (bit_width - 1));
+                        (min, max)
+                    } else {
+                        let max = ((1u128 << bit_width) - 1) as i128;
+                        (0, max)
+                    };
+                    
+                    if v < min || v > max {
+                        self.ctx.struct_error(expr.span, format!("integer literal {} is out of bounds for type `{}`", v, self.ctx.ty_to_string(ty)))
+                            .with_hint(format!("the valid range is {} to {}", min, max))
+                            .emit();
+                        return Err(());
+                    }
+                }
+            }
+            val = ConstValue::Int(v);
         }
+
+        Ok(val)
     }
 
     // ==========================================
@@ -404,8 +401,23 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         span: Span,
     ) -> Result<ConstValue, ()> {
         let val = self.eval_inner(operand, depth + 1)?;
+        
+        let op_ty = self.ctx.node_types.get(&operand.id).copied().unwrap_or(TypeId::ERROR);
+        let norm_ty = self.ctx.type_registry.normalize(op_ty);
+        let is_unsigned = if let TypeKind::Primitive(p) = self.ctx.type_registry.get(norm_ty) {
+            matches!(p, PrimitiveType::U8 | PrimitiveType::U16 | PrimitiveType::U32 | PrimitiveType::U64 | PrimitiveType::U128 | PrimitiveType::USize)
+        } else { false };
+
         match (op, val) {
-            (UnaryOperator::Negate, ConstValue::Int(v)) => Ok(ConstValue::Int(v.wrapping_neg())),
+            (UnaryOperator::Negate, ConstValue::Int(v)) => {
+                if is_unsigned {
+                    self.ctx.struct_error(span, "cannot apply unary minus `-` to an unsigned type")
+                        .with_hint("unsigned types cannot be negative. use `~` or bitwise operations if you intend to manipulate bits")
+                        .emit();
+                    return Err(());
+                }
+                Ok(ConstValue::Int(v.wrapping_neg()))
+            },
             (UnaryOperator::Negate, ConstValue::Float(v)) => Ok(ConstValue::Float(-v)),
             (UnaryOperator::BitwiseNot, ConstValue::Int(v)) => Ok(ConstValue::Int(!v)),
             (UnaryOperator::LogicalNot, ConstValue::Bool(v)) => Ok(ConstValue::Bool(!v)),

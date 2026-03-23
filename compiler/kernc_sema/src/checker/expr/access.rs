@@ -23,6 +23,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .type_registry
                     .intern(TypeKind::Module(info.def_id.unwrap()));
             }
+
+            // TODO: 旁路导入
+            // 如果本地符号表说它是 ERROR，但它有一个合法的 DefId（全局定义），
+            // 说明它可能是个被 `use` 进来的常量。直接越过符号表，去全局缓存里拿最新类型
+            if info.type_id == TypeId::ERROR && info.def_id.is_some() {
+                if let Def::Global(g) = &self.ctx.defs[info.def_id.unwrap().0 as usize] {
+                    if let Some(&actual_ty) = self.ctx.node_types.get(&g.value.id) {
+                        return actual_ty; 
+                    }
+                }
+            }
             info.type_id
         } else {
             let name_str = self.ctx.resolve(name).to_string();
@@ -511,6 +522,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let mut map = std::collections::HashMap::new();
 
             if self.unify(impl_target_ty, lhs_ty, &mut map) {
+                // 检查该 Impl 块的 Where 约束是否被满足
+                if !self.satisfies_bounds(&impl_def.where_clauses, &map) {
+                    continue; // 约束不满足，说明这个 Impl 块不适用，跳过
+                }
+
                 // 将 Impl 块捕获的泛型参数提取出来
                 for param in &impl_def.generics {
                     resolved_impl_args.push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
@@ -535,5 +551,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .type_registry
                 .intern(TypeKind::FnDef(method_id, resolved_impl_args))
         })
+    }
+
+    /// 辅助方法：静默检查 Where 子句约束是否满足
+    fn satisfies_bounds(&mut self, where_clauses: &[ast::WhereClause], map: &HashMap<SymbolId, TypeId>) -> bool {
+        let mut pairs_to_check = Vec::new();
+        
+        {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
+            
+            for clause in where_clauses {
+                let original_target = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+                let sub_target = subst.substitute(original_target);
+
+                for bound_ast in &clause.bounds {
+                    let original_bound = self.ctx.node_types.get(&bound_ast.id).copied().unwrap_or(TypeId::ERROR);
+                    let sub_bound = subst.substitute(original_bound);
+
+                    pairs_to_check.push((sub_target, sub_bound));
+                }
+            }
+        } 
+
+        for (sub_target, sub_bound) in pairs_to_check {
+            if sub_target != TypeId::ERROR && sub_bound != TypeId::ERROR {
+                // 如果存在任何一个特征未被实现，直接返回 false
+                if !self.check_trait_impl(sub_target, sub_bound) {
+                    return false;
+                }
+            }
+        }
+        
+        true
     }
 }

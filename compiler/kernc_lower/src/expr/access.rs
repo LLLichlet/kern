@@ -6,10 +6,36 @@ use kernc_mast::*;
 use kernc_sema::def::Def;
 use kernc_sema::scope::SymbolKind;
 use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::checker::{ConstValue, ConstEvaluator};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_identifier(&mut self, name: SymbolId) -> MastExprKind {
+        // 常量内联
+        if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
+            if info.kind == SymbolKind::Const {
+                if let Some(def_id) = info.def_id {
+                    let const_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                        Some(g.value.clone())
+                    } else {
+                        None
+                    };
+
+                    if let Some(const_expr) = const_expr_opt {
+                        let mut ce = ConstEvaluator::new(self.ctx);
+                        if let Ok(val) = ce.eval_inner(&const_expr, 0) {
+                            match val {
+                                ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
+                                ConstValue::Float(f) => return MastExprKind::Float(f),
+                                ConstValue::Bool(b) => return MastExprKind::Bool(b),
+                                _ => {}  // TODO 
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
         // 优先检查是否是顶层全局变量 (静态数组、全局字符串等)
         if let Some(&mono_id) = self.global_symbol_map.get(&name) {
             return MastExprKind::GlobalRef(mono_id);
@@ -101,7 +127,40 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 SymbolKind::Module => {
                     return MastExprKind::Var(field);
                 }
-                SymbolKind::Const | SymbolKind::Static | SymbolKind::Function => {
+                SymbolKind::Const => {
+                    if let Some(def_id) = target_info.def_id {
+                        let const_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                            Some(g.value.clone())
+                        } else {
+                            None
+                        };
+
+                        if let Some(const_expr) = const_expr_opt {
+                            let mut ce = ConstEvaluator::new(self.ctx);
+                            if let Ok(val) = ce.eval_inner(&const_expr, 0) {
+                                match val {
+                                    ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
+                                    ConstValue::Float(f) => return MastExprKind::Float(f),
+                                    ConstValue::Bool(b) => return MastExprKind::Bool(b),
+                                    _ => {} // TODO: 复杂的聚合常量，交给后续的 GlobalRef 处理
+                                }
+                            }
+                        }
+                    }
+
+                    // 如果无法内联（比如是个数组常量），从全局映射表获取
+                    if let Some(&mono_id) = self.global_symbol_map.get(&field) {
+                        return MastExprKind::GlobalRef(mono_id);
+                    } else {
+                        let field_name = self.ctx.resolve(field);
+                        self.ctx.emit_ice(
+                            span, 
+                            format!("Kern ICE (Lowering): Cross-module constant `{}` could not be inlined, and its global definition was not found. Phase 1 global collection failed.", field_name)
+                        );
+                        unreachable!()
+                    }
+                }
+                SymbolKind::Static | SymbolKind::Function => {
                     if let Some(&mono_id) = self.global_symbol_map.get(&field) {
                         return MastExprKind::GlobalRef(mono_id);
                     } else if target_info.def_id.is_some() {

@@ -208,6 +208,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None);
             }
 
+            self.check_generic_bounds(span, def_id, &generics, &resolved_args);
+
             // 构造包含具体参数的 FnDef 类型，以便稍后写入 AST
             let inferred_callee_ty = self
                 .ctx

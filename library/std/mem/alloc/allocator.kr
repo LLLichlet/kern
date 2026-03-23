@@ -1,0 +1,8 @@
+use std.Option;
+
+pub type Allocator = trait {
+    // 传入所需的字节数和内存对齐要求
+    alloc: fn(usize, usize) Option[*mut u8],
+    // 释放内存，必须精确传入之前分配的大小
+    free: fn(*mut u8, usize) void,
+};

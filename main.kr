@@ -1,9 +1,17 @@
+use std.coll.List;
+use std.mem.alloc.PageAllocator;
+use std.io;
+
 fn main(args: [][]u8) i32 {
-    if (#args > 1) {
-        let name = args.[1];
-        std.io.println("hello, {}!", .{ name.&, });
-    } else {
-        std.io.println("hello, world!", .{});
-    }
+    let pa = PageAllocator.{}..&;
+    let list = List[i32].{}..&;
+    defer list.deinit(pa);
+
+    let _ = list.push(pa, 1); 
+    let _ = list.push(pa, 2); 
+    let _ = list.push(pa, 3); 
+    let _ = list.append_slice(pa, .{4, 5, 6});
+    
+    io.println("list: {}", .{list,});
     0
 }

@@ -1,0 +1,267 @@
+use std.mem.alloc.Allocator;
+use std.Option;
+use std.io.{Printable, Writer};
+
+pub type List[T] = struct {
+    ptr: *mut T = 0,
+    len: usize = 0,
+    capacity: usize = 0,
+};
+
+impl[T] *mut List[T] {
+    // 内部辅助函数：确保容量能够装下 required_cap 个元素
+    fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
+        if (self.capacity >= required_cap) return true;
+        
+        let mut new_cap = if (self.capacity == 0) usize.{8} else self.capacity * 2;
+        // 应对突发的大量插入，确保新容量足够
+        for (; new_cap < required_cap;) {
+            new_cap *= 2;
+        }
+        
+        let new_size = new_cap * @sizeOf[T]();
+        let new_ptr_u8 = match (alloc.alloc(new_size, @alignOf[T]())) {
+            .Some: ptr => ptr,
+            .None => return false, // OOM 保护
+        };
+
+        let new_ptr = new_ptr_u8 as *mut T;
+
+        if (self.capacity > 0) {
+            let old_size = self.capacity * @sizeOf[T]();
+            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * @sizeOf[T]());
+            alloc.free(self.ptr as *mut u8, old_size);
+        }
+
+        self.ptr = new_ptr;
+        self.capacity = new_cap;
+        return true;
+    }
+
+    pub fn push(alloc: *mut Allocator, item: T) bool {
+        if (!self.ensure_capacity(alloc, self.len + 1)) return false;
+        
+        let target = self.ptr + self.len;
+        target.* = item;
+        self.len += 1;
+        return true;
+    }
+
+    pub fn pop() Option[T] {
+        if (self.len == 0) return .{ None };
+        self.len -= 1;
+        return .{ Some: (self.ptr + self.len).* };
+    }
+
+    pub fn insert(alloc: *mut Allocator, index: usize, item: T) bool {
+        if (index > self.len) return false;
+        if (!self.ensure_capacity(alloc, self.len + 1)) return false;
+
+        // 从后往前遍历，将元素向后平移一位
+        let mut i = self.len;
+        for (; i > index; i -= 1) {
+            (self.ptr + i).* = (self.ptr + i - 1).*;
+        }
+        
+        (self.ptr + index).* = item;
+        self.len += 1;
+        return true;
+    }
+
+    pub fn remove(index: usize) Option[T] {
+        if (index >= self.len) return .{ None };
+        
+        let removed_val = (self.ptr + index).*;
+        
+        // 从前往后遍历，将元素向前覆盖
+        let mut i = index;
+        for (; i < self.len - 1; i += 1) {
+            (self.ptr + i).* = (self.ptr + i + 1).*;
+        }
+        
+        self.len -= 1;
+        return .{ Some: removed_val };
+    }
+
+    // 核心安全视图：对外只暴露切片
+    pub fn as_slice() []T {
+        return self.ptr.[0 .. self.len];
+    }
+    
+    pub fn clear() void {
+        self.len = 0; // 容量保留，只清空逻辑长度
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        if (self.capacity > 0) {
+            alloc.free(self.ptr as *mut u8, self.capacity * @sizeOf[T]());
+            self.ptr = *mut T.{0};
+            self.len = 0;
+            self.capacity = 0;
+        }
+    }
+
+    // 检查是否为空
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+
+    // 安全获取指定位置的元素拷贝
+    pub fn get(index: usize) Option[T] {
+        if (index >= self.len) return .{ None };
+        return .{ Some: (self.ptr + index).* };
+    }
+
+    // 安全获取指定位置元素的 [可变指针]，用于就地修改
+    pub fn get_ptr(index: usize) Option[*mut T] {
+        if (index >= self.len) return .{ None };
+        return .{ Some: self.ptr + index };
+    }
+
+    // 获取尾部元素的拷贝
+    pub fn last() Option[T] {
+        if (self.len == 0) return .{ None };
+        return .{ Some: (self.ptr + self.len - 1).* };
+    }
+
+    pub fn swap_remove(index: usize) Option[T] {
+        if (index >= self.len) return .{ None };
+        
+        // 保存要被删除的元素
+        let removed_val = (self.ptr + index).*;
+        
+        // 如果不是最后一个元素，把最后一个元素挪到这里填补空缺
+        if (index != self.len - 1) {
+            let last_val = (self.ptr + self.len - 1).*;
+            (self.ptr + index).* = last_val;
+        }
+        
+        self.len -= 1;
+        return .{ Some: removed_val };
+    }
+
+    // 批量追加一个切片
+    pub fn append_slice(alloc: *mut Allocator, slice: []T) bool {
+        let additional = #slice;
+        if (additional == 0) return true;
+
+        if (!self.ensure_capacity(alloc, self.len + additional)) {
+            return false;
+        }
+
+        // 目标内存地址：当前 ptr 加上已有的 len
+        let target_ptr = self.ptr + self.len;
+        
+        // 利用切片的底层特性，直接进行内存级块拷贝
+        // 注意：计算字节数需要 additional * @sizeOf[T]()
+        let copy_bytes = additional * @sizeOf[T]();
+        
+        // slice.ptr (假设这是获取切片底层指针的语法，或者可以使用 slice.[0].&)
+        let src_ptr = slice.[0].& as *u8; 
+        
+        @memcpy(target_ptr as *mut u8, src_ptr, copy_bytes);
+        
+        self.len += additional;
+        return true;
+    }
+    
+    // 释放多余的容量，退还给操作系统或分配器
+    pub fn shrink_to_fit(alloc: *mut Allocator) bool {
+        if (self.capacity == self.len) return true;
+        if (self.len == 0) {
+            self.deinit(alloc);
+            return true;
+        }
+        
+        // 申请一个正好装下 len 的新内存块
+        let exact_size = self.len * @sizeOf[T]();
+        let new_ptr_u8 = match (alloc.alloc(exact_size, @alignOf[T]())) {
+            .Some: ptr => ptr,
+            .None => return false, // OOM 保护，干净利落
+        };
+        
+        let new_ptr = new_ptr_u8 as *mut T;
+        
+        // 拷贝现有数据并释放老数据
+        @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_size);
+        alloc.free(self.ptr as *mut u8, self.capacity * @sizeOf[T]());
+        
+        self.ptr = new_ptr;
+        self.capacity = self.len;
+        return true;
+    }
+}
+
+impl[T] *List[T] : Printable 
+    where *T: Printable,
+{
+    pub fn fmt(writer: *mut Writer) void {
+        let _ = writer.write("<List len=");
+        
+        let mut len_buf = [20]mut u8.{undef};
+        let len_str = u64_to_str(self.len as u64, len_buf..[0 .. 20]);
+        let _ = writer.write(len_str);
+
+        let _ = writer.write(", cap=");
+        
+        let mut cap_buf = [20]mut u8.{undef};
+        let cap_str = u64_to_str(self.capacity as u64, cap_buf..[0 .. 20]);
+        let _ = writer.write(cap_str);
+
+        let _ = writer.write(", items: [");
+
+        let mut i = 0;
+        for (; i < self.len; i += 1) {
+            let mut item_ptr = self.ptr + i; 
+            item_ptr.fmt(writer);
+
+            if (i < self.len - 1) {
+                let _ = writer.write(", ");
+            }
+        }
+
+        let _ = writer.write("]>");
+    }
+}
+
+type Point[T] 
+    where *T: Printable
+= struct {
+
+};
+pub fn u64_to_str(val: u64, buf: []mut u8) []u8 {
+    if (val == 0) {
+        if (#buf > 0) {
+            buf.[0] = b'0';
+            return buf.[0 .. 1];
+        }
+        return buf.[0 .. 0]; // 缓冲区太小
+    }
+
+    let mut curr = val;
+    let mut len = 0;
+
+    // 计算数字的长度
+    let mut temp = curr;
+    for (; temp > 0; ) {
+        len += 1;
+        temp /= 10;
+    }
+
+    // 防御性检查：确保传入的缓冲区足够大
+    if (len > #buf) {
+        return buf.[0 .. 0]; 
+    }
+
+    // 从后往前填充
+    let mut i = len;
+    for (; curr > 0; ) {
+        i -= 1;
+        let digit = curr % 10;
+        buf.[i] = digit as u8 + 48;
+        curr /= 10;
+    }
+
+    // 返回有效数据的切片视图
+    return buf.[0 .. len];
+}

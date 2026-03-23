@@ -1,8 +1,10 @@
 pub mod io;
-pub mod runtime;
+pub mod rt;
 pub mod os;
 pub mod env;
-pub mod debug;
+pub mod dbg;
 pub mod cffi;
+pub mod mem;
+pub mod coll;
 
-pub use .debug.{Result, Option};
+pub use .dbg.{Result, Option};

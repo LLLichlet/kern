@@ -4,8 +4,8 @@ use std::collections::HashMap;
 use kernc_ast::Expr;
 use kernc_mast::*;
 use kernc_sema::def::Def;
-use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_sema::scope::SymbolKind;
+use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -34,7 +34,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExprKind {
-        let expr_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
+        let expr_ty = self
+            .ctx
+            .node_types
+            .get(&lhs.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         let norm_expr = self.ctx.type_registry.normalize(expr_ty);
 
         if matches!(
@@ -42,7 +47,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::FnDef(..) | TypeKind::Function { .. }
         ) {
             self.ctx.emit_ice(
-                span, 
+                span,
                 format!("Attempted to access method `{}` without calling it. Bound Methods are not supported in Kern.", self.ctx.resolve(field))
             );
             unreachable!()
@@ -57,7 +62,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             match self.ctx.type_registry.get(norm) {
                 TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                     base_ty = *elem;
-                    deref_expr = MastExpr::new(base_ty, MastExprKind::Deref(Box::new(deref_expr)), span);
+                    deref_expr =
+                        MastExpr::new(base_ty, MastExprKind::Deref(Box::new(deref_expr)), span);
                 }
                 _ => break,
             }
@@ -75,11 +81,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mod_def = match &self.ctx.defs[mod_def_id.0 as usize] {
                 Def::Module(m) => m,
                 _ => {
-                    self.ctx.emit_ice(span, "Kern ICE (Lowering): Expected Module Def, found something else.");
+                    self.ctx.emit_ice(
+                        span,
+                        "Kern ICE (Lowering): Expected Module Def, found something else.",
+                    );
                     unreachable!()
                 }
             };
-            
+
             let target_info = match self.ctx.scopes.resolve_in(mod_def.scope_id, field) {
                 Some(info) => info,
                 None => {
@@ -87,24 +96,42 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     unreachable!()
                 }
             };
-            
+
             match target_info.kind {
                 SymbolKind::Module => {
-                    return MastExprKind::Var(field); 
+                    return MastExprKind::Var(field);
                 }
                 SymbolKind::Const | SymbolKind::Static | SymbolKind::Function => {
                     if let Some(&mono_id) = self.global_symbol_map.get(&field) {
                         return MastExprKind::GlobalRef(mono_id);
-                    } else if target_info.def_id.is_some() { 
-                        self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Symbol `{}` found but not instantiated.", self.ctx.resolve(field)));
+                    } else if target_info.def_id.is_some() {
+                        self.ctx.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Lowering): Symbol `{}` found but not instantiated.",
+                                self.ctx.resolve(field)
+                            ),
+                        );
                         unreachable!()
                     } else {
-                        self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Symbol `{}` lacks a def_id.", self.ctx.resolve(field)));
+                        self.ctx.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Lowering): Symbol `{}` lacks a def_id.",
+                                self.ctx.resolve(field)
+                            ),
+                        );
                         unreachable!()
                     }
                 }
                 _ => {
-                    self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Unsupported symbol kind in module: {:?}", target_info.kind));
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Lowering): Unsupported symbol kind in module: {:?}",
+                            target_info.kind
+                        ),
+                    );
                     unreachable!()
                 }
             }
@@ -149,14 +176,26 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn get_field_index(&mut self, struct_ty: TypeId, field_name: SymbolId, span: Span) -> usize {
+    pub(crate) fn get_field_index(
+        &mut self,
+        struct_ty: TypeId,
+        field_name: SymbolId,
+        span: Span,
+    ) -> usize {
         let norm = self.ctx.type_registry.normalize(struct_ty);
         if let TypeKind::Def(def_id, _) = self.ctx.type_registry.get(norm) {
             if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] {
                 return match s.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
-                        self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Field `{}` not found in struct `{}`", self.ctx.resolve(field_name), self.ctx.resolve(s.name)));
+                        self.ctx.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Lowering): Field `{}` not found in struct `{}`",
+                                self.ctx.resolve(field_name),
+                                self.ctx.resolve(s.name)
+                            ),
+                        );
                         unreachable!()
                     }
                 };
@@ -164,7 +203,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 return match u.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
-                        self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Field `{}` not found in union `{}`", self.ctx.resolve(field_name), self.ctx.resolve(u.name)));
+                        self.ctx.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Lowering): Field `{}` not found in union `{}`",
+                                self.ctx.resolve(field_name),
+                                self.ctx.resolve(u.name)
+                            ),
+                        );
                         unreachable!()
                     }
                 };

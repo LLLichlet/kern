@@ -90,34 +90,42 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Char(c) => Ok(ConstValue::Int(*c as u32 as i128)),
             ExprKind::String(s) => Ok(ConstValue::String(s.clone())),
             ExprKind::Undef => Ok(ConstValue::Undef),
-            
+
             // === 2. 算术与逻辑运算 ===
             ExprKind::Binary { lhs, op, rhs } => self.eval_binary(lhs, *op, rhs, depth, expr.span),
             ExprKind::Unary { op, operand } => self.eval_unary(*op, operand, depth, expr.span),
             ExprKind::As { lhs, .. } => {
                 let val = self.eval_inner(lhs, depth + 1)?;
-                
+
                 // 从 node_types 中获取当前 Cast 表达式最终的类型
-                let target_ty = self.ctx.node_types.get(&expr.id).copied().unwrap_or(TypeId::ERROR);
-                
+                let target_ty = self
+                    .ctx
+                    .node_types
+                    .get(&expr.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+
                 if let ConstValue::Int(v) = val {
                     let mut layout = LayoutEngine::new(self.ctx);
                     let bit_width = layout.compute_type_size(target_ty) * 8;
-                    
+
                     let mask = if bit_width >= 128 {
                         u128::MAX
                     } else {
                         (1 << bit_width) - 1
                     };
-                    
+
                     let u_val = (v as u128) & mask;
-                    
+
                     // TODO: 这里可以根据 target_ty 判断是否需要符号扩展
                     // 简化处理直接返回截断/扩展后的整数
                     return Ok(ConstValue::Int(u_val as i128));
                 } else {
                     self.ctx
-                        .struct_error(expr.span, "only integer casts are supported in const context currently")
+                        .struct_error(
+                            expr.span,
+                            "only integer casts are supported in const context currently",
+                        )
                         .emit();
                     return Err(());
                 }
@@ -163,7 +171,12 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             // === 7. 常量聚合访问 (提取结构体字段和数组索引) ===
             ExprKind::FieldAccess { lhs, field } => {
                 // 核心修复：首先去 node_types 查一下左侧表达式的类型
-                let lhs_ty = self.ctx.node_types.get(&lhs.id).copied().unwrap_or(TypeId::ERROR);
+                let lhs_ty = self
+                    .ctx
+                    .node_types
+                    .get(&lhs.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
 
                 // 如果左侧是一个模块 (比如 `os.linux`)，说明这是跨模块常量访问！
@@ -177,25 +190,38 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     if let Some(info) = self.ctx.scopes.resolve_in(mod_scope, *field).cloned() {
                         if info.kind == SymbolKind::Const {
                             if let Some(def_id) = info.def_id {
-                                let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                                    g.value.clone()
-                                } else {
-                                    return Err(());
-                                };
+                                let const_expr =
+                                    if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                                        g.value.clone()
+                                    } else {
+                                        return Err(());
+                                    };
 
                                 return self.eval_inner(&const_expr, depth + 1);
-                                
                             }
                         } else {
                             let field_str = self.ctx.resolve(*field);
-                            self.ctx.struct_error(expr.span, format!("`{}` is a {}, not a compile-time constant", field_str, self.kind_to_string(info.kind)))
+                            self.ctx
+                                .struct_error(
+                                    expr.span,
+                                    format!(
+                                        "`{}` is a {}, not a compile-time constant",
+                                        field_str,
+                                        self.kind_to_string(info.kind)
+                                    ),
+                                )
                                 .emit();
                             return Err(());
                         }
                     }
-                    
+
                     let field_str = self.ctx.resolve(*field);
-                    self.ctx.struct_error(expr.span, format!("constant `{}` not found in module", field_str)).emit();
+                    self.ctx
+                        .struct_error(
+                            expr.span,
+                            format!("constant `{}` not found in module", field_str),
+                        )
+                        .emit();
                     return Err(());
                 }
 

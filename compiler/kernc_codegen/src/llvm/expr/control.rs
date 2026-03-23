@@ -14,16 +14,25 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let cond_val = self.compile_expr(cond).into_int_value();
-        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let parent_func = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
 
         let then_bb = self.context.append_basic_block(parent_func, "then");
         let else_bb = self.context.append_basic_block(parent_func, "else");
         let merge_bb = self.context.append_basic_block(parent_func, "ifcont");
 
         if else_branch.is_some() {
-            self.builder.build_conditional_branch(cond_val, then_bb, else_bb).unwrap();
+            self.builder
+                .build_conditional_branch(cond_val, then_bb, else_bb)
+                .unwrap();
         } else {
-            self.builder.build_conditional_branch(cond_val, then_bb, merge_bb).unwrap();
+            self.builder
+                .build_conditional_branch(cond_val, then_bb, merge_bb)
+                .unwrap();
         }
 
         let mut incoming = Vec::new();
@@ -139,7 +148,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let target_val = self.compile_expr(target).into_int_value();
-        let parent_func = self.builder.get_insert_block().unwrap().get_parent().unwrap();
+        let parent_func = self
+            .builder
+            .get_insert_block()
+            .unwrap()
+            .get_parent()
+            .unwrap();
 
         let merge_bb = self.context.append_basic_block(parent_func, "switchcont");
         let default_bb = self.context.append_basic_block(parent_func, "default");
@@ -155,7 +169,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         }
 
-        self.builder.build_switch(target_val, default_bb, &llvm_cases).unwrap();
+        self.builder
+            .build_switch(target_val, default_bb, &llvm_cases)
+            .unwrap();
 
         let mut incoming = Vec::new();
 
@@ -179,7 +195,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.builder.position_at_end(case_blocks[i]);
             let case_val = self.compile_block(&case.body);
             let case_exit_bb = self.builder.get_insert_block().unwrap();
-            
+
             if case_exit_bb.get_terminator().is_none() {
                 self.builder.build_unconditional_branch(merge_bb).unwrap();
                 if let Some(val) = case_val {
@@ -191,7 +207,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         // 构建 PHI 返回值
         self.builder.position_at_end(merge_bb);
         if expr_ty != TypeId::VOID && !incoming.is_empty() {
-            let phi = self.builder.build_phi(expected_llvm_ty, "switchtmp").unwrap();
+            let phi = self
+                .builder
+                .build_phi(expected_llvm_ty, "switchtmp")
+                .unwrap();
             let mut incoming_refs = Vec::new();
             for (val, bb) in &incoming {
                 incoming_refs.push((val as &dyn inkwell::values::BasicValue<'ctx>, *bb));

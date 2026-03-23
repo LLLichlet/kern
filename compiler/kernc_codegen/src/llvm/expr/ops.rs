@@ -22,18 +22,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     // ptr + int 或 int + ptr
                     let (ptr_val, int_val) = if l_val.is_pointer_value() {
                         if !r_val.is_int_value() {
-                            panic!("ICE: Expected integer for RHS of pointer addition, got {:?}", r_val);
+                            panic!(
+                                "ICE: Expected integer for RHS of pointer addition, got {:?}",
+                                r_val
+                            );
                         }
                         (l_val.into_pointer_value(), r_val.into_int_value())
                     } else {
                         if !l_val.is_int_value() {
-                            panic!("ICE: Expected integer for LHS of pointer addition, got {:?}", l_val);
+                            panic!(
+                                "ICE: Expected integer for LHS of pointer addition, got {:?}",
+                                l_val
+                            );
                         }
                         (r_val.into_pointer_value(), l_val.into_int_value())
                     };
-                    
+
                     // 获取指针指向的底层元素类型，以便 LLVM 计算步长
-                    let ptr_ty = if l_val.is_pointer_value() { lhs.ty } else { rhs.ty };
+                    let ptr_ty = if l_val.is_pointer_value() {
+                        lhs.ty
+                    } else {
+                        rhs.ty
+                    };
                     let elem_sema_ty = self.type_registry.get_elem_type(ptr_ty).unwrap();
                     let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
 
@@ -50,10 +60,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         // ptr - ptr: 计算两个指针之间的元素个数差异
                         let l_ptr = l_val.into_pointer_value();
                         let r_ptr = r_val.into_pointer_value();
-                        
+
                         let elem_sema_ty = self.type_registry.get_elem_type(lhs.ty).unwrap();
                         let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
-                        
+
                         self.builder
                             .build_ptr_diff(elem_llvm_ty, l_ptr, r_ptr, "ptr_diff")
                             .unwrap()
@@ -62,7 +72,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         // ptr - int: 负向偏移
                         let ptr_val = l_val.into_pointer_value();
                         let int_val = r_val.into_int_value();
-                        
+
                         // 生成一个负的偏移量
                         let neg_int = self.builder.build_int_neg(int_val, "neg_offset").unwrap();
 

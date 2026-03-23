@@ -33,14 +33,14 @@ impl<'a> Parser<'a> {
         }
 
         let mut clauses = Vec::new();
-        
+
         // 解析类似于: `where *T: TraitA + TraitB, U: TraitC`
         loop {
             let start_span = self.peek().span;
-            
+
             // 1. 左侧：目标类型 (e.g., *mut T)
             let target_ty = self.parse_type()?;
-            
+
             // 2. 约束冒号
             self.expect(TokenType::Colon)?;
 
@@ -52,7 +52,7 @@ impl<'a> Parser<'a> {
                     break;
                 }
             }
-            
+
             let end_span = self.stream.prev_span();
             clauses.push(WhereClause {
                 span: start_span.to(end_span),
@@ -64,13 +64,13 @@ impl<'a> Parser<'a> {
             if !self.match_token(&[TokenType::Comma]) {
                 break;
             }
-            
+
             // 兼容尾逗号 (Trailing comma)，如果紧接着是 { 或 ; 就退出
             if self.check(TokenType::LBrace) || self.check(TokenType::Semicolon) {
                 break;
             }
         }
-        
+
         Ok(clauses)
     }
 
@@ -322,7 +322,7 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let attributes = self.parse_attributes(false).unwrap_or_default(); 
+            let attributes = self.parse_attributes(false).unwrap_or_default();
             let is_pub = self.match_token(&[TokenType::Pub]);
             let d_start = if is_pub {
                 self.stream.prev_span()
@@ -331,7 +331,7 @@ impl<'a> Parser<'a> {
             };
             if self.check(TokenType::Fn) {
                 let mut d = self.parse_fn_decl(d_start, is_pub, false)?;
-                d.attributes = attributes; 
+                d.attributes = attributes;
                 decls.push(d);
             } else {
                 self.error_at_current("Only fn allowed in impl".to_string());
@@ -462,8 +462,8 @@ impl<'a> Parser<'a> {
             attributes: vec![],
             kind: DeclKind::TypeAlias {
                 generics,
-                bounds,         
-                where_clauses,  
+                bounds,
+                where_clauses,
                 target,
                 is_extern,
             },
@@ -553,11 +553,11 @@ impl<'a> Parser<'a> {
                 if self.match_token(&[TokenType::Dot]) {
                     continue; // 遇到点号，继续解析下一个 Identifier
                 } else {
-                    break;    // 不是点号，当前路径解析结束
+                    break; // 不是点号，当前路径解析结束
                 }
             }
 
-            // 2. 解析别名 
+            // 2. 解析别名
             let mut alias = None;
             if self.match_token(&[TokenType::As]) {
                 let a_tok = self.expect(TokenType::Identifier)?;

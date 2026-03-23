@@ -2,7 +2,7 @@ use kernc_utils::{DiagnosticBuilder, DiagnosticLevel, FileId, NodeId, Session, S
 use std::collections::HashMap;
 
 use crate::def::{Def, DefId};
-use crate::scope::{SymbolTable, ScopeId};
+use crate::scope::{ScopeId, SymbolTable};
 use crate::ty::{TypeFormatter, TypeId, TypeRegistry};
 
 pub struct SemaContext<'a> {
@@ -60,7 +60,7 @@ impl<'a> SemaContext<'a> {
     pub fn inject_alias_roots(&mut self) {
         // 获取当前的 Scope (为了注入后能恢复)
         let prev_scope = self.scopes.current_scope_id();
-        
+
         // SymbolTable 初始化时创建的第一个 ScopeId(0) 就是全局 Builtin 作用域
         let global_scope = ScopeId(0);
         self.scopes.set_current_scope(global_scope);
@@ -76,8 +76,8 @@ impl<'a> SemaContext<'a> {
         for (name, mod_id) in aliases {
             let info = crate::scope::SymbolInfo {
                 kind: crate::scope::SymbolKind::Module,
-                node_id: node_id, 
-                type_id: TypeId::ERROR, 
+                node_id: node_id,
+                type_id: TypeId::ERROR,
                 def_id: Some(mod_id),
                 span: kernc_utils::Span::default(),
                 is_pub: true,

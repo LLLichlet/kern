@@ -141,13 +141,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if is_method && !raw_params.is_empty() {
                 let mut stripped_recv = self.resolve_tv(receiver_ty);
                 let expected_recv = self.resolve_tv(raw_params[0]);
-                if let TypeKind::Pointer { is_mut: false, .. } = self.ctx.type_registry.get(expected_recv) {
-                    if let TypeKind::Pointer { is_mut: true, elem } = self.ctx.type_registry.get(stripped_recv).clone() {
-                        stripped_recv = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem });
+                if let TypeKind::Pointer { is_mut: false, .. } =
+                    self.ctx.type_registry.get(expected_recv)
+                {
+                    if let TypeKind::Pointer { is_mut: true, elem } =
+                        self.ctx.type_registry.get(stripped_recv).clone()
+                    {
+                        stripped_recv = self.ctx.type_registry.intern(TypeKind::Pointer {
+                            is_mut: false,
+                            elem,
+                        });
                     }
-                } else if let TypeKind::VolatilePtr { is_mut: false, .. } = self.ctx.type_registry.get(expected_recv) {
-                    if let TypeKind::VolatilePtr { is_mut: true, elem } = self.ctx.type_registry.get(stripped_recv).clone() {
-                        stripped_recv = self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: false, elem });
+                } else if let TypeKind::VolatilePtr { is_mut: false, .. } =
+                    self.ctx.type_registry.get(expected_recv)
+                {
+                    if let TypeKind::VolatilePtr { is_mut: true, elem } =
+                        self.ctx.type_registry.get(stripped_recv).clone()
+                    {
+                        stripped_recv = self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                            is_mut: false,
+                            elem,
+                        });
                     }
                 }
 
@@ -217,16 +231,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .get(&callee.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            
+
             let lhs_node_ty = self
                 .ctx
                 .node_types
                 .get(&lhs.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-                
+
             let norm_lhs = self.ctx.type_registry.normalize(lhs_node_ty);
-            
+
             // 如果 lhs 解析出是一个模块，显然它不是面向类型的方法调用
             if matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(..)) {
                 return (false, TypeId::ERROR);
@@ -450,7 +464,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             _ => return,
         };
 
-        if where_clauses.is_empty() { return; }
+        if where_clauses.is_empty() {
+            return;
+        }
 
         // 2. 构建泛型实参映射表 (T -> Allocator)
         let mut map = std::collections::HashMap::new();
@@ -464,15 +480,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut pairs_to_check = Vec::new();
         {
             let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-            
+
             for clause in where_clauses {
-                let original_target = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+                let original_target = self
+                    .ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let sub_target = subst.substitute(original_target);
 
                 for bound_ast in clause.bounds {
-                    let original_bound = self.ctx.node_types.get(&bound_ast.id).copied().unwrap_or(TypeId::ERROR);
+                    let original_bound = self
+                        .ctx
+                        .node_types
+                        .get(&bound_ast.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
                     let sub_bound = subst.substitute(original_bound);
-                    
+
                     pairs_to_check.push((sub_target, sub_bound));
                 }
             }

@@ -83,9 +83,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             let _ = self.ctx.scopes.define(
                 param.name,
                 SymbolInfo {
-                    kind: SymbolKind::TypeParam, 
-                    node_id, type_id: param_ty, def_id: None, span: f.span,
-                    is_pub: false, is_mut: false,
+                    kind: SymbolKind::TypeParam,
+                    node_id,
+                    type_id: param_ty,
+                    def_id: None,
+                    span: f.span,
+                    is_pub: false,
+                    is_mut: false,
                 },
             );
         }
@@ -93,7 +97,12 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         // 将 Where 子句的约束压入当前上下文的 active_bounds 中
         let prev_bounds_len = self.ctx.active_bounds.len();
         for clause in &f.where_clauses {
-            let target_ty = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+            let target_ty = self
+                .ctx
+                .node_types
+                .get(&clause.target_ty.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
                 if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
@@ -156,16 +165,25 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             let _ = self.ctx.scopes.define(
                 param.name,
                 SymbolInfo {
-                    kind: SymbolKind::TypeParam, 
-                    node_id, type_id: param_ty, def_id: None, span: i.span,
-                    is_pub: false, is_mut: false,
+                    kind: SymbolKind::TypeParam,
+                    node_id,
+                    type_id: param_ty,
+                    def_id: None,
+                    span: i.span,
+                    is_pub: false,
+                    is_mut: false,
                 },
             );
         }
 
         let prev_bounds_len = self.ctx.active_bounds.len();
         for clause in &i.where_clauses {
-            let target_ty = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+            let target_ty = self
+                .ctx
+                .node_types
+                .get(&clause.target_ty.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
                 if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
@@ -243,13 +261,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         // === 常量与 extern 规则约束 ===
-       if !g.is_extern {
+        if !g.is_extern {
             if let ast::ExprKind::Undef = g.value.kind {
                 self.ctx.emit_error(g.span, "Global variables cannot be initialized with bare `undef`. Must provide a typed constant value (e.g., `.{undef}`).");
             } else {
                 let mut evaluator = ConstEvaluator::new(self.ctx);
                 // 使用 eval_inner 允许任何形式的合法常量（数组、结构体、Undef、整数等）
-                let _ = evaluator.eval_inner(&g.value, 0); 
+                let _ = evaluator.eval_inner(&g.value, 0);
             }
         } else {
             // 如果是 extern，确保推导出了合法类型

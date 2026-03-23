@@ -12,7 +12,9 @@ fn print_usage(program_name: &str) {
     println!("Build Options:");
     println!("  -o <file>            Write output to <file>");
     println!("  -D <key=val>         Define a variable for conditional compilation");
-    println!("  -M <name=path>       Map a module name to a physical directory (e.g., -M std=./library/std)");
+    println!(
+        "  -M <name=path>       Map a module name to a physical directory (e.g., -M std=./library/std)"
+    );
     println!("  -O<0-3>              Set optimization level (default: O0)");
 
     println!("\nTargeting & Codegen:");
@@ -20,7 +22,9 @@ fn print_usage(program_name: &str) {
     println!("  --asm-dialect <D>    Set assembly dialect: intel (default) or att");
     println!("  --cc <cmd>           Set the C compiler/linker to use (default: $CC or cc)");
     println!("  --link-libc          Link the C standard library (disabled by default)");
-    println!("  --use-std            Enable the Kern standard library (mutually exclusive with --link-libc)");
+    println!(
+        "  --use-std            Enable the Kern standard library (mutually exclusive with --link-libc)"
+    );
     println!("  --emit-llvm          Print LLVM IR to stdout");
 
     println!("\nInformation:");

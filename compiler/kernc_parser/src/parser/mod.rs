@@ -131,9 +131,9 @@ impl<'a> Parser<'a> {
                 TokenType::Fn
                 | TokenType::Let
                 | TokenType::Const
-                | TokenType::Static 
-                | TokenType::Type   
-                | TokenType::Pub    
+                | TokenType::Static
+                | TokenType::Type
+                | TokenType::Pub
                 | TokenType::Struct
                 | TokenType::Enum
                 | TokenType::If

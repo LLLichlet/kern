@@ -3,7 +3,7 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, PointerValue};
 use kernc_mast::{MastExpr, MastExprKind, MonoId};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::{SymbolId, Span};
+use kernc_utils::{Span, SymbolId};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(crate) fn compile_lvalue(&mut self, expr: &MastExpr) -> PointerValue<'ctx> {
@@ -13,18 +13,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     *ptr
                 } else {
                     let var_name = self.resolve_symbol(*name);
-                    self.sess.emit_ice(expr.span, format!("Local variable `{}` not found during l-value compilation", var_name));
+                    self.sess.emit_ice(
+                        expr.span,
+                        format!(
+                            "Local variable `{}` not found during l-value compilation",
+                            var_name
+                        ),
+                    );
                     unreachable!()
                 }
-            },
+            }
             MastExprKind::GlobalRef(mono_id) => {
                 if let Some(g) = self.globals.get(mono_id) {
                     g.as_pointer_value()
                 } else {
-                    self.sess.emit_ice(expr.span, "Global reference not found in codegen".to_string());
+                    self.sess.emit_ice(
+                        expr.span,
+                        "Global reference not found in codegen".to_string(),
+                    );
                     unreachable!()
                 }
-            },
+            }
             MastExprKind::FieldAccess {
                 lhs,
                 struct_id,
@@ -75,7 +84,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
             MastExprKind::Deref(operand) => self.compile_expr(operand).into_pointer_value(),
-            
+
             // 当编译器需要一个左值（内存地址），但遇到的是一个纯右值
             // （比如函数调用 `Call` 返回的结构体，或者是字面量）时，
             // 我们在当前函数的栈帧上开辟一块临时内存，将右值存进去，并返回这个内存地址。
@@ -94,22 +103,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         &mut self,
         name: SymbolId,
         expected_ty: BasicTypeEnum<'ctx>,
-        span: Span, 
+        span: Span,
     ) -> BasicValueEnum<'ctx> {
         let var_name = self.resolve_symbol(name);
 
         if let Some(ptr) = self.locals.get(&name) {
-            return self.builder
+            return self
+                .builder
                 .build_load(expected_ty, *ptr, &format!("load_{}", var_name))
                 .unwrap();
         }
 
         if let Some(global_val) = self.module.get_global(var_name) {
-            return self.builder
+            return self
+                .builder
                 .build_load(
-                    expected_ty, 
-                    global_val.as_pointer_value(), 
-                    &format!("load_global_{}", var_name)
+                    expected_ty,
+                    global_val.as_pointer_value(),
+                    &format!("load_global_{}", var_name),
                 )
                 .unwrap();
         }

@@ -194,10 +194,10 @@ pub enum MastCastKind {
     SignExt,      // 有符号整数扩展 (如 i8 到 i32)
     ZeroExt,      // 无符号整数扩展 (如 u8 到 u32)
     Trunc,        // 整数截断 (如 i32 到 i8)
-    SIntToFloat, // sitofp
-    UIntToFloat, // uitofp
-    FloatToSInt, // fptosi
-    FloatToUInt, // fptoui
+    SIntToFloat,  // sitofp
+    UIntToFloat,  // uitofp
+    FloatToSInt,  // fptosi
+    FloatToUInt,  // fptoui
     FloatCast,    // 浮点数精度转换 (f32 <=> f64)
     ArrayToSlice, // 隐式降级：构造切片胖指针
 }

@@ -66,7 +66,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .get(&callee.id)
             .copied()
             .unwrap_or(TypeId::ERROR);
-        
+
         let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
         let substituted_callee = subst.substitute(raw_callee_ty);
         let norm_callee = self.ctx.type_registry.normalize(substituted_callee);
@@ -255,7 +255,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // Trait Object 在 Kern 中永远作为胖指针存在 (比如 *mut Allocator)。
         // 因此 recv.ty 实际上是 TypeKind::Pointer。我们需要探查其内部元素。
         let mut inner_ty = norm_base;
-        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = self.ctx.type_registry.get(norm_base).clone() {
+        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
+            self.ctx.type_registry.get(norm_base).clone()
+        {
             inner_ty = elem;
         }
 
@@ -263,8 +265,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let TypeKind::TraitObject(trait_id, _) = self.ctx.type_registry.get(inner_ty) {
             // 将完整的胖指针 recv 交给动态分发器提取 VTable
             self.lower_dynamic_method_dispatch(recv, field, arg_masts, *trait_id, norm_callee, span)
-        } else if let TypeKind::FnDef(method_id, generics) = self.ctx.type_registry.get(norm_callee).clone() {
-            self.lower_static_method_dispatch(recv, arg_masts, method_id, &generics, norm_callee, span)
+        } else if let TypeKind::FnDef(method_id, generics) =
+            self.ctx.type_registry.get(norm_callee).clone()
+        {
+            self.lower_static_method_dispatch(
+                recv,
+                arg_masts,
+                method_id,
+                &generics,
+                norm_callee,
+                span,
+            )
         } else {
             // SEMA 传来的只是抽象的 TypeKind::Function，说明它来源于泛型约束。
             // 此时 T 已单态化，我们需要在全局寻找具体实现。
@@ -273,20 +284,30 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             for def in &self.ctx.defs {
                 if let Def::Impl(impl_def) = def {
-                    let impl_target_raw = self.ctx.node_types.get(&impl_def.target_type.id).copied().unwrap_or(TypeId::ERROR);
+                    let impl_target_raw = self
+                        .ctx
+                        .node_types
+                        .get(&impl_def.target_type.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
                     let norm_impl_target = self.ctx.type_registry.normalize(impl_target_raw);
-                    
+
                     // 无泛型 Impl
                     if impl_def.generics.is_empty() {
                         let mut matched = false;
-                        
+
                         // 精确匹配：*mut i32 == *mut i32，或者 *i32 == *i32
                         if norm_base == norm_impl_target {
                             matched = true;
-                        } 
+                        }
                         // 安全降级匹配：允许 *mut i32 调用挂载在 impl *i32 上的方法
-                        else if let TypeKind::Pointer { is_mut: true, elem } = self.ctx.type_registry.get(norm_base).clone() {
-                            let const_ptr = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem });
+                        else if let TypeKind::Pointer { is_mut: true, elem } =
+                            self.ctx.type_registry.get(norm_base).clone()
+                        {
+                            let const_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+                                is_mut: false,
+                                elem,
+                            });
                             if const_ptr == norm_impl_target {
                                 matched = true;
                             }
@@ -302,7 +323,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 }
                             }
                         }
-                    } 
+                    }
                     // 带泛型 Impl 的匹配
                     else {
                         // 核心修复 1：穿透指针。如果是泛型结构体的指针调用，
@@ -312,10 +333,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         let mut matched_ptr = false;
 
                         // 同步处理指针降级与指针剥离
-                        if let TypeKind::Pointer { is_mut: base_mut, elem: base_elem } = self.ctx.type_registry.get(check_base).clone() {
-                            if let TypeKind::Pointer { is_mut: impl_mut, elem: impl_elem } = self.ctx.type_registry.get(check_impl).clone() {
+                        if let TypeKind::Pointer {
+                            is_mut: base_mut,
+                            elem: base_elem,
+                        } = self.ctx.type_registry.get(check_base).clone()
+                        {
+                            if let TypeKind::Pointer {
+                                is_mut: impl_mut,
+                                elem: impl_elem,
+                            } = self.ctx.type_registry.get(check_impl).clone()
+                            {
                                 // 允许精确匹配，或者 *mut T 安全降级为 *T
-                                if base_mut == impl_mut || (base_mut && !impl_mut) { 
+                                if base_mut == impl_mut || (base_mut && !impl_mut) {
                                     check_base = base_elem;
                                     check_impl = impl_elem;
                                     matched_ptr = true;
@@ -326,13 +355,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         }
 
                         if matched_ptr {
-                            if let TypeKind::Def(base_def_id, base_args) = self.ctx.type_registry.get(check_base).clone() {
-                                if let TypeKind::Def(impl_def_id, impl_raw_args) = self.ctx.type_registry.get(check_impl).clone() {
+                            if let TypeKind::Def(base_def_id, base_args) =
+                                self.ctx.type_registry.get(check_base).clone()
+                            {
+                                if let TypeKind::Def(impl_def_id, impl_raw_args) =
+                                    self.ctx.type_registry.get(check_impl).clone()
+                                {
                                     // 实体相同且参数数量一致，确认命中
-                                    if base_def_id == impl_def_id && base_args.len() == impl_raw_args.len() {
+                                    if base_def_id == impl_def_id
+                                        && base_args.len() == impl_raw_args.len()
+                                    {
                                         resolved_impl_args = base_args.clone();
                                         for &m_id in &impl_def.methods {
-                                            if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize] {
+                                            if let Def::Function(f) =
+                                                &self.ctx.defs[m_id.0 as usize]
+                                            {
                                                 if f.name == field {
                                                     target_func_id = Some(m_id);
                                                     break;
@@ -345,22 +382,27 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         }
                     }
 
-                    if target_func_id.is_some() { break; }
+                    if target_func_id.is_some() {
+                        break;
+                    }
                 }
             }
 
             if let Some(func_id) = target_func_id {
                 let expected_params = self.get_callee_expected_params(norm_callee);
                 let mut final_recv = recv;
-                
+
                 // 核心修复 2：为 LLVM 后端抹平类型差异。
                 // 如果发生了安全降级 (*mut -> *)，在此刻主动插入一个 Bitcast 节点。
                 if let Some(&exp_self) = expected_params.first() {
                     if final_recv.ty != exp_self {
                         final_recv = MastExpr::new(
-                            exp_self, 
-                            MastExprKind::Cast { kind: MastCastKind::Bitcast, operand: Box::new(final_recv) }, 
-                            span
+                            exp_self,
+                            MastExprKind::Cast {
+                                kind: MastCastKind::Bitcast,
+                                operand: Box::new(final_recv),
+                            },
+                            span,
                         );
                     }
                 }
@@ -395,13 +437,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(&exp_self) = expected_params.first() {
             if recv.ty != exp_self {
                 recv = MastExpr::new(
-                    exp_self, 
-                    MastExprKind::Cast { kind: MastCastKind::Bitcast, operand: Box::new(recv) }, 
-                    span
+                    exp_self,
+                    MastExprKind::Cast {
+                        kind: MastCastKind::Bitcast,
+                        operand: Box::new(recv),
+                    },
+                    span,
                 );
             }
         }
-        
+
         arg_masts.insert(0, recv);
         let func_id = self.instantiate_function(method_id, generics);
         let func_ref = MastExpr::new(norm_callee, MastExprKind::FuncRef(func_id), span);
@@ -495,7 +540,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             (*ret, *is_variadic, params.clone())
         } else {
-            self.ctx.emit_ice(span, "Kern ICE (Lowering): Callee type of dynamic method dispatch is not a Function.");
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): Callee type of dynamic method dispatch is not a Function.",
+            );
             unreachable!()
         };
 

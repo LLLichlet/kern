@@ -24,11 +24,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 3. 计算右操作数的期望类型
         // 如果左边是指针，并且正在进行加减法，右边大概率是 usize/isize 偏移量（或另一个指针）。
         // 此时不能把左边的“指针类型”作为上下文硬塞给右边，否则右边的整型字面量（比如 + 1）会被错误地吸化成指针
-        let rhs_expected = if is_l_ptr && (op == BinaryOperator::Add || op == BinaryOperator::Subtract) {
-            None // 切断上下文感染，让右侧自然推导为整数
-        } else {
-            Some(lhs_ty) // 对于其他操作（如 Equal, ptr == 0），依然需要上下文让 0 化身为指针
-        };
+        let rhs_expected =
+            if is_l_ptr && (op == BinaryOperator::Add || op == BinaryOperator::Subtract) {
+                None // 切断上下文感染，让右侧自然推导为整数
+            } else {
+                Some(lhs_ty) // 对于其他操作（如 Equal, ptr == 0），依然需要上下文让 0 化身为指针
+            };
 
         // 4. 使用修复后的期望类型去检查右操作数
         let rhs_ty = self.check_expr(rhs, rhs_expected);
@@ -67,7 +68,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             if l_norm == r_norm {
                                 return TypeId::ISIZE; // 指针相减返回有符号整数
                             } else {
-                                self.ctx.struct_error(lhs.span, "cannot subtract pointers of different types")
+                                self.ctx
+                                    .struct_error(
+                                        lhs.span,
+                                        "cannot subtract pointers of different types",
+                                    )
                                     .with_hint("both pointers must point to the exact same type")
                                     .emit();
                                 return TypeId::ERROR;
@@ -90,7 +95,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             Multiply | Divide | Modulo => {
                 if is_l_ptr || is_r_ptr {
-                    self.ctx.struct_error(lhs.span, "multiplication, division, or modulo cannot be applied to pointers").emit();
+                    self.ctx
+                        .struct_error(
+                            lhs.span,
+                            "multiplication, division, or modulo cannot be applied to pointers",
+                        )
+                        .emit();
                     return TypeId::ERROR;
                 }
                 if !self.check_coercion(rhs.span, l_norm, r_norm) {

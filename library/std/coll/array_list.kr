@@ -12,13 +12,24 @@ impl[T] *mut List[T] {
     // 内部辅助函数：确保容量能够装下 required_cap 个元素
     fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
         if (self.capacity >= required_cap) return true;
-        
-        let mut new_cap = if (self.capacity == 0) usize.{8} else self.capacity * 2;
-        // 应对突发的大量插入，确保新容量足够
-        for (; new_cap < required_cap;) {
-            new_cap *= 2;
+
+        // 拦截零大小类型
+        if (@sizeOf[T]() == 0) {
+            // 将 capacity 设为最大值
+            self.capacity = ~usize.{0}; 
+            return true;
         }
         
+        let double_cap = if (self.capacity == 0) 8 else self.capacity * 2;
+        let new_cap = if (double_cap > required_cap) double_cap else required_cap;
+
+        // 防止容量与类型大小相乘时溢出
+        // 判断 new_cap 是否超过了 usize 所能容纳的最大元素个数
+        let max_alloc_items = (~usize.{0}) / @sizeOf[T]();
+        if (new_cap > max_alloc_items) {
+            return false; // 容量超出硬件寻址极限，直接拒绝
+        }
+
         let new_size = new_cap * @sizeOf[T]();
         let new_ptr_u8 = match (alloc.alloc(new_size, @alignOf[T]())) {
             .Some: ptr => ptr,
@@ -153,10 +164,8 @@ impl[T] *mut List[T] {
         let target_ptr = self.ptr + self.len;
         
         // 利用切片的底层特性，直接进行内存级块拷贝
-        // 注意：计算字节数需要 additional * @sizeOf[T]()
         let copy_bytes = additional * @sizeOf[T]();
         
-        // slice.ptr (假设这是获取切片底层指针的语法，或者可以使用 slice.[0].&)
         let src_ptr = slice.[0].& as *u8; 
         
         @memcpy(target_ptr as *mut u8, src_ptr, copy_bytes);
@@ -177,7 +186,7 @@ impl[T] *mut List[T] {
         let exact_size = self.len * @sizeOf[T]();
         let new_ptr_u8 = match (alloc.alloc(exact_size, @alignOf[T]())) {
             .Some: ptr => ptr,
-            .None => return false, // OOM 保护，干净利落
+            .None => return false, // OOM 保护
         };
         
         let new_ptr = new_ptr_u8 as *mut T;

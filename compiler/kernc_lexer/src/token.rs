@@ -9,11 +9,11 @@ pub struct Token {
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TokenType {
     // === 标识符与字面量 ===
-    Identifier,    // abc, my_var
-    IntLiteral,    // 123, 0xFF
-    FloatLiteral,  // 3.14
-    StringLiteral, // "hello"
-    CharLiteral,   // 'a'
+    Identifier,      // abc, my_var
+    IntLiteral,      // 123, 0xFF
+    FloatLiteral,    // 3.14
+    StringLiteral,   // "hello"
+    CharLiteral,     // 'a'
     ByteCharLiteral, // b'a'
 
     // === 关键字 ===

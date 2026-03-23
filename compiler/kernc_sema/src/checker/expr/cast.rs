@@ -27,7 +27,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let is_t_int = self.ctx.type_registry.is_integer(t_norm);
         let is_f_float = self.ctx.type_registry.is_float(f_norm);
         let is_t_float = self.ctx.type_registry.is_float(t_norm);
-        
+
         let is_f_ptr = matches!(
             self.ctx.type_registry.get(f_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
@@ -48,7 +48,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             );
             if t_is_fat {
                 self.ctx
-                    .struct_error(span, "cannot cast a thin pointer to a fat pointer using `as`")
+                    .struct_error(
+                        span,
+                        "cannot cast a thin pointer to a fat pointer using `as`",
+                    )
                     .with_hint("use explicit constructor syntax: `TargetType.{ pointer }`")
                     .emit();
             }

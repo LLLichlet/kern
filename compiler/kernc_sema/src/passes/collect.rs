@@ -106,7 +106,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         match &decl.kind {
             DeclKind::Function {
                 generics,
-                where_clauses, 
+                where_clauses,
                 params,
                 ret_type,
                 body,
@@ -123,7 +123,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     parent_impl,
                     force_extern || *is_extern,
                     &combined_generics,
-                    where_clauses, 
+                    where_clauses,
                     params,
                     ret_type,
                     body,
@@ -164,7 +164,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 target_type,
                 trait_type,
                 decls,
-            } => self.collect_impl(decl, generics, where_clauses, target_type, trait_type, decls),
+            } => self.collect_impl(
+                decl,
+                generics,
+                where_clauses,
+                target_type,
+                trait_type,
+                decls,
+            ),
             DeclKind::ExternBlock { .. } => {
                 // Extern 块是一种特殊的顶层容器，必须在 collect_ast 级别被展开平铺。
                 // 如果走到这里，说明出现了非法的嵌套（例如 impl 块内部嵌套了 extern 块）。

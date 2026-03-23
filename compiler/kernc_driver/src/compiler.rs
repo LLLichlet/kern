@@ -41,7 +41,7 @@ impl CompilerDriver {
         let mut ctx = SemaContext::new(&mut session);
 
         ctx.module_aliases = self.options.module_aliases.clone();
-        
+
         // 3. 注入内置类型 (void, i32, bool 等)
         let mut builtin = BuiltinInjector::new(&mut ctx);
         builtin.inject();
@@ -115,9 +115,9 @@ impl CompilerDriver {
         let mut codegen = CodeGenerator::new(
             &codegen_ctx,
             mod_name,
-            &mut *ctx.sess,      
-            &ctx.type_registry,  
-            &ctx.defs,          
+            &mut *ctx.sess,
+            &ctx.type_registry,
+            &ctx.defs,
         );
 
         codegen.asm_dialect = match self.options.asm_dialect {

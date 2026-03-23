@@ -109,7 +109,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             (params.clone(), *ret)
         } else {
-            self.ctx.emit_ice(body.span, "Kern ICE (Lowering): Lambda expression does not have a Function type.");
+            self.ctx.emit_ice(
+                body.span,
+                "Kern ICE (Lowering): Lambda expression does not have a Function type.",
+            );
             unreachable!()
         };
 
@@ -300,26 +303,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let norm_target_ty = self.ctx.type_registry.normalize(t.ty);
 
         // 1. 判断要匹配的 Target 到底是不是一个 Enum (ADT)
-        let is_adt = matches!(self.ctx.type_registry.get(norm_target_ty), TypeKind::Enum(..));
+        let is_adt = matches!(
+            self.ctx.type_registry.get(norm_target_ty),
+            TypeKind::Enum(..)
+        );
 
         // 提取 ADT 专用的元数据
         let (mono_id, gen_args, adt_def, is_pure) = if is_adt {
-            let (def_id, args) = if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(norm_target_ty).clone() {
+            let (def_id, args) = if let TypeKind::Enum(id, args) =
+                self.ctx.type_registry.get(norm_target_ty).clone()
+            {
                 (id, args)
             } else {
                 self.ctx.emit_ice(target.span, "Kern ICE (Lowering): Target type is an Enum but failed to destruct TypeKind::Enum.");
                 unreachable!()
             };
-            
-            let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] { 
-                d.clone() 
-            } else { 
-                self.ctx.emit_ice(target.span, format!("Kern ICE (Lowering): DefId {} is not an Enum Definition.", def_id.0));
-                unreachable!() 
+
+            let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
+                d.clone()
+            } else {
+                self.ctx.emit_ice(
+                    target.span,
+                    format!(
+                        "Kern ICE (Lowering): DefId {} is not an Enum Definition.",
+                        def_id.0
+                    ),
+                );
+                unreachable!()
             };
-            
+
             let pure = self.is_pure_enum(&def);
-            let m_id = if !pure { self.instantiate_data(def_id, &args) } else { MonoId(0) };
+            let m_id = if !pure {
+                self.instantiate_data(def_id, &args)
+            } else {
+                MonoId(0)
+            };
             (Some(m_id), args, Some(def), pure)
         } else {
             (None, vec![], None, true) // 对于普通整数视作 None
@@ -356,7 +374,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         if is_adt {
                             // 对于 ADT，普通值只能是 EnumLiteral，需要转化为对应的 Tag Index
                             if let ExprKind::EnumLiteral(variant_name) = &val_expr.kind {
-                                let tag_idx = match adt_def.as_ref().unwrap().variants.iter().position(|v| v.name == *variant_name) {
+                                let tag_idx = match adt_def
+                                    .as_ref()
+                                    .unwrap()
+                                    .variants
+                                    .iter()
+                                    .position(|v| v.name == *variant_name)
+                                {
                                     Some(idx) => idx,
                                     None => {
                                         self.ctx.emit_ice(val_expr.span, format!("Kern ICE (Lowering): Variant `{}` not found in enum.", self.ctx.resolve(*variant_name)));
@@ -373,7 +397,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         }
                     }
-                    ast::MatchPatternKind::Range { start, end, inclusive } => {
+                    ast::MatchPatternKind::Range {
+                        start,
+                        end,
+                        inclusive,
+                    } => {
                         // 展开 Range: 1..=3 变成 LLVM switch case 里的 1, 2, 3
                         let mut ce = ConstEvaluator::new(self.ctx);
                         if let (Ok(s), Ok(e)) = (ce.eval_math(start), ce.eval_math(end)) {
@@ -383,8 +411,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         }
                     }
-                    ast::MatchPatternKind::Variant { variant_name, binding, .. } => {
-                        let tag_idx = adt_def.as_ref().unwrap().variants.iter().position(|v| v.name == *variant_name).unwrap();
+                    ast::MatchPatternKind::Variant {
+                        variant_name,
+                        binding,
+                        ..
+                    } => {
+                        let tag_idx = adt_def
+                            .as_ref()
+                            .unwrap()
+                            .variants
+                            .iter()
+                            .position(|v| v.name == *variant_name)
+                            .unwrap();
                         case_vals.push(tag_idx as u128);
                         bound_variant = Some((tag_idx, variant_name, binding));
                     }
@@ -459,7 +497,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                 };
 
-                let mut payload_ty = self.ctx.node_types.get(&payload_type_id).copied().unwrap_or(TypeId::ERROR);
+                let mut payload_ty = self
+                    .ctx
+                    .node_types
+                    .get(&payload_type_id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
 
                 if !def_generics.is_empty() && !gen_args.is_empty() {
                     let mut var_map = HashMap::new();

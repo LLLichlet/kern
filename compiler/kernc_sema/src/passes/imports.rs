@@ -46,7 +46,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             for (mod_id, import) in pending_imports {
                 // 在迭代期间保持静默 (emit_errors = false)
                 if self.resolve_single_import(mod_id, &import, false) {
-                    progress = true; 
+                    progress = true;
                 } else {
                     unresolved.push((mod_id, import)); // 没找到，等下一轮
                 }
@@ -138,7 +138,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                 };
 
                 let mut all_resolved = true;
-                
+
                 // 2. 遍历大括号里的每一个成员
                 for member in members {
                     // 分离成员路径的前缀和最终目标
@@ -149,8 +149,8 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
                     // 复用 resolve_path：把刚才解析出的基础模块当作起点 (Current) 往下找
                     let (mem_mod_id, mem_scope) = match self.resolve_path(
-                        target_mod_id, 
-                        UsePathKind::Current, 
+                        target_mod_id,
+                        UsePathKind::Current,
                         member_prefix,
                         member.span,
                         emit_errors,
@@ -164,7 +164,6 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
                     // 在最终指向的作用域中查找符号
                     if let Some(symbol_info) = self.ctx.scopes.resolve_in(mem_scope, target_name) {
-                        
                         // 注意这里可见性检查的目标模块换成了 mem_mod_id
                         if !self.check_visibility(symbol_info, current_mod_id, mem_mod_id) {
                             if emit_errors {

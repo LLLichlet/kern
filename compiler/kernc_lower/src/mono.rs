@@ -20,7 +20,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
             f.clone()
         } else {
-            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Function!", def_id.0));
+            self.ctx.emit_ice(
+                Span::default(),
+                format!("Kern ICE (Lowering): DefId {} is not a Function!", def_id.0),
+            );
             unreachable!()
         };
 
@@ -29,7 +32,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if all_generic_params.len() != args.len() {
             let fn_name = self.ctx.resolve(def.name);
             self.ctx.emit_ice(
-                Span::default(), 
+                Span::default(),
                 format!("Kern ICE (Lowering): Generics mismatch for function `{}`. Expected {}, got {}. Sema missed this.", fn_name, all_generic_params.len(), args.len())
             );
             unreachable!()
@@ -128,7 +131,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
             return self.instantiate_union(def_id, args, id);
         } else {
-            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Struct or Union!", def_id.0));
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): DefId {} is not a Struct or Union!",
+                    def_id.0
+                ),
+            );
             unreachable!()
         };
 
@@ -180,7 +189,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
             u.clone()
         } else {
-            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Union!", def_id.0));
+            self.ctx.emit_ice(
+                Span::default(),
+                format!("Kern ICE (Lowering): DefId {} is not a Union!", def_id.0),
+            );
             unreachable!()
         };
 
@@ -248,7 +260,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
             a.clone()
         } else {
-            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not an Enum (Data)! ", def_id.0));
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): DefId {} is not an Enum (Data)! ",
+                    def_id.0
+                ),
+            );
             unreachable!()
         };
 

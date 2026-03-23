@@ -25,11 +25,11 @@ pub fn write_stdout(ptr: *u8, len: usize) usize {
 }
 
 pub fn exit(code: i32) ! {
-    ExitProcess(@intCast[i32, u32](code));
+    ExitProcess(code as u32);
     @unreachable()
 }
 
-// Windows 的句柄是 void 指针
+// *void
 pub type Handle = *mut u8;
 
 pub fn get_stdout_handle() Handle {
@@ -39,7 +39,7 @@ pub fn get_stdout_handle() Handle {
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     let mut written = u32.{0};
     let _ = WriteFile(handle, ptr, len as u32, written.&, 0 as *mut u8);
-    return @intCast[u32, usize](written);
+    return written as usize;
 }
 
 extern {

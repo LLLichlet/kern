@@ -1,6 +1,6 @@
 use super::{
-    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, MatchPattern, Stmt,
-    TypeNode, UnaryOperator,
+    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, MatchPattern, Stmt, TypeNode,
+    UnaryOperator,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -186,8 +186,8 @@ pub struct StructFieldInit {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
-    /// 一个 Arm 可以有多个 Pattern，比如: 11, 12, 13 => 
-    pub patterns: Vec<MatchPattern>, 
-    pub body: Expr, 
+    /// 一个 Arm 可以有多个 Pattern，比如: 11, 12, 13 =>
+    pub patterns: Vec<MatchPattern>,
+    pub body: Expr,
     pub span: Span,
 }

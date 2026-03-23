@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use kernc_ast as ast;
 use kernc_mast::*;
 use kernc_sema::SemaContext;
-use kernc_sema::def::{EnumDef, Def, DefId};
+use kernc_sema::def::{Def, DefId, EnumDef};
 use kernc_sema::ty::TypeId;
 use kernc_utils::SymbolId;
 

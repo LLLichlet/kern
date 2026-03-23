@@ -50,7 +50,7 @@ impl<'a> Tokenizer<'a> {
                     return self.scan_char(TokenType::ByteCharLiteral);
                 }
                 self.scan_identifier()
-            },
+            }
             b'0'..=b'9' => self.scan_number(),
             b'"' => self.scan_string(),
             b'\'' => self.scan_char(TokenType::CharLiteral),
@@ -281,9 +281,10 @@ impl<'a> Tokenizer<'a> {
                 b'\\' => {
                     self.advance(); // 跳过转义符
                     if self.is_eof() {
-                        return self.emit_lex_error("Unterminated string literal at escape sequence");
+                        return self
+                            .emit_lex_error("Unterminated string literal at escape sequence");
                     }
-                    
+
                     let escaped = self.peek();
                     match escaped {
                         // 合法的单字符转义
@@ -295,7 +296,9 @@ impl<'a> Tokenizer<'a> {
                             self.advance();
                             if !self.consume_hex_digits(2) {
                                 has_error = true;
-                                self.emit_lex_error("Invalid hex escape in string: expected 2 hex digits");
+                                self.emit_lex_error(
+                                    "Invalid hex escape in string: expected 2 hex digits",
+                                );
                             }
                         }
                         // Unicode 转义 \u{...}
@@ -303,7 +306,9 @@ impl<'a> Tokenizer<'a> {
                             self.advance();
                             if self.peek() != b'{' {
                                 has_error = true;
-                                self.emit_lex_error("Invalid Unicode escape: expected '{' after '\\u'");
+                                self.emit_lex_error(
+                                    "Invalid Unicode escape: expected '{' after '\\u'",
+                                );
                                 continue;
                             }
                             self.advance(); // 吃掉 '{'
@@ -316,7 +321,9 @@ impl<'a> Tokenizer<'a> {
 
                             if length == 0 || length > 6 {
                                 has_error = true;
-                                self.emit_lex_error("Invalid Unicode escape: expected 1 to 6 hex digits");
+                                self.emit_lex_error(
+                                    "Invalid Unicode escape: expected 1 to 6 hex digits",
+                                );
                             }
 
                             if self.peek() != b'}' {
@@ -391,16 +398,18 @@ impl<'a> Tokenizer<'a> {
                         self.emit_lex_error("Invalid Unicode escape: expected '{'");
                     } else {
                         self.advance(); // 吃掉 '{'
-                        
+
                         let mut length = 0;
                         while is_hex_digit(self.peek()) {
                             self.advance();
                             length += 1;
                         }
-                        
+
                         if length == 0 || length > 6 {
                             has_error = true;
-                            self.emit_lex_error("Invalid Unicode escape: expected 1 to 6 hex digits");
+                            self.emit_lex_error(
+                                "Invalid Unicode escape: expected 1 to 6 hex digits",
+                            );
                         }
 
                         if self.peek() != b'}' {
@@ -459,13 +468,19 @@ impl<'a> Tokenizer<'a> {
         } else {
             // 如果遇到别的字符，说明这个 char 包含多个字符但没有引号闭合，或者没写引号
             // 错误恢复：吃掉直到下一个单引号或空格
-            while !self.is_eof() && self.peek() != b'\'' && self.peek() != b' ' && self.peek() != b'\n' {
+            while !self.is_eof()
+                && self.peek() != b'\''
+                && self.peek() != b' '
+                && self.peek() != b'\n'
+            {
                 self.advance();
             }
             // 尝试吃掉那个引号
             self.match_char(b'\'');
-            
-            self.emit_lex_error("Character literal may only contain one codepoint (or one valid escape)")
+
+            self.emit_lex_error(
+                "Character literal may only contain one codepoint (or one valid escape)",
+            )
         }
     }
 
@@ -555,12 +570,16 @@ impl<'a> Tokenizer<'a> {
                         let start_pos = self.current; // 记录 /* 的起始位置
                         self.advance(); // 吃掉 '/'
                         self.advance(); // 吃掉 '*'
-                        
+
                         if !self.skip_comment_block() {
                             // 返回词法错误
                             return Some(Token {
                                 tag: TokenType::LexError("Unterminated multi-line comment"),
-                                span: Span { file: self.file_id, start: start_pos, end: self.current },
+                                span: Span {
+                                    file: self.file_id,
+                                    start: start_pos,
+                                    end: self.current,
+                                },
                             });
                         }
                     } else {

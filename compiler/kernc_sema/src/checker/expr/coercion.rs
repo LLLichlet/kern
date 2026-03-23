@@ -63,9 +63,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         } else {
                             act
                         };
-                        
+
                         if self.check_trait_impl(downgraded_act, e_norm) {
-                            return true; 
+                            return true;
                         }
                     }
                 }
@@ -281,14 +281,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ExprKind::SliceOp { is_mut, .. } => *is_mut,
-            
+
             // 右值实体化 (R-value Materialization) 的栈内存默认可变
-            ExprKind::DataInit { .. } 
-            | ExprKind::Integer(_) 
-            | ExprKind::Float(_) 
-            | ExprKind::Bool(_) 
-            | ExprKind::Char(_) 
-            | ExprKind::ByteChar(_) 
+            ExprKind::DataInit { .. }
+            | ExprKind::Integer(_)
+            | ExprKind::Float(_)
+            | ExprKind::Bool(_)
+            | ExprKind::Char(_)
+            | ExprKind::ByteChar(_)
             | ExprKind::Call { .. } => {
                 true // 纯右值被实体化为临时栈变量后，完全归当前作用域所有，允许就地可变借用
             }
@@ -356,13 +356,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let source_norm = self.resolve_tv(source_ty);
         let downgraded = match self.ctx.type_registry.get(source_norm).clone() {
             TypeKind::Pointer { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem }))
+                Some(self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem,
+                }))
             }
             TypeKind::VolatilePtr { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: false, elem }))
+                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut: false,
+                    elem,
+                }))
             }
             TypeKind::Slice { is_mut: true, elem } => {
-                Some(self.ctx.type_registry.intern(TypeKind::Slice { is_mut: false, elem }))
+                Some(self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut: false,
+                    elem,
+                }))
             }
             _ => None,
         };
@@ -387,29 +396,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for i in 0..self.ctx.active_bounds.len() {
             let (env_target, env_bounds) = self.ctx.active_bounds[i].clone();
             let mut map = HashMap::new();
-            
+
             // 如果查询的 source_ty (比如 *T) 匹配了环境里的 target (比如 *T)
             if self.unify(env_target, source_ty, &mut map) {
                 // 利用临时块隔离可变借用
                 let instantiated_bounds: Vec<TypeId> = {
                     let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                    env_bounds.into_iter().map(|b| subst.substitute(b)).collect()
+                    env_bounds
+                        .into_iter()
+                        .map(|b| subst.substitute(b))
+                        .collect()
                 };
 
                 for inst_env_bound in instantiated_bounds {
                     let inst_norm = self.resolve_tv(inst_env_bound);
                     let target_norm = self.resolve_tv(target_trait_ty);
-                    
+
                     if inst_norm == target_norm || inst_env_bound == target_trait_ty {
                         return true;
                     }
-                    
+
                     // 环境约束自身也可能继承自某个 Supertrait，递归检查
-                    if let TypeKind::TraitObject(inst_def_id, _) = self.ctx.type_registry.get(inst_norm) {
+                    if let TypeKind::TraitObject(inst_def_id, _) =
+                        self.ctx.type_registry.get(inst_norm)
+                    {
                         if visited.insert(*inst_def_id) {
-                             if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited) {
-                                 return true;
-                             }
+                            if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited)
+                            {
+                                return true;
+                            }
                         }
                     }
                 }

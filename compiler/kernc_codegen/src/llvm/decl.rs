@@ -15,7 +15,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             Some(val) => *val,
             None => {
                 self.sess.emit_ice(
-                    kernc_utils::Span::default(), 
+                    kernc_utils::Span::default(),
                     format!("Kern ICE (Codegen): Global `{}` is in MAST but missing from LLVM globals map. `declare_globals` pass failed to register it!", global.name)
                 );
                 unreachable!()
@@ -52,7 +52,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                                 unreachable!()
                             }
                         } else {
-                            ptr_vals.push(self.context.ptr_type(AddressSpace::default()).const_null());
+                            ptr_vals
+                                .push(self.context.ptr_type(AddressSpace::default()).const_null());
                         }
                     }
                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
@@ -79,9 +80,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         for s in structs {
             let llvm_struct = match self.structs.get(&s.id) {
-                Some(st) => *st,  
+                Some(st) => *st,
                 None => {
-                    self.sess.emit_ice(kernc_utils::Span::default(), format!("Struct {} disappeared during opaque body filling", s.name));
+                    self.sess.emit_ice(
+                        kernc_utils::Span::default(),
+                        format!("Struct {} disappeared during opaque body filling", s.name),
+                    );
                     unreachable!()
                 }
             };
@@ -140,7 +144,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
             let llvm_ty = self.get_llvm_type(g.ty);
             let global_val = self.module.add_global(llvm_ty, None, &llvm_symbol_name);
-            
+
             // 只有当 "绑定本身不可变" 且 "物理类型也没有要求可变内存" 时，才能作为 LLVM 物理常量
             let is_binding_mut = g.is_mut;
             let is_memory_mut = self.requires_mutable_memory(g.ty);
@@ -184,7 +188,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     BasicTypeEnum::StructType(s) => s.fn_type(&param_types, f.is_variadic),
                     BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, f.is_variadic),
                     _ => {
-                        self.sess.emit_ice(Span::default(), format!("Invalid LLVM return type for function {}", f.name));
+                        self.sess.emit_ice(
+                            Span::default(),
+                            format!("Invalid LLVM return type for function {}", f.name),
+                        );
                         unreachable!()
                     }
                 }
@@ -254,7 +261,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             // 如果是数组，且明确标记了 is_mut，物理内存必须可写
             TypeKind::Array { is_mut, .. } => is_mut,
             // 如果是切片或指针本身作为全局变量被直接分配内存，且携带 mut，物理上也放行
-            TypeKind::Slice { is_mut, .. } => is_mut, 
+            TypeKind::Slice { is_mut, .. } => is_mut,
             TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,
             _ => false,
         }

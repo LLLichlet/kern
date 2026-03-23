@@ -143,7 +143,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
             _ => {
-                self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): Invalid type for structural initialization: {:?}", norm));
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Lowering): Invalid type for structural initialization: {:?}",
+                        norm
+                    ),
+                );
                 unreachable!()
             }
         }
@@ -161,7 +167,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
             d.clone()
         } else {
-            self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): Expected Enum definition.");
+            self.ctx.emit_ice(
+                Span::default(),
+                "Kern ICE (Lowering): Expected Enum definition.",
+            );
             unreachable!()
         };
 
@@ -169,7 +178,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let tag_val = match def.variants.iter().position(|v| v.name == init_f.name) {
             Some(idx) => idx as u128,
             None => {
-                self.ctx.emit_ice(init_f.value.span, format!("Kern ICE (Lowering): Variant `{}` not found in enum.", self.ctx.resolve(init_f.name)));
+                self.ctx.emit_ice(
+                    init_f.value.span,
+                    format!(
+                        "Kern ICE (Lowering): Variant `{}` not found in enum.",
+                        self.ctx.resolve(init_f.name)
+                    ),
+                );
                 unreachable!()
             }
         };
@@ -188,7 +203,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         };
 
-        let raw_payload_ty = self.ctx.node_types.get(&payload_id).copied().unwrap_or(TypeId::ERROR);
+        let raw_payload_ty = self
+            .ctx
+            .node_types
+            .get(&payload_id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
 
         let conc_payload_ty = Substituter::new(&mut self.ctx.type_registry, &variant_subst_map)
             .substitute(raw_payload_ty);
@@ -266,7 +286,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let field_idx = match u.fields.iter().position(|f| f.name == init_f.name) {
             Some(idx) => idx,
             None => {
-                self.ctx.emit_ice(init_f.value.span, format!("Kern ICE (Lowering): Field `{}` not found in union.", self.ctx.resolve(init_f.name)));
+                self.ctx.emit_ice(
+                    init_f.value.span,
+                    format!(
+                        "Kern ICE (Lowering): Field `{}` not found in union.",
+                        self.ctx.resolve(init_f.name)
+                    ),
+                );
                 unreachable!()
             }
         };
@@ -444,14 +470,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(norm_ty) {
                 (*id, args.clone())
             } else {
-                self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): Expected Enum type for enum literal.");
+                self.ctx.emit_ice(
+                    Span::default(),
+                    "Kern ICE (Lowering): Expected Enum type for enum literal.",
+                );
                 unreachable!()
             };
 
         let data_def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
             d.clone()
         } else {
-            self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): Expected Enum Definition.");
+            self.ctx.emit_ice(
+                Span::default(),
+                "Kern ICE (Lowering): Expected Enum Definition.",
+            );
             unreachable!()
         };
 
@@ -482,7 +514,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             current_val += 1;
         }
-        self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): Variant `{}` not found in enum literal resolution.", self.ctx.resolve(variant_name)));
+        self.ctx.emit_ice(
+            Span::default(),
+            format!(
+                "Kern ICE (Lowering): Variant `{}` not found in enum literal resolution.",
+                self.ctx.resolve(variant_name)
+            ),
+        );
         unreachable!()
     }
 }

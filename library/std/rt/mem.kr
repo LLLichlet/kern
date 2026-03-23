@@ -1,8 +1,7 @@
 #[export_name("memcpy")]
 pub extern fn memcpy(dest: *mut u8, src: *u8, len: usize) *mut u8 {
-    let mut i = usize.{0};
+    let mut i = 0;
     for (; i < len; i += 1) {
-        // 利用 Kern 的严格指针算术：直接偏移并解引用
         let d = dest + i;
         let s = src + i;
         d.* = s.*;
@@ -41,7 +40,7 @@ pub extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
         }
     } else {
         // 没有重叠风险，直接正向拷贝
-        let mut i = usize.{0};
+        let mut i = 0;
         for (; i < len; i += 1) {
             let d = dest + i;
             let s = src + i;

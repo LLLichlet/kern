@@ -129,8 +129,10 @@ impl<'a> Parser<'a> {
             // 遇到它们直接 break，从而解决大括号后未加分号时被下一行误认为函数调用的二义性
             let is_manifestly_void = match &left.kind {
                 ExprKind::For { .. } => true,
-                ExprKind::If { else_branch: None, .. } => true, // 没有 else 的 if 必定为 void
-                ExprKind::Block { result: None, .. } => true,   // 没有 result 的 block 必定为 void
+                ExprKind::If {
+                    else_branch: None, ..
+                } => true, // 没有 else 的 if 必定为 void
+                ExprKind::Block { result: None, .. } => true, // 没有 result 的 block 必定为 void
                 _ => false,
             };
 
@@ -430,7 +432,8 @@ impl<'a> Parser<'a> {
                                 if chars.next().is_some() {
                                     self.add_error(
                                         span,
-                                        "Byte character literal may only contain one byte".to_string(),
+                                        "Byte character literal may only contain one byte"
+                                            .to_string(),
                                     );
                                 }
                                 // 严格校验必须是合法的单字节 ASCII 或转义字节 (<= 255)
@@ -444,7 +447,10 @@ impl<'a> Parser<'a> {
                                     ch as u8
                                 }
                             } else {
-                                self.add_error(span, "Empty byte character literal after unescaping".to_string());
+                                self.add_error(
+                                    span,
+                                    "Empty byte character literal after unescaping".to_string(),
+                                );
                                 0u8
                             }
                         }
@@ -1087,12 +1093,12 @@ impl<'a> Parser<'a> {
                 if self.match_token(&[TokenType::Dot]) {
                     let v_tok = self.expect(TokenType::Identifier)?;
                     let variant_name = self.intern_token(v_tok);
-                    
+
                     let mut binding = None;
                     if self.match_token(&[TokenType::Colon]) {
                         binding = Some(self.parse_binding_pattern()?);
                     }
-                    
+
                     patterns.push(MatchPattern {
                         kind: MatchPatternKind::Variant {
                             target_type: None,
@@ -1101,7 +1107,7 @@ impl<'a> Parser<'a> {
                         },
                         span: pat_start.to(self.stream.prev_span()),
                     });
-                } 
+                }
                 // 语法 B: 范围、值、或带显式前缀的变体匹配
                 else {
                     let expr = self.parse_expression(Precedence::Lowest)?;
@@ -1131,7 +1137,7 @@ impl<'a> Parser<'a> {
                     } else if self.match_token(&[TokenType::Colon]) {
                         // 带有载荷解包的完全限定变体: `Result[i32].Ok : mut val`
                         let binding = Some(self.parse_binding_pattern()?);
-                        
+
                         // 利用你在 decl.rs 里写好的极其牛逼的 expr_to_type 方法
                         let ty = self.expr_to_type(expr)?;
                         let (target_type, variant_name) = self.extract_variant_from_type(ty)?;
@@ -1182,7 +1188,11 @@ impl<'a> Parser<'a> {
     }
 
     fn extract_variant_from_type(&mut self, ty: TypeNode) -> ParseResult<(TypeNode, SymbolId)> {
-        if let TypeKind::Path { mut segments, generics } = ty.kind {
+        if let TypeKind::Path {
+            mut segments,
+            generics,
+        } = ty.kind
+        {
             if segments.len() >= 2 {
                 let variant_name = segments.pop().unwrap(); // 弹出最后一段作为 Variant 名
                 let remain_ty = TypeNode {
@@ -1193,7 +1203,10 @@ impl<'a> Parser<'a> {
                 return Ok((remain_ty, variant_name));
             }
         }
-        self.add_error(ty.span, "Expected a valid ADT variant path before ':'".to_string());
+        self.add_error(
+            ty.span,
+            "Expected a valid ADT variant path before ':'".to_string(),
+        );
         Err(())
     }
 

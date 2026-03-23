@@ -141,7 +141,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let lhs_norm = self.resolve_tv(lhs_ty);
-        
+
         // 1. 获取解引用后的基础类型（Struct/Union/Enum/Module），仅用于模块判定和最后兜底的字段查找
         let base_norm = self.get_base_type(lhs_ty);
 
@@ -150,20 +150,33 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(base_norm).clone() {
             let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                 m.scope_id
-            } else { unreachable!() };
+            } else {
+                unreachable!()
+            };
             if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field) {
                 let real_ty = if target_info.kind == SymbolKind::Function {
-                    self.ctx.type_registry.intern(TypeKind::FnDef(target_info.def_id.unwrap(), vec![]))
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::FnDef(target_info.def_id.unwrap(), vec![]))
                 } else if target_info.kind == SymbolKind::Module {
-                    self.ctx.type_registry.intern(TypeKind::Module(target_info.def_id.unwrap()))
-                } else { target_info.type_id };
-                
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::Module(target_info.def_id.unwrap()))
+                } else {
+                    target_info.type_id
+                };
+
                 let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
                 self.ctx.node_types.insert(lhs.id, mod_ty);
                 return real_ty;
             } else {
                 let field_name = self.ctx.resolve(field);
-                self.ctx.struct_error(span, format!("module has no public member `{}`", field_name)).emit();
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!("module has no public member `{}`", field_name),
+                    )
+                    .emit();
                 return TypeId::ERROR;
             }
         }
@@ -176,13 +189,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 现在的 lhs_norm 带有完整的指针上下文，你的降级逻辑被成功激活了！
         match self.ctx.type_registry.get(lhs_norm).clone() {
             TypeKind::Pointer { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem }));
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem,
+                }));
             }
             TypeKind::VolatilePtr { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: false, elem }));
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                    is_mut: false,
+                    elem,
+                }));
             }
             TypeKind::Slice { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::Slice { is_mut: false, elem }));
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut: false,
+                    elem,
+                }));
             }
             _ => {}
         }
@@ -207,9 +229,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx
             .struct_error(
                 span,
-                format!("no field or method named `{}` found on type `{}`", field_str, lhs_str),
+                format!(
+                    "no field or method named `{}` found on type `{}`",
+                    field_str, lhs_str
+                ),
             )
-            .with_hint("if this is a method, ensure the trait defining it is imported and implemented")
+            .with_hint(
+                "if this is a method, ensure the trait defining it is imported and implemented",
+            )
             .with_hint("if this is a struct field, check for typos")
             .emit();
 
@@ -217,16 +244,26 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// 助手 2.5：静默查找字段或方法 (不报错，查不到返回 None)
-    fn try_find_field_or_method_silent(&mut self, search_norm: TypeId, lhs_ty: TypeId, field: SymbolId) -> Option<TypeId> {
+    fn try_find_field_or_method_silent(
+        &mut self,
+        search_norm: TypeId,
+        lhs_ty: TypeId,
+        field: SymbolId,
+    ) -> Option<TypeId> {
         // 1. 如果是 Trait Object
-        if let TypeKind::TraitObject(trait_def_id, trait_args) = self.ctx.type_registry.get(search_norm).clone() {
-            if let Some(m) = self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty) {
+        if let TypeKind::TraitObject(trait_def_id, trait_args) =
+            self.ctx.type_registry.get(search_norm).clone()
+        {
+            if let Some(m) =
+                self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty)
+            {
                 return Some(m);
             }
         }
 
         // 2. 如果是具名类型 (Struct/Union/Enum)
-        if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone() {
+        if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
+        {
             if let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field) {
                 return Some(field_ty);
             }
@@ -239,8 +276,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if env_norm == search_norm || env_target == search_norm {
                 for bound_ty in bounds {
                     let bound_norm = self.resolve_tv(bound_ty);
-                    if let TypeKind::TraitObject(trait_def_id, trait_args) = self.ctx.type_registry.get(bound_norm).clone() {
-                        if let Some(m) = self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty) {
+                    if let TypeKind::TraitObject(trait_def_id, trait_args) =
+                        self.ctx.type_registry.get(bound_norm).clone()
+                    {
+                        if let Some(m) = self.resolve_trait_object_method_silent(
+                            trait_def_id,
+                            &trait_args,
+                            field,
+                            lhs_ty,
+                        ) {
                             return Some(m);
                         }
                     }
@@ -274,12 +318,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .iter()
             .find(|(m_name, _)| *m_name == field)
         {
-            if let TypeKind::Function { params, ret, is_variadic } = self.ctx.type_registry.get(method_ty).clone() {
+            if let TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } = self.ctx.type_registry.get(method_ty).clone()
+            {
                 let mut new_params = params.clone();
                 if !new_params.is_empty() {
                     new_params[0] = receiver_ty; // 维持调用的实际 LHS 为 receiver
                 }
-                method_ty = self.ctx.type_registry.intern(TypeKind::Function { params: new_params, ret, is_variadic });
+                method_ty = self.ctx.type_registry.intern(TypeKind::Function {
+                    params: new_params,
+                    ret,
+                    is_variadic,
+                });
             }
 
             if !trait_def.generics.is_empty() && !trait_args.is_empty() {
@@ -369,7 +422,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
     }
-
 
     /// 辅助方法 3：解析 Struct/Union 字段或 Enum 变体
     fn resolve_def_field(

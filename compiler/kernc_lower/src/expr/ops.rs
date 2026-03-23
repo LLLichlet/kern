@@ -57,7 +57,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         } else {
             let l = self.lower_expr(lhs, subst_map, None);
-            
+
             let l_norm = self.ctx.type_registry.normalize(l.ty);
             let is_l_ptr = matches!(
                 self.ctx.type_registry.get(l_norm),
@@ -65,7 +65,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
 
             // 获取 Sema 阶段缓存的真实右侧类型
-            let r_sema_ty = self.ctx.node_types.get(&rhs.id).copied().unwrap_or(TypeId::ERROR);
+            let r_sema_ty = self
+                .ctx
+                .node_types
+                .get(&rhs.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             let r_norm = self.ctx.type_registry.normalize(r_sema_ty);
             let is_r_ptr = matches!(
                 self.ctx.type_registry.get(r_norm),
@@ -81,7 +86,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
 
             let r = self.lower_expr(rhs, subst_map, expected_r);
-            
+
             MastExprKind::Binary {
                 op,
                 lhs: Box::new(l),

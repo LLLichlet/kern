@@ -21,7 +21,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 | PrimitiveType::USize => {
                     let ptr_bits = self.sess.target.pointer_size as u32 * 8;
                     self.context.custom_width_int_type(ptr_bits).into()
-                },
+                }
                 PrimitiveType::I128 | PrimitiveType::U128 => self.context.i128_type().into(),
                 PrimitiveType::F32 => self.context.f32_type().into(),
                 PrimitiveType::F64 => self.context.f64_type().into(),
@@ -65,7 +65,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     if let Some(s) = self.structs.get(&MonoId(def_id.0)) {
                         return s.as_basic_type_enum();
                     }
-                    self.sess.emit_ice(Span::default(), format!("Struct DefId {} not found in LLVM structs map", def_id.0));
+                    self.sess.emit_ice(
+                        Span::default(),
+                        format!("Struct DefId {} not found in LLVM structs map", def_id.0),
+                    );
                     unreachable!()
                 }
 
@@ -104,8 +107,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             _ => {
                 self.sess.emit_ice(
-                    Span::default(), 
-                    format!("Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}", norm, self.type_registry.get(norm))
+                    Span::default(),
+                    format!(
+                        "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}",
+                        norm,
+                        self.type_registry.get(norm)
+                    ),
                 );
                 unreachable!()
             }

@@ -111,10 +111,17 @@ impl Session {
         };
 
         eprintln!(
-            "{}{}:{}:{}: {}{}{} {}{}{}", 
-            bold_start, filename, line, col, 
-            prefix, diag.level.name(), reset, 
-            bold_start, diag.message, reset
+            "{}{}:{}:{}: {}{}{} {}{}{}",
+            bold_start,
+            filename,
+            line,
+            col,
+            prefix,
+            diag.level.name(),
+            reset,
+            bold_start,
+            diag.message,
+            reset
         );
 
         self.print_source_snippet(diag.primary_span, diag.level);
@@ -164,7 +171,8 @@ impl Session {
                         carets
                     );
                 } else {
-                    let indent_str: String = line_text.chars()
+                    let indent_str: String = line_text
+                        .chars()
                         .take(col_offset)
                         .map(|c| if c == '\t' { '\t' } else { ' ' })
                         .collect();

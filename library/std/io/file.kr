@@ -15,7 +15,7 @@ impl *mut File : Writer {
     }
 }
 
-// 构造 标准输出 File 的工厂函数
+// 构造标准输出 File 的工厂函数
 pub fn stdout() File {
     return .{ handle: os.get_stdout_handle() };
 }

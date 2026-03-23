@@ -27,7 +27,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 尝试判断 Target 是否为 ADT (Enum)
-        let is_adt = matches!(self.ctx.type_registry.get(norm_target), TypeKind::Enum(_, _));
+        let is_adt = matches!(
+            self.ctx.type_registry.get(norm_target),
+            TypeKind::Enum(_, _)
+        );
 
         let mut common_ret_ty = expected_ty;
         let mut handled_variants = std::collections::HashSet::new();
@@ -123,7 +126,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     binding,
                 } => {
                     if !is_adt {
-                        self.ctx.emit_error(pat.span, "variant matching is only allowed on ADT targets");
+                        self.ctx.emit_error(
+                            pat.span,
+                            "variant matching is only allowed on ADT targets",
+                        );
                         continue;
                     }
 
@@ -134,7 +140,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         self.check_coercion(pat.span, norm_target, explicit_ty);
                     }
 
-                    if let TypeKind::Enum(def_id, generic_args) = self.ctx.type_registry.get(norm_target).clone() {
+                    if let TypeKind::Enum(def_id, generic_args) =
+                        self.ctx.type_registry.get(norm_target).clone()
+                    {
                         let adt_def = match &self.ctx.defs[def_id.0 as usize] {
                             Def::Enum(a) => a.clone(),
                             _ => unreachable!(),
@@ -145,14 +153,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                             if let Some(bind_pattern) = binding {
                                 if let Some(payload_ast) = &v.payload_type {
-                                    let mut payload_ty = self.ctx.node_types.get(&payload_ast.id).copied().unwrap_or(TypeId::ERROR);
+                                    let mut payload_ty = self
+                                        .ctx
+                                        .node_types
+                                        .get(&payload_ast.id)
+                                        .copied()
+                                        .unwrap_or(TypeId::ERROR);
 
                                     if !adt_def.generics.is_empty() && !generic_args.is_empty() {
                                         let mut map = std::collections::HashMap::new();
                                         for (i, param) in adt_def.generics.iter().enumerate() {
                                             map.insert(param.name, generic_args[i]);
                                         }
-                                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                                        let mut subst =
+                                            Substituter::new(&mut self.ctx.type_registry, &map);
                                         payload_ty = subst.substitute(payload_ty);
                                     }
 
@@ -167,13 +181,31 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                     };
                                     let _ = self.ctx.scopes.define(bind_pattern.name, info);
                                 } else {
-                                    self.ctx.struct_error(pat.span, format!("variant `{}` has no payload", self.ctx.resolve(*variant_name))).emit();
+                                    self.ctx
+                                        .struct_error(
+                                            pat.span,
+                                            format!(
+                                                "variant `{}` has no payload",
+                                                self.ctx.resolve(*variant_name)
+                                            ),
+                                        )
+                                        .emit();
                                 }
                             } else if v.payload_type.is_some() {
-                                self.ctx.struct_error(pat.span, format!("variant `{}` requires a binding for its payload", self.ctx.resolve(*variant_name))).emit();
+                                self.ctx
+                                    .struct_error(
+                                        pat.span,
+                                        format!(
+                                            "variant `{}` requires a binding for its payload",
+                                            self.ctx.resolve(*variant_name)
+                                        ),
+                                    )
+                                    .emit();
                             }
                         } else {
-                            self.ctx.struct_error(pat.span, "variant not found in ADT").emit();
+                            self.ctx
+                                .struct_error(pat.span, "variant not found in ADT")
+                                .emit();
                         }
                     }
                 }

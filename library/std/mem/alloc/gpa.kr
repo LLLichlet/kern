@@ -32,14 +32,14 @@ impl *mut GeneralPurposeAllocator : Allocator {
 
         for (; curr as usize != 0; ) {
             if (curr.size >= actual_size) {
-                // 找到了！从链表中摘除
+                // 找到了，从链表中摘除
                 if (prev as usize == 0) {
                     self.free_list = curr.next;
                 } else {
                     prev.next = curr.next;
                 }
 
-                // 神奇的 Kern 指针算术：curr + 1 会隐式跨越整个 BlockHeader 的大小！
+                // curr + 1  跨越整个 BlockHeader 的大小
                 let user_ptr = (curr + 1) as *mut u8;
                 return .{ Some: user_ptr };
             }
@@ -60,8 +60,7 @@ impl *mut GeneralPurposeAllocator : Allocator {
         let new_block = new_block_u8 as *mut BlockHeader;
         new_block.size = request_size;
         
-        // (注：工业级实现会在这里进行切割 Split，把剩余的几千字节挂回 free_list。
-        // 这里为了逻辑清晰，暂且整块分配给本次请求。)
+        // TODO: 在这里进行切割 Split，把剩余的几千字节挂回 free_list。
 
         // 跨越头部，返回给用户
         let user_ptr = (new_block + 1) as *mut u8;
@@ -71,14 +70,13 @@ impl *mut GeneralPurposeAllocator : Allocator {
     pub fn free(ptr: *mut u8, size: usize) void {
         if (ptr as usize == 0) return;
 
-        // 完美利用 Kern 的指针规则：
-        // 先把普通指针转换为 Header 指针，然后减 1，直接倒退一个 Header 的步长！
+        // 先把普通指针转换为 Header 指针，然后减 1，从而倒退一个 Header 的步长
         let header_ptr = (ptr as *mut BlockHeader) - 1;
 
         // 将归还的内存块头插法放回 Free List
         header_ptr.next = self.free_list;
         self.free_list = header_ptr;
         
-        // (注：后续可以在这里加入相邻空闲块合并 Coalescing 的逻辑，防止内存严重碎片化)
+        // TODO: 加入相邻空闲块合并 Coalescing 的逻辑，防止内存严重碎片化
     }
 }

@@ -184,11 +184,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let trait_scope = self.ctx.scopes.enter_scope();
 
                 // 为 Trait 强制绑定 Self 类型
-                let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(item_id, vec![]));
+                let self_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::TraitObject(item_id, vec![]));
                 self.bind_self_type(self_ty, trait_scope, t.span);
 
-                self.bind_generics(&t.generics, trait_scope); 
-                self.resolve_where_clauses(&t.where_clauses, trait_scope); 
+                self.bind_generics(&t.generics, trait_scope);
+                self.resolve_where_clauses(&t.where_clauses, trait_scope);
 
                 // 解析 supertraits
                 let mut resolved_supertraits = Vec::new();
@@ -205,8 +208,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 self.ctx.scopes.exit_scope();
 
                 if let Def::Trait(mut updated_t) = self.ctx.defs[item_id.0 as usize].clone() {
-                    updated_t.resolved_methods = resolved_methods;                  
-                    updated_t.resolved_supertraits = resolved_supertraits;                   
+                    updated_t.resolved_methods = resolved_methods;
+                    updated_t.resolved_supertraits = resolved_supertraits;
                     self.ctx.defs[item_id.0 as usize] = Def::Trait(updated_t);
                 }
             }
@@ -443,7 +446,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                                 self.resolve_expr(end, scope);
                             }
                             // 捕获 Match 分支中可能携带的显式类型前缀 (e.g., Result[i32].Ok)
-                            ast::MatchPatternKind::Variant { target_type: Some(ty), .. } => {
+                            ast::MatchPatternKind::Variant {
+                                target_type: Some(ty),
+                                ..
+                            } => {
                                 self.resolve_type(ty, scope);
                             }
                             _ => {}
@@ -756,7 +762,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
     fn bind_generics(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {
         self.ctx.scopes.set_current_scope(scope);
-        
+
         // 把所有的泛型参数名注入作用域
         for param in generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));

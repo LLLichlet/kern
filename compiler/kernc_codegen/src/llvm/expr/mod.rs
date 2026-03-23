@@ -30,11 +30,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     } else {
                         // 语义为硬编码物理地址 (例如 MMIO 0xb8000)，生成 IntToIntPtr 转换
                         let int_val = self.context.i64_type().const_int(*val as u64, false);
-                        self.builder.build_int_to_ptr(int_val, ptr_ty, "ptr_lit").unwrap().into()
+                        self.builder
+                            .build_int_to_ptr(int_val, ptr_ty, "ptr_lit")
+                            .unwrap()
+                            .into()
                     }
                 } else {
                     // 常规的整数生成
-                    expected_llvm_ty.into_int_type().const_int(*val as u64, false).into()
+                    expected_llvm_ty
+                        .into_int_type()
+                        .const_int(*val as u64, false)
+                        .into()
                 }
             }
             MastExprKind::Float(val) => expected_llvm_ty.into_float_type().const_float(*val).into(),

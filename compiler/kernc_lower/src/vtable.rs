@@ -16,7 +16,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let trait_def_id = match self.ctx.type_registry.get(trait_ty) {
             TypeKind::TraitObject(id, _) => *id,
             other => {
-                self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): Target must be a TraitObject, found: {:?}", other));
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Lowering): Target must be a TraitObject, found: {:?}",
+                        other
+                    ),
+                );
                 unreachable!()
             }
         };
@@ -24,7 +30,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_def_id.0 as usize] {
             t.clone()
         } else {
-            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Trait!", trait_def_id.0));
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): DefId {} is not a Trait!",
+                    trait_def_id.0
+                ),
+            );
             unreachable!()
         };
 
@@ -36,7 +48,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let src_name = self.ctx.ty_to_string(base_source_ty);
                 let trait_name = self.ctx.resolve(trait_def.name);
                 self.ctx.emit_ice(
-                    Span::default(), 
+                    Span::default(),
                     format!("Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.", src_name, trait_name)
                 );
                 unreachable!()
@@ -181,7 +193,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 None => {
                     let method_name = self.ctx.resolve(trait_method.name);
                     self.ctx.emit_ice(
-                        Span::default(), 
+                        Span::default(),
                         format!("Kern ICE (Lowering): Missing implementation for trait method `{}`. Sema failed to check trait completeness.", method_name)
                     );
                     unreachable!()

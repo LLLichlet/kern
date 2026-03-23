@@ -72,7 +72,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind {
                     let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
 
-                    let global_array_ty = match self.module.globals.iter().find(|g| g.id == vtable_id) {
+                    let global_array_ty = match self
+                        .module
+                        .globals
+                        .iter()
+                        .find(|g| g.id == vtable_id)
+                    {
                         Some(g) => g.ty,
                         None => {
                             self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global generated but not found in module globals map.");
@@ -125,10 +130,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // bool 在底层可以视同整数进行转换
         let f_int = self.ctx.type_registry.is_integer(f_norm) || f_norm == TypeId::BOOL;
         let t_int = self.ctx.type_registry.is_integer(t_norm);
-        
+
         let f_float = self.ctx.type_registry.is_float(f_norm);
         let t_float = self.ctx.type_registry.is_float(t_norm);
-        
+
         let f_ptr = matches!(
             self.ctx.type_registry.get(f_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
@@ -172,7 +177,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         | PrimitiveType::ISize
                 )
             );
-            return if is_signed { MastCastKind::SIntToFloat } else { MastCastKind::UIntToFloat };
+            return if is_signed {
+                MastCastKind::SIntToFloat
+            } else {
+                MastCastKind::UIntToFloat
+            };
         }
 
         // 5. 浮点数 到 整数 (fptosi / fptoui)
@@ -188,7 +197,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         | PrimitiveType::ISize
                 )
             );
-            return if is_signed { MastCastKind::FloatToSInt } else { MastCastKind::FloatToUInt };
+            return if is_signed {
+                MastCastKind::FloatToSInt
+            } else {
+                MastCastKind::FloatToUInt
+            };
         }
 
         // 兜底

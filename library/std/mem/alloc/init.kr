@@ -1,5 +1,7 @@
 mod allocator;
 mod page;
+mod gpa;
 
 pub use .allocator.Allocator;
 pub use .page.PageAllocator;
+pub use .gpa.GPAllocator;

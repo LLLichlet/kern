@@ -1,45 +1,100 @@
-use std.debug.Option;
+use std.Option;
 use std.mem.alloc.Allocator;
 
-// 1. 内存块头部（侵入式元数据）
-// 每次分配的实际内存会在这个 Header 的正后方
 type BlockHeader = struct {
     size: usize,
     next: *mut BlockHeader,
 };
 
-pub type GeneralPurposeAllocator = struct {
+pub type GPAllocator = struct {
     backing: *mut Allocator,
-    free_list: *mut BlockHeader = *mut BlockHeader.{0},
+    free_list: *mut BlockHeader = 0,
 };
 
-// 辅助函数：按指定的 alignment 向上取整
 fn align_up(val: usize, alignment: usize) usize {
     let remainder = val % alignment;
     if (remainder == 0) return val;
     return val + (alignment - remainder);
 }
 
-impl *mut GeneralPurposeAllocator : Allocator {
+impl *mut GPAllocator : Allocator {
+    
+    /// 按地址顺序插入并尝试合并
+    fn insert_free_block(block: *mut BlockHeader) void {
+        let mut prev = *mut BlockHeader.{0};
+        let mut curr = self.free_list;
+
+        // 1. 寻找合适的插入位置（保持链表按内存地址严格递增）
+        for (; curr as usize != 0 and (curr as usize) < (block as usize); ) {
+            prev = curr;
+            curr = curr.next;
+        }
+
+        // 插入到 prev 和 curr 之间
+        block.next = curr;
+        if (prev as usize == 0) {
+            self.free_list = block;
+        } else {
+            prev.next = block;
+        }
+
+        // 2. 向后合并
+        if (curr as usize != 0) {
+            // 如果 block 的尾部刚好等于 curr 的头部地址
+            if ((block as usize) + block.size == (curr as usize)) {
+                block.size += curr.size;     // 吞并 curr 的大小
+                block.next = curr.next;      // 跳过 curr
+            }
+        }
+
+        // 3. 向前合并
+        if (prev as usize != 0) {
+            // 如果 prev 的尾部刚好等于 block 的头部地址
+            if ((prev as usize) + prev.size == (block as usize)) {
+                prev.size += block.size;     // 吞并 block
+                prev.next = block.next;      // 跳过 block
+            }
+        }
+    }
+
     pub fn alloc(size: usize, align: usize) Option[*mut u8] {
-        // 1. 计算所需总大小（头部大小 + 数据大小），并按 8 字节对齐防越界
         let header_size = @sizeOf[BlockHeader]();
         let actual_size = align_up(size + header_size, 8);
+        
+        // 设定最小分裂阈值：至少能容纳一个头部 + 8 字节数据
+        let min_split = header_size + 8; 
 
-        // 2. 遍历 Free List 寻找合适的空闲块 (First-Fit 策略)
         let mut prev = *mut BlockHeader.{0};
         let mut curr = self.free_list;
 
         for (; curr as usize != 0; ) {
             if (curr.size >= actual_size) {
-                // 找到了，从链表中摘除
-                if (prev as usize == 0) {
-                    self.free_list = curr.next;
+                // 找到可用块，触发切割逻辑
+                if (curr.size >= actual_size + min_split) {
+                    let remainder_size = curr.size - actual_size;
+                    curr.size = actual_size; // 截断当前块分配
+
+                    // 计算剩余内存块的起始地址（转换为 usize 做纯字节加法）
+                    let remainder_ptr = ((curr as usize) + actual_size) as *mut BlockHeader;
+                    remainder_ptr.size = remainder_size;
+
+                    // 因为链表已经是地址有序的，切出来的余料正好可以替换掉原先 curr 的位置
+                    remainder_ptr.next = curr.next;
+                    if (prev as usize == 0) {
+                        self.free_list = remainder_ptr;
+                    } else {
+                        prev.next = remainder_ptr;
+                    }
                 } else {
-                    prev.next = curr.next;
+                    // 如果块大小刚好（或者只多出几个字节不够切），直接整个摘除
+                    if (prev as usize == 0) {
+                        self.free_list = curr.next;
+                    } else {
+                        prev.next = curr.next;
+                    }
                 }
 
-                // curr + 1  跨越整个 BlockHeader 的大小
+                // 跨越头部，返回 payload
                 let user_ptr = (curr + 1) as *mut u8;
                 return .{ Some: user_ptr };
             }
@@ -47,22 +102,30 @@ impl *mut GeneralPurposeAllocator : Allocator {
             curr = curr.next;
         }
 
-        // 3. 如果 Free List 没有足够大的块，向底层的 PageAllocator 进货
-        let page_size = usize.{4096};
+        // 3. Free List 没有足够大的块，向 PageAllocator 进货
+        let page_size = 4096;
         let request_size = if (actual_size > page_size) actual_size else page_size;
 
         let new_block_u8 = match (self.backing.alloc(request_size, 4096)) {
             .Some: mut ptr => ptr,
-            .None => return .{ None }, // OOM：底层批发失败，直接向上传递
+            .None => return .{ None },
         };
 
-        // 在这块新申请的整页内存的最开头，格式化出一个 BlockHeader
         let new_block = new_block_u8 as *mut BlockHeader;
         new_block.size = request_size;
-        
-        // TODO: 在这里进行切割 Split，把剩余的几千字节挂回 free_list。
 
-        // 跨越头部，返回给用户
+        // 对新批发来的“大页蛋糕”直接进行第一刀切割
+        if (new_block.size >= actual_size + min_split) {
+            let remainder_size = new_block.size - actual_size;
+            new_block.size = actual_size;
+
+            let remainder_ptr = ((new_block as usize) + actual_size) as *mut BlockHeader;
+            remainder_ptr.size = remainder_size;
+
+            // 新拿到的页地址未知，借助辅助函数自动排序插入并合并
+            self.insert_free_block(remainder_ptr);
+        }
+
         let user_ptr = (new_block + 1) as *mut u8;
         return .{ Some: user_ptr };
     }
@@ -70,13 +133,10 @@ impl *mut GeneralPurposeAllocator : Allocator {
     pub fn free(ptr: *mut u8, size: usize) void {
         if (ptr as usize == 0) return;
 
-        // 先把普通指针转换为 Header 指针，然后减 1，从而倒退一个 Header 的步长
+        // 后退一个 Header
         let header_ptr = (ptr as *mut BlockHeader) - 1;
 
-        // 将归还的内存块头插法放回 Free List
-        header_ptr.next = self.free_list;
-        self.free_list = header_ptr;
-        
-        // TODO: 加入相邻空闲块合并 Coalescing 的逻辑，防止内存严重碎片化
+        // 统一交给辅助函数处理排序插入与碎片合并
+        self.insert_free_block(header_ptr);
     }
 }

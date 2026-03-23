@@ -1,17 +1,25 @@
-use std.coll.List;
-use std.mem.alloc.PageAllocator;
+use std.coll.String;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.Allocator;
 use std.io;
 
 fn main(args: [][]u8) i32 {
     let pa = PageAllocator.{}..&;
-    let list = List[i32].{}..&;
-    defer list.deinit(pa);
+    let gpa = GPAllocator.{ backing: pa }..&;
 
-    let _ = list.push(pa, 1); 
-    let _ = list.push(pa, 2); 
-    let _ = list.push(pa, 3); 
-    let _ = list.append_slice(pa, .{4, 5, 6});
+    let greeting = String.{}..&;
+    defer greeting.deinit(gpa);
     
-    io.println("list: {}", .{list,});
+    let _ = greeting.push_str(gpa, "Hello");
+    let _ = greeting.push_str(gpa, ", ");
+    let _ = greeting.push_str(gpa, "Kern World!");
+    
+    io.println("Message: {}", .{ greeting, });
+    
+    // 字符串比较
+    if (greeting.eq("Hello, Kern World!")) {
+        io.println("Match successful!", .{});
+    }
+
     0
 }

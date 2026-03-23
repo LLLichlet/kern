@@ -69,7 +69,7 @@ pub const PROT_READ   = 1;
 pub const PROT_WRITE  = 2;
 pub const MAP_PRIVATE = 2;
 pub const MAP_ANONYMOUS = 32;
-pub const MAP_FAILED  = ~usize.{0}; 
+pub const MAP_FAILED  = std.num.USIZE_MAX; 
 
 // sys_mmap 是 9
 pub fn mmap(addr: usize, len: usize, prot: usize, flags: usize, fd: usize, offset: usize) usize {

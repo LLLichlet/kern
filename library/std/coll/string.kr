@@ -1,0 +1,67 @@
+use std.mem.alloc.Allocator;
+use std.coll.List;
+use std.io.{Printable, Writer};
+
+pub type String = struct {
+    raw: List[u8] = List[u8].{},
+};
+
+impl *mut String {
+    /// 追加单个 ASCII 字符
+    pub fn push_char(alloc: *mut Allocator, c: u8) bool {
+        return self.raw..&.push(alloc, c);
+    }
+
+    /// 追加字符串切片 (这是最高频的操作)
+    pub fn push_str(alloc: *mut Allocator, text: []u8) bool {
+        return self.raw..&.append_slice(alloc, text);
+    }
+
+    /// 释放多余内存
+    pub fn shrink_to_fit(alloc: *mut Allocator) bool {
+        return self.raw..&.shrink_to_fit(alloc);
+    }
+
+    /// 彻底销毁并归还内存
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.raw..&.deinit(alloc);
+    }
+    
+    pub fn clear() void {
+        self.raw..&.clear();
+    }
+}
+
+impl *String {
+    pub fn as_str() []u8 {
+        return self.raw.&.as_slice();
+    }
+
+    pub fn len() usize {
+        return self.raw.len;
+    }
+
+    pub fn is_empty() bool {
+        return self.raw.&.is_empty();
+    }
+
+    /// 比较两个字符串是否内容完全相等
+    pub fn eq(other: []u8) bool {
+        let self_slice = self.raw.&.as_slice();
+        if (#self_slice != #other) return false;
+        
+        let mut i = 0;
+        let len = #self_slice;
+        for (; i < len; i += 1) {
+            if (self_slice.[i] != other.[i]) return false;
+        }
+        return true;
+    }
+}
+
+impl *String : Printable {
+    pub fn fmt(writer: *mut Writer) void {
+        // 直接将底层的字节切片交给 Writer 输出
+        let _ = writer.write(self.raw.&.as_slice());
+    }
+}

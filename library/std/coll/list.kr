@@ -1,6 +1,7 @@
 use std.mem.alloc.Allocator;
 use std.Option;
 use std.io.{Printable, Writer};
+use std.num.USIZE_MAX;
 
 pub type List[T] = struct {
     ptr: *mut T = 0,
@@ -16,7 +17,7 @@ impl[T] *mut List[T] {
         // 拦截零大小类型
         if (@sizeOf[T]() == 0) {
             // 将 capacity 设为最大值
-            self.capacity = ~usize.{0}; 
+            self.capacity = USIZE_MAX; 
             return true;
         }
         
@@ -25,7 +26,7 @@ impl[T] *mut List[T] {
 
         // 防止容量与类型大小相乘时溢出
         // 判断 new_cap 是否超过了 usize 所能容纳的最大元素个数
-        let max_alloc_items = (~usize.{0}) / @sizeOf[T]();
+        let max_alloc_items = (USIZE_MAX) / @sizeOf[T]();
         if (new_cap > max_alloc_items) {
             return false; // 容量超出硬件寻址极限，直接拒绝
         }
@@ -93,11 +94,6 @@ impl[T] *mut List[T] {
         self.len -= 1;
         return .{ Some: removed_val };
     }
-
-    // 核心安全视图：对外只暴露切片
-    pub fn as_slice() []T {
-        return self.ptr.[0 .. self.len];
-    }
     
     pub fn clear() void {
         self.len = 0; // 容量保留，只清空逻辑长度
@@ -112,27 +108,10 @@ impl[T] *mut List[T] {
         }
     }
 
-    // 检查是否为空
-    pub fn is_empty() bool {
-        return self.len == 0;
-    }
-
-    // 安全获取指定位置的元素拷贝
-    pub fn get(index: usize) Option[T] {
-        if (index >= self.len) return .{ None };
-        return .{ Some: (self.ptr + index).* };
-    }
-
     // 安全获取指定位置元素的 [可变指针]，用于就地修改
     pub fn get_ptr(index: usize) Option[*mut T] {
         if (index >= self.len) return .{ None };
         return .{ Some: self.ptr + index };
-    }
-
-    // 获取尾部元素的拷贝
-    pub fn last() Option[T] {
-        if (self.len == 0) return .{ None };
-        return .{ Some: (self.ptr + self.len - 1).* };
     }
 
     pub fn swap_remove(index: usize) Option[T] {
@@ -201,6 +180,29 @@ impl[T] *mut List[T] {
     }
 }
 
+impl[T] *List[T] {
+    pub fn as_slice() []T {
+        return self.ptr.[0 .. self.len];
+    }
+
+    // 检查是否为空
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+
+    // 安全获取指定位置的元素拷贝
+    pub fn get(index: usize) Option[T] {
+        if (index >= self.len) return .{ None };
+        return .{ Some: (self.ptr + index).* };
+    }
+
+    // 获取尾部元素的拷贝
+    pub fn last() Option[T] {
+        if (self.len == 0) return .{ None };
+        return .{ Some: (self.ptr + self.len - 1).* };
+    }
+}
+
 impl[T] *List[T] : Printable 
     where *T: Printable,
 {
@@ -233,11 +235,6 @@ impl[T] *List[T] : Printable
     }
 }
 
-type Point[T] 
-    where *T: Printable
-= struct {
-
-};
 pub fn u64_to_str(val: u64, buf: []mut u8) []u8 {
     if (val == 0) {
         if (#buf > 0) {

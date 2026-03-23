@@ -6,5 +6,6 @@ pub mod dbg;
 pub mod cffi;
 pub mod mem;
 pub mod coll;
+pub mod num;
 
 pub use .dbg.{Result, Option};

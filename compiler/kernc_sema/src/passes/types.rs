@@ -72,6 +72,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let func_scope = self.ctx.scopes.enter_scope();
 
                 self.bind_generics(&f.generics, func_scope);
+                self.resolve_where_clauses(&f.where_clauses, func_scope);
                 if let Some(parent_id) = f.parent {
                     if let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize] {
                         let target_ty = self
@@ -139,10 +140,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let struct_scope = self.ctx.scopes.enter_scope();
 
                 self.bind_generics(&s.generics, struct_scope);
+                self.resolve_where_clauses(&s.where_clauses, struct_scope);
 
                 for field in &s.fields {
                     let f_ty = self.resolve_type(&field.type_node, struct_scope);
                     self.ensure_sized(f_ty, field.type_node.span);
+                    if let Some(def_val) = &field.default_value {
+                        self.resolve_expr(def_val, struct_scope);
+                    }
                 }
                 self.ctx.scopes.exit_scope();
                 let struct_ty = self
@@ -157,10 +162,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let union_scope = self.ctx.scopes.enter_scope();
 
                 self.bind_generics(&u.generics, union_scope);
+                self.resolve_where_clauses(&u.where_clauses, union_scope);
 
                 for field in &u.fields {
                     let f_ty = self.resolve_type(&field.type_node, union_scope);
                     self.ensure_sized(f_ty, field.type_node.span);
+                    if let Some(def_val) = &field.default_value {
+                        self.resolve_expr(def_val, union_scope);
+                    }
                 }
                 self.ctx.scopes.exit_scope();
                 let union_ty = self
@@ -175,11 +184,17 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let trait_scope = self.ctx.scopes.enter_scope();
 
                 // 为 Trait 强制绑定 Self 类型
-                let self_ty = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::TraitObject(item_id, vec![]));
+                let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(item_id, vec![]));
                 self.bind_self_type(self_ty, trait_scope, t.span);
+
+                self.bind_generics(&t.generics, trait_scope); 
+                self.resolve_where_clauses(&t.where_clauses, trait_scope); 
+
+                // 解析 supertraits
+                let mut resolved_supertraits = Vec::new();
+                for supertrait in &t.supertraits {
+                    resolved_supertraits.push(self.resolve_type(supertrait, trait_scope));
+                }
 
                 // 解析方法签名并收集
                 let mut resolved_methods = Vec::new();
@@ -189,9 +204,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
                 self.ctx.scopes.exit_scope();
 
-                // 将解析完成的方法字典回填到全局定义中
                 if let Def::Trait(mut updated_t) = self.ctx.defs[item_id.0 as usize].clone() {
-                    updated_t.resolved_methods = resolved_methods;
+                    updated_t.resolved_methods = resolved_methods;                  
+                    updated_t.resolved_supertraits = resolved_supertraits;                   
                     self.ctx.defs[item_id.0 as usize] = Def::Trait(updated_t);
                 }
             }
@@ -200,6 +215,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let alias_scope = self.ctx.scopes.enter_scope();
 
                 self.bind_generics(&t.generics, alias_scope);
+                self.resolve_where_clauses(&t.where_clauses, alias_scope);
+
                 let target_ty = self.resolve_type(&t.target, alias_scope);
 
                 self.ctx.scopes.exit_scope();
@@ -211,6 +228,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let impl_scope = self.ctx.scopes.enter_scope();
 
                 self.bind_generics(&i.generics, impl_scope);
+                self.resolve_where_clauses(&i.where_clauses, impl_scope);
 
                 // 绑定 Self 类型到上下文中
                 let target_ty_id = self.resolve_type(&i.target_type, impl_scope);
@@ -245,6 +263,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
                 // 绑定泛型参数，比如 Option[T] 里的 T
                 self.bind_generics(&a.generics, adt_scope);
+                self.resolve_where_clauses(&a.where_clauses, adt_scope);
 
                 // 解析并严格校验 backing_type
                 if let Some(backing_ty) = &a.backing_type {
@@ -642,6 +661,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 final_sym.type_id // 直接返回 Param(SymbolId)
             }
             SymbolKind::TypeAlias => {
+                // 如果是编译器虚拟注入的泛型参数 T 或者 Self，它们没有物理 Def
+                // 直接返回在注入时就准备好的 type_id即可
+                if final_sym.def_id.is_none() {
+                    return final_sym.type_id;
+                }
                 let def_id = final_sym.def_id.unwrap();
 
                 // 动态获取最新解析的 AST 类型，不要用 Import 克隆带来的陈旧 final_sym.type_id
@@ -732,6 +756,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
     fn bind_generics(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {
         self.ctx.scopes.set_current_scope(scope);
+        
+        // 把所有的泛型参数名注入作用域
         for param in generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let info = SymbolInfo {
@@ -744,6 +770,18 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 is_mut: false,
             };
             let _ = self.ctx.scopes.define(param.name, info);
+        }
+    }
+
+    /// 解析 where 子句中的所有 TypeNode，确保它们被注册到 ctx.node_types 中
+    fn resolve_where_clauses(&mut self, clauses: &[ast::WhereClause], scope: ScopeId) {
+        for clause in clauses {
+            // 解析左侧目标类型 (例如 *mut T)
+            self.resolve_type(&clause.target_ty, scope);
+            // 解析右侧的所有 Trait 约束
+            for bound in &clause.bounds {
+                self.resolve_type(bound, scope);
+            }
         }
     }
 

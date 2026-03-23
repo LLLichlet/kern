@@ -17,8 +17,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);
+            let kind = self.ctx.type_registry.get(norm).clone();
+
             // 如果上下文期望一个整数或浮点数，直接复用期望的类型
             if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
+                res_ty = exp;
+            } 
+            // 如果上下文明确期望一个指针，让这个整数直接吸收该指针类型
+            else if matches!(kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }) {
                 res_ty = exp;
             }
         }

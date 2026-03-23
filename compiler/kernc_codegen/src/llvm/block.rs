@@ -7,10 +7,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub fn compile_function(&mut self, func: &MastFunction) {
         let llvm_func = self.functions.get(&func.id).unwrap().clone();
 
+        // ==========================================
+        // 1. 现场保护 (Save Caller Context)
+        // 完美解决泛型单态化和按需编译导致的重入污染问题
+        // ==========================================
+        let saved_locals = std::mem::take(&mut self.locals);
+        let saved_loop_targets = std::mem::take(&mut self.loop_targets);
+        let saved_insert_block = self.builder.get_insert_block();
+
+        // 2. 建立新函数的环境
         let entry_block = self.context.append_basic_block(llvm_func, "entry");
         self.builder.position_at_end(entry_block);
-        self.locals.clear();
 
+        // 分配参数
         for (i, param) in func.params.iter().enumerate() {
             let param_val = llvm_func.get_nth_param(i as u32).unwrap();
             let param_ty = self.get_llvm_type(param.ty);
@@ -20,15 +29,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.locals.insert(param.name, alloca);
         }
 
+        // 3. 编译函数体 (Block)
         if let Some(body) = &func.body {
-            // 1. 捕获 Block 执行完抛出的最后那个值 (比如 test3 里的 0)
             let block_res = self.compile_block(body);
 
             let current_block = self.builder.get_insert_block().unwrap();
             if current_block.get_terminator().is_none() {
-                // 2. 自动生成 ret 指令 (拦截虚假的 Void 返回值)
+                // 自动生成 ret 指令 (拦截虚假的 Void 返回值)
                 if self.is_void_type(func.ret_ty) {
-                    // 如果函数是 void 签名，无论 block 抛出了什么假数据，统统 ret void
                     self.builder.build_return(None).unwrap();
                 } else if let Some(val) = block_res {
                     self.builder.build_return(Some(&val)).unwrap();
@@ -36,6 +44,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.builder.build_unreachable().unwrap();
                 }
             }
+        }
+
+        // ==========================================
+        // 4. 现场恢复 (Restore Caller Context)
+        // 保证宿主函数的 defer、break 和后续 IR 生成完全正常
+        // ==========================================
+        self.locals = saved_locals;
+        self.loop_targets = saved_loop_targets;
+        if let Some(block) = saved_insert_block {
+            self.builder.position_at_end(block);
+        } else {
+            self.builder.clear_insertion_position();
         }
     }
 

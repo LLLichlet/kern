@@ -106,6 +106,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         match &decl.kind {
             DeclKind::Function {
                 generics,
+                where_clauses, 
                 params,
                 ret_type,
                 body,
@@ -122,6 +123,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     parent_impl,
                     force_extern || *is_extern,
                     &combined_generics,
+                    where_clauses, 
                     params,
                     ret_type,
                     body,
@@ -145,10 +147,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 generics,
                 target,
                 is_extern,
+                where_clauses,
                 bounds,
             } => self.collect_type_alias_or_struct(
                 decl,
                 vis,
+                where_clauses,
                 bounds,
                 force_extern || *is_extern,
                 generics,
@@ -156,10 +160,11 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             ),
             DeclKind::Impl {
                 generics,
+                where_clauses,
                 target_type,
                 trait_type,
                 decls,
-            } => self.collect_impl(decl, generics, target_type, trait_type, decls),
+            } => self.collect_impl(decl, generics, where_clauses, target_type, trait_type, decls),
             DeclKind::ExternBlock { .. } => {
                 // Extern 块是一种特殊的顶层容器，必须在 collect_ast 级别被展开平铺。
                 // 如果走到这里，说明出现了非法的嵌套（例如 impl 块内部嵌套了 extern 块）。
@@ -182,6 +187,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         parent_impl: Option<DefId>,
         is_extern: bool,
         generics: &[ast::GenericParam],
+        where_clauses: &[ast::WhereClause],
         params: &[ast::FuncParam],
         ret_type: &ast::TypeNode,
         body: &Option<Box<ast::Expr>>,
@@ -219,6 +225,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             vis,
             parent: parent_impl.or(self.current_module),
             generics: generics.to_vec(),
+            where_clauses: where_clauses.to_vec(),
             params: actual_params,
             ret_type: ret_type.clone(),
             body: body.clone(),
@@ -299,6 +306,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         &mut self,
         decl: &Decl,
         vis: Visibility,
+        where_clauses: &[ast::WhereClause],
         bounds: &[ast::TypeNode],
         is_extern: bool,
         generics: &[ast::GenericParam],
@@ -315,6 +323,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     name: decl.name,
                     vis,
                     generics: generics.to_vec(),
+                    where_clauses: where_clauses.to_vec(),
                     fields: fields.clone(),
                     is_extern,
                     span: decl.span,
@@ -328,6 +337,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     name: decl.name,
                     vis,
                     generics: generics.to_vec(),
+                    where_clauses: where_clauses.to_vec(),
                     fields: fields.clone(),
                     span: decl.span,
                 })
@@ -342,6 +352,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     name: decl.name,
                     vis,
                     generics: generics.to_vec(),
+                    where_clauses: where_clauses.to_vec(),
                     backing_type: backing_type.clone(),
                     variants: variants.clone(),
                     span: decl.span,
@@ -354,20 +365,24 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     name: decl.name,
                     vis,
                     generics: generics.to_vec(),
+                    where_clauses: where_clauses.to_vec(),
                     supertraits: bounds.to_vec(),
                     methods: fields.clone(),
                     resolved_methods: Vec::new(),
+                    resolved_supertraits: Vec::new(),
                     is_builtin: false,
                     span: decl.span,
                 })
             }
             _ => {
                 // 真正的类型别名，例如 `type MyInt = i32;`
+                // 或者是带泛型和 where 的别名: `type SafePtr[T] where T: Alloc = *mut T;`
                 Def::TypeAlias(TypeAliasDef {
                     id: def_id,
                     name: decl.name,
                     vis,
                     generics: generics.to_vec(),
+                    where_clauses: where_clauses.to_vec(),
                     target: target.clone(),
                     span: decl.span,
                 })
@@ -393,6 +408,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         &mut self,
         decl: &Decl,
         generics: &[ast::GenericParam],
+        where_clauses: &[ast::WhereClause],
         target_type: &ast::TypeNode,
         trait_type: &Option<ast::TypeNode>,
         decls: &[Decl],
@@ -403,6 +419,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             id: impl_id,
             parent_module: self.current_module,
             generics: generics.to_vec(),
+            where_clauses: where_clauses.to_vec(),
             target_type: target_type.clone(),
             trait_type: trait_type.clone(),
             methods: Vec::new(),

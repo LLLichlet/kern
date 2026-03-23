@@ -97,6 +97,7 @@ pub struct FunctionDef {
     pub vis: Visibility,
     pub parent: Option<DefId>, // 所属的 Module 或 Impl 块
     pub generics: Vec<ast::GenericParam>,
+    pub where_clauses: Vec<ast::WhereClause>,
     pub params: Vec<ast::FuncParam>,
     pub ret_type: ast::TypeNode, // AST 类型，等待 Resolve Pass 转换为 TypeId
     pub body: Option<Box<ast::Expr>>,
@@ -114,6 +115,7 @@ pub struct StructDef {
     pub name: SymbolId,
     pub vis: Visibility,
     pub generics: Vec<ast::GenericParam>,
+    pub where_clauses: Vec<ast::WhereClause>,
     pub fields: Vec<ast::StructFieldDef>,
     pub is_extern: bool,
     pub span: Span,
@@ -126,6 +128,7 @@ pub struct UnionDef {
     pub name: SymbolId,
     pub vis: Visibility,
     pub generics: Vec<ast::GenericParam>,
+    pub where_clauses: Vec<ast::WhereClause>,
     pub fields: Vec<ast::StructFieldDef>,
     pub span: Span,
 }
@@ -136,6 +139,7 @@ pub struct EnumDef {
     pub name: SymbolId,
     pub vis: Visibility,
     pub generics: Vec<ast::GenericParam>,
+    pub where_clauses: Vec<ast::WhereClause>,
     pub backing_type: Option<Box<ast::TypeNode>>,
     pub variants: Vec<ast::EnumVariant>,
     pub span: Span,
@@ -147,7 +151,9 @@ pub struct TraitDef {
     pub name: SymbolId,
     pub vis: Visibility,
     pub generics: Vec<ast::GenericParam>,
+    pub where_clauses: Vec<ast::WhereClause>,
     pub supertraits: Vec<ast::TypeNode>,
+    pub resolved_supertraits: Vec<TypeId>,
     // 特征中定义的方法契约
     pub methods: Vec<ast::StructFieldDef>,
     pub resolved_methods: Vec<(SymbolId, TypeId)>,
@@ -161,6 +167,7 @@ pub struct TypeAliasDef {
     pub name: SymbolId,
     pub vis: Visibility,
     pub generics: Vec<ast::GenericParam>,
+    pub where_clauses: Vec<ast::WhereClause>,
     pub target: ast::TypeNode,
     pub span: Span,
 }
@@ -170,6 +177,7 @@ pub struct ImplDef {
     pub id: DefId,
     pub parent_module: Option<DefId>,
     pub generics: Vec<ast::GenericParam>,
+    pub where_clauses: Vec<ast::WhereClause>,
     pub target_type: ast::TypeNode,
     pub trait_type: Option<ast::TypeNode>,
     // 收集属于该 impl 块的所有方法的 DefId

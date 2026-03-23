@@ -109,6 +109,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             (params.clone(), *ret)
         } else {
+            self.ctx.emit_ice(body.span, "Kern ICE (Lowering): Lambda expression does not have a Function type.");
             unreachable!()
         };
 
@@ -121,9 +122,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
         }
 
-        // 暂时“屏蔽”外部所有的局部变量
-        // 通过将 local_types 替换为全新的栈，Lambda 内部在降级时将绝对看不见外部变量。
+        // ==========================================
+        // 全面保护并清空外部上下文 (Context Isolation)
+        // ==========================================
         let saved_local_types = std::mem::take(&mut self.local_types);
+        let saved_defer_stack = std::mem::take(&mut self.defer_stack);
+        let saved_loop_frames = std::mem::take(&mut self.loop_frames);
+        let saved_local_statics = std::mem::take(&mut self.local_statics);
 
         // 为 Lambda 开启自己独有的局部作用域
         self.local_types.push(HashMap::new());
@@ -139,8 +144,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.local_types.pop();
 
+        // ==========================================
         // 恢复外部的作用域
+        // ==========================================
         self.local_types = saved_local_types;
+        self.defer_stack = saved_defer_stack;
+        self.loop_frames = saved_loop_frames;
+        self.local_statics = saved_local_statics;
 
         // 4. 将提取出的逻辑打包成一个全局的 MastFunction
         let mast_fn = MastFunction {
@@ -297,14 +307,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let (def_id, args) = if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(norm_target_ty).clone() {
                 (id, args)
             } else {
+                self.ctx.emit_ice(target.span, "Kern ICE (Lowering): Target type is an Enum but failed to destruct TypeKind::Enum.");
                 unreachable!()
             };
-            let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] { d.clone() } else { unreachable!() };
+            
+            let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] { 
+                d.clone() 
+            } else { 
+                self.ctx.emit_ice(target.span, format!("Kern ICE (Lowering): DefId {} is not an Enum Definition.", def_id.0));
+                unreachable!() 
+            };
+            
             let pure = self.is_pure_enum(&def);
             let m_id = if !pure { self.instantiate_data(def_id, &args) } else { MonoId(0) };
             (Some(m_id), args, Some(def), pure)
         } else {
-            (None, vec![], None, true) // 对于普通整数，可以视为 Pure
+            (None, vec![], None, true) // 对于普通整数视作 None
         };
 
         // 2. 确定给 LLVM switch 指令用的 target 值 (u128/u32)
@@ -338,7 +356,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         if is_adt {
                             // 对于 ADT，普通值只能是 EnumLiteral，需要转化为对应的 Tag Index
                             if let ExprKind::EnumLiteral(variant_name) = &val_expr.kind {
-                                let tag_idx = adt_def.as_ref().unwrap().variants.iter().position(|v| v.name == *variant_name).unwrap();
+                                let tag_idx = match adt_def.as_ref().unwrap().variants.iter().position(|v| v.name == *variant_name) {
+                                    Some(idx) => idx,
+                                    None => {
+                                        self.ctx.emit_ice(val_expr.span, format!("Kern ICE (Lowering): Variant `{}` not found in enum.", self.ctx.resolve(*variant_name)));
+                                        unreachable!()
+                                    }
+                                };
                                 case_vals.push(tag_idx as u128);
                             }
                         } else {
@@ -427,12 +451,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // 如果不是 Pure 且用户要求绑定变量，提取负载
         if !is_pure {
             if let Some(bind_pattern) = binding {
-                let mut payload_ty = self
-                    .ctx
-                    .node_types
-                    .get(&variant_def.payload_type.as_ref().unwrap().id)
-                    .copied()
-                    .unwrap();
+                let payload_type_id = match &variant_def.payload_type {
+                    Some(ast) => ast.id,
+                    None => {
+                        self.ctx.emit_ice(arm.span, format!("Kern ICE (Lowering): Attempted to bind payload to a variant `{}` without a payload.", self.ctx.resolve(variant_def.name)));
+                        unreachable!()
+                    }
+                };
+
+                let mut payload_ty = self.ctx.node_types.get(&payload_type_id).copied().unwrap_or(TypeId::ERROR);
 
                 if !def_generics.is_empty() && !gen_args.is_empty() {
                     let mut var_map = HashMap::new();
@@ -453,10 +480,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     arm.span,
                 );
 
-                let target_union_id = *self
-                    .adt_union_map
-                    .get(&mono_id)
-                    .expect("Missing Enum mapping");
+                let target_union_id = match self.adt_union_map.get(&mono_id) {
+                    Some(&id) => id,
+                    None => {
+                        self.ctx.emit_ice(arm.span, "Kern ICE (Lowering): Missing Enum Union payload mapping in adt_union_map.");
+                        unreachable!()
+                    }
+                };
 
                 let payload_extract = MastExpr::new(
                     payload_ty,
@@ -526,10 +556,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut defer_stmts = Vec::new();
 
         // 获取当前所属循环的起始栈深度
-        let boundary = *self
-            .loop_frames
-            .last()
-            .expect("Kern Sema failed to catch jump outside of loop");
+        let boundary = match self.loop_frames.last() {
+            Some(&b) => b,
+            None => {
+                self.ctx.emit_ice(span, "Kern ICE (Lowering): `break` or `continue` found outside of any loop frame! Sema missed this context check.");
+                unreachable!()
+            }
+        };
 
         // 从当前栈顶一路向下倒序提取 defer，直到达到循环的边界
         for stack in self.defer_stack[boundary..].iter().rev() {

@@ -12,10 +12,18 @@ pub struct Decl {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct WhereClause {
+    pub span: Span,
+    pub target_ty: TypeNode,
+    pub bounds: Vec<TypeNode>, // 通常是 TypeKind::Path (Trait的路径)
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum DeclKind {
     /// `fn name[T](...) Ret { ... }`
     Function {
         generics: Vec<GenericParam>,
+        where_clauses: Vec<WhereClause>,
         params: Vec<FuncParam>,
         ret_type: TypeNode,
         body: Option<Box<Expr>>, // Block
@@ -35,6 +43,7 @@ pub enum DeclKind {
     TypeAlias {
         generics: Vec<GenericParam>,
         bounds: Vec<TypeNode>,
+        where_clauses: Vec<WhereClause>,
         target: TypeNode,
         is_extern: bool,
     },
@@ -59,6 +68,7 @@ pub enum DeclKind {
     /// Impl 块
     Impl {
         generics: Vec<GenericParam>,
+        where_clauses: Vec<WhereClause>,
         target_type: TypeNode,
         trait_type: Option<TypeNode>,
         decls: Vec<Decl>,
@@ -98,6 +108,5 @@ pub struct FuncParam {
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParam {
     pub name: SymbolId,
-    pub constraints: Vec<TypeNode>,
     pub span: Span,
 }

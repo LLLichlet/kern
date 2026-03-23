@@ -14,6 +14,8 @@ pub struct SemaContext<'a> {
     pub type_registry: TypeRegistry,
     // 记录每个 AST 节点推导出的最终类型
     pub node_types: HashMap<NodeId, TypeId>,
+    // 用于临时存储当前作用域下泛型参数的 Trait 约束 (Bounds)
+    pub active_bounds: Vec<(TypeId, Vec<TypeId>)>,
 
     // 3. 符号与作用域系统
     pub defs: Vec<Def>,
@@ -31,6 +33,7 @@ impl<'a> SemaContext<'a> {
             sess,
             type_registry: TypeRegistry::new(),
             node_types: HashMap::new(),
+            active_bounds: Vec::new(),
             defs: Vec::new(),
             scopes: SymbolTable::new(),
             module_aliases: HashMap::new(),

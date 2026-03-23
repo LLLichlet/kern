@@ -107,8 +107,10 @@ impl<'a> Parser<'a> {
         let mut left = self.parse_prefix(prefix_token)?;
 
         while precedence < Precedence::from_token(self.peek().tag) {
-            // 防止后缀 `.{` 贪婪吞噬下一行的前缀 `.{`
-            if self.peek().tag == TokenType::DotLBrace {
+            let next_tag = self.peek().tag;
+
+            // 1. 防止后缀 `.{` 贪婪吞噬下一行的前缀 `.{`
+            if next_tag == TokenType::DotLBrace {
                 // 只有标识符、路径访问或泛型，才有资格做 `Type.{}` 的左前缀
                 let is_type_prefix = matches!(
                     left.kind,
@@ -119,6 +121,21 @@ impl<'a> Parser<'a> {
                 if !is_type_prefix {
                     break; // 停止粘合,让下一行去作为独立的 `.{ ... }` 解析
                 }
+            }
+
+            // 2. 防止无返回值的控制流块贪婪吞噬下一行
+            // 在 Kern 中，for、无 else 的 if、无尾表达式的 block 必然计算为 void。
+            // 它们不可能作为左操作数参与任何中缀运算（比如函数调用 (、算术 + 等）。
+            // 遇到它们直接 break，从而解决大括号后未加分号时被下一行误认为函数调用的二义性
+            let is_manifestly_void = match &left.kind {
+                ExprKind::For { .. } => true,
+                ExprKind::If { else_branch: None, .. } => true, // 没有 else 的 if 必定为 void
+                ExprKind::Block { result: None, .. } => true,   // 没有 result 的 block 必定为 void
+                _ => false,
+            };
+
+            if is_manifestly_void {
+                break;
             }
 
             let op_token = self.advance();

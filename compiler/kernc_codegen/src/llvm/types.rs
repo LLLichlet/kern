@@ -1,14 +1,13 @@
-// compiler/kernc_codegen/src/types.rs
-
 use super::CodeGenerator;
 use inkwell::AddressSpace;
 use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::BasicValueEnum;
 use kernc_mast::MonoId;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
+use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    pub fn get_llvm_type(&self, ty: TypeId) -> BasicTypeEnum<'ctx> {
+    pub fn get_llvm_type(&mut self, ty: TypeId) -> BasicTypeEnum<'ctx> {
         let norm = self.type_registry.normalize(ty);
 
         match self.type_registry.get(norm).clone() {
@@ -19,7 +18,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::I64
                 | PrimitiveType::U64
                 | PrimitiveType::ISize
-                | PrimitiveType::USize => self.context.i64_type().into(),
+                | PrimitiveType::USize => {
+                    let ptr_bits = self.sess.target.pointer_size as u32 * 8;
+                    self.context.custom_width_int_type(ptr_bits).into()
+                },
                 PrimitiveType::I128 | PrimitiveType::U128 => self.context.i128_type().into(),
                 PrimitiveType::F32 => self.context.f32_type().into(),
                 PrimitiveType::F64 => self.context.f64_type().into(),
@@ -60,15 +62,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             TypeKind::Def(def_id, args) | TypeKind::Enum(def_id, args) => {
                 if def_id.0 as usize >= self.ctx_defs.len() {
-                    return self
-                        .structs
-                        .get(&MonoId(def_id.0))
-                        .unwrap()
-                        .as_basic_type_enum();
+                    if let Some(s) = self.structs.get(&MonoId(def_id.0)) {
+                        return s.as_basic_type_enum();
+                    }
+                    self.sess.emit_ice(Span::default(), format!("Struct DefId {} not found in LLVM structs map", def_id.0));
+                    unreachable!()
                 }
 
                 let def = &self.ctx_defs[def_id.0 as usize];
-                let mut mangled_name = (self.ctx_resolve)(def.name().unwrap()).to_string();
+                let mut mangled_name = self.resolve_symbol(def.name().unwrap()).to_string();
                 for arg in args {
                     mangled_name.push_str(&format!("_{}", arg.0));
                 }
@@ -81,7 +83,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             TypeKind::EnumPayload(def_id, args) => {
                 let def = &self.ctx_defs[def_id.0 as usize];
-                let mut mangled_name = (self.ctx_resolve)(def.name().unwrap()).to_string();
+                let mut mangled_name = self.resolve_symbol(def.name().unwrap()).to_string();
                 for arg in args {
                     mangled_name.push_str(&format!("_{}", arg.0));
                 }
@@ -94,16 +96,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
             TypeKind::TypeVar(vid) => {
-                panic!(
-                    "Kern ICE: Unresolved TypeVar `?T{}` leaked into LLVM Codegen! Sema missed it.",
-                    vid
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!("Unresolved TypeVar `?T{}` leaked into LLVM Codegen! Semantic Analyzer missed it.", vid)
                 );
+                unreachable!()
             }
-            _ => unreachable!(
-                "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}",
-                norm,
-                self.type_registry.get(norm)
-            ),
+            _ => {
+                self.sess.emit_ice(
+                    Span::default(), 
+                    format!("Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}", norm, self.type_registry.get(norm))
+                );
+                unreachable!()
+            }
         }
     }
 

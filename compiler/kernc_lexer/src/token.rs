@@ -49,6 +49,7 @@ pub enum TokenType {
     SelfValue,
     Match, // match
     Mod,
+    Where,
 
     // === 运算符 ===
 

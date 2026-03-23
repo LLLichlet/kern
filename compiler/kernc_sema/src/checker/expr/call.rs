@@ -1,6 +1,6 @@
 use super::ExprChecker;
 use crate::checker::Substituter;
-use crate::def::Def;
+use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::{TypeId, TypeKind};
@@ -57,7 +57,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
 
             if is_method && !params.is_empty() {
-                self.check_method_receiver(params[0], receiver_ty, callee.span);
+                let expected_self = params[0];
+                self.check_method_receiver(expected_self, receiver_ty, callee.span);
+                if receiver_ty != expected_self {
+                    if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
+                        self.ctx.node_types.insert(lhs.id, expected_self);
+                    }
+                }
             }
 
             self.check_call_arguments(args, &params, is_method, is_variadic);
@@ -133,8 +139,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             // 1. 优先从 Receiver (比如 list.push) 推导
             if is_method && !raw_params.is_empty() {
-                let stripped_recv = self.resolve_tv(receiver_ty);
-                self.unify(raw_params[0], stripped_recv, &mut map);
+                let mut stripped_recv = self.resolve_tv(receiver_ty);
+                let expected_recv = self.resolve_tv(raw_params[0]);
+                if let TypeKind::Pointer { is_mut: false, .. } = self.ctx.type_registry.get(expected_recv) {
+                    if let TypeKind::Pointer { is_mut: true, elem } = self.ctx.type_registry.get(stripped_recv).clone() {
+                        stripped_recv = self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem });
+                    }
+                } else if let TypeKind::VolatilePtr { is_mut: false, .. } = self.ctx.type_registry.get(expected_recv) {
+                    if let TypeKind::VolatilePtr { is_mut: true, elem } = self.ctx.type_registry.get(stripped_recv).clone() {
+                        stripped_recv = self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: false, elem });
+                    }
+                }
+
+                self.unify(expected_recv, stripped_recv, &mut map);
             }
 
             // 2. 从实参推导
@@ -401,7 +418,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        self.check_generic_bounds(span, &generics, &arg_tys);
+        self.check_generic_bounds(span, def_id, &generics, &arg_tys);
 
         if matches!(self.ctx.type_registry.get(target_norm), TypeKind::FnDef(..)) {
             self.ctx
@@ -417,40 +434,60 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn check_generic_bounds(
         &mut self,
         span: Span,
+        def_id: DefId,
         generics: &[ast::GenericParam],
         arg_tys: &[TypeId],
     ) {
+        // 1. 提取实体的 Where 子句
+        let where_clauses = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(f) => f.where_clauses.clone(),
+            Def::Struct(s) => s.where_clauses.clone(),
+            Def::Union(u) => u.where_clauses.clone(),
+            Def::TypeAlias(t) => t.where_clauses.clone(),
+            Def::Impl(i) => i.where_clauses.clone(),
+            Def::Enum(e) => e.where_clauses.clone(),
+            Def::Trait(t) => t.where_clauses.clone(),
+            _ => return,
+        };
+
+        if where_clauses.is_empty() { return; }
+
+        // 2. 构建泛型实参映射表 (T -> Allocator)
+        let mut map = std::collections::HashMap::new();
         for (i, param) in generics.iter().enumerate() {
-            if i >= arg_tys.len() {
-                break;
+            if i < arg_tys.len() {
+                map.insert(param.name, arg_tys[i]);
             }
-            let act_ty = arg_tys[i];
+        }
 
-            for constraint_node in &param.constraints {
-                let constraint_ty = self
-                    .ctx
-                    .node_types
-                    .get(&constraint_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+        // 3. 收集需要检查的类型对
+        let mut pairs_to_check = Vec::new();
+        {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+            
+            for clause in where_clauses {
+                let original_target = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+                let sub_target = subst.substitute(original_target);
 
-                if constraint_ty != TypeId::ERROR {
-                    if !self.check_trait_impl(act_ty, constraint_ty) {
-                        let param_name = self.ctx.resolve(param.name);
-                        let req_str = self.ctx.ty_to_string(constraint_ty);
-                        let act_str = self.ctx.ty_to_string(act_ty);
-                        self.ctx
-                            .struct_error(
-                                span,
-                                format!(
-                                    "type does not satisfy trait bounds for generic parameter `{}`",
-                                    param_name
-                                ),
-                            )
-                            .with_hint(format!("required trait: `{}`", req_str))
-                            .with_hint(format!("provided type: `{}`", act_str))
-                            .emit();
-                    }
+                for bound_ast in clause.bounds {
+                    let original_bound = self.ctx.node_types.get(&bound_ast.id).copied().unwrap_or(TypeId::ERROR);
+                    let sub_bound = subst.substitute(original_bound);
+                    
+                    pairs_to_check.push((sub_target, sub_bound));
+                }
+            }
+        }
+
+        // 4. 执行特征检查
+        for (sub_target, sub_bound) in pairs_to_check {
+            if sub_target != TypeId::ERROR && sub_bound != TypeId::ERROR {
+                if !self.check_trait_impl(sub_target, sub_bound) {
+                    let req_str = self.ctx.ty_to_string(sub_bound);
+                    let act_str = self.ctx.ty_to_string(sub_target);
+                    self.ctx
+                        .struct_error(span, "type does not satisfy trait bounds")
+                        .with_hint(format!("required bound: `{}: {}`", act_str, req_str))
+                        .emit();
                 }
             }
         }

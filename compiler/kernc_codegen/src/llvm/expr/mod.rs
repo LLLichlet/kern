@@ -20,10 +20,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.builder.build_unreachable().unwrap();
                 self.get_undef_val(self.context.i8_type().into())
             }
-            MastExprKind::Integer(val) => expected_llvm_ty
-                .into_int_type()
-                .const_int(*val as u64, false)
-                .into(),
+            MastExprKind::Integer(val) => {
+                // 如果吸收上下文后，它变成了一个指针类型
+                if expected_llvm_ty.is_pointer_type() {
+                    let ptr_ty = expected_llvm_ty.into_pointer_type();
+                    if *val == 0 {
+                        // 语义为 NULL 空指针
+                        ptr_ty.const_null().into()
+                    } else {
+                        // 语义为硬编码物理地址 (例如 MMIO 0xb8000)，生成 IntToIntPtr 转换
+                        let int_val = self.context.i64_type().const_int(*val as u64, false);
+                        self.builder.build_int_to_ptr(int_val, ptr_ty, "ptr_lit").unwrap().into()
+                    }
+                } else {
+                    // 常规的整数生成
+                    expected_llvm_ty.into_int_type().const_int(*val as u64, false).into()
+                }
+            }
             MastExprKind::Float(val) => expected_llvm_ty.into_float_type().const_float(*val).into(),
             MastExprKind::Bool(val) => self
                 .context
@@ -33,7 +46,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MastExprKind::StringLiteral(_) => unreachable!("Handled dynamically in Globals"),
 
             // === 2. 引用与解引用 ===
-            MastExprKind::Var(name) => self.compile_var_ref(*name, expected_llvm_ty),
+            MastExprKind::Var(name) => self.compile_var_ref(*name, expected_llvm_ty, expr.span),
             MastExprKind::GlobalRef(mono_id) => self.compile_global_ref(*mono_id, expected_llvm_ty),
             MastExprKind::FuncRef(mono_id) => self.compile_func_ref(*mono_id),
             MastExprKind::AddressOf(operand) => {

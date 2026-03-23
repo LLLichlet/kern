@@ -99,6 +99,11 @@ impl CompilerDriver {
         let mut lowerer = Lowerer::new(&mut ctx);
         let mast_module = lowerer.lower_all();
 
+        if ctx.has_errors() {
+            ctx.sess.print_diagnostics();
+            return false;
+        }
+
         // 7. 后端代码生成
         let codegen_ctx = Context::create();
         let mod_name = std::path::Path::new(&self.options.input_file)
@@ -107,14 +112,12 @@ impl CompilerDriver {
             .to_str()
             .unwrap_or("kern_module");
 
-        let resolve_fn = |sym| ctx.sess.interner.resolve(sym).unwrap_or("<unknown>");
-
         let mut codegen = CodeGenerator::new(
             &codegen_ctx,
             mod_name,
-            &ctx.type_registry,
-            &ctx.defs,
-            &resolve_fn,
+            &mut *ctx.sess,      
+            &ctx.type_registry,  
+            &ctx.defs,          
         );
 
         codegen.asm_dialect = match self.options.asm_dialect {

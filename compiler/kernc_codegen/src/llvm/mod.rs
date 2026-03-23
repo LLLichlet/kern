@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use kernc_mast::*;
 use kernc_sema::def::Def;
 use kernc_sema::ty::TypeRegistry;
-use kernc_utils::SymbolId;
+use kernc_utils::Session;
 use kernc_utils::config::OptLevel;
 
 mod block;
@@ -22,9 +22,9 @@ pub struct CodeGenerator<'ctx, 'a> {
     pub builder: Builder<'ctx>,
     pub module: LlvmModule<'ctx>,
 
+    pub sess: &'a mut Session,
     pub type_registry: &'a TypeRegistry,
     pub ctx_defs: &'a Vec<Def>,
-    pub ctx_resolve: &'a dyn Fn(kernc_utils::SymbolId) -> &'a str,
 
     pub structs: HashMap<MonoId, StructType<'ctx>>,
     pub union_ids: std::collections::HashSet<MonoId>,
@@ -43,17 +43,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub fn new(
         context: &'ctx LlvmContext,
         module_name: &str,
+        sess: &'a mut Session,
         type_registry: &'a TypeRegistry,
         ctx_defs: &'a Vec<Def>,
-        ctx_resolve: &'a dyn Fn(SymbolId) -> &'a str,
     ) -> Self {
         Self {
             context,
             builder: context.create_builder(),
             module: context.create_module(module_name),
+            sess,
             type_registry,
             ctx_defs,
-            ctx_resolve,
             structs: HashMap::new(),
             union_ids: std::collections::HashSet::new(),
             globals: HashMap::new(),
@@ -138,5 +138,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .map_err(|e| e.to_string())?;
 
         Ok(())
+    }
+
+    pub fn resolve_symbol(&self, sym: kernc_utils::SymbolId) -> &str {
+        self.sess.interner.resolve(sym).unwrap_or("<unknown>")
     }
 }

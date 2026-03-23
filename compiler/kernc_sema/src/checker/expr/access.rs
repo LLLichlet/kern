@@ -140,64 +140,67 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        let current_norm = self.get_base_type(lhs_ty);
+        let lhs_norm = self.resolve_tv(lhs_ty);
+        
+        // 1. 获取解引用后的基础类型（Struct/Union/Enum/Module），仅用于模块判定和最后兜底的字段查找
+        let base_norm = self.get_base_type(lhs_ty);
 
-        // 基于类型系统处理多级模块访问
-        if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(current_norm).clone() {
+        // 2. 基于类型系统处理多级模块访问
+        // 模块不会包裹在指针里，所以用 base_norm 查是安全的
+        if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(base_norm).clone() {
             let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                 m.scope_id
-            } else {
-                unreachable!()
-            };
-
+            } else { unreachable!() };
             if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field) {
                 let real_ty = if target_info.kind == SymbolKind::Function {
                     self.ctx.type_registry.intern(TypeKind::FnDef(target_info.def_id.unwrap(), vec![]))
                 } else if target_info.kind == SymbolKind::Module {
-                    // 如果连续访问子模块 (比如 std.io 中的 io)，返回子模块类型
                     self.ctx.type_registry.intern(TypeKind::Module(target_info.def_id.unwrap()))
-                } else {
-                    target_info.type_id
-                };
+                } else { target_info.type_id };
                 
-                // 缓存类型推导结果到 AST 节点
                 let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
                 self.ctx.node_types.insert(lhs.id, mod_ty);
                 return real_ty;
             } else {
                 let field_name = self.ctx.resolve(field);
-                self.ctx
-                    .struct_error(
-                        span,
-                        format!("module has no public member `{}`", field_name),
-                    )
-                    .emit();
+                self.ctx.struct_error(span, format!("module has no public member `{}`", field_name)).emit();
                 return TypeId::ERROR;
             }
         }
 
-        // 2. 如果是 Trait Object，走虚表方法解析路径
-        if let TypeKind::TraitObject(trait_def_id, trait_args) =
-            self.ctx.type_registry.get(current_norm).clone()
-        {
-            return self.resolve_trait_object_method(trait_def_id, &trait_args, field, lhs_ty, span);
+        // === 核心修复：构造正确的查找备选队列 ===
+        // 队列优先级：精确类型匹配 -> 降级不可变指针 -> 隐式解引用(Auto-deref)字段访问
+        let mut search_tys = vec![lhs_norm];
+
+        // 3. 如果是可变类型，自动推入不可变版本作为 Fallback
+        // 现在的 lhs_norm 带有完整的指针上下文，你的降级逻辑被成功激活了！
+        match self.ctx.type_registry.get(lhs_norm).clone() {
+            TypeKind::Pointer { is_mut: true, elem } => {
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem }));
+            }
+            TypeKind::VolatilePtr { is_mut: true, elem } => {
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: false, elem }));
+            }
+            TypeKind::Slice { is_mut: true, elem } => {
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::Slice { is_mut: false, elem }));
+            }
+            _ => {}
         }
 
-        // 3. 如果是具名类型 (Struct/Union/Enum)，查找字段或变体
-        if let TypeKind::Def(def_id, generic_args) =
-            self.ctx.type_registry.get(current_norm).clone()
-        {
-            if let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field) {
-                return field_ty;
+        // 4. 推入解引用后的基础类型
+        // 如果我们是在指针上调用 struct 的内部字段，靠这个兜底
+        if !search_tys.contains(&base_norm) {
+            search_tys.push(base_norm);
+        }
+
+        // 5. 按顺序逐级查找，一旦找到立刻返回
+        for search_norm in search_tys {
+            if let Some(ty) = self.try_find_field_or_method_silent(search_norm, lhs_ty, field) {
+                return ty;
             }
         }
 
-        // 4. 作为最后的 fallback，去全局的 impl 块中查找方法
-        if let Some(method_ty) = self.resolve_impl_method(lhs_ty, field) {
-            return method_ty;
-        }
-
-        // 5. 全部失败，抛出详细诊断
+        // 全部失败，抛出详细诊断
         let field_str = self.ctx.resolve(field);
         let lhs_str = self.ctx.ty_to_string(lhs_ty);
 
@@ -211,6 +214,85 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .emit();
 
         TypeId::ERROR
+    }
+
+    /// 助手 2.5：静默查找字段或方法 (不报错，查不到返回 None)
+    fn try_find_field_or_method_silent(&mut self, search_norm: TypeId, lhs_ty: TypeId, field: SymbolId) -> Option<TypeId> {
+        // 1. 如果是 Trait Object
+        if let TypeKind::TraitObject(trait_def_id, trait_args) = self.ctx.type_registry.get(search_norm).clone() {
+            if let Some(m) = self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty) {
+                return Some(m);
+            }
+        }
+
+        // 2. 如果是具名类型 (Struct/Union/Enum)
+        if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone() {
+            if let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field) {
+                return Some(field_ty);
+            }
+        }
+
+        // 3. 检查 active_bounds 环境约束
+        for i in 0..self.ctx.active_bounds.len() {
+            let (env_target, bounds) = self.ctx.active_bounds[i].clone();
+            let env_norm = self.resolve_tv(env_target);
+            if env_norm == search_norm || env_target == search_norm {
+                for bound_ty in bounds {
+                    let bound_norm = self.resolve_tv(bound_ty);
+                    if let TypeKind::TraitObject(trait_def_id, trait_args) = self.ctx.type_registry.get(bound_norm).clone() {
+                        if let Some(m) = self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty) {
+                            return Some(m);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. 检查全局的 impl 块
+        if let Some(method_ty) = self.resolve_impl_method(search_norm, field) {
+            return Some(method_ty);
+        }
+
+        None
+    }
+
+    /// 静默版：解析 Trait Object 的接口方法
+    fn resolve_trait_object_method_silent(
+        &mut self,
+        trait_def_id: DefId,
+        trait_args: &[TypeId],
+        field: SymbolId,
+        receiver_ty: TypeId,
+    ) -> Option<TypeId> {
+        let trait_def = match &self.ctx.defs[trait_def_id.0 as usize] {
+            Def::Trait(t) => t.clone(),
+            _ => unreachable!(),
+        };
+
+        if let Some(&(_, mut method_ty)) = trait_def
+            .resolved_methods
+            .iter()
+            .find(|(m_name, _)| *m_name == field)
+        {
+            if let TypeKind::Function { params, ret, is_variadic } = self.ctx.type_registry.get(method_ty).clone() {
+                let mut new_params = params.clone();
+                if !new_params.is_empty() {
+                    new_params[0] = receiver_ty; // 维持调用的实际 LHS 为 receiver
+                }
+                method_ty = self.ctx.type_registry.intern(TypeKind::Function { params: new_params, ret, is_variadic });
+            }
+
+            if !trait_def.generics.is_empty() && !trait_args.is_empty() {
+                let mut map = HashMap::new();
+                for (i, param) in trait_def.generics.iter().enumerate() {
+                    map.insert(param.name, trait_args[i]);
+                }
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                method_ty = subst.substitute(method_ty);
+            }
+            return Some(method_ty);
+        }
+        None
     }
 
     pub(crate) fn check_slice_op(
@@ -288,65 +370,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 辅助方法 2：解析 Trait Object 的接口方法
-    fn resolve_trait_object_method(
-        &mut self,
-        trait_def_id: DefId,
-        trait_args: &[TypeId],
-        field: SymbolId,
-        receiver_ty: TypeId,
-        span: Span,
-    ) -> TypeId {
-        let trait_def = match &self.ctx.defs[trait_def_id.0 as usize] {
-            Def::Trait(t) => t.clone(),
-            _ => unreachable!(),
-        };
-
-        if let Some(&(_, mut method_ty)) = trait_def
-            .resolved_methods
-            .iter()
-            .find(|(m_name, _)| *m_name == field)
-        {
-            // 将原本的 SelfType(也就是 Writer) 强行替换为实际的指针类型 (*mut Writer)
-            if let TypeKind::Function {
-                params,
-                ret,
-                is_variadic,
-            } = self.ctx.type_registry.get(method_ty).clone()
-            {
-                let mut new_params = params.clone();
-                if !new_params.is_empty() {
-                    new_params[0] = receiver_ty;
-                }
-                method_ty = self.ctx.type_registry.intern(TypeKind::Function {
-                    params: new_params,
-                    ret,
-                    is_variadic,
-                });
-            }
-
-            // 泛型实例化替换
-            if !trait_def.generics.is_empty() && !trait_args.is_empty() {
-                let mut map = HashMap::new();
-                for (i, param) in trait_def.generics.iter().enumerate() {
-                    map.insert(param.name, trait_args[i]);
-                }
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                method_ty = subst.substitute(method_ty);
-            }
-            return method_ty;
-        }
-
-        let field_str = self.ctx.resolve(field);
-        self.ctx
-            .struct_error(
-                span,
-                format!("method `{}` not found in trait object", field_str),
-            )
-            .with_hint("ensure the method is explicitly declared in the trait's contract")
-            .emit();
-        TypeId::ERROR
-    }
 
     /// 辅助方法 3：解析 Struct/Union 字段或 Enum 变体
     fn resolve_def_field(

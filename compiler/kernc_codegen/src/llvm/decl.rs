@@ -4,16 +4,23 @@ use inkwell::types::BasicTypeEnum;
 use kernc_ast as ast;
 use kernc_mast::{MastExprKind, MastFunction, MastGlobal, MastStruct};
 use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub fn compile_global(&mut self, global: &MastGlobal) {
         if global.is_extern {
             return;
         }
-        let global_val = *self
-            .globals
-            .get(&global.id)
-            .expect("Global should be declared");
+        let global_val = match self.globals.get(&global.id) {
+            Some(val) => *val,
+            None => {
+                self.sess.emit_ice(
+                    kernc_utils::Span::default(), 
+                    format!("Kern ICE (Codegen): Global `{}` is in MAST but missing from LLVM globals map. `declare_globals` pass failed to register it!", global.name)
+                );
+                unreachable!()
+            }
+        };
 
         if let Some(init) = &global.init {
             let const_val: inkwell::values::BasicValueEnum<'ctx> = match &init.kind {
@@ -38,12 +45,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let mut ptr_vals = Vec::new();
                     for e in elems {
                         if let MastExprKind::FuncRef(mono_id) = e.kind {
-                            let func_val = self.functions.get(&mono_id).unwrap();
-                            ptr_vals.push(func_val.as_global_value().as_pointer_value());
+                            if let Some(func_val) = self.functions.get(&mono_id) {
+                                ptr_vals.push(func_val.as_global_value().as_pointer_value());
+                            } else {
+                                self.sess.emit_ice(e.span, "Function reference in array init not found in LLVM functions map".to_string());
+                                unreachable!()
+                            }
                         } else {
-                            // 如果不是函数引用，塞入 Null 指针
-                            ptr_vals
-                                .push(self.context.ptr_type(AddressSpace::default()).const_null());
+                            ptr_vals.push(self.context.ptr_type(AddressSpace::default()).const_null());
                         }
                     }
                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
@@ -69,18 +78,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         for s in structs {
-            let llvm_struct = self.structs.get(&s.id).unwrap();
+            let llvm_struct = match self.structs.get(&s.id) {
+                Some(st) => *st,  
+                None => {
+                    self.sess.emit_ice(kernc_utils::Span::default(), format!("Struct {} disappeared during opaque body filling", s.name));
+                    unreachable!()
+                }
+            };
 
-            // 解析 #[packed] 属性
             let is_packed = s.attributes.iter().any(|attr| {
-                matches!(attr, ast::MetaItem::Marker(id) if (self.ctx_resolve)(*id) == "packed")
+                matches!(attr, ast::MetaItem::Marker(id) if self.resolve_symbol(*id) == "packed")
             });
 
             if s.is_union {
                 let target_ty = self.get_llvm_type(s.fields[s.largest_field_idx].ty);
                 llvm_struct.set_body(&[target_ty], is_packed);
             } else {
-                // 为普通的结构体填充字段
                 let mut field_types = Vec::new();
                 for field in &s.fields {
                     field_types.push(self.get_llvm_type(field.ty));
@@ -99,7 +112,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             for attr in &g.attributes {
                 match attr {
                     ast::MetaItem::Call(id, expr) => {
-                        let name_str = (self.ctx_resolve)(*id);
+                        let name_str = self.resolve_symbol(*id);
                         if name_str == "export_name" {
                             if let ast::ExprKind::String(s) = &expr.kind {
                                 llvm_symbol_name = s.clone();
@@ -170,7 +183,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, f.is_variadic),
                     BasicTypeEnum::StructType(s) => s.fn_type(&param_types, f.is_variadic),
                     BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, f.is_variadic),
-                    _ => unreachable!("Invalid return type"),
+                    _ => {
+                        self.sess.emit_ice(Span::default(), format!("Invalid LLVM return type for function {}", f.name));
+                        unreachable!()
+                    }
                 }
             };
 
@@ -182,7 +198,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             for attr in &f.attributes {
                 match attr {
                     ast::MetaItem::Call(id, expr) => {
-                        let name_str = (self.ctx_resolve)(*id);
+                        let name_str = self.resolve_symbol(*id);
                         if name_str == "export_name" {
                             if let ast::ExprKind::String(s) = &expr.kind {
                                 llvm_symbol_name = s.clone();
@@ -194,7 +210,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         }
                     }
                     ast::MetaItem::Marker(id) => {
-                        let name_str = (self.ctx_resolve)(*id);
+                        let name_str = self.resolve_symbol(*id);
                         if name_str == "cold" {
                             is_cold = true;
                         } else if name_str == "naked" {

@@ -4,6 +4,7 @@ use kernc_sema::LayoutEngine;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, GlobalDef};
 use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_utils::Span;
 use std::collections::HashMap;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -19,29 +20,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
             f.clone()
         } else {
+            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Function!", def_id.0));
             unreachable!()
         };
 
-        // 合并父级作用域 (Impl 块) 的泛型参数
-        // 泛型参数环境 = [Impl 泛型] + [函数自身泛型]
-        let mut all_generic_params = Vec::new();
+        let all_generic_params = def.generics.clone();
 
-        // 1. 如果这个函数属于某个 Impl 块，先把它身上的 T, U 拿过来
-        if let Some(parent_id) = def.parent {
-            if let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize] {
-                all_generic_params.extend(impl_def.generics.clone());
-            }
+        if all_generic_params.len() != args.len() {
+            let fn_name = self.ctx.resolve(def.name);
+            self.ctx.emit_ice(
+                Span::default(), 
+                format!("Kern ICE (Lowering): Generics mismatch for function `{}`. Expected {}, got {}. Sema missed this.", fn_name, all_generic_params.len(), args.len())
+            );
+            unreachable!()
         }
 
-        // 2. 追加函数自身的泛型参数
-        all_generic_params.extend(def.generics.clone());
-
-        // 3. 将外部传入的具体类型 args 依次与收集到的泛型名对齐
-        assert_eq!(
-            all_generic_params.len(),
-            args.len(),
-            "Kern ICE: Generics mismatch during monomorphization. Sema missed this."
-        );
         let mut subst_map = HashMap::new();
         for (i, param) in all_generic_params.iter().enumerate() {
             subst_map.insert(param.name, args[i]);
@@ -80,6 +73,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let conc_ret = subst.substitute(raw_ret);
 
+        let saved_local_types = std::mem::take(&mut self.local_types);
+        let saved_defer_stack = std::mem::take(&mut self.defer_stack);
+        let saved_loop_frames = std::mem::take(&mut self.loop_frames);
+        let saved_local_statics = std::mem::take(&mut self.local_statics);
+
         self.local_types.push(std::collections::HashMap::new());
         for p in &mast_params {
             self.local_types
@@ -95,6 +93,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         self.local_types.pop();
+
+        self.local_types = saved_local_types;
+        self.defer_stack = saved_defer_stack;
+        self.loop_frames = saved_loop_frames;
+        self.local_statics = saved_local_statics;
 
         let mast_fn = MastFunction {
             id,
@@ -125,6 +128,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
             return self.instantiate_union(def_id, args, id);
         } else {
+            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Struct or Union!", def_id.0));
             unreachable!()
         };
 
@@ -176,6 +180,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
             u.clone()
         } else {
+            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Union!", def_id.0));
             unreachable!()
         };
 
@@ -243,6 +248,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
             a.clone()
         } else {
+            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not an Enum (Data)! ", def_id.0));
             unreachable!()
         };
 
@@ -349,10 +355,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn lower_global(&mut self, g: &GlobalDef) {
-        let id = *self
-            .global_map
-            .get(&g.id)
-            .expect("Global MonoId should be pre-allocated");
+        let id = match self.global_map.get(&g.id) {
+            Some(&id) => id,
+            None => {
+                let name = self.ctx.resolve(g.name);
+                self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): Global MonoId for `{}` missing. Phase 1 pre-allocation failed.", name));
+                unreachable!()
+            }
+        };
         let ty = self
             .ctx
             .node_types

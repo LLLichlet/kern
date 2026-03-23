@@ -11,20 +11,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         rhs: &Expr,
         expected_ty: Option<TypeId>,
     ) -> TypeId {
+        // 1. 先检查左操作数，并解析它的真实类型
         let lhs_ty = self.check_expr(lhs, expected_ty);
-        let rhs_ty = self.check_expr(rhs, Some(lhs_ty));
-
         let l_norm = self.resolve_tv(lhs_ty);
-        let r_norm = self.resolve_tv(rhs_ty);
 
-        if l_norm == TypeId::ERROR || r_norm == TypeId::ERROR {
-            return TypeId::ERROR;
-        }
-
+        // 2. 提前判断左边是不是指针
         let is_l_ptr = matches!(
             self.ctx.type_registry.get(l_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
+
+        // 3. 计算右操作数的期望类型
+        // 如果左边是指针，并且正在进行加减法，右边大概率是 usize/isize 偏移量（或另一个指针）。
+        // 此时不能把左边的“指针类型”作为上下文硬塞给右边，否则右边的整型字面量（比如 + 1）会被错误地吸化成指针
+        let rhs_expected = if is_l_ptr && (op == BinaryOperator::Add || op == BinaryOperator::Subtract) {
+            None // 切断上下文感染，让右侧自然推导为整数
+        } else {
+            Some(lhs_ty) // 对于其他操作（如 Equal, ptr == 0），依然需要上下文让 0 化身为指针
+        };
+
+        // 4. 使用修复后的期望类型去检查右操作数
+        let rhs_ty = self.check_expr(rhs, rhs_expected);
+        let r_norm = self.resolve_tv(rhs_ty);
+
+        // 5. 错误冒泡
+        if l_norm == TypeId::ERROR || r_norm == TypeId::ERROR {
+            return TypeId::ERROR;
+        }
+
+        // 6. 判断右边是不是指针
         let is_r_ptr = matches!(
             self.ctx.type_registry.get(r_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }

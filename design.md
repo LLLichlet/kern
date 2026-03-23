@@ -115,7 +115,7 @@ type Point = struct {
 };
 ```
 
-  * **Generics**: `type Point[T] = struct { x: T, y: T };`
+  * **Generics**: `type Point[T] = struct { x: T, y: T };` (See 5.6 for Trait constraints via where clauses).
   * **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
   * **Layout**: default reorder/padding for size; `extern type …` guarantees C‑compatible memory layout and alignment.
   * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority = u8.{undef};`).
@@ -218,6 +218,40 @@ let mut file = File.{ ... };
 // Assemble a mutable Trait Object from a mutable pointer
 let w = *mut Writer.{ file..& }; 
 w.write("Kern\0");
+```
+
+### 5.6 Generic Constraints (`where` clauses)
+
+Unlike some languages where generic parameter declaration and trait bounding are mixed, Kern enforces a strict separation between **generic introduction** and **type bounding** using `where` clauses. Because Kern is strictly type-oriented, constraints must explicitly specify the exact type derivation being bounded.
+
+* **Explicit Separation**: Generic parameters are introduced first (e.g., `impl[T]`), and bounds are applied via `where`.
+* **Orthogonal Pointer Constraints**: Kern's strict type system allows you to constrain different pointer derivations of the same generic type independently. For example, `where *T: TraitA, *mut T: TraitB` is entirely valid. The compiler treats each pointer level and mutability qualifier as a distinct type subject to its own traits.
+
+**Implementation Blocks with Constraints:**
+In the following example, `impl[T]` introduces the generic `T`. `*List[T] : Printable` defines that we are implementing the `Printable` trait for the type `*List[T]`. The `where` clause specifies the prerequisite: this implementation only exists if `*T` itself is `Printable`.
+
+```kern
+impl[T] *List[T] : Printable 
+    where *T: Printable,
+{
+    pub fn fmt(writer: *mut Writer) void {
+        let _ = writer.write("<List len=");
+        // ... (implementation details)
+        let _ = writer.write("]>");
+    }
+}
+```
+
+**Type Declarations with Constraints:**
+`where` clauses are also used when defining generic data structures to enforce invariants at the type level.
+
+```kern
+type Point[T] 
+    where *T: Printable
+= struct {
+    x: T,
+    y: T,
+};
 ```
 
 ## 6\. Control Flow

@@ -6,7 +6,6 @@ use kernc_utils::Span;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn get_or_create_vtable(&mut self, source_ty: TypeId, trait_ty: TypeId) -> MonoId {
-        // 1. 检查缓存，防止重复生成相同的 VTable
         let norm_source = self.ctx.type_registry.normalize(source_ty);
         let norm_trait = self.ctx.type_registry.normalize(trait_ty);
         let key = (norm_source, norm_trait);
@@ -14,29 +13,36 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return id;
         }
 
-        // 2. 解析 Trait 定义
         let trait_def_id = match self.ctx.type_registry.get(trait_ty) {
             TypeKind::TraitObject(id, _) => *id,
-            _ => unreachable!(
-                "Target must be a TraitObject, found: {:?}",
-                self.ctx.type_registry.get(trait_ty)
-            ),
+            other => {
+                self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): Target must be a TraitObject, found: {:?}", other));
+                unreachable!()
+            }
         };
+
         let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_def_id.0 as usize] {
             t.clone()
         } else {
+            self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): DefId {} is not a Trait!", trait_def_id.0));
             unreachable!()
         };
 
-        // 3. 解析来源类型的基底 (跳过多层指针) 并获取其实参
         let (base_source_ty, source_args) = self.resolve_vtable_source_base(source_ty);
 
-        // 4. 在全局 Defs 中寻找匹配的 Impl 块
-        let impl_def = self
-            .find_matching_impl_block(base_source_ty, trait_def_id)
-            .expect("Impl block must exist for valid Trait Object cast. Sema missed this.");
+        let impl_def = match self.find_matching_impl_block(base_source_ty, trait_def_id) {
+            Some(def) => def,
+            None => {
+                let src_name = self.ctx.ty_to_string(base_source_ty);
+                let trait_name = self.ctx.resolve(trait_def.name);
+                self.ctx.emit_ice(
+                    Span::default(), 
+                    format!("Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.", src_name, trait_name)
+                );
+                unreachable!()
+            }
+        };
 
-        // 5. 生成 VTable 内容并注入全局常量区
         let vtable_id = self.new_mono_id();
         self.vtable_cache.insert(key, vtable_id);
 
@@ -170,8 +176,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
 
-            let m_id = method_mono_id
-                .expect("Missing trait method implementation. Sema failed to enforce contract.");
+            let m_id = match method_mono_id {
+                Some(id) => id,
+                None => {
+                    let method_name = self.ctx.resolve(trait_method.name);
+                    self.ctx.emit_ice(
+                        Span::default(), 
+                        format!("Kern ICE (Lowering): Missing implementation for trait method `{}`. Sema failed to check trait completeness.", method_name)
+                    );
+                    unreachable!()
+                }
+            };
 
             // 将单态化后的函数指针强转为 *void 存入虚表
             vtable_methods.push(MastExpr::new(

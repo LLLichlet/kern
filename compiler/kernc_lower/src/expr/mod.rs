@@ -50,31 +50,38 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .unwrap_or(TypeId::ERROR);
                 let norm_ty = self.ctx.type_registry.normalize(expr_ty);
 
-                if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone()
-                {
-                    let mono_id = self.instantiate_function(fn_id, &fn_args);
-                    MastExprKind::FuncRef(mono_id)
-                } else {
-                    let kind = self.lower_identifier(*name);
+                // 核心修复：直接通过语义类型来判断！
+                match self.ctx.type_registry.get(norm_ty).clone() {
+                    TypeKind::FnDef(fn_id, fn_args) => {
+                        let mono_id = self.instantiate_function(fn_id, &fn_args);
+                        MastExprKind::FuncRef(mono_id)
+                    }
+                    TypeKind::Module(_) => {
+                        // 模块 (Module) 属于全局绝对命名空间，不存在闭包逃逸问题，直接放行
+                        self.lower_identifier(*name)
+                    }
+                    _ => {
+                        let kind = self.lower_identifier(*name);
 
-                    // 检测是否属于非法闭包捕获
-                    if let MastExprKind::Var(v) = kind {
-                        let mut found = false;
-                        for scope in self.local_types.iter().rev() {
-                            if scope.contains_key(&v) {
-                                found = true;
-                                break;
+                        // 对于普通变量，继续执行闭包捕获安全检测
+                        if let MastExprKind::Var(v) = kind {
+                            let mut found = false;
+                            for scope in self.local_types.iter().rev() {
+                                if scope.contains_key(&v) {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if !found {
+                                let var_str = self.ctx.resolve(v).to_string();
+                                self.ctx.struct_error(expr.span, "closures cannot capture environmental variables in Kern")
+                                    .with_hint(format!("variable `{}` belongs to an outer scope", var_str))
+                                    .with_hint("Kern anonymous functions compile directly to static C function pointers")
+                                    .emit();
                             }
                         }
-                        if !found {
-                            let var_str = self.ctx.resolve(v).to_string();
-                            self.ctx.struct_error(expr.span, "closures cannot capture environmental variables in Kern")
-                                .with_hint(format!("variable `{}` belongs to an outer scope", var_str))
-                                .with_hint("Kern anonymous functions compile directly to static C function pointers")
-                                .emit();
-                        }
+                        kind
                     }
-                    kind
                 }
             }
 

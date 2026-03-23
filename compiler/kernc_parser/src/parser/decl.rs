@@ -13,30 +13,65 @@ impl<'a> Parser<'a> {
         while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
             let name = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name);
-            let mut span = name.span;
-            let mut constraints = Vec::new();
+            let span = name.span;
 
-            if self.match_token(&[TokenType::Colon]) {
-                loop {
-                    let con = self.parse_type()?;
-                    span = span.to(con.span);
-                    constraints.push(con);
-                    if !self.match_token(&[TokenType::Plus]) {
-                        break;
-                    }
-                }
-            }
             params.push(GenericParam {
                 name: name_id,
-                constraints,
                 span,
             });
+
             if !self.match_token(&[TokenType::Comma]) {
                 break;
             }
         }
         self.expect(TokenType::RBracket)?;
         Ok(params)
+    }
+    fn parse_where_clauses(&mut self) -> ParseResult<Vec<WhereClause>> {
+        if !self.match_token(&[TokenType::Where]) {
+            return Ok(Vec::new());
+        }
+
+        let mut clauses = Vec::new();
+        
+        // 解析类似于: `where *T: TraitA + TraitB, U: TraitC`
+        loop {
+            let start_span = self.peek().span;
+            
+            // 1. 左侧：目标类型 (e.g., *mut T)
+            let target_ty = self.parse_type()?;
+            
+            // 2. 约束冒号
+            self.expect(TokenType::Colon)?;
+
+            // 3. 右侧：约束列表 (e.g., TraitA + TraitB)
+            let mut bounds = Vec::new();
+            loop {
+                bounds.push(self.parse_type()?);
+                if !self.match_token(&[TokenType::Plus]) {
+                    break;
+                }
+            }
+            
+            let end_span = self.stream.prev_span();
+            clauses.push(WhereClause {
+                span: start_span.to(end_span),
+                target_ty,
+                bounds,
+            });
+
+            // 如果没有逗号分隔，则说明 where 子句结束
+            if !self.match_token(&[TokenType::Comma]) {
+                break;
+            }
+            
+            // 兼容尾逗号 (Trailing comma)，如果紧接着是 { 或 ; 就退出
+            if self.check(TokenType::LBrace) || self.check(TokenType::Semicolon) {
+                break;
+            }
+        }
+        
+        Ok(clauses)
     }
 
     pub fn parse_func_params(&mut self) -> ParseResult<(Vec<FuncParam>, bool)> {
@@ -194,6 +229,7 @@ impl<'a> Parser<'a> {
         }
 
         let ret_type = self.parse_type()?;
+        let where_clauses = self.parse_where_clauses()?;
 
         let body = if self.check(TokenType::LBrace) {
             let brace = self.expect(TokenType::LBrace)?;
@@ -217,6 +253,7 @@ impl<'a> Parser<'a> {
             attributes: vec![],
             kind: DeclKind::Function {
                 generics,
+                where_clauses,
                 params,
                 ret_type,
                 body,
@@ -278,11 +315,14 @@ impl<'a> Parser<'a> {
         if self.match_token(&[TokenType::Colon]) {
             trait_type = Some(self.parse_type()?);
         }
+
+        let where_clauses = self.parse_where_clauses()?;
+
         self.expect(TokenType::LBrace)?;
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let attributes = self.parse_attributes(false).unwrap_or_default(); // 拦截
+            let attributes = self.parse_attributes(false).unwrap_or_default(); 
             let is_pub = self.match_token(&[TokenType::Pub]);
             let d_start = if is_pub {
                 self.stream.prev_span()
@@ -291,7 +331,7 @@ impl<'a> Parser<'a> {
             };
             if self.check(TokenType::Fn) {
                 let mut d = self.parse_fn_decl(d_start, is_pub, false)?;
-                d.attributes = attributes; // 注入
+                d.attributes = attributes; 
                 decls.push(d);
             } else {
                 self.error_at_current("Only fn allowed in impl".to_string());
@@ -308,6 +348,7 @@ impl<'a> Parser<'a> {
             attributes: vec![],
             kind: DeclKind::Impl {
                 generics,
+                where_clauses,
                 target_type,
                 trait_type,
                 decls,
@@ -389,10 +430,10 @@ impl<'a> Parser<'a> {
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
-        // 解析泛型参数 [T]
+        // 1. 解析泛型参数 [T]
         let generics = self.parse_generic_params()?;
 
-        // 解析约束界限 `: Reader + Writer`
+        // 2. 解析约束界限/底层类型 `: Reader + Writer` 或 `: u8`
         let mut bounds = Vec::new();
         if self.match_token(&[TokenType::Colon]) {
             loop {
@@ -403,6 +444,10 @@ impl<'a> Parser<'a> {
             }
         }
 
+        // 3. 解析 where 子句 `where *mut T: TraitT`
+        let where_clauses = self.parse_where_clauses()?;
+
+        // 4. 解析目标类型 `= trait { ... }`
         self.expect(TokenType::Assign)?;
         let target = self.parse_type()?;
         self.expect(TokenType::Semicolon)?;
@@ -417,7 +462,8 @@ impl<'a> Parser<'a> {
             attributes: vec![],
             kind: DeclKind::TypeAlias {
                 generics,
-                bounds,
+                bounds,         
+                where_clauses,  
                 target,
                 is_extern,
             },

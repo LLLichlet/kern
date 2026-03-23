@@ -3,17 +3,28 @@ use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, PointerValue};
 use kernc_mast::{MastExpr, MastExprKind, MonoId};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::SymbolId;
+use kernc_utils::{SymbolId, Span};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(crate) fn compile_lvalue(&mut self, expr: &MastExpr) -> PointerValue<'ctx> {
         match &expr.kind {
-            MastExprKind::Var(name) => *self.locals.get(name).expect("Local variable not found"),
-            MastExprKind::GlobalRef(mono_id) => self
-                .globals
-                .get(mono_id)
-                .expect("Global not found")
-                .as_pointer_value(),
+            MastExprKind::Var(name) => {
+                if let Some(ptr) = self.locals.get(name) {
+                    *ptr
+                } else {
+                    let var_name = self.resolve_symbol(*name);
+                    self.sess.emit_ice(expr.span, format!("Local variable `{}` not found during l-value compilation", var_name));
+                    unreachable!()
+                }
+            },
+            MastExprKind::GlobalRef(mono_id) => {
+                if let Some(g) = self.globals.get(mono_id) {
+                    g.as_pointer_value()
+                } else {
+                    self.sess.emit_ice(expr.span, "Global reference not found in codegen".to_string());
+                    unreachable!()
+                }
+            },
             MastExprKind::FieldAccess {
                 lhs,
                 struct_id,
@@ -64,18 +75,53 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
             MastExprKind::Deref(operand) => self.compile_expr(operand).into_pointer_value(),
-            _ => panic!("Expression is not a valid l-value: {:?}", expr.kind),
+            
+            // 当编译器需要一个左值（内存地址），但遇到的是一个纯右值
+            // （比如函数调用 `Call` 返回的结构体，或者是字面量）时，
+            // 我们在当前函数的栈帧上开辟一块临时内存，将右值存进去，并返回这个内存地址。
+            // 这完美解决了“动态派发后的连缀访问”引发的崩溃问题。
+            _ => {
+                let rval = self.compile_expr(expr);
+                let llvm_ty = self.get_llvm_type(expr.ty);
+                let temp_ptr = self.create_entry_block_alloca(llvm_ty, "tmp_materialized_lvalue");
+                self.builder.build_store(temp_ptr, rval).unwrap();
+                temp_ptr
+            }
         }
     }
+
     pub(crate) fn compile_var_ref(
-        &self,
+        &mut self,
         name: SymbolId,
         expected_ty: BasicTypeEnum<'ctx>,
+        span: Span, 
     ) -> BasicValueEnum<'ctx> {
-        let ptr = self.locals.get(&name).expect("Local variable not found");
-        self.builder
-            .build_load(expected_ty, *ptr, &format!("load_{}", name.0))
-            .unwrap()
+        let var_name = self.resolve_symbol(name);
+
+        if let Some(ptr) = self.locals.get(&name) {
+            return self.builder
+                .build_load(expected_ty, *ptr, &format!("load_{}", var_name))
+                .unwrap();
+        }
+
+        if let Some(global_val) = self.module.get_global(var_name) {
+            return self.builder
+                .build_load(
+                    expected_ty, 
+                    global_val.as_pointer_value(), 
+                    &format!("load_global_{}", var_name)
+                )
+                .unwrap();
+        }
+
+        self.sess.emit_ice(
+            span,
+            format!(
+                "Variable `{}` (SymbolId: {}) not found in locals or globals!\nDid the lowerer forget to allocate it, or is it an unhandled discard `_`?",
+                var_name, name.0
+            )
+        );
+        unreachable!()
     }
 
     pub(crate) fn compile_global_ref(

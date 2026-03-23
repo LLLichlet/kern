@@ -90,10 +90,16 @@ impl<'a> DiagnosticBuilder<'a> {
         // 遇到编译器崩溃，打印现场后立即熔断
         if is_ice {
             self.sess.print_single_diagnostic(&self.diag);
+            
+            let (bold, reset) = if self.sess.use_color { ("\x1b[1m", "\x1b[0m") } else { ("", "") };
+            eprintln!("\n{}Kern Compiler Internal Error (ICE) {}", bold, reset);
+            eprintln!("This is a bug in the compiler. Please report this issue at:");
+            eprintln!("{}https://github.com/softfault/kern/issues{}", bold, reset);
+            eprintln!("Please include the code snippet above in your report.");
+
             if cfg!(test) {
                 panic!("Compiler ICE: {}", self.diag.message);
             } else {
-                eprintln!("\nCompiler panicked due to an internal error. Aborting.");
                 std::process::exit(101);
             }
         }

@@ -136,10 +136,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     Def::Union(u) => {
                         self.lower_union_init(fields, def_id, &u, &gen_args, subst_map)
                     }
-                    _ => unreachable!("Def must be struct or union"),
+                    _ => {
+                        self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): DefId must point to a Struct or Union during structural initialization.");
+                        unreachable!()
+                    }
                 }
             }
-            _ => unreachable!("Invalid type for structural initialization"),
+            _ => {
+                self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): Invalid type for structural initialization: {:?}", norm));
+                unreachable!()
+            }
         }
     }
 
@@ -155,15 +161,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
             d.clone()
         } else {
+            self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): Expected Enum definition.");
             unreachable!()
         };
 
         let init_f = &fields[0];
-        let tag_val = def
-            .variants
-            .iter()
-            .position(|v| v.name == init_f.name)
-            .unwrap() as u128;
+        let tag_val = match def.variants.iter().position(|v| v.name == init_f.name) {
+            Some(idx) => idx as u128,
+            None => {
+                self.ctx.emit_ice(init_f.value.span, format!("Kern ICE (Lowering): Variant `{}` not found in enum.", self.ctx.resolve(init_f.name)));
+                unreachable!()
+            }
+        };
 
         let mut variant_subst_map = HashMap::new();
         for (i, param) in def.generics.iter().enumerate() {
@@ -171,12 +180,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let variant_def = &def.variants[tag_val as usize];
-        let raw_payload_ty = self
-            .ctx
-            .node_types
-            .get(&variant_def.payload_type.as_ref().unwrap().id)
-            .copied()
-            .unwrap();
+        let payload_id = match &variant_def.payload_type {
+            Some(p) => p.id,
+            None => {
+                self.ctx.emit_ice(init_f.value.span, "Kern ICE (Lowering): Attempted to initialize payload for a variant without payload.");
+                unreachable!()
+            }
+        };
+
+        let raw_payload_ty = self.ctx.node_types.get(&payload_id).copied().unwrap_or(TypeId::ERROR);
 
         let conc_payload_ty = Substituter::new(&mut self.ctx.type_registry, &variant_subst_map)
             .substitute(raw_payload_ty);
@@ -251,7 +263,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let init_f = &fields[0];
-        let field_idx = u.fields.iter().position(|f| f.name == init_f.name).unwrap();
+        let field_idx = match u.fields.iter().position(|f| f.name == init_f.name) {
+            Some(idx) => idx,
+            None => {
+                self.ctx.emit_ice(init_f.value.span, format!("Kern ICE (Lowering): Field `{}` not found in union.", self.ctx.resolve(init_f.name)));
+                unreachable!()
+            }
+        };
 
         let raw_f_ty = self
             .ctx
@@ -382,13 +400,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // 查找或生成 VTable
         let vtable_id = self.get_or_create_vtable(l.ty, trait_norm);
 
-        let global_array_ty = self
-            .module
-            .globals
-            .iter()
-            .find(|g| g.id == vtable_id)
-            .unwrap()
-            .ty;
+        let global_array_ty = match self.module.globals.iter().find(|g| g.id == vtable_id) {
+            Some(g) => g.ty,
+            None => {
+                self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global missing when constructing trait object literal.");
+                unreachable!()
+            }
+        };
         let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
             elem: global_array_ty,
@@ -426,12 +444,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(norm_ty) {
                 (*id, args.clone())
             } else {
+                self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): Expected Enum type for enum literal.");
                 unreachable!()
             };
 
         let data_def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
             d.clone()
         } else {
+            self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): Expected Enum Definition.");
             unreachable!()
         };
 
@@ -462,6 +482,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
             current_val += 1;
         }
-        unreachable!("Variant not found");
+        self.ctx.emit_ice(Span::default(), format!("Kern ICE (Lowering): Variant `{}` not found in enum literal resolution.", self.ctx.resolve(variant_name)));
+        unreachable!()
     }
 }

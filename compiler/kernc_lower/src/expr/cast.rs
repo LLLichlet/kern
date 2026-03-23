@@ -72,13 +72,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind {
                     let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
 
-                    let global_array_ty = self
-                        .module
-                        .globals
-                        .iter()
-                        .find(|g| g.id == vtable_id)
-                        .unwrap()
-                        .ty;
+                    let global_array_ty = match self.module.globals.iter().find(|g| g.id == vtable_id) {
+                        Some(g) => g.ty,
+                        None => {
+                            self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global generated but not found in module globals map.");
+                            unreachable!()
+                        }
+                    };
                     let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                         is_mut: false,
                         elem: global_array_ty,

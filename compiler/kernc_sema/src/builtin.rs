@@ -71,7 +71,9 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             name: name_id,
             vis: Visibility::Public,
             generics: vec![],
+            where_clauses: vec![],
             supertraits: vec![],
+            resolved_supertraits: vec![],
             methods: vec![], // 内置特征仅作约束，可以没有方法 (Marker Trait)
             resolved_methods: vec![],
             is_builtin: true,
@@ -128,6 +130,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             id: def_id,
             parent_module: None,
             generics: vec![],
+            where_clauses: vec![],
             target_type: target_node,
             trait_type: Some(trait_node),
             methods: vec![],
@@ -144,7 +147,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         // 泛型参数 T (没有任何约束)
         let param_t = GenericParam {
             name: self.ctx.intern("T"),
-            constraints: vec![],
             span: Default::default(),
         };
 
@@ -166,6 +168,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vis: Visibility::Public,
             parent: None,
             generics: vec![param_t],
+            where_clauses: vec![],
             params: vec![],
             ret_type: TypeNode {
                 id: ret_type_id,
@@ -207,7 +210,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         let param_t = GenericParam {
             name: self.ctx.intern("T"),
-            constraints: vec![],
             span: Default::default(),
         };
 
@@ -228,6 +230,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vis: Visibility::Public,
             parent: None,
             generics: vec![param_t],
+            where_clauses: vec![],
             params: vec![],
             ret_type: TypeNode {
                 id: ret_type_id,
@@ -282,6 +285,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vis: Visibility::Public,
             parent: None,
             generics: vec![],
+            where_clauses: vec![],
             params: vec![],
             ret_type: TypeNode {
                 id: ret_id,
@@ -332,7 +336,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         let param_t = ast::GenericParam {
             name: self.ctx.intern("T"),
-            constraints: vec![trait_node],
             span: Default::default(),
         };
 
@@ -356,6 +359,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vis: Visibility::Public,
             parent: None,
             generics: vec![param_t],
+            where_clauses: vec![],
             params: vec![ast::FuncParam {
                 pattern: ast::BindingPattern {
                     name: self.ctx.intern("val"),
@@ -433,6 +437,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vis: Visibility::Public,
             parent: None,
             generics: vec![],
+            where_clauses: vec![],
             params: vec![],
             ret_type: ast::TypeNode {
                 id: ret_id,
@@ -511,6 +516,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vis: Visibility::Public,
             parent: None,
             generics: vec![], // 内存函数不需要泛型，强制按字节(u8)操作
+            where_clauses: vec![],
             params: vec![
                 ast::FuncParam {
                     pattern: ast::BindingPattern {

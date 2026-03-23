@@ -54,8 +54,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     // b) 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
-                        if self.check_trait_impl(act, e_norm) {
-                            return true; // 放行
+                        // 剥离可变性，构造一个不可变的实际指针类型去查 Trait
+                        let downgraded_act = if !e_mut && a_mut {
+                            self.ctx.type_registry.intern(TypeKind::Pointer {
+                                is_mut: false,
+                                elem: a_inner,
+                            })
+                        } else {
+                            act
+                        };
+                        
+                        if self.check_trait_impl(downgraded_act, e_norm) {
+                            return true; 
                         }
                     }
                 }
@@ -271,6 +281,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             ExprKind::SliceOp { is_mut, .. } => *is_mut,
+            
+            // 右值实体化 (R-value Materialization) 的栈内存默认可变
+            ExprKind::DataInit { .. } 
+            | ExprKind::Integer(_) 
+            | ExprKind::Float(_) 
+            | ExprKind::Bool(_) 
+            | ExprKind::Char(_) 
+            | ExprKind::ByteChar(_) 
+            | ExprKind::Call { .. } => {
+                true // 纯右值被实体化为临时栈变量后，完全归当前作用域所有，允许就地可变借用
+            }
+            ExprKind::String(_) => {
+                false // 字符串字面量硬编码在 .rodata 中，不能获取它的可变指针
+            }
+
             _ => false,
         }
     }
@@ -322,15 +347,76 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     pub(crate) fn check_trait_impl(&mut self, source_ty: TypeId, target_trait_ty: TypeId) -> bool {
         let mut visited = HashSet::new();
-        self.check_trait_impl_inner(source_ty, target_trait_ty, &mut visited)
+        if self.check_trait_impl_inner(source_ty, target_trait_ty, &mut visited) {
+            return true;
+        }
+
+        // 如果可变指针/切片没有直接实现特征，尝试检查其不可变版本。
+        // 因为方法调用时接收者可以安全降权，不可变版本实现的特征，可变版本理应兼容。
+        let source_norm = self.resolve_tv(source_ty);
+        let downgraded = match self.ctx.type_registry.get(source_norm).clone() {
+            TypeKind::Pointer { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: false, elem }))
+            }
+            TypeKind::VolatilePtr { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: false, elem }))
+            }
+            TypeKind::Slice { is_mut: true, elem } => {
+                Some(self.ctx.type_registry.intern(TypeKind::Slice { is_mut: false, elem }))
+            }
+            _ => None,
+        };
+
+        if let Some(down_ty) = downgraded {
+            let mut visited = HashSet::new(); // 清空 visited 重新查
+            return self.check_trait_impl_inner(down_ty, target_trait_ty, &mut visited);
+        }
+
+        false
     }
 
+    // TODO: Devide
     fn check_trait_impl_inner(
         &mut self,
         source_ty: TypeId,
         target_trait_ty: TypeId,
         visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
+        // === 1. 优先检查当前环境上下文中的 Where 约束 (active_bounds) ===
+        // 解决函数体内泛型参数自身满足约束的推导问题
+        for i in 0..self.ctx.active_bounds.len() {
+            let (env_target, env_bounds) = self.ctx.active_bounds[i].clone();
+            let mut map = HashMap::new();
+            
+            // 如果查询的 source_ty (比如 *T) 匹配了环境里的 target (比如 *T)
+            if self.unify(env_target, source_ty, &mut map) {
+                // 利用临时块隔离可变借用
+                let instantiated_bounds: Vec<TypeId> = {
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    env_bounds.into_iter().map(|b| subst.substitute(b)).collect()
+                };
+
+                for inst_env_bound in instantiated_bounds {
+                    let inst_norm = self.resolve_tv(inst_env_bound);
+                    let target_norm = self.resolve_tv(target_trait_ty);
+                    
+                    if inst_norm == target_norm || inst_env_bound == target_trait_ty {
+                        return true;
+                    }
+                    
+                    // 环境约束自身也可能继承自某个 Supertrait，递归检查
+                    if let TypeKind::TraitObject(inst_def_id, _) = self.ctx.type_registry.get(inst_norm) {
+                        if visited.insert(*inst_def_id) {
+                             if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited) {
+                                 return true;
+                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // === 2. 全局的 impl 块 ===
         let mut impl_blocks = Vec::new();
         for def in &self.ctx.defs {
             if let Def::Impl(impl_def) = def {
@@ -380,13 +466,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             if let Def::Trait(trait_def) =
                                 self.ctx.defs[inst_def_id.0 as usize].clone()
                             {
-                                for supertrait_ast in &trait_def.supertraits {
-                                    let super_ty = self
-                                        .ctx
-                                        .node_types
-                                        .get(&supertrait_ast.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR);
+                                // 直接使用已经解析好的 resolved_supertraits
+                                for &super_ty in &trait_def.resolved_supertraits {
+                                    // 依然需要将 trait 自身的泛型代入父特征 (例如 TraitA[T] : TraitB[T])
                                     let inst_super_ty = {
                                         let mut subst =
                                             Substituter::new(&mut self.ctx.type_registry, &map);

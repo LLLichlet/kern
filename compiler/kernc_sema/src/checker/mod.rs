@@ -73,9 +73,36 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             _ => (Vec::new(), TypeId::ERROR),
         };
 
-        // === 3. 核心：作用域环境重建 ===
+        // 3. 作用域环境重建
         self.ctx.scopes.set_current_scope(parent_scope);
         let _ = self.ctx.scopes.enter_scope();
+        // 将函数的泛型参数注入作用域
+        for param in &f.generics {
+            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
+            let node_id = self.ctx.next_node_id();
+            let _ = self.ctx.scopes.define(
+                param.name,
+                SymbolInfo {
+                    kind: SymbolKind::TypeParam, 
+                    node_id, type_id: param_ty, def_id: None, span: f.span,
+                    is_pub: false, is_mut: false,
+                },
+            );
+        }
+
+        // 将 Where 子句的约束压入当前上下文的 active_bounds 中
+        let prev_bounds_len = self.ctx.active_bounds.len();
+        for clause in &f.where_clauses {
+            let target_ty = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+            let mut bounds = Vec::new();
+            for bound in &clause.bounds {
+                if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
+                    bounds.push(bound_ty);
+                }
+            }
+            self.ctx.active_bounds.push((target_ty, bounds));
+        }
+
         for (i, param_ast) in f.params.iter().enumerate() {
             if i < param_tys.len() {
                 let info = SymbolInfo {
@@ -114,12 +141,39 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }
         }
 
+        self.ctx.active_bounds.truncate(prev_bounds_len); // 退出函数局部作用域前，清理本次注册的 Where 约束
         self.ctx.scopes.exit_scope(); // 退出函数局部作用域
     }
 
     fn check_impl(&mut self, i: &ImplDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let impl_scope = self.ctx.scopes.enter_scope();
+
+        // 将 Impl 块的泛型参数（如 T）注入作用域
+        for param in &i.generics {
+            let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
+            let node_id = self.ctx.next_node_id();
+            let _ = self.ctx.scopes.define(
+                param.name,
+                SymbolInfo {
+                    kind: SymbolKind::TypeParam, 
+                    node_id, type_id: param_ty, def_id: None, span: i.span,
+                    is_pub: false, is_mut: false,
+                },
+            );
+        }
+
+        let prev_bounds_len = self.ctx.active_bounds.len();
+        for clause in &i.where_clauses {
+            let target_ty = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+            let mut bounds = Vec::new();
+            for bound in &clause.bounds {
+                if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
+                    bounds.push(bound_ty);
+                }
+            }
+            self.ctx.active_bounds.push((target_ty, bounds));
+        }
 
         // 为 Impl 块注入 `Self` 类型
         let target_ty = self
@@ -150,6 +204,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }
         }
 
+        self.ctx.active_bounds.truncate(prev_bounds_len);
         self.ctx.scopes.exit_scope();
     }
 

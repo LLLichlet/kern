@@ -299,110 +299,162 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         exp_ty: TypeId,
     ) -> MastExprKind {
-        let t = self.lower_expr(target, subst_map, None);
-        let norm_target_ty = self.ctx.type_registry.normalize(t.ty);
+        let lowered_target = self.lower_expr(target, subst_map, None);
+        let target_ty = lowered_target.ty;
 
-        // 1. 判断要匹配的 Target 到底是不是一个 Enum (ADT)
-        let is_adt = matches!(
-            self.ctx.type_registry.get(norm_target_ty),
-            TypeKind::Enum(..)
+        // 1. 创建局部绑定 (Let Binding)，防止重复执行副作用
+        let (let_stmt, target_var_expr) = self.build_match_target_binding(target_ty, lowered_target, target.span);
+
+        // 2. 解析目标类型的枚举/ADT信息
+        let adt_info = self.resolve_match_adt(target_ty, target.span);
+
+        // 3. 构建 Switch 的 Tag 提取表达式
+        let tag_access = if let Some((mono_id, _, _, is_pure)) = &adt_info {
+            if !*is_pure {
+                MastExpr::new(
+                    TypeId::U32,
+                    MastExprKind::FieldAccess {
+                        lhs: Box::new(target_var_expr.clone()),
+                        struct_id: *mono_id,
+                        field_idx: 0, // __tag 字段
+                    },
+                    target.span,
+                )
+            } else {
+                target_var_expr.clone()
+            }
+        } else {
+            target_var_expr.clone()
+        };
+
+        // 4. 解析所有的分支 (Arms)
+        let (mast_cases, def_case) = self.lower_match_arms(
+            arms,
+            &target_var_expr,
+            &adt_info,
+            subst_map,
+            exp_ty,
         );
 
-        // 提取 ADT 专用的元数据
-        let (mono_id, gen_args, adt_def, is_pure) = if is_adt {
-            let (def_id, args) = if let TypeKind::Enum(id, args) =
-                self.ctx.type_registry.get(norm_target_ty).clone()
-            {
-                (id, args)
-            } else {
-                self.ctx.emit_ice(target.span, "Kern ICE (Lowering): Target type is an Enum but failed to destruct TypeKind::Enum.");
-                unreachable!()
-            };
+        // 5. 组装最终的 Block 表达式
+        let switch_expr = MastExpr::new(
+            exp_ty,
+            MastExprKind::Switch {
+                target: Box::new(tag_access),
+                cases: mast_cases,
+                default_case: def_case,
+            },
+            target.span,
+        );
 
-            let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
-                d.clone()
-            } else {
-                self.ctx.emit_ice(
-                    target.span,
-                    format!(
-                        "Kern ICE (Lowering): DefId {} is not an Enum Definition.",
-                        def_id.0
-                    ),
-                );
-                unreachable!()
-            };
+        MastExprKind::Block(MastBlock {
+            stmts: vec![let_stmt],
+            result: Some(Box::new(switch_expr)),
+            defers: vec![],
+        })
+    }
 
-            let pure = self.is_pure_enum(&def);
-            let m_id = if !pure {
-                self.instantiate_data(def_id, &args)
-            } else {
-                MonoId(0)
-            };
-            (Some(m_id), args, Some(def), pure)
-        } else {
-            (None, vec![], None, true) // 对于普通整数视作 None
+    /// 辅助方法：生成临时 Let 绑定，隔离作用域
+    fn build_match_target_binding(
+        &mut self,
+        target_ty: TypeId,
+        lowered_target: MastExpr,
+        span: Span,
+    ) -> (MastStmt, MastExpr) {
+        let new_mono_id = self.new_mono_id();
+        let tmp_sym = self.ctx.intern(&format!("__match_target_{}", new_mono_id.0));
+        
+        self.local_types
+            .last_mut()
+            .unwrap()
+            .insert(tmp_sym, (target_ty, false));
+
+        let let_stmt = MastStmt::Let {
+            name: tmp_sym,
+            ty: target_ty,
+            is_mut: false,
+            init: lowered_target,
         };
 
-        // 2. 确定给 LLVM switch 指令用的 target 值 (u128/u32)
-        let tag_access = if is_adt && !is_pure {
-            MastExpr::new(
-                TypeId::U32,
-                MastExprKind::FieldAccess {
-                    lhs: Box::new(t.clone()),
-                    struct_id: mono_id.unwrap(),
-                    field_idx: 0, // __tag 字段
-                },
-                target.span,
-            )
+        let target_var_expr = MastExpr::new(
+            target_ty,
+            MastExprKind::Var(tmp_sym),
+            span,
+        );
+
+        (let_stmt, target_var_expr)
+    }
+
+    /// 辅助方法：解析目标类型的 ADT 元数据
+    fn resolve_match_adt(
+        &mut self,
+        target_ty: TypeId,
+        span: Span,
+    ) -> Option<(MonoId, Vec<TypeId>, kernc_sema::def::EnumDef, bool)> {
+        let norm_target_ty = self.ctx.type_registry.normalize(target_ty);
+
+        if !matches!(self.ctx.type_registry.get(norm_target_ty), TypeKind::Enum(..)) {
+            return None; // 普通整数视作 None
+        }
+
+        let (def_id, args) = if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(norm_target_ty).clone() {
+            (id, args)
         } else {
-            t.clone() // Pure Enum 或是普通整数，直接就是值本身
+            unreachable!()
         };
 
+        let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
+            d.clone()
+        } else {
+            self.ctx.emit_ice(span, format!("Kern ICE (Lowering): DefId {} is not an Enum.", def_id.0));
+            unreachable!()
+        };
+
+        let pure = self.is_pure_enum(&def);
+        let m_id = if !pure { self.instantiate_data(def_id, &args) } else { MonoId(0) };
+
+        Some((m_id, args, def, pure))
+    }
+
+    /// 辅助方法：解析并降级 Match 的所有分支
+    fn lower_match_arms(
+        &mut self,
+        arms: &[ast::MatchArm],
+        target_var_expr: &MastExpr,
+        adt_info: &Option<(MonoId, Vec<TypeId>, kernc_sema::def::EnumDef, bool)>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        exp_ty: TypeId,
+    ) -> (Vec<MastSwitchCase>, Option<MastBlock>) {
         let mut mast_cases = Vec::new();
         let mut def_case = None;
 
-        // 3. 遍历解析所有分支
         for arm in arms {
             let mut case_vals = Vec::new();
             let mut has_catch_all = false;
-            let mut bound_variant = None; // 用于记录当前分支是否有需要解包的负载
+            let mut bound_variant = None;
 
-            // 处理形如 `1, 2, 3 =>` 或 `.Ok, .Err =>` 的多模式组合
             for pat in &arm.patterns {
                 match &pat.kind {
                     ast::MatchPatternKind::Value(val_expr) => {
-                        if is_adt {
-                            // 对于 ADT，普通值只能是 EnumLiteral，需要转化为对应的 Tag Index
+                        if let Some((_, _, adt_def, _)) = adt_info {
                             if let ExprKind::EnumLiteral(variant_name) = &val_expr.kind {
-                                let tag_idx = match adt_def
-                                    .as_ref()
-                                    .unwrap()
-                                    .variants
-                                    .iter()
-                                    .position(|v| v.name == *variant_name)
-                                {
+                                let tag_idx = match adt_def.variants.iter().position(|v| v.name == *variant_name) {
                                     Some(idx) => idx,
                                     None => {
-                                        self.ctx.emit_ice(val_expr.span, format!("Kern ICE (Lowering): Variant `{}` not found in enum.", self.ctx.resolve(*variant_name)));
+                                        self.ctx.emit_ice(val_expr.span, format!("Variant `{}` not found.", self.ctx.resolve(*variant_name)));
                                         unreachable!()
                                     }
                                 };
                                 case_vals.push(tag_idx as u128);
                             }
                         } else {
-                            // 对于普通整数/字符匹配，在编译期求出具体的值
                             let mut ce = ConstEvaluator::new(self.ctx);
                             if let Ok(val) = ce.eval_math(val_expr) {
                                 case_vals.push(val as u128);
                             }
                         }
                     }
-                    ast::MatchPatternKind::Range {
-                        start,
-                        end,
-                        inclusive,
-                    } => {
-                        // 展开 Range: 1..=3 变成 LLVM switch case 里的 1, 2, 3
+                    ast::MatchPatternKind::Range { start, end, inclusive } => {
                         let mut ce = ConstEvaluator::new(self.ctx);
                         if let (Ok(s), Ok(e)) = (ce.eval_math(start), ce.eval_math(end)) {
                             let end_bound = if *inclusive { e } else { e - 1 };
@@ -411,18 +463,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         }
                     }
-                    ast::MatchPatternKind::Variant {
-                        variant_name,
-                        binding,
-                        ..
-                    } => {
-                        let tag_idx = adt_def
-                            .as_ref()
-                            .unwrap()
-                            .variants
-                            .iter()
-                            .position(|v| v.name == *variant_name)
-                            .unwrap();
+                    ast::MatchPatternKind::Variant { variant_name, binding, .. } => {
+                        let tag_idx = adt_info.as_ref().unwrap().2.variants.iter().position(|v| v.name == *variant_name).unwrap();
                         case_vals.push(tag_idx as u128);
                         bound_variant = Some((tag_idx, variant_name, binding));
                     }
@@ -435,21 +477,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if has_catch_all {
                 def_case = Some(self.lower_block_as_body(&arm.body, subst_map, exp_ty));
             } else {
-                // 降级代码块。如果是带有载荷的 Variant 匹配，必须生成 payload 提取逻辑
                 let body_block = if let Some((tag_idx, _v_name, binding)) = bound_variant {
-                    let variant_def = &adt_def.as_ref().unwrap().variants[tag_idx];
+                    let (mono_id, gen_args, adt_def, is_pure) = adt_info.as_ref().unwrap();
+                    let variant_def = &adt_def.variants[tag_idx];
                     self.lower_match_variant_arm(
-                        arm,
-                        binding.as_ref(),
-                        &t,
-                        mono_id.unwrap(),
-                        tag_idx,
-                        variant_def,
-                        &adt_def.as_ref().unwrap().generics,
-                        &gen_args,
-                        subst_map,
-                        exp_ty,
-                        is_pure,
+                        arm, binding.as_ref(), target_var_expr, *mono_id, tag_idx, variant_def, 
+                        &adt_def.generics, gen_args, subst_map, exp_ty, *is_pure
                     )
                 } else {
                     self.lower_block_as_body(&arm.body, subst_map, exp_ty)
@@ -461,12 +494,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 });
             }
         }
-
-        MastExprKind::Switch {
-            target: Box::new(tag_access),
-            cases: mast_cases,
-            default_case: def_case,
-        }
+        (mast_cases, def_case)
     }
 
     pub(crate) fn lower_match_variant_arm(

@@ -30,7 +30,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if info.type_id == TypeId::ERROR && info.def_id.is_some() {
                 if let Def::Global(g) = &self.ctx.defs[info.def_id.unwrap().0 as usize] {
                     if let Some(&actual_ty) = self.ctx.node_types.get(&g.value.id) {
-                        return actual_ty; 
+                        return actual_ty;
                     }
                 }
             }
@@ -554,24 +554,38 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// 辅助方法：静默检查 Where 子句约束是否满足
-    fn satisfies_bounds(&mut self, where_clauses: &[ast::WhereClause], map: &HashMap<SymbolId, TypeId>) -> bool {
+    fn satisfies_bounds(
+        &mut self,
+        where_clauses: &[ast::WhereClause],
+        map: &HashMap<SymbolId, TypeId>,
+    ) -> bool {
         let mut pairs_to_check = Vec::new();
-        
+
         {
             let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
-            
+
             for clause in where_clauses {
-                let original_target = self.ctx.node_types.get(&clause.target_ty.id).copied().unwrap_or(TypeId::ERROR);
+                let original_target = self
+                    .ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
                 let sub_target = subst.substitute(original_target);
 
                 for bound_ast in &clause.bounds {
-                    let original_bound = self.ctx.node_types.get(&bound_ast.id).copied().unwrap_or(TypeId::ERROR);
+                    let original_bound = self
+                        .ctx
+                        .node_types
+                        .get(&bound_ast.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
                     let sub_bound = subst.substitute(original_bound);
 
                     pairs_to_check.push((sub_target, sub_bound));
                 }
             }
-        } 
+        }
 
         for (sub_target, sub_bound) in pairs_to_check {
             if sub_target != TypeId::ERROR && sub_bound != TypeId::ERROR {
@@ -581,7 +595,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
         }
-        
+
         true
     }
 }

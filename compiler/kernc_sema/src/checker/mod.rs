@@ -69,7 +69,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 if init_ty != TypeId::ERROR {
                     resolved_globals.insert(item_id);
                     changed = true;
-                    
+
                     if self.ctx.scopes.resolve_local(g.name).is_some() {
                         self.ctx.scopes.update_type(g.name, init_ty);
                     }
@@ -83,7 +83,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                             let _ = evaluator.eval_inner(&g.value, 0);
                         }
                     } else {
-                        if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef)) {
+                        if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef))
+                        {
                             self.ctx.emit_error(g.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
                         }
                     }
@@ -96,7 +97,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }
         }
 
-        // 阶段 2：兜底 
+        // 阶段 2：兜底
         // 如果循环结束了，但还有没推导出来的全局常量，说明要么是死循环依赖，要么是有真正的语法/类型错误。
         // 再强制跑一次
         if resolved_globals.len() < globals.len() {
@@ -125,7 +126,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 self.ctx.scopes.set_current_scope(m.scope_id);
                 for item_id in m.items {
                     let d = &self.ctx.defs[item_id.0 as usize];
-                    if !matches!(d, Def::Global(_)) { // 跳过已经处理完的全局常量
+                    if !matches!(d, Def::Global(_)) {
+                        // 跳过已经处理完的全局常量
                         self.check_item(item_id, m.scope_id);
                     }
                 }
@@ -141,7 +143,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             Def::Impl(i) => self.check_impl(&i, parent_scope),
             Def::Struct(s) => self.check_struct(&s, parent_scope),
             Def::Union(u) => self.check_union(&u, parent_scope),
-            _ => {} 
+            _ => {}
         }
     }
 
@@ -253,7 +255,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     fn check_struct(&mut self, s: &crate::def::StructDef, parent_scope: ScopeId) {
         // 1. 作用域环境重建 (为了让默认值能认识结构体的泛型参数 T)
         self.ctx.scopes.set_current_scope(parent_scope);
-        let _ = self.ctx.scopes.enter_scope(); 
+        let _ = self.ctx.scopes.enter_scope();
 
         for param in &s.generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
@@ -276,8 +278,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for field in &s.fields {
             if let Some(default_expr) = &field.default_value {
                 // 获取字段的预期类型
-                let field_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                
+                let field_ty = self
+                    .ctx
+                    .node_types
+                    .get(&field.type_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+
                 // 启动表达式检查器
                 let mut checker = ExprChecker::new(self.ctx, None);
                 let eval_ty = checker.check_expr(default_expr, Some(field_ty));
@@ -290,7 +297,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                             format!(
                                 "Default value type mismatch for field `{}`. Expected `{}`, found `{}`", 
                                 self.ctx.resolve(field.name),
-                                self.ctx.ty_to_string(field_ty), 
+                                self.ctx.ty_to_string(field_ty),
                                 self.ctx.ty_to_string(eval_ty)
                             ),
                         );
@@ -306,7 +313,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     fn check_union(&mut self, u: &crate::def::UnionDef, parent_scope: ScopeId) {
         // 1. 作用域环境重建
         self.ctx.scopes.set_current_scope(parent_scope);
-        let _ = self.ctx.scopes.enter_scope(); 
+        let _ = self.ctx.scopes.enter_scope();
 
         for param in &u.generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
@@ -329,8 +336,13 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for field in &u.fields {
             if let Some(default_expr) = &field.default_value {
                 // 获取字段的预期类型
-                let field_ty = self.ctx.node_types.get(&field.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                
+                let field_ty = self
+                    .ctx
+                    .node_types
+                    .get(&field.type_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+
                 // 启动表达式检查器
                 let mut checker = ExprChecker::new(self.ctx, None);
                 let eval_ty = checker.check_expr(default_expr, Some(field_ty));
@@ -343,7 +355,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                             format!(
                                 "Default value type mismatch for union field `{}`. Expected `{}`, found `{}`", 
                                 self.ctx.resolve(field.name),
-                                self.ctx.ty_to_string(field_ty), 
+                                self.ctx.ty_to_string(field_ty),
                                 self.ctx.ty_to_string(eval_ty)
                             ),
                         );

@@ -2,8 +2,8 @@ use crate::llvm::CodeGenerator;
 use inkwell::values::BasicValueEnum;
 use kernc_ast::{self as ast, BinaryOperator};
 use kernc_mast::MastExpr;
-use kernc_sema::ty::{TypeKind, TypeId, PrimitiveType};
-
+use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
+use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     // 辅助方法判断是否为有符号整数
@@ -33,16 +33,25 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         let l_val = self.compile_expr(lhs);
         let r_val = self.compile_expr(rhs);
+        let span = lhs.span;
 
         if l_val.is_pointer_value() || r_val.is_pointer_value() {
-            self.compile_ptr_math(op, l_val, r_val, lhs.ty, rhs.ty)
+            self.compile_ptr_math(op, l_val, r_val, lhs.ty, rhs.ty, span)
         } else if l_val.is_int_value() && r_val.is_int_value() {
             let is_signed = self.is_signed_int(lhs.ty);
-            self.compile_int_math(op, l_val.into_int_value(), r_val.into_int_value(), is_signed)
+            self.compile_int_math(
+                op,
+                l_val.into_int_value(),
+                r_val.into_int_value(),
+                is_signed,
+                span,
+            )
         } else if l_val.is_float_value() && r_val.is_float_value() {
-            self.compile_float_math(op, l_val.into_float_value(), r_val.into_float_value())
+            self.compile_float_math(op, l_val.into_float_value(), r_val.into_float_value(), span)
         } else {
-            unreachable!("Unsupported types for binary operation")
+            // 注: 请根据你 CodeGenerator 里的实际字段使用 self.sess 或 self.ctx
+            self.sess.emit_ice(span, "Kern ICE (Codegen): Unsupported types for binary operation. Sema missed this type mismatch.");
+            unreachable!()
         }
     }
 
@@ -54,24 +63,38 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         r_val: BasicValueEnum<'ctx>,
         lhs_ty: TypeId,
         rhs_ty: TypeId,
+        span: Span,
     ) -> BasicValueEnum<'ctx> {
         use BinaryOperator::*;
         match op {
             Add => {
                 let (ptr_val, int_val) = if l_val.is_pointer_value() {
-                    if !r_val.is_int_value() { panic!("ICE: Expected integer for RHS of pointer addition"); }
+                    if !r_val.is_int_value() {
+                        self.sess.emit_ice(span, "Kern ICE (Codegen): Expected integer for RHS of pointer addition. Sema missed this.");
+                        unreachable!()
+                    }
                     (l_val.into_pointer_value(), r_val.into_int_value())
                 } else {
-                    if !l_val.is_int_value() { panic!("ICE: Expected integer for LHS of pointer addition"); }
+                    if !l_val.is_int_value() {
+                        self.sess.emit_ice(span, "Kern ICE (Codegen): Expected integer for LHS of pointer addition. Sema missed this.");
+                        unreachable!()
+                    }
                     (r_val.into_pointer_value(), l_val.into_int_value())
                 };
 
-                let ptr_ty = if l_val.is_pointer_value() { lhs_ty } else { rhs_ty };
+                let ptr_ty = if l_val.is_pointer_value() {
+                    lhs_ty
+                } else {
+                    rhs_ty
+                };
                 let elem_sema_ty = self.type_registry.get_elem_type(ptr_ty).unwrap();
                 let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
 
                 unsafe {
-                    self.builder.build_gep(elem_llvm_ty, ptr_val, &[int_val], "ptr_add").unwrap().into()
+                    self.builder
+                        .build_gep(elem_llvm_ty, ptr_val, &[int_val], "ptr_add")
+                        .unwrap()
+                        .into()
                 }
             }
             Subtract => {
@@ -81,7 +104,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let elem_sema_ty = self.type_registry.get_elem_type(lhs_ty).unwrap();
                     let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
 
-                    self.builder.build_ptr_diff(elem_llvm_ty, l_ptr, r_ptr, "ptr_diff").unwrap().into()
+                    self.builder
+                        .build_ptr_diff(elem_llvm_ty, l_ptr, r_ptr, "ptr_diff")
+                        .unwrap()
+                        .into()
                 } else {
                     let ptr_val = l_val.into_pointer_value();
                     let int_val = r_val.into_int_value();
@@ -90,11 +116,62 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
 
                     unsafe {
-                        self.builder.build_gep(elem_llvm_ty, ptr_val, &[neg_int], "ptr_sub").unwrap().into()
+                        self.builder
+                            .build_gep(elem_llvm_ty, ptr_val, &[neg_int], "ptr_sub")
+                            .unwrap()
+                            .into()
                     }
                 }
             }
-            _ => unreachable!("Invalid pointer arithmetic operation"),
+
+            // 处理 ptr == 0 或 ptr1 > ptr2
+            Equal | NotEqual | LessThan | LessOrEqual | GreaterThan | GreaterOrEqual => {
+                // 将左右操作数统一转换为 i64 (usize) 来进行纯数字的内存地址比较
+                let l_int = if l_val.is_pointer_value() {
+                    self.builder
+                        .build_ptr_to_int(
+                            l_val.into_pointer_value(),
+                            self.context.i64_type(),
+                            "p2i_l",
+                        )
+                        .unwrap()
+                } else {
+                    l_val.into_int_value()
+                };
+
+                let r_int = if r_val.is_pointer_value() {
+                    self.builder
+                        .build_ptr_to_int(
+                            r_val.into_pointer_value(),
+                            self.context.i64_type(),
+                            "p2i_r",
+                        )
+                        .unwrap()
+                } else {
+                    r_val.into_int_value()
+                };
+
+                // 指针比较一律按无符号整数 (Unsigned) 处理
+                let pred = match op {
+                    Equal => inkwell::IntPredicate::EQ,
+                    NotEqual => inkwell::IntPredicate::NE,
+                    LessThan => inkwell::IntPredicate::ULT,
+                    LessOrEqual => inkwell::IntPredicate::ULE,
+                    GreaterThan => inkwell::IntPredicate::UGT,
+                    GreaterOrEqual => inkwell::IntPredicate::UGE,
+                    _ => unreachable!(),
+                };
+
+                self.builder
+                    .build_int_compare(pred, l_int, r_int, "ptr_cmp")
+                    .unwrap()
+                    .into()
+            }
+
+            _ => {
+                self.sess.emit_ice(span, format!("Kern ICE (Codegen): Invalid pointer arithmetic operation `{:?}`. Sema missed this.", op));
+                unreachable!()
+            }
         }
     }
 
@@ -105,46 +182,125 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         l_int: inkwell::values::IntValue<'ctx>,
         r_int: inkwell::values::IntValue<'ctx>,
         is_signed: bool,
+        span: Span,
     ) -> BasicValueEnum<'ctx> {
         use BinaryOperator::*;
         match op {
-            Add => self.builder.build_int_add(l_int, r_int, "add").unwrap().into(),
-            Subtract => self.builder.build_int_sub(l_int, r_int, "sub").unwrap().into(),
-            Multiply => self.builder.build_int_mul(l_int, r_int, "mul").unwrap().into(),
-            Divide => if is_signed {
-                self.builder.build_int_signed_div(l_int, r_int, "sdiv").unwrap().into()
-            } else {
-                self.builder.build_int_unsigned_div(l_int, r_int, "udiv").unwrap().into()
-            },
-            Modulo => if is_signed {
-                self.builder.build_int_signed_rem(l_int, r_int, "srem").unwrap().into()
-            } else {
-                self.builder.build_int_unsigned_rem(l_int, r_int, "urem").unwrap().into()
-            },
+            Add => self
+                .builder
+                .build_int_add(l_int, r_int, "add")
+                .unwrap()
+                .into(),
+            Subtract => self
+                .builder
+                .build_int_sub(l_int, r_int, "sub")
+                .unwrap()
+                .into(),
+            Multiply => self
+                .builder
+                .build_int_mul(l_int, r_int, "mul")
+                .unwrap()
+                .into(),
+            Divide => {
+                if is_signed {
+                    self.builder
+                        .build_int_signed_div(l_int, r_int, "sdiv")
+                        .unwrap()
+                        .into()
+                } else {
+                    self.builder
+                        .build_int_unsigned_div(l_int, r_int, "udiv")
+                        .unwrap()
+                        .into()
+                }
+            }
+            Modulo => {
+                if is_signed {
+                    self.builder
+                        .build_int_signed_rem(l_int, r_int, "srem")
+                        .unwrap()
+                        .into()
+                } else {
+                    self.builder
+                        .build_int_unsigned_rem(l_int, r_int, "urem")
+                        .unwrap()
+                        .into()
+                }
+            }
             BitwiseAnd => self.builder.build_and(l_int, r_int, "and").unwrap().into(),
             BitwiseOr => self.builder.build_or(l_int, r_int, "or").unwrap().into(),
             BitwiseXor => self.builder.build_xor(l_int, r_int, "xor").unwrap().into(),
-            ShiftLeft => self.builder.build_left_shift(l_int, r_int, "shl").unwrap().into(),
-            ShiftRight => self.builder.build_right_shift(l_int, r_int, is_signed, "shr").unwrap().into(),
-            Equal => self.builder.build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "eq").unwrap().into(),
-            NotEqual => self.builder.build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ne").unwrap().into(),
+            ShiftLeft => self
+                .builder
+                .build_left_shift(l_int, r_int, "shl")
+                .unwrap()
+                .into(),
+            ShiftRight => self
+                .builder
+                .build_right_shift(l_int, r_int, is_signed, "shr")
+                .unwrap()
+                .into(),
+            Equal => self
+                .builder
+                .build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "eq")
+                .unwrap()
+                .into(),
+            NotEqual => self
+                .builder
+                .build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ne")
+                .unwrap()
+                .into(),
             LessThan => {
-                let pred = if is_signed { inkwell::IntPredicate::SLT } else { inkwell::IntPredicate::ULT };
-                self.builder.build_int_compare(pred, l_int, r_int, "lt").unwrap().into()
+                let pred = if is_signed {
+                    inkwell::IntPredicate::SLT
+                } else {
+                    inkwell::IntPredicate::ULT
+                };
+                self.builder
+                    .build_int_compare(pred, l_int, r_int, "lt")
+                    .unwrap()
+                    .into()
             }
             LessOrEqual => {
-                let pred = if is_signed { inkwell::IntPredicate::SLE } else { inkwell::IntPredicate::ULE };
-                self.builder.build_int_compare(pred, l_int, r_int, "le").unwrap().into()
+                let pred = if is_signed {
+                    inkwell::IntPredicate::SLE
+                } else {
+                    inkwell::IntPredicate::ULE
+                };
+                self.builder
+                    .build_int_compare(pred, l_int, r_int, "le")
+                    .unwrap()
+                    .into()
             }
             GreaterThan => {
-                let pred = if is_signed { inkwell::IntPredicate::SGT } else { inkwell::IntPredicate::UGT };
-                self.builder.build_int_compare(pred, l_int, r_int, "gt").unwrap().into()
+                let pred = if is_signed {
+                    inkwell::IntPredicate::SGT
+                } else {
+                    inkwell::IntPredicate::UGT
+                };
+                self.builder
+                    .build_int_compare(pred, l_int, r_int, "gt")
+                    .unwrap()
+                    .into()
             }
             GreaterOrEqual => {
-                let pred = if is_signed { inkwell::IntPredicate::SGE } else { inkwell::IntPredicate::UGE };
-                self.builder.build_int_compare(pred, l_int, r_int, "ge").unwrap().into()
+                let pred = if is_signed {
+                    inkwell::IntPredicate::SGE
+                } else {
+                    inkwell::IntPredicate::UGE
+                };
+                self.builder
+                    .build_int_compare(pred, l_int, r_int, "ge")
+                    .unwrap()
+                    .into()
             }
-            _ => unreachable!("Operator handled elsewhere"),
+            _ => {
+                self.sess.emit_ice(
+                    span,
+                    format!("Kern ICE (Codegen): Unhandled integer operator `{:?}`.", op),
+                );
+                unreachable!()
+            }
         }
     }
 
@@ -154,21 +310,72 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         op: ast::BinaryOperator,
         l_float: inkwell::values::FloatValue<'ctx>,
         r_float: inkwell::values::FloatValue<'ctx>,
+        span: Span,
     ) -> BasicValueEnum<'ctx> {
         use ast::BinaryOperator::*;
         match op {
-            Add => self.builder.build_float_add(l_float, r_float, "fadd").unwrap().into(),
-            Subtract => self.builder.build_float_sub(l_float, r_float, "fsub").unwrap().into(),
-            Multiply => self.builder.build_float_mul(l_float, r_float, "fmul").unwrap().into(),
-            Divide => self.builder.build_float_div(l_float, r_float, "fdiv").unwrap().into(),
-            Modulo => self.builder.build_float_rem(l_float, r_float, "frem").unwrap().into(),
-            Equal => self.builder.build_float_compare(inkwell::FloatPredicate::OEQ, l_float, r_float, "feq").unwrap().into(),
-            NotEqual => self.builder.build_float_compare(inkwell::FloatPredicate::ONE, l_float, r_float, "fne").unwrap().into(),
-            LessThan => self.builder.build_float_compare(inkwell::FloatPredicate::OLT, l_float, r_float, "flt").unwrap().into(),
-            LessOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle").unwrap().into(),
-            GreaterThan => self.builder.build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt").unwrap().into(),
-            GreaterOrEqual => self.builder.build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge").unwrap().into(),
-            _ => unreachable!(),
+            Add => self
+                .builder
+                .build_float_add(l_float, r_float, "fadd")
+                .unwrap()
+                .into(),
+            Subtract => self
+                .builder
+                .build_float_sub(l_float, r_float, "fsub")
+                .unwrap()
+                .into(),
+            Multiply => self
+                .builder
+                .build_float_mul(l_float, r_float, "fmul")
+                .unwrap()
+                .into(),
+            Divide => self
+                .builder
+                .build_float_div(l_float, r_float, "fdiv")
+                .unwrap()
+                .into(),
+            Modulo => self
+                .builder
+                .build_float_rem(l_float, r_float, "frem")
+                .unwrap()
+                .into(),
+            Equal => self
+                .builder
+                .build_float_compare(inkwell::FloatPredicate::OEQ, l_float, r_float, "feq")
+                .unwrap()
+                .into(),
+            NotEqual => self
+                .builder
+                .build_float_compare(inkwell::FloatPredicate::ONE, l_float, r_float, "fne")
+                .unwrap()
+                .into(),
+            LessThan => self
+                .builder
+                .build_float_compare(inkwell::FloatPredicate::OLT, l_float, r_float, "flt")
+                .unwrap()
+                .into(),
+            LessOrEqual => self
+                .builder
+                .build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle")
+                .unwrap()
+                .into(),
+            GreaterThan => self
+                .builder
+                .build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt")
+                .unwrap()
+                .into(),
+            GreaterOrEqual => self
+                .builder
+                .build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge")
+                .unwrap()
+                .into(),
+            _ => {
+                self.sess.emit_ice(
+                    span,
+                    format!("Kern ICE (Codegen): Unhandled float operator `{:?}`.", op),
+                );
+                unreachable!()
+            }
         }
     }
 
@@ -178,6 +385,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         operand: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
         let op_val = self.compile_expr(operand);
+        let span = operand.span; // ✨ 提取源码位置用于报错
+
         match op {
             ast::UnaryOperator::Negate => {
                 if op_val.is_int_value() {
@@ -185,18 +394,27 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .build_int_neg(op_val.into_int_value(), "neg")
                         .unwrap()
                         .into()
-                } else {
+                } else if op_val.is_float_value() {
                     self.builder
                         .build_float_neg(op_val.into_float_value(), "fneg")
                         .unwrap()
                         .into()
+                } else {
+                    self.sess.emit_ice(span, "Kern ICE (Codegen): Negate `-` operator applied to a non-numeric type. Sema missed this.");
+                    unreachable!()
                 }
             }
-            ast::UnaryOperator::LogicalNot | ast::UnaryOperator::BitwiseNot => self
-                .builder
-                .build_not(op_val.into_int_value(), "not")
-                .unwrap()
-                .into(),
+            ast::UnaryOperator::LogicalNot | ast::UnaryOperator::BitwiseNot => {
+                if op_val.is_int_value() {
+                    self.builder
+                        .build_not(op_val.into_int_value(), "not")
+                        .unwrap()
+                        .into()
+                } else {
+                    self.sess.emit_ice(span, format!("Kern ICE (Codegen): Not operator `{:?}` applied to a non-integer/boolean type. Sema missed this.", op));
+                    unreachable!()
+                }
+            }
             ast::UnaryOperator::LengthOf => {
                 // MAST 保证了此时的类型已经是纯物理类型
                 let norm_ty = self.type_registry.normalize(operand.ty);
@@ -208,10 +426,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .builder
                         .build_extract_value(op_val.into_struct_value(), 1, "slice_len")
                         .unwrap(),
-                    _ => unreachable!(),
+                    other => {
+                        self.sess.emit_ice(span, format!("Kern ICE (Codegen): `LengthOf` applied to invalid type {:?}. Sema missed this.", other));
+                        unreachable!()
+                    }
                 }
             }
-            _ => unreachable!(),
+            _ => {
+                self.sess.emit_ice(
+                    span,
+                    format!("Kern ICE (Codegen): Unhandled unary operator `{:?}`.", op),
+                );
+                unreachable!()
+            }
         }
     }
 
@@ -223,6 +450,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         let ptr = self.compile_lvalue(lhs);
         let rhs_val = self.compile_expr(rhs);
+        let span = lhs.span;
 
         if op == ast::AssignmentOperator::Assign {
             self.builder.build_store(ptr, rhs_val).unwrap();
@@ -236,6 +464,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let new_val: inkwell::values::BasicValueEnum<'ctx> = if lhs_val.is_int_value() {
                 let l_int = lhs_val.into_int_value();
                 let r_int = rhs_val.into_int_value();
+                let is_signed = self.is_signed_int(lhs.ty);
+
                 use ast::AssignmentOperator::*;
                 match op {
                     AddAssign => self
@@ -253,16 +483,32 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .build_int_mul(l_int, r_int, "mul_a")
                         .unwrap()
                         .into(),
-                    DivideAssign => self
-                        .builder
-                        .build_int_signed_div(l_int, r_int, "div_a")
-                        .unwrap()
-                        .into(),
-                    ModuloAssign => self
-                        .builder
-                        .build_int_signed_rem(l_int, r_int, "rem_a")
-                        .unwrap()
-                        .into(),
+                    DivideAssign => {
+                        if is_signed {
+                            self.builder
+                                .build_int_signed_div(l_int, r_int, "sdiv_a")
+                                .unwrap()
+                                .into()
+                        } else {
+                            self.builder
+                                .build_int_unsigned_div(l_int, r_int, "udiv_a")
+                                .unwrap()
+                                .into()
+                        }
+                    }
+                    ModuloAssign => {
+                        if is_signed {
+                            self.builder
+                                .build_int_signed_rem(l_int, r_int, "srem_a")
+                                .unwrap()
+                                .into()
+                        } else {
+                            self.builder
+                                .build_int_unsigned_rem(l_int, r_int, "urem_a")
+                                .unwrap()
+                                .into()
+                        }
+                    }
                     BitwiseAndAssign => self
                         .builder
                         .build_and(l_int, r_int, "and_a")
@@ -281,13 +527,21 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .into(),
                     ShiftRightAssign => self
                         .builder
-                        .build_right_shift(l_int, r_int, false, "shr_a")
+                        .build_right_shift(l_int, r_int, is_signed, "shr_a")
                         .unwrap()
                         .into(),
-                    _ => unreachable!(),
+                    _ => {
+                        self.sess.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Codegen): Unhandled integer assignment operator `{:?}`.",
+                                op
+                            ),
+                        );
+                        unreachable!()
+                    }
                 }
             } else if lhs_val.is_float_value() {
-                // 新增：处理浮点数复合赋值
                 let l_float = lhs_val.into_float_value();
                 let r_float = rhs_val.into_float_value();
                 use ast::AssignmentOperator::*;
@@ -317,10 +571,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .build_float_rem(l_float, r_float, "frem_a")
                         .unwrap()
                         .into(),
-                    _ => unreachable!("Unsupported float assignment operator"),
+                    _ => {
+                        self.sess.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Codegen): Unsupported float assignment operator `{:?}`.",
+                                op
+                            ),
+                        );
+                        unreachable!()
+                    }
                 }
             } else {
-                unreachable!("Unsupported type for assignment");
+                self.sess.emit_ice(span, "Kern ICE (Codegen): Unsupported type for compound assignment. Sema missed this.");
+                unreachable!()
             };
             self.builder.build_store(ptr, new_val).unwrap();
         }

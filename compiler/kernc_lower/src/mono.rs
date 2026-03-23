@@ -1,10 +1,10 @@
 use super::Lowerer;
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
+use kernc_sema::checker::ConstValue;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, GlobalDef};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_sema::checker::ConstValue;
 use kernc_utils::Span;
 use std::collections::HashMap;
 
@@ -378,12 +378,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             Some(&id) => id,
             None => {
                 let name = self.ctx.resolve(g.name);
-                self.ctx.emit_ice(kernc_utils::Span::default(), format!("Kern ICE (Lowering): Global MonoId for `{}` missing.", name));
+                self.ctx.emit_ice(
+                    kernc_utils::Span::default(),
+                    format!("Kern ICE (Lowering): Global MonoId for `{}` missing.", name),
+                );
                 unreachable!()
             }
         };
 
-        let ty = self.ctx.node_types.get(&g.value.id).copied().unwrap_or(TypeId::ERROR);
+        let ty = self
+            .ctx
+            .node_types
+            .get(&g.value.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
         let is_mut = g.is_mut;
 
         // 常量折叠
@@ -391,7 +399,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mut ce = kernc_sema::checker::ConstEvaluator::new(self.ctx);
             if let Ok(val) = ce.eval_inner(&g.value, 0) {
                 match val {
-                    ConstValue::Int(v) => Some(MastExpr::new(ty, MastExprKind::Integer(v as u128), g.span)),
+                    ConstValue::Int(v) => {
+                        Some(MastExpr::new(ty, MastExprKind::Integer(v as u128), g.span))
+                    }
                     ConstValue::Float(f) => Some(MastExpr::new(ty, MastExprKind::Float(f), g.span)),
                     ConstValue::Bool(b) => Some(MastExpr::new(ty, MastExprKind::Bool(b), g.span)),
                     _ => Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty))),

@@ -3,10 +3,10 @@ use std::collections::HashMap;
 
 use kernc_ast::Expr;
 use kernc_mast::*;
+use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_sema::def::Def;
 use kernc_sema::scope::SymbolKind;
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_sema::checker::{ConstValue, ConstEvaluator};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -28,14 +28,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
                                 ConstValue::Float(f) => return MastExprKind::Float(f),
                                 ConstValue::Bool(b) => return MastExprKind::Bool(b),
-                                _ => {}  // TODO 
+                                _ => {} // TODO
                             }
                         }
                     }
                 }
             }
         }
-        
+
         // 优先检查是否是顶层全局变量 (静态数组、全局字符串等)
         if let Some(&mono_id) = self.global_symbol_map.get(&name) {
             return MastExprKind::GlobalRef(mono_id);
@@ -129,11 +129,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
                 SymbolKind::Const => {
                     if let Some(def_id) = target_info.def_id {
-                        let const_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                            Some(g.value.clone())
-                        } else {
-                            None
-                        };
+                        let const_expr_opt =
+                            if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                                Some(g.value.clone())
+                            } else {
+                                None
+                            };
 
                         if let Some(const_expr) = const_expr_opt {
                             let mut ce = ConstEvaluator::new(self.ctx);
@@ -154,7 +155,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     } else {
                         let field_name = self.ctx.resolve(field);
                         self.ctx.emit_ice(
-                            span, 
+                            span,
                             format!("Kern ICE (Lowering): Cross-module constant `{}` could not be inlined, and its global definition was not found. Phase 1 global collection failed.", field_name)
                         );
                         unreachable!()

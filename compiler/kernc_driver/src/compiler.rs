@@ -167,6 +167,8 @@ impl CompilerDriver {
 
         // 处理平台专属的链接选项
         if is_windows {
+            // 静音由于三元组小版本不一致导致的警告
+            cmd.arg("-Wno-override-module");
             // Windows 下不需要且不支持 -no-pie
             if !self.options.link_libc {
                 cmd.arg("-nostdlib");

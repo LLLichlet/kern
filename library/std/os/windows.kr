@@ -2,13 +2,13 @@
 
 // 链接 kernel32.dll 中的函数
 extern {
-    pub fn GetStdHandle(nStdHandle: i32) *mut void;
+    pub fn GetStdHandle(nStdHandle: i32) *mut u8;
     pub fn WriteFile(
-        hFile: *mut void, 
+        hFile: *mut u8, 
         lpBuffer: *u8, 
         nNumberOfBytesToWrite: u32, 
         lpNumberOfBytesWritten: *mut u32, 
-        lpOverlapped: *mut void
+        lpOverlapped: *mut u8
     ) i32;
     pub fn ExitProcess(uExitCode: u32) void;
     pub fn GetCommandLineA() *mut u8;
@@ -20,7 +20,7 @@ pub fn write_stdout(ptr: *u8, len: usize) usize {
     let mut written = u32.{0};
     
     // Windows API 要求传入 32 位长度
-    let _ = WriteFile(handle, ptr, len as u32, written.&, 0 as *mut void);
+    let _ = WriteFile(handle, ptr, len as u32, written..&, 0);
     return written as usize;
 }
 
@@ -38,7 +38,7 @@ pub fn get_stdout_handle() Handle {
 
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     let mut written = u32.{0};
-    let _ = WriteFile(handle, ptr, len as u32, written.&, 0 as *mut u8);
+    let _ = WriteFile(handle, ptr, len as u32, written..&, 0);
     return written as usize;
 }
 

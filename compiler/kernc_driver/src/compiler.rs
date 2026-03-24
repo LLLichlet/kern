@@ -132,33 +132,52 @@ impl CompilerDriver {
             return true;
         }
 
-        // 8. 输出目标文件
-        let obj_path_str = format!("{}.tmp.o", self.options.output_file);
+        // 处理跨平台逻辑
+        let triple_str = self.options.target.triple.to_string();
+        let is_windows = triple_str.contains("windows");
+
+        // 8. 根据平台决定临时文件格式：Windows 走 IR，类 Unix 走 Object
+        let tmp_ext = if is_windows { "ll" } else { "o" };
+        let obj_path_str = format!("{}.tmp.{}", self.options.output_file, tmp_ext);
+        
         let _guard = TempFileGuard {
             path: obj_path_str.clone(),
         };
 
-        if let Err(e) = codegen.emit_to_file(
-            &self.options.target.triple.to_string(),
-            &obj_path_str,
-            self.options.opt_level,
-        ) {
-            eprintln!("Error: LLVM failed to generate object file: {}", e);
+        if let Err(e) = codegen.emit_to_file(&triple_str, &obj_path_str, self.options.opt_level) {
+            eprintln!("Error: LLVM failed to generate intermediate file: {}", e);
             return false;
         }
 
-        // 9. 链接器调用
-        println!("Linking...");
-        let cc_compiler = self.options.linker_cmd.clone();
+        // 9. 智能链接器调用
+        println!("Linking for target: {} ...", triple_str);
+        
+        // 如果在 Windows 下且没有显式指定 --cc，我们强制使用 clang，因为它是能解析 .ll 的最佳驱动器
+        let cc_compiler = if is_windows && self.options.linker_cmd == "cc" {
+            "clang".to_string()
+        } else {
+            self.options.linker_cmd.clone()
+        };
+
         let mut cmd = Command::new(&cc_compiler);
 
         cmd.arg(&obj_path_str)
-            .arg("-no-pie")
             .arg("-o")
             .arg(&self.options.output_file);
 
-        if !self.options.link_libc {
-            cmd.arg("-nostdlib");
+        // 处理平台专属的链接选项
+        if is_windows {
+            // Windows 下不需要且不支持 -no-pie
+            if !self.options.link_libc {
+                cmd.arg("-nostdlib");
+                cmd.arg("-lkernel32"); // 链接必需的系统底层 API
+            }
+        } else {
+            // Linux / macOS 下
+            cmd.arg("-no-pie"); // 针对部分 Linux GCC 环境的配置
+            if !self.options.link_libc {
+                cmd.arg("-nostdlib");
+            }
         }
 
         match cmd.status() {
@@ -172,7 +191,7 @@ impl CompilerDriver {
             }
             Err(e) => {
                 eprintln!(
-                    "Error: Failed to invoke linker (`{}`). Make sure a C compiler is installed. ({})",
+                    "Error: Failed to invoke linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
                     cc_compiler, e
                 );
                 false

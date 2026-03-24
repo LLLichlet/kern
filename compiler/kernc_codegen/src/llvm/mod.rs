@@ -90,7 +90,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         output_path: &str,
         opt_level: OptLevel,
     ) -> Result<(), String> {
-        // 1. 初始化所有的 LLVM Target (x86, ARM, RISCV 等)
+        let path = std::path::Path::new(output_path);
+
+        // 策略 A：Windows 环境防崩溃降级方案 (输出 LLVM IR)
+        if target_triple_str.contains("windows") {
+            self.module.print_to_file(path).map_err(|e| e.to_string())?;
+            return Ok(());
+        }
+
+        // 策略 B：Linux / macOS 标准原生编译方案 (输出 Object 文件)
+        Target::initialize_native(&InitializationConfig::default())
+            .map_err(|e| format!("Failed to initialize native target: {}", e))?;
         Target::initialize_all(&InitializationConfig::default());
 
         // 2. 解析目标架构三元组

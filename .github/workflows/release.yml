@@ -63,13 +63,9 @@ jobs:
           # 下载官方预编译的 LLVM
           Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz" -OutFile "llvm.tar.xz"
           
-          # 解压 (Windows 11 自带 tar 支持)
+          # 解压
           tar -xf llvm.tar.xz
           Rename-Item "clang+llvm-21.1.8-x86_64-pc-windows-msvc" "LLVM-21"
-          
-          # 欺骗 Linker: 复制并重命名 libxml2.lib 到 libxml2s.lib
-          # 注意：如果在 Actions 环境中缺失，我们可以通过 vcpkg 安装，但通常 Actions 镜像的预装库已经足够让其跑通
-          # 我们先用简单方案，如果由于缺少 xml2 报错，可以在这里插入快速注入方案
           
           $llvm_path = (Resolve-Path "LLVM-21").Path
           echo "LLVM_SYS_211_PREFIX=$llvm_path" >> $env:GITHUB_ENV
@@ -79,10 +75,10 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          # 走正规军路线：使用 GitHub 预装的 vcpkg 现场编译
+          # 使用 GitHub 预装的 vcpkg 现场编译
           vcpkg install libxml2:x64-windows-static
           
-          # 欺骗 Linker: 从 vcpkg 目录复制并改名到 LLVM 目录 (与本地流程完美一致)
+          # 欺骗 Linker: 从 vcpkg 目录复制并改名到 LLVM 目录
           $VcpkgLib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib"
           $LlvmLib = "LLVM-21\lib\libxml2s.lib"
           

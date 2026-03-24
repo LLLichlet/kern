@@ -9,26 +9,27 @@ Kern is built on the observation that languages often trade off abstraction capa
 
 ## Core Philosophy
 
-  * **Clarity over Novelty:** What you write is what the machine executes. Kern fixes C's legacy warts while maintaining entirely predictable assembly generation.
-  * **Explicit over Implicit:** Mutability is a property of storage, not the type itself (`let mut x`). Pointer math is strictly typed. All type conversions require the explicit `as` operator. Return values cannot be silently ignored.
-  * **Zero-Cost Abstractions:** Features like monomorphized Generics, Algebraic Data Types (`enum`), and strictly Stateless Lambdas compile down to highly optimized, flat LLVM IR with zero runtime overhead.
-  * **Mechanism Trinity:** Kern relies on three core mechanisms to maintain its philosophy: a strictly explicit module tree (`mod`), strongly-typed zero-cost generics, and precise state management via exhaustive `match` blocks.
-  * **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies—ideal for kernel development.
+* **Clarity over Novelty:** What you write is what the machine executes. Kern fixes C's legacy warts while maintaining entirely predictable assembly generation.
+* **Explicit over Implicit:** Mutability is a property of storage, not the type itself (`let mut x`). Pointer math is strictly typed. All type conversions require the explicit `as` operator. Return values cannot be silently ignored.
+* **Zero-Cost Abstractions:** Features like monomorphized Generics, Algebraic Data Types (`enum`), and strictly Stateless Lambdas compile down to highly optimized, flat LLVM IR with zero runtime overhead.
+* **Mechanism Trinity:** Kern relies on three core mechanisms to maintain its philosophy: a strictly explicit module tree (`mod`), strongly-typed zero-cost generics, and precise state management via exhaustive `match` blocks.
+* **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies—ideal for kernel development.
 
 ## Compiler Architecture (Workspace)
 
-As of v0.5.0, the `kernc` compiler has been entirely rewritten into a highly decoupled, multi-pass Rust workspace. This clean pipeline guarantees maintainability and clear semantic boundaries:
+The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. This clean pipeline guarantees maintainability and clear semantic boundaries:
 
-  * `kernc_lexer` & `kernc_parser`: Transforms `.kr` source code into an unverified Abstract Syntax Tree.
-  * `kernc_ast`: Defines the frontend syntax nodes and attributes.
-  * `kernc_sema`: The heart of the compiler. Performs strict top-down bidirectional type checking, constant evaluation, exhaustive pattern matching verification, and explicit module path resolution.
-  * `kernc_lower` & `kernc_mast`: Lowers the semantically verified AST into the Monomorphized Abstract Syntax Tree (MAST), resolving all generics and laying out vtables.
-  * `kernc_codegen`: Translates MAST into highly optimized LLVM IR.
-  * `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
+* `kernc_lexer` & `kernc_parser`: Transforms `.kr` source code into an unverified Abstract Syntax Tree.
+* `kernc_ast`: Defines the frontend syntax nodes and attributes.
+* `kernc_sema`: The heart of the compiler. Performs strict top-down bidirectional type checking, robust 3-phase constant evaluation (ConstEval), exhaustive pattern matching verification, and explicit module path resolution.
+* `kernc_lower` & `kernc_mast`: Lowers the semantically verified AST into the Monomorphized Abstract Syntax Tree (MAST), resolving all generics, applying let-binding hoisting to prevent side-effects, and laying out vtables.
+* `kernc_codegen`: Translates MAST into highly optimized LLVM IR.
+* `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
+* `kernc_utils`: Handles rigorous internal diagnostics, span tracking, and ICE (Internal Compiler Error) reporting.
 
-## A Taste of Kern (v0.5.0)
+## A Taste of Kern (v0.5.2)
 
-Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the updated elided initialization syntax.
+Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 
 ```kern
 // main.kr
@@ -84,16 +85,16 @@ extern fn start() ! {
 
 ## Roadmap & Current Status
 
-The compiler is currently in its **`v0.5.x`** series, marking a massive architectural shift to a modular workspace and refined language semantics.
+The compiler is currently in its **`v0.5.x`** series, marking a massive architectural shift to a modular workspace, refined language semantics, and cross-platform stability.
 
   * **[Delivered] v0.1.x - v0.3.x:** Core stabilization, basic generics, initial LLVM backend, inline assembly (`@asm`), and basic AST attributes.
-  * **[Delivered] v0.4.x (Standard Library):** Implementation of the explicit module tree system (`mod`), cross-platform freestanding standard library (`std`), and multi-pass type resolution.
-  * **[Delivered] v0.5.x (Workspace & Type System Overhaul):** Complete decoupled compiler workspace (`kernc_*`), `.kr` file extension, unified `enum`/`data` types, exhaustive `match` branching replacing `switch`, and strict explicit type conversions via `as`.
-  * **[Current Focus] v0.6.x (Tooling & Ecosystem):** Package management foundations, enhanced diagnostic reporting with span tracking, and Language Server Protocol (LSP) foundations.
+  * **[Delivered] v0.4.x (Language Core & Modules):** Implementation of the explicit module tree system (`mod`), core language unifications (unified `enum` types, exhaustive `match` branching, explicit `as` conversions), and the initial cross-platform freestanding standard library (`std`).
+  * **[Current-Focus] v0.5.x (Workspace, Windows & Stdlib Stabilization):** Complete decoupled compiler workspace (`kernc_*`), native Windows compilation support, rigorous test infrastructure, and standard library expansion (e.g., `std.coll.String`, `std.num`, hardened `GPAllocator`).
+  * **[Future] v0.6.x (Ecosystem, Tooling & Self-Hosting):** Package management foundations, expanding the native Kern toolchain, comprehensive standard library maturation, and exploring initial steps toward compiler self-hosting (tentative).
 
 ## Installation
 
-The easiest way to install Kern is via our official installation script. This script automatically downloads and installs the pre-compiled compiler and the standard library toolchain to `~/.kern`.
+The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled compiler and the standard library toolchain to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
 
 **For Linux / macOS:**
 
@@ -101,7 +102,13 @@ The easiest way to install Kern is via our official installation script. This sc
 curl -sSf https://raw.githubusercontent.com/softfault/kern/main/install.sh | bash
 ```
 
-*(After installation, you may need to restart your terminal or run `source ~/.bashrc` to update your PATH).*
+**For Windows (PowerShell):**
+
+```powershell
+powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Expression (Invoke-WebRequest -Uri https://raw.githubusercontent.com/softfault/kern/main/install.ps1 -UseBasicParsing).Content"
+```
+
+*(After installation, you may need to restart your terminal or update your PATH variables as prompted by the script).*
 
 ## Building from Source
 
@@ -118,8 +125,8 @@ cargo build --release
 
 ## Documentation
 
-  * **[Kern Language Design Document](design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for v0.5.0.
-  * *(Coming Soon)* **The Kern Type System**: A guide to understanding Kern's Contextual Top-Down Bidirectional Type Checking model.
+  * **[Kern Language Design Document](design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
+  * *(Coming Soon)* **The Kern Type System**: A guide to understanding Kern's Contextual Top-Down Bidirectional Type Checking and ConstEval models.
 
 ## Contributing
 

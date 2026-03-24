@@ -28,10 +28,16 @@ $TempZip = "$env:TEMP\$ZipFile"
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempZip
 
 Write-Host "=> Extracting toolchain..."
-Expand-Archive -Path $TempZip -DestinationPath $env:TEMP -Force
-Copy-Item -Recurse -Force "$env:TEMP\$DistName\*" -Destination $KernHome
-Remove-Item $TempZip
-Remove-Item -Recurse -Force "$env:TEMP\$DistName"
+$ExtractPath = "$env:TEMP\$DistName"
+
+Expand-Archive -Path $TempZip -DestinationPath $ExtractPath -Force
+if (Test-Path "$ExtractPath\$DistName") {
+    Copy-Item -Recurse -Force "$ExtractPath\$DistName\*" -Destination $KernHome
+} else {
+    Copy-Item -Recurse -Force "$ExtractPath\*" -Destination $KernHome
+}
+Remove-Item -Force $TempZip
+Remove-Item -Recurse -Force $ExtractPath
 
 Write-Host "=> Configuring PATH environment variable..."
 $UserPath = [System.Environment]::GetEnvironmentVariable("Path", "User")

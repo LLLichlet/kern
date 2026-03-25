@@ -1,0 +1,2101 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 0dd5c06..0313495 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -50,7 +50,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_ast"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "kernc_lexer",
+  "kernc_utils",
+@@ -58,7 +58,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_cli"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "kernc_driver",
+  "kernc_utils",
+@@ -66,7 +66,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_codegen"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "inkwell",
+  "kernc_ast",
+@@ -77,7 +77,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_driver"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "inkwell",
+  "kernc_ast",
+@@ -90,14 +90,14 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_lexer"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "kernc_utils",
+ ]
+ 
+ [[package]]
+ name = "kernc_lower"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "kernc_ast",
+  "kernc_mast",
+@@ -107,7 +107,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_mast"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "kernc_ast",
+  "kernc_sema",
+@@ -116,7 +116,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_parser"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "kernc_ast",
+  "kernc_lexer",
+@@ -125,7 +125,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_sema"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "kernc_ast",
+  "kernc_parser",
+@@ -134,7 +134,7 @@ dependencies = [
+ 
+ [[package]]
+ name = "kernc_utils"
+-version = "0.5.2"
++version = "0.5.3"
+ dependencies = [
+  "target-lexicon",
+ ]
+diff --git a/Cargo.toml b/Cargo.toml
+index 3bab21b..4f9e6f7 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -6,7 +6,7 @@ members = [
+ ]
+ 
+ [workspace.package]
+-version = "0.5.2"
++version = "0.5.3"
+ edition = "2024"
+ authors = ["softfault <givenyoung46@gmail.com>"]
+ license = "MIT" 
+diff --git a/README.md b/README.md
+index 9c265c2..caedbe6 100644
+--- a/README.md
++++ b/README.md
+@@ -1,6 +1,6 @@
+ # Kern Programming Language
+ 
+-> **Status:** v0.5.2 (Experimental)  
++> **Status:** v0.5.3 (Experimental)  
+ > *High Abstraction, Low Policy.*
+ 
+ Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.
+diff --git a/compiler/kernc_ast/src/expr.rs b/compiler/kernc_ast/src/expr.rs
+index db7559d..770a965 100644
+--- a/compiler/kernc_ast/src/expr.rs
++++ b/compiler/kernc_ast/src/expr.rs
+@@ -153,9 +153,10 @@ pub enum ExprKind {
+     /// 代表 `self`
+     SelfValue,
+ 
+-    /// 无状态匿名函数 (Lambda)
+-    /// 语法: `fn(a: i32, b: i32) bool { return a < b; }`
+-    Lambda {
++    /// 闭包表达式
++    /// 语法: `[a, ptr = b..&](x: i32) bool { return x > a; }`
++    Closure {
++        captures: Vec<CapturePattern>,
+         params: Vec<FuncParam>,
+         ret_type: Box<TypeNode>,
+         body: Box<Expr>, // 必定是一个 Block 表达式
+@@ -184,6 +185,15 @@ pub struct StructFieldInit {
+     pub span: Span,
+ }
+ 
++#[derive(Debug, Clone, PartialEq)]
++pub struct CapturePattern {
++    /// 闭包内部绑定的局部名字
++    pub name: SymbolId,
++    /// 捕获目标的值表达式 (例如 `counter..&` 或省略简写时的自身变量引用)
++    pub value: Expr,
++    pub span: Span,
++}
++
+ #[derive(Debug, Clone, PartialEq)]
+ pub struct MatchArm {
+     /// 一个 Arm 可以有多个 Pattern，比如: 11, 12, 13 =>
+diff --git a/compiler/kernc_ast/src/ty.rs b/compiler/kernc_ast/src/ty.rs
+index f3998f2..eb5bb44 100644
+--- a/compiler/kernc_ast/src/ty.rs
++++ b/compiler/kernc_ast/src/ty.rs
+@@ -85,6 +85,15 @@ pub enum TypeKind {
+ 
+     /// Never 类型 `!`，代表永远不会返回的控制流
+     Never,
++
++    /// 编译期类型求值 `@typeOf(expr)`
++    TypeOf(Box<Expr>),
++
++    /// 闭包动态胖指针接口: `Fn(i32) bool`
++    ClosureInterface {
++        params: Vec<TypeNode>,
++        ret: Option<Box<TypeNode>>,
++    },
+ }
+ 
+ #[derive(Debug, Clone, PartialEq)]
+diff --git a/compiler/kernc_codegen/src/llvm/types.rs b/compiler/kernc_codegen/src/llvm/types.rs
+index 7ff3846..137617f 100644
+--- a/compiler/kernc_codegen/src/llvm/types.rs
++++ b/compiler/kernc_codegen/src/llvm/types.rs
+@@ -31,10 +31,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+             },
+             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                 let elem_norm = self.type_registry.normalize(elem);
+-                // 特判：指向 Trait Object 的指针，其物理布局是一个包含两个字段的结构体
+-                if matches!(self.type_registry.get(elem_norm), TypeKind::TraitObject(..)) {
++                // 特判：指向 Trait Object 或 ClosureInterface 的指针，物理布局是一个胖指针结构体
++                if matches!(
++                    self.type_registry.get(elem_norm), 
++                    TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
++                ) {
+                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
+-                    let meta_ty = self.context.i64_type(); // 虚表指针/元数据 统一用 i64 (usize) 存储
++                    let meta_ty = self.context.i64_type(); // 虚表指针 / 代码指针 统一用 i64 (usize)
+                     return self
+                         .context
+                         .struct_type(&[ptr_ty.into(), meta_ty.into()], false)
+@@ -98,6 +101,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+                     self.context.i8_type().into()
+                 }
+             }
++            TypeKind::AnonymousState { captures, .. } => {
++                let mut field_tys = Vec::new();
++                for cap in captures {
++                    field_tys.push(self.get_llvm_type(cap));
++                }
++                self.context.struct_type(&field_tys, false).into()
++            }
++            TypeKind::ClosureInterface { .. } => {
++                self.sess.emit_ice(
++                    Span::default(),
++                    "Kern ICE (Codegen): Naked `ClosureInterface` cannot be materialized. \
++                     Sema `ensure_sized` failed to catch this. You must use a fat pointer (e.g., `*Fn`)."
++                );
++                unreachable!()
++            }
++
+             TypeKind::TypeVar(vid) => {
+                 self.sess.emit_ice(
+                     Span::default(),
+diff --git a/compiler/kernc_driver/src/compiler.rs b/compiler/kernc_driver/src/compiler.rs
+index 911d180..ea0651f 100644
+--- a/compiler/kernc_driver/src/compiler.rs
++++ b/compiler/kernc_driver/src/compiler.rs
+@@ -6,7 +6,7 @@ use kernc_lower::Lowerer;
+ use kernc_sema::BuiltinInjector;
+ use kernc_sema::SemaContext;
+ use kernc_sema::checker::TypeckDriver;
+-use kernc_sema::passes::{Collector, ImportResolver, TypeResolver};
++use kernc_sema::passes::{Collector, ImportResolver, TypeResolver, LinkageChecker};
+ use kernc_utils::Session;
+ use kernc_utils::config::{AsmDialect, CompileOptions};
+ 
+@@ -95,6 +95,13 @@ impl CompilerDriver {
+             return false;
+         }
+ 
++        let mut linkage_checker = LinkageChecker::new(&mut ctx);
++        linkage_checker.check_all();
++        if ctx.has_errors() {
++            ctx.sess.print_diagnostics();
++            return false;
++        }
++
+         // 6. 中端降级
+         let mut lowerer = Lowerer::new(&mut ctx);
+         let mast_module = lowerer.lower_all();
+diff --git a/compiler/kernc_lower/src/expr/call.rs b/compiler/kernc_lower/src/expr/call.rs
+index d25e505..a4c3205 100644
+--- a/compiler/kernc_lower/src/expr/call.rs
++++ b/compiler/kernc_lower/src/expr/call.rs
+@@ -579,6 +579,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+         subst_map: &HashMap<SymbolId, TypeId>,
+     ) -> MastExprKind {
+         let callee_mast = self.lower_expr(callee, subst_map, None);
++        let norm_callee = self.ctx.type_registry.normalize(callee_mast.ty);
++
++        // 拦截并处理闭包胖指针的动态调用
++        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
++            self.ctx.type_registry.get(norm_callee).clone()
++        {
++            let inner_norm = self.ctx.type_registry.normalize(elem);
++            if matches!(
++                self.ctx.type_registry.get(inner_norm),
++                TypeKind::ClosureInterface { .. }
++            ) {
++                return self.lower_closure_call(callee_mast, arg_masts, inner_norm, callee.span);
++            }
++        }
++
+         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
+         {
+             // 拦截内置函数 (Intrinsic)
+@@ -729,4 +744,70 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+             _ => Vec::new(),
+         }
+     }
++
++    pub(crate) fn lower_closure_call(
++        &mut self,
++        callee_mast: MastExpr,
++        mut arg_masts: Vec<MastExpr>,
++        closure_interface_ty: TypeId,
++        span: Span,
++    ) -> MastExprKind {
++        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
++            is_mut: false,
++            elem: TypeId::VOID,
++        });
++
++        // 1. 提取 data_ptr，强行插入为 arg[0]
++        let data_ptr = MastExpr::new(
++            void_ptr_ty,
++            MastExprKind::ExtractFatPtrData(Box::new(callee_mast.clone())),
++            span,
++        );
++        arg_masts.insert(0, data_ptr);
++
++        // 2. 提取 meta_ptr (code_ptr)
++        let code_ptr = MastExpr::new(
++            TypeId::USIZE,
++            MastExprKind::ExtractFatPtrMeta(Box::new(callee_mast.clone())),
++            span,
++        );
++
++        // 3. 构建确切的底层函数签名，并将 USIZE 代码指针 IntToPtr 转换过去
++        let (params, ret) = if let TypeKind::ClosureInterface { params, ret } =
++            self.ctx.type_registry.get(closure_interface_ty).clone()
++        {
++            (params, ret)
++        } else {
++            let actual_ty_str = self.ctx.ty_to_string(closure_interface_ty);
++            self.ctx.emit_ice(
++                span,
++                format!("Kern ICE (Lowering): Expected `ClosureInterface`, found `{}`.", actual_ty_str),
++            );
++            unreachable!()
++        };
++
++        let mut patched_params = params.clone();
++        patched_params.insert(0, void_ptr_ty); // 补上对应的 env 参数
++
++        let patched_fn_ty = self.ctx.type_registry.intern(TypeKind::Function {
++            params: patched_params,
++            ret,
++            is_variadic: false,
++        });
++
++        let typed_code_ptr = MastExpr::new(
++            patched_fn_ty,
++            MastExprKind::Cast {
++                kind: MastCastKind::IntToPtr,
++                operand: Box::new(code_ptr),
++            },
++            span,
++        );
++
++        // 4. 间接调用函数指针
++        MastExprKind::Call {
++            callee: Box::new(typed_code_ptr),
++            args: arg_masts,
++        }
++    }
+ }
+diff --git a/compiler/kernc_lower/src/expr/control.rs b/compiler/kernc_lower/src/expr/control.rs
+index 970c5c5..6254d0f 100644
+--- a/compiler/kernc_lower/src/expr/control.rs
++++ b/compiler/kernc_lower/src/expr/control.rs
+@@ -7,7 +7,7 @@ use kernc_sema::checker::ConstEvaluator;
+ use kernc_sema::checker::Substituter;
+ use kernc_sema::def::Def;
+ use kernc_sema::ty::{TypeId, TypeKind};
+-use kernc_utils::{Span, SymbolId};
++use kernc_utils::{Span, SymbolId, NodeId};
+ 
+ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+     pub(crate) fn lower_block_as_body(
+@@ -91,32 +91,76 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+         } // 将 defers 独立传递给后端
+     }
+ 
+-    pub(crate) fn lower_lambda_expr(
++    pub(crate) fn lower_closure_expr(
+         &mut self,
++        node_id: NodeId,
++        captures: &[ast::CapturePattern],
+         params: &[ast::FuncParam],
+         body: &Expr,
+-        concrete_ty: TypeId,
++        concrete_ty: TypeId, // AnonymousState
+         subst_map: &HashMap<SymbolId, TypeId>,
++        exp_ty: TypeId, // 上下文期望的类型
+     ) -> MastExprKind {
+-        let mono_id = self.new_mono_id();
++        let struct_id = self.new_mono_id();
++        let func_id = self.new_mono_id();
++        self.closure_fn_map.insert(node_id, func_id);
++
++        // 0. ================= 嗅探 Decay (退化) 上下文 =================
++        let norm_exp = self.ctx.type_registry.normalize(exp_ty);
++        let is_decay = captures.is_empty() && matches!(
++            self.ctx.type_registry.get(norm_exp).clone(),
++            TypeKind::Function { .. } | TypeKind::FnDef(..)
++        );
++
++        // 1. ================= 构建捕获状态结构体 =================
++        let mut env_struct_fields = Vec::new();
++        let mut cap_exprs = Vec::new();
++
++        for cap in captures {
++            let cap_mast = self.lower_expr(&cap.value, subst_map, None);
++            env_struct_fields.push(MastField {
++                name: cap.name,
++                ty: cap_mast.ty,
++            });
++            cap_exprs.push(cap_mast);
++        }
+ 
+-        // 1. 生成独一无二的内部函数名，直接映射到 C ABI
+-        let lambda_name = format!("__kern_lambda_{}", mono_id.0);
++        self.module.structs.push(MastStruct {
++            id: struct_id,
++            name: format!("__closure_state_{}", struct_id.0),
++            fields: env_struct_fields.clone(),
++            is_extern: false,
++            is_union: false,
++            largest_field_idx: 0,
++            attributes: vec![],
++        });
++
++        // 2. ================= 构建闭包执行函数 =================
++        let env_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
++            is_mut: true,
++            elem: concrete_ty,
++        });
+ 
+-        // 2. 从 TypeId 提取确切的签名
+-        let (param_tys, ret_ty) = if let TypeKind::Function { params, ret, .. } =
+-            self.ctx.type_registry.get(concrete_ty)
++        let mut mast_params = Vec::new();
++        let env_sym = self.ctx.intern("__env");
++        
++        // 如果是 Decay 退化为 C ABI 静态函数，不生成隐藏的上下文指针
++        if !is_decay {
++            mast_params.push(MastParam {
++                name: env_sym,
++                ty: env_ptr_ty,
++                is_mut: false,
++            });
++        }
++
++        let (param_tys, ret_ty) = if let TypeKind::AnonymousState { params: p, ret: r, .. } =
++            self.ctx.type_registry.get(concrete_ty).clone()
+         {
+-            (params.clone(), *ret)
++            (p, r)
+         } else {
+-            self.ctx.emit_ice(
+-                body.span,
+-                "Kern ICE (Lowering): Lambda expression does not have a Function type.",
+-            );
+             unreachable!()
+         };
+ 
+-        let mut mast_params = Vec::new();
+         for (i, p) in params.iter().enumerate() {
+             mast_params.push(MastParam {
+                 name: p.pattern.name,
+@@ -125,53 +169,139 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+             });
+         }
+ 
+-        // ==========================================
+-        // 全面保护并清空外部上下文 (Context Isolation)
+-        // ==========================================
+         let saved_local_types = std::mem::take(&mut self.local_types);
+         let saved_defer_stack = std::mem::take(&mut self.defer_stack);
+         let saved_loop_frames = std::mem::take(&mut self.loop_frames);
+         let saved_local_statics = std::mem::take(&mut self.local_statics);
+ 
+-        // 为 Lambda 开启自己独有的局部作用域
+         self.local_types.push(HashMap::new());
+         for p in &mast_params {
+-            self.local_types
+-                .last_mut()
+-                .unwrap()
+-                .insert(p.name, (p.ty, p.is_mut));
++            self.local_types.last_mut().unwrap().insert(p.name, (p.ty, p.is_mut));
++        }
++
++        // 还原捕获的值 (只有在非退化时才需要)
++        let mut injected_stmts = Vec::new();
++        if !is_decay {
++            let env_var_expr = MastExpr::new(env_ptr_ty, MastExprKind::Var(env_sym), Span::default());
++
++            for (i, cap) in captures.iter().enumerate() {
++                let deref_env = MastExpr::new(
++                    concrete_ty,
++                    MastExprKind::Deref(Box::new(env_var_expr.clone())),
++                    Span::default(),
++                );
++                let field_access = MastExpr::new(
++                    env_struct_fields[i].ty,
++                    MastExprKind::FieldAccess {
++                        lhs: Box::new(deref_env),
++                        struct_id,
++                        field_idx: i,
++                    },
++                    Span::default(),
++                );
++
++                injected_stmts.push(MastStmt::Let {
++                    name: cap.name,
++                    ty: env_struct_fields[i].ty,
++                    is_mut: false, 
++                    init: field_access,
++                });
++                self.local_types.last_mut().unwrap().insert(cap.name, (env_struct_fields[i].ty, false));
++            }
+         }
+ 
+-        // 3. 降级 Lambda 的函数体 (Block)
+-        let body_block = self.lower_block_as_body(body, subst_map, ret_ty);
++        let mut body_block = self.lower_block_as_body(body, subst_map, ret_ty);
++        injected_stmts.append(&mut body_block.stmts);
++        body_block.stmts = injected_stmts;
+ 
+         self.local_types.pop();
+ 
+-        // ==========================================
+-        // 恢复外部的作用域
+-        // ==========================================
+         self.local_types = saved_local_types;
+         self.defer_stack = saved_defer_stack;
+         self.loop_frames = saved_loop_frames;
+         self.local_statics = saved_local_statics;
+ 
+-        // 4. 将提取出的逻辑打包成一个全局的 MastFunction
+-        let mast_fn = MastFunction {
+-            id: mono_id,
+-            name: lambda_name,
++        self.module.functions.push(MastFunction {
++            id: func_id,
++            name: format!("__closure_fn_{}", func_id.0),
+             params: mast_params,
+             ret_ty,
+             body: Some(body_block),
+             is_extern: false,
+             is_variadic: false,
+             attributes: vec![],
+-        };
++        });
+ 
+-        // 强势插入到模块的顶层函数列表中
+-        self.module.functions.push(mast_fn);
++        // 3. ================= 组装当前位置的表达式 =================
++        let struct_init = MastExpr::new(
++            concrete_ty,
++            MastExprKind::StructInit {
++                struct_id,
++                fields: cap_exprs,
++            },
++            Span::default(),
++        );
++
++        // 4. ================= 处理 BNC 和 退化规则 =================
++        if is_decay {
++            // 直接返回生成的静态 C 函数指针
++            return MastExprKind::FuncRef(func_id);
++        }
++
++        match self.ctx.type_registry.get(norm_exp).clone() {
++            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
++                let inner_norm = self.ctx.type_registry.normalize(elem);
++                if matches!(
++                    self.ctx.type_registry.get(inner_norm),
++                    TypeKind::ClosureInterface { .. }
++                ) {
++                    let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
++                        is_mut: false,
++                        elem: TypeId::VOID,
++                    });
++
++                    let struct_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
++                        is_mut: false,
++                        elem: concrete_ty,
++                    });
++                    let data_ptr = MastExpr::new(
++                        struct_ptr_ty,
++                        MastExprKind::AddressOf(Box::new(struct_init.clone())),
++                        Span::default(),
++                    );
++                    let data_ptr_cast = MastExpr::new(
++                        void_ptr_ty,
++                        MastExprKind::Cast {
++                            kind: MastCastKind::Bitcast,
++                            operand: Box::new(data_ptr),
++                        },
++                        Span::default(),
++                    );
++
++                    let func_ref = MastExpr::new(
++                        TypeId::VOID, 
++                        MastExprKind::FuncRef(func_id),
++                        Span::default(),
++                    );
++                    let code_ptr_cast = MastExpr::new(
++                        TypeId::USIZE,
++                        MastExprKind::Cast {
++                            kind: MastCastKind::PtrToInt,
++                            operand: Box::new(func_ref),
++                        },
++                        Span::default(),
++                    );
++
++                    return MastExprKind::ConstructFatPointer {
++                        data_ptr: Box::new(data_ptr_cast),
++                        meta: Box::new(code_ptr_cast),
++                    };
++                }
++            }
++            _ => {}
++        }
+ 
+-        // 5. 在原地返回一个指向该新函数的指针引用
+-        MastExprKind::FuncRef(mono_id)
++        struct_init.kind
+     }
+ 
+     pub(crate) fn lower_if(
+diff --git a/compiler/kernc_lower/src/expr/literal.rs b/compiler/kernc_lower/src/expr/literal.rs
+index e4119e7..0400fba 100644
+--- a/compiler/kernc_lower/src/expr/literal.rs
++++ b/compiler/kernc_lower/src/expr/literal.rs
+@@ -89,6 +89,82 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+     ) -> MastExprKind {
+         let norm = self.ctx.type_registry.get(concrete_ty).clone();
+ 
++        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = norm {
++            let inner_norm = self.ctx.type_registry.normalize(elem);
++            if matches!(self.ctx.type_registry.get(inner_norm), TypeKind::ClosureInterface { .. }) {
++        
++            let raw_expr_opt = match literal {
++                ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
++                ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => Some(&fields[0].value),
++                _ => None,
++            };
++
++            // 只有提取成功，才进入降级生成流程
++            if let Some(raw_expr) = raw_expr_opt {
++                let raw_mast = self.lower_expr(raw_expr, subst_map, None);
++                
++                // 从 raw_mast 的类型中解析出底层 AnonymousState，提取出 NodeId
++                let raw_norm = self.ctx.type_registry.normalize(raw_mast.ty);
++                if let TypeKind::Pointer { elem: raw_elem, .. } | TypeKind::VolatilePtr { elem: raw_elem, .. } = self.ctx.type_registry.get(raw_norm).clone() {
++                    let raw_inner_norm = self.ctx.type_registry.normalize(raw_elem);
++                    
++                    if let TypeKind::AnonymousState { closure_node_id, .. } = self.ctx.type_registry.get(raw_inner_norm) {
++                        
++                        // 查表获取对应的函数 MonoId (代码指针)
++                        let func_mono_id = match self.closure_fn_map.get(closure_node_id) {
++                            Some(&id) => id,
++                            None => {
++                                self.ctx.emit_ice(span, "Kern ICE (Lowering): Failed to find lowered closure function for explicit fat pointer construction.");
++                                unreachable!()
++                            }
++                        };
++                        
++                        // 完美生成！组装胖指针！
++                        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
++                            is_mut: false,
++                            elem: TypeId::VOID,
++                        });
++                        
++                        let data_ptr_cast = MastExpr::new(
++                            void_ptr_ty,
++                            MastExprKind::Cast {
++                                kind: MastCastKind::Bitcast,
++                                operand: Box::new(raw_mast),
++                            },
++                            span,
++                        );
++                        
++                        let func_ref = MastExpr::new(
++                            TypeId::VOID,
++                            MastExprKind::FuncRef(func_mono_id),
++                            span,
++                        );
++                        let code_ptr_cast = MastExpr::new(
++                            TypeId::USIZE,
++                            MastExprKind::Cast {
++                                kind: MastCastKind::PtrToInt,
++                                operand: Box::new(func_ref),
++                            },
++                            span,
++                        );
++                        
++                        return MastExprKind::ConstructFatPointer {
++                            data_ptr: Box::new(data_ptr_cast),
++                            meta: Box::new(code_ptr_cast),
++                        };
++                    }
++                }
++            }
++            
++            // 如果提取失败，再抛出错误
++            self.ctx.struct_error(span, "invalid closure fat pointer construction")
++                .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }`")
++                .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
++                .emit();
++            return MastExprKind::Undef;
++        }
++        }
++
+         match literal {
+             ast::DataLiteralKind::Struct(fields) => {
+                 self.lower_struct_union_data_init(fields, subst_map, concrete_ty)
+diff --git a/compiler/kernc_lower/src/expr/mod.rs b/compiler/kernc_lower/src/expr/mod.rs
+index 5e8b079..98f549f 100644
+--- a/compiler/kernc_lower/src/expr/mod.rs
++++ b/compiler/kernc_lower/src/expr/mod.rs
+@@ -152,11 +152,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+                 expr.span,
+             ),
+             ExprKind::Match { target, arms } => self.lower_match(target, arms, subst_map, exp_ty),
+-            ExprKind::Lambda {
++            ExprKind::Closure {
++                captures,
+                 params,
+                 ret_type: _,
+                 body,
+-            } => self.lower_lambda_expr(params, body, concrete_ty, subst_map),
++            } => self.lower_closure_expr(
++                expr.id,
++                captures,
++                params,
++                body,
++                concrete_ty,
++                subst_map,
++                exp_ty,
++            ),
+             ExprKind::Block { .. } => {
+                 MastExprKind::Block(self.lower_block_as_body(expr, subst_map, exp_ty))
+             }
+diff --git a/compiler/kernc_lower/src/expr/ops.rs b/compiler/kernc_lower/src/expr/ops.rs
+index c1b172c..f99076f 100644
+--- a/compiler/kernc_lower/src/expr/ops.rs
++++ b/compiler/kernc_lower/src/expr/ops.rs
+@@ -102,11 +102,31 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+         subst_map: &HashMap<SymbolId, TypeId>,
+     ) -> MastExprKind {
+         let op_mast = self.lower_expr(operand, subst_map, None);
++        
+         match op {
+             ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf => {
+                 MastExprKind::AddressOf(Box::new(op_mast))
+             }
+             ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
++            ast::UnaryOperator::LengthOf => {
++                let op_norm = self.ctx.type_registry.normalize(op_mast.ty);
++                let op_kind = self.ctx.type_registry.get(op_norm).clone();
++                
++                // 如果操作数是闭包胖指针，则降级为 ExtractFatPtrData (提取 data_ptr)
++                if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = op_kind {
++                    let elem_norm = self.ctx.type_registry.normalize(elem);
++                    if self.ctx.type_registry.is_closure_interface(elem_norm) {
++                        return MastExprKind::ExtractFatPtrData(Box::new(op_mast));
++                    }
++                }
++                
++                // 否则，它是传统的数组/切片
++                MastExprKind::Unary {
++                    op,
++                    operand: Box::new(op_mast),
++                }
++            }
++            
+             _ => MastExprKind::Unary {
+                 op,
+                 operand: Box::new(op_mast),
+diff --git a/compiler/kernc_lower/src/lib.rs b/compiler/kernc_lower/src/lib.rs
+index 1d107fa..99b4406 100644
+--- a/compiler/kernc_lower/src/lib.rs
++++ b/compiler/kernc_lower/src/lib.rs
+@@ -5,7 +5,7 @@ use kernc_mast::*;
+ use kernc_sema::SemaContext;
+ use kernc_sema::def::{Def, DefId, EnumDef};
+ use kernc_sema::ty::TypeId;
+-use kernc_utils::SymbolId;
++use kernc_utils::{SymbolId, NodeId};
+ 
+ pub(crate) mod expr;
+ pub(crate) mod mono;
+@@ -25,6 +25,7 @@ pub struct Lowerer<'a, 'ctx> {
+     pub(crate) local_statics: Vec<HashMap<SymbolId, MonoId>>,
+     pub(crate) loop_frames: Vec<usize>,
+     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
++    pub(crate) closure_fn_map: HashMap<NodeId, MonoId>,
+ }
+ 
+ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+@@ -47,6 +48,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+             local_statics: Vec::new(),
+             loop_frames: Vec::new(),
+             adt_union_map: HashMap::new(),
++            closure_fn_map: HashMap::new(),
+         }
+     }
+ 
+diff --git a/compiler/kernc_parser/src/parser/expr.rs b/compiler/kernc_parser/src/parser/expr.rs
+index 78aa6f4..3fde317 100644
+--- a/compiler/kernc_parser/src/parser/expr.rs
++++ b/compiler/kernc_parser/src/parser/expr.rs
+@@ -223,14 +223,15 @@ impl<'a> Parser<'a> {
+                 self.parse_typed_data_init_prefix(token)
+             }
+ 
+-            TokenType::Fn => self.parse_lambda_expr(span),
+-
+             TokenType::Underscore => Ok(Expr {
+                 id: self.new_id(),
+                 span,
+                 kind: ExprKind::Infer,
+             }),
+ 
++            // Closure
++            TokenType::DotLBracket => self.parse_closure_expr(span),
++
+             _ => {
+                 let text = self.session.source_manager.slice_source(span).to_string();
+                 self.add_error(span, format!("Expected expression, found '{}'", text));
+@@ -611,24 +612,49 @@ impl<'a> Parser<'a> {
+         self.parse_data_init(Some(Box::new(type_node)), span)
+     }
+ 
+-    fn parse_lambda_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+-        // `fn` 关键字在 parse_prefix 中已经被消费了，此时 start_span 就是 `fn` 的 span
++    fn parse_closure_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
++        // 1. 解析捕获列表 `a, ptr = counter..&`
++        let mut captures = Vec::new();
++        if !self.check(TokenType::RBracket) {
++            loop {
++                let name_tok = self.expect(TokenType::Identifier)?;
++                let name = self.intern_token(name_tok);
++                
++                // 解析显式绑定 (=) 或省略简写
++                let value = if self.match_token(&[TokenType::Assign]) {
++                    self.parse_expression(Precedence::Lowest)?
++                } else {
++                    // Elided shorthand: 只有名字时，它就是捕获自身
++                    Expr {
++                        id: self.new_id(),
++                        span: name_tok.span,
++                        kind: ExprKind::Identifier(name),
++                    }
++                };
++                
++                captures.push(CapturePattern {
++                    name,
++                    value,
++                    span: name_tok.span.to(self.stream.prev_span()),
++                });
++                
++                if !self.match_token(&[TokenType::Comma]) {
++                    break;
++                }
++            }
++        }
++        self.expect(TokenType::RBracket)?;
+ 
+-        // 1. 解析参数列表 (复用现有的函数参数解析器)
++        // 2. 解析参数列表 (复用原有的 params 解析)
+         let (params, is_variadic) = self.parse_func_params()?;
+-
+-        // 护城河：匿名函数作为一种明确的运行时闭包对象，不允许使用 C 风格的可变参数
+         if is_variadic {
+-            self.add_error(
+-                start_span,
+-                "Anonymous functions (lambdas) cannot be variadic".to_string(),
+-            );
++            self.add_error(start_span, "Closures cannot use C-style variadic arguments".to_string());
+         }
+ 
+-        // 2. 解析显式的返回值类型
++        // 3. 解析闭包返回值类型
+         let ret_type = self.parse_type()?;
+ 
+-        // 3. 解析函数体 (强制要求是大括号 Block)
++        // 4. 解析闭包执行体
+         let brace_token = self.expect(TokenType::LBrace)?;
+         let body = self.parse_block_expr(brace_token.span)?;
+ 
+@@ -637,7 +663,8 @@ impl<'a> Parser<'a> {
+         Ok(Expr {
+             id: self.new_id(),
+             span: start_span.to(end_span),
+-            kind: ExprKind::Lambda {
++            kind: ExprKind::Closure {
++                captures,
+                 params,
+                 ret_type: Box::new(ret_type),
+                 body: Box::new(body),
+@@ -809,7 +836,7 @@ impl<'a> Parser<'a> {
+         type_node: Option<Box<TypeNode>>,
+         start_span: Span,
+     ) -> ParseResult<Expr> {
+-        // 空数组兜底
++        // 空数组/空结构体兜底
+         if self.check(TokenType::RBrace) {
+             let rb = self.advance();
+             return Ok(Expr {
+@@ -817,12 +844,11 @@ impl<'a> Parser<'a> {
+                 span: start_span.to(rb.span),
+                 kind: ExprKind::DataInit {
+                     type_node,
+-                    literal: DataLiteralKind::Array(vec![]),
++                    literal: DataLiteralKind::Array(vec![]), // 空的统一先视为 Array，Sema 会根据 Context 调整
+                 },
+             });
+         }
+ 
+-        // 1. 判断是否是 Struct 模式 (包含 field: value)
+         let mut is_struct_mode = false;
+         if self.check(TokenType::Identifier) {
+             if self.stream.peek_nth(1).tag == TokenType::Colon {
+@@ -835,13 +861,25 @@ impl<'a> Parser<'a> {
+             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                 let name = self.expect(TokenType::Identifier)?;
+                 let name_id = self.intern_token(name);
+-                self.expect(TokenType::Colon)?;
++                
++                if let Err(_) = self.expect(TokenType::Colon) {
++                    let name_str = self.session.resolve(name_id).to_string();
++                    
++                    self.session.struct_error(name.span, "explicit field names are required in struct/union initialization")
++                        .with_hint(format!("Kern does not support elided fields. Write `{name_str}: {name_str}` instead."))
++                        .emit();
++                        
++                    return Err(());
++                }
++                
+                 let val = self.parse_expression(Precedence::Lowest)?;
++                
+                 fields.push(StructFieldInit {
+                     name: name_id,
+                     value: val,
+                     span: name.span,
+                 });
++                
+                 if !self.match_token(&[TokenType::Comma]) {
+                     break;
+                 }
+diff --git a/compiler/kernc_parser/src/parser/ty.rs b/compiler/kernc_parser/src/parser/ty.rs
+index 2558008..0b21081 100644
+--- a/compiler/kernc_parser/src/parser/ty.rs
++++ b/compiler/kernc_parser/src/parser/ty.rs
+@@ -12,7 +12,16 @@ impl<'a> Parser<'a> {
+             TokenType::Caret => self.parse_volatile_pointer_type(),
+             TokenType::LBracket => self.parse_array_or_slice_type(),
+             TokenType::Fn => self.parse_fn_type(),
+-            TokenType::Identifier => self.parse_path_type(),
++            TokenType::Identifier => {
++                let sym = self.intern_token(start_token);
++                // 拦截大写的 `Fn` 作为闭包胖指针接口
++                if self.session.resolve(sym) == "Fn" {
++                    self.parse_closure_interface_type()
++                } else {
++                    self.parse_path_type()
++                }
++            }
++            TokenType::At => self.parse_intrinsic_type(),
+             TokenType::Bang => {
+                 self.advance();
+                 Ok(TypeNode {
+@@ -384,4 +393,58 @@ impl<'a> Parser<'a> {
+             kind: TypeKind::Trait { fields },
+         })
+     }
++
++    fn parse_intrinsic_type(&mut self) -> ParseResult<TypeNode> {
++        let at_span = self.advance().span; // 消费 '@'
++        let id_token = self.expect(TokenType::Identifier)?;
++        let sym = self.intern_token(id_token);
++        let name = self.session.resolve(sym);
++
++        if name == "typeOf" {
++            self.expect(TokenType::LParen)?;
++            // @typeOf 内部包含的是一个完整的表达式
++            let expr = self.parse_expression(Precedence::Lowest)?;
++            let end_token = self.expect(TokenType::RParen)?;
++            
++            Ok(TypeNode {
++                id: self.new_id(),
++                span: at_span.to(end_token.span),
++                kind: TypeKind::TypeOf(Box::new(expr)),
++            })
++        } else {
++            self.add_error(
++                id_token.span, 
++                format!("Unknown compile-time type intrinsic: @{}", name)
++            );
++            Err(())
++        }
++    }
++
++    fn parse_closure_interface_type(&mut self) -> ParseResult<TypeNode> {
++        let start_span = self.advance().span; // 消费 'Fn' 
++        self.expect(TokenType::LParen)?;
++
++        let mut params = Vec::new();
++        if !self.check(TokenType::RParen) {
++            loop {
++                params.push(self.parse_type()?);
++                if !self.match_token(&[TokenType::Comma]) {
++                    break;
++                }
++            }
++        }
++        self.expect(TokenType::RParen)?;
++
++        let ret_type = self.parse_type()?;
++        let end_span = ret_type.span;
++
++        Ok(TypeNode {
++            id: self.new_id(),
++            span: start_span.to(end_span),
++            kind: TypeKind::ClosureInterface {
++                params,
++                ret: Some(Box::new(ret_type)),
++            },
++        })
++    }
+ }
+diff --git a/compiler/kernc_sema/src/checker/expr/call.rs b/compiler/kernc_sema/src/checker/expr/call.rs
+index 28b0f10..a228663 100644
+--- a/compiler/kernc_sema/src/checker/expr/call.rs
++++ b/compiler/kernc_sema/src/checker/expr/call.rs
+@@ -48,34 +48,51 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+         }
+ 
+         // 5. 校验最终签名并执行分发
+-        if let TypeKind::Function {
+-            params,
+-            ret,
+-            is_variadic,
+-        } = self.ctx.type_registry.get(sig_ty).clone()
+-        {
+-            self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
+-
+-            if is_method && !params.is_empty() {
+-                let expected_self = params[0];
+-                self.check_method_receiver(expected_self, receiver_ty, callee.span);
+-                if receiver_ty != expected_self {
+-                    if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
+-                        self.ctx.node_types.insert(lhs.id, expected_self);
+-                    }
++        let sig_kind = self.ctx.type_registry.get(sig_ty).clone();
++
++        // 提取调用参数、返回值和可变参数标志
++        let (params, ret, is_variadic) = match sig_kind {
++            // A. 普通函数
++            TypeKind::Function { params, ret, is_variadic } => (params, ret, is_variadic),
++            
++            // B. 闭包胖指针 (*Fn)
++            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
++                let inner_norm = self.ctx.type_registry.normalize(elem);
++                if let TypeKind::ClosureInterface { params, ret } = self.ctx.type_registry.get(inner_norm).clone() {
++                    (params, ret, false) // 闭包不支持可变参数
++                } else {
++                    let callee_str = self.ctx.ty_to_string(callee_ty);
++                    self.ctx.struct_error(callee.span, "expression is not callable")
++                        .with_hint(format!("type is `{}`", callee_str))
++                        .emit();
++                    return TypeId::ERROR;
+                 }
+             }
++            
++            // C. 其它类型一律不准调用
++            _ => {
++                let callee_str = self.ctx.ty_to_string(callee_ty);
++                self.ctx.struct_error(callee.span, "expression is not callable")
++                    .with_hint(format!("type is `{}`", callee_str))
++                    .emit();
++                return TypeId::ERROR;
++            }
++        };
++
++        self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
+ 
+-            self.check_call_arguments(args, &params, is_method, is_variadic);
+-            return ret;
++        if is_method && !params.is_empty() {
++            let expected_self = params[0];
++            self.check_method_receiver(expected_self, receiver_ty, callee.span);
++            if receiver_ty != expected_self {
++                if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
++                    self.ctx.node_types.insert(lhs.id, expected_self);
++                }
++            }
+         }
+ 
+-        let callee_str = self.ctx.ty_to_string(callee_ty);
+-        self.ctx
+-            .struct_error(callee.span, "expression is not callable")
+-            .with_hint(format!("type is `{}`", callee_str))
+-            .emit();
+-        TypeId::ERROR
++        self.check_call_arguments(args, &params, is_method, is_variadic);
++        return ret;
+     }
+ 
+     /// 助手：智能泛型推导与签名解析
+@@ -521,76 +538,120 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+         }
+     }
+ 
+-    pub(crate) fn check_lambda(
++    pub(crate) fn check_closure(
+         &mut self,
++        node_id: kernc_utils::NodeId,
++        captures: &[ast::CapturePattern],
+         params: &[ast::FuncParam],
+-        ret_type_node: &ast::TypeNode,
+-        body: &Expr,
++        ast_ret_ty: &ast::TypeNode,
++        body: &ast::Expr,
++        span: Span,
+     ) -> TypeId {
+-        // 1. 解析参数类型和显式返回类型
+-        let (param_tys, ret_ty) = {
+-            let mut resolver = TypeResolver::new(self.ctx);
+-            let current_scope = resolver.ctx.scopes.current_scope_id().unwrap();
+-
+-            let mut ptys = Vec::new();
+-            for param in params {
+-                ptys.push(resolver.resolve_type(&param.type_node, current_scope));
++        // 推导所有的捕获表达式
++        let mut state_fields = Vec::new();
++        let mut capture_env = Vec::new();
++
++        for cap in captures {
++            let cap_ty = self.check_expr(&cap.value, None);
++            state_fields.push(cap_ty);
++            capture_env.push((cap.name, cap_ty, cap.span));
++        }
++        
++        let current_scope = match self.ctx.scopes.current_scope_id() {
++            Some(id) => id,
++            None => {
++                self.ctx.emit_ice(span, "Compiler Bug: Closure evaluated outside of any active scope");
++                crate::scope::ScopeId(0)
+             }
+-            let rty = resolver.resolve_type(ret_type_node, current_scope);
+-            (ptys, rty)
+         };
+ 
+-        // 2. 注册该 Lambda 的物理类型
+-        let func_ty = self.ctx.type_registry.intern(TypeKind::Function {
+-            params: param_tys.clone(),
+-            ret: ret_ty,
+-            is_variadic: false, // 匿名函数绝对不可能是变长参数
++        // 在父作用域解析参数类型和返回类型 
++        // (类型签名必须在外部环境解析，因为可能会用到外部引入的别名)
++        let mut param_tys = Vec::new();
++        let mut type_resolver = TypeResolver::new(self.ctx);
++        for param in params {
++            let p_ty = type_resolver.resolve_type(&param.type_node, current_scope);
++            param_tys.push(p_ty);
++        }
++        let expected_ret = type_resolver.resolve_type(ast_ret_ty, current_scope);
++        
++        drop(type_resolver);
++
++        let closure_state_ty = self.ctx.type_registry.intern(TypeKind::AnonymousState { 
++            closure_node_id: node_id,
++            captures: state_fields, 
++            params: param_tys.clone(), 
++            ret: expected_ret 
+         });
+ 
+-        // 3. 准备进入 Lambda 内部作用域
+-        self.ctx.scopes.enter_scope();
++        // 进入闭包内部的作用域
++        let _ = self.ctx.scopes.enter_scope();
++
++        // 将捕获值注入闭包作用域 (Pure Value Semantics，强制不可变)
++        for (name, ty, cap_span) in capture_env {
++            let info = SymbolInfo {
++                kind: SymbolKind::Var,
++                node_id, // 捕获环境暂时借用闭包表达式的 ID
++                type_id: ty,
++                def_id: None,
++                span: cap_span,
++                is_pub: false,
++                is_mut: false,
++            };
++            let _ = self.ctx.scopes.define(name, info);
++        }
+ 
+-        // 注入参数到局部作用域
++        // 注入闭包参数
+         for (i, param) in params.iter().enumerate() {
++            let param_node_id = self.ctx.next_node_id(); 
+             let info = SymbolInfo {
+                 kind: SymbolKind::Var,
+-                node_id: self.ctx.next_node_id(),
++                node_id: param_node_id,
+                 type_id: param_tys[i],
+                 def_id: None,
+                 span: param.span,
+                 is_pub: false,
+-                is_mut: param.pattern.is_mut,
++                is_mut: param.pattern.is_mut, 
+             };
+             let _ = self.ctx.scopes.define(param.pattern.name, info);
+         }
+ 
+-        // 保存外部函数的返回上下文，防止内部 return 污染外部
+-        let prev_return_type = self.current_return_type;
+-        let prev_has_returned = self.has_returned;
+-
+-        // 设置当前 Lambda 的返回期望
+-        self.current_return_type = Some(ret_ty);
+-        self.has_returned = false;
+-
+-        // 4. 对 Lambda 内部的代码块进行类型检查
+-        let body_ty = self.check_expr(body, Some(ret_ty));
++        // 推导函数体
++        let (actual_ret_ty, has_returned) = {
++            let mut sub_checker = ExprChecker::new(self.ctx, Some(expected_ret));
++            let ty = sub_checker.check_expr(body, Some(expected_ret));
++            (ty, sub_checker.has_returned)
++        };
+ 
+-        // 如果内部没有调用过显式的 return，才需要强制约束 Block 的尾表达式类型；
+-        // 如果内部已经 return 过了，Block 自身的 void 类型就不必与 ret_ty 强制匹配了。
+-        if !self.has_returned {
+-            self.check_coercion(body.span, ret_ty, body_ty);
+-        } else if body_ty != TypeId::VOID && body_ty != TypeId::ERROR {
+-            // 如果既有 return，又有隐式的尾表达式，校验一下尾表达式
+-            self.check_coercion(body.span, ret_ty, body_ty);
++        // 类型兼容性校验
++        if actual_ret_ty != TypeId::ERROR && expected_ret != TypeId::ERROR && actual_ret_ty != TypeId::NEVER {
++            let norm_actual = self.ctx.type_registry.normalize(actual_ret_ty);
++            let norm_expected = self.ctx.type_registry.normalize(expected_ret);
++            
++            // 如果实际返回是 VOID，但预期不是 VOID，说明缺少了尾随表达式
++            let is_missing_tail = norm_actual == TypeId::VOID && norm_expected != TypeId::VOID;
++            
++            // 如果缺少尾随表达式，但函数内部有合法的 `return` 语句，暂时放行
++            if is_missing_tail && has_returned {
++                // Safe: 至少有一条路径合法返回了
++            } else if norm_actual != norm_expected {
++                let expected_str = self.ctx.ty_to_string(expected_ret);
++                let actual_str = self.ctx.ty_to_string(actual_ret_ty);
++                
++                self.ctx.struct_error(
++                    body.span, 
++                    format!("closure body evaluates to `{}`, but signature expects `{}`", actual_str, expected_str)
++                )
++                .with_hint("ensure the final expression or return statements match the explicit return type")
++                .emit();
++            }
+         }
+ 
+-        // 恢复外部上下文
+-        self.current_return_type = prev_return_type;
+-        self.has_returned = prev_has_returned;
+-
++        // 9. 退出作用域并记录
+         self.ctx.scopes.exit_scope();
+-
+-        func_ty
++        self.ctx.node_types.insert(node_id, closure_state_ty);
++        
++        closure_state_ty
+     }
+ 
+     /// 专门校验 @asm(.{ ... }) 结构
+diff --git a/compiler/kernc_sema/src/checker/expr/cast.rs b/compiler/kernc_sema/src/checker/expr/cast.rs
+index 013e0cf..4cdc49f 100644
+--- a/compiler/kernc_sema/src/checker/expr/cast.rs
++++ b/compiler/kernc_sema/src/checker/expr/cast.rs
+@@ -1,16 +1,11 @@
+ use super::ExprChecker;
+-use crate::passes::TypeResolver;
+ use crate::ty::{TypeId, TypeKind};
+-use kernc_ast::{self as ast, Expr};
++use kernc_ast::Expr;
+ use kernc_utils::Span;
+ 
+ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+-    pub(crate) fn check_as_expr(&mut self, lhs: &Expr, target: &ast::TypeNode) -> TypeId {
++    pub(crate) fn check_as_expr(&mut self, lhs: &Expr, target_ty: TypeId) -> TypeId {
+         let lhs_ty = self.check_expr(lhs, None);
+-        let mut resolver = TypeResolver::new(self.ctx);
+-        let scope = resolver.ctx.scopes.current_scope_id().unwrap();
+-        let target_ty = resolver.resolve_type(target, scope);
+-
+         self.check_cast(lhs.span, lhs_ty, target_ty);
+         target_ty
+     }
+diff --git a/compiler/kernc_sema/src/checker/expr/coercion.rs b/compiler/kernc_sema/src/checker/expr/coercion.rs
+index af40163..8ed8cb0 100644
+--- a/compiler/kernc_sema/src/checker/expr/coercion.rs
++++ b/compiler/kernc_sema/src/checker/expr/coercion.rs
+@@ -122,6 +122,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+             }
+         }
+ 
++        // 4. 闭包退化规则
++        // 如果捕获列表严格为空，AnonymousState 可以直接退化为 C-ABI 函数指针 `fn(Args) Ret`
++        if let TypeKind::Function { params: ref e_params, ret: e_ret, is_variadic: false } = exp_kind {
++            if let TypeKind::AnonymousState { captures: ref a_caps, params: ref a_params, ret: a_ret, .. } = act_kind {
++                if a_caps.is_empty() && e_params.len() == a_params.len() {
++                    let mut map = HashMap::new();
++                    let mut ok = true;
++                    for (ep, ap) in e_params.iter().zip(a_params.iter()) {
++                        if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
++                    }
++                    if ok && self.unify(e_ret, a_ret, &mut map) {
++                        return true; 
++                    }
++                }
++            }
++        }
++
++        // 5. 闭包转换
++        // AnonymousState (传值) -> *mut Fn(Args) Ret 或 *Fn(Args) Ret
++        if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
++            let e_norm = self.resolve_tv(e_inner);
++            if let TypeKind::ClosureInterface { params: ref e_params, ret: e_ret } = self.ctx.type_registry.get(e_norm).clone() {
++                // 如果实际传入的是 AnonymousState 结构体
++                if let TypeKind::AnonymousState { params: ref a_params, ret: a_ret, .. } = act_kind {
++                    if e_params.len() == a_params.len() {
++                        let mut map = HashMap::new();
++                        let mut ok = true;
++                        for (ep, ap) in e_params.iter().zip(a_params.iter()) {
++                            if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
++                        }
++                        if ok && self.unify(e_ret, a_ret, &mut map) {
++                            return true; 
++                        }
++                    }
++                }
++            }
++        }
++
+         self.emit_mismatch_error(span, expected, actual);
+         false
+     }
+@@ -230,6 +268,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+                     .zip(c_args.iter())
+                     .all(|(ga, ca)| self.unify(*ga, *ca, map))
+             }
++            (
++                TypeKind::ClosureInterface { params: gp, ret: gr },
++                TypeKind::ClosureInterface { params: cp, ret: cr },
++            ) => {
++                gp.len() == cp.len() 
++                    && gp.iter().zip(cp.iter()).all(|(g, c)| self.unify(*g, *c, map)) 
++                    && self.unify(gr, cr, map)
++            }
++
++            (
++                TypeKind::AnonymousState { captures: gc, params: gp, ret: gr, .. },
++                TypeKind::AnonymousState { captures: cc, params: cp, ret: cr, .. },
++            ) => {
++                gc.len() == cc.len() && gp.len() == cp.len()
++                    && gc.iter().zip(cc.iter()).all(|(g, c)| self.unify(*g, *c, map))
++                    && gp.iter().zip(cp.iter()).all(|(g, c)| self.unify(*g, *c, map))
++                    && self.unify(gr, cr, map)
++            }
+             _ => gen_norm == con_norm,
+         }
+     }
+diff --git a/compiler/kernc_sema/src/checker/expr/literal.rs b/compiler/kernc_sema/src/checker/expr/literal.rs
+index ef1a053..d0ea5a2 100644
+--- a/compiler/kernc_sema/src/checker/expr/literal.rs
++++ b/compiler/kernc_sema/src/checker/expr/literal.rs
+@@ -89,29 +89,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+         let exp_norm = self.resolve_tv(expected);
+         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
+ 
+-        // 拦截 Trait Object 构造（*Trait.{ ... } 或 *mut Trait.{ ... }）
+-        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
+-            kind_enum
+-        {
++        // 拦截胖指针构造（Trait Object 和 Closure Object）
++        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } = kind_enum {
+             let elem_norm = self.resolve_tv(elem);
+-            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(elem_norm) {
+-                if let ast::DataLiteralKind::Scalar(inner) = kind {
+-                    // 进入胖指针构造器
+-                    return self.check_trait_object_init(inner, expected, elem_norm, is_mut, span);
+-                } else {
+-                    self.ctx
+-                        .struct_error(
+-                            span,
+-                            "trait objects must be initialized with a single pointer",
+-                        )
+-                        .with_hint("example: `*mut Reader.{ file_ptr }`")
+-                        .emit();
+-                    return TypeId::ERROR;
++            let target_inner_kind = self.ctx.type_registry.get(elem_norm).clone();
++            // 提取唯一参数
++            let inner_expr_opt: Option<&Expr> = match kind {
++                ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
++                ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => Some(&fields[0].value),
++                _ => None,
++            };
++
++            match target_inner_kind {
++                TypeKind::TraitObject(..) => {
++                    if let Some(inner) = inner_expr_opt {
++                        return self.check_trait_object_init(inner, expected, elem_norm, is_mut, span);
++                    } else {
++                        self.ctx.struct_error(span, "trait objects must be initialized with a single pointer")
++                            .with_hint("example: `*mut Reader.{ file_ptr }`")
++                            .emit();
++                        return TypeId::ERROR;
++                    }
++                }
++                TypeKind::ClosureInterface { .. } => {
++                    if let Some(inner) = inner_expr_opt {
++                        return self.check_closure_object_init(inner, expected, elem_norm, is_mut, span);
++                    } else {
++                        self.ctx.struct_error(span, "invalid closure fat pointer construction")
++                            .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }` or `*Fn(...).{ raw_pointer }`")
++                            .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
++                            .emit();
++                        return TypeId::ERROR;
++                    }
+                 }
++                _ => {} // 如果只是普通指针 (比如 *i32)，则放行往下走普通的结构体/数组检查
+             }
+         }
+ 
+-        // 🌟 统一识别 Enum 类型
++        // 统一识别 Enum 类型
+         let is_data = matches!(kind_enum, TypeKind::Enum(..));
+ 
+         match kind {
+@@ -142,16 +157,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+             }
+             ast::DataLiteralKind::Scalar(inner) => {
+                 if is_data {
+-                    // 如果是 `.{ None }` 形式，直接提取出变体名，复用简写逻辑！
+                     if let ExprKind::Identifier(variant_name) = &inner.kind {
+                         self.check_enum_literal(*variant_name, Some(expected), inner.span)
+                     } else {
+-                        self.ctx
+-                            .struct_error(
+-                                inner.span,
+-                                "expected a simple variant name for data literal",
+-                            )
+-                            .emit();
++                        self.ctx.struct_error(inner.span, "expected a simple variant name for data literal").emit();
+                         TypeId::ERROR
+                     }
+                 } else {
+@@ -635,4 +644,73 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+         // 4. 返回构造好的胖指针类型
+         expected_ptr_ty
+     }
++
++    pub(crate) fn check_closure_object_init(
++        &mut self,
++        inner: &Expr,
++        expected_ptr_ty: TypeId,
++        closure_interface_norm: TypeId,
++        is_mut_expected: bool,
++        span: Span,
++    ) -> TypeId {
++        let inner_ty = self.check_expr(inner, None);
++        if inner_ty == TypeId::ERROR {
++            return TypeId::ERROR;
++        }
++
++        let inner_ty_id = self.resolve_tv(inner_ty);
++
++        let is_inner_ptr_mut = match self.ctx.type_registry.get(inner_ty_id) {
++            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
++            _ => {
++                self.ctx.struct_error(inner.span, "closure objects can only be constructed from pointers")
++                    .emit();
++                return TypeId::ERROR;
++            }
++        };
++
++        if is_mut_expected && !is_inner_ptr_mut {
++            self.ctx.struct_error(inner.span, "cannot create a mutable closure object from an immutable pointer")
++                .emit();
++            return TypeId::ERROR;
++        }
++
++        let interface_kind = self.ctx.type_registry.get(closure_interface_norm).clone(); 
++        let (interface_params, interface_ret) = match interface_kind {
++            TypeKind::ClosureInterface { params, ret } => (params, ret),
++            _ => unreachable!(),
++        };
++
++        let inner_elem_ty = self.ctx.type_registry.get_elem_type(inner_ty_id).unwrap_or(TypeId::ERROR);
++        let inner_elem_ty_id = self.resolve_tv(inner_elem_ty);
++        let inner_elem_norm = self.ctx.type_registry.normalize(inner_elem_ty_id);
++        let inner_kind = self.ctx.type_registry.get(inner_elem_norm).clone();
++
++        match inner_kind {
++            TypeKind::AnonymousState { params: state_params, ret: state_ret, .. } => {
++                if interface_params.len() != state_params.len() {
++                    self.ctx.struct_error(span, "closure signature mismatch: incorrect number of parameters").emit();
++                    return TypeId::ERROR;
++                }
++                for (exp_p, act_p) in interface_params.iter().zip(state_params.iter()) {
++                    if self.resolve_tv(*exp_p) != self.resolve_tv(*act_p) {
++                        self.ctx.struct_error(span, "closure parameter mismatch").emit();
++                        return TypeId::ERROR;
++                    }
++                }
++                if self.resolve_tv(interface_ret) != self.resolve_tv(state_ret) {
++                    self.ctx.struct_error(span, "closure return type mismatch").emit();
++                    return TypeId::ERROR;
++                }
++                return expected_ptr_ty;
++            }
++            _ => {
++                let actual_ty_str = self.ctx.ty_to_string(inner_elem_norm);
++                self.ctx.struct_error(inner.span, "expected a closure anonymous state pointer")
++                    .with_hint(format!("found pointer to `{}`", actual_ty_str))
++                    .emit();
++                return TypeId::ERROR;
++            }
++        }
++    }
+ }
+diff --git a/compiler/kernc_sema/src/checker/expr/mod.rs b/compiler/kernc_sema/src/checker/expr/mod.rs
+index 29e0643..f52d367 100644
+--- a/compiler/kernc_sema/src/checker/expr/mod.rs
++++ b/compiler/kernc_sema/src/checker/expr/mod.rs
+@@ -1,6 +1,7 @@
+ use crate::context::SemaContext;
++use crate::passes::TypeResolver;
+ use crate::ty::{TypeId, TypeKind};
+-use kernc_ast::{Expr, ExprKind};
++use kernc_ast::{self as ast, Expr, ExprKind};
+ 
+ mod access;
+ mod call;
+@@ -69,7 +70,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+             ExprKind::Assign { lhs, rhs, .. } => self.check_assign(lhs, rhs, expr.span),
+ 
+             // === 5. 转换 ===
+-            ExprKind::As { lhs, target } => self.check_as_expr(lhs, target),
++            ExprKind::As { lhs, target } => {
++                let actual_target_ty = self.evaluate_dynamic_typeof(target);
++                self.check_as_expr(lhs, actual_target_ty)
++            }
+ 
+             // === 6. 内存访问 ===
+             ExprKind::IndexAccess { lhs, index, is_mut } => {
+@@ -94,16 +98,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+             // === 7. 函数/宏调用 ===
+             ExprKind::Call { callee, args } => self.check_call(callee, args, expr.span),
+             ExprKind::GenericInstantiation { target, types } => {
++                for ty_node in types {
++                    self.evaluate_dynamic_typeof(ty_node);
++                }
+                 self.check_generic_instantiation(target, types, expr.span)
+             }
+-            ExprKind::Lambda {
++            ExprKind::Closure {
++                captures,
+                 params,
+                 ret_type,
+                 body,
+-            } => self.check_lambda(params, ret_type, body),
++            } => self.check_closure(expr.id, captures, params, ret_type, body, expr.span),
+ 
+             // === 8. 复杂字面量 ===
+             ExprKind::DataInit { type_node, literal } => {
++                if let Some(t_node) = type_node {
++                    self.evaluate_dynamic_typeof(t_node);
++                }
+                 self.check_data_init_expr(type_node.as_deref(), literal, expected_ty, expr.span)
+             }
+             ExprKind::EnumLiteral(variant_name) => {
+@@ -147,4 +158,57 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+         self.ctx.node_types.insert(expr.id, ty);
+         ty
+     }
++
++    /// 递归深度扫描 AST 类型节点，推导所有 @typeOf，并自下而上重组真实类型
++    pub(crate) fn evaluate_dynamic_typeof(&mut self, ty_node: &kernc_ast::TypeNode) -> TypeId {
++        let ty_id = match &ty_node.kind {
++            ast::TypeKind::TypeOf(inner_expr) => {
++                self.check_expr(inner_expr, None)
++            }
++            ast::TypeKind::Pointer { is_mut, elem } => {
++                let base = self.evaluate_dynamic_typeof(elem);
++                self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: *is_mut, elem: base })
++            }
++            ast::TypeKind::VolatilePtr { is_mut, elem } => {
++                let base = self.evaluate_dynamic_typeof(elem);
++                self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: *is_mut, elem: base })
++            }
++            ast::TypeKind::Slice { is_mut, elem } => {
++                let base = self.evaluate_dynamic_typeof(elem);
++                self.ctx.type_registry.intern(TypeKind::Slice { is_mut: *is_mut, elem: base })
++            }
++            ast::TypeKind::ArrayInfer { is_mut, elem } => {
++                let base = self.evaluate_dynamic_typeof(elem);
++                self.ctx.type_registry.intern(TypeKind::ArrayInfer { is_mut: *is_mut, elem: base })
++            }
++            ast::TypeKind::Array { is_mut, elem, len } => {
++                let base = self.evaluate_dynamic_typeof(elem);
++                let length = crate::checker::ConstEvaluator::new(self.ctx).eval_usize(len).unwrap_or(0);
++                self.ctx.type_registry.intern(TypeKind::Array { is_mut: *is_mut, elem: base, len: length })
++            }
++            ast::TypeKind::ClosureInterface { params, ret } => {
++                let mut param_tys = Vec::new();
++                for p in params {
++                    param_tys.push(self.evaluate_dynamic_typeof(p));
++                }
++                let ret_ty = if let Some(r) = ret {
++                    self.evaluate_dynamic_typeof(r)
++                } else {
++                    TypeId::VOID
++                };
++                self.ctx.type_registry.intern(TypeKind::ClosureInterface { params: param_tys, ret: ret_ty })
++            }
++            // 普通的静态类型（如 Path, SelfType 等）内部不可能包含 @typeOf
++            // 直接借用 TypeResolver 的能力即可
++            _ => {
++                let mut resolver = TypeResolver::new(self.ctx);
++                let scope = resolver.ctx.scopes.current_scope_id().unwrap();
++                resolver.resolve_type(ty_node, scope)
++            }
++        };
++
++        // 强行覆盖缓存
++        self.ctx.node_types.insert(ty_node.id, ty_id);
++        ty_id
++    }
+ }
+diff --git a/compiler/kernc_sema/src/checker/expr/ops.rs b/compiler/kernc_sema/src/checker/expr/ops.rs
+index 0339daf..774dba2 100644
+--- a/compiler/kernc_sema/src/checker/expr/ops.rs
++++ b/compiler/kernc_sema/src/checker/expr/ops.rs
+@@ -203,13 +203,40 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+             }
+             UnaryOperator::LengthOf => {
+                 let norm = self.resolve_tv(op_ty);
+-                match self.ctx.type_registry.get(norm) {
+-                    TypeKind::Array { .. } | TypeKind::Slice { .. } => TypeId::USIZE,
++                let kind = self.ctx.type_registry.get(norm).clone(); // Clone 一下方便 match
++                
++                match kind {
++                    // 1. 传统的切片和数组：返回 usize 长度
++                    TypeKind::Array { .. } | TypeKind::Slice { .. } | TypeKind::ArrayInfer { .. } => TypeId::USIZE,
++                    
++                    // 2. 闭包胖指针提取底层匿名状态指针 (*mut void 或 *void)
++                    TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
++                        let elem_norm = self.resolve_tv(elem);
++                        if self.ctx.type_registry.is_closure_interface(elem_norm) {
++                            // 构造并返回 *mut void 或 *void
++                            self.ctx.type_registry.intern(TypeKind::Pointer {
++                                is_mut,
++                                elem: TypeId::VOID,
++                            })
++                        } else {
++                            self.ctx
++                                .struct_error(
++                                    span,
++                                    "operator `#` cannot be applied to a standard pointer",
++                                )
++                                .with_hint("it can only extract states from fat pointers like slices (`[]T`) or closures (`*Fn`)")
++                                .emit();
++                            TypeId::ERROR
++                        }
++                    }
++                    
++                    // TODO: TypeKind::TraitObject => ...
++                    
+                     _ => {
+                         self.ctx
+                             .struct_error(
+                                 span,
+-                                "length operator `#` can only be applied to arrays and slices",
++                                "operator `#` can only be applied to arrays, slices, or fat pointers",
+                             )
+                             .emit();
+                         TypeId::ERROR
+diff --git a/compiler/kernc_sema/src/checker/subst.rs b/compiler/kernc_sema/src/checker/subst.rs
+index ef24b51..cc5efe7 100644
+--- a/compiler/kernc_sema/src/checker/subst.rs
++++ b/compiler/kernc_sema/src/checker/subst.rs
+@@ -109,6 +109,26 @@ impl<'a> Substituter<'a> {
+                 self.registry
+                     .intern(TypeKind::TraitObject(def_id, new_args))
+             }
++            TypeKind::ClosureInterface { params, ret } => {
++                let new_params = params.into_iter().map(|p| self.substitute(p)).collect();
++                let new_ret = self.substitute(ret);
++                self.registry.intern(TypeKind::ClosureInterface {
++                    params: new_params,
++                    ret: new_ret,
++                })
++            }
++
++            TypeKind::AnonymousState { closure_node_id, captures, params, ret } => {
++                let new_caps = captures.into_iter().map(|c| self.substitute(c)).collect();
++                let new_params = params.into_iter().map(|p| self.substitute(p)).collect();
++                let new_ret = self.substitute(ret);
++                self.registry.intern(TypeKind::AnonymousState {
++                    closure_node_id,
++                    captures: new_caps,
++                    params: new_params,
++                    ret: new_ret,
++                })
++            }
+         }
+     }
+ }
+diff --git a/compiler/kernc_sema/src/passes/mod.rs b/compiler/kernc_sema/src/passes/mod.rs
+index 9db4e01..834edc1 100644
+--- a/compiler/kernc_sema/src/passes/mod.rs
++++ b/compiler/kernc_sema/src/passes/mod.rs
+@@ -2,8 +2,10 @@ mod collect;
+ mod imports;
+ mod prune;
+ mod types;
++mod linkage;
+ 
+ pub use collect::Collector;
+ pub use imports::ImportResolver;
+ pub use prune::Pruner;
+ pub use types::TypeResolver;
++pub use linkage::LinkageChecker;
+\ No newline at end of file
+diff --git a/compiler/kernc_sema/src/passes/prune.rs b/compiler/kernc_sema/src/passes/prune.rs
+index e2aeba5..4482286 100644
+--- a/compiler/kernc_sema/src/passes/prune.rs
++++ b/compiler/kernc_sema/src/passes/prune.rs
+@@ -117,7 +117,7 @@ impl<'a> Pruner<'a> {
+                 }
+                 self.prune_expr(body);
+             }
+-            ExprKind::Lambda { body, .. } => self.prune_expr(body),
++            ExprKind::Closure { body, .. } => self.prune_expr(body),
+             ExprKind::Let { init, .. } | ExprKind::Static { init, .. } => self.prune_expr(init),
+             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
+                 self.prune_expr(lhs);
+diff --git a/compiler/kernc_sema/src/passes/types.rs b/compiler/kernc_sema/src/passes/types.rs
+index d4eecf7..5b56470 100644
+--- a/compiler/kernc_sema/src/passes/types.rs
++++ b/compiler/kernc_sema/src/passes/types.rs
+@@ -307,6 +307,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
+ 
+     /// 将 AST TypeNode 转换为语义 TypeId
+     pub fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
++        // 优先检查是否已被 ExprChecker 现场推导过
++        // 用于实现 @typeOf 的动态求类型
++        if let Some(&cached_ty) = self.ctx.node_types.get(&ty_node.id) {
++            if cached_ty != TypeId::ERROR {
++                return cached_ty;
++            }
++        }
++        
+         let ty_id = match &ty_node.kind {
+             ast::TypeKind::Path { segments, generics } => {
+                 self.resolve_path_type(segments, generics, env_scope, ty_node.span)
+@@ -390,6 +398,26 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
+                     .emit();
+                 TypeId::ERROR
+             }
++            ast::TypeKind::ClosureInterface { params, ret } => {
++                let mut param_tys = Vec::with_capacity(params.len());
++                for p in params {
++                    param_tys.push(self.resolve_type(p, env_scope));
++                }
++                let ret_ty = match ret {
++                    Some(r) => self.resolve_type(r, env_scope),
++                    None => TypeId::VOID,
++                };
++                self.ctx.type_registry.intern(TypeKind::ClosureInterface {
++                    params: param_tys,
++                    ret: ret_ty,
++                })
++            }
++
++            ast::TypeKind::TypeOf(expr) => {
++                // 占位
++                self.resolve_expr(expr, env_scope);
++                TypeId::ERROR
++            }
+             // Struct/Enum/Union/Trait 在这里不会直接作为匿名类型出现 (已被 Collect 提取)
+             _ => {
+                 self.ctx
+@@ -475,12 +503,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
+                 }
+                 self.resolve_expr(body, scope);
+             }
+-            ast::ExprKind::Lambda {
+-                params,
+-                ret_type,
+-                body,
+-            } => {
+-                // 捕获 Lambda 的参数类型和返回值类型
++            ast::ExprKind::Closure { captures, params, ret_type, body } => {
++                for cap in captures {
++                    self.resolve_expr(&cap.value, scope);
++                }
+                 for param in params {
+                     self.resolve_type(&param.type_node, scope);
+                 }
+diff --git a/compiler/kernc_sema/src/ty/format.rs b/compiler/kernc_sema/src/ty/format.rs
+index e415eee..14f4c93 100644
+--- a/compiler/kernc_sema/src/ty/format.rs
++++ b/compiler/kernc_sema/src/ty/format.rs
+@@ -120,6 +120,22 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
+                 format!("module `{}`", name)
+             }
+ 
++            TypeKind::ClosureInterface { params, ret } => {
++                let param_strs: Vec<String> = params.iter().map(|p| self.format(*p)).collect();
++                format!("Fn({}) {}", param_strs.join(", "), self.format(*ret))
++            }
++
++            TypeKind::AnonymousState { captures, params, ret, .. } => {
++                let cap_strs: Vec<String> = captures.iter().map(|c| self.format(*c)).collect();
++                let param_strs: Vec<String> = params.iter().map(|p| self.format(*p)).collect();
++                format!(
++                    "[closure_state captures:({}) params:({}) -> {}]",
++                    cap_strs.join(", "),
++                    param_strs.join(", "),
++                    self.format(*ret)
++                )
++            }
++
+             TypeKind::Error => "{error}".to_string(),
+         }
+     }
+diff --git a/compiler/kernc_sema/src/ty/layout.rs b/compiler/kernc_sema/src/ty/layout.rs
+index 5106d9e..0b3e412 100644
+--- a/compiler/kernc_sema/src/ty/layout.rs
++++ b/compiler/kernc_sema/src/ty/layout.rs
+@@ -40,6 +40,17 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
+             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
+                 self.compute_def_align(def_id, &generic_args, depth)
+             }
++            TypeKind::AnonymousState { captures, .. } => {
++                let mut max_align = 1;
++                for cap_ty in captures {
++                    let align = self.compute_type_align_inner(cap_ty, depth + 1);
++                    if align > max_align {
++                        max_align = align;
++                    }
++                }
++                max_align
++            }
++            TypeKind::ClosureInterface { .. } => 1,
+             TypeKind::Primitive(PrimitiveType::Never) | TypeKind::Error => 1,
+             TypeKind::Primitive(p) => self.primitive_align(p),
+ 
+@@ -78,6 +89,25 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
+             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
+                 self.compute_def_size(def_id, &generic_args, depth)
+             }
++            TypeKind::AnonymousState { captures, .. } => {
++                let mut offset = 0;
++                let mut max_align = 1;
++
++                for cap_ty in captures {
++                    let f_align = self.compute_type_align_inner(cap_ty, depth + 1);
++                    let f_size = self.compute_type_size_inner(cap_ty, depth + 1);
++
++                    if f_align > max_align {
++                        max_align = f_align;
++                    }
++                    // 将当前偏移量对齐到该字段的要求
++                    offset = Self::align_to(offset, f_align);
++                    offset += f_size;
++                }
++                // 最后将结构体的总大小对齐到最大对齐要求 (Tail Padding)
++                Self::align_to(offset, max_align)
++            }
++            TypeKind::ClosureInterface { .. } => 0,
+             TypeKind::Error | TypeKind::Primitive(PrimitiveType::Never) => 0,
+             TypeKind::Primitive(p) => self.primitive_size(p),
+ 
+diff --git a/compiler/kernc_sema/src/ty/mod.rs b/compiler/kernc_sema/src/ty/mod.rs
+index b8f8b40..d24d3a7 100644
+--- a/compiler/kernc_sema/src/ty/mod.rs
++++ b/compiler/kernc_sema/src/ty/mod.rs
+@@ -7,7 +7,7 @@ pub use layout::LayoutEngine;
+ pub use registry::TypeRegistry;
+ 
+ use crate::def::DefId;
+-use kernc_utils::SymbolId;
++use kernc_utils::{SymbolId, NodeId};
+ 
+ /// 类型的唯一 ID (轻量级 Handle)
+ #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+@@ -92,6 +92,20 @@ pub enum TypeKind {
+     /// 内存布局：胖指针 { data_ptr: *mut void, vtable: *mut VTable }
+     TraitObject(DefId, Vec<TypeId>),
+ 
++    /// 闭包动态胖指针接口: Fn(Args) Ret
++    ClosureInterface {
++        params: Vec<TypeId>,
++        ret: TypeId,
++    },
++
++    /// 闭包内部捕获状态的物理结构
++    AnonymousState {
++        closure_node_id: NodeId,
++        captures: Vec<TypeId>,
++        params: Vec<TypeId>,
++        ret: TypeId,
++    },
++
+     /// 类型别名: type A = B;
+     /// 记录了 "A" 这个名字，以及它指向的 "B"
+     Alias(SymbolId, TypeId),
+diff --git a/compiler/kernc_sema/src/ty/registry.rs b/compiler/kernc_sema/src/ty/registry.rs
+index e454988..7656f44 100644
+--- a/compiler/kernc_sema/src/ty/registry.rs
++++ b/compiler/kernc_sema/src/ty/registry.rs
+@@ -134,4 +134,8 @@ impl TypeRegistry {
+             _ => None,
+         }
+     }
++
++    pub fn is_closure_interface(&self, id: TypeId) -> bool {
++        matches!(self.get(self.normalize(id)), TypeKind::ClosureInterface { .. })
++    }
+ }
+diff --git a/design.md b/design.md
+index b2b84a0..090c721 100644
+--- a/design.md
++++ b/design.md
+@@ -1,4 +1,4 @@
+-# Kern Language Design (v0.5.2)
++# Kern Language Design (v0.5.3)
+ 
+ ## Table of Contents
+ 
+@@ -11,7 +11,7 @@
+ 7.  [Modules](#7-modules)
+ 8.  [Interoperability](#8-interoperability)
+ 9.  [Enum Types (`enum`) and Pattern Matching](#9-enum-types-enum-and-pattern-matching)
+-10. [Stateless Anonymous Functions (Lambdas)](#10-stateless-anonymous-functions-lambdas)
++10. [Closures and Anonymous Functions](#10-closures-and-anonymous-functions)
+ 11. [Inline Assembly (`@asm`)](#11-inline-assembly-asm)
+ 12. [AST Attributes and Metadata (`#[...]`)](#12-ast-attributes-and-metadata--and-)
+ 13. [Compiler Intrinsics (`@...`)](#13-compiler-intrinsics-)
+@@ -96,6 +96,9 @@ Pointers explicitly carry mutability permissions for the memory they point to.
+   * **Arrays**: `[N]T` – Fixed-size value type.
+   * **Slices**: `[]T` or `[]mut T` – A fat pointer containing a pointer and a `usize` length.
+   * **String Literals**: `"Hello"` evaluates to `[]u8` (an immutable slice).
++  * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
++      * For Arrays and Slices, `#` evaluates to the length (`usize`).
++      * For Closures (`*Fn`), `#` evaluates to the captured state's raw pointer (`*mut void` / `*void`).
+ 
+ ## 3\. Declarations and Storage
+ 
+@@ -118,16 +121,22 @@ type Point = struct {
+   * **Generics**: `type Point[T] = struct { x: T, y: T };` (See 5.6 for Trait constraints via where clauses).
+   * **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
+   * **Layout**: default reorder/padding for size; `extern type …` guarantees C‑compatible memory layout and alignment.
++  * **Strict Explicit Binding**: To prevent syntactic ambiguity with array literals and to strictly adhere to Kern's "explicit over implicit" philosophy, elided field initialization (e.g., `Point.{x, y}`) is strictly forbidden. All fields must be explicitly bound using the `field: value` syntax, even if the local variable name perfectly matches the field name (`x: x`).
+   * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority = u8.{undef};`).
+ 
+-<!-- end list -->
+-
+ ```kern
+ // Immutable 
+ let p1 = Point.{x: 10, y: 20};       
+ 
+ // Mutable binding (Type provided on the right, mutability on the left)
+ let mut p2 = Point.{x: 10, y: 20}; 
++
++let x = i32.{10};
++let y = i32.{20};
++
++// Standard explicit initialization
++// Kern forces explicit binding to guarantee absolute clarity
++let p3 = Point.{x: x, y: y};
+ ```
+ 
+ ### 4.2 Unions
+@@ -443,24 +452,79 @@ match (opt) {
+ }
+ ```
+ 
+-## 10\. Stateless Anonymous Functions (Lambdas)
++## 10. Closures and Anonymous Functions
+ 
+-To support inline callbacks without violating Kern's strict memory rules, the language supports stateless anonymous functions.
++Kern explicitly separates the physical state of a closure from its dynamic invocation interface. A closure in Kern is not a magical opaque type; it is fundamentally an anonymous structure combined with a function.
+ 
+-### 10.1 Strict Statelessness
++### 10.1 Syntax and Capture Assignments
+ 
+-Anonymous functions use the `fn(...) ReturnType { ... }` syntax.
+-Crucially, Kern **strictly forbids environmental capturing (closures)**. An anonymous function cannot access local variables from its enclosing scope. This physical limitation guarantees that anonymous functions compile down to pure, static function pointers (`fn`), entirely preventing use-after-free bugs caused by stack-allocated environments escaping their scope.
++Closures use the `.[captures](args) ReturnType { ... }` syntax. 
++Capturing must be explicit and follows **Pure Value Semantics**. You define bindings in the capture list using `=`. If the target binding name matches a local variable in scope, you can use the capture elision shorthand. (Note: Unlike struct initialization which requires strict `field: value` pairs, closure capture lists uniquely permit this safe shorthand because the `.[...]` syntax is unambiguous).
+ 
+ ```kern
+-let arr = [3]mut i32.{ 3, 1, 2 };
++let a = i32.{120};
++let mut counter = i32.{0};
++
++// Explicit binding (`ptr = counter..&`) and elided capture binding (`a` stands for `a = a`)
++let closure = .[a, ptr = counter..&](b: i32) i32 {
++    ptr.* += 1;
++    return a + b;
++};
++```
++
++### 10.2 The Dual-Type Nature of Closures
++
++Understanding closures in Kern requires distinguishing between two distinct types:
++
++1. **The Anonymous Closure State**: When you write `[a]() { ... }`, it evaluates to a value of a compiler-generated, highly specific anonymous struct type (e.g., `__Lambda_1`). You cannot directly write the name of this type in code (though it can be queried via `@typeOf`). By default, it lives on the stack.
++2. **The Closure Fat Pointer (`*Fn` / `*mut Fn`)**: This is the universal, dynamic interface for executing a closure. It is a primitive fat pointer with a hardcoded layout: `{ data_ptr: *void, code_ptr: *void }`. 
++    * `*Fn(Args) Ret`: An immutable closure pointer (read-only access to captured state).
++    * `*mut Fn(Args) Ret`: A mutable closure pointer (can mutate captured state).
++
++### 10.3 Boundary Natural Conversion and Decay
++
++Kern seamlessly bridges the Anonymous Closure State and the Closure Fat Pointer through **Boundary Natural Conversion (BNC)**.
++
++When an Anonymous Closure State is passed to a context explicitly expecting a closure pointer (like a function argument or return type), the compiler automatically packages the anonymous struct's address and the code pointer into a `*Fn` or `*mut Fn`. 
+ 
+-// Safe, zero-allocation callback
+-arr.sort(fn(a: i32, b: i32) bool {
++Furthermore, if the capture list is strictly empty `.[]`:
++* The resulting Anonymous Closure State has a size of `0` (`@sizeOf` yields 0).
++* **Decay Rule**: It can naturally boundary-convert into a standard, stateless C-ABI function pointer: `fn(Args) Ret`.
++
++```kern
++// Naturally decays to 'fn(i32, i32) bool'
++arr.sort(.[](a: i32, b: i32) bool {
+     return a < b;
+ });
+ ```
+ 
++### 10.4 Explicit Escape, Heap Allocation, and State Extraction (`#`)
++
++Because closures evaluate to standard structs on the stack, escaping a closure requires explicitly allocating memory for its anonymous type and manually assembling the `*Fn` fat pointer.
++
++Kern strictly preserves **abstraction consistency**. Fat pointers (`*Fn`) are primitive types, not standard structs. Therefore, Kern explicitly forbids abstraction leaks like accessing internal fields directly (e.g., `cb.data`). To retrieve the original data pointer for memory deallocation, you must use the universal **Fat-Pointer State Extractor (`#`)**.
++
++```kern
++// 1. Stack-allocated closure state (Anonymous Type)
++let closure = .[a](b: i32) i32 { return a + b; };
++
++// 2. Explicitly allocate heap memory using @typeOf
++let size = @sizeOf[@typeOf(closure)]();
++let raw = malloc(size) as *mut @typeOf(closure);
++raw.* = closure;
++
++// 3. Explicitly construct the Closure Fat Pointer
++let heap_cb = *mut Fn(i32) i32.{ raw }; 
++
++// --- Later, when memory needs to be freed ---
++
++// 4. Extract the anonymous state pointer using `#`
++// Note: The `as` cast has higher precedence than unary operators like `#`.
++// Parentheses are strictly required to ensure absolute explicit intent.
++let ptr_to_free = (#heap_cb) as *mut u8;
++free(ptr_to_free, size); 
++```
++
+ ## 11\. Inline Assembly (`@asm`)
+ 
+ To maintain Kern's philosophy of "explicit over implicit", inline assembly does not use format strings with hidden index bindings. Instead, it leverages Kern's elided struct literal syntax (`.{ ... }`) to create a strict, named mapping between CPU registers and Kern variables.
+@@ -538,8 +602,9 @@ Intrinsics are special functions implemented directly within the Kern compiler b
+ 
+ ### 13.1 Compile-Time Type Information
+ 
+-These intrinsics are evaluated completely at compile-time and result in a constant `usize`.
++These intrinsics evaluate completely at compile-time and incur zero runtime overhead.
+ 
++  * `@typeOf(expr) -> Type`: Evaluates to the exact compile-time type of the provided expression. This is strictly a type-context intrinsic (it returns a type representation, not a value). It is crucial for manipulating anonymous types, such as allocating memory for closures (`@sizeOf[@typeOf(closure)]()`).
+   * `@sizeOf[T]() -> usize`: Returns the memory footprint (size in bytes) of type `T`.
+   * `@alignOf[T]() -> usize`: Returns the ABI-required alignment (in bytes) of type `T`.
+ 
+diff --git a/draft.md b/draft.md
+deleted file mode 100644
+index e69de29..0000000
+diff --git a/main.kr b/main.kr
+deleted file mode 100644
+index 391ded4..0000000
+--- a/main.kr
++++ /dev/null
+@@ -1,25 +0,0 @@
+-use std.coll.String;
+-use std.mem.alloc.{PageAllocator, GPAllocator};
+-use std.mem.Allocator;
+-use std.io;
+-
+-fn main(args: [][]u8) i32 {
+-    let pa = PageAllocator.{}..&;
+-    let gpa = GPAllocator.{ backing: pa }..&;
+-
+-    let greeting = String.{}..&;
+-    defer greeting.deinit(gpa);
+-    
+-    let _ = greeting.push_str(gpa, "Hello");
+-    let _ = greeting.push_str(gpa, ", ");
+-    let _ = greeting.push_str(gpa, "Kern World!");
+-    
+-    io.println("Message: {}", .{ greeting, });
+-    
+-    // 字符串比较
+-    if (greeting.eq("Hello, Kern World!")) {
+-        io.println("Match successful!", .{});
+-    }
+-
+-    0
+-}
+\ No newline at end of file

@@ -1,4 +1,4 @@
-# Kern Language Design (v0.5.2)
+# Kern Language Design (v0.5.3)
 
 ## Table of Contents
 
@@ -11,7 +11,7 @@
 7.  [Modules](#7-modules)
 8.  [Interoperability](#8-interoperability)
 9.  [Enum Types (`enum`) and Pattern Matching](#9-enum-types-enum-and-pattern-matching)
-10. [Stateless Anonymous Functions (Lambdas)](#10-stateless-anonymous-functions-lambdas)
+10. [Closures and Anonymous Functions](#10-closures-and-anonymous-functions)
 11. [Inline Assembly (`@asm`)](#11-inline-assembly-asm)
 12. [AST Attributes and Metadata (`#[...]`)](#12-ast-attributes-and-metadata--and-)
 13. [Compiler Intrinsics (`@...`)](#13-compiler-intrinsics-)
@@ -96,6 +96,9 @@ Pointers explicitly carry mutability permissions for the memory they point to.
   * **Arrays**: `[N]T` – Fixed-size value type.
   * **Slices**: `[]T` or `[]mut T` – A fat pointer containing a pointer and a `usize` length.
   * **String Literals**: `"Hello"` evaluates to `[]u8` (an immutable slice).
+  * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
+      * For Arrays and Slices, `#` evaluates to the length (`usize`).
+      * For Closures (`*Fn`), `#` evaluates to the captured state's raw pointer (`*mut void` / `*void`).
 
 ## 3\. Declarations and Storage
 
@@ -118,9 +121,8 @@ type Point = struct {
   * **Generics**: `type Point[T] = struct { x: T, y: T };` (See 5.6 for Trait constraints via where clauses).
   * **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
   * **Layout**: default reorder/padding for size; `extern type …` guarantees C‑compatible memory layout and alignment.
+  * **Strict Explicit Binding**: To prevent syntactic ambiguity with array literals and to strictly adhere to Kern's "explicit over implicit" philosophy, elided field initialization (e.g., `Point.{x, y}`) is strictly forbidden. All fields must be explicitly bound using the `field: value` syntax, even if the local variable name perfectly matches the field name (`x: x`).
   * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority = u8.{undef};`).
-
-<!-- end list -->
 
 ```kern
 // Immutable 
@@ -128,6 +130,13 @@ let p1 = Point.{x: 10, y: 20};
 
 // Mutable binding (Type provided on the right, mutability on the left)
 let mut p2 = Point.{x: 10, y: 20}; 
+
+let x = i32.{10};
+let y = i32.{20};
+
+// Standard explicit initialization
+// Kern forces explicit binding to guarantee absolute clarity
+let p3 = Point.{x: x, y: y};
 ```
 
 ### 4.2 Unions
@@ -443,22 +452,77 @@ match (opt) {
 }
 ```
 
-## 10\. Stateless Anonymous Functions (Lambdas)
+## 10. Closures and Anonymous Functions
 
-To support inline callbacks without violating Kern's strict memory rules, the language supports stateless anonymous functions.
+Kern explicitly separates the physical state of a closure from its dynamic invocation interface. A closure in Kern is not a magical opaque type; it is fundamentally an anonymous structure combined with a function.
 
-### 10.1 Strict Statelessness
+### 10.1 Syntax and Capture Assignments
 
-Anonymous functions use the `fn(...) ReturnType { ... }` syntax.
-Crucially, Kern **strictly forbids environmental capturing (closures)**. An anonymous function cannot access local variables from its enclosing scope. This physical limitation guarantees that anonymous functions compile down to pure, static function pointers (`fn`), entirely preventing use-after-free bugs caused by stack-allocated environments escaping their scope.
+Closures use the `.[captures](args) ReturnType { ... }` syntax. 
+Capturing must be explicit and follows **Pure Value Semantics**. You define bindings in the capture list using `=`. If the target binding name matches a local variable in scope, you can use the capture elision shorthand. (Note: Unlike struct initialization which requires strict `field: value` pairs, closure capture lists uniquely permit this safe shorthand because the `.[...]` syntax is unambiguous).
 
 ```kern
-let arr = [3]mut i32.{ 3, 1, 2 };
+let a = i32.{120};
+let mut counter = i32.{0};
 
-// Safe, zero-allocation callback
-arr.sort(fn(a: i32, b: i32) bool {
+// Explicit binding (`ptr = counter..&`) and elided capture binding (`a` stands for `a = a`)
+let closure = .[a, ptr = counter..&](b: i32) i32 {
+    ptr.* += 1;
+    return a + b;
+};
+```
+
+### 10.2 The Dual-Type Nature of Closures
+
+Understanding closures in Kern requires distinguishing between two distinct types:
+
+1. **The Anonymous Closure State**: When you write `[a]() { ... }`, it evaluates to a value of a compiler-generated, highly specific anonymous struct type (e.g., `__Lambda_1`). You cannot directly write the name of this type in code (though it can be queried via `@typeOf`). By default, it lives on the stack.
+2. **The Closure Fat Pointer (`*Fn` / `*mut Fn`)**: This is the universal, dynamic interface for executing a closure. It is a primitive fat pointer with a hardcoded layout: `{ data_ptr: *void, code_ptr: *void }`. 
+    * `*Fn(Args) Ret`: An immutable closure pointer (read-only access to captured state).
+    * `*mut Fn(Args) Ret`: A mutable closure pointer (can mutate captured state).
+
+### 10.3 Boundary Natural Conversion and Decay
+
+Kern seamlessly bridges the Anonymous Closure State and the Closure Fat Pointer through **Boundary Natural Conversion (BNC)**.
+
+When an Anonymous Closure State is passed to a context explicitly expecting a closure pointer (like a function argument or return type), the compiler automatically packages the anonymous struct's address and the code pointer into a `*Fn` or `*mut Fn`. 
+
+Furthermore, if the capture list is strictly empty `.[]`:
+* The resulting Anonymous Closure State has a size of `0` (`@sizeOf` yields 0).
+* **Decay Rule**: It can naturally boundary-convert into a standard, stateless C-ABI function pointer: `fn(Args) Ret`.
+
+```kern
+// Naturally decays to 'fn(i32, i32) bool'
+arr.sort(.[](a: i32, b: i32) bool {
     return a < b;
 });
+```
+
+### 10.4 Explicit Escape, Heap Allocation, and State Extraction (`#`)
+
+Because closures evaluate to standard structs on the stack, escaping a closure requires explicitly allocating memory for its anonymous type and manually assembling the `*Fn` fat pointer.
+
+Kern strictly preserves **abstraction consistency**. Fat pointers (`*Fn`) are primitive types, not standard structs. Therefore, Kern explicitly forbids abstraction leaks like accessing internal fields directly (e.g., `cb.data`). To retrieve the original data pointer for memory deallocation, you must use the universal **Fat-Pointer State Extractor (`#`)**.
+
+```kern
+// 1. Stack-allocated closure state (Anonymous Type)
+let closure = .[a](b: i32) i32 { return a + b; };
+
+// 2. Explicitly allocate heap memory using @typeOf
+let size = @sizeOf[@typeOf(closure)]();
+let raw = malloc(size) as *mut @typeOf(closure);
+raw.* = closure;
+
+// 3. Explicitly construct the Closure Fat Pointer
+let heap_cb = *mut Fn(i32) i32.{ raw }; 
+
+// --- Later, when memory needs to be freed ---
+
+// 4. Extract the anonymous state pointer using `#`
+// Note: The `as` cast has higher precedence than unary operators like `#`.
+// Parentheses are strictly required to ensure absolute explicit intent.
+let ptr_to_free = (#heap_cb) as *mut u8;
+free(ptr_to_free, size); 
 ```
 
 ## 11\. Inline Assembly (`@asm`)
@@ -538,8 +602,9 @@ Intrinsics are special functions implemented directly within the Kern compiler b
 
 ### 13.1 Compile-Time Type Information
 
-These intrinsics are evaluated completely at compile-time and result in a constant `usize`.
+These intrinsics evaluate completely at compile-time and incur zero runtime overhead.
 
+  * `@typeOf(expr) -> Type`: Evaluates to the exact compile-time type of the provided expression. This is strictly a type-context intrinsic (it returns a type representation, not a value). It is crucial for manipulating anonymous types, such as allocating memory for closures (`@sizeOf[@typeOf(closure)]()`).
   * `@sizeOf[T]() -> usize`: Returns the memory footprint (size in bytes) of type `T`.
   * `@alignOf[T]() -> usize`: Returns the ABI-required alignment (in bytes) of type `T`.
 

@@ -1,0 +1,36 @@
+#![if(os == "darwin")]
+
+extern {
+    #[export_name("write")]
+    fn system_write(fd: i32, ptr: *u8, len: usize) isize;
+
+    #[export_name("exit")]
+    fn system_exit(code: i32) void;
+
+    #[export_name("mmap")]
+    pub fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, offset: isize) *mut u8;
+
+    #[export_name("munmap")]
+    pub fn munmap(addr: *mut u8, len: usize) i32;
+}
+
+pub type Handle = i32;
+
+pub const PROT_READ = 0x01;
+pub const PROT_WRITE = 0x02;
+pub const MAP_PRIVATE = 0x0002;
+pub const MAP_ANONYMOUS = 0x1000;
+pub const MAP_FAILED = ~usize.{0};
+
+pub fn get_stdout_handle() Handle {
+    return 1;
+}
+
+pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
+    return system_write(handle, ptr, len) as usize;
+}
+
+pub fn exit(code: i32) ! {
+    system_exit(code);
+    @unreachable()
+}

@@ -231,8 +231,12 @@ impl<'a> ConditionEvaluator<'a> {
 
                 // 1. 尝试匹配内置平台变量
                 if name == "os" {
-                    // TargetMachine Triple 中的 OS 字段
-                    let os_str = self.sess.target.triple.operating_system.to_string();
+                    let raw_os = self.sess.target.triple.operating_system.to_string();
+                    let os_str = if raw_os.starts_with("darwin") || raw_os.starts_with("macosx") {
+                        "darwin".to_string()
+                    } else {
+                        raw_os
+                    };
                     return Ok(CondValue::String(os_str));
                 }
                 if name == "arch" {

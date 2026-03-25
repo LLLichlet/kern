@@ -100,6 +100,18 @@ Pointers explicitly carry mutability permissions for the memory they point to.
       * For Arrays and Slices, `#` evaluates to the length (`usize`).
       * For Closures (`*Fn`), `#` evaluates to the captured state's raw pointer (`*mut void` / `*void`).
 
+### 2.5 Boundary Natural Conversion (BNC)
+
+While Kern strictly enforces "explicit over implicit" (forbidding implicit integer narrowing, widening, or hidden control flow), it embraces **Boundary Natural Conversion (BNC)** to bridge compile-time static constraints with runtime dynamic interfaces ergonomically and safely.
+
+BNC is a zero-cost compiler mechanism that naturally "decays" or "packages" a rigidly known compile-time type into a dynamic interface pointer when passing across function boundaries or assignments, without requiring the explicit `as` keyword.
+
+There are two primary BNC pathways in Kern:
+1. **Array to Slice Decay**: A fixed-size array `[N]T` naturally converts into a dynamic slice `[]T`. The compiler automatically extracts the memory address and synthesizes the fat pointer's length metadata using the compile-time `N`.
+2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`.[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `fn(Args) Ret` (See Section 10.3).
+
+BNC guarantees that the developer does not need to write boilerplate fat-pointer assembly code when the compiler already possesses absolute, statically proven knowledge of the underlying metadata.
+
 ## 3\. Declarations and Storage
 
   * **Local Variables**: `let [mut] name = Expr;`
@@ -392,12 +404,26 @@ Kern utilizes a multi-pass Semantic Analyzer. Circular type dependencies across 
 
 Kern uses the C Application Binary Interface (ABI) as the universal language for all external communication.
 
-### 8.1 Exporting Functions to C/Assembly
+### 8.1 Name Mangling and Exporting to C/Assembly
 
-Use the `extern` modifier on the function definition. This instructs the compiler to use the standard C calling convention and disables name mangling. (Note: `pub` is a frontend semantic modifier for Kern modules; `extern` alone handles external linkage).
+To safely support Generics, Modules, and Trait implementations without symbol collisions, Kern uses a deterministic, **Itanium-style Name Mangling Engine** (e.g., a generic method might be compiled as `_K3std11collections15ArrayListI3i32E3new`).
+
+Because of this, internal Kern functions are physically invisible to standard C linkers by their raw names. To export a function to C, Assembly, or to act as the OS/Runtime entry point, you must use the `extern` modifier. 
+
+The `extern` keyword acts as an explicit ABI boundary contract: it forces the compiler to use the standard C calling convention and **completely disables name mangling** for that symbol.
+
+**The `main` Function Contract:**
+Because the runtime environment (like `_start` or `kern_entry`) looks for a raw symbol named `main` to begin execution, the entry point of any Kern executable must be explicitly marked as `extern`.
 
 ```kern
-extern fn _start() void { ... }
+use std.io;
+
+// 'extern' prevents mangling (e.g., turning into _K4root4main)
+// ensuring the runtime can strictly link to the exact 'main' symbol.
+extern fn main(args: [][]u8) i32 {
+    io.println("hello, {}!", .{"world",});
+    0
+}
 ```
 
 ### 8.2 Importing External Functions and Statics
@@ -483,16 +509,16 @@ Understanding closures in Kern requires distinguishing between two distinct type
 
 ### 10.3 Boundary Natural Conversion and Decay
 
-Kern seamlessly bridges the Anonymous Closure State and the Closure Fat Pointer through **Boundary Natural Conversion (BNC)**.
+Kern seamlessly bridges the Anonymous Closure State and the Closure Fat Pointer through **Boundary Natural Conversion (BNC)** (See Section 2.5).
 
-When an Anonymous Closure State is passed to a context explicitly expecting a closure pointer (like a function argument or return type), the compiler automatically packages the anonymous struct's address and the code pointer into a `*Fn` or `*mut Fn`. 
+When an Anonymous Closure State is passed to a context explicitly expecting a closure pointer (like a function argument or return type), the compiler automatically packages the anonymous struct's address and the generated code pointer into a `*Fn` or `*mut Fn` fat pointer. 
 
 Furthermore, if the capture list is strictly empty `.[]`:
 * The resulting Anonymous Closure State has a size of `0` (`@sizeOf` yields 0).
-* **Decay Rule**: It can naturally boundary-convert into a standard, stateless C-ABI function pointer: `fn(Args) Ret`.
+* **BNC Decay Rule**: It naturally boundary-converts into a standard, stateless C-ABI function pointer: `fn(Args) Ret`.
 
 ```kern
-// Naturally decays to 'fn(i32, i32) bool'
+// Naturally decays to 'fn(i32, i32) bool' via BNC
 arr.sort(.[](a: i32, b: i32) bool {
     return a < b;
 });

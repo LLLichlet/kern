@@ -31,7 +31,7 @@ fn create_heap_closure(alc: *mut Allocator, factor: i32) Tuple2 {
         _1: size,
     } 
 }
-fn main(args: [][]u8) i32 {
+extern fn main(args: [][]u8) i32 {
     let pa = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: pa }..&;
 

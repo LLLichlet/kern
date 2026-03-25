@@ -1,0 +1,6 @@
+use std.io;
+
+extern fn main(args: [][]u8) i32 {
+    io.println("hello, {}!", .{"world",});
+    0
+}

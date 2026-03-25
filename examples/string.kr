@@ -3,7 +3,7 @@ use std.mem.alloc.{PageAllocator, GPAllocator};
 use std.mem.Allocator;
 use std.io;
 
-fn main(args: [][]u8) i32 {
+extern fn main(args: [][]u8) i32 {
     let pa = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: pa }..&;
 

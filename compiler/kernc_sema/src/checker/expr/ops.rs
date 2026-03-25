@@ -88,7 +88,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 // 常规数值加减法
-                if !self.check_coercion(rhs.span, l_norm, r_norm) {
+                if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }
                 l_norm
@@ -103,20 +103,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return TypeId::ERROR;
                 }
-                if !self.check_coercion(rhs.span, l_norm, r_norm) {
+                if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }
                 l_norm
             }
             Equal | NotEqual | LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
-                if !self.check_coercion(rhs.span, l_norm, r_norm) {
+                if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }
                 TypeId::BOOL
             }
             LogicalAnd | LogicalOr => {
-                self.check_coercion(lhs.span, TypeId::BOOL, l_norm);
-                self.check_coercion(rhs.span, TypeId::BOOL, r_norm);
+                self.check_coercion(lhs, TypeId::BOOL, l_norm);
+                self.check_coercion(rhs, TypeId::BOOL, r_norm);
                 TypeId::BOOL
             }
             _ => {
@@ -126,7 +126,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .struct_error(lhs.span, "bitwise operations require integer types")
                         .emit();
                 }
-                if !self.check_coercion(rhs.span, l_norm, r_norm) {
+                if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }
                 l_norm
@@ -201,7 +201,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 }
             }
-            UnaryOperator::LengthOf => {
+            UnaryOperator::MetaOf => {
                 let norm = self.resolve_tv(op_ty);
                 let kind = self.ctx.type_registry.get(norm).clone(); // Clone 一下方便 match
                 
@@ -209,11 +209,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     // 1. 传统的切片和数组：返回 usize 长度
                     TypeKind::Array { .. } | TypeKind::Slice { .. } | TypeKind::ArrayInfer { .. } => TypeId::USIZE,
                     
-                    // 2. 闭包胖指针提取底层匿名状态指针 (*mut void 或 *void)
+                    // 2. 闭包与 Trait 胖指针：提取底层的数据状态指针 (*mut void 或 *void)
                     TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
                         let elem_norm = self.resolve_tv(elem);
-                        if self.ctx.type_registry.is_closure_interface(elem_norm) {
-                            // 构造并返回 *mut void 或 *void
+                        let inner_kind = self.ctx.type_registry.get(elem_norm);
+                        
+                        // 闭包接口和 Trait Object 都是标准的 { data_ptr, meta_ptr } 胖指针
+                        if matches!(inner_kind, TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)) {
+                            // 构造并返回 *mut void 或 *void，以便用于底层的显式 free 或 unsafe 转换
                             self.ctx.type_registry.intern(TypeKind::Pointer {
                                 is_mut,
                                 elem: TypeId::VOID,
@@ -222,15 +225,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             self.ctx
                                 .struct_error(
                                     span,
-                                    "operator `#` cannot be applied to a standard pointer",
+                                    "operator `#` cannot be applied to a standard thin pointer",
                                 )
-                                .with_hint("it can only extract states from fat pointers like slices (`[]T`) or closures (`*Fn`)")
+                                .with_hint("it can only extract metadata or state from fat pointers (e.g., slices `[]T`, closures `*Fn`, or trait objects `*Trait`)")
                                 .emit();
                             TypeId::ERROR
                         }
                     }
-                    
-                    // TODO: TypeKind::TraitObject => ...
                     
                     _ => {
                         self.ctx
@@ -255,7 +256,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 op_ty
             }
             UnaryOperator::LogicalNot => {
-                self.check_coercion(span, TypeId::BOOL, op_ty);
+                self.check_coercion(operand, TypeId::BOOL, op_ty);
                 TypeId::BOOL
             }
             UnaryOperator::BitwiseNot => {
@@ -270,7 +271,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub fn check_assign(&mut self, lhs: &Expr, rhs: &Expr, span: Span) -> TypeId {
+    pub fn check_assign(&mut self, lhs: &Expr, rhs: &Expr) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
 
         // 使用继承可变性分析器
@@ -295,7 +296,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let rhs_ty_id = self.resolve_tv(rhs_ty);
-        self.check_coercion(span, l_norm, rhs_ty_id);
+        self.check_coercion(rhs, l_norm, rhs_ty_id);
         TypeId::VOID
     }
 }

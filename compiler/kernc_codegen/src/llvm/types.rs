@@ -2,7 +2,6 @@ use super::CodeGenerator;
 use inkwell::AddressSpace;
 use inkwell::types::{BasicType, BasicTypeEnum};
 use inkwell::values::BasicValueEnum;
-use kernc_mast::MonoId;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 
@@ -64,42 +63,34 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .into()
             }
             TypeKind::Def(def_id, args) | TypeKind::Enum(def_id, args) => {
-                if def_id.0 as usize >= self.ctx_defs.len() {
-                    if let Some(s) = self.structs.get(&MonoId(def_id.0)) {
-                        return s.as_basic_type_enum();
+                let key = (def_id, args.clone());
+                if let Some(&mono_id) = self.def_mono_map.get(&key) {
+                    if let Some(struct_ty) = self.structs.get(&mono_id) {
+                        return struct_ty.as_basic_type_enum();
                     }
-                    self.sess.emit_ice(
-                        Span::default(),
-                        format!("Struct DefId {} not found in LLVM structs map", def_id.0),
-                    );
-                    unreachable!()
                 }
-
-                let def = &self.ctx_defs[def_id.0 as usize];
-                let mut mangled_name = self.resolve_symbol(def.name().unwrap()).to_string();
-                for arg in args {
-                    mangled_name.push_str(&format!("_{}", arg.0));
-                }
-
-                if let Some(struct_ty) = self.module.get_struct_type(&mangled_name) {
-                    struct_ty.into()
-                } else {
-                    self.context.i8_type().into()
-                }
+                
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!("Kern ICE (Codegen): DefId {} not instantiated by Lowerer", def_id.0),
+                );
+                unreachable!()
             }
             TypeKind::EnumPayload(def_id, args) => {
-                let def = &self.ctx_defs[def_id.0 as usize];
-                let mut mangled_name = self.resolve_symbol(def.name().unwrap()).to_string();
-                for arg in args {
-                    mangled_name.push_str(&format!("_{}", arg.0));
+                let key = (def_id, args.clone());
+                if let Some(&wrapper_mono_id) = self.def_mono_map.get(&key) {
+                    if let Some(&payload_mono_id) = self.adt_union_map.get(&wrapper_mono_id) {
+                        if let Some(struct_ty) = self.structs.get(&payload_mono_id) {
+                            return struct_ty.as_basic_type_enum();
+                        }
+                    }
                 }
-                mangled_name.push_str("_payload");
-
-                if let Some(struct_ty) = self.module.get_struct_type(&mangled_name) {
-                    struct_ty.into()
-                } else {
-                    self.context.i8_type().into()
-                }
+                
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!("Kern ICE (Codegen): EnumPayload for DefId {} not instantiated", def_id.0),
+                );
+                unreachable!()
             }
             TypeKind::AnonymousState { captures, .. } => {
                 let mut field_tys = Vec::new();

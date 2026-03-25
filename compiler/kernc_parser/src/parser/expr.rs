@@ -492,7 +492,7 @@ impl<'a> Parser<'a> {
             TokenType::Minus => UnaryOperator::Negate,
             TokenType::Bang => UnaryOperator::LogicalNot,
             TokenType::Tilde => UnaryOperator::BitwiseNot,
-            TokenType::Hash => UnaryOperator::LengthOf,
+            TokenType::Hash => UnaryOperator::MetaOf,
             _ => unreachable!(),
         };
         let operand = self.parse_expression(Precedence::Unary)?;

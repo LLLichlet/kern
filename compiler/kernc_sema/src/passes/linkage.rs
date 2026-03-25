@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 use crate::SemaContext;
-use crate::def::Def;
+use crate::def::{Def, DefId};
 use crate::ty::TypeId;
-use kernc_ast::{AttributeKind, MetaItem, ExprKind};
 use kernc_utils::Span;
 
 pub struct LinkageChecker<'a, 'ctx> {
@@ -19,37 +18,40 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
         let mut symbols: HashMap<String, (bool, TypeId, bool, Span)> = HashMap::new();
 
         for i in 0..self.ctx.defs.len() {
-            let (is_definition, is_extern, sig_ty, span, export_name_res) = {
-                let def = &self.ctx.defs[i];
-                match def {
-                    Def::Function(f) => {
-                        let name_str = self.ctx.resolve(f.name).to_string();
-                        let export_res = self.extract_export_name(&name_str, f.is_extern, f.id.0, &f.attributes);
-                        let sig_ty = f.resolved_sig.unwrap_or(TypeId::ERROR);
-                        (f.body.is_some(), f.is_extern, sig_ty, f.span, export_res)
+            let def_id = DefId(i as u32);
+            let def = self.ctx.defs[i].clone(); // Clone 解决借用冲突
+
+            let (is_definition, is_extern, sig_ty, span) = match def {
+                Def::Function(f) => {
+                    // 检查是否是泛型函数（自身带泛型，或身处泛型 impl 块中）
+                    let mut is_generic = !f.generics.is_empty();
+                    if let Some(parent_id) = f.parent {
+                        if let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize] {
+                            if !impl_def.generics.is_empty() {
+                                is_generic = true;
+                            }
+                        }
                     }
-                    Def::Global(g) => {
-                        let name_str = self.ctx.resolve(g.name).to_string();
-                        let export_res = self.extract_export_name(&name_str, g.is_extern, g.id.0, &g.attributes);
-                        let sig_ty = self.ctx.node_types.get(&g.value.id).copied().unwrap_or(TypeId::ERROR);
-                        (!g.is_extern, g.is_extern, sig_ty, g.span, export_res)
+
+                    // 泛型模板不产生实际的 C ABI 链接符号，直接跳过
+                    if is_generic {
+                        continue;
                     }
-                    _ => continue, 
+
+                    let sig_ty = f.resolved_sig.unwrap_or(TypeId::ERROR);
+                    (f.body.is_some(), f.is_extern, sig_ty, f.span)
                 }
+                Def::Global(g) => {
+                    let sig_ty = self.ctx.node_types.get(&g.value.id).copied().unwrap_or(TypeId::ERROR);
+                    (!g.is_extern, g.is_extern, sig_ty, g.span)
+                }
+                _ => continue,
             };
 
             // 如果之前的阶段类型推导失败，跳过
             if sig_ty == TypeId::ERROR { continue; }
 
-            let export_name = match export_name_res {
-                Ok(name) => name,
-                Err(err_span) => {
-                    self.ctx.struct_error(err_span, "`export_name` requires a string literal")
-                        .with_hint(r#"example: #[export_name("_start")]"#)
-                        .emit();
-                    continue; // 遇到非法属性，直接跳过当前符号的链接检查
-                }
-            };
+            let export_name = self.ctx.get_export_name(def_id, &[]);
 
             if let Some((prev_is_def, prev_sig_ty, prev_is_extern, prev_span)) = symbols.get(&export_name) {
                 if *prev_sig_ty != sig_ty {
@@ -79,41 +81,5 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                 symbols.insert(export_name, (is_definition, sig_ty, is_extern, span));
             }
         }
-    }
-
-    /// 辅助方法：提取符号在 LLVM 里的最终导出名 (Linkage Name)
-    fn extract_export_name(
-        &self, 
-        default_name: &str, 
-        is_extern: bool,
-        def_id_num: u32,
-        attributes: &[kernc_ast::Attribute]
-    ) -> Result<String, Span> {
-        for attr in attributes {
-            if let AttributeKind::Meta(items) = &attr.kind {
-                for item in items {
-                    if let MetaItem::Call(sym_id, arg_expr) = item {
-                        let name_str = self.ctx.resolve(*sym_id);
-                        if name_str == "export_name" {
-                            if let ExprKind::String(ref s) = arg_expr.kind {
-                                return Ok(s.clone());
-                            } else {
-                                return Err(arg_expr.span); 
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // if default_name == "main" {
-        //     return Ok(default_name.to_string());
-        // }
-
-        if is_extern {
-            return Ok(default_name.to_string());
-        }
-
-        Ok(format!("{}..{}", default_name, def_id_num))
     }
 }

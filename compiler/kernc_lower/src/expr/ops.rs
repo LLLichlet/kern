@@ -108,19 +108,43 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 MastExprKind::AddressOf(Box::new(op_mast))
             }
             ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
-            ast::UnaryOperator::LengthOf => {
+            ast::UnaryOperator::MetaOf => {
                 let op_norm = self.ctx.type_registry.normalize(op_mast.ty);
                 let op_kind = self.ctx.type_registry.get(op_norm).clone();
                 
-                // 如果操作数是闭包胖指针，则降级为 ExtractFatPtrData (提取 data_ptr)
-                if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = op_kind {
-                    let elem_norm = self.ctx.type_registry.normalize(elem);
-                    if self.ctx.type_registry.is_closure_interface(elem_norm) {
-                        return MastExprKind::ExtractFatPtrData(Box::new(op_mast));
+                match op_kind {
+                    // 1. 切片类型 (Slice)：胖指针，元数据是长度 (len)
+                    TypeKind::Slice { .. } => {
+                        return MastExprKind::ExtractFatPtrMeta(Box::new(op_mast));
                     }
+                    
+                    // 2. 定长数组 (Array) 或 推导数组 (ArrayInfer)：
+                    // 它们在内存中不是胖指针，而是一个连续的内存块，长度在编译期已知。
+                    // 所以这里的 # 操作符直接被编译器折叠为一个整数常量。
+                    TypeKind::Array { len, .. } => {
+                        return MastExprKind::Integer(len as u128);
+                    }
+                    TypeKind::ArrayInfer { .. } => {
+                        // 如果到了 Lowering 阶段 ArrayInfer 还没有被定长（通常在 constexpr 阶段就被处理了），
+                        // 这里作为兜底，发出一个 ICE 错误。
+                        self.ctx.emit_ice(operand.span, "Kern ICE (Lowering): Array length still inferred during MetaOf lowering.");
+                        unreachable!()
+                    }
+
+                    // 3. 闭包和 Trait 胖指针：提取底层的匿名状态指针 (Data)
+                    TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                        let elem_norm = self.ctx.type_registry.normalize(elem);
+                        let inner_kind = self.ctx.type_registry.get(elem_norm);
+                        
+                        if matches!(inner_kind, TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)) {
+                            // 闭包和 Trait 胖指针调用 `#` 是为了拿回堆上的内存地址以便 free，所以提取 Data
+                            return MastExprKind::ExtractFatPtrData(Box::new(op_mast));
+                        }
+                    }
+                    
+                    _ => {}
                 }
-                
-                // 否则，它是传统的数组/切片
+
                 MastExprKind::Unary {
                     op,
                     operand: Box::new(op_mast),

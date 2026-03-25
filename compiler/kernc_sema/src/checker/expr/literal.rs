@@ -292,7 +292,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 let val_ty = self.check_expr(&init_f.value, Some(payload_ty));
-                self.check_coercion(init_f.span, payload_ty, val_ty);
+                self.check_coercion(&init_f.value, payload_ty, val_ty);
             } else {
                 let v_str = self.ctx.resolve(v.name).to_string();
                 self.ctx
@@ -362,7 +362,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 3. 校验所有元素的类型
         for e in elems {
             let act_ty = self.check_expr(e, Some(exp_elem_ty));
-            self.check_coercion(e.span, exp_elem_ty, act_ty);
+            self.check_coercion(e, exp_elem_ty, act_ty);
         }
 
         // 4. 返回最终确定的类型
@@ -407,7 +407,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 2. 校验重复的元素值
         let val_ty = self.check_expr(value, Some(exp_elem_ty));
-        self.check_coercion(value.span, exp_elem_ty, val_ty);
+        self.check_coercion(value, exp_elem_ty, val_ty);
 
         // 3. 校验重复次数
         let c_ty = self.check_expr(count, Some(TypeId::USIZE));
@@ -512,7 +512,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 let val_ty = self.check_expr(&init_f.value, Some(f_ty));
-                self.check_coercion(init_f.span, f_ty, val_ty);
+                self.check_coercion(&init_f.value, f_ty, val_ty);
 
                 // 检查重复初始化的字段（对 struct 和 union 都有效）
                 if !initialized.insert(init_f.name) {
@@ -572,7 +572,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     /// 辅助方法 4：校验标量构造 `.{ 10 }`
     fn check_scalar_literal(&mut self, inner: &Expr, expected: TypeId) -> TypeId {
         let inner_ty = self.check_expr(inner, Some(expected));
-        self.check_coercion(inner.span, expected, inner_ty);
+        self.check_coercion(inner, expected, inner_ty);
         expected
     }
 

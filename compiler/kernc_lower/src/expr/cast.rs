@@ -65,7 +65,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 2. 具体类型指针隐式转换为 Trait Object 胖指针
+        // 2. 指针隐式转换为 Trait Object 胖指针
         if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
@@ -119,7 +119,153 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 兜底返回
+        // 3. 裸值隐式取址并打包为 Trait Object 胖指针 (BNC: T -> *Trait / T -> *mut Trait)
+        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
+            let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
+                if !matches!(conc_kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }) {
+                    let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: e_mut,
+                        elem: concrete_ty,
+                    });
+                    
+                    // 核心：无中生有，原地包装一个取址操作 (AddressOf)
+                    let data_ptr_expr = MastExpr::new(
+                        ptr_ty,
+                        MastExprKind::AddressOf(Box::new(MastExpr::new(concrete_ty, mast_kind, span))),
+                        span,
+                    );
+
+                    // 剩下的逻辑和普通指针打包完全一样，提取 VTable
+                    let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
+                    let global_array_ty = match self.module.globals.iter().find(|g| g.id == vtable_id) {
+                        Some(g) => g.ty,
+                        None => {
+                            self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global generated but not found in module globals map.");
+                            unreachable!()
+                        }
+                    };
+                    let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem: global_array_ty,
+                    });
+
+                    let meta_expr = MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::PtrToInt,
+                            operand: Box::new(MastExpr::new(
+                                array_ptr_ty,
+                                MastExprKind::AddressOf(Box::new(MastExpr::new(
+                                    global_array_ty,
+                                    MastExprKind::GlobalRef(vtable_id),
+                                    span,
+                                ))),
+                                span,
+                            )),
+                        },
+                        span,
+                    );
+
+                    return MastExpr::new(
+                        exp_ty,
+                        MastExprKind::ConstructFatPointer {
+                            data_ptr: Box::new(data_ptr_expr),
+                            meta: Box::new(meta_expr),
+                        },
+                        span,
+                    );
+                }
+            }
+        }
+
+        // 4. 闭包 BNC: 函数/匿名状态 -> 闭包胖指针 (*Fn)
+        if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
+            let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
+            if let TypeKind::ClosureInterface { .. } = self.ctx.type_registry.get(e_inner_norm) {
+                
+                // 4.1 普通无状态函数 (FnDef / Function) -> 闭包胖指针
+                if matches!(conc_kind, TypeKind::FnDef(..) | TypeKind::Function { .. }) {
+                    // 数据指针 (data_ptr) 为 NULL
+                    let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem: TypeId::VOID,
+                    });
+                    let null_ptr_expr = MastExpr::new(
+                        void_ptr_ty,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::IntToPtr,
+                            operand: Box::new(MastExpr::new(TypeId::USIZE, MastExprKind::Integer(0), span)),
+                        },
+                        span,
+                    );
+
+                    // 元数据 (meta) 为函数指针，转为 usize
+                    let fn_ptr_expr = MastExpr::new(concrete_ty, mast_kind, span);
+                    let meta_expr = MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::PtrToInt,
+                            operand: Box::new(fn_ptr_expr),
+                        },
+                        span,
+                    );
+
+                    return MastExpr::new(
+                        exp_ty,
+                        MastExprKind::ConstructFatPointer {
+                            data_ptr: Box::new(null_ptr_expr),
+                            meta: Box::new(meta_expr),
+                        },
+                        span,
+                    );
+                }
+
+                // 4.2 匿名闭包状态结构体 (AnonymousState) -> 闭包胖指针
+                if let TypeKind::AnonymousState { closure_node_id, .. } = conc_kind {
+                    // 数据指针 (data_ptr) 为 隐式取址 (AddressOf)
+                    let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: true, // 闭包状态通常需要修改
+                        elem: concrete_ty,
+                    });
+                    let data_ptr_expr = MastExpr::new(
+                        ptr_ty,
+                        MastExprKind::AddressOf(Box::new(MastExpr::new(concrete_ty, mast_kind, span))),
+                        span,
+                    );
+
+                    // 元数据 (meta) 为闭包实际执行函数的指针
+                    // 注: 这里调用 lower_closure_expr 生成/缓存的包装函数 MonoId
+                    let func_mono_id = self.get_closure_func_mono_id(closure_node_id);
+                    // 我们只需构造出 FuncRef 即可
+                    let fn_ptr_expr = MastExpr::new(
+                        TypeId::VOID, // 此时由于只需强转 usize，随便塞个虚假类型也可以过 codegen，不过最好保持规范
+                        MastExprKind::FuncRef(func_mono_id),
+                        span,
+                    );
+                    
+                    let meta_expr = MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::PtrToInt,
+                            operand: Box::new(fn_ptr_expr),
+                        },
+                        span,
+                    );
+
+                    return MastExpr::new(
+                        exp_ty,
+                        MastExprKind::ConstructFatPointer {
+                            data_ptr: Box::new(data_ptr_expr),
+                            meta: Box::new(meta_expr),
+                        },
+                        span,
+                    );
+                }
+            }
+        }
+
+        // 兜底返回原样 (如果遇到其他类型在 Sema 被判合法，但 Lowering 不需要干预)
         MastExpr::new(exp_ty, mast_kind, span)
     }
 

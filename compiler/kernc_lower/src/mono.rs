@@ -44,10 +44,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             subst_map.insert(param.name, args[i]);
         }
 
-        let mut mangled_name = self.ctx.resolve(def.name).to_string();
-        for arg in args {
-            mangled_name.push_str(&format!("_{}", arg.0));
-        }
+        let mangled_name = self.ctx.get_export_name(def_id, args);
 
         let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
             if let TypeKind::Function { ret, .. } = self.ctx.type_registry.get(sig) {
@@ -147,10 +144,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             subst_map.insert(param.name, args[i]);
         }
 
-        let mut mangled_name = self.ctx.resolve(def.name).to_string();
-        for arg in args {
-            mangled_name.push_str(&format!("_{}", arg.0));
-        }
+        let mangled_name = self.ctx.get_export_name(def_id, args);
 
         let mut mast_fields = Vec::new();
         let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
@@ -202,10 +196,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             subst_map.insert(param.name, args[i]);
         }
 
-        let mut mangled_name = self.ctx.resolve(def.name).to_string();
-        for arg in args {
-            mangled_name.push_str(&format!("_{}", arg.0));
-        }
+        let mangled_name = self.ctx.get_export_name(def_id, args);
 
         let mut mast_fields = Vec::new();
         let mut max_size = 0;
@@ -271,10 +262,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             unreachable!()
         };
 
-        let mut mangled_name = self.ctx.resolve(def.name).to_string();
-        for arg in args {
-            mangled_name.push_str(&format!("_{}", arg.0));
-        }
+        let mangled_name = self.ctx.get_export_name(def_id, args);
 
         let mut subst_map = HashMap::new();
         for (i, param) in def.generics.iter().enumerate() {
@@ -415,7 +403,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.module.globals.push(MastGlobal {
             id,
-            name: self.ctx.resolve(g.name).to_string(),
+            name: self.ctx.get_export_name(g.id, &[]),
             ty,
             is_mut,
             init,

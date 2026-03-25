@@ -415,7 +415,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     unreachable!()
                 }
             }
-            ast::UnaryOperator::LengthOf => {
+            ast::UnaryOperator::MetaOf => {
                 // MAST 保证了此时的类型已经是纯物理类型
                 let norm_ty = self.type_registry.normalize(operand.ty);
                 match self.type_registry.get(norm_ty) {
@@ -427,7 +427,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .build_extract_value(op_val.into_struct_value(), 1, "slice_len")
                         .unwrap(),
                     other => {
-                        self.sess.emit_ice(span, format!("Kern ICE (Codegen): `LengthOf` applied to invalid type {:?}. Sema missed this.", other));
+                        self.sess.emit_ice(span, format!("Kern ICE (Codegen): `MetaOf` applied to invalid type {:?}. Sema missed this.", other));
                         unreachable!()
                     }
                 }

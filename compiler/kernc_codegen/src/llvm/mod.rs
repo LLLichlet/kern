@@ -7,8 +7,8 @@ use inkwell::values::{FunctionValue, GlobalValue, PointerValue};
 use std::collections::HashMap;
 
 use kernc_mast::*;
-use kernc_sema::def::Def;
-use kernc_sema::ty::TypeRegistry;
+use kernc_sema::def::{Def, DefId};
+use kernc_sema::ty::{TypeRegistry, TypeId};
 use kernc_utils::Session;
 use kernc_utils::config::OptLevel;
 
@@ -37,6 +37,9 @@ pub struct CodeGenerator<'ctx, 'a> {
         inkwell::basic_block::BasicBlock<'ctx>,
     )>,
     pub asm_dialect: inkwell::InlineAsmDialect,
+
+    pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
+    pub adt_union_map: HashMap<MonoId, MonoId>,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
@@ -61,10 +64,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             locals: HashMap::new(),
             loop_targets: Vec::new(),
             asm_dialect: inkwell::InlineAsmDialect::Intel,
+            def_mono_map: HashMap::new(),
+            adt_union_map: HashMap::new(),
         }
     }
 
     pub fn compile(&mut self, module: &MastModule) {
+        
+        self.def_mono_map = module.def_mono_map.clone();
+        self.adt_union_map = module.adt_union_map.clone();
+
         self.declare_structs(&module.structs);
         self.declare_globals(&module.globals);
         self.declare_functions(&module.functions);

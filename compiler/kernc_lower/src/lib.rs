@@ -5,7 +5,7 @@ use kernc_mast::*;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, EnumDef};
 use kernc_sema::ty::TypeId;
-use kernc_utils::{SymbolId, NodeId};
+use kernc_utils::{SymbolId, NodeId, Span};
 
 pub(crate) mod expr;
 pub(crate) mod mono;
@@ -37,6 +37,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 structs: Vec::new(),
                 globals: Vec::new(),
                 functions: Vec::new(),
+                def_mono_map: HashMap::new(),
+                adt_union_map: HashMap::new(),
             },
             mono_cache: HashMap::new(),
             next_mono_id: 1,
@@ -107,6 +109,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
+        self.module.def_mono_map = self.mono_cache.clone();
+        self.module.adt_union_map = self.adt_union_map.clone();
+        
         self.module.clone()
     }
 
@@ -123,5 +128,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     /// 纯数据探测器：如果所有的变体都没有负载，那么它在内存中就完全等价于一个整数。
     pub(crate) fn is_pure_enum(&self, def: &EnumDef) -> bool {
         def.variants.iter().all(|v| v.payload_type.is_none())
+    }
+
+    /// 通过闭包结构体的 AST 节点 ID，获取对应的执行包装函数的 MonoId
+    pub(crate) fn get_closure_func_mono_id(&mut self, closure_node_id: NodeId) -> MonoId {
+        match self.closure_fn_map.get(&closure_node_id) {
+            Some(&id) => id,
+            None => {
+                // 如果找不到，说明存在编译器内部错误 (比如 Sema 生成了匿名状态，但 Lowering 还没处理到那个闭包表达式就被提前引用了)
+                self.ctx.emit_ice(
+                    Span::default(), 
+                    format!("Kern ICE (Lowering): Attempted to resolve a closure function ID before the closure expression (NodeId {}) was lowered.", closure_node_id.0)
+                );
+                unreachable!()
+            }
+        }
     }
 }

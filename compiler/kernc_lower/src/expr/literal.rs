@@ -119,7 +119,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         };
                         
-                        // 完美生成！组装胖指针！
+                        // 组装胖指针
                         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                             is_mut: false,
                             elem: TypeId::VOID,

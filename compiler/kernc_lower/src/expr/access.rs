@@ -28,7 +28,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
                                 ConstValue::Float(f) => return MastExprKind::Float(f),
                                 ConstValue::Bool(b) => return MastExprKind::Bool(b),
-                                _ => {} // TODO
+                                ConstValue::String(s) => return MastExprKind::StringLiteral(s),
+                                _ => {
+                                    let inlined_mast = self.lower_expr(&const_expr, &std::collections::HashMap::new(), None);
+                                    return inlined_mast.kind;
+                                }
                             }
                         }
                     }
@@ -143,7 +147,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                     ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
                                     ConstValue::Float(f) => return MastExprKind::Float(f),
                                     ConstValue::Bool(b) => return MastExprKind::Bool(b),
-                                    _ => {} // TODO: 复杂的聚合常量，交给后续的 GlobalRef 处理
+                                    ConstValue::String(s) => return MastExprKind::StringLiteral(s),
+                                    
+                                    _ => {
+                                        let inlined_mast = self.lower_expr(&const_expr, &HashMap::new(), None);
+                                        return inlined_mast.kind;
+                                    }
                                 }
                             }
                         }

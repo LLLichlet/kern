@@ -421,6 +421,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         decls: &[Decl],
     ) -> Option<DefId> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.global_impls.push(impl_id);
         let mut method_ids = Vec::new();
         self.ctx.add_def(Def::Impl(ImplDef {
             id: impl_id,

@@ -100,7 +100,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         base_source_ty: TypeId,
         target_trait_id: DefId,
     ) -> Option<ImplDef> {
-        // 辅助闭包：提取底层类型的 DefId，完美兼容 Struct/Union (Def) 和 Enum (Adt)
+        // 辅助闭包：提取底层类型的 DefId，兼容 Struct/Union (Def) 和 Enum (Adt)
         let get_base_def_id = |ty: TypeId| -> Option<DefId> {
             let norm = self.ctx.type_registry.normalize(ty);
             match self.ctx.type_registry.get(norm) {
@@ -112,8 +112,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let src_base_id = get_base_def_id(base_source_ty);
         let norm_src_base = self.ctx.type_registry.normalize(base_source_ty);
 
-        for def in &self.ctx.defs {
-            if let Def::Impl(impl_def) = def {
+        for &impl_id in &self.ctx.global_impls {
+            if let Def::Impl(impl_def) = &self.ctx.defs[impl_id.0 as usize] {
                 if let Some(impl_trait_node) = &impl_def.trait_type {
                     // 检查 Impl 块声称实现的 Trait
                     let i_trait_ty = self

@@ -7,7 +7,8 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    pub(crate) fn check_coercion(&mut self, span: Span, expected: TypeId, actual: TypeId) -> bool {
+    /// 检查表达式能否隐式转换为目标类型，包含指针降级与 BNC
+    pub(crate) fn check_coercion(&mut self, expr: &Expr, expected: TypeId, actual: TypeId) -> bool {
         let exp = self.resolve_tv(expected);
         let act = self.resolve_tv(actual);
 
@@ -22,43 +23,73 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let act_kind = self.ctx.type_registry.get(act).clone();
 
         // 1. 触发类型合一
+        if self.check_type_var(exp, act, &exp_kind, &act_kind) {
+            return true;
+        }
+
+        // 2. 指针降级与 Trait Object 处理
+        if self.check_pointer_coercions(expr, exp, act, &exp_kind, &act_kind) {
+            return true;
+        }
+
+        // 3. 易失指针降级与 Trait Object 处理
+        if self.check_volatile_coercions(expr, exp, act, &exp_kind, &act_kind) {
+            return true;
+        }
+
+        // 4. 切片降级与数组退化
+        if self.check_slice_and_array_decay(expr, exp, &exp_kind, &act_kind) {
+            return true;
+        }
+
+        // 5. 闭包相关的退化与边界自然转换
+        if self.check_closure_coercions(expr, &exp_kind, &act_kind) {
+            return true;
+        }
+
+        // 如果所有规则都匹配失败，输出不匹配错误
+        self.emit_mismatch_error(expr.span, expected, actual);
+        false
+    }
+
+    fn check_type_var(&mut self, exp: TypeId, act: TypeId, exp_kind: &TypeKind, act_kind: &TypeKind) -> bool {
         if let TypeKind::TypeVar(vid) = act_kind {
-            self.type_vars[vid as usize] = Some(exp);
+            self.type_vars[*vid as usize] = Some(exp);
             return true;
         }
         if let TypeKind::TypeVar(vid) = exp_kind {
-            self.type_vars[vid as usize] = Some(act);
+            self.type_vars[*vid as usize] = Some(act);
             return true;
         }
+        false
+    }
 
-        // 2. 指针降级与 Trait Object 隐式打包
-        if let TypeKind::Pointer {
-            is_mut: e_mut,
-            elem: e_inner,
-        } = exp_kind
-        {
-            if let TypeKind::Pointer {
-                is_mut: a_mut,
-                elem: a_inner,
-            } = act_kind
-            {
-                // 权限校验：不可变指针绝不能升级为可变指针
-                if !e_mut || (e_mut && a_mut) {
-                    let e_norm = self.resolve_tv(e_inner);
-                    let a_norm = self.resolve_tv(a_inner);
+    fn check_pointer_coercions(
+        &mut self,
+        expr: &Expr,
+        _exp: TypeId,
+        act: TypeId,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
+            let e_norm = self.resolve_tv(*e_inner);
 
-                    // a) 基础指针安全降级 (*mut T -> *T)
+            // A. 指针到指针的安全降级 (*mut T -> *T)
+            if let TypeKind::Pointer { is_mut: a_mut, elem: a_inner } = act_kind {
+                // 不可变指针绝不能升级为可变指针
+                if !*e_mut || (*e_mut && *a_mut) {
+                    let a_norm = self.resolve_tv(*a_inner);
                     if e_norm == a_norm {
                         return true;
                     }
 
-                    // b) 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
+                    // B. 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
-                        // 剥离可变性，构造一个不可变的实际指针类型去查 Trait
-                        let downgraded_act = if !e_mut && a_mut {
+                        let downgraded_act = if !*e_mut && *a_mut {
                             self.ctx.type_registry.intern(TypeKind::Pointer {
                                 is_mut: false,
-                                elem: a_inner,
+                                elem: *a_inner,
                             })
                         } else {
                             act
@@ -70,22 +101,51 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 }
             }
-        }
 
-        // 同样处理易失指针
-        if let TypeKind::VolatilePtr {
-            is_mut: e_mut,
-            elem: e_inner,
-        } = exp_kind
-        {
-            if let TypeKind::VolatilePtr {
-                is_mut: a_mut,
-                elem: a_inner,
-            } = act_kind
-            {
-                if !e_mut || (e_mut && a_mut) {
-                    let e_norm = self.resolve_tv(e_inner);
-                    let a_norm = self.resolve_tv(a_inner);
+            // C. BNC: 裸值到 Trait Object (T -> *Trait / T -> *mut Trait)
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
+                // 如果 actual 并不是一个指针，而是一个裸值 (T)
+                if !matches!(act_kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }) {
+                    // 安全性检查：如果期望的是 *mut Trait，那么传入的 expr 必须是可变的
+                    if *e_mut && !self.is_lvalue_mutable(expr) {
+                        self.ctx
+                            .struct_error(
+                                expr.span,
+                                "cannot implicitly borrow an immutable value as a mutable trait object `*mut Trait`",
+                            )
+                            .with_hint("consider declaring the variable as `let mut`")
+                            .emit();
+                        return false; // 可变性校验失败
+                    }
+
+                    // 构造一个虚拟的指针类型去查 Trait 约束表
+                    let virtual_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: *e_mut,
+                        elem: act,
+                    });
+
+                    if self.check_trait_impl(virtual_ptr_ty, e_norm) {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn check_volatile_coercions(
+        &mut self,
+        _expr: &Expr,
+        _exp: TypeId,
+        act: TypeId,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if let TypeKind::VolatilePtr { is_mut: e_mut, elem: e_inner } = exp_kind {
+            if let TypeKind::VolatilePtr { is_mut: a_mut, elem: a_inner } = act_kind {
+                if !*e_mut || (*e_mut && *a_mut) {
+                    let e_norm = self.resolve_tv(*e_inner);
+                    let a_norm = self.resolve_tv(*a_inner);
                     if e_norm == a_norm {
                         return true;
                     }
@@ -97,55 +157,86 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
         }
+        false
+    }
 
-        // 3. 切片降级与数组退化
-        if let TypeKind::Slice {
-            is_mut: e_mut,
-            elem: exp_elem,
-        } = exp_kind
-        {
-            if let TypeKind::Slice {
-                is_mut: act_mut,
-                elem: act_elem,
-            } = act_kind
-            {
-                if (!e_mut || (e_mut && act_mut))
-                    && self.resolve_tv(exp_elem) == self.resolve_tv(act_elem)
+    fn check_slice_and_array_decay(
+        &mut self,
+        expr: &Expr,
+        _exp: TypeId,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if let TypeKind::Slice { is_mut: e_mut, elem: exp_elem } = exp_kind {
+            if let TypeKind::Slice { is_mut: act_mut, elem: act_elem } = act_kind {
+                if (!*e_mut || (*e_mut && *act_mut))
+                    && self.resolve_tv(*exp_elem) == self.resolve_tv(*act_elem)
                 {
                     return true;
                 }
             }
-            match self.check_array_decay(e_mut, exp_elem, &act_kind, span) {
+            match self.check_array_decay(*e_mut, *exp_elem, act_kind, expr.span) {
                 Ok(true) => return true,
                 Err(()) => return false,
                 Ok(false) => {}
             }
         }
+        false
+    }
 
-        // 4. 闭包退化规则
-        // 如果捕获列表严格为空，AnonymousState 可以直接退化为 C-ABI 函数指针 `fn(Args) Ret`
-        if let TypeKind::Function { params: ref e_params, ret: e_ret, is_variadic: false } = exp_kind {
-            if let TypeKind::AnonymousState { captures: ref a_caps, params: ref a_params, ret: a_ret, .. } = act_kind {
+    fn check_closure_coercions(
+        &mut self,
+        expr: &Expr,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
+        // A. 闭包退化规则: AnonymousState -> C-ABI 函数指针 (捕获必须严格为空)
+        if let TypeKind::Function { params: e_params, ret: e_ret, is_variadic: false } = exp_kind {
+            if let TypeKind::AnonymousState { captures: a_caps, params: a_params, ret: a_ret, .. } = act_kind {
                 if a_caps.is_empty() && e_params.len() == a_params.len() {
                     let mut map = HashMap::new();
                     let mut ok = true;
                     for (ep, ap) in e_params.iter().zip(a_params.iter()) {
                         if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
                     }
-                    if ok && self.unify(e_ret, a_ret, &mut map) {
-                        return true; 
+                    if ok && self.unify(*e_ret, *a_ret, &mut map) {
+                        return true;
                     }
                 }
             }
         }
 
-        // 5. 闭包转换
-        // AnonymousState (传值) -> *mut Fn(Args) Ret 或 *Fn(Args) Ret
-        if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
-            let e_norm = self.resolve_tv(e_inner);
+        // B. 闭包 BNC: 到动态胖指针接口
+        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
+            let e_norm = self.resolve_tv(*e_inner);
             if let TypeKind::ClosureInterface { params: ref e_params, ret: e_ret } = self.ctx.type_registry.get(e_norm).clone() {
-                // 如果实际传入的是 AnonymousState 结构体
-                if let TypeKind::AnonymousState { params: ref a_params, ret: a_ret, .. } = act_kind {
+                
+                // B.1 AnonymousState -> *Fn / *mut Fn
+                if let TypeKind::AnonymousState { params: a_params, ret: a_ret, .. } = act_kind {
+                    // 可变性安全检查：如果期待 *mut Fn，则闭包本身（匿名结构体）必须是可变的
+                    if *e_mut && !self.is_lvalue_mutable(expr) {
+                        self.ctx.struct_error(expr.span, "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`")
+                            .with_hint("consider declaring the closure variable as `let mut`")
+                            .emit();
+                        return false;
+                    }
+
+                    if e_params.len() == a_params.len() {
+                        let mut map = HashMap::new();
+                        let mut ok = true;
+                        for (ep, ap) in e_params.iter().zip(a_params.iter()) {
+                            if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
+                        }
+                        if ok && self.unify(e_ret, *a_ret, &mut map) {
+                            return true;
+                        }
+                    }
+                }
+
+                // B.2 Function / FnDef -> *Fn / *mut Fn (普通函数无状态，安全地塞入闭包胖指针)
+                if matches!(act_kind, TypeKind::Function { is_variadic: false, .. } | TypeKind::FnDef(_, _)) {
+                    let (a_params, a_ret) = self.extract_fn_sig_for_bnc(act_kind, expr.span);
+                    
                     if e_params.len() == a_params.len() {
                         let mut map = HashMap::new();
                         let mut ok = true;
@@ -153,15 +244,52 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
                         }
                         if ok && self.unify(e_ret, a_ret, &mut map) {
-                            return true; 
+                            return true;
                         }
                     }
                 }
             }
         }
-
-        self.emit_mismatch_error(span, expected, actual);
         false
+    }
+
+    /// 提取函数定义项 (FnDef) 的确切签名，处理泛型代入
+    fn extract_fn_sig_for_bnc(&mut self, act_kind: &TypeKind, span: Span) -> (Vec<TypeId>, TypeId) {
+        match act_kind {
+            TypeKind::FnDef(def_id, args) => {
+                // 为了避免 self 生命周期冲突，我们 clone 一下 Def
+                let def = self.ctx.defs[def_id.0 as usize].clone(); 
+                if let Def::Function(fn_def) = def {
+                    if let Some(sig_ty) = fn_def.resolved_sig {
+                        let norm_sig = self.resolve_tv(sig_ty);
+                        if let TypeKind::Function { params, ret, .. } = self.ctx.type_registry.get(norm_sig).clone() {
+                            if fn_def.generics.is_empty() {
+                                return (params, ret);
+                            } else {
+                                // 处理泛型实例化
+                                let mut map = HashMap::new();
+                                for (i, param) in fn_def.generics.iter().enumerate() {
+                                    map.insert(param.name, args[i]);
+                                }
+                                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                                let inst_params = params.into_iter().map(|p| subst.substitute(p)).collect();
+                                let inst_ret = subst.substitute(ret);
+                                return (inst_params, inst_ret);
+                            }
+                        }
+                    }
+                    self.ctx.emit_error(span, "Compiler ICE: Function definition lacks resolved signature during BNC");
+                    unreachable!()
+                } else {
+                    self.ctx.emit_error(span, "Compiler ICE: FnDef ID does not point to a Function Def");
+                    unreachable!()
+                }
+            }
+            TypeKind::Function { params, ret, .. } => {
+                (params.clone(), *ret)
+            }
+            _ => unreachable!()
+        }
     }
 
     pub(crate) fn unify(
@@ -440,7 +568,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    // TODO: Devide
     fn check_trait_impl_inner(
         &mut self,
         source_ty: TypeId,
@@ -448,7 +575,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
         // === 1. 优先检查当前环境上下文中的 Where 约束 (active_bounds) ===
-        // 解决函数体内泛型参数自身满足约束的推导问题
+        if self.check_trait_impl_in_env_bounds(source_ty, target_trait_ty, visited) {
+            return true;
+        }
+
+        // === 2. 检查全局的 impl 块  ===
+        if self.check_trait_impl_in_global_impls(source_ty, target_trait_ty, visited) {
+            return true;
+        }
+
+        false
+    }
+
+    /// 子方法 1：检查环境上下文中 active_bounds 提供的约束
+    fn check_trait_impl_in_env_bounds(
+        &mut self,
+        source_ty: TypeId,
+        target_trait_ty: TypeId,
+        visited: &mut std::collections::HashSet<DefId>,
+    ) -> bool {
         for i in 0..self.ctx.active_bounds.len() {
             let (env_target, env_bounds) = self.ctx.active_bounds[i].clone();
             let mut map = HashMap::new();
@@ -473,12 +618,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
 
                     // 环境约束自身也可能继承自某个 Supertrait，递归检查
-                    if let TypeKind::TraitObject(inst_def_id, _) =
-                        self.ctx.type_registry.get(inst_norm)
-                    {
+                    if let TypeKind::TraitObject(inst_def_id, _) = self.ctx.type_registry.get(inst_norm) {
                         if visited.insert(*inst_def_id) {
-                            if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited)
-                            {
+                            if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited) {
                                 return true;
                             }
                         }
@@ -486,14 +628,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
         }
+        false
+    }
 
-        // === 2. 全局的 impl 块 ===
-        let mut impl_blocks = Vec::new();
-        for def in &self.ctx.defs {
-            if let Def::Impl(impl_def) = def {
-                impl_blocks.push(impl_def.clone());
-            }
-        }
+    /// 子方法 2：检查全局的 Impl 块
+    fn check_trait_impl_in_global_impls(
+        &mut self,
+        source_ty: TypeId,
+        target_trait_ty: TypeId,
+        visited: &mut std::collections::HashSet<DefId>,
+    ) -> bool {
+        let impl_blocks: Vec<_> = self
+            .ctx
+            .global_impls
+            .iter()
+            .filter_map(|&id| {
+                if let Def::Impl(impl_def) = &self.ctx.defs[id.0 as usize] {
+                    Some(impl_def.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
 
         for impl_def in impl_blocks {
             if let Some(trait_ast) = &impl_def.trait_type {
@@ -529,29 +685,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return true;
                     }
 
-                    let inst_norm = self.resolve_tv(instantiated_trait_ty);
-                    if let TypeKind::TraitObject(inst_def_id, _) =
-                        self.ctx.type_registry.get(inst_norm)
-                    {
+                    if let TypeKind::TraitObject(inst_def_id, _) = self.ctx.type_registry.get(inst_norm) {
                         if visited.insert(*inst_def_id) {
-                            if let Def::Trait(trait_def) =
-                                self.ctx.defs[inst_def_id.0 as usize].clone()
-                            {
-                                // 直接使用已经解析好的 resolved_supertraits
+                            if let Def::Trait(trait_def) = self.ctx.defs[inst_def_id.0 as usize].clone() {
+                                // 检查父特征 (Supertraits)
                                 for &super_ty in &trait_def.resolved_supertraits {
-                                    // 依然需要将 trait 自身的泛型代入父特征 (例如 TraitA[T] : TraitB[T])
                                     let inst_super_ty = {
-                                        let mut subst =
-                                            Substituter::new(&mut self.ctx.type_registry, &map);
+                                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                                         subst.substitute(super_ty)
                                     };
 
                                     if inst_super_ty == target_trait_ty
-                                        || self.check_trait_impl_inner(
-                                            source_ty,
-                                            inst_super_ty,
-                                            visited,
-                                        )
+                                        || self.check_trait_impl_inner(source_ty, inst_super_ty, visited)
                                     {
                                         return true;
                                     }
@@ -566,7 +711,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// 助手 格式化并输出类型不匹配错误
-    fn emit_mismatch_error(&mut self, span: Span, expected: TypeId, actual: TypeId) {
+    pub fn emit_mismatch_error(&mut self, span: Span, expected: TypeId, actual: TypeId) {
         let exp_str = self.ctx.ty_to_string(expected);
         let act_str = self.ctx.ty_to_string(actual);
 

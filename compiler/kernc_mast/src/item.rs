@@ -2,6 +2,8 @@ use crate::{MastBlock, MastExpr, MonoId};
 use kernc_ast::MetaItem;
 use kernc_sema::ty::TypeId;
 use kernc_utils::SymbolId;
+use std::collections::HashMap;
+use kernc_sema::def::DefId;
 
 /// MAST 模块 (编译单元的最终扁平化表示)
 /// 一切都被平铺，没有嵌套模块，没有 Impl 块，没有泛型。
@@ -11,8 +13,9 @@ pub struct MastModule {
     pub structs: Vec<MastStruct>,
     pub globals: Vec<MastGlobal>, // 所有 static (含全局和局部) 都被提升到这里
     pub functions: Vec<MastFunction>,
-    // Trait, TypeAlias 在这里彻底消失。
-    // Enum 根据是否携带负载，被降级为 Struct 或纯 Integer 常量。
+    // 记录前端抽象实体到后端物理实体的映射
+    pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
+    pub adt_union_map: HashMap<MonoId, MonoId>,
 }
 
 #[derive(Debug, Clone)]

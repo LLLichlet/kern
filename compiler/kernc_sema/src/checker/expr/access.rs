@@ -9,7 +9,7 @@ use std::collections::HashMap;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn check_identifier(&mut self, name: SymbolId, span: Span) -> TypeId {
-        if let Some(info) = self.ctx.scopes.resolve(name) {
+        if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
             if info.kind == SymbolKind::Function {
                 return self
                     .ctx
@@ -24,16 +24,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .intern(TypeKind::Module(info.def_id.unwrap()));
             }
 
-            // TODO: 旁路导入
-            // 如果本地符号表说它是 ERROR，但它有一个合法的 DefId（全局定义），
-            // 说明它可能是个被 `use` 进来的常量。直接越过符号表，去全局缓存里拿最新类型
+            // 处理 `use` 导入或乱序声明的常量/静态变量的按需推导
             if info.type_id == TypeId::ERROR && info.def_id.is_some() {
-                if let Def::Global(g) = &self.ctx.defs[info.def_id.unwrap().0 as usize] {
-                    if let Some(&actual_ty) = self.ctx.node_types.get(&g.value.id) {
+                let def_id = info.def_id.unwrap();
+                let global_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                    Some(g.value.clone())
+                } else {
+                    None
+                };
+
+                if let Some(g_expr) = global_expr_opt {
+                    if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
                         return actual_ty;
                     }
+                    let computed_ty = self.check_expr(&g_expr, None);
+                    return computed_ty;
                 }
             }
+
             info.type_id
         } else {
             let name_str = self.ctx.resolve(name).to_string();
@@ -498,13 +506,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let mut found_method_id = None;
         let mut resolved_impl_args = Vec::new();
 
-        // TODO: 注意：未来可以考虑在 Sema 收集阶段将这些方法缓存到 Context 中避免每次 O(N) 遍历
         let impl_blocks: Vec<_> = self
             .ctx
-            .defs
+            .global_impls
             .iter()
-            .filter_map(|def| {
-                if let Def::Impl(impl_def) = def {
+            .filter_map(|&id| {
+                if let Def::Impl(impl_def) = &self.ctx.defs[id.0 as usize] {
                     Some(impl_def.clone())
                 } else {
                     None

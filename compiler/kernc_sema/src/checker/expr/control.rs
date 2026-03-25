@@ -49,7 +49,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if common_ret_ty.is_none() || common_ret_ty == Some(TypeId::NEVER) {
                 common_ret_ty = Some(body_ty);
             } else if body_ty != TypeId::NEVER {
-                self.check_coercion(arm.body.span, common_ret_ty.unwrap(), body_ty);
+                self.check_coercion(&arm.body, common_ret_ty.unwrap(), body_ty);
             }
         }
 
@@ -105,7 +105,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
                     let v_ty = self.check_expr(v, Some(norm_target));
-                    self.check_coercion(v.span, norm_target, v_ty);
+                    self.check_coercion(&v, norm_target, v_ty);
 
                     // 尝试从值匹配中回收 EnumLiteral 以辅助穷尽性检查
                     if is_adt {
@@ -117,8 +117,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 ast::MatchPatternKind::Range { start, end, .. } => {
                     let s_ty = self.check_expr(start, Some(norm_target));
                     let e_ty = self.check_expr(end, Some(norm_target));
-                    self.check_coercion(start.span, norm_target, s_ty);
-                    self.check_coercion(end.span, norm_target, e_ty);
+                    self.check_coercion(&start, norm_target, s_ty);
+                    self.check_coercion(&end, norm_target, e_ty);
                 }
                 ast::MatchPatternKind::Variant {
                     target_type,
@@ -137,7 +137,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         let mut resolver = TypeResolver::new(self.ctx);
                         let scope = resolver.ctx.scopes.current_scope_id().unwrap();
                         let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
-                        self.check_coercion(pat.span, norm_target, explicit_ty);
+                        
+                        // 纯类型匹配检查，不涉及表达式和 BNC
+                        let mut map = std::collections::HashMap::new();
+                        if !self.unify(norm_target, explicit_ty, &mut map) && norm_target != explicit_ty {
+                            self.emit_mismatch_error(pat.span, norm_target, explicit_ty);
+                        }
                     }
 
                     if let TypeKind::Enum(def_id, generic_args) =
@@ -230,7 +235,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let val_ty = self.check_expr(v, Some(expected_ret));
 
             if let Some(ret_ty) = self.current_return_type {
-                self.check_coercion(v.span, ret_ty, val_ty);
+                self.check_coercion(v, ret_ty, val_ty);
             }
         } else {
             if expected_ret != TypeId::VOID && expected_ret != TypeId::ERROR {
@@ -257,7 +262,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
         if let Some(c) = cond {
             let c_ty = self.check_expr(c, Some(TypeId::BOOL));
-            self.check_coercion(c.span, TypeId::BOOL, c_ty);
+            self.check_coercion(c, TypeId::BOOL, c_ty);
         }
         if let Some(p) = post {
             self.check_discarded_expr(p);
@@ -317,7 +322,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
     ) -> TypeId {
         let cond_ty = self.check_expr(cond, Some(TypeId::BOOL));
-        self.check_coercion(cond.span, TypeId::BOOL, cond_ty);
+        self.check_coercion(cond, TypeId::BOOL, cond_ty);
 
         let then_ty = self.check_expr(then_branch, expected_ty);
         if let Some(else_expr) = else_branch {
@@ -330,7 +335,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return then_ty;
             }
 
-            self.check_coercion(else_expr.span, then_ty, else_ty);
+            self.check_coercion(else_expr, then_ty, else_ty);
             then_ty
         } else {
             TypeId::VOID

@@ -83,7 +83,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if is_method && !params.is_empty() {
             let expected_self = params[0];
-            self.check_method_receiver(expected_self, receiver_ty, callee.span);
+            self.check_method_receiver(expected_self, receiver_ty, callee);
             if receiver_ty != expected_self {
                 if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
                     self.ctx.node_types.insert(lhs.id, expected_self);
@@ -320,17 +320,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// 助手 4：Kern 专属校验 - 方法调用的接收者类型匹配
-    fn check_method_receiver(&mut self, expected_self: TypeId, receiver_ty: TypeId, span: Span) {
+    fn check_method_receiver(&mut self, expected_self: TypeId, receiver_ty: TypeId, expr: &Expr) {
         let norm_expected = self.resolve_tv(expected_self);
 
-        if !self.check_coercion(span, expected_self, receiver_ty) {
+        if !self.check_coercion(expr, expected_self, receiver_ty) {
             let is_exp_ptr = matches!(
                 self.ctx.type_registry.get(norm_expected),
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
             );
 
             if is_exp_ptr {
-                self.ctx.struct_error(span, "method receiver type mismatch")
+                self.ctx.struct_error(expr.span, "method receiver type mismatch")
                     .with_hint("the method expects a pointer receiver")
                     .with_hint("Kern does not implicitly take addresses for method calls. Try using `(&obj).method()` or `obj.&.method()`")
                     .emit();
@@ -354,7 +354,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if sig_param_idx < params.len() {
                 // 1. 常规参数校验
                 let arg_ty = self.check_expr(arg, Some(params[sig_param_idx]));
-                self.check_coercion(arg.span, params[sig_param_idx], arg_ty);
+                self.check_coercion(arg, params[sig_param_idx], arg_ty);
             } else {
                 // 2. Variadic 额外参数校验 (C ABI Rules)
                 let arg_ty = self.check_expr(arg, None);
@@ -762,7 +762,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 "volatile" => {
                     let ty = self.check_expr(&field.value, Some(TypeId::BOOL));
-                    self.check_coercion(field.value.span, TypeId::BOOL, ty);
+                    self.check_coercion(&field.value, TypeId::BOOL, ty);
                 }
                 _ => {
                     self.ctx

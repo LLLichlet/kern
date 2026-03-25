@@ -238,7 +238,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 // 已经通过 return 语句返回过，允许块自身计算为 VOID
             } else {
                 // 强制检查 Coercion（会打印 Type mismatch）
-                if !checker.check_coercion(body_expr.span, ret_ty, body_eval_ty) {
+                if !checker.check_coercion(body_expr, ret_ty, body_eval_ty) {
                     self.ctx.emit_error(
                         body_expr.span,
                         "Function body evaluates to a type that does not match its signature. \
@@ -291,7 +291,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 // 3. 检查默认值的类型是否与字段兼容
                 if field_ty != TypeId::ERROR && eval_ty != TypeId::ERROR {
-                    if !checker.check_coercion(default_expr.span, field_ty, eval_ty) {
+                    if !checker.check_coercion(default_expr, field_ty, eval_ty) {
                         self.ctx.emit_error(
                             default_expr.span,
                             format!(
@@ -349,7 +349,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
                 // 3. 检查默认值的类型是否与字段兼容
                 if field_ty != TypeId::ERROR && eval_ty != TypeId::ERROR {
-                    if !checker.check_coercion(default_expr.span, field_ty, eval_ty) {
+                    if !checker.check_coercion(default_expr, field_ty, eval_ty) {
                         self.ctx.emit_error(
                             default_expr.span,
                             format!(

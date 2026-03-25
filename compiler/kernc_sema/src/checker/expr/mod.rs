@@ -67,7 +67,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Unary { op, operand } => {
                 self.check_unary(*op, operand, expr.span, expected_ty)
             }
-            ExprKind::Assign { lhs, rhs, .. } => self.check_assign(lhs, rhs, expr.span),
+            ExprKind::Assign { lhs, rhs, .. } => self.check_assign(lhs, rhs),
 
             // === 5. 转换 ===
             ExprKind::As { lhs, target } => {

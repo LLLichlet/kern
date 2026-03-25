@@ -54,8 +54,32 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Primitive(PrimitiveType::Never) | TypeKind::Error => 1,
             TypeKind::Primitive(p) => self.primitive_align(p),
 
-            // TODO: 如果遇到 TypeVar 等其他推导中的未知类型，兜底对齐为 1
-            _ => 1,
+            TypeKind::EnumPayload(def_id, generic_args) => {
+                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
+                    a.clone()
+                } else {
+                    unreachable!()
+                };
+                let map = self.prepare_generic_subst(&def.generics, &generic_args);
+                let mut max_payload_align = 1;
+                for v in &def.variants {
+                    if let Some(payload) = &v.payload_type {
+                        let p_ty = self.resolve_field_type(payload, &map);
+                        let align = self.compute_type_align_inner(p_ty, depth + 1);
+                        if align > max_payload_align { max_payload_align = align; }
+                    }
+                }
+                max_payload_align
+            }
+            
+            TypeKind::TypeVar(_) => {
+                self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Attempted to compute memory alignment of an unresolved TypeVar.");
+                1
+            }
+            _ => {
+                self.ctx.emit_ice(kernc_utils::Span::default(), format!("Kern ICE (Layout): Attempted to compute alignment of an invalid or incomplete type: {:?}", kind));
+                1
+            }
         }
     }
 
@@ -83,8 +107,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Array { elem, len, .. } => {
                 self.compute_type_size_inner(elem, depth + 1) * len
             }
-            // TODO:
-            TypeKind::ArrayInfer { .. } => 0,
+            TypeKind::ArrayInfer { .. } => {
+                self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Cannot compute the size of an array with inferred length `[_]T`. It must be fully resolved.");
+                0
+            }
 
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
                 self.compute_def_size(def_id, &generic_args, depth)
@@ -111,8 +137,32 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Error | TypeKind::Primitive(PrimitiveType::Never) => 0,
             TypeKind::Primitive(p) => self.primitive_size(p),
 
-            // TODO: 兜底推导中未解出的 TypeVar 为 0
-            _ => 0,
+            TypeKind::EnumPayload(def_id, generic_args) => {
+                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
+                    a.clone()
+                } else {
+                    unreachable!()
+                };
+                let map = self.prepare_generic_subst(&def.generics, &generic_args);
+                let mut max_payload_size = 0;
+                for v in &def.variants {
+                    if let Some(payload) = &v.payload_type {
+                        let p_ty = self.resolve_field_type(payload, &map);
+                        let size = self.compute_type_size_inner(p_ty, depth + 1);
+                        if size > max_payload_size { max_payload_size = size; }
+                    }
+                }
+                max_payload_size
+            }
+
+            TypeKind::TypeVar(_) => {
+                self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Cannot compute the size of an unresolved TypeVar.");
+                0
+            }
+            _ => {
+                self.ctx.emit_ice(kernc_utils::Span::default(), format!("Kern ICE (Layout): Cannot compute the size of an invalid or incomplete type: {:?}", kind));
+                0
+            }
         }
     }
 
@@ -240,8 +290,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 Self::align_to(max_size, max_align)
             }
             Def::Enum(a) => {
-                // Enum Size = align_to(TagSize, MaxAlign) + align_to(MaxPayloadSize, MaxAlign)
-                // TODO: (简化版的 C 布局，实际以 target data_layout 为准)
+                // C-ABI Tagged Union 布局: struct { TagType tag; union { ... } payload; }
                 let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
                     self.ctx
                         .node_types
@@ -249,19 +298,24 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                         .copied()
                         .unwrap_or(TypeId::U32)
                 });
-                let mut max_align = self.compute_type_align_inner(tag_ty, depth + 1);
+                
+                let tag_align = self.compute_type_align_inner(tag_ty, depth + 1);
                 let tag_size = self.compute_type_size_inner(tag_ty, depth + 1);
 
                 let map = self.prepare_generic_subst(&a.generics, generic_args);
+                
+                // 追踪 Payload Union 的最大尺寸和最大对齐要求
                 let mut max_payload_size = 0;
+                let mut max_payload_align = 1;
 
                 for v in &a.variants {
                     if let Some(payload) = &v.payload_type {
                         let p_ty = self.resolve_field_type(payload, &map);
                         let align = self.compute_type_align_inner(p_ty, depth + 1);
                         let size = self.compute_type_size_inner(p_ty, depth + 1);
-                        if align > max_align {
-                            max_align = align;
+                        
+                        if align > max_payload_align {
+                            max_payload_align = align;
                         }
                         if size > max_payload_size {
                             max_payload_size = size;
@@ -269,10 +323,20 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     }
                 }
 
-                let mut offset = tag_size;
-                offset = Self::align_to(offset, max_align);
-                offset += max_payload_size;
-                Self::align_to(offset, max_align)
+                // 1. 整体 Enum 的对齐要求
+                let enum_align = tag_align.max(max_payload_align);
+
+                // 如果是纯枚举 (无 payload)，其大小直接就是 Tag 对齐后的大小
+                if max_payload_size == 0 {
+                    return Self::align_to(tag_size, enum_align);
+                }
+
+                // 2. 计算 Payload Union 的内存偏移起点 (受 Union 自身对齐要求约束)
+                let payload_offset = Self::align_to(tag_size, max_payload_align);
+
+                // 3. 计算总大小并应用尾部填充 (Tail Padding)
+                let total_size = payload_offset + max_payload_size;
+                Self::align_to(total_size, enum_align)
             }
             _ => 0,
         }

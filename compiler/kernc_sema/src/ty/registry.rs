@@ -134,4 +134,8 @@ impl TypeRegistry {
             _ => None,
         }
     }
+
+    pub fn is_closure_interface(&self, id: TypeId) -> bool {
+        matches!(self.get(self.normalize(id)), TypeKind::ClosureInterface { .. })
+    }
 }

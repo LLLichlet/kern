@@ -48,34 +48,51 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 5. 校验最终签名并执行分发
-        if let TypeKind::Function {
-            params,
-            ret,
-            is_variadic,
-        } = self.ctx.type_registry.get(sig_ty).clone()
-        {
-            self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
+        let sig_kind = self.ctx.type_registry.get(sig_ty).clone();
 
-            if is_method && !params.is_empty() {
-                let expected_self = params[0];
-                self.check_method_receiver(expected_self, receiver_ty, callee.span);
-                if receiver_ty != expected_self {
-                    if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
-                        self.ctx.node_types.insert(lhs.id, expected_self);
-                    }
+        // 提取调用参数、返回值和可变参数标志
+        let (params, ret, is_variadic) = match sig_kind {
+            // A. 普通函数
+            TypeKind::Function { params, ret, is_variadic } => (params, ret, is_variadic),
+            
+            // B. 闭包胖指针 (*Fn)
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let inner_norm = self.ctx.type_registry.normalize(elem);
+                if let TypeKind::ClosureInterface { params, ret } = self.ctx.type_registry.get(inner_norm).clone() {
+                    (params, ret, false) // 闭包不支持可变参数
+                } else {
+                    let callee_str = self.ctx.ty_to_string(callee_ty);
+                    self.ctx.struct_error(callee.span, "expression is not callable")
+                        .with_hint(format!("type is `{}`", callee_str))
+                        .emit();
+                    return TypeId::ERROR;
                 }
             }
+            
+            // C. 其它类型一律不准调用
+            _ => {
+                let callee_str = self.ctx.ty_to_string(callee_ty);
+                self.ctx.struct_error(callee.span, "expression is not callable")
+                    .with_hint(format!("type is `{}`", callee_str))
+                    .emit();
+                return TypeId::ERROR;
+            }
+        };
 
-            self.check_call_arguments(args, &params, is_method, is_variadic);
-            return ret;
+        self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
+
+        if is_method && !params.is_empty() {
+            let expected_self = params[0];
+            self.check_method_receiver(expected_self, receiver_ty, callee.span);
+            if receiver_ty != expected_self {
+                if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
+                    self.ctx.node_types.insert(lhs.id, expected_self);
+                }
+            }
         }
 
-        let callee_str = self.ctx.ty_to_string(callee_ty);
-        self.ctx
-            .struct_error(callee.span, "expression is not callable")
-            .with_hint(format!("type is `{}`", callee_str))
-            .emit();
-        TypeId::ERROR
+        self.check_call_arguments(args, &params, is_method, is_variadic);
+        return ret;
     }
 
     /// 助手：智能泛型推导与签名解析
@@ -521,76 +538,120 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn check_lambda(
+    pub(crate) fn check_closure(
         &mut self,
+        node_id: kernc_utils::NodeId,
+        captures: &[ast::CapturePattern],
         params: &[ast::FuncParam],
-        ret_type_node: &ast::TypeNode,
-        body: &Expr,
+        ast_ret_ty: &ast::TypeNode,
+        body: &ast::Expr,
+        span: Span,
     ) -> TypeId {
-        // 1. 解析参数类型和显式返回类型
-        let (param_tys, ret_ty) = {
-            let mut resolver = TypeResolver::new(self.ctx);
-            let current_scope = resolver.ctx.scopes.current_scope_id().unwrap();
+        // 推导所有的捕获表达式
+        let mut state_fields = Vec::new();
+        let mut capture_env = Vec::new();
 
-            let mut ptys = Vec::new();
-            for param in params {
-                ptys.push(resolver.resolve_type(&param.type_node, current_scope));
+        for cap in captures {
+            let cap_ty = self.check_expr(&cap.value, None);
+            state_fields.push(cap_ty);
+            capture_env.push((cap.name, cap_ty, cap.span));
+        }
+        
+        let current_scope = match self.ctx.scopes.current_scope_id() {
+            Some(id) => id,
+            None => {
+                self.ctx.emit_ice(span, "Compiler Bug: Closure evaluated outside of any active scope");
+                crate::scope::ScopeId(0)
             }
-            let rty = resolver.resolve_type(ret_type_node, current_scope);
-            (ptys, rty)
         };
 
-        // 2. 注册该 Lambda 的物理类型
-        let func_ty = self.ctx.type_registry.intern(TypeKind::Function {
-            params: param_tys.clone(),
-            ret: ret_ty,
-            is_variadic: false, // 匿名函数绝对不可能是变长参数
+        // 在父作用域解析参数类型和返回类型 
+        // (类型签名必须在外部环境解析，因为可能会用到外部引入的别名)
+        let mut param_tys = Vec::new();
+        let mut type_resolver = TypeResolver::new(self.ctx);
+        for param in params {
+            let p_ty = type_resolver.resolve_type(&param.type_node, current_scope);
+            param_tys.push(p_ty);
+        }
+        let expected_ret = type_resolver.resolve_type(ast_ret_ty, current_scope);
+        
+        drop(type_resolver);
+
+        let closure_state_ty = self.ctx.type_registry.intern(TypeKind::AnonymousState { 
+            closure_node_id: node_id,
+            captures: state_fields, 
+            params: param_tys.clone(), 
+            ret: expected_ret 
         });
 
-        // 3. 准备进入 Lambda 内部作用域
-        self.ctx.scopes.enter_scope();
+        // 进入闭包内部的作用域
+        let _ = self.ctx.scopes.enter_scope();
 
-        // 注入参数到局部作用域
-        for (i, param) in params.iter().enumerate() {
+        // 将捕获值注入闭包作用域 (Pure Value Semantics，强制不可变)
+        for (name, ty, cap_span) in capture_env {
             let info = SymbolInfo {
                 kind: SymbolKind::Var,
-                node_id: self.ctx.next_node_id(),
+                node_id, // 捕获环境暂时借用闭包表达式的 ID
+                type_id: ty,
+                def_id: None,
+                span: cap_span,
+                is_pub: false,
+                is_mut: false,
+            };
+            let _ = self.ctx.scopes.define(name, info);
+        }
+
+        // 注入闭包参数
+        for (i, param) in params.iter().enumerate() {
+            let param_node_id = self.ctx.next_node_id(); 
+            let info = SymbolInfo {
+                kind: SymbolKind::Var,
+                node_id: param_node_id,
                 type_id: param_tys[i],
                 def_id: None,
                 span: param.span,
                 is_pub: false,
-                is_mut: param.pattern.is_mut,
+                is_mut: param.pattern.is_mut, 
             };
             let _ = self.ctx.scopes.define(param.pattern.name, info);
         }
 
-        // 保存外部函数的返回上下文，防止内部 return 污染外部
-        let prev_return_type = self.current_return_type;
-        let prev_has_returned = self.has_returned;
+        // 推导函数体
+        let (actual_ret_ty, has_returned) = {
+            let mut sub_checker = ExprChecker::new(self.ctx, Some(expected_ret));
+            let ty = sub_checker.check_expr(body, Some(expected_ret));
+            (ty, sub_checker.has_returned)
+        };
 
-        // 设置当前 Lambda 的返回期望
-        self.current_return_type = Some(ret_ty);
-        self.has_returned = false;
-
-        // 4. 对 Lambda 内部的代码块进行类型检查
-        let body_ty = self.check_expr(body, Some(ret_ty));
-
-        // 如果内部没有调用过显式的 return，才需要强制约束 Block 的尾表达式类型；
-        // 如果内部已经 return 过了，Block 自身的 void 类型就不必与 ret_ty 强制匹配了。
-        if !self.has_returned {
-            self.check_coercion(body.span, ret_ty, body_ty);
-        } else if body_ty != TypeId::VOID && body_ty != TypeId::ERROR {
-            // 如果既有 return，又有隐式的尾表达式，校验一下尾表达式
-            self.check_coercion(body.span, ret_ty, body_ty);
+        // 类型兼容性校验
+        if actual_ret_ty != TypeId::ERROR && expected_ret != TypeId::ERROR && actual_ret_ty != TypeId::NEVER {
+            let norm_actual = self.ctx.type_registry.normalize(actual_ret_ty);
+            let norm_expected = self.ctx.type_registry.normalize(expected_ret);
+            
+            // 如果实际返回是 VOID，但预期不是 VOID，说明缺少了尾随表达式
+            let is_missing_tail = norm_actual == TypeId::VOID && norm_expected != TypeId::VOID;
+            
+            // 如果缺少尾随表达式，但函数内部有合法的 `return` 语句，暂时放行
+            if is_missing_tail && has_returned {
+                // Safe: 至少有一条路径合法返回了
+            } else if norm_actual != norm_expected {
+                let expected_str = self.ctx.ty_to_string(expected_ret);
+                let actual_str = self.ctx.ty_to_string(actual_ret_ty);
+                
+                self.ctx.struct_error(
+                    body.span, 
+                    format!("closure body evaluates to `{}`, but signature expects `{}`", actual_str, expected_str)
+                )
+                .with_hint("ensure the final expression or return statements match the explicit return type")
+                .emit();
+            }
         }
 
-        // 恢复外部上下文
-        self.current_return_type = prev_return_type;
-        self.has_returned = prev_has_returned;
-
+        // 9. 退出作用域并记录
         self.ctx.scopes.exit_scope();
-
-        func_ty
+        self.ctx.node_types.insert(node_id, closure_state_ty);
+        
+        closure_state_ty
     }
 
     /// 专门校验 @asm(.{ ... }) 结构

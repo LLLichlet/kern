@@ -89,29 +89,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let exp_norm = self.resolve_tv(expected);
         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
 
-        // 拦截 Trait Object 构造（*Trait.{ ... } 或 *mut Trait.{ ... }）
-        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
-            kind_enum
-        {
+        // 拦截胖指针构造（Trait Object 和 Closure Object）
+        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } = kind_enum {
             let elem_norm = self.resolve_tv(elem);
-            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(elem_norm) {
-                if let ast::DataLiteralKind::Scalar(inner) = kind {
-                    // 进入胖指针构造器
-                    return self.check_trait_object_init(inner, expected, elem_norm, is_mut, span);
-                } else {
-                    self.ctx
-                        .struct_error(
-                            span,
-                            "trait objects must be initialized with a single pointer",
-                        )
-                        .with_hint("example: `*mut Reader.{ file_ptr }`")
-                        .emit();
-                    return TypeId::ERROR;
+            let target_inner_kind = self.ctx.type_registry.get(elem_norm).clone();
+            // 提取唯一参数
+            let inner_expr_opt: Option<&Expr> = match kind {
+                ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
+                ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => Some(&fields[0].value),
+                _ => None,
+            };
+
+            match target_inner_kind {
+                TypeKind::TraitObject(..) => {
+                    if let Some(inner) = inner_expr_opt {
+                        return self.check_trait_object_init(inner, expected, elem_norm, is_mut, span);
+                    } else {
+                        self.ctx.struct_error(span, "trait objects must be initialized with a single pointer")
+                            .with_hint("example: `*mut Reader.{ file_ptr }`")
+                            .emit();
+                        return TypeId::ERROR;
+                    }
                 }
+                TypeKind::ClosureInterface { .. } => {
+                    if let Some(inner) = inner_expr_opt {
+                        return self.check_closure_object_init(inner, expected, elem_norm, is_mut, span);
+                    } else {
+                        self.ctx.struct_error(span, "invalid closure fat pointer construction")
+                            .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }` or `*Fn(...).{ raw_pointer }`")
+                            .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
+                            .emit();
+                        return TypeId::ERROR;
+                    }
+                }
+                _ => {} // 如果只是普通指针 (比如 *i32)，则放行往下走普通的结构体/数组检查
             }
         }
 
-        // 🌟 统一识别 Enum 类型
+        // 统一识别 Enum 类型
         let is_data = matches!(kind_enum, TypeKind::Enum(..));
 
         match kind {
@@ -142,16 +157,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ast::DataLiteralKind::Scalar(inner) => {
                 if is_data {
-                    // 如果是 `.{ None }` 形式，直接提取出变体名，复用简写逻辑！
                     if let ExprKind::Identifier(variant_name) = &inner.kind {
                         self.check_enum_literal(*variant_name, Some(expected), inner.span)
                     } else {
-                        self.ctx
-                            .struct_error(
-                                inner.span,
-                                "expected a simple variant name for data literal",
-                            )
-                            .emit();
+                        self.ctx.struct_error(inner.span, "expected a simple variant name for data literal").emit();
                         TypeId::ERROR
                     }
                 } else {
@@ -634,5 +643,74 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 4. 返回构造好的胖指针类型
         expected_ptr_ty
+    }
+
+    pub(crate) fn check_closure_object_init(
+        &mut self,
+        inner: &Expr,
+        expected_ptr_ty: TypeId,
+        closure_interface_norm: TypeId,
+        is_mut_expected: bool,
+        span: Span,
+    ) -> TypeId {
+        let inner_ty = self.check_expr(inner, None);
+        if inner_ty == TypeId::ERROR {
+            return TypeId::ERROR;
+        }
+
+        let inner_ty_id = self.resolve_tv(inner_ty);
+
+        let is_inner_ptr_mut = match self.ctx.type_registry.get(inner_ty_id) {
+            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
+            _ => {
+                self.ctx.struct_error(inner.span, "closure objects can only be constructed from pointers")
+                    .emit();
+                return TypeId::ERROR;
+            }
+        };
+
+        if is_mut_expected && !is_inner_ptr_mut {
+            self.ctx.struct_error(inner.span, "cannot create a mutable closure object from an immutable pointer")
+                .emit();
+            return TypeId::ERROR;
+        }
+
+        let interface_kind = self.ctx.type_registry.get(closure_interface_norm).clone(); 
+        let (interface_params, interface_ret) = match interface_kind {
+            TypeKind::ClosureInterface { params, ret } => (params, ret),
+            _ => unreachable!(),
+        };
+
+        let inner_elem_ty = self.ctx.type_registry.get_elem_type(inner_ty_id).unwrap_or(TypeId::ERROR);
+        let inner_elem_ty_id = self.resolve_tv(inner_elem_ty);
+        let inner_elem_norm = self.ctx.type_registry.normalize(inner_elem_ty_id);
+        let inner_kind = self.ctx.type_registry.get(inner_elem_norm).clone();
+
+        match inner_kind {
+            TypeKind::AnonymousState { params: state_params, ret: state_ret, .. } => {
+                if interface_params.len() != state_params.len() {
+                    self.ctx.struct_error(span, "closure signature mismatch: incorrect number of parameters").emit();
+                    return TypeId::ERROR;
+                }
+                for (exp_p, act_p) in interface_params.iter().zip(state_params.iter()) {
+                    if self.resolve_tv(*exp_p) != self.resolve_tv(*act_p) {
+                        self.ctx.struct_error(span, "closure parameter mismatch").emit();
+                        return TypeId::ERROR;
+                    }
+                }
+                if self.resolve_tv(interface_ret) != self.resolve_tv(state_ret) {
+                    self.ctx.struct_error(span, "closure return type mismatch").emit();
+                    return TypeId::ERROR;
+                }
+                return expected_ptr_ty;
+            }
+            _ => {
+                let actual_ty_str = self.ctx.ty_to_string(inner_elem_norm);
+                self.ctx.struct_error(inner.span, "expected a closure anonymous state pointer")
+                    .with_hint(format!("found pointer to `{}`", actual_ty_str))
+                    .emit();
+                return TypeId::ERROR;
+            }
+        }
     }
 }

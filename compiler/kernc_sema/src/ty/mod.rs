@@ -7,7 +7,7 @@ pub use layout::LayoutEngine;
 pub use registry::TypeRegistry;
 
 use crate::def::DefId;
-use kernc_utils::SymbolId;
+use kernc_utils::{SymbolId, NodeId};
 
 /// 类型的唯一 ID (轻量级 Handle)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -91,6 +91,20 @@ pub enum TypeKind {
     /// 特征对象 (Trait Object)
     /// 内存布局：胖指针 { data_ptr: *mut void, vtable: *mut VTable }
     TraitObject(DefId, Vec<TypeId>),
+
+    /// 闭包动态胖指针接口: Fn(Args) Ret
+    ClosureInterface {
+        params: Vec<TypeId>,
+        ret: TypeId,
+    },
+
+    /// 闭包内部捕获状态的物理结构
+    AnonymousState {
+        closure_node_id: NodeId,
+        captures: Vec<TypeId>,
+        params: Vec<TypeId>,
+        ret: TypeId,
+    },
 
     /// 类型别名: type A = B;
     /// 记录了 "A" 这个名字，以及它指向的 "B"

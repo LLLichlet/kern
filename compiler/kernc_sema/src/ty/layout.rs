@@ -40,6 +40,17 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
                 self.compute_def_align(def_id, &generic_args, depth)
             }
+            TypeKind::AnonymousState { captures, .. } => {
+                let mut max_align = 1;
+                for cap_ty in captures {
+                    let align = self.compute_type_align_inner(cap_ty, depth + 1);
+                    if align > max_align {
+                        max_align = align;
+                    }
+                }
+                max_align
+            }
+            TypeKind::ClosureInterface { .. } => 1,
             TypeKind::Primitive(PrimitiveType::Never) | TypeKind::Error => 1,
             TypeKind::Primitive(p) => self.primitive_align(p),
 
@@ -78,6 +89,25 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
                 self.compute_def_size(def_id, &generic_args, depth)
             }
+            TypeKind::AnonymousState { captures, .. } => {
+                let mut offset = 0;
+                let mut max_align = 1;
+
+                for cap_ty in captures {
+                    let f_align = self.compute_type_align_inner(cap_ty, depth + 1);
+                    let f_size = self.compute_type_size_inner(cap_ty, depth + 1);
+
+                    if f_align > max_align {
+                        max_align = f_align;
+                    }
+                    // 将当前偏移量对齐到该字段的要求
+                    offset = Self::align_to(offset, f_align);
+                    offset += f_size;
+                }
+                // 最后将结构体的总大小对齐到最大对齐要求 (Tail Padding)
+                Self::align_to(offset, max_align)
+            }
+            TypeKind::ClosureInterface { .. } => 0,
             TypeKind::Error | TypeKind::Primitive(PrimitiveType::Never) => 0,
             TypeKind::Primitive(p) => self.primitive_size(p),
 

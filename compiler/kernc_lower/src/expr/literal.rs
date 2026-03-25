@@ -89,6 +89,82 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExprKind {
         let norm = self.ctx.type_registry.get(concrete_ty).clone();
 
+        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = norm {
+            let inner_norm = self.ctx.type_registry.normalize(elem);
+            if matches!(self.ctx.type_registry.get(inner_norm), TypeKind::ClosureInterface { .. }) {
+        
+            let raw_expr_opt = match literal {
+                ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
+                ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => Some(&fields[0].value),
+                _ => None,
+            };
+
+            // 只有提取成功，才进入降级生成流程
+            if let Some(raw_expr) = raw_expr_opt {
+                let raw_mast = self.lower_expr(raw_expr, subst_map, None);
+                
+                // 从 raw_mast 的类型中解析出底层 AnonymousState，提取出 NodeId
+                let raw_norm = self.ctx.type_registry.normalize(raw_mast.ty);
+                if let TypeKind::Pointer { elem: raw_elem, .. } | TypeKind::VolatilePtr { elem: raw_elem, .. } = self.ctx.type_registry.get(raw_norm).clone() {
+                    let raw_inner_norm = self.ctx.type_registry.normalize(raw_elem);
+                    
+                    if let TypeKind::AnonymousState { closure_node_id, .. } = self.ctx.type_registry.get(raw_inner_norm) {
+                        
+                        // 查表获取对应的函数 MonoId (代码指针)
+                        let func_mono_id = match self.closure_fn_map.get(closure_node_id) {
+                            Some(&id) => id,
+                            None => {
+                                self.ctx.emit_ice(span, "Kern ICE (Lowering): Failed to find lowered closure function for explicit fat pointer construction.");
+                                unreachable!()
+                            }
+                        };
+                        
+                        // 完美生成！组装胖指针！
+                        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                            is_mut: false,
+                            elem: TypeId::VOID,
+                        });
+                        
+                        let data_ptr_cast = MastExpr::new(
+                            void_ptr_ty,
+                            MastExprKind::Cast {
+                                kind: MastCastKind::Bitcast,
+                                operand: Box::new(raw_mast),
+                            },
+                            span,
+                        );
+                        
+                        let func_ref = MastExpr::new(
+                            TypeId::VOID,
+                            MastExprKind::FuncRef(func_mono_id),
+                            span,
+                        );
+                        let code_ptr_cast = MastExpr::new(
+                            TypeId::USIZE,
+                            MastExprKind::Cast {
+                                kind: MastCastKind::PtrToInt,
+                                operand: Box::new(func_ref),
+                            },
+                            span,
+                        );
+                        
+                        return MastExprKind::ConstructFatPointer {
+                            data_ptr: Box::new(data_ptr_cast),
+                            meta: Box::new(code_ptr_cast),
+                        };
+                    }
+                }
+            }
+            
+            // 如果提取失败，再抛出错误
+            self.ctx.struct_error(span, "invalid closure fat pointer construction")
+                .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }`")
+                .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
+                .emit();
+            return MastExprKind::Undef;
+        }
+        }
+
         match literal {
             ast::DataLiteralKind::Struct(fields) => {
                 self.lower_struct_union_data_init(fields, subst_map, concrete_ty)

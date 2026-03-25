@@ -120,6 +120,22 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 format!("module `{}`", name)
             }
 
+            TypeKind::ClosureInterface { params, ret } => {
+                let param_strs: Vec<String> = params.iter().map(|p| self.format(*p)).collect();
+                format!("Fn({}) {}", param_strs.join(", "), self.format(*ret))
+            }
+
+            TypeKind::AnonymousState { captures, params, ret, .. } => {
+                let cap_strs: Vec<String> = captures.iter().map(|c| self.format(*c)).collect();
+                let param_strs: Vec<String> = params.iter().map(|p| self.format(*p)).collect();
+                format!(
+                    "[closure_state captures:({}) params:({}) -> {}]",
+                    cap_strs.join(", "),
+                    param_strs.join(", "),
+                    self.format(*ret)
+                )
+            }
+
             TypeKind::Error => "{error}".to_string(),
         }
     }

@@ -223,13 +223,14 @@ impl<'a> Parser<'a> {
                 self.parse_typed_data_init_prefix(token)
             }
 
-            TokenType::Fn => self.parse_lambda_expr(span),
-
             TokenType::Underscore => Ok(Expr {
                 id: self.new_id(),
                 span,
                 kind: ExprKind::Infer,
             }),
+
+            // Closure
+            TokenType::DotLBracket => self.parse_closure_expr(span),
 
             _ => {
                 let text = self.session.source_manager.slice_source(span).to_string();
@@ -611,24 +612,49 @@ impl<'a> Parser<'a> {
         self.parse_data_init(Some(Box::new(type_node)), span)
     }
 
-    fn parse_lambda_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
-        // `fn` 关键字在 parse_prefix 中已经被消费了，此时 start_span 就是 `fn` 的 span
+    fn parse_closure_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
+        // 1. 解析捕获列表 `a, ptr = counter..&`
+        let mut captures = Vec::new();
+        if !self.check(TokenType::RBracket) {
+            loop {
+                let name_tok = self.expect(TokenType::Identifier)?;
+                let name = self.intern_token(name_tok);
+                
+                // 解析显式绑定 (=) 或省略简写
+                let value = if self.match_token(&[TokenType::Assign]) {
+                    self.parse_expression(Precedence::Lowest)?
+                } else {
+                    // Elided shorthand: 只有名字时，它就是捕获自身
+                    Expr {
+                        id: self.new_id(),
+                        span: name_tok.span,
+                        kind: ExprKind::Identifier(name),
+                    }
+                };
+                
+                captures.push(CapturePattern {
+                    name,
+                    value,
+                    span: name_tok.span.to(self.stream.prev_span()),
+                });
+                
+                if !self.match_token(&[TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenType::RBracket)?;
 
-        // 1. 解析参数列表 (复用现有的函数参数解析器)
+        // 2. 解析参数列表 (复用原有的 params 解析)
         let (params, is_variadic) = self.parse_func_params()?;
-
-        // 护城河：匿名函数作为一种明确的运行时闭包对象，不允许使用 C 风格的可变参数
         if is_variadic {
-            self.add_error(
-                start_span,
-                "Anonymous functions (lambdas) cannot be variadic".to_string(),
-            );
+            self.add_error(start_span, "Closures cannot use C-style variadic arguments".to_string());
         }
 
-        // 2. 解析显式的返回值类型
+        // 3. 解析闭包返回值类型
         let ret_type = self.parse_type()?;
 
-        // 3. 解析函数体 (强制要求是大括号 Block)
+        // 4. 解析闭包执行体
         let brace_token = self.expect(TokenType::LBrace)?;
         let body = self.parse_block_expr(brace_token.span)?;
 
@@ -637,7 +663,8 @@ impl<'a> Parser<'a> {
         Ok(Expr {
             id: self.new_id(),
             span: start_span.to(end_span),
-            kind: ExprKind::Lambda {
+            kind: ExprKind::Closure {
+                captures,
                 params,
                 ret_type: Box::new(ret_type),
                 body: Box::new(body),
@@ -809,7 +836,7 @@ impl<'a> Parser<'a> {
         type_node: Option<Box<TypeNode>>,
         start_span: Span,
     ) -> ParseResult<Expr> {
-        // 空数组兜底
+        // 空数组/空结构体兜底
         if self.check(TokenType::RBrace) {
             let rb = self.advance();
             return Ok(Expr {
@@ -817,12 +844,11 @@ impl<'a> Parser<'a> {
                 span: start_span.to(rb.span),
                 kind: ExprKind::DataInit {
                     type_node,
-                    literal: DataLiteralKind::Array(vec![]),
+                    literal: DataLiteralKind::Array(vec![]), // 空的统一先视为 Array，Sema 会根据 Context 调整
                 },
             });
         }
 
-        // 1. 判断是否是 Struct 模式 (包含 field: value)
         let mut is_struct_mode = false;
         if self.check(TokenType::Identifier) {
             if self.stream.peek_nth(1).tag == TokenType::Colon {
@@ -835,13 +861,25 @@ impl<'a> Parser<'a> {
             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
                 let name = self.expect(TokenType::Identifier)?;
                 let name_id = self.intern_token(name);
-                self.expect(TokenType::Colon)?;
+                
+                if let Err(_) = self.expect(TokenType::Colon) {
+                    let name_str = self.session.resolve(name_id).to_string();
+                    
+                    self.session.struct_error(name.span, "explicit field names are required in struct/union initialization")
+                        .with_hint(format!("Kern does not support elided fields. Write `{name_str}: {name_str}` instead."))
+                        .emit();
+                        
+                    return Err(());
+                }
+                
                 let val = self.parse_expression(Precedence::Lowest)?;
+                
                 fields.push(StructFieldInit {
                     name: name_id,
                     value: val,
                     span: name.span,
                 });
+                
                 if !self.match_token(&[TokenType::Comma]) {
                     break;
                 }

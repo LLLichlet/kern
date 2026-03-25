@@ -579,6 +579,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let callee_mast = self.lower_expr(callee, subst_map, None);
+        let norm_callee = self.ctx.type_registry.normalize(callee_mast.ty);
+
+        // 拦截并处理闭包胖指针的动态调用
+        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
+            self.ctx.type_registry.get(norm_callee).clone()
+        {
+            let inner_norm = self.ctx.type_registry.normalize(elem);
+            if matches!(
+                self.ctx.type_registry.get(inner_norm),
+                TypeKind::ClosureInterface { .. }
+            ) {
+                return self.lower_closure_call(callee_mast, arg_masts, inner_norm, callee.span);
+            }
+        }
+
         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
         {
             // 拦截内置函数 (Intrinsic)
@@ -727,6 +742,72 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
             _ => Vec::new(),
+        }
+    }
+
+    pub(crate) fn lower_closure_call(
+        &mut self,
+        callee_mast: MastExpr,
+        mut arg_masts: Vec<MastExpr>,
+        closure_interface_ty: TypeId,
+        span: Span,
+    ) -> MastExprKind {
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
+
+        // 1. 提取 data_ptr，强行插入为 arg[0]
+        let data_ptr = MastExpr::new(
+            void_ptr_ty,
+            MastExprKind::ExtractFatPtrData(Box::new(callee_mast.clone())),
+            span,
+        );
+        arg_masts.insert(0, data_ptr);
+
+        // 2. 提取 meta_ptr (code_ptr)
+        let code_ptr = MastExpr::new(
+            TypeId::USIZE,
+            MastExprKind::ExtractFatPtrMeta(Box::new(callee_mast.clone())),
+            span,
+        );
+
+        // 3. 构建确切的底层函数签名，并将 USIZE 代码指针 IntToPtr 转换过去
+        let (params, ret) = if let TypeKind::ClosureInterface { params, ret } =
+            self.ctx.type_registry.get(closure_interface_ty).clone()
+        {
+            (params, ret)
+        } else {
+            let actual_ty_str = self.ctx.ty_to_string(closure_interface_ty);
+            self.ctx.emit_ice(
+                span,
+                format!("Kern ICE (Lowering): Expected `ClosureInterface`, found `{}`.", actual_ty_str),
+            );
+            unreachable!()
+        };
+
+        let mut patched_params = params.clone();
+        patched_params.insert(0, void_ptr_ty); // 补上对应的 env 参数
+
+        let patched_fn_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: patched_params,
+            ret,
+            is_variadic: false,
+        });
+
+        let typed_code_ptr = MastExpr::new(
+            patched_fn_ty,
+            MastExprKind::Cast {
+                kind: MastCastKind::IntToPtr,
+                operand: Box::new(code_ptr),
+            },
+            span,
+        );
+
+        // 4. 间接调用函数指针
+        MastExprKind::Call {
+            callee: Box::new(typed_code_ptr),
+            args: arg_masts,
         }
     }
 }

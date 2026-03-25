@@ -5,7 +5,7 @@ use kernc_mast::*;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, EnumDef};
 use kernc_sema::ty::TypeId;
-use kernc_utils::SymbolId;
+use kernc_utils::{SymbolId, NodeId};
 
 pub(crate) mod expr;
 pub(crate) mod mono;
@@ -25,6 +25,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) local_statics: Vec<HashMap<SymbolId, MonoId>>,
     pub(crate) loop_frames: Vec<usize>,
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
+    pub(crate) closure_fn_map: HashMap<NodeId, MonoId>,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -47,6 +48,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             local_statics: Vec::new(),
             loop_frames: Vec::new(),
             adt_union_map: HashMap::new(),
+            closure_fn_map: HashMap::new(),
         }
     }
 

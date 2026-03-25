@@ -153,9 +153,10 @@ pub enum ExprKind {
     /// 代表 `self`
     SelfValue,
 
-    /// 无状态匿名函数 (Lambda)
-    /// 语法: `fn(a: i32, b: i32) bool { return a < b; }`
-    Lambda {
+    /// 闭包表达式
+    /// 语法: `[a, ptr = b..&](x: i32) bool { return x > a; }`
+    Closure {
+        captures: Vec<CapturePattern>,
         params: Vec<FuncParam>,
         ret_type: Box<TypeNode>,
         body: Box<Expr>, // 必定是一个 Block 表达式
@@ -180,6 +181,15 @@ pub enum DataLiteralKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructFieldInit {
     pub name: SymbolId,
+    pub value: Expr,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CapturePattern {
+    /// 闭包内部绑定的局部名字
+    pub name: SymbolId,
+    /// 捕获目标的值表达式 (例如 `counter..&` 或省略简写时的自身变量引用)
     pub value: Expr,
     pub span: Span,
 }

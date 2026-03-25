@@ -117,7 +117,7 @@ impl<'a> Pruner<'a> {
                 }
                 self.prune_expr(body);
             }
-            ExprKind::Lambda { body, .. } => self.prune_expr(body),
+            ExprKind::Closure { body, .. } => self.prune_expr(body),
             ExprKind::Let { init, .. } | ExprKind::Static { init, .. } => self.prune_expr(init),
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
                 self.prune_expr(lhs);

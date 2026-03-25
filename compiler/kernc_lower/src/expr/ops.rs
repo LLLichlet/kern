@@ -102,11 +102,31 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let op_mast = self.lower_expr(operand, subst_map, None);
+        
         match op {
             ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf => {
                 MastExprKind::AddressOf(Box::new(op_mast))
             }
             ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
+            ast::UnaryOperator::LengthOf => {
+                let op_norm = self.ctx.type_registry.normalize(op_mast.ty);
+                let op_kind = self.ctx.type_registry.get(op_norm).clone();
+                
+                // 如果操作数是闭包胖指针，则降级为 ExtractFatPtrData (提取 data_ptr)
+                if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = op_kind {
+                    let elem_norm = self.ctx.type_registry.normalize(elem);
+                    if self.ctx.type_registry.is_closure_interface(elem_norm) {
+                        return MastExprKind::ExtractFatPtrData(Box::new(op_mast));
+                    }
+                }
+                
+                // 否则，它是传统的数组/切片
+                MastExprKind::Unary {
+                    op,
+                    operand: Box::new(op_mast),
+                }
+            }
+            
             _ => MastExprKind::Unary {
                 op,
                 operand: Box::new(op_mast),

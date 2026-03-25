@@ -152,11 +152,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 expr.span,
             ),
             ExprKind::Match { target, arms } => self.lower_match(target, arms, subst_map, exp_ty),
-            ExprKind::Lambda {
+            ExprKind::Closure {
+                captures,
                 params,
                 ret_type: _,
                 body,
-            } => self.lower_lambda_expr(params, body, concrete_ty, subst_map),
+            } => self.lower_closure_expr(
+                expr.id,
+                captures,
+                params,
+                body,
+                concrete_ty,
+                subst_map,
+                exp_ty,
+            ),
             ExprKind::Block { .. } => {
                 MastExprKind::Block(self.lower_block_as_body(expr, subst_map, exp_ty))
             }

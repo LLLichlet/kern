@@ -109,6 +109,26 @@ impl<'a> Substituter<'a> {
                 self.registry
                     .intern(TypeKind::TraitObject(def_id, new_args))
             }
+            TypeKind::ClosureInterface { params, ret } => {
+                let new_params = params.into_iter().map(|p| self.substitute(p)).collect();
+                let new_ret = self.substitute(ret);
+                self.registry.intern(TypeKind::ClosureInterface {
+                    params: new_params,
+                    ret: new_ret,
+                })
+            }
+
+            TypeKind::AnonymousState { closure_node_id, captures, params, ret } => {
+                let new_caps = captures.into_iter().map(|c| self.substitute(c)).collect();
+                let new_params = params.into_iter().map(|p| self.substitute(p)).collect();
+                let new_ret = self.substitute(ret);
+                self.registry.intern(TypeKind::AnonymousState {
+                    closure_node_id,
+                    captures: new_caps,
+                    params: new_params,
+                    ret: new_ret,
+                })
+            }
         }
     }
 }

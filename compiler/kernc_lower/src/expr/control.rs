@@ -7,7 +7,7 @@ use kernc_sema::checker::ConstEvaluator;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::Def;
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{Span, SymbolId, NodeId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_block_as_body(
@@ -91,32 +91,76 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } // 将 defers 独立传递给后端
     }
 
-    pub(crate) fn lower_lambda_expr(
+    pub(crate) fn lower_closure_expr(
         &mut self,
+        node_id: NodeId,
+        captures: &[ast::CapturePattern],
         params: &[ast::FuncParam],
         body: &Expr,
-        concrete_ty: TypeId,
+        concrete_ty: TypeId, // AnonymousState
         subst_map: &HashMap<SymbolId, TypeId>,
+        exp_ty: TypeId, // 上下文期望的类型
     ) -> MastExprKind {
-        let mono_id = self.new_mono_id();
+        let struct_id = self.new_mono_id();
+        let func_id = self.new_mono_id();
+        self.closure_fn_map.insert(node_id, func_id);
 
-        // 1. 生成独一无二的内部函数名，直接映射到 C ABI
-        let lambda_name = format!("__kern_lambda_{}", mono_id.0);
+        // 0. ================= 嗅探 Decay (退化) 上下文 =================
+        let norm_exp = self.ctx.type_registry.normalize(exp_ty);
+        let is_decay = captures.is_empty() && matches!(
+            self.ctx.type_registry.get(norm_exp).clone(),
+            TypeKind::Function { .. } | TypeKind::FnDef(..)
+        );
 
-        // 2. 从 TypeId 提取确切的签名
-        let (param_tys, ret_ty) = if let TypeKind::Function { params, ret, .. } =
-            self.ctx.type_registry.get(concrete_ty)
+        // 1. ================= 构建捕获状态结构体 =================
+        let mut env_struct_fields = Vec::new();
+        let mut cap_exprs = Vec::new();
+
+        for cap in captures {
+            let cap_mast = self.lower_expr(&cap.value, subst_map, None);
+            env_struct_fields.push(MastField {
+                name: cap.name,
+                ty: cap_mast.ty,
+            });
+            cap_exprs.push(cap_mast);
+        }
+
+        self.module.structs.push(MastStruct {
+            id: struct_id,
+            name: format!("__closure_state_{}", struct_id.0),
+            fields: env_struct_fields.clone(),
+            is_extern: false,
+            is_union: false,
+            largest_field_idx: 0,
+            attributes: vec![],
+        });
+
+        // 2. ================= 构建闭包执行函数 =================
+        let env_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: concrete_ty,
+        });
+
+        let mut mast_params = Vec::new();
+        let env_sym = self.ctx.intern("__env");
+        
+        // 如果是 Decay 退化为 C ABI 静态函数，不生成隐藏的上下文指针
+        if !is_decay {
+            mast_params.push(MastParam {
+                name: env_sym,
+                ty: env_ptr_ty,
+                is_mut: false,
+            });
+        }
+
+        let (param_tys, ret_ty) = if let TypeKind::AnonymousState { params: p, ret: r, .. } =
+            self.ctx.type_registry.get(concrete_ty).clone()
         {
-            (params.clone(), *ret)
+            (p, r)
         } else {
-            self.ctx.emit_ice(
-                body.span,
-                "Kern ICE (Lowering): Lambda expression does not have a Function type.",
-            );
             unreachable!()
         };
 
-        let mut mast_params = Vec::new();
         for (i, p) in params.iter().enumerate() {
             mast_params.push(MastParam {
                 name: p.pattern.name,
@@ -125,53 +169,139 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
         }
 
-        // ==========================================
-        // 全面保护并清空外部上下文 (Context Isolation)
-        // ==========================================
         let saved_local_types = std::mem::take(&mut self.local_types);
         let saved_defer_stack = std::mem::take(&mut self.defer_stack);
         let saved_loop_frames = std::mem::take(&mut self.loop_frames);
         let saved_local_statics = std::mem::take(&mut self.local_statics);
 
-        // 为 Lambda 开启自己独有的局部作用域
         self.local_types.push(HashMap::new());
         for p in &mast_params {
-            self.local_types
-                .last_mut()
-                .unwrap()
-                .insert(p.name, (p.ty, p.is_mut));
+            self.local_types.last_mut().unwrap().insert(p.name, (p.ty, p.is_mut));
         }
 
-        // 3. 降级 Lambda 的函数体 (Block)
-        let body_block = self.lower_block_as_body(body, subst_map, ret_ty);
+        // 还原捕获的值 (只有在非退化时才需要)
+        let mut injected_stmts = Vec::new();
+        if !is_decay {
+            let env_var_expr = MastExpr::new(env_ptr_ty, MastExprKind::Var(env_sym), Span::default());
+
+            for (i, cap) in captures.iter().enumerate() {
+                let deref_env = MastExpr::new(
+                    concrete_ty,
+                    MastExprKind::Deref(Box::new(env_var_expr.clone())),
+                    Span::default(),
+                );
+                let field_access = MastExpr::new(
+                    env_struct_fields[i].ty,
+                    MastExprKind::FieldAccess {
+                        lhs: Box::new(deref_env),
+                        struct_id,
+                        field_idx: i,
+                    },
+                    Span::default(),
+                );
+
+                injected_stmts.push(MastStmt::Let {
+                    name: cap.name,
+                    ty: env_struct_fields[i].ty,
+                    is_mut: false, 
+                    init: field_access,
+                });
+                self.local_types.last_mut().unwrap().insert(cap.name, (env_struct_fields[i].ty, false));
+            }
+        }
+
+        let mut body_block = self.lower_block_as_body(body, subst_map, ret_ty);
+        injected_stmts.append(&mut body_block.stmts);
+        body_block.stmts = injected_stmts;
 
         self.local_types.pop();
 
-        // ==========================================
-        // 恢复外部的作用域
-        // ==========================================
         self.local_types = saved_local_types;
         self.defer_stack = saved_defer_stack;
         self.loop_frames = saved_loop_frames;
         self.local_statics = saved_local_statics;
 
-        // 4. 将提取出的逻辑打包成一个全局的 MastFunction
-        let mast_fn = MastFunction {
-            id: mono_id,
-            name: lambda_name,
+        self.module.functions.push(MastFunction {
+            id: func_id,
+            name: format!("__closure_fn_{}", func_id.0),
             params: mast_params,
             ret_ty,
             body: Some(body_block),
             is_extern: false,
             is_variadic: false,
             attributes: vec![],
-        };
+        });
 
-        // 强势插入到模块的顶层函数列表中
-        self.module.functions.push(mast_fn);
+        // 3. ================= 组装当前位置的表达式 =================
+        let struct_init = MastExpr::new(
+            concrete_ty,
+            MastExprKind::StructInit {
+                struct_id,
+                fields: cap_exprs,
+            },
+            Span::default(),
+        );
 
-        // 5. 在原地返回一个指向该新函数的指针引用
-        MastExprKind::FuncRef(mono_id)
+        // 4. ================= 处理 BNC 和 退化规则 =================
+        if is_decay {
+            // 直接返回生成的静态 C 函数指针
+            return MastExprKind::FuncRef(func_id);
+        }
+
+        match self.ctx.type_registry.get(norm_exp).clone() {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let inner_norm = self.ctx.type_registry.normalize(elem);
+                if matches!(
+                    self.ctx.type_registry.get(inner_norm),
+                    TypeKind::ClosureInterface { .. }
+                ) {
+                    let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem: TypeId::VOID,
+                    });
+
+                    let struct_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                        is_mut: false,
+                        elem: concrete_ty,
+                    });
+                    let data_ptr = MastExpr::new(
+                        struct_ptr_ty,
+                        MastExprKind::AddressOf(Box::new(struct_init.clone())),
+                        Span::default(),
+                    );
+                    let data_ptr_cast = MastExpr::new(
+                        void_ptr_ty,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::Bitcast,
+                            operand: Box::new(data_ptr),
+                        },
+                        Span::default(),
+                    );
+
+                    let func_ref = MastExpr::new(
+                        TypeId::VOID, 
+                        MastExprKind::FuncRef(func_id),
+                        Span::default(),
+                    );
+                    let code_ptr_cast = MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::PtrToInt,
+                            operand: Box::new(func_ref),
+                        },
+                        Span::default(),
+                    );
+
+                    return MastExprKind::ConstructFatPointer {
+                        data_ptr: Box::new(data_ptr_cast),
+                        meta: Box::new(code_ptr_cast),
+                    };
+                }
+            }
+            _ => {}
+        }
+
+        struct_init.kind
     }
 
     pub(crate) fn lower_if(

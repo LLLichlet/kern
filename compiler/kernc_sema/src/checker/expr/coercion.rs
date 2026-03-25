@@ -122,6 +122,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
+        // 4. 闭包退化规则
+        // 如果捕获列表严格为空，AnonymousState 可以直接退化为 C-ABI 函数指针 `fn(Args) Ret`
+        if let TypeKind::Function { params: ref e_params, ret: e_ret, is_variadic: false } = exp_kind {
+            if let TypeKind::AnonymousState { captures: ref a_caps, params: ref a_params, ret: a_ret, .. } = act_kind {
+                if a_caps.is_empty() && e_params.len() == a_params.len() {
+                    let mut map = HashMap::new();
+                    let mut ok = true;
+                    for (ep, ap) in e_params.iter().zip(a_params.iter()) {
+                        if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
+                    }
+                    if ok && self.unify(e_ret, a_ret, &mut map) {
+                        return true; 
+                    }
+                }
+            }
+        }
+
+        // 5. 闭包转换
+        // AnonymousState (传值) -> *mut Fn(Args) Ret 或 *Fn(Args) Ret
+        if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
+            let e_norm = self.resolve_tv(e_inner);
+            if let TypeKind::ClosureInterface { params: ref e_params, ret: e_ret } = self.ctx.type_registry.get(e_norm).clone() {
+                // 如果实际传入的是 AnonymousState 结构体
+                if let TypeKind::AnonymousState { params: ref a_params, ret: a_ret, .. } = act_kind {
+                    if e_params.len() == a_params.len() {
+                        let mut map = HashMap::new();
+                        let mut ok = true;
+                        for (ep, ap) in e_params.iter().zip(a_params.iter()) {
+                            if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
+                        }
+                        if ok && self.unify(e_ret, a_ret, &mut map) {
+                            return true; 
+                        }
+                    }
+                }
+            }
+        }
+
         self.emit_mismatch_error(span, expected, actual);
         false
     }
@@ -229,6 +267,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .iter()
                     .zip(c_args.iter())
                     .all(|(ga, ca)| self.unify(*ga, *ca, map))
+            }
+            (
+                TypeKind::ClosureInterface { params: gp, ret: gr },
+                TypeKind::ClosureInterface { params: cp, ret: cr },
+            ) => {
+                gp.len() == cp.len() 
+                    && gp.iter().zip(cp.iter()).all(|(g, c)| self.unify(*g, *c, map)) 
+                    && self.unify(gr, cr, map)
+            }
+
+            (
+                TypeKind::AnonymousState { captures: gc, params: gp, ret: gr, .. },
+                TypeKind::AnonymousState { captures: cc, params: cp, ret: cr, .. },
+            ) => {
+                gc.len() == cc.len() && gp.len() == cp.len()
+                    && gc.iter().zip(cc.iter()).all(|(g, c)| self.unify(*g, *c, map))
+                    && gp.iter().zip(cp.iter()).all(|(g, c)| self.unify(*g, *c, map))
+                    && self.unify(gr, cr, map)
             }
             _ => gen_norm == con_norm,
         }

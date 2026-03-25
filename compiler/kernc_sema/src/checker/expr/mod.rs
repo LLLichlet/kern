@@ -1,6 +1,7 @@
 use crate::context::SemaContext;
+use crate::passes::TypeResolver;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast::{Expr, ExprKind};
+use kernc_ast::{self as ast, Expr, ExprKind};
 
 mod access;
 mod call;
@@ -69,7 +70,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Assign { lhs, rhs, .. } => self.check_assign(lhs, rhs, expr.span),
 
             // === 5. 转换 ===
-            ExprKind::As { lhs, target } => self.check_as_expr(lhs, target),
+            ExprKind::As { lhs, target } => {
+                let actual_target_ty = self.evaluate_dynamic_typeof(target);
+                self.check_as_expr(lhs, actual_target_ty)
+            }
 
             // === 6. 内存访问 ===
             ExprKind::IndexAccess { lhs, index, is_mut } => {
@@ -94,16 +98,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // === 7. 函数/宏调用 ===
             ExprKind::Call { callee, args } => self.check_call(callee, args, expr.span),
             ExprKind::GenericInstantiation { target, types } => {
+                for ty_node in types {
+                    self.evaluate_dynamic_typeof(ty_node);
+                }
                 self.check_generic_instantiation(target, types, expr.span)
             }
-            ExprKind::Lambda {
+            ExprKind::Closure {
+                captures,
                 params,
                 ret_type,
                 body,
-            } => self.check_lambda(params, ret_type, body),
+            } => self.check_closure(expr.id, captures, params, ret_type, body, expr.span),
 
             // === 8. 复杂字面量 ===
             ExprKind::DataInit { type_node, literal } => {
+                if let Some(t_node) = type_node {
+                    self.evaluate_dynamic_typeof(t_node);
+                }
                 self.check_data_init_expr(type_node.as_deref(), literal, expected_ty, expr.span)
             }
             ExprKind::EnumLiteral(variant_name) => {
@@ -146,5 +157,58 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         self.ctx.node_types.insert(expr.id, ty);
         ty
+    }
+
+    /// 递归深度扫描 AST 类型节点，推导所有 @typeOf，并自下而上重组真实类型
+    pub(crate) fn evaluate_dynamic_typeof(&mut self, ty_node: &kernc_ast::TypeNode) -> TypeId {
+        let ty_id = match &ty_node.kind {
+            ast::TypeKind::TypeOf(inner_expr) => {
+                self.check_expr(inner_expr, None)
+            }
+            ast::TypeKind::Pointer { is_mut, elem } => {
+                let base = self.evaluate_dynamic_typeof(elem);
+                self.ctx.type_registry.intern(TypeKind::Pointer { is_mut: *is_mut, elem: base })
+            }
+            ast::TypeKind::VolatilePtr { is_mut, elem } => {
+                let base = self.evaluate_dynamic_typeof(elem);
+                self.ctx.type_registry.intern(TypeKind::VolatilePtr { is_mut: *is_mut, elem: base })
+            }
+            ast::TypeKind::Slice { is_mut, elem } => {
+                let base = self.evaluate_dynamic_typeof(elem);
+                self.ctx.type_registry.intern(TypeKind::Slice { is_mut: *is_mut, elem: base })
+            }
+            ast::TypeKind::ArrayInfer { is_mut, elem } => {
+                let base = self.evaluate_dynamic_typeof(elem);
+                self.ctx.type_registry.intern(TypeKind::ArrayInfer { is_mut: *is_mut, elem: base })
+            }
+            ast::TypeKind::Array { is_mut, elem, len } => {
+                let base = self.evaluate_dynamic_typeof(elem);
+                let length = crate::checker::ConstEvaluator::new(self.ctx).eval_usize(len).unwrap_or(0);
+                self.ctx.type_registry.intern(TypeKind::Array { is_mut: *is_mut, elem: base, len: length })
+            }
+            ast::TypeKind::ClosureInterface { params, ret } => {
+                let mut param_tys = Vec::new();
+                for p in params {
+                    param_tys.push(self.evaluate_dynamic_typeof(p));
+                }
+                let ret_ty = if let Some(r) = ret {
+                    self.evaluate_dynamic_typeof(r)
+                } else {
+                    TypeId::VOID
+                };
+                self.ctx.type_registry.intern(TypeKind::ClosureInterface { params: param_tys, ret: ret_ty })
+            }
+            // 普通的静态类型（如 Path, SelfType 等）内部不可能包含 @typeOf
+            // 直接借用 TypeResolver 的能力即可
+            _ => {
+                let mut resolver = TypeResolver::new(self.ctx);
+                let scope = resolver.ctx.scopes.current_scope_id().unwrap();
+                resolver.resolve_type(ty_node, scope)
+            }
+        };
+
+        // 强行覆盖缓存
+        self.ctx.node_types.insert(ty_node.id, ty_id);
+        ty_id
     }
 }

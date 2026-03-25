@@ -85,6 +85,15 @@ pub enum TypeKind {
 
     /// Never 类型 `!`，代表永远不会返回的控制流
     Never,
+
+    /// 编译期类型求值 `@typeOf(expr)`
+    TypeOf(Box<Expr>),
+
+    /// 闭包动态胖指针接口: `Fn(i32) bool`
+    ClosureInterface {
+        params: Vec<TypeNode>,
+        ret: Option<Box<TypeNode>>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]

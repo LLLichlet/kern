@@ -1,16 +1,11 @@
 use super::ExprChecker;
-use crate::passes::TypeResolver;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast::{self as ast, Expr};
+use kernc_ast::Expr;
 use kernc_utils::Span;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    pub(crate) fn check_as_expr(&mut self, lhs: &Expr, target: &ast::TypeNode) -> TypeId {
+    pub(crate) fn check_as_expr(&mut self, lhs: &Expr, target_ty: TypeId) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
-        let mut resolver = TypeResolver::new(self.ctx);
-        let scope = resolver.ctx.scopes.current_scope_id().unwrap();
-        let target_ty = resolver.resolve_type(target, scope);
-
         self.check_cast(lhs.span, lhs_ty, target_ty);
         target_ty
     }

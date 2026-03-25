@@ -203,13 +203,40 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             UnaryOperator::LengthOf => {
                 let norm = self.resolve_tv(op_ty);
-                match self.ctx.type_registry.get(norm) {
-                    TypeKind::Array { .. } | TypeKind::Slice { .. } => TypeId::USIZE,
+                let kind = self.ctx.type_registry.get(norm).clone(); // Clone 一下方便 match
+                
+                match kind {
+                    // 1. 传统的切片和数组：返回 usize 长度
+                    TypeKind::Array { .. } | TypeKind::Slice { .. } | TypeKind::ArrayInfer { .. } => TypeId::USIZE,
+                    
+                    // 2. 闭包胖指针提取底层匿名状态指针 (*mut void 或 *void)
+                    TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
+                        let elem_norm = self.resolve_tv(elem);
+                        if self.ctx.type_registry.is_closure_interface(elem_norm) {
+                            // 构造并返回 *mut void 或 *void
+                            self.ctx.type_registry.intern(TypeKind::Pointer {
+                                is_mut,
+                                elem: TypeId::VOID,
+                            })
+                        } else {
+                            self.ctx
+                                .struct_error(
+                                    span,
+                                    "operator `#` cannot be applied to a standard pointer",
+                                )
+                                .with_hint("it can only extract states from fat pointers like slices (`[]T`) or closures (`*Fn`)")
+                                .emit();
+                            TypeId::ERROR
+                        }
+                    }
+                    
+                    // TODO: TypeKind::TraitObject => ...
+                    
                     _ => {
                         self.ctx
                             .struct_error(
                                 span,
-                                "length operator `#` can only be applied to arrays and slices",
+                                "operator `#` can only be applied to arrays, slices, or fat pointers",
                             )
                             .emit();
                         TypeId::ERROR

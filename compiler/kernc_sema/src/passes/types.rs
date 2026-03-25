@@ -307,6 +307,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
     /// 将 AST TypeNode 转换为语义 TypeId
     pub fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
+        // 优先检查是否已被 ExprChecker 现场推导过
+        // 用于实现 @typeOf 的动态求类型
+        if let Some(&cached_ty) = self.ctx.node_types.get(&ty_node.id) {
+            if cached_ty != TypeId::ERROR {
+                return cached_ty;
+            }
+        }
+        
         let ty_id = match &ty_node.kind {
             ast::TypeKind::Path { segments, generics } => {
                 self.resolve_path_type(segments, generics, env_scope, ty_node.span)
@@ -388,6 +396,26 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 self.ctx.struct_error(ty_node.span, "type inference `_` is not allowed as a standalone type")
                     .with_hint("in Kern, the `_` placeholder is exclusively used for array length inference, e.g., `[_]u8.{ 1, 2, 3 }`")
                     .emit();
+                TypeId::ERROR
+            }
+            ast::TypeKind::ClosureInterface { params, ret } => {
+                let mut param_tys = Vec::with_capacity(params.len());
+                for p in params {
+                    param_tys.push(self.resolve_type(p, env_scope));
+                }
+                let ret_ty = match ret {
+                    Some(r) => self.resolve_type(r, env_scope),
+                    None => TypeId::VOID,
+                };
+                self.ctx.type_registry.intern(TypeKind::ClosureInterface {
+                    params: param_tys,
+                    ret: ret_ty,
+                })
+            }
+
+            ast::TypeKind::TypeOf(expr) => {
+                // 占位
+                self.resolve_expr(expr, env_scope);
                 TypeId::ERROR
             }
             // Struct/Enum/Union/Trait 在这里不会直接作为匿名类型出现 (已被 Collect 提取)
@@ -475,12 +503,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
                 self.resolve_expr(body, scope);
             }
-            ast::ExprKind::Lambda {
-                params,
-                ret_type,
-                body,
-            } => {
-                // 捕获 Lambda 的参数类型和返回值类型
+            ast::ExprKind::Closure { captures, params, ret_type, body } => {
+                for cap in captures {
+                    self.resolve_expr(&cap.value, scope);
+                }
                 for param in params {
                     self.resolve_type(&param.type_node, scope);
                 }

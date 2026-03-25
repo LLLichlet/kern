@@ -6,7 +6,7 @@ use kernc_lower::Lowerer;
 use kernc_sema::BuiltinInjector;
 use kernc_sema::SemaContext;
 use kernc_sema::checker::TypeckDriver;
-use kernc_sema::passes::{Collector, ImportResolver, TypeResolver};
+use kernc_sema::passes::{Collector, ImportResolver, TypeResolver, LinkageChecker};
 use kernc_utils::Session;
 use kernc_utils::config::{AsmDialect, CompileOptions};
 
@@ -90,6 +90,13 @@ impl CompilerDriver {
 
         let mut typeck = TypeckDriver::new(&mut ctx);
         typeck.check_all();
+        if ctx.has_errors() {
+            ctx.sess.print_diagnostics();
+            return false;
+        }
+
+        let mut linkage_checker = LinkageChecker::new(&mut ctx);
+        linkage_checker.check_all();
         if ctx.has_errors() {
             ctx.sess.print_diagnostics();
             return false;

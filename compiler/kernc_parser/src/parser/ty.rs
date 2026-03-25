@@ -12,7 +12,16 @@ impl<'a> Parser<'a> {
             TokenType::Caret => self.parse_volatile_pointer_type(),
             TokenType::LBracket => self.parse_array_or_slice_type(),
             TokenType::Fn => self.parse_fn_type(),
-            TokenType::Identifier => self.parse_path_type(),
+            TokenType::Identifier => {
+                let sym = self.intern_token(start_token);
+                // 拦截大写的 `Fn` 作为闭包胖指针接口
+                if self.session.resolve(sym) == "Fn" {
+                    self.parse_closure_interface_type()
+                } else {
+                    self.parse_path_type()
+                }
+            }
+            TokenType::At => self.parse_intrinsic_type(),
             TokenType::Bang => {
                 self.advance();
                 Ok(TypeNode {
@@ -382,6 +391,60 @@ impl<'a> Parser<'a> {
             id: self.new_id(),
             span: start_token.span.to(end_token.span),
             kind: TypeKind::Trait { fields },
+        })
+    }
+
+    fn parse_intrinsic_type(&mut self) -> ParseResult<TypeNode> {
+        let at_span = self.advance().span; // 消费 '@'
+        let id_token = self.expect(TokenType::Identifier)?;
+        let sym = self.intern_token(id_token);
+        let name = self.session.resolve(sym);
+
+        if name == "typeOf" {
+            self.expect(TokenType::LParen)?;
+            // @typeOf 内部包含的是一个完整的表达式
+            let expr = self.parse_expression(Precedence::Lowest)?;
+            let end_token = self.expect(TokenType::RParen)?;
+            
+            Ok(TypeNode {
+                id: self.new_id(),
+                span: at_span.to(end_token.span),
+                kind: TypeKind::TypeOf(Box::new(expr)),
+            })
+        } else {
+            self.add_error(
+                id_token.span, 
+                format!("Unknown compile-time type intrinsic: @{}", name)
+            );
+            Err(())
+        }
+    }
+
+    fn parse_closure_interface_type(&mut self) -> ParseResult<TypeNode> {
+        let start_span = self.advance().span; // 消费 'Fn' 
+        self.expect(TokenType::LParen)?;
+
+        let mut params = Vec::new();
+        if !self.check(TokenType::RParen) {
+            loop {
+                params.push(self.parse_type()?);
+                if !self.match_token(&[TokenType::Comma]) {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenType::RParen)?;
+
+        let ret_type = self.parse_type()?;
+        let end_span = ret_type.span;
+
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_span.to(end_span),
+            kind: TypeKind::ClosureInterface {
+                params,
+                ret: Some(Box::new(ret_type)),
+            },
         })
     }
 }

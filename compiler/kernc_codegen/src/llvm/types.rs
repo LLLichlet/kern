@@ -31,10 +31,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             },
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.type_registry.normalize(elem);
-                // 特判：指向 Trait Object 的指针，其物理布局是一个包含两个字段的结构体
-                if matches!(self.type_registry.get(elem_norm), TypeKind::TraitObject(..)) {
+                // 特判：指向 Trait Object 或 ClosureInterface 的指针，物理布局是一个胖指针结构体
+                if matches!(
+                    self.type_registry.get(elem_norm), 
+                    TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+                ) {
                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
-                    let meta_ty = self.context.i64_type(); // 虚表指针/元数据 统一用 i64 (usize) 存储
+                    let meta_ty = self.context.i64_type(); // 虚表指针 / 代码指针 统一用 i64 (usize)
                     return self
                         .context
                         .struct_type(&[ptr_ty.into(), meta_ty.into()], false)
@@ -98,6 +101,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.context.i8_type().into()
                 }
             }
+            TypeKind::AnonymousState { captures, .. } => {
+                let mut field_tys = Vec::new();
+                for cap in captures {
+                    field_tys.push(self.get_llvm_type(cap));
+                }
+                self.context.struct_type(&field_tys, false).into()
+            }
+            TypeKind::ClosureInterface { .. } => {
+                self.sess.emit_ice(
+                    Span::default(),
+                    "Kern ICE (Codegen): Naked `ClosureInterface` cannot be materialized. \
+                     Sema `ensure_sized` failed to catch this. You must use a fat pointer (e.g., `*Fn`)."
+                );
+                unreachable!()
+            }
+
             TypeKind::TypeVar(vid) => {
                 self.sess.emit_ice(
                     Span::default(),

@@ -1,5 +1,4 @@
 use std.io.println;
-
 fn process_erased_ptr(ptr: *mut void) void {
     // *void 指针算术
     let offset_ptr = ptr + 10;
@@ -16,22 +15,17 @@ fn process_erased_ptr(ptr: *mut void) void {
         println("Success: Dereferencing *void yields void.{{}}", .{});
     }
 }
-
 extern fn main(args: [][]u8) i32 {
     println("--- Kern Void ZST Test ---", .{});
-
     // ZST 的内存排布 (@sizeOf 应该为 0)
     let size = @sizeOf[void]();
     let arr_size = @sizeOf[[100]void]();
-    
-    // 强制转换为 u64 以匹配 printf 的 %lu
     println("Size of void: {} (Expected: 0)", .{size,});
     println("Size of [100]void: {} (Expected: 0)", .{arr_size,});
-
     // 边界自然转换
     let mut real_data = i32.{0xDEADBEEF};
     let specific_ptr = real_data..&; // *mut i32
-    
+
     process_erased_ptr(specific_ptr);
 
     // 利用 BNC 和 Elided Literal 构造原生 Null 指针

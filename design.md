@@ -61,6 +61,7 @@ To achieve “high abstraction, low policy”, Kern provides three core mechanis
   * **Floats**: `f32`, `f64`.
   * **Boolean**: `bool` (1 byte).
   * **Never**: `!` (diverging computations).
+  * **Void**: `void` – A zero-sized type (ZST). It represents the absence of a meaningful value. Used primarily as the default return type for functions that produce no data, or to construct untyped raw pointers (`*mut void` / `*void`) for FFI and memory allocation.
 
 ### 2.2 Mutability Model
 
@@ -109,6 +110,8 @@ BNC is a zero-cost compiler mechanism that naturally "decays" or "packages" a ri
 There are two primary BNC pathways in Kern:
 1. **Array to Slice Decay**: A fixed-size array `[N]T` naturally converts into a dynamic slice `[]T`. The compiler automatically extracts the memory address and synthesizes the fat pointer's length metadata using the compile-time `N`.
 2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`.[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `fn(Args) Ret` (See Section 10.3).
+3. **Named Struct to Anonymous Struct Decay**: A named structural type (e.g., `type Vector = struct { x: i32, y: i32 }`) naturally decays into an equivalent Anonymous Struct (`struct { x: i32, y: i32 }`) or its pointer variant when passed across a boundary. This enables secure "Duck Typing" without boilerplate. 
+   * *Strict ABI Contract*: BNC is aggressively guarded by ABI compatibility. A native `struct` will **never** implicitly decay into an `extern struct` (and vice versa), as their underlying memory layouts are physically distinct.
 
 BNC guarantees that the developer does not need to write boilerplate fat-pointer assembly code when the compiler already possesses absolute, statically proven knowledge of the underlying metadata.
 
@@ -132,7 +135,8 @@ type Point = struct {
 
   * **Generics**: `type Point[T] = struct { x: T, y: T };` (See 5.6 for Trait constraints via where clauses).
   * **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
-  * **Layout**: default reorder/padding for size; `extern type …` guarantees C‑compatible memory layout and alignment.
+  * **Zero-Cost Memory Layout**: By default, Kern employs a highly optimized physical layout engine. It aggressively reorders struct fields at compile-time (descending by alignment requirements, then size) to eliminate memory padding (empty holes). 
+  * **C-ABI Compatibility (`extern`)**: If a struct must strictly maintain its source-code declaration order to interface with C or hardware, it must be prefixed with `extern` (e.g., `extern type Header = struct { ... };`). This disables reordering and guarantees standard C-ABI layout.
   * **Strict Explicit Binding**: To prevent syntactic ambiguity with array literals and to strictly adhere to Kern's "explicit over implicit" philosophy, elided field initialization (e.g., `Point.{x, y}`) is strictly forbidden. All fields must be explicitly bound using the `field: value` syntax, even if the local variable name perfectly matches the field name (`x: x`).
   * **Initialization and `undef`**: When initializing a struct using `Type.{ ... }`, any field without a default value **must** be explicitly provided; omitting it is a strict compile-time error. If you intentionally want to leave a field uninitialized, you must explicitly use `undef` (e.g., `priority = u8.{undef};`).
 
@@ -196,6 +200,23 @@ In Kern v0.5.0, type conversions are explicitly and uniformly handled by the `as
   * **Numeric Conversions**: `as` is used for all safe and unsafe numeric conversions, including bit-width truncation, zero/sign-extension, and integer/floating-point conversions (e.g., `i32 as u8`, `f32 as i32`).
   * **Pointer Reinterpretation**: `as` preserves the physical bit pattern when casting between pointer types or between pointers and `usize`/`isize`.
   * **Strict Boundaries**: The `as` operator **cannot** be used to implicitly construct Trait Objects, nor can it cast arbitrary integers directly into `data` variants. Fat pointer construction requires Explicit Constructor Syntax (`Trait.{ ptr }`).
+
+### 4.5 Anonymous Structs
+
+Kern treats Anonymous Structs as first-class citizens to facilitate lightweight data grouping, Duck Typing, and closure state management.
+
+* **Structural Equivalence**: Unlike named types (where `PointA` and `PointB` are different types even if their fields match), anonymous structs are structurally typed. `struct { x: i32, y: i32 }` and `struct { y: i32, x: i32 }` are evaluated as the exact same type by the compiler through alphabetical field normalization.
+* **Orthogonal `extern` Contract**: Kern's syntax is perfectly orthogonal. Just as named types can be `extern`, anonymous structs can also enforce C-ABI layout inline: `extern struct { a: u8, b: u64 }`. 
+  * *Native Anonymous Structs* (`struct { ... }`): Subject to Kern's zero-cost memory reordering.
+  * *Extern Anonymous Structs* (`extern struct { ... }`): Strictly preserves declaration order and padding.
+
+```kern
+// Native layout (optimized size)
+let val: struct { a: u8, b: u64 } = .{ a: 1, b: 2 };
+
+// Extern layout (C-ABI compatible, maintains padding)
+extern {fn process_c_data(data: *extern struct { a: u8, b: u64 }) void; }
+```
 
 ## 5\. Functions and Traits
 

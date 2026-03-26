@@ -132,6 +132,10 @@ pub enum TypeKind {
 
     // 类型变量，用于 let a = 10; 的局部推导 (Hindley-Milner 合一引擎使用)
     TypeVar(u32),
+
+    /// 匿名结构体 (结构等价)
+    /// 为了保证 Hash 和 PartialEq 稳定，这里的 Vec 必须在构造前按字段名排序
+    AnonymousStruct(bool, Vec<AnonymousField>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -154,4 +158,10 @@ pub enum PrimitiveType {
     F64,
     Str, // 内部使用的字符串字面量类型
     Never,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnonymousField {
+    pub name: SymbolId,
+    pub ty: TypeId,
 }

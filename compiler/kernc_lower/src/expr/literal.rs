@@ -314,31 +314,29 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             struct_subst_map.insert(param.name, gen_args[i]);
         }
 
-        let mut ordered_fields = Vec::new();
+        let mut ast_ordered_exprs = Vec::new();
         for f_def in &s.fields {
-            let raw_f_ty = self
-                .ctx
-                .node_types
-                .get(&f_def.type_node.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map)
-                .substitute(raw_f_ty);
+            let raw_f_ty = self.ctx.node_types.get(&f_def.type_node.id).copied().unwrap_or(TypeId::ERROR);
+            let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map).substitute(raw_f_ty);
 
             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
-                ordered_fields.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
+                ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
             } else {
-                ordered_fields.push(self.lower_expr(
-                    f_def.default_value.as_ref().unwrap(),
-                    subst_map,
-                    Some(conc_f_ty),
-                ));
+                ast_ordered_exprs.push(self.lower_expr(f_def.default_value.as_ref().unwrap(), subst_map, Some(conc_f_ty)));
             }
+        }
+
+        let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
+        let (_, physical_to_ast) = layout.get_struct_mapping(def_id, gen_args, 0);
+
+        let mut physical_ordered_exprs = Vec::with_capacity(s.fields.len());
+        for &ast_idx in &physical_to_ast {
+            physical_ordered_exprs.push(ast_ordered_exprs[ast_idx].clone());
         }
 
         MastExprKind::StructInit {
             struct_id: mono_id,
-            fields: ordered_fields,
+            fields: physical_ordered_exprs,
         }
     }
 

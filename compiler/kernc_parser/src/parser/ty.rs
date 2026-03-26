@@ -48,8 +48,22 @@ impl<'a> Parser<'a> {
                 })
             }
 
-            TokenType::Struct => self.parse_struct_type(false),
-            TokenType::Union => self.parse_struct_type(true),
+            TokenType::Extern => {
+                let ext_span = self.advance().span; // 消费 'extern'
+                if self.check(TokenType::Struct) {
+                    // is_union = false, is_extern = true
+                    let mut struct_ty = self.parse_struct_type(false, true)?; 
+                    struct_ty.span = ext_span.to(struct_ty.span);
+                    Ok(struct_ty)
+                } else {
+                    let token = self.peek();
+                    self.add_error(token.span, "Expected `struct` after `extern` in type position".to_string());
+                    Err(())
+                }
+            }
+
+            TokenType::Struct => self.parse_struct_type(false, false),
+            TokenType::Union => self.parse_struct_type(true, false),
             TokenType::Enum => self.parse_enum_type(),
             TokenType::Trait => self.parse_trait_type(),
 
@@ -233,7 +247,7 @@ impl<'a> Parser<'a> {
         Ok(args)
     }
 
-    fn parse_struct_type(&mut self, is_union: bool) -> ParseResult<TypeNode> {
+    fn parse_struct_type(&mut self, is_union: bool, is_extern: bool) -> ParseResult<TypeNode> {
         let start_token = self.advance(); // struct / union
         self.expect(TokenType::LBrace)?;
 
@@ -271,7 +285,7 @@ impl<'a> Parser<'a> {
         let kind = if is_union {
             TypeKind::Union { fields }
         } else {
-            TypeKind::Struct { fields }
+            TypeKind::Struct { is_extern, fields }
         };
 
         Ok(TypeNode {

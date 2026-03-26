@@ -136,6 +136,19 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 )
             }
 
+            TypeKind::AnonymousStruct(is_extern, fields) => {
+                let prefix = if *is_extern { "extern struct" } else { "struct" };
+                if fields.is_empty() {
+                    format!("{} {{}}", prefix)
+                } else {
+                    let field_strs: Vec<String> = fields
+                        .iter()
+                        .map(|f| format!("{}: {}", self.ctx.resolve(f.name), self.format(f.ty)))
+                        .collect();
+                    format!("{} {{ {} }}", prefix, field_strs.join(", "))
+                }
+            }
+
             TypeKind::Error => "{error}".to_string(),
         }
     }

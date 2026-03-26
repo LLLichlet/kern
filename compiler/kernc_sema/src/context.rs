@@ -237,6 +237,18 @@ impl<'a> SemaContext<'a> {
             crate::ty::TypeKind::AnonymousState { closure_node_id, .. } => {
                 format!("ClosureState{}", closure_node_id.0)
             }
+            crate::ty::TypeKind::AnonymousStruct(is_extern, fields) => {
+                // 格式：AStr + (字段名长度+字段名) + (字段类型长度+字段类型) + E
+                let mut s = if is_extern { String::from("EStr") } else { String::from("AStr") };
+                for f in fields {
+                    let name_str = self.resolve(f.name);
+                    s.push_str(&format!("{}{}", name_str.len(), name_str));
+                    let ty_str = self.mangle_type(f.ty);
+                    s.push_str(&format!("{}{}", ty_str.len(), ty_str));
+                }
+                s.push('E');
+                s
+            }
             _ => "unknown".to_string()
         }
     }

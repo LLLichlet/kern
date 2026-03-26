@@ -129,6 +129,16 @@ impl<'a> Substituter<'a> {
                     ret: new_ret,
                 })
             }
+
+            TypeKind::AnonymousStruct(is_extern, fields) => {
+                let new_fields = fields.into_iter().map(|f| {
+                    crate::ty::AnonymousField {
+                        name: f.name,
+                        ty: self.substitute(f.ty),
+                    }
+                }).collect();
+                self.registry.intern(TypeKind::AnonymousStruct(is_extern, new_fields))
+            }
         }
     }
 }

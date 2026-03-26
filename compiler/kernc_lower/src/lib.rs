@@ -26,6 +26,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) loop_frames: Vec<usize>,
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
     pub(crate) closure_fn_map: HashMap<NodeId, MonoId>,
+    pub(crate) anon_struct_cache: HashMap<TypeId, MonoId>,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -39,6 +40,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 functions: Vec::new(),
                 def_mono_map: HashMap::new(),
                 adt_union_map: HashMap::new(),
+                anon_struct_map: HashMap::new(),
             },
             mono_cache: HashMap::new(),
             next_mono_id: 1,
@@ -51,6 +53,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             loop_frames: Vec::new(),
             adt_union_map: HashMap::new(),
             closure_fn_map: HashMap::new(),
+            anon_struct_cache: HashMap::new(),
         }
     }
 
@@ -111,6 +114,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.module.def_mono_map = self.mono_cache.clone();
         self.module.adt_union_map = self.adt_union_map.clone();
+        self.module.anon_struct_map = self.anon_struct_cache.clone();
         
         self.module.clone()
     }

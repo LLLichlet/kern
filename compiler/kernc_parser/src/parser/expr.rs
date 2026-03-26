@@ -219,7 +219,7 @@ impl<'a> Parser<'a> {
             TokenType::At => self.parse_intrinsic_expr(token),
 
             // Explicitly Typed Initializations (e.g., [N]T.{...}, *T.{...})
-            TokenType::LBracket | TokenType::Star | TokenType::Caret => {
+            TokenType::LBracket | TokenType::Star | TokenType::Caret | TokenType::Struct | TokenType::Extern => {
                 self.parse_typed_data_init_prefix(token)
             }
 
@@ -605,11 +605,62 @@ impl<'a> Parser<'a> {
                     },
                 }
             }
+            TokenType::Struct => {
+                // 原生 struct，is_extern = false
+                self.parse_struct_literal_fields(span, false)?
+            }
+            TokenType::Extern => {
+                // extern struct，必须紧跟 struct 关键字
+                self.expect(TokenType::Struct)?;
+                self.parse_struct_literal_fields(span, true)?
+            }
             _ => unreachable!(),
         };
 
         self.expect(TokenType::DotLBrace)?;
         self.parse_data_init(Some(Box::new(type_node)), span)
+    }
+
+    fn parse_struct_literal_fields(&mut self, start_span: Span, is_extern: bool) -> ParseResult<TypeNode> {
+        self.expect(TokenType::LBrace)?;
+
+        let mut fields = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let name_token = self.expect(TokenType::Identifier)?;
+            let name_id = self.intern_token(name_token);
+            self.expect(TokenType::Colon)?;
+            let field_type = self.parse_type()?;
+
+            let mut default_value = None;
+            if self.match_token(&[TokenType::Assign]) {
+                default_value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            }
+
+            let field_span = name_token.span.to(if let Some(ref v) = default_value {
+                v.span
+            } else {
+                field_type.span
+            });
+
+            fields.push(StructFieldDef {
+                name: name_id,
+                type_node: field_type,
+                default_value,
+                span: field_span,
+            });
+
+            if !self.match_token(&[TokenType::Comma]) {
+                break;
+            }
+        }
+
+        let end_token = self.expect(TokenType::RBrace)?;
+        
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_span.to(end_token.span),
+            kind: TypeKind::Struct { is_extern, fields },
+        })
     }
 
     fn parse_closure_expr(&mut self, start_span: Span) -> ParseResult<Expr> {

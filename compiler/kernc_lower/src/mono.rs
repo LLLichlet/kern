@@ -1,8 +1,7 @@
 use super::Lowerer;
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
-use kernc_sema::checker::ConstValue;
-use kernc_sema::checker::Substituter;
+use kernc_sema::checker::{ConstValue, ConstEvaluator, Substituter};
 use kernc_sema::def::{Def, DefId, GlobalDef};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
@@ -124,15 +123,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let id = self.new_mono_id();
         self.mono_cache.insert(key, id);
 
+        // 如果是 Union，转交处理
+        if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
+            return self.instantiate_union(def_id, args, id);
+        }
+
         let def = if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] {
             s.clone()
-        } else if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
-            return self.instantiate_union(def_id, args, id);
         } else {
             self.ctx.emit_ice(
                 Span::default(),
                 format!(
-                    "Kern ICE (Lowering): DefId {} is not a Struct or Union!",
+                    "Kern ICE (Lowering): DefId {} is not a Struct!",
                     def_id.0
                 ),
             );
@@ -146,10 +148,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mangled_name = self.ctx.get_export_name(def_id, args);
 
-        let mut mast_fields = Vec::new();
+        let physical_to_ast = {
+            let mut layout = LayoutEngine::new(self.ctx);
+            let (_, p2a) = layout.get_struct_mapping(def_id, args, 0);
+            p2a
+        };
+
         let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
 
-        for f in &def.fields {
+        let mut mast_fields = Vec::with_capacity(def.fields.len());
+        
+        for &ast_idx in &physical_to_ast {
+            let f = &def.fields[ast_idx];
             let raw_ty = self
                 .ctx
                 .node_types
@@ -172,6 +182,53 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             largest_field_idx: 0,
             attributes: self.extract_meta_items(&def.attributes),
         });
+        
+        id
+    }
+
+    pub(crate) fn instantiate_anon_struct(&mut self, norm_ty: TypeId) -> MonoId {
+        if let Some(&id) = self.anon_struct_cache.get(&norm_ty) {
+            return id;
+        }
+
+        let id = self.new_mono_id();
+        self.anon_struct_cache.insert(norm_ty, id);
+
+        let (is_extern, fields) = if let TypeKind::AnonymousStruct(ext, f) = self.ctx.type_registry.get(norm_ty).clone() {
+            (ext, f)
+        } else {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!("Kern ICE (Lowering): Expected AnonymousStruct, found {:?}", self.ctx.type_registry.get(norm_ty))
+            );
+            unreachable!()
+        };
+
+        let mut layout = LayoutEngine::new(self.ctx);
+        let (_, physical_to_ast) = layout.get_anon_struct_mapping(is_extern, &fields, 0);
+
+        let mut mast_fields = Vec::with_capacity(fields.len());
+        
+        for &ast_idx in &physical_to_ast {
+            let f = &fields[ast_idx];
+            mast_fields.push(MastField {
+                name: f.name,
+                ty: f.ty,
+            });
+        }
+
+        let mangled_name = self.ctx.mangle_type(norm_ty);
+
+        self.module.structs.push(MastStruct {
+            id,
+            name: mangled_name,
+            fields: mast_fields,
+            is_extern: false,
+            is_union: false,
+            largest_field_idx: 0,
+            attributes: vec![],
+        });
+        
         id
     }
 
@@ -384,7 +441,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // 常量折叠
         let init = if !g.is_extern {
-            let mut ce = kernc_sema::checker::ConstEvaluator::new(self.ctx);
+            let mut ce = ConstEvaluator::new(self.ctx);
             if let Ok(val) = ce.eval_inner(&g.value, 0) {
                 match val {
                     ConstValue::Int(v) => {

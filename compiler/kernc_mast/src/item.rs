@@ -16,6 +16,7 @@ pub struct MastModule {
     // 记录前端抽象实体到后端物理实体的映射
     pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pub adt_union_map: HashMap<MonoId, MonoId>,
+    pub anon_struct_map: HashMap<TypeId, MonoId>,
 }
 
 #[derive(Debug, Clone)]

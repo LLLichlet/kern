@@ -15,6 +15,78 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         Self { ctx }
     }
 
+    /// 计算具名结构体的物理排布
+    /// 返回: (ast_to_physical, physical_to_ast)
+    pub fn get_struct_mapping(&mut self, def_id: DefId, generic_args: &[TypeId], depth: usize) -> (Vec<usize>, Vec<usize>) {
+        let def = self.ctx.defs[def_id.0 as usize].clone();
+        if let Def::Struct(s) = def {
+            let map = self.prepare_generic_subst(&s.generics, generic_args);
+            let mut field_metas = Vec::new();
+            
+            for (ast_idx, field) in s.fields.iter().enumerate() {
+                let f_ty = self.resolve_field_type(&field.type_node, &map);
+                let f_align = self.compute_type_align_inner(f_ty, depth + 1);
+                let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+                field_metas.push((ast_idx, f_align, f_size));
+            }
+
+            // 除非标记了 extern，否则强行优化内存布局
+            if !s.is_extern {
+                field_metas.sort_by(|a, b| {
+                    b.1.cmp(&a.1)               // 1. 对齐要求降序 (Alignment)
+                       .then_with(|| b.2.cmp(&a.2)) // 2. 大小降序 (Size)
+                       .then_with(|| a.0.cmp(&b.0)) // 3. AST 原始索引升序 (稳定排序)
+                });
+            }
+
+            let mut ast_to_physical = vec![0; field_metas.len()];
+            let mut physical_to_ast = vec![0; field_metas.len()];
+
+            for (phys_idx, meta) in field_metas.into_iter().enumerate() {
+                ast_to_physical[meta.0] = phys_idx;
+                physical_to_ast[phys_idx] = meta.0;
+            }
+
+            (ast_to_physical, physical_to_ast)
+        } else {
+            unreachable!("Not a struct definition")
+        }
+    }
+
+    /// 计算匿名结构体的物理排布 (匿名结构体永远被优化)
+    pub fn get_anon_struct_mapping(
+        &mut self,
+        is_extern: bool,
+        fields: &[crate::ty::AnonymousField],
+        depth: usize,
+    ) -> (Vec<usize>, Vec<usize>) {
+        let mut field_metas = Vec::new();
+        for (ast_idx, f) in fields.iter().enumerate() {
+            let f_align = self.compute_type_align_inner(f.ty, depth + 1);
+            let f_size = self.compute_type_size_inner(f.ty, depth + 1);
+            field_metas.push((ast_idx, f_align, f_size));
+        }
+
+        // 只有原生的匿名结构体，才执行内存体积压缩优化
+        if !is_extern {
+            field_metas.sort_by(|a, b| {
+                b.1.cmp(&a.1)
+                    .then_with(|| b.2.cmp(&a.2))
+                    .then_with(|| a.0.cmp(&b.0))
+            });
+        }
+
+        let mut ast_to_physical = vec![0; field_metas.len()];
+        let mut physical_to_ast = vec![0; field_metas.len()];
+
+        for (phys_idx, meta) in field_metas.into_iter().enumerate() {
+            ast_to_physical[meta.0] = phys_idx;
+            physical_to_ast[phys_idx] = meta.0;
+        }
+
+        (ast_to_physical, physical_to_ast)
+    }
+    
     pub fn compute_type_align(&mut self, ty: TypeId) -> u64 {
         self.compute_type_align_inner(ty, 0)
     }
@@ -52,14 +124,20 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             }
             TypeKind::ClosureInterface { .. } => 1,
             TypeKind::Primitive(PrimitiveType::Never) | TypeKind::Error => 1,
+            TypeKind::AnonymousStruct(_, fields) => {
+                let mut max_align = 1;
+                for f in fields {
+                    let align = self.compute_type_align_inner(f.ty, depth + 1);
+                    if align > max_align {
+                        max_align = align;
+                    }
+                }
+                max_align
+            }
             TypeKind::Primitive(p) => self.primitive_align(p),
 
             TypeKind::EnumPayload(def_id, generic_args) => {
-                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
-                    a.clone()
-                } else {
-                    unreachable!()
-                };
+                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] { a.clone() } else { unreachable!() };
                 let map = self.prepare_generic_subst(&def.generics, &generic_args);
                 let mut max_payload_align = 1;
                 for v in &def.variants {
@@ -134,6 +212,21 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 Self::align_to(offset, max_align)
             }
             TypeKind::ClosureInterface { .. } => 0,
+            TypeKind::AnonymousStruct(is_extern, fields) => {
+                let (_, physical_to_ast) = self.get_anon_struct_mapping(is_extern, &fields, depth);
+                let mut offset = 0;
+                let mut max_align = 1;
+
+                for &ast_idx in &physical_to_ast {
+                    let f = &fields[ast_idx];
+                    let f_align = self.compute_type_align_inner(f.ty, depth + 1);
+                    let f_size = self.compute_type_size_inner(f.ty, depth + 1);
+                    if f_align > max_align { max_align = f_align; }
+                    offset = Self::align_to(offset, f_align);
+                    offset += f_size;
+                }
+                Self::align_to(offset, max_align)
+            }
             TypeKind::Error | TypeKind::Primitive(PrimitiveType::Never) => 0,
             TypeKind::Primitive(p) => self.primitive_size(p),
 
@@ -202,16 +295,22 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
+                let (_, physical_to_ast) = self.get_struct_mapping(def_id, generic_args, depth);
                 let map = self.prepare_generic_subst(&s.generics, generic_args);
+                let mut offset = 0;
                 let mut max_align = 1;
-                for field in &s.fields {
+
+                for &ast_idx in &physical_to_ast {
+                    let field = &s.fields[ast_idx];
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
-                    let align = self.compute_type_align_inner(f_ty, depth + 1);
-                    if align > max_align {
-                        max_align = align;
-                    }
+                    let f_align = self.compute_type_align_inner(f_ty, depth + 1);
+                    let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+
+                    if f_align > max_align { max_align = f_align; }
+                    offset = Self::align_to(offset, f_align);
+                    offset += f_size;
                 }
-                max_align
+                Self::align_to(offset, max_align)
             }
             Def::Union(u) => {
                 let map = self.prepare_generic_subst(&u.generics, generic_args);
@@ -255,18 +354,18 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         match def {
             Def::Struct(s) => {
+                let (_, physical_to_ast) = self.get_struct_mapping(def_id, generic_args, depth);
                 let map = self.prepare_generic_subst(&s.generics, generic_args);
                 let mut offset = 0;
                 let mut max_align = 1;
 
-                for field in &s.fields {
+                for &ast_idx in &physical_to_ast {
+                    let field = &s.fields[ast_idx];
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
                     let f_align = self.compute_type_align_inner(f_ty, depth + 1);
                     let f_size = self.compute_type_size_inner(f_ty, depth + 1);
 
-                    if f_align > max_align {
-                        max_align = f_align;
-                    }
+                    if f_align > max_align { max_align = f_align; }
                     offset = Self::align_to(offset, f_align);
                     offset += f_size;
                 }

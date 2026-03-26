@@ -40,6 +40,7 @@ pub struct CodeGenerator<'ctx, 'a> {
 
     pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pub adt_union_map: HashMap<MonoId, MonoId>,
+    pub anon_struct_map: HashMap<TypeId, MonoId>,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
@@ -66,6 +67,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             asm_dialect: inkwell::InlineAsmDialect::Intel,
             def_mono_map: HashMap::new(),
             adt_union_map: HashMap::new(),
+            anon_struct_map: HashMap::new(),
         }
     }
 
@@ -73,6 +75,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         
         self.def_mono_map = module.def_mono_map.clone();
         self.adt_union_map = module.adt_union_map.clone();
+        self.anon_struct_map = module.anon_struct_map.clone();
 
         self.declare_structs(&module.structs);
         self.declare_globals(&module.globals);

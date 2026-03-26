@@ -27,22 +27,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        // 2. 指针降级与 Trait Object 处理
+        // 2. 值语义的结构体降级 (具名 -> 匿名) ===
+        if self.is_struct_structurally_equivalent(exp, act) {
+            return true;
+        }
+
+        // 3. 指针降级与 Trait Object 处理
         if self.check_pointer_coercions(expr, exp, act, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 3. 易失指针降级与 Trait Object 处理
+        // 4. 易失指针降级与 Trait Object 处理
         if self.check_volatile_coercions(expr, exp, act, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 4. 切片降级与数组退化
+        // 5. 切片降级与数组退化
         if self.check_slice_and_array_decay(expr, exp, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 5. 闭包相关的退化与边界自然转换
+        // 6. 闭包相关的退化与边界自然转换
         if self.check_closure_coercions(expr, &exp_kind, &act_kind) {
             return true;
         }
@@ -84,13 +89,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return true;
                     }
 
-                    // B. *void 万能指针隐式降级 
+                    // 1. *void 万能指针隐式降级 
                     // 只要目标期望类型是 void（且满足上方的 mut 安全性校验），则允许任何非胖指针自然降级
                     if self.ctx.type_registry.is_void(e_norm) {
                         return true;
                     }
 
-                    // C. 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
+                    // 2. 具名结构体 -> 匿名结构体
+                    if self.is_struct_structurally_equivalent(e_norm, a_norm) {
+                        return true;
+                    }
+                    
+                    // 3. 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
                         let downgraded_act = if !*e_mut && *a_mut {
                             self.ctx.type_registry.intern(TypeKind::Pointer {
@@ -139,6 +149,64 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
+    /// 核心辅助方法：检查一个具名结构体 (act_def) 能否降级为匿名结构体 (exp_anon)
+    pub(crate) fn is_struct_structurally_equivalent(&mut self, exp_anon: TypeId, act_def: TypeId) -> bool {
+        let exp_kind = self.ctx.type_registry.get(exp_anon).clone();
+        let act_kind = self.ctx.type_registry.get(act_def).clone();
+
+        let (exp_is_extern, exp_fields) = if let TypeKind::AnonymousStruct(is_ext, ref f) = exp_kind {
+            (is_ext, f)
+        } else {
+            return false;
+        };
+
+        if let TypeKind::Def(def_id, ref act_args) = act_kind {
+            let act_def_clone = self.ctx.defs[def_id.0 as usize].clone();
+
+            if let Def::Struct(act_s) = act_def_clone {
+                // extern 状态不一致不允许降级转换
+                if exp_is_extern != act_s.is_extern {
+                    return false;
+                }
+
+                // 字段数量不同，绝对不兼容
+                if exp_fields.len() != act_s.fields.len() {
+                    return false;
+                }
+
+                // 提取并替换具名结构体的真实字段类型
+                let mut act_fields = Vec::new();
+                for f in &act_s.fields {
+                    let raw_ty = self.ctx.node_types.get(&f.type_node.id).copied().unwrap_or(TypeId::ERROR);
+                    
+                    let inst_ty = if !act_args.is_empty() {
+                        let mut map = std::collections::HashMap::new();
+                        for (i, param) in act_s.generics.iter().enumerate() {
+                            map.insert(param.name, act_args[i]);
+                        }
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                        subst.substitute(raw_ty)
+                    } else {
+                        raw_ty
+                    };
+
+                    act_fields.push((f.name, self.resolve_tv(inst_ty)));
+                }
+
+                // 排序具名的字段，以便与匿名结构体进行zip比对
+                act_fields.sort_by_key(|f| f.0);
+
+                for (exp_f, act_f) in exp_fields.iter().zip(act_fields.iter()) {
+                    if exp_f.name != act_f.0 || self.resolve_tv(exp_f.ty) != act_f.1 {
+                        return false;
+                    }
+                }
+
+                return true;
+            }
+        }
+        false
+    }
     fn check_volatile_coercions(
         &mut self,
         _expr: &Expr,
@@ -156,6 +224,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return true;
                     }
                     if self.ctx.type_registry.is_void(e_norm) {
+                        return true;
+                    }
+                    if self.is_struct_structurally_equivalent(e_norm, a_norm) {
                         return true;
                     }
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {

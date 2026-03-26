@@ -1,0 +1,39 @@
+use std.io.println;
+extern type Unoptimized = struct {
+    a: u8,
+    b: u64,
+    c: u16,
+};
+type Optimized = struct {
+    a: u8,
+    b: u64,
+    c: u16,
+};
+type Vector = struct {
+    x: i32,
+    y: i32,
+};
+fn process_anon_val(val: struct { x: i32, y: i32 }) void {
+    println("  [Val BNC] Received anonymous val: x={}, y={}", .{val.x, val.y});
+}
+fn process_anon_ptr(ptr: *struct { x: i32, y: i32 }) void {
+    println("  [Ptr BNC] Received anonymous ptr: x={}, y={}", .{ptr.x, ptr.y});
+}
+extern fn main(args: [][]u8) i32 {
+    println("--- Kern Anonymous Struct & Layout Test ---", .{});
+    // 测试 1: 内存布局优化
+    let size_unopt = @sizeOf[Unoptimized]();
+    let size_opt = @sizeOf[Optimized]();
+    let size_anon = @sizeOf[struct { a: u8, b: u64, c: u16 }]();
+    println("Size of Unoptimized (extern): {} (Expected: 24)", .{size_unopt,});
+    println("Size of Optimized (native):   {} (Expected: 16)", .{size_opt,});
+    println("Size of Anonymous Struct:     {} (Expected: 16)", .{size_anon,});
+    // 测试 2: 字段重排读写正确性
+    let my_opt = Optimized.{ a: 0xAA, b: 0x1122334455667788, c: 0xBBCC };
+    println("Read Optimized Fields: a={}, b={}, c={}", .{my_opt.a, my_opt.b, my_opt.c});
+    // 测试 3: 匿名结构体 BNC 降级
+    let named_vec = Vector.{ x: 42, y: 99 };
+    process_anon_val(named_vec);
+    process_anon_ptr(named_vec.&);
+    return 0;
+}

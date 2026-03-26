@@ -94,6 +94,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 );
                 unreachable!()
             }
+            TypeKind::AnonymousStruct( .. ) => {
+                if let Some(&mono_id) = self.anon_struct_map.get(&norm) {
+                    if let Some(struct_ty) = self.structs.get(&mono_id) {
+                        return struct_ty.as_basic_type_enum();
+                    }
+                }
+                
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!("Kern ICE (Codegen): AnonymousStruct TypeId({:?}) not instantiated by Lowerer", norm),
+                );
+                unreachable!()
+            }
             TypeKind::AnonymousState { captures, .. } => {
                 let mut field_tys = Vec::new();
                 for cap in captures {

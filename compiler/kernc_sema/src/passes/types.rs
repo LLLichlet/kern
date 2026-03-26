@@ -320,6 +320,46 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 self.resolve_path_type(segments, generics, env_scope, ty_node.span)
             }
             ast::TypeKind::Void => TypeId::VOID,
+
+            // 内联的匿名结构体
+            ast::TypeKind::Struct { is_extern, fields } => {
+                let mut anon_fields = Vec::with_capacity(fields.len());
+                
+                for f in fields {
+                    let f_ty = self.resolve_type(&f.type_node, env_scope);
+                    // 匿名结构体的字段必须是 Sized (大小在编译期已知)
+                    self.ensure_sized(f_ty, f.type_node.span); 
+                    
+                    // 核心哲学：匿名结构体只是一个“内存形状”，不允许携带默认值逻辑
+                    if f.default_value.is_some() {
+                        self.ctx.struct_error(f.span, "anonymous structs cannot have default field values")
+                            .with_hint("default values are only allowed in named struct declarations (`type Name = struct { ... }`)")
+                            .emit();
+                    }
+
+                    anon_fields.push(crate::ty::AnonymousField {
+                        name: f.name,
+                        ty: f_ty,
+                    });
+                }
+                
+                if !*is_extern {
+                    // 如果是原生的，按 SymbolId 排序以保证结构等价性 (Duck Typing)
+                    // 这样 `struct { x: i32, y: i32 }` 和 `struct { y: i32, x: i32 }` 就能在底层的 TypeRegistry 收敛为同一个 TypeId
+                    anon_fields.sort_by_key(|f| f.name);
+                }
+
+                // 检查排序后是否有重复字段
+                for i in 1..anon_fields.len() {
+                    if anon_fields[i - 1].name == anon_fields[i].name {
+                        let name_str = self.ctx.resolve(anon_fields[i].name).to_string();
+                        self.ctx.struct_error(ty_node.span, format!("duplicate field `{}` in anonymous struct", name_str)).emit();
+                    }
+                }
+
+                self.ctx.type_registry.intern(TypeKind::AnonymousStruct(*is_extern, anon_fields))
+            }
+
             ast::TypeKind::Pointer { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
                 self.ctx.type_registry.intern(TypeKind::Pointer {

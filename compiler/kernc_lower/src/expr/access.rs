@@ -206,22 +206,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        let field_idx = self.get_field_index(base_ty, field, span);
-        let struct_def_info =
-            if let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm_base) {
-                Some((*def_id, gen_args.clone()))
-            } else {
-                None
-            };
-
-        let struct_id = if let Some((def_id, gen_args)) = struct_def_info {
-            self.instantiate_struct(def_id, &gen_args)
-        } else {
-            self.ctx.emit_ice(
-                span,
-                format!("Kern ICE (Lowering): Attempted to access field `{}` on a non-struct/union/module type: {:?}", self.ctx.resolve(field), norm_base)
-            );
-            unreachable!()
+        let field_idx = self.get_physical_field_index(base_ty, field, span);
+        
+        let struct_id = match self.ctx.type_registry.get(norm_base).clone() {
+            TypeKind::Def(def_id, gen_args) => {
+                self.instantiate_struct(def_id, &gen_args)
+            }
+            TypeKind::AnonymousStruct( .. ) => {
+                self.instantiate_anon_struct(norm_base)
+            }
+            _ => {
+                self.ctx.emit_ice(
+                    span,
+                    format!("Kern ICE (Lowering): Attempted to access field `{}` on an invalid base type: {:?}", self.ctx.resolve(field), norm_base)
+                );
+                unreachable!()
+            }
         };
 
         MastExprKind::FieldAccess {
@@ -245,46 +245,44 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn get_field_index(
+    pub(crate) fn get_physical_field_index(
         &mut self,
         struct_ty: TypeId,
         field_name: SymbolId,
         span: Span,
     ) -> usize {
         let norm = self.ctx.type_registry.normalize(struct_ty);
-        if let TypeKind::Def(def_id, _) = self.ctx.type_registry.get(norm) {
+        if let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm).clone() {
             if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] {
-                return match s.fields.iter().position(|f| f.name == field_name) {
+                let ast_idx = match s.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
-                        self.ctx.emit_ice(
-                            span,
-                            format!(
-                                "Kern ICE (Lowering): Field `{}` not found in struct `{}`",
-                                self.ctx.resolve(field_name),
-                                self.ctx.resolve(s.name)
-                            ),
-                        );
+                        self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Field `{}` not found in struct", self.ctx.resolve(field_name)));
                         unreachable!()
                     }
                 };
+                let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
+                let (ast_to_physical, _) = layout.get_struct_mapping(def_id, &gen_args, 0);
+                return ast_to_physical[ast_idx];
+
             } else if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
                 return match u.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
-                        self.ctx.emit_ice(
-                            span,
-                            format!(
-                                "Kern ICE (Lowering): Field `{}` not found in union `{}`",
-                                self.ctx.resolve(field_name),
-                                self.ctx.resolve(u.name)
-                            ),
-                        );
+                        self.ctx.emit_ice(span, "Kern ICE: Field not found in union".to_string());
                         unreachable!()
                     }
                 };
             }
         }
+        
+        if let TypeKind::AnonymousStruct(is_extern, ref fields) = self.ctx.type_registry.get(norm).clone() {
+            let ast_idx = fields.iter().position(|f| f.name == field_name).unwrap();
+            let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
+            let (ast_to_physical, _) = layout.get_anon_struct_mapping(is_extern, fields, 0);
+            return ast_to_physical[ast_idx];
+        }
+
         0
     }
 }

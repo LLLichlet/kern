@@ -57,6 +57,7 @@ pub enum TypeKind {
     // === 匿名/内联类型定义 (Structural Types) ===
     /// 结构体定义
     Struct {
+        is_extern: bool,
         fields: Vec<StructFieldDef>,
     },
 

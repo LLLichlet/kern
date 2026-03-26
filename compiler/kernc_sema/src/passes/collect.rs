@@ -323,7 +323,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let mut sym_kind = SymbolKind::TypeAlias;
 
         let def = match &target.kind {
-            TypeKind::Struct { fields } => {
+            // TODO:
+            TypeKind::Struct { fields, .. } => {
                 sym_kind = SymbolKind::Struct;
                 Def::Struct(StructDef {
                     id: def_id,

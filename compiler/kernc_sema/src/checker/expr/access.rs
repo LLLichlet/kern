@@ -287,6 +287,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return Some(field_ty);
             }
         }
+        // 支持匿名结构体的字段访问
+        if let TypeKind::AnonymousStruct(_, ref fields) = self.ctx.type_registry.get(search_norm).clone() {
+            if let Some(f) = fields.iter().find(|f| f.name == field) {
+                return Some(f.ty);
+            }
+        }
 
         // 3. 检查 active_bounds 环境约束
         for i in 0..self.ctx.active_bounds.len() {

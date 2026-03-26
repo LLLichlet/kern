@@ -1,4 +1,5 @@
 use inkwell::context::Context;
+use std::env;
 use std::process::Command;
 
 use kernc_codegen::CodeGenerator;
@@ -142,6 +143,12 @@ impl CompilerDriver {
         // 处理跨平台逻辑
         let triple_str = self.options.target.triple.to_string();
         let is_windows = triple_str.contains("windows");
+        let is_darwin = triple_str.contains("darwin") || triple_str.contains("macosx");
+        let triple_str = if is_darwin {
+            normalize_darwin_triple_str(&triple_str)
+        } else {
+            triple_str
+        };
 
         // 8. 根据平台决定临时文件格式：Windows 走 IR，类 Unix 走 Object
         let tmp_ext = if is_windows { "ll" } else { "o" };
@@ -181,8 +188,14 @@ impl CompilerDriver {
                 cmd.arg("-nostdlib");
                 cmd.arg("-lkernel32"); // 链接必需的系统底层 API
             }
+        } else if is_darwin {
+            if !self.options.link_libc {
+                cmd.arg("-nostdlib");
+                cmd.arg("-lSystem");
+                cmd.arg("-Wl,-e,_start");
+            }
         } else {
-            // Linux / macOS 下
+            // Linux 下
             cmd.arg("-no-pie"); // 针对部分 Linux GCC 环境的配置
             if !self.options.link_libc {
                 cmd.arg("-nostdlib");
@@ -207,4 +220,50 @@ impl CompilerDriver {
             }
         }
     }
+}
+
+fn normalize_darwin_triple_str(triple_str: &str) -> String {
+    if triple_str.contains("macosx") && triple_str.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+        return triple_str.to_string();
+    }
+
+    if triple_str.contains("darwin") && triple_str.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+        return triple_str.to_string();
+    }
+
+    let Some(version) = detect_darwin_deployment_target() else {
+        return triple_str.to_string();
+    };
+
+    if let Some(prefix) = triple_str.strip_suffix("-darwin") {
+        return format!("{}-macosx{}.0.0", prefix, version);
+    }
+
+    if let Some(prefix) = triple_str.strip_suffix("-macosx") {
+        return format!("{}-macosx{}.0.0", prefix, version);
+    }
+
+    triple_str.to_string()
+}
+
+fn detect_darwin_deployment_target() -> Option<u16> {
+    if let Ok(version) = env::var("MACOSX_DEPLOYMENT_TARGET") {
+        return parse_darwin_deployment_target_major(&version);
+    }
+
+    let output = Command::new("sw_vers")
+        .arg("-productVersion")
+        .output()
+        .ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let version = String::from_utf8_lossy(&output.stdout);
+    parse_darwin_deployment_target_major(version.trim())
+}
+
+fn parse_darwin_deployment_target_major(version: &str) -> Option<u16> {
+    version.trim().split('.').next()?.parse().ok()
 }

@@ -23,7 +23,29 @@ extern fn _start_linux() void {
     });
 }
 
-#[if(os == "linux")]
+#[if(os == "darwin" and arch == "aarch64")]
+#[export_name("start")]
+extern fn _start_darwin(argc: usize, argv: **u8) void {
+    kern_entry(argc, argv)
+}
+
+#[if(os == "darwin" and arch == "x86_64")]
+#[export_name("start")]
+#[naked]
+extern fn _start_darwin() void {
+    @asm(.{
+        asm: .{
+            "mov rdi, [rsp]",
+            "lea rsi, [rsp + 8]",
+            "and rsp, -16",
+            "call kern_entry",
+        },
+        clobbers: .{ "memory", "rdi", "rsi" },
+        volatile: true
+    });
+}
+
+#[if(os == "linux" or os == "darwin")]
 extern fn kern_entry(argc: usize, argv: **u8) void {
     let ARGV_SLICES = [64]mut []u8.{undef};
     let mut i = 0;

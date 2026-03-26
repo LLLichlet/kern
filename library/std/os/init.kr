@@ -3,6 +3,11 @@ mod linux;
 #[if(os == "linux")]
 pub use .linux.{Handle, get_stdout_handle, write, exit};
 
+#[if(os == "darwin")]
+mod darwin;
+#[if(os == "darwin")]
+pub use .darwin.{Handle, get_stdout_handle, write, exit};
+
 #[if(os == "windows")]
 mod windows;
 #[if(os == "windows")]

@@ -14,7 +14,19 @@ pub fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
     for (; i < fmt_len; ) {
         if (fmt.[i] == b'{') {
             if (i + 1 < fmt_len) {
-                if (fmt.[i + 1] == b'}') {
+                // 1. 处理转义的左大括号 `{{`
+                if (fmt.[i + 1] == b'{') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    let _ = writer.write("{"); // 写入单个 {
+                    i += 2;
+                    last_pos = i;
+                    continue;
+                } 
+                // 2. 处理占位符 `{}`
+                else if (fmt.[i + 1] == b'}') {
                     if (i > last_pos) {
                         let text_slice = fmt.[last_pos .. i];
                         let _ = writer.write(text_slice);
@@ -30,10 +42,27 @@ pub fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
                     continue; 
                 }
             }
+        } 
+        // 3. 处理转义的右大括号 `}}`
+        else if (fmt.[i] == b'}') {
+            if (i + 1 < fmt_len) {
+                if (fmt.[i + 1] == b'}') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    let _ = writer.write("}"); // 写入单个 }
+                    i += 2;
+                    last_pos = i;
+                    continue;
+                }
+            }
         }
+        
         i += 1;
     }
 
+    // 写入剩余的尾部字符串
     if (last_pos < fmt_len) {
         let tail_slice = fmt.[last_pos .. fmt_len];
         let _ = writer.write(tail_slice);

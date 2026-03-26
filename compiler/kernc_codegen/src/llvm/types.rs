@@ -26,7 +26,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 PrimitiveType::F64 => self.context.f64_type().into(),
                 PrimitiveType::Bool => self.context.bool_type().into(),
                 PrimitiveType::Str => self.context.ptr_type(AddressSpace::default()).into(),
-                PrimitiveType::Void | PrimitiveType::Never => self.context.i8_type().into(),
+                PrimitiveType::Void | PrimitiveType::Never => {
+                    self.context.struct_type(&[], false).into()
+                }
             },
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.type_registry.normalize(elem);

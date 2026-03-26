@@ -126,6 +126,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
+        // 拦截 void.{} 构造
+        if self.ctx.type_registry.is_void(exp_norm) {
+            match kind {
+                // 空数组 fallback 或空结构体 fallback 都是合法的
+                ast::DataLiteralKind::Array(elems) if elems.is_empty() => return expected,
+                ast::DataLiteralKind::Struct(fields) if fields.is_empty() => return expected,
+                _ => {
+                    self.ctx.struct_error(span, "`void` is a zero-sized type and can only be initialized with empty braces `.{}`").emit();
+                    return TypeId::ERROR;
+                }
+            }
+        }
+
         // 统一识别 Enum 类型
         let is_data = matches!(kind_enum, TypeKind::Enum(..));
 

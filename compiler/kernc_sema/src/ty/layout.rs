@@ -173,6 +173,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     fn primitive_align(&self, p: PrimitiveType) -> u64 {
         use PrimitiveType::*;
         match p {
+            Void => 1,
             I8 | U8 | Bool => 1,
             I16 | U16 => 2,
             I32 | U32 | F32 => 4,
@@ -186,6 +187,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     fn primitive_size(&self, p: PrimitiveType) -> u64 {
         use PrimitiveType::*;
         match p {
+            Void => 0,
             I8 | U8 | Bool => 1,
             I16 | U16 => 2,
             I32 | U32 | F32 => 4,

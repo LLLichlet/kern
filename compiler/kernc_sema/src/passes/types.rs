@@ -319,6 +319,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::TypeKind::Path { segments, generics } => {
                 self.resolve_path_type(segments, generics, env_scope, ty_node.span)
             }
+            ast::TypeKind::Void => TypeId::VOID,
             ast::TypeKind::Pointer { is_mut, elem } => {
                 let base = self.resolve_type(elem, env_scope);
                 self.ctx.type_registry.intern(TypeKind::Pointer {

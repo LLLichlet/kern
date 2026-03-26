@@ -50,6 +50,8 @@ pub enum TokenType {
     Match, // match
     Mod,
     Where,
+    CapitalFn,
+    Void,
 
     // === 运算符 ===
 

@@ -87,6 +87,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::ERROR;
                 }
 
+                // 拦截 void 运算
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm) {
+                    self.ctx.struct_error(lhs.span, "arithmetic operations cannot be applied to `void`")
+                        .with_hint("`void` is a zero-sized type and carries no scalar value").emit();
+                    return TypeId::ERROR;
+                }
+
                 // 常规数值加减法
                 if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
@@ -103,12 +110,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return TypeId::ERROR;
                 }
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm) {
+                    self.ctx.struct_error(lhs.span, "arithmetic operations cannot be applied to `void`").emit();
+                    return TypeId::ERROR;
+                }
                 if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }
                 l_norm
             }
-            Equal | NotEqual | LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
+            Equal | NotEqual => {
+                // 允许 void == void，这将在编译期被常量折叠为 true
+                if !self.check_coercion(rhs, l_norm, r_norm) {
+                    return TypeId::ERROR;
+                }
+                TypeId::BOOL
+            }
+            LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
+                // === 不允许对 void 比较大小 ===
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm) {
+                    self.ctx.struct_error(lhs.span, "relational comparisons cannot be applied to `void`").emit();
+                    return TypeId::ERROR;
+                }
                 if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }

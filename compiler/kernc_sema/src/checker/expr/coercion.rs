@@ -84,7 +84,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return true;
                     }
 
-                    // B. 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
+                    // B. *void 万能指针隐式降级 
+                    // 只要目标期望类型是 void（且满足上方的 mut 安全性校验），则允许任何非胖指针自然降级
+                    if self.ctx.type_registry.is_void(e_norm) {
+                        return true;
+                    }
+
+                    // C. 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
                         let downgraded_act = if !*e_mut && *a_mut {
                             self.ctx.type_registry.intern(TypeKind::Pointer {
@@ -102,7 +108,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
 
-            // C. BNC: 裸值到 Trait Object (T -> *Trait / T -> *mut Trait)
+            // D. BNC: 裸值到 Trait Object (T -> *Trait / T -> *mut Trait)
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
                 // 如果 actual 并不是一个指针，而是一个裸值 (T)
                 if !matches!(act_kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }) {
@@ -147,6 +153,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     let e_norm = self.resolve_tv(*e_inner);
                     let a_norm = self.resolve_tv(*a_inner);
                     if e_norm == a_norm {
+                        return true;
+                    }
+                    if self.ctx.type_registry.is_void(e_norm) {
                         return true;
                     }
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {

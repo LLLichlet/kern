@@ -703,6 +703,8 @@ fn resolve_keyword(text: &[u8]) -> TokenType {
         b"match" => TokenType::Match,
         b"mod" => TokenType::Mod,
         b"where" => TokenType::Where,
+        b"void" => TokenType::Void,
+        b"Fn" => TokenType::CapitalFn,
         _ => TokenType::Identifier,
     }
 }

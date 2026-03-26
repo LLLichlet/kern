@@ -168,7 +168,7 @@ impl<'a> Parser<'a> {
                 kind: ExprKind::Bool(false),
             }),
 
-            TokenType::Identifier => {
+            TokenType::Identifier | TokenType::Void => {
                 let name = self.intern_token(token);
                 Ok(Expr {
                     id: self.new_id(),

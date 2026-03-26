@@ -12,16 +12,17 @@ impl<'a> Parser<'a> {
             TokenType::Caret => self.parse_volatile_pointer_type(),
             TokenType::LBracket => self.parse_array_or_slice_type(),
             TokenType::Fn => self.parse_fn_type(),
-            TokenType::Identifier => {
-                let sym = self.intern_token(start_token);
-                // 拦截大写的 `Fn` 作为闭包胖指针接口
-                if self.session.resolve(sym) == "Fn" {
-                    self.parse_closure_interface_type()
-                } else {
-                    self.parse_path_type()
-                }
-            }
+            TokenType::CapitalFn => self.parse_closure_interface_type(),
+            TokenType::Identifier => self.parse_path_type(),
             TokenType::At => self.parse_intrinsic_type(),
+            TokenType::Void => {
+                self.advance();
+                Ok(TypeNode {
+                    id: self.new_id(),
+                    span: start_token.span,
+                    kind: TypeKind::Void,
+                })
+            }
             TokenType::Bang => {
                 self.advance();
                 Ok(TypeNode {

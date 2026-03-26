@@ -59,6 +59,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let l = self.lower_expr(lhs, subst_map, None);
 
             let l_norm = self.ctx.type_registry.normalize(l.ty);
+            
+            if self.ctx.type_registry.is_void(l_norm) {
+                if op == ast::BinaryOperator::Equal {
+                    return MastExprKind::Bool(true);
+                } else if op == ast::BinaryOperator::NotEqual {
+                    return MastExprKind::Bool(false);
+                }
+                // TODO: unreachable() + 报错 ICE
+            }
+            
             let is_l_ptr = matches!(
                 self.ctx.type_registry.get(l_norm),
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }

@@ -1,8 +1,8 @@
-use std::collections::HashMap;
 use crate::SemaContext;
 use crate::def::{Def, DefId};
 use crate::ty::TypeId;
 use kernc_utils::Span;
+use std::collections::HashMap;
 
 pub struct LinkageChecker<'a, 'ctx> {
     pub ctx: &'a mut SemaContext<'ctx>,
@@ -42,38 +42,62 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                     (f.body.is_some(), f.is_extern, sig_ty, f.span)
                 }
                 Def::Global(g) => {
-                    let sig_ty = self.ctx.node_types.get(&g.value.id).copied().unwrap_or(TypeId::ERROR);
+                    let sig_ty = self
+                        .ctx
+                        .node_types
+                        .get(&g.value.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
                     (!g.is_extern, g.is_extern, sig_ty, g.span)
                 }
                 _ => continue,
             };
 
             // 如果之前的阶段类型推导失败，跳过
-            if sig_ty == TypeId::ERROR { continue; }
+            if sig_ty == TypeId::ERROR {
+                continue;
+            }
 
             let export_name = self.ctx.get_export_name(def_id, &[]);
 
-            if let Some((prev_is_def, prev_sig_ty, prev_is_extern, prev_span)) = symbols.get(&export_name) {
+            if let Some((prev_is_def, prev_sig_ty, prev_is_extern, prev_span)) =
+                symbols.get(&export_name)
+            {
                 if *prev_sig_ty != sig_ty {
                     let expected_str = self.ctx.ty_to_string(*prev_sig_ty);
                     let found_str = self.ctx.ty_to_string(sig_ty);
-                    
-                    self.ctx.struct_error(span, format!("linkage signature mismatch for symbol `{}`", export_name))
+
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!("linkage signature mismatch for symbol `{}`", export_name),
+                        )
                         .with_hint(format!("expected signature: {}", expected_str))
                         .with_hint(format!("found signature:    {}", found_str))
                         .with_span_label(*prev_span, "previously declared/defined here")
                         .emit();
                 } else if is_definition && *prev_is_def {
-                    self.ctx.struct_error(span, format!("duplicate definition of symbol `{}`", export_name))
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!("duplicate definition of symbol `{}`", export_name),
+                        )
                         .with_span_label(*prev_span, "first definition was here")
                         .emit();
                 } else if is_definition && !is_extern && *prev_is_extern {
-                    self.ctx.struct_error(span, format!("definition of `{}` must be explicitly marked as `extern`", export_name))
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "definition of `{}` must be explicitly marked as `extern`",
+                                export_name
+                            ),
+                        )
                         .with_hint("it matches an external C-ABI declaration from another module")
                         .with_span_label(*prev_span, "external declaration was here")
                         .emit();
                 }
-                
+
                 if is_definition && !*prev_is_def {
                     symbols.insert(export_name, (is_definition, sig_ty, is_extern, span));
                 }

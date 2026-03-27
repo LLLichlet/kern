@@ -90,7 +90,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
 
         // 拦截胖指针构造（Trait Object 和 Closure Object）
-        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } = kind_enum {
+        if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
+            kind_enum
+        {
             let elem_norm = self.resolve_tv(elem);
             let target_inner_kind = self.ctx.type_registry.get(elem_norm).clone();
             // 提取唯一参数
@@ -103,9 +105,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             match target_inner_kind {
                 TypeKind::TraitObject(..) => {
                     if let Some(inner) = inner_expr_opt {
-                        return self.check_trait_object_init(inner, expected, elem_norm, is_mut, span);
+                        return self
+                            .check_trait_object_init(inner, expected, elem_norm, is_mut, span);
                     } else {
-                        self.ctx.struct_error(span, "trait objects must be initialized with a single pointer")
+                        self.ctx
+                            .struct_error(
+                                span,
+                                "trait objects must be initialized with a single pointer",
+                            )
                             .with_hint("example: `*mut Reader.{ file_ptr }`")
                             .emit();
                         return TypeId::ERROR;
@@ -113,7 +120,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 TypeKind::ClosureInterface { .. } => {
                     if let Some(inner) = inner_expr_opt {
-                        return self.check_closure_object_init(inner, expected, elem_norm, is_mut, span);
+                        return self
+                            .check_closure_object_init(inner, expected, elem_norm, is_mut, span);
                     } else {
                         self.ctx.struct_error(span, "invalid closure fat pointer construction")
                             .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }` or `*Fn(...).{ raw_pointer }`")
@@ -173,7 +181,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     if let ExprKind::Identifier(variant_name) = &inner.kind {
                         self.check_enum_literal(*variant_name, Some(expected), inner.span)
                     } else {
-                        self.ctx.struct_error(inner.span, "expected a simple variant name for data literal").emit();
+                        self.ctx
+                            .struct_error(
+                                inner.span,
+                                "expected a simple variant name for data literal",
+                            )
+                            .emit();
                         TypeId::ERROR
                     }
                 } else {
@@ -254,7 +267,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.ctx
                         .struct_error(
                             span,
-                            format!("variant `.{}` does not exist in the expected data type", v_str),
+                            format!(
+                                "variant `.{}` does not exist in the expected data type",
+                                v_str
+                            ),
                         )
                         .with_hint(format!("expected data type is `{}`", exp_str))
                         .emit();
@@ -521,88 +537,99 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Vec<ast::GenericParam>,
             Vec<TypeId>,
             bool,
-        ) =
-            if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
-                match &self.ctx.defs[def_id.0 as usize] {
-                    Def::Struct(s) => {
-                        let fields = s
-                            .fields
-                            .iter()
-                            .map(|field| {
-                                (
-                                    field.name,
-                                    self.ctx
-                                        .node_types
-                                        .get(&field.type_node.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR),
-                                    field.default_value.is_some(),
-                                )
-                            })
-                            .collect();
-                        (
-                            fields,
-                            self.ctx.resolve(s.name).to_string(),
-                            s.generics.clone(),
-                            args.clone(),
-                            false,
-                        )
-                    }
-                    Def::Union(u) => {
-                        let fields = u
-                            .fields
-                            .iter()
-                            .map(|field| {
-                                (
-                                    field.name,
-                                    self.ctx
-                                        .node_types
-                                        .get(&field.type_node.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR),
-                                    false,
-                                )
-                            })
-                            .collect();
-                        (
-                            fields,
-                            self.ctx.resolve(u.name).to_string(),
-                            u.generics.clone(),
-                            args.clone(),
-                            true,
-                        )
-                    }
-                    _ => {
-                        self.ctx
-                            .struct_error(
-                                span,
-                                "expected a struct or union type for literal initialization",
+        ) = if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
+            match &self.ctx.defs[def_id.0 as usize] {
+                Def::Struct(s) => {
+                    let fields = s
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            (
+                                field.name,
+                                self.ctx
+                                    .node_types
+                                    .get(&field.type_node.id)
+                                    .copied()
+                                    .unwrap_or(TypeId::ERROR),
+                                field.default_value.is_some(),
                             )
-                            .emit();
-                        return TypeId::ERROR;
-                    }
-                }
-            } else if let TypeKind::AnonymousStruct(_, fields) = self.ctx.type_registry.get(exp_norm) {
-                let defs: Vec<_> = fields
-                    .iter()
-                    .map(|field| (field.name, field.ty, false))
-                    .collect();
-                (defs, self.ctx.ty_to_string(exp_norm), Vec::new(), Vec::new(), false)
-            } else if let TypeKind::AnonymousUnion(_, fields) = self.ctx.type_registry.get(exp_norm) {
-                let defs: Vec<_> = fields
-                    .iter()
-                    .map(|field| (field.name, field.ty, false))
-                    .collect();
-                (defs, self.ctx.ty_to_string(exp_norm), Vec::new(), Vec::new(), true)
-            } else {
-                self.ctx
-                    .struct_error(
-                        span,
-                        "expected a struct or union type for literal initialization",
+                        })
+                        .collect();
+                    (
+                        fields,
+                        self.ctx.resolve(s.name).to_string(),
+                        s.generics.clone(),
+                        args.clone(),
+                        false,
                     )
-                    .emit();
-                return TypeId::ERROR;
-            };
+                }
+                Def::Union(u) => {
+                    let fields = u
+                        .fields
+                        .iter()
+                        .map(|field| {
+                            (
+                                field.name,
+                                self.ctx
+                                    .node_types
+                                    .get(&field.type_node.id)
+                                    .copied()
+                                    .unwrap_or(TypeId::ERROR),
+                                false,
+                            )
+                        })
+                        .collect();
+                    (
+                        fields,
+                        self.ctx.resolve(u.name).to_string(),
+                        u.generics.clone(),
+                        args.clone(),
+                        true,
+                    )
+                }
+                _ => {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "expected a struct or union type for literal initialization",
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                }
+            }
+        } else if let TypeKind::AnonymousStruct(_, fields) = self.ctx.type_registry.get(exp_norm) {
+            let defs: Vec<_> = fields
+                .iter()
+                .map(|field| (field.name, field.ty, false))
+                .collect();
+            (
+                defs,
+                self.ctx.ty_to_string(exp_norm),
+                Vec::new(),
+                Vec::new(),
+                false,
+            )
+        } else if let TypeKind::AnonymousUnion(_, fields) = self.ctx.type_registry.get(exp_norm) {
+            let defs: Vec<_> = fields
+                .iter()
+                .map(|field| (field.name, field.ty, false))
+                .collect();
+            (
+                defs,
+                self.ctx.ty_to_string(exp_norm),
+                Vec::new(),
+                Vec::new(),
+                true,
+            )
+        } else {
+            self.ctx
+                .struct_error(
+                    span,
+                    "expected a struct or union type for literal initialization",
+                )
+                .emit();
+            return TypeId::ERROR;
+        };
 
         let mut initialized = std::collections::HashSet::new();
 
@@ -778,50 +805,76 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let is_inner_ptr_mut = match self.ctx.type_registry.get(inner_ty_id) {
             TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
             _ => {
-                self.ctx.struct_error(inner.span, "closure objects can only be constructed from pointers")
+                self.ctx
+                    .struct_error(
+                        inner.span,
+                        "closure objects can only be constructed from pointers",
+                    )
                     .emit();
                 return TypeId::ERROR;
             }
         };
 
         if is_mut_expected && !is_inner_ptr_mut {
-            self.ctx.struct_error(inner.span, "cannot create a mutable closure object from an immutable pointer")
+            self.ctx
+                .struct_error(
+                    inner.span,
+                    "cannot create a mutable closure object from an immutable pointer",
+                )
                 .emit();
             return TypeId::ERROR;
         }
 
-        let interface_kind = self.ctx.type_registry.get(closure_interface_norm).clone(); 
+        let interface_kind = self.ctx.type_registry.get(closure_interface_norm).clone();
         let (interface_params, interface_ret) = match interface_kind {
             TypeKind::ClosureInterface { params, ret } => (params, ret),
             _ => unreachable!(),
         };
 
-        let inner_elem_ty = self.ctx.type_registry.get_elem_type(inner_ty_id).unwrap_or(TypeId::ERROR);
+        let inner_elem_ty = self
+            .ctx
+            .type_registry
+            .get_elem_type(inner_ty_id)
+            .unwrap_or(TypeId::ERROR);
         let inner_elem_ty_id = self.resolve_tv(inner_elem_ty);
         let inner_elem_norm = self.ctx.type_registry.normalize(inner_elem_ty_id);
         let inner_kind = self.ctx.type_registry.get(inner_elem_norm).clone();
 
         match inner_kind {
-            TypeKind::AnonymousState { params: state_params, ret: state_ret, .. } => {
+            TypeKind::AnonymousState {
+                params: state_params,
+                ret: state_ret,
+                ..
+            } => {
                 if interface_params.len() != state_params.len() {
-                    self.ctx.struct_error(span, "closure signature mismatch: incorrect number of parameters").emit();
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "closure signature mismatch: incorrect number of parameters",
+                        )
+                        .emit();
                     return TypeId::ERROR;
                 }
                 for (exp_p, act_p) in interface_params.iter().zip(state_params.iter()) {
                     if self.resolve_tv(*exp_p) != self.resolve_tv(*act_p) {
-                        self.ctx.struct_error(span, "closure parameter mismatch").emit();
+                        self.ctx
+                            .struct_error(span, "closure parameter mismatch")
+                            .emit();
                         return TypeId::ERROR;
                     }
                 }
                 if self.resolve_tv(interface_ret) != self.resolve_tv(state_ret) {
-                    self.ctx.struct_error(span, "closure return type mismatch").emit();
+                    self.ctx
+                        .struct_error(span, "closure return type mismatch")
+                        .emit();
                     return TypeId::ERROR;
                 }
                 return expected_ptr_ty;
             }
             _ => {
                 let actual_ty_str = self.ctx.ty_to_string(inner_elem_norm);
-                self.ctx.struct_error(inner.span, "expected a closure anonymous state pointer")
+                self.ctx
+                    .struct_error(inner.span, "expected a closure anonymous state pointer")
                     .with_hint(format!("found pointer to `{}`", actual_ty_str))
                     .emit();
                 return TypeId::ERROR;

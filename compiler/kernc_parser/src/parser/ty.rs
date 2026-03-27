@@ -52,7 +52,7 @@ impl<'a> Parser<'a> {
                 let ext_span = self.advance().span; // 消费 'extern'
                 if self.check(TokenType::Struct) {
                     // is_union = false, is_extern = true
-                    let mut struct_ty = self.parse_struct_type(false, true)?; 
+                    let mut struct_ty = self.parse_struct_type(false, true)?;
                     struct_ty.span = ext_span.to(struct_ty.span);
                     Ok(struct_ty)
                 } else if self.check(TokenType::Union) {
@@ -61,7 +61,10 @@ impl<'a> Parser<'a> {
                     Ok(union_ty)
                 } else {
                     let token = self.peek();
-                    self.add_error(token.span, "Expected `struct` or `union` after `extern` in type position".to_string());
+                    self.add_error(
+                        token.span,
+                        "Expected `struct` or `union` after `extern` in type position".to_string(),
+                    );
                     Err(())
                 }
             }
@@ -424,7 +427,7 @@ impl<'a> Parser<'a> {
             // @typeOf 内部包含的是一个完整的表达式
             let expr = self.parse_expression(Precedence::Lowest)?;
             let end_token = self.expect(TokenType::RParen)?;
-            
+
             Ok(TypeNode {
                 id: self.new_id(),
                 span: at_span.to(end_token.span),
@@ -432,8 +435,8 @@ impl<'a> Parser<'a> {
             })
         } else {
             self.add_error(
-                id_token.span, 
-                format!("Unknown compile-time type intrinsic: @{}", name)
+                id_token.span,
+                format!("Unknown compile-time type intrinsic: @{}", name),
             );
             Err(())
         }

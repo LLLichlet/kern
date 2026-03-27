@@ -34,7 +34,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let elem_norm = self.type_registry.normalize(elem);
                 // 特判：指向 Trait Object 或 ClosureInterface 的指针，物理布局是一个胖指针结构体
                 if matches!(
-                    self.type_registry.get(elem_norm), 
+                    self.type_registry.get(elem_norm),
                     TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
                 ) {
                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
@@ -71,10 +71,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         return struct_ty.as_basic_type_enum();
                     }
                 }
-                
+
                 self.sess.emit_ice(
                     Span::default(),
-                    format!("Kern ICE (Codegen): DefId {} not instantiated by Lowerer", def_id.0),
+                    format!(
+                        "Kern ICE (Codegen): DefId {} not instantiated by Lowerer",
+                        def_id.0
+                    ),
                 );
                 unreachable!()
             }
@@ -87,20 +90,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         }
                     }
                 }
-                
+
                 self.sess.emit_ice(
                     Span::default(),
-                    format!("Kern ICE (Codegen): EnumPayload for DefId {} not instantiated", def_id.0),
+                    format!(
+                        "Kern ICE (Codegen): EnumPayload for DefId {} not instantiated",
+                        def_id.0
+                    ),
                 );
                 unreachable!()
             }
-            TypeKind::AnonymousStruct( .. ) => {
+            TypeKind::AnonymousStruct(..) => {
                 if let Some(&mono_id) = self.anon_struct_map.get(&norm) {
                     if let Some(struct_ty) = self.structs.get(&mono_id) {
                         return struct_ty.as_basic_type_enum();
                     }
                 }
-                
+
                 self.sess.emit_ice(
                     Span::default(),
                     format!("Kern ICE (Codegen): AnonymousStruct TypeId({:?}) not instantiated by Lowerer", norm),

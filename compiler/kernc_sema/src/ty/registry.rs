@@ -136,7 +136,10 @@ impl TypeRegistry {
     }
 
     pub fn is_closure_interface(&self, id: TypeId) -> bool {
-        matches!(self.get(self.normalize(id)), TypeKind::ClosureInterface { .. })
+        matches!(
+            self.get(self.normalize(id)),
+            TypeKind::ClosureInterface { .. }
+        )
     }
 
     /// 检查一个类型是否是严格的 void (穿透别名)
@@ -148,10 +151,7 @@ impl TypeRegistry {
     /// 检查一个类型是否是任意指针 (*T 或 *mut T)
     /// 用于判断该类型是否可以参与到 *void 的 BNC 边界转换
     pub fn is_any_pointer(&self, id: TypeId) -> bool {
-        matches!(
-            self.get(self.normalize(id)),
-            TypeKind::Pointer { .. }
-        )
+        matches!(self.get(self.normalize(id)), TypeKind::Pointer { .. })
     }
 
     /// 检查一个类型是否是万能指针 (*void 或 *mut void)

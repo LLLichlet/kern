@@ -30,7 +30,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 ConstValue::Bool(b) => return MastExprKind::Bool(b),
                                 ConstValue::String(s) => return MastExprKind::StringLiteral(s),
                                 _ => {
-                                    let inlined_mast = self.lower_expr(&const_expr, &std::collections::HashMap::new(), None);
+                                    let inlined_mast = self.lower_expr(
+                                        &const_expr,
+                                        &std::collections::HashMap::new(),
+                                        None,
+                                    );
                                     return inlined_mast.kind;
                                 }
                             }
@@ -148,9 +152,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                     ConstValue::Float(f) => return MastExprKind::Float(f),
                                     ConstValue::Bool(b) => return MastExprKind::Bool(b),
                                     ConstValue::String(s) => return MastExprKind::StringLiteral(s),
-                                    
+
                                     _ => {
-                                        let inlined_mast = self.lower_expr(&const_expr, &HashMap::new(), None);
+                                        let inlined_mast =
+                                            self.lower_expr(&const_expr, &HashMap::new(), None);
                                         return inlined_mast.kind;
                                     }
                                 }
@@ -207,17 +212,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let field_idx = self.get_physical_field_index(base_ty, field, span);
-        
+
         let struct_id = match self.ctx.type_registry.get(norm_base).clone() {
-            TypeKind::Def(def_id, gen_args) => {
-                self.instantiate_struct(def_id, &gen_args)
-            }
-            TypeKind::AnonymousStruct( .. ) => {
-                self.instantiate_anon_struct(norm_base)
-            }
-            TypeKind::AnonymousUnion(..) => {
-                self.instantiate_anon_union(norm_base)
-            }
+            TypeKind::Def(def_id, gen_args) => self.instantiate_struct(def_id, &gen_args),
+            TypeKind::AnonymousStruct(..) => self.instantiate_anon_struct(norm_base),
+            TypeKind::AnonymousUnion(..) => self.instantiate_anon_union(norm_base),
             _ => {
                 self.ctx.emit_ice(
                     span,
@@ -260,26 +259,34 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let ast_idx = match s.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
-                        self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Field `{}` not found in struct", self.ctx.resolve(field_name)));
+                        self.ctx.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Lowering): Field `{}` not found in struct",
+                                self.ctx.resolve(field_name)
+                            ),
+                        );
                         unreachable!()
                     }
                 };
                 let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
                 let (ast_to_physical, _) = layout.get_struct_mapping(def_id, &gen_args, 0);
                 return ast_to_physical[ast_idx];
-
             } else if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
                 return match u.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
-                        self.ctx.emit_ice(span, "Kern ICE: Field not found in union".to_string());
+                        self.ctx
+                            .emit_ice(span, "Kern ICE: Field not found in union".to_string());
                         unreachable!()
                     }
                 };
             }
         }
-        
-        if let TypeKind::AnonymousStruct(is_extern, ref fields) = self.ctx.type_registry.get(norm).clone() {
+
+        if let TypeKind::AnonymousStruct(is_extern, ref fields) =
+            self.ctx.type_registry.get(norm).clone()
+        {
             let ast_idx = fields.iter().position(|f| f.name == field_name).unwrap();
             let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
             let (ast_to_physical, _) = layout.get_anon_struct_mapping(is_extern, fields, 0);

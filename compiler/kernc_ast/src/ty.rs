@@ -90,7 +90,7 @@ pub enum TypeKind {
 
     /// Void 类型，大小严格为 0 的 ZST (Zero-Sized Type)
     Void,
-    
+
     /// 编译期类型求值 `@typeOf(expr)`
     TypeOf(Box<Expr>),
 

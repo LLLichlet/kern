@@ -88,9 +88,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 // 拦截 void 运算
-                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm) {
-                    self.ctx.struct_error(lhs.span, "arithmetic operations cannot be applied to `void`")
-                        .with_hint("`void` is a zero-sized type and carries no scalar value").emit();
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
+                {
+                    self.ctx
+                        .struct_error(
+                            lhs.span,
+                            "arithmetic operations cannot be applied to `void`",
+                        )
+                        .with_hint("`void` is a zero-sized type and carries no scalar value")
+                        .emit();
                     return TypeId::ERROR;
                 }
 
@@ -110,8 +116,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return TypeId::ERROR;
                 }
-                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm) {
-                    self.ctx.struct_error(lhs.span, "arithmetic operations cannot be applied to `void`").emit();
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
+                {
+                    self.ctx
+                        .struct_error(
+                            lhs.span,
+                            "arithmetic operations cannot be applied to `void`",
+                        )
+                        .emit();
                     return TypeId::ERROR;
                 }
                 if !self.check_coercion(rhs, l_norm, r_norm) {
@@ -128,8 +140,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
                 // === 不允许对 void 比较大小 ===
-                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm) {
-                    self.ctx.struct_error(lhs.span, "relational comparisons cannot be applied to `void`").emit();
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
+                {
+                    self.ctx
+                        .struct_error(
+                            lhs.span,
+                            "relational comparisons cannot be applied to `void`",
+                        )
+                        .emit();
                     return TypeId::ERROR;
                 }
                 if !self.check_coercion(rhs, l_norm, r_norm) {
@@ -227,18 +245,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             UnaryOperator::MetaOf => {
                 let norm = self.resolve_tv(op_ty);
                 let kind = self.ctx.type_registry.get(norm).clone(); // Clone 一下方便 match
-                
+
                 match kind {
                     // 1. 传统的切片和数组：返回 usize 长度
-                    TypeKind::Array { .. } | TypeKind::Slice { .. } | TypeKind::ArrayInfer { .. } => TypeId::USIZE,
-                    
+                    TypeKind::Array { .. }
+                    | TypeKind::Slice { .. }
+                    | TypeKind::ArrayInfer { .. } => TypeId::USIZE,
+
                     // 2. 闭包与 Trait 胖指针：提取底层的数据状态指针 (*mut void 或 *void)
                     TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
                         let elem_norm = self.resolve_tv(elem);
                         let inner_kind = self.ctx.type_registry.get(elem_norm);
-                        
+
                         // 闭包接口和 Trait Object 都是标准的 { data_ptr, meta_ptr } 胖指针
-                        if matches!(inner_kind, TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)) {
+                        if matches!(
+                            inner_kind,
+                            TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)
+                        ) {
                             // 构造并返回 *mut void 或 *void，以便用于底层的显式 free 或 unsafe 转换
                             self.ctx.type_registry.intern(TypeKind::Pointer {
                                 is_mut,
@@ -255,7 +278,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             TypeId::ERROR
                         }
                     }
-                    
+
                     _ => {
                         self.ctx
                             .struct_error(

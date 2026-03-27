@@ -1,7 +1,7 @@
 use super::Lowerer;
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
-use kernc_sema::checker::{ConstValue, ConstEvaluator, Substituter};
+use kernc_sema::checker::{ConstEvaluator, ConstValue, Substituter};
 use kernc_sema::def::{Def, DefId, GlobalDef};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
@@ -133,10 +133,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else {
             self.ctx.emit_ice(
                 Span::default(),
-                format!(
-                    "Kern ICE (Lowering): DefId {} is not a Struct!",
-                    def_id.0
-                ),
+                format!("Kern ICE (Lowering): DefId {} is not a Struct!", def_id.0),
             );
             unreachable!()
         };
@@ -157,7 +154,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
 
         let mut mast_fields = Vec::with_capacity(def.fields.len());
-        
+
         for &ast_idx in &physical_to_ast {
             let f = &def.fields[ast_idx];
             let raw_ty = self
@@ -182,7 +179,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             largest_field_idx: 0,
             attributes: self.extract_meta_items(&def.attributes),
         });
-        
+
         id
     }
 
@@ -194,12 +191,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let id = self.new_mono_id();
         self.anon_struct_cache.insert(norm_ty, id);
 
-        let (is_extern, fields) = if let TypeKind::AnonymousStruct(ext, f) = self.ctx.type_registry.get(norm_ty).clone() {
+        let (is_extern, fields) = if let TypeKind::AnonymousStruct(ext, f) =
+            self.ctx.type_registry.get(norm_ty).clone()
+        {
             (ext, f)
         } else {
             self.ctx.emit_ice(
                 Span::default(),
-                format!("Kern ICE (Lowering): Expected AnonymousStruct, found {:?}", self.ctx.type_registry.get(norm_ty))
+                format!(
+                    "Kern ICE (Lowering): Expected AnonymousStruct, found {:?}",
+                    self.ctx.type_registry.get(norm_ty)
+                ),
             );
             unreachable!()
         };
@@ -208,7 +210,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let (_, physical_to_ast) = layout.get_anon_struct_mapping(is_extern, &fields, 0);
 
         let mut mast_fields = Vec::with_capacity(fields.len());
-        
+
         for &ast_idx in &physical_to_ast {
             let f = &fields[ast_idx];
             mast_fields.push(MastField {
@@ -228,7 +230,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             largest_field_idx: 0,
             attributes: vec![],
         });
-        
+
         id
     }
 
@@ -295,19 +297,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.anon_enum_cache.insert(norm_ty, wrapper_id);
         self.adt_union_map.insert(wrapper_id, payload_union_id);
 
-        let enum_def =
-            if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_ty).clone() {
-                enum_def
-            } else {
-                self.ctx.emit_ice(
-                    Span::default(),
-                    format!(
-                        "Kern ICE (Lowering): Expected AnonymousEnum, found {:?}",
-                        self.ctx.type_registry.get(norm_ty)
-                    ),
-                );
-                unreachable!()
-            };
+        let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
+            self.ctx.type_registry.get(norm_ty).clone()
+        {
+            enum_def
+        } else {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): Expected AnonymousEnum, found {:?}",
+                    self.ctx.type_registry.get(norm_ty)
+                ),
+            );
+            unreachable!()
+        };
 
         let mut union_fields = Vec::new();
         let mut largest_idx = 0;

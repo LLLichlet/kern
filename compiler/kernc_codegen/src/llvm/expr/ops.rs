@@ -102,12 +102,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let l_ptr = l_val.into_pointer_value();
                     let r_ptr = r_val.into_pointer_value();
                     let elem_sema_ty = self.type_registry.get_elem_type(lhs_ty).unwrap();
-                    
+
                     // *void - *void === 0
                     if self.is_void_type(elem_sema_ty) {
                         return self.context.i64_type().const_zero().into();
                     }
-                    
+
                     let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
 
                     self.builder

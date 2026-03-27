@@ -7,7 +7,7 @@ pub use layout::LayoutEngine;
 pub use registry::TypeRegistry;
 
 use crate::def::DefId;
-use kernc_utils::{SymbolId, NodeId};
+use kernc_utils::{NodeId, SymbolId};
 
 /// 类型的唯一 ID (轻量级 Handle)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

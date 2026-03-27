@@ -125,7 +125,12 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 format!("Fn({}) {}", param_strs.join(", "), self.format(*ret))
             }
 
-            TypeKind::AnonymousState { captures, params, ret, .. } => {
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
                 let cap_strs: Vec<String> = captures.iter().map(|c| self.format(*c)).collect();
                 let param_strs: Vec<String> = params.iter().map(|p| self.format(*p)).collect();
                 format!(
@@ -137,7 +142,11 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             }
 
             TypeKind::AnonymousStruct(is_extern, fields) => {
-                let prefix = if *is_extern { "extern struct" } else { "struct" };
+                let prefix = if *is_extern {
+                    "extern struct"
+                } else {
+                    "struct"
+                };
                 if fields.is_empty() {
                     format!("{} {{}}", prefix)
                 } else {
@@ -178,7 +187,11 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 }
 
                 if let Some(backing_ty) = enum_def.backing_ty {
-                    format!("enum: {} {{ {} }}", self.format(backing_ty), parts.join(", "))
+                    format!(
+                        "enum: {} {{ {} }}",
+                        self.format(backing_ty),
+                        parts.join(", ")
+                    )
                 } else {
                     format!("enum {{ {} }}", parts.join(", "))
                 }

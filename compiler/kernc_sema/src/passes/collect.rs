@@ -324,7 +324,10 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         let def = match &target.kind {
             // TODO:
-            TypeKind::Struct { is_extern: target_extern, fields } => {
+            TypeKind::Struct {
+                is_extern: target_extern,
+                fields,
+            } => {
                 sym_kind = SymbolKind::Struct;
                 Def::Struct(StructDef {
                     id: def_id,
@@ -338,7 +341,10 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     attributes: decl.attributes.clone(),
                 })
             }
-            TypeKind::Union { is_extern: target_extern, fields } => {
+            TypeKind::Union {
+                is_extern: target_extern,
+                fields,
+            } => {
                 sym_kind = SymbolKind::Union;
                 Def::Union(UnionDef {
                     id: def_id,

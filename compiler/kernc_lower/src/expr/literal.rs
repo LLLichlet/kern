@@ -91,78 +91,87 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = norm {
             let inner_norm = self.ctx.type_registry.normalize(elem);
-            if matches!(self.ctx.type_registry.get(inner_norm), TypeKind::ClosureInterface { .. }) {
-        
-            let raw_expr_opt = match literal {
-                ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
-                ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => Some(&fields[0].value),
-                _ => None,
-            };
+            if matches!(
+                self.ctx.type_registry.get(inner_norm),
+                TypeKind::ClosureInterface { .. }
+            ) {
+                let raw_expr_opt = match literal {
+                    ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
+                    ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => {
+                        Some(&fields[0].value)
+                    }
+                    _ => None,
+                };
 
-            // 只有提取成功，才进入降级生成流程
-            if let Some(raw_expr) = raw_expr_opt {
-                let raw_mast = self.lower_expr(raw_expr, subst_map, None);
-                
-                // 从 raw_mast 的类型中解析出底层 AnonymousState，提取出 NodeId
-                let raw_norm = self.ctx.type_registry.normalize(raw_mast.ty);
-                if let TypeKind::Pointer { elem: raw_elem, .. } | TypeKind::VolatilePtr { elem: raw_elem, .. } = self.ctx.type_registry.get(raw_norm).clone() {
-                    let raw_inner_norm = self.ctx.type_registry.normalize(raw_elem);
-                    
-                    if let TypeKind::AnonymousState { closure_node_id, .. } = self.ctx.type_registry.get(raw_inner_norm) {
-                        
-                        // 查表获取对应的函数 MonoId (代码指针)
-                        let func_mono_id = match self.closure_fn_map.get(closure_node_id) {
-                            Some(&id) => id,
-                            None => {
-                                self.ctx.emit_ice(span, "Kern ICE (Lowering): Failed to find lowered closure function for explicit fat pointer construction.");
-                                unreachable!()
-                            }
-                        };
-                        
-                        // 组装胖指针
-                        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                            is_mut: false,
-                            elem: TypeId::VOID,
-                        });
-                        
-                        let data_ptr_cast = MastExpr::new(
-                            void_ptr_ty,
-                            MastExprKind::Cast {
-                                kind: MastCastKind::Bitcast,
-                                operand: Box::new(raw_mast),
-                            },
-                            span,
-                        );
-                        
-                        let func_ref = MastExpr::new(
-                            TypeId::VOID,
-                            MastExprKind::FuncRef(func_mono_id),
-                            span,
-                        );
-                        let code_ptr_cast = MastExpr::new(
-                            TypeId::USIZE,
-                            MastExprKind::Cast {
-                                kind: MastCastKind::PtrToInt,
-                                operand: Box::new(func_ref),
-                            },
-                            span,
-                        );
-                        
-                        return MastExprKind::ConstructFatPointer {
-                            data_ptr: Box::new(data_ptr_cast),
-                            meta: Box::new(code_ptr_cast),
-                        };
+                // 只有提取成功，才进入降级生成流程
+                if let Some(raw_expr) = raw_expr_opt {
+                    let raw_mast = self.lower_expr(raw_expr, subst_map, None);
+
+                    // 从 raw_mast 的类型中解析出底层 AnonymousState，提取出 NodeId
+                    let raw_norm = self.ctx.type_registry.normalize(raw_mast.ty);
+                    if let TypeKind::Pointer { elem: raw_elem, .. }
+                    | TypeKind::VolatilePtr { elem: raw_elem, .. } =
+                        self.ctx.type_registry.get(raw_norm).clone()
+                    {
+                        let raw_inner_norm = self.ctx.type_registry.normalize(raw_elem);
+
+                        if let TypeKind::AnonymousState {
+                            closure_node_id, ..
+                        } = self.ctx.type_registry.get(raw_inner_norm)
+                        {
+                            // 查表获取对应的函数 MonoId (代码指针)
+                            let func_mono_id = match self.closure_fn_map.get(closure_node_id) {
+                                Some(&id) => id,
+                                None => {
+                                    self.ctx.emit_ice(span, "Kern ICE (Lowering): Failed to find lowered closure function for explicit fat pointer construction.");
+                                    unreachable!()
+                                }
+                            };
+
+                            // 组装胖指针
+                            let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                                is_mut: false,
+                                elem: TypeId::VOID,
+                            });
+
+                            let data_ptr_cast = MastExpr::new(
+                                void_ptr_ty,
+                                MastExprKind::Cast {
+                                    kind: MastCastKind::Bitcast,
+                                    operand: Box::new(raw_mast),
+                                },
+                                span,
+                            );
+
+                            let func_ref = MastExpr::new(
+                                TypeId::VOID,
+                                MastExprKind::FuncRef(func_mono_id),
+                                span,
+                            );
+                            let code_ptr_cast = MastExpr::new(
+                                TypeId::USIZE,
+                                MastExprKind::Cast {
+                                    kind: MastCastKind::PtrToInt,
+                                    operand: Box::new(func_ref),
+                                },
+                                span,
+                            );
+
+                            return MastExprKind::ConstructFatPointer {
+                                data_ptr: Box::new(data_ptr_cast),
+                                meta: Box::new(code_ptr_cast),
+                            };
+                        }
                     }
                 }
-            }
-            
-            // 如果提取失败，再抛出错误
-            self.ctx.struct_error(span, "invalid closure fat pointer construction")
+
+                // 如果提取失败，再抛出错误
+                self.ctx.struct_error(span, "invalid closure fat pointer construction")
                 .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }`")
                 .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
                 .emit();
-            return MastExprKind::Undef;
-        }
+                return MastExprKind::Undef;
+            }
         }
 
         match literal {
@@ -221,8 +230,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                 }
             }
-            TypeKind::AnonymousStruct(..) => self.lower_anon_struct_init(fields, concrete_ty, subst_map),
-            TypeKind::AnonymousUnion(..) => self.lower_anon_union_init(fields, concrete_ty, subst_map),
+            TypeKind::AnonymousStruct(..) => {
+                self.lower_anon_struct_init(fields, concrete_ty, subst_map)
+            }
+            TypeKind::AnonymousUnion(..) => {
+                self.lower_anon_union_init(fields, concrete_ty, subst_map)
+            }
             _ => {
                 self.ctx.emit_ice(
                     Span::default(),
@@ -256,7 +269,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let init_f = &fields[0];
-        let (variant_idx, tag_val) = self.named_enum_variant_info(&def, init_f.name, init_f.value.span);
+        let (variant_idx, tag_val) =
+            self.named_enum_variant_info(&def, init_f.name, init_f.value.span);
 
         let mut variant_subst_map = HashMap::new();
         for (i, param) in def.generics.iter().enumerate() {
@@ -309,13 +323,23 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut ast_ordered_exprs = Vec::new();
         for f_def in &s.fields {
-            let raw_f_ty = self.ctx.node_types.get(&f_def.type_node.id).copied().unwrap_or(TypeId::ERROR);
-            let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map).substitute(raw_f_ty);
+            let raw_f_ty = self
+                .ctx
+                .node_types
+                .get(&f_def.type_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map)
+                .substitute(raw_f_ty);
 
             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
                 ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
             } else {
-                ast_ordered_exprs.push(self.lower_expr(f_def.default_value.as_ref().unwrap(), subst_map, Some(conc_f_ty)));
+                ast_ordered_exprs.push(self.lower_expr(
+                    f_def.default_value.as_ref().unwrap(),
+                    subst_map,
+                    Some(conc_f_ty),
+                ));
             }
         }
 
@@ -389,19 +413,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
-        let (is_extern, anon_fields) =
-            if let TypeKind::AnonymousStruct(is_extern, fields) =
-                self.ctx.type_registry.get(norm_ty).clone()
-            {
-                (is_extern, fields)
-            } else {
-                unreachable!()
-            };
+        let (is_extern, anon_fields) = if let TypeKind::AnonymousStruct(is_extern, fields) =
+            self.ctx.type_registry.get(norm_ty).clone()
+        {
+            (is_extern, fields)
+        } else {
+            unreachable!()
+        };
 
         let struct_id = self.instantiate_anon_struct(norm_ty);
         let mut ast_ordered_exprs = Vec::new();
         for field_def in &anon_fields {
-            let init_f = fields.iter().find(|field| field.name == field_def.name).unwrap();
+            let init_f = fields
+                .iter()
+                .find(|field| field.name == field_def.name)
+                .unwrap();
             ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(field_def.ty)));
         }
 
@@ -457,7 +483,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
-        let enum_def = if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_ty).clone() {
+        let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
+            self.ctx.type_registry.get(norm_ty).clone()
+        {
             enum_def
         } else {
             unreachable!()
@@ -468,7 +496,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let tag_value = self
             .anon_enum_tag_value(&enum_def, init_f.name)
             .unwrap_or_else(|| {
-                self.ctx.emit_ice(init_f.span, "anonymous enum variant not found during lowering");
+                self.ctx.emit_ice(
+                    init_f.span,
+                    "anonymous enum variant not found during lowering",
+                );
                 unreachable!()
             });
 
@@ -588,7 +619,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         concrete_ty: TypeId,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
-        let enum_def = if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_ty).clone() {
+        let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
+            self.ctx.type_registry.get(norm_ty).clone()
+        {
             enum_def
         } else {
             unreachable!()
@@ -602,7 +635,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let tag_value = self.anon_enum_tag_value(&enum_def, variant_name).unwrap();
 
-        if enum_def.variants.iter().all(|variant| variant.payload_ty.is_none()) {
+        if enum_def
+            .variants
+            .iter()
+            .all(|variant| variant.payload_ty.is_none())
+        {
             MastExprKind::Integer(tag_value as u128)
         } else {
             let mono_id = self.instantiate_anon_enum(norm_ty);
@@ -679,7 +716,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 unreachable!()
             });
 
-            if enum_def.variants.iter().all(|variant| variant.payload_ty.is_none()) {
+            if enum_def
+                .variants
+                .iter()
+                .all(|variant| variant.payload_ty.is_none())
+            {
                 return MastExprKind::Integer(tag_value as u128);
             }
 
@@ -687,7 +728,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExprKind::DataInit {
                 data_struct_id: mono_id,
                 tag_value: tag_value as u128,
-                payload: Box::new(MastExpr::new(TypeId::VOID, MastExprKind::Undef, Span::default())),
+                payload: Box::new(MastExpr::new(
+                    TypeId::VOID,
+                    MastExprKind::Undef,
+                    Span::default(),
+                )),
             };
         }
 

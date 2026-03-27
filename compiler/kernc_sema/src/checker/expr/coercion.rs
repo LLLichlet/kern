@@ -57,7 +57,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    fn check_type_var(&mut self, exp: TypeId, act: TypeId, exp_kind: &TypeKind, act_kind: &TypeKind) -> bool {
+    fn check_type_var(
+        &mut self,
+        exp: TypeId,
+        act: TypeId,
+        exp_kind: &TypeKind,
+        act_kind: &TypeKind,
+    ) -> bool {
         if let TypeKind::TypeVar(vid) = act_kind {
             self.type_vars[*vid as usize] = Some(exp);
             return true;
@@ -77,11 +83,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_kind: &TypeKind,
         act_kind: &TypeKind,
     ) -> bool {
-        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
+        if let TypeKind::Pointer {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
             let e_norm = self.resolve_tv(*e_inner);
 
             // A. 指针到指针的安全降级 (*mut T -> *T)
-            if let TypeKind::Pointer { is_mut: a_mut, elem: a_inner } = act_kind {
+            if let TypeKind::Pointer {
+                is_mut: a_mut,
+                elem: a_inner,
+            } = act_kind
+            {
                 // 不可变指针绝不能升级为可变指针
                 if !*e_mut || (*e_mut && *a_mut) {
                     let a_norm = self.resolve_tv(*a_inner);
@@ -89,7 +103,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return true;
                     }
 
-                    // 1. *void 万能指针隐式降级 
+                    // 1. *void 万能指针隐式降级
                     // 只要目标期望类型是 void（且满足上方的 mut 安全性校验），则允许任何非胖指针自然降级
                     if self.ctx.type_registry.is_void(e_norm) {
                         return true;
@@ -99,7 +113,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
                         return true;
                     }
-                    
+
                     // 3. 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
                         let downgraded_act = if !*e_mut && *a_mut {
@@ -121,7 +135,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // D. BNC: 裸值到 Trait Object (T -> *Trait / T -> *mut Trait)
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
                 // 如果 actual 并不是一个指针，而是一个裸值 (T)
-                if !matches!(act_kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }) {
+                if !matches!(
+                    act_kind,
+                    TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+                ) {
                     // 安全性检查：如果期望的是 *mut Trait，那么传入的 expr 必须是可变的
                     if *e_mut && !self.is_lvalue_mutable(expr) {
                         self.ctx
@@ -150,7 +167,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// 核心辅助方法：检查一个具名聚合类型能否降级为匿名聚合类型
-    pub(crate) fn is_anonymous_aggregate_equivalent(&mut self, exp_anon: TypeId, act_def: TypeId) -> bool {
+    pub(crate) fn is_anonymous_aggregate_equivalent(
+        &mut self,
+        exp_anon: TypeId,
+        act_def: TypeId,
+    ) -> bool {
         let exp_kind = self.ctx.type_registry.get(exp_anon).clone();
         let act_kind = self.ctx.type_registry.get(act_def).clone();
 
@@ -188,11 +209,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if let TypeKind::Enum(def_id, ref act_args) = act_kind {
             let act_def_clone = self.ctx.defs[def_id.0 as usize].clone();
-            if let (TypeKind::AnonymousEnum(exp_enum), Def::Enum(act_enum)) = (exp_kind, act_def_clone)
+            if let (TypeKind::AnonymousEnum(exp_enum), Def::Enum(act_enum)) =
+                (exp_kind, act_def_clone)
             {
                 let exp_backing = exp_enum.backing_ty.unwrap_or(TypeId::U32);
                 let act_backing = act_enum.backing_type.as_ref().map_or(TypeId::U32, |bt| {
-                    self.ctx.node_types.get(&bt.id).copied().unwrap_or(TypeId::U32)
+                    self.ctx
+                        .node_types
+                        .get(&bt.id)
+                        .copied()
+                        .unwrap_or(TypeId::U32)
                 });
 
                 if self.resolve_tv(exp_backing) != self.resolve_tv(act_backing) {
@@ -209,7 +235,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 let mut current_val: i128 = 0;
-                for (exp_variant, act_variant) in exp_enum.variants.iter().zip(act_enum.variants.iter()) {
+                for (exp_variant, act_variant) in
+                    exp_enum.variants.iter().zip(act_enum.variants.iter())
+                {
                     if let Some(v_expr) = &act_variant.value {
                         let mut ce = crate::checker::ConstEvaluator::new(self.ctx);
                         if let Ok(val) = ce.eval_math(v_expr) {
@@ -304,8 +332,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_kind: &TypeKind,
         act_kind: &TypeKind,
     ) -> bool {
-        if let TypeKind::VolatilePtr { is_mut: e_mut, elem: e_inner } = exp_kind {
-            if let TypeKind::VolatilePtr { is_mut: a_mut, elem: a_inner } = act_kind {
+        if let TypeKind::VolatilePtr {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
+            if let TypeKind::VolatilePtr {
+                is_mut: a_mut,
+                elem: a_inner,
+            } = act_kind
+            {
                 if !*e_mut || (*e_mut && *a_mut) {
                     let e_norm = self.resolve_tv(*e_inner);
                     let a_norm = self.resolve_tv(*a_inner);
@@ -336,8 +372,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_kind: &TypeKind,
         act_kind: &TypeKind,
     ) -> bool {
-        if let TypeKind::Slice { is_mut: e_mut, elem: exp_elem } = exp_kind {
-            if let TypeKind::Slice { is_mut: act_mut, elem: act_elem } = act_kind {
+        if let TypeKind::Slice {
+            is_mut: e_mut,
+            elem: exp_elem,
+        } = exp_kind
+        {
+            if let TypeKind::Slice {
+                is_mut: act_mut,
+                elem: act_elem,
+            } = act_kind
+            {
                 if (!*e_mut || (*e_mut && *act_mut))
                     && self.resolve_tv(*exp_elem) == self.resolve_tv(*act_elem)
                 {
@@ -360,13 +404,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         act_kind: &TypeKind,
     ) -> bool {
         // A. 闭包退化规则: AnonymousState -> C-ABI 函数指针 (捕获必须严格为空)
-        if let TypeKind::Function { params: e_params, ret: e_ret, is_variadic: false } = exp_kind {
-            if let TypeKind::AnonymousState { captures: a_caps, params: a_params, ret: a_ret, .. } = act_kind {
+        if let TypeKind::Function {
+            params: e_params,
+            ret: e_ret,
+            is_variadic: false,
+        } = exp_kind
+        {
+            if let TypeKind::AnonymousState {
+                captures: a_caps,
+                params: a_params,
+                ret: a_ret,
+                ..
+            } = act_kind
+            {
                 if a_caps.is_empty() && e_params.len() == a_params.len() {
                     let mut map = HashMap::new();
                     let mut ok = true;
                     for (ep, ap) in e_params.iter().zip(a_params.iter()) {
-                        if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
+                        if !self.unify(*ep, *ap, &mut map) {
+                            ok = false;
+                            break;
+                        }
                     }
                     if ok && self.unify(*e_ret, *a_ret, &mut map) {
                         return true;
@@ -376,12 +434,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // B. 闭包 BNC: 到动态胖指针接口
-        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
+        if let TypeKind::Pointer {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
             let e_norm = self.resolve_tv(*e_inner);
-            if let TypeKind::ClosureInterface { params: ref e_params, ret: e_ret } = self.ctx.type_registry.get(e_norm).clone() {
-                
+            if let TypeKind::ClosureInterface {
+                params: ref e_params,
+                ret: e_ret,
+            } = self.ctx.type_registry.get(e_norm).clone()
+            {
                 // B.1 AnonymousState -> *Fn / *mut Fn
-                if let TypeKind::AnonymousState { params: a_params, ret: a_ret, .. } = act_kind {
+                if let TypeKind::AnonymousState {
+                    params: a_params,
+                    ret: a_ret,
+                    ..
+                } = act_kind
+                {
                     // 可变性安全检查：如果期待 *mut Fn，则闭包本身（匿名结构体）必须是可变的
                     if *e_mut && !self.is_lvalue_mutable(expr) {
                         self.ctx.struct_error(expr.span, "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`")
@@ -394,7 +464,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         let mut map = HashMap::new();
                         let mut ok = true;
                         for (ep, ap) in e_params.iter().zip(a_params.iter()) {
-                            if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
+                            if !self.unify(*ep, *ap, &mut map) {
+                                ok = false;
+                                break;
+                            }
                         }
                         if ok && self.unify(e_ret, *a_ret, &mut map) {
                             return true;
@@ -403,14 +476,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 // B.2 Function / FnDef -> *Fn / *mut Fn (普通函数无状态，安全地塞入闭包胖指针)
-                if matches!(act_kind, TypeKind::Function { is_variadic: false, .. } | TypeKind::FnDef(_, _)) {
+                if matches!(
+                    act_kind,
+                    TypeKind::Function {
+                        is_variadic: false,
+                        ..
+                    } | TypeKind::FnDef(_, _)
+                ) {
                     let (a_params, a_ret) = self.extract_fn_sig_for_bnc(act_kind, expr.span);
-                    
+
                     if e_params.len() == a_params.len() {
                         let mut map = HashMap::new();
                         let mut ok = true;
                         for (ep, ap) in e_params.iter().zip(a_params.iter()) {
-                            if !self.unify(*ep, *ap, &mut map) { ok = false; break; }
+                            if !self.unify(*ep, *ap, &mut map) {
+                                ok = false;
+                                break;
+                            }
                         }
                         if ok && self.unify(e_ret, a_ret, &mut map) {
                             return true;
@@ -427,11 +509,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match act_kind {
             TypeKind::FnDef(def_id, args) => {
                 // 为了避免 self 生命周期冲突，我们 clone 一下 Def
-                let def = self.ctx.defs[def_id.0 as usize].clone(); 
+                let def = self.ctx.defs[def_id.0 as usize].clone();
                 if let Def::Function(fn_def) = def {
                     if let Some(sig_ty) = fn_def.resolved_sig {
                         let norm_sig = self.resolve_tv(sig_ty);
-                        if let TypeKind::Function { params, ret, .. } = self.ctx.type_registry.get(norm_sig).clone() {
+                        if let TypeKind::Function { params, ret, .. } =
+                            self.ctx.type_registry.get(norm_sig).clone()
+                        {
                             if fn_def.generics.is_empty() {
                                 return (params, ret);
                             } else {
@@ -441,23 +525,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                     map.insert(param.name, args[i]);
                                 }
                                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                                let inst_params = params.into_iter().map(|p| subst.substitute(p)).collect();
+                                let inst_params =
+                                    params.into_iter().map(|p| subst.substitute(p)).collect();
                                 let inst_ret = subst.substitute(ret);
                                 return (inst_params, inst_ret);
                             }
                         }
                     }
-                    self.ctx.emit_error(span, "Compiler ICE: Function definition lacks resolved signature during BNC");
+                    self.ctx.emit_error(
+                        span,
+                        "Compiler ICE: Function definition lacks resolved signature during BNC",
+                    );
                     unreachable!()
                 } else {
-                    self.ctx.emit_error(span, "Compiler ICE: FnDef ID does not point to a Function Def");
+                    self.ctx.emit_error(
+                        span,
+                        "Compiler ICE: FnDef ID does not point to a Function Def",
+                    );
                     unreachable!()
                 }
             }
-            TypeKind::Function { params, ret, .. } => {
-                (params.clone(), *ret)
-            }
-            _ => unreachable!()
+            TypeKind::Function { params, ret, .. } => (params.clone(), *ret),
+            _ => unreachable!(),
         }
     }
 
@@ -566,21 +655,47 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .all(|(ga, ca)| self.unify(*ga, *ca, map))
             }
             (
-                TypeKind::ClosureInterface { params: gp, ret: gr },
-                TypeKind::ClosureInterface { params: cp, ret: cr },
+                TypeKind::ClosureInterface {
+                    params: gp,
+                    ret: gr,
+                },
+                TypeKind::ClosureInterface {
+                    params: cp,
+                    ret: cr,
+                },
             ) => {
-                gp.len() == cp.len() 
-                    && gp.iter().zip(cp.iter()).all(|(g, c)| self.unify(*g, *c, map)) 
+                gp.len() == cp.len()
+                    && gp
+                        .iter()
+                        .zip(cp.iter())
+                        .all(|(g, c)| self.unify(*g, *c, map))
                     && self.unify(gr, cr, map)
             }
 
             (
-                TypeKind::AnonymousState { captures: gc, params: gp, ret: gr, .. },
-                TypeKind::AnonymousState { captures: cc, params: cp, ret: cr, .. },
+                TypeKind::AnonymousState {
+                    captures: gc,
+                    params: gp,
+                    ret: gr,
+                    ..
+                },
+                TypeKind::AnonymousState {
+                    captures: cc,
+                    params: cp,
+                    ret: cr,
+                    ..
+                },
             ) => {
-                gc.len() == cc.len() && gp.len() == cp.len()
-                    && gc.iter().zip(cc.iter()).all(|(g, c)| self.unify(*g, *c, map))
-                    && gp.iter().zip(cp.iter()).all(|(g, c)| self.unify(*g, *c, map))
+                gc.len() == cc.len()
+                    && gp.len() == cp.len()
+                    && gc
+                        .iter()
+                        .zip(cc.iter())
+                        .all(|(g, c)| self.unify(*g, *c, map))
+                    && gp
+                        .iter()
+                        .zip(cp.iter())
+                        .all(|(g, c)| self.unify(*g, *c, map))
                     && self.unify(gr, cr, map)
             }
             _ => gen_norm == con_norm,
@@ -787,9 +902,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
 
                     // 环境约束自身也可能继承自某个 Supertrait，递归检查
-                    if let TypeKind::TraitObject(inst_def_id, _) = self.ctx.type_registry.get(inst_norm) {
+                    if let TypeKind::TraitObject(inst_def_id, _) =
+                        self.ctx.type_registry.get(inst_norm)
+                    {
                         if visited.insert(*inst_def_id) {
-                            if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited) {
+                            if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited)
+                            {
                                 return true;
                             }
                         }
@@ -854,18 +972,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return true;
                     }
 
-                    if let TypeKind::TraitObject(inst_def_id, _) = self.ctx.type_registry.get(inst_norm) {
+                    if let TypeKind::TraitObject(inst_def_id, _) =
+                        self.ctx.type_registry.get(inst_norm)
+                    {
                         if visited.insert(*inst_def_id) {
-                            if let Def::Trait(trait_def) = self.ctx.defs[inst_def_id.0 as usize].clone() {
+                            if let Def::Trait(trait_def) =
+                                self.ctx.defs[inst_def_id.0 as usize].clone()
+                            {
                                 // 检查父特征 (Supertraits)
                                 for &super_ty in &trait_def.resolved_supertraits {
                                     let inst_super_ty = {
-                                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                                        let mut subst =
+                                            Substituter::new(&mut self.ctx.type_registry, &map);
                                         subst.substitute(super_ty)
                                     };
 
                                     if inst_super_ty == target_trait_ty
-                                        || self.check_trait_impl_inner(source_ty, inst_super_ty, visited)
+                                        || self.check_trait_impl_inner(
+                                            source_ty,
+                                            inst_super_ty,
+                                            visited,
+                                        )
                                     {
                                         return true;
                                     }

@@ -59,7 +59,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let l = self.lower_expr(lhs, subst_map, None);
 
             let l_norm = self.ctx.type_registry.normalize(l.ty);
-            
+
             if self.ctx.type_registry.is_void(l_norm) {
                 if op == ast::BinaryOperator::Equal {
                     return MastExprKind::Bool(true);
@@ -68,7 +68,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
                 // TODO: unreachable() + 报错 ICE
             }
-            
+
             let is_l_ptr = matches!(
                 self.ctx.type_registry.get(l_norm),
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
@@ -112,7 +112,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let op_mast = self.lower_expr(operand, subst_map, None);
-        
+
         match op {
             ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf => {
                 MastExprKind::AddressOf(Box::new(op_mast))
@@ -121,13 +121,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ast::UnaryOperator::MetaOf => {
                 let op_norm = self.ctx.type_registry.normalize(op_mast.ty);
                 let op_kind = self.ctx.type_registry.get(op_norm).clone();
-                
+
                 match op_kind {
                     // 1. 切片类型 (Slice)：胖指针，元数据是长度 (len)
                     TypeKind::Slice { .. } => {
                         return MastExprKind::ExtractFatPtrMeta(Box::new(op_mast));
                     }
-                    
+
                     // 2. 定长数组 (Array) 或 推导数组 (ArrayInfer)：
                     // 它们在内存中不是胖指针，而是一个连续的内存块，长度在编译期已知。
                     // 所以这里的 # 操作符直接被编译器折叠为一个整数常量。
@@ -145,13 +145,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                         let elem_norm = self.ctx.type_registry.normalize(elem);
                         let inner_kind = self.ctx.type_registry.get(elem_norm);
-                        
-                        if matches!(inner_kind, TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)) {
+
+                        if matches!(
+                            inner_kind,
+                            TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)
+                        ) {
                             // 闭包和 Trait 胖指针调用 `#` 是为了拿回堆上的内存地址以便 free，所以提取 Data
                             return MastExprKind::ExtractFatPtrData(Box::new(op_mast));
                         }
                     }
-                    
+
                     _ => {}
                 }
 
@@ -160,7 +163,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     operand: Box::new(op_mast),
                 }
             }
-            
+
             _ => MastExprKind::Unary {
                 op,
                 operand: Box::new(op_mast),

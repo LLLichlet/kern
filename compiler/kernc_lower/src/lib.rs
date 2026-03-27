@@ -5,7 +5,7 @@ use kernc_mast::*;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, EnumDef};
 use kernc_sema::ty::TypeId;
-use kernc_utils::{SymbolId, NodeId, Span};
+use kernc_utils::{NodeId, Span, SymbolId};
 
 pub(crate) mod expr;
 pub(crate) mod mono;
@@ -123,7 +123,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.anon_struct_map = self.anon_struct_cache.clone();
         self.module.anon_union_map = self.anon_union_cache.clone();
         self.module.anon_enum_map = self.anon_enum_cache.clone();
-        
+
         self.module.clone()
     }
 
@@ -149,7 +149,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             None => {
                 // 如果找不到，说明存在编译器内部错误 (比如 Sema 生成了匿名状态，但 Lowering 还没处理到那个闭包表达式就被提前引用了)
                 self.ctx.emit_ice(
-                    Span::default(), 
+                    Span::default(),
                     format!("Kern ICE (Lowering): Attempted to resolve a closure function ID before the closure expression (NodeId {}) was lowered.", closure_node_id.0)
                 );
                 unreachable!()

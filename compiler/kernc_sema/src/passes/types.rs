@@ -314,7 +314,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 return cached_ty;
             }
         }
-        
+
         let ty_id = match &ty_node.kind {
             ast::TypeKind::Path { segments, generics } => {
                 self.resolve_path_type(segments, generics, env_scope, ty_node.span)
@@ -323,13 +323,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
             // 内联的匿名结构体
             ast::TypeKind::Struct { is_extern, fields } => {
-                let mut anon_fields = self.resolve_anonymous_fields(
-                    fields,
-                    env_scope,
-                    ty_node.span,
-                    "struct",
-                    true,
-                );
+                let mut anon_fields =
+                    self.resolve_anonymous_fields(fields, env_scope, ty_node.span, "struct", true);
 
                 if !*is_extern {
                     anon_fields.sort_by_key(|f| f.name);
@@ -342,13 +337,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
 
             ast::TypeKind::Union { is_extern, fields } => {
-                let mut anon_fields = self.resolve_anonymous_fields(
-                    fields,
-                    env_scope,
-                    ty_node.span,
-                    "union",
-                    false,
-                );
+                let mut anon_fields =
+                    self.resolve_anonymous_fields(fields, env_scope, ty_node.span, "union", false);
                 anon_fields.sort_by_key(|f| f.name);
                 self.check_duplicate_anon_fields(&anon_fields, ty_node.span, "anonymous union");
                 self.ctx
@@ -356,10 +346,14 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .intern(TypeKind::AnonymousUnion(*is_extern, anon_fields))
             }
 
-            ast::TypeKind::Enum { backing_type, variants } => {
+            ast::TypeKind::Enum {
+                backing_type,
+                variants,
+            } => {
                 let backing_ty = backing_type.as_ref().map(|bt| {
                     let resolved_ty = self.resolve_type(bt, env_scope);
-                    if !self.ctx.type_registry.is_integer(resolved_ty) && resolved_ty != TypeId::ERROR
+                    if !self.ctx.type_registry.is_integer(resolved_ty)
+                        && resolved_ty != TypeId::ERROR
                     {
                         self.ctx
                             .emit_error(bt.span, "anonymous enum backing type must be an integer");
@@ -390,10 +384,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
                 self.check_duplicate_anon_variants(&anon_variants, ty_node.span);
 
-                self.ctx.type_registry.intern(TypeKind::AnonymousEnum(AnonymousEnum {
-                    backing_ty,
-                    variants: anon_variants,
-                }))
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                        backing_ty,
+                        variants: anon_variants,
+                    }))
             }
 
             ast::TypeKind::Pointer { is_mut, elem } => {
@@ -552,7 +548,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             if fields[i - 1].name == fields[i].name {
                 let name_str = self.ctx.resolve(fields[i].name).to_string();
                 self.ctx
-                    .struct_error(span, format!("duplicate field `{}` in {}", name_str, kind_name))
+                    .struct_error(
+                        span,
+                        format!("duplicate field `{}` in {}", name_str, kind_name),
+                    )
                     .emit();
             }
         }
@@ -565,7 +564,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             if sorted[i - 1].name == sorted[i].name {
                 let name_str = self.ctx.resolve(sorted[i].name).to_string();
                 self.ctx
-                    .struct_error(span, format!("duplicate variant `{}` in anonymous enum", name_str))
+                    .struct_error(
+                        span,
+                        format!("duplicate variant `{}` in anonymous enum", name_str),
+                    )
                     .emit();
             }
         }
@@ -644,7 +646,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
                 self.resolve_expr(body, scope);
             }
-            ast::ExprKind::Closure { captures, params, ret_type, body } => {
+            ast::ExprKind::Closure {
+                captures,
+                params,
+                ret_type,
+                body,
+            } => {
                 for cap in captures {
                     self.resolve_expr(&cap.value, scope);
                 }

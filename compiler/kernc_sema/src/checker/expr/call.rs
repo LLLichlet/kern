@@ -53,26 +53,34 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 提取调用参数、返回值和可变参数标志
         let (params, ret, is_variadic) = match sig_kind {
             // A. 普通函数
-            TypeKind::Function { params, ret, is_variadic } => (params, ret, is_variadic),
-            
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic,
+            } => (params, ret, is_variadic),
+
             // B. 闭包胖指针 (*Fn)
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let inner_norm = self.ctx.type_registry.normalize(elem);
-                if let TypeKind::ClosureInterface { params, ret } = self.ctx.type_registry.get(inner_norm).clone() {
+                if let TypeKind::ClosureInterface { params, ret } =
+                    self.ctx.type_registry.get(inner_norm).clone()
+                {
                     (params, ret, false) // 闭包不支持可变参数
                 } else {
                     let callee_str = self.ctx.ty_to_string(callee_ty);
-                    self.ctx.struct_error(callee.span, "expression is not callable")
+                    self.ctx
+                        .struct_error(callee.span, "expression is not callable")
                         .with_hint(format!("type is `{}`", callee_str))
                         .emit();
                     return TypeId::ERROR;
                 }
             }
-            
+
             // C. 其它类型一律不准调用
             _ => {
                 let callee_str = self.ctx.ty_to_string(callee_ty);
-                self.ctx.struct_error(callee.span, "expression is not callable")
+                self.ctx
+                    .struct_error(callee.span, "expression is not callable")
                     .with_hint(format!("type is `{}`", callee_str))
                     .emit();
                 return TypeId::ERROR;
@@ -556,16 +564,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             state_fields.push(cap_ty);
             capture_env.push((cap.name, cap_ty, cap.span));
         }
-        
+
         let current_scope = match self.ctx.scopes.current_scope_id() {
             Some(id) => id,
             None => {
-                self.ctx.emit_ice(span, "Compiler Bug: Closure evaluated outside of any active scope");
+                self.ctx.emit_ice(
+                    span,
+                    "Compiler Bug: Closure evaluated outside of any active scope",
+                );
                 crate::scope::ScopeId(0)
             }
         };
 
-        // 在父作用域解析参数类型和返回类型 
+        // 在父作用域解析参数类型和返回类型
         // (类型签名必须在外部环境解析，因为可能会用到外部引入的别名)
         let mut param_tys = Vec::new();
         let mut type_resolver = TypeResolver::new(self.ctx);
@@ -574,14 +585,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             param_tys.push(p_ty);
         }
         let expected_ret = type_resolver.resolve_type(ast_ret_ty, current_scope);
-        
+
         drop(type_resolver);
 
-        let closure_state_ty = self.ctx.type_registry.intern(TypeKind::AnonymousState { 
+        let closure_state_ty = self.ctx.type_registry.intern(TypeKind::AnonymousState {
             closure_node_id: node_id,
-            captures: state_fields, 
-            params: param_tys.clone(), 
-            ret: expected_ret 
+            captures: state_fields,
+            params: param_tys.clone(),
+            ret: expected_ret,
         });
 
         // 进入闭包内部的作用域
@@ -603,7 +614,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 注入闭包参数
         for (i, param) in params.iter().enumerate() {
-            let param_node_id = self.ctx.next_node_id(); 
+            let param_node_id = self.ctx.next_node_id();
             let info = SymbolInfo {
                 kind: SymbolKind::Var,
                 node_id: param_node_id,
@@ -611,7 +622,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 def_id: None,
                 span: param.span,
                 is_pub: false,
-                is_mut: param.pattern.is_mut, 
+                is_mut: param.pattern.is_mut,
             };
             let _ = self.ctx.scopes.define(param.pattern.name, info);
         }
@@ -624,22 +635,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         // 类型兼容性校验
-        if actual_ret_ty != TypeId::ERROR && expected_ret != TypeId::ERROR && actual_ret_ty != TypeId::NEVER {
+        if actual_ret_ty != TypeId::ERROR
+            && expected_ret != TypeId::ERROR
+            && actual_ret_ty != TypeId::NEVER
+        {
             let norm_actual = self.ctx.type_registry.normalize(actual_ret_ty);
             let norm_expected = self.ctx.type_registry.normalize(expected_ret);
-            
+
             // 如果实际返回是 VOID，但预期不是 VOID，说明缺少了尾随表达式
             let is_missing_tail = norm_actual == TypeId::VOID && norm_expected != TypeId::VOID;
-            
+
             // 如果缺少尾随表达式，但函数内部有合法的 `return` 语句，暂时放行
             if is_missing_tail && has_returned {
                 // Safe: 至少有一条路径合法返回了
             } else if norm_actual != norm_expected {
                 let expected_str = self.ctx.ty_to_string(expected_ret);
                 let actual_str = self.ctx.ty_to_string(actual_ret_ty);
-                
+
                 self.ctx.struct_error(
-                    body.span, 
+                    body.span,
                     format!("closure body evaluates to `{}`, but signature expects `{}`", actual_str, expected_str)
                 )
                 .with_hint("ensure the final expression or return statements match the explicit return type")
@@ -650,7 +664,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 9. 退出作用域并记录
         self.ctx.scopes.exit_scope();
         self.ctx.node_types.insert(node_id, closure_state_ty);
-        
+
         closure_state_ty
     }
 

@@ -8,7 +8,7 @@ use std::collections::HashMap;
 
 use kernc_mast::*;
 use kernc_sema::def::{Def, DefId};
-use kernc_sema::ty::{TypeRegistry, TypeId};
+use kernc_sema::ty::{TypeId, TypeRegistry};
 use kernc_utils::Session;
 use kernc_utils::config::OptLevel;
 
@@ -76,7 +76,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     pub fn compile(&mut self, module: &MastModule) {
-        
         self.def_mono_map = module.def_mono_map.clone();
         self.adt_union_map = module.adt_union_map.clone();
         self.anon_struct_map = module.anon_struct_map.clone();

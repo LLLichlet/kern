@@ -59,7 +59,11 @@ fn compiles_anonymous_aggregates_example() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(object.exists(), "expected object file at {}", object.display());
+    assert!(
+        object.exists(),
+        "expected object file at {}",
+        object.display()
+    );
 
     let _ = fs::remove_file(&object);
 }

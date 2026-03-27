@@ -120,25 +120,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         // 3. 裸值隐式取址并打包为 Trait Object 胖指针 (BNC: T -> *Trait / T -> *mut Trait)
-        if let TypeKind::Pointer { is_mut: e_mut, elem: e_inner } = exp_kind {
+        if let TypeKind::Pointer {
+            is_mut: e_mut,
+            elem: e_inner,
+        } = exp_kind
+        {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
-                if !matches!(conc_kind, TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }) {
+                if !matches!(
+                    conc_kind,
+                    TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+                ) {
                     let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                         is_mut: e_mut,
                         elem: concrete_ty,
                     });
-                    
+
                     // 核心：无中生有，原地包装一个取址操作 (AddressOf)
                     let data_ptr_expr = MastExpr::new(
                         ptr_ty,
-                        MastExprKind::AddressOf(Box::new(MastExpr::new(concrete_ty, mast_kind, span))),
+                        MastExprKind::AddressOf(Box::new(MastExpr::new(
+                            concrete_ty,
+                            mast_kind,
+                            span,
+                        ))),
                         span,
                     );
 
                     // 剩下的逻辑和普通指针打包完全一样，提取 VTable
                     let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
-                    let global_array_ty = match self.module.globals.iter().find(|g| g.id == vtable_id) {
+                    let global_array_ty = match self
+                        .module
+                        .globals
+                        .iter()
+                        .find(|g| g.id == vtable_id)
+                    {
                         Some(g) => g.ty,
                         None => {
                             self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global generated but not found in module globals map.");
@@ -183,7 +199,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::ClosureInterface { .. } = self.ctx.type_registry.get(e_inner_norm) {
-                
                 // 4.1 普通无状态函数 (FnDef / Function) -> 闭包胖指针
                 if matches!(conc_kind, TypeKind::FnDef(..) | TypeKind::Function { .. }) {
                     // 数据指针 (data_ptr) 为 NULL
@@ -195,7 +210,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         void_ptr_ty,
                         MastExprKind::Cast {
                             kind: MastCastKind::IntToPtr,
-                            operand: Box::new(MastExpr::new(TypeId::USIZE, MastExprKind::Integer(0), span)),
+                            operand: Box::new(MastExpr::new(
+                                TypeId::USIZE,
+                                MastExprKind::Integer(0),
+                                span,
+                            )),
                         },
                         span,
                     );
@@ -222,7 +241,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
 
                 // 4.2 匿名闭包状态结构体 (AnonymousState) -> 闭包胖指针
-                if let TypeKind::AnonymousState { closure_node_id, .. } = conc_kind {
+                if let TypeKind::AnonymousState {
+                    closure_node_id, ..
+                } = conc_kind
+                {
                     // 数据指针 (data_ptr) 为 隐式取址 (AddressOf)
                     let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                         is_mut: true, // 闭包状态通常需要修改
@@ -230,7 +252,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     });
                     let data_ptr_expr = MastExpr::new(
                         ptr_ty,
-                        MastExprKind::AddressOf(Box::new(MastExpr::new(concrete_ty, mast_kind, span))),
+                        MastExprKind::AddressOf(Box::new(MastExpr::new(
+                            concrete_ty,
+                            mast_kind,
+                            span,
+                        ))),
                         span,
                     );
 
@@ -243,7 +269,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         MastExprKind::FuncRef(func_mono_id),
                         span,
                     );
-                    
+
                     let meta_expr = MastExpr::new(
                         TypeId::USIZE,
                         MastExprKind::Cast {

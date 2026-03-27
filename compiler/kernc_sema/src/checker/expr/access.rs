@@ -288,8 +288,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
         // 支持匿名结构体/联合体的字段访问
-        if let TypeKind::AnonymousStruct(_, ref fields)
-        | TypeKind::AnonymousUnion(_, ref fields) = self.ctx.type_registry.get(search_norm).clone() {
+        if let TypeKind::AnonymousStruct(_, ref fields) | TypeKind::AnonymousUnion(_, ref fields) =
+            self.ctx.type_registry.get(search_norm).clone()
+        {
             if let Some(f) = fields.iter().find(|f| f.name == field) {
                 return Some(f.ty);
             }

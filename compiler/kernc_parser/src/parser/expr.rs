@@ -266,9 +266,7 @@ impl<'a> Parser<'a> {
             | TokenType::Struct
             | TokenType::Union
             | TokenType::Enum
-            | TokenType::Extern => {
-                self.parse_typed_data_init_prefix(token)
-            }
+            | TokenType::Extern => self.parse_typed_data_init_prefix(token),
 
             TokenType::Underscore => Ok(Expr {
                 id: self.new_id(),
@@ -656,9 +654,7 @@ impl<'a> Parser<'a> {
                 // 原生 struct，is_extern = false
                 self.parse_struct_literal_fields(span, false)?
             }
-            TokenType::Union => {
-                self.parse_union_literal_fields(span, false)?
-            }
+            TokenType::Union => self.parse_union_literal_fields(span, false)?,
             TokenType::Enum => {
                 let mut backing_type = None;
                 if self.match_token(&[TokenType::Colon]) {
@@ -720,7 +716,8 @@ impl<'a> Parser<'a> {
                     let err_span = self.peek().span;
                     self.add_error(
                         err_span,
-                        "Expected `struct` or `union` after `extern` in typed initialization".to_string(),
+                        "Expected `struct` or `union` after `extern` in typed initialization"
+                            .to_string(),
                     );
                     return Err(());
                 }
@@ -732,7 +729,11 @@ impl<'a> Parser<'a> {
         self.parse_data_init(Some(Box::new(type_node)), span)
     }
 
-    fn parse_struct_literal_fields(&mut self, start_span: Span, is_extern: bool) -> ParseResult<TypeNode> {
+    fn parse_struct_literal_fields(
+        &mut self,
+        start_span: Span,
+        is_extern: bool,
+    ) -> ParseResult<TypeNode> {
         self.expect(TokenType::LBrace)?;
 
         let mut fields = Vec::new();
@@ -766,7 +767,7 @@ impl<'a> Parser<'a> {
         }
 
         let end_token = self.expect(TokenType::RBrace)?;
-        
+
         Ok(TypeNode {
             id: self.new_id(),
             span: start_span.to(end_token.span),
@@ -827,7 +828,7 @@ impl<'a> Parser<'a> {
             loop {
                 let name_tok = self.expect(TokenType::Identifier)?;
                 let name = self.intern_token(name_tok);
-                
+
                 // 解析显式绑定 (=) 或省略简写
                 let value = if self.match_token(&[TokenType::Assign]) {
                     self.parse_expression(Precedence::Lowest)?
@@ -839,13 +840,13 @@ impl<'a> Parser<'a> {
                         kind: ExprKind::Identifier(name),
                     }
                 };
-                
+
                 captures.push(CapturePattern {
                     name,
                     value,
                     span: name_tok.span.to(self.stream.prev_span()),
                 });
-                
+
                 if !self.match_token(&[TokenType::Comma]) {
                     break;
                 }
@@ -856,7 +857,10 @@ impl<'a> Parser<'a> {
         // 2. 解析参数列表 (复用原有的 params 解析)
         let (params, is_variadic) = self.parse_func_params()?;
         if is_variadic {
-            self.add_error(start_span, "Closures cannot use C-style variadic arguments".to_string());
+            self.add_error(
+                start_span,
+                "Closures cannot use C-style variadic arguments".to_string(),
+            );
         }
 
         // 3. 解析闭包返回值类型
@@ -1069,25 +1073,25 @@ impl<'a> Parser<'a> {
             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
                 let name = self.expect(TokenType::Identifier)?;
                 let name_id = self.intern_token(name);
-                
+
                 if let Err(_) = self.expect(TokenType::Colon) {
                     let name_str = self.session.resolve(name_id).to_string();
-                    
+
                     self.session.struct_error(name.span, "explicit field names are required in struct/union initialization")
                         .with_hint(format!("Kern does not support elided fields. Write `{name_str}: {name_str}` instead."))
                         .emit();
-                        
+
                     return Err(());
                 }
-                
+
                 let val = self.parse_expression(Precedence::Lowest)?;
-                
+
                 fields.push(StructFieldInit {
                     name: name_id,
                     value: val,
                     span: name.span,
                 });
-                
+
                 if !self.match_token(&[TokenType::Comma]) {
                     break;
                 }

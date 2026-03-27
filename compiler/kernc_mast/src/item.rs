@@ -1,9 +1,9 @@
 use crate::{MastBlock, MastExpr, MonoId};
 use kernc_ast::MetaItem;
+use kernc_sema::def::DefId;
 use kernc_sema::ty::TypeId;
 use kernc_utils::SymbolId;
 use std::collections::HashMap;
-use kernc_sema::def::DefId;
 
 /// MAST 模块 (编译单元的最终扁平化表示)
 /// 一切都被平铺，没有嵌套模块，没有 Impl 块，没有泛型。

@@ -91,9 +91,7 @@ fn parse_args() -> CompileOptions {
             "-O1" => options.opt_level = OptLevel::O1,
             "-O2" => options.opt_level = OptLevel::O2,
             "-O3" => options.opt_level = OptLevel::O3,
-            "--emit-llvm" => {
-                set_driver_mode(&mut options, DriverMode::EmitLlvmIr, "--emit-llvm")
-            }
+            "--emit-llvm" => set_driver_mode(&mut options, DriverMode::EmitLlvmIr, "--emit-llvm"),
             "--link-libc" => options.link_profile = LinkProfile::Hosted,
             "--use-std" => options.use_std = true,
             "--target" => {
@@ -120,7 +118,9 @@ fn parse_args() -> CompileOptions {
                 options.linker_cmd = args.next().expect("Expected command after `--cc`");
             }
             "--link-profile" => {
-                let profile = args.next().expect("Expected profile after `--link-profile`");
+                let profile = args
+                    .next()
+                    .expect("Expected profile after `--link-profile`");
                 options.link_profile = match profile.as_str() {
                     "kern" => LinkProfile::Kern,
                     "freestanding" => LinkProfile::Freestanding,

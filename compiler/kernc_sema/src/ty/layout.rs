@@ -17,12 +17,17 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
     /// 计算具名结构体的物理排布
     /// 返回: (ast_to_physical, physical_to_ast)
-    pub fn get_struct_mapping(&mut self, def_id: DefId, generic_args: &[TypeId], depth: usize) -> (Vec<usize>, Vec<usize>) {
+    pub fn get_struct_mapping(
+        &mut self,
+        def_id: DefId,
+        generic_args: &[TypeId],
+        depth: usize,
+    ) -> (Vec<usize>, Vec<usize>) {
         let def = self.ctx.defs[def_id.0 as usize].clone();
         if let Def::Struct(s) = def {
             let map = self.prepare_generic_subst(&s.generics, generic_args);
             let mut field_metas = Vec::new();
-            
+
             for (ast_idx, field) in s.fields.iter().enumerate() {
                 let f_ty = self.resolve_field_type(&field.type_node, &map);
                 let f_align = self.compute_type_align_inner(f_ty, depth + 1);
@@ -33,9 +38,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             // 除非标记了 extern，否则强行优化内存布局
             if !s.is_extern {
                 field_metas.sort_by(|a, b| {
-                    b.1.cmp(&a.1)               // 1. 对齐要求降序 (Alignment)
-                       .then_with(|| b.2.cmp(&a.2)) // 2. 大小降序 (Size)
-                       .then_with(|| a.0.cmp(&b.0)) // 3. AST 原始索引升序 (稳定排序)
+                    b.1.cmp(&a.1) // 1. 对齐要求降序 (Alignment)
+                        .then_with(|| b.2.cmp(&a.2)) // 2. 大小降序 (Size)
+                        .then_with(|| a.0.cmp(&b.0)) // 3. AST 原始索引升序 (稳定排序)
                 });
             }
 
@@ -86,7 +91,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
         (ast_to_physical, physical_to_ast)
     }
-    
+
     pub fn compute_type_align(&mut self, ty: TypeId) -> u64 {
         self.compute_type_align_inner(ty, 0)
     }
@@ -181,19 +186,25 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Primitive(p) => self.primitive_align(p),
 
             TypeKind::EnumPayload(def_id, generic_args) => {
-                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] { a.clone() } else { unreachable!() };
+                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
+                    a.clone()
+                } else {
+                    unreachable!()
+                };
                 let map = self.prepare_generic_subst(&def.generics, &generic_args);
                 let mut max_payload_align = 1;
                 for v in &def.variants {
                     if let Some(payload) = &v.payload_type {
                         let p_ty = self.resolve_field_type(payload, &map);
                         let align = self.compute_type_align_inner(p_ty, depth + 1);
-                        if align > max_payload_align { max_payload_align = align; }
+                        if align > max_payload_align {
+                            max_payload_align = align;
+                        }
                     }
                 }
                 max_payload_align
             }
-            
+
             TypeKind::TypeVar(_) => {
                 self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Attempted to compute memory alignment of an unresolved TypeVar.");
                 1
@@ -265,7 +276,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     let f = &fields[ast_idx];
                     let f_align = self.compute_type_align_inner(f.ty, depth + 1);
                     let f_size = self.compute_type_size_inner(f.ty, depth + 1);
-                    if f_align > max_align { max_align = f_align; }
+                    if f_align > max_align {
+                        max_align = f_align;
+                    }
                     offset = Self::align_to(offset, f_align);
                     offset += f_size;
                 }
@@ -331,14 +344,19 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     if let Some(payload) = &v.payload_type {
                         let p_ty = self.resolve_field_type(payload, &map);
                         let size = self.compute_type_size_inner(p_ty, depth + 1);
-                        if size > max_payload_size { max_payload_size = size; }
+                        if size > max_payload_size {
+                            max_payload_size = size;
+                        }
                     }
                 }
                 max_payload_size
             }
 
             TypeKind::TypeVar(_) => {
-                self.ctx.emit_ice(kernc_utils::Span::default(), "Kern ICE (Layout): Cannot compute the size of an unresolved TypeVar.");
+                self.ctx.emit_ice(
+                    kernc_utils::Span::default(),
+                    "Kern ICE (Layout): Cannot compute the size of an unresolved TypeVar.",
+                );
                 0
             }
             _ => {
@@ -395,7 +413,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     let f_align = self.compute_type_align_inner(f_ty, depth + 1);
                     let f_size = self.compute_type_size_inner(f_ty, depth + 1);
 
-                    if f_align > max_align { max_align = f_align; }
+                    if f_align > max_align {
+                        max_align = f_align;
+                    }
                     offset = Self::align_to(offset, f_align);
                     offset += f_size;
                 }
@@ -454,7 +474,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     let f_align = self.compute_type_align_inner(f_ty, depth + 1);
                     let f_size = self.compute_type_size_inner(f_ty, depth + 1);
 
-                    if f_align > max_align { max_align = f_align; }
+                    if f_align > max_align {
+                        max_align = f_align;
+                    }
                     offset = Self::align_to(offset, f_align);
                     offset += f_size;
                 }
@@ -488,12 +510,12 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                         .copied()
                         .unwrap_or(TypeId::U32)
                 });
-                
+
                 let tag_align = self.compute_type_align_inner(tag_ty, depth + 1);
                 let tag_size = self.compute_type_size_inner(tag_ty, depth + 1);
 
                 let map = self.prepare_generic_subst(&a.generics, generic_args);
-                
+
                 // 追踪 Payload Union 的最大尺寸和最大对齐要求
                 let mut max_payload_size = 0;
                 let mut max_payload_align = 1;
@@ -503,7 +525,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                         let p_ty = self.resolve_field_type(payload, &map);
                         let align = self.compute_type_align_inner(p_ty, depth + 1);
                         let size = self.compute_type_size_inner(p_ty, depth + 1);
-                        
+
                         if align > max_payload_align {
                             max_payload_align = align;
                         }

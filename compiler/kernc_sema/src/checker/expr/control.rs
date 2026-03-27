@@ -145,10 +145,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         let mut resolver = TypeResolver::new(self.ctx);
                         let scope = resolver.ctx.scopes.current_scope_id().unwrap();
                         let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
-                        
+
                         // 纯类型匹配检查，不涉及表达式和 BNC
                         let mut map = std::collections::HashMap::new();
-                        if !self.unify(norm_target, explicit_ty, &mut map) && norm_target != explicit_ty {
+                        if !self.unify(norm_target, explicit_ty, &mut map)
+                            && norm_target != explicit_ty
+                        {
                             self.emit_mismatch_error(pat.span, norm_target, explicit_ty);
                         }
                     }
@@ -160,7 +162,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 _ => unreachable!(),
                             };
 
-                            if let Some(v) = adt_def.variants.iter().find(|v| v.name == *variant_name) {
+                            if let Some(v) =
+                                adt_def.variants.iter().find(|v| v.name == *variant_name)
+                            {
                                 handled_variants.insert(*variant_name);
 
                                 if let Some(bind_pattern) = binding {
@@ -172,7 +176,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                             .copied()
                                             .unwrap_or(TypeId::ERROR);
 
-                                        if !adt_def.generics.is_empty() && !generic_args.is_empty() {
+                                        if !adt_def.generics.is_empty() && !generic_args.is_empty()
+                                        {
                                             let mut map = std::collections::HashMap::new();
                                             for (i, param) in adt_def.generics.iter().enumerate() {
                                                 map.insert(param.name, generic_args[i]);
@@ -221,7 +226,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             }
                         }
                         TypeKind::AnonymousEnum(enum_def) => {
-                            if let Some(v) = enum_def.variants.iter().find(|v| v.name == *variant_name) {
+                            if let Some(v) =
+                                enum_def.variants.iter().find(|v| v.name == *variant_name)
+                            {
                                 handled_variants.insert(*variant_name);
 
                                 if let Some(bind_pattern) = binding {

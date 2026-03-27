@@ -118,7 +118,12 @@ impl<'a> Substituter<'a> {
                 })
             }
 
-            TypeKind::AnonymousState { closure_node_id, captures, params, ret } => {
+            TypeKind::AnonymousState {
+                closure_node_id,
+                captures,
+                params,
+                ret,
+            } => {
                 let new_caps = captures.into_iter().map(|c| self.substitute(c)).collect();
                 let new_params = params.into_iter().map(|p| self.substitute(p)).collect();
                 let new_ret = self.substitute(ret);
@@ -131,23 +136,27 @@ impl<'a> Substituter<'a> {
             }
 
             TypeKind::AnonymousStruct(is_extern, fields) => {
-                let new_fields = fields.into_iter().map(|f| {
-                    crate::ty::AnonymousField {
+                let new_fields = fields
+                    .into_iter()
+                    .map(|f| crate::ty::AnonymousField {
                         name: f.name,
                         ty: self.substitute(f.ty),
-                    }
-                }).collect();
-                self.registry.intern(TypeKind::AnonymousStruct(is_extern, new_fields))
+                    })
+                    .collect();
+                self.registry
+                    .intern(TypeKind::AnonymousStruct(is_extern, new_fields))
             }
 
             TypeKind::AnonymousUnion(is_extern, fields) => {
-                let new_fields = fields.into_iter().map(|f| {
-                    crate::ty::AnonymousField {
+                let new_fields = fields
+                    .into_iter()
+                    .map(|f| crate::ty::AnonymousField {
                         name: f.name,
                         ty: self.substitute(f.ty),
-                    }
-                }).collect();
-                self.registry.intern(TypeKind::AnonymousUnion(is_extern, new_fields))
+                    })
+                    .collect();
+                self.registry
+                    .intern(TypeKind::AnonymousUnion(is_extern, new_fields))
             }
 
             TypeKind::AnonymousEnum(enum_def) => {
@@ -161,10 +170,11 @@ impl<'a> Substituter<'a> {
                         explicit_value: variant.explicit_value,
                     })
                     .collect();
-                self.registry.intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
-                    backing_ty: new_backing_ty,
-                    variants: new_variants,
-                }))
+                self.registry
+                    .intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
+                        backing_ty: new_backing_ty,
+                        variants: new_variants,
+                    }))
             }
 
             TypeKind::AnonymousEnumPayload(enum_ty) => {

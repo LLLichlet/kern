@@ -7,7 +7,7 @@ use kernc_sema::checker::ConstEvaluator;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::Def;
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::{Span, SymbolId, NodeId};
+use kernc_utils::{NodeId, Span, SymbolId};
 
 #[derive(Clone)]
 enum MatchAdtInfo {
@@ -124,10 +124,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // 0. ================= 嗅探 Decay (退化) 上下文 =================
         let norm_exp = self.ctx.type_registry.normalize(exp_ty);
-        let is_decay = captures.is_empty() && matches!(
-            self.ctx.type_registry.get(norm_exp).clone(),
-            TypeKind::Function { .. } | TypeKind::FnDef(..)
-        );
+        let is_decay = captures.is_empty()
+            && matches!(
+                self.ctx.type_registry.get(norm_exp).clone(),
+                TypeKind::Function { .. } | TypeKind::FnDef(..)
+            );
 
         // 1. ================= 构建捕获状态结构体 =================
         let mut env_struct_fields = Vec::new();
@@ -160,7 +161,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut mast_params = Vec::new();
         let env_sym = self.ctx.intern("__env");
-        
+
         // 如果是 Decay 退化为 C ABI 静态函数，不生成隐藏的上下文指针
         if !is_decay {
             mast_params.push(MastParam {
@@ -170,8 +171,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
         }
 
-        let (param_tys, ret_ty) = if let TypeKind::AnonymousState { params: p, ret: r, .. } =
-            self.ctx.type_registry.get(concrete_ty).clone()
+        let (param_tys, ret_ty) = if let TypeKind::AnonymousState {
+            params: p, ret: r, ..
+        } = self.ctx.type_registry.get(concrete_ty).clone()
         {
             (p, r)
         } else {
@@ -193,13 +195,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.local_types.push(HashMap::new());
         for p in &mast_params {
-            self.local_types.last_mut().unwrap().insert(p.name, (p.ty, p.is_mut));
+            self.local_types
+                .last_mut()
+                .unwrap()
+                .insert(p.name, (p.ty, p.is_mut));
         }
 
         // 还原捕获的值 (只有在非退化时才需要)
         let mut injected_stmts = Vec::new();
         if !is_decay {
-            let env_var_expr = MastExpr::new(env_ptr_ty, MastExprKind::Var(env_sym), Span::default());
+            let env_var_expr =
+                MastExpr::new(env_ptr_ty, MastExprKind::Var(env_sym), Span::default());
 
             for (i, cap) in captures.iter().enumerate() {
                 let deref_env = MastExpr::new(
@@ -220,10 +226,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 injected_stmts.push(MastStmt::Let {
                     name: cap.name,
                     ty: env_struct_fields[i].ty,
-                    is_mut: false, 
+                    is_mut: false,
                     init: field_access,
                 });
-                self.local_types.last_mut().unwrap().insert(cap.name, (env_struct_fields[i].ty, false));
+                self.local_types
+                    .last_mut()
+                    .unwrap()
+                    .insert(cap.name, (env_struct_fields[i].ty, false));
             }
         }
 
@@ -296,7 +305,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     );
 
                     let func_ref = MastExpr::new(
-                        TypeId::VOID, 
+                        TypeId::VOID,
                         MastExprKind::FuncRef(func_id),
                         Span::default(),
                     );
@@ -542,11 +551,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     /// 辅助方法：解析目标类型的 ADT 元数据
-    fn resolve_match_adt(
-        &mut self,
-        target_ty: TypeId,
-        span: Span,
-    ) -> Option<MatchAdtInfo> {
+    fn resolve_match_adt(&mut self, target_ty: TypeId, span: Span) -> Option<MatchAdtInfo> {
         let norm_target_ty = self.ctx.type_registry.normalize(target_ty);
 
         match self.ctx.type_registry.get(norm_target_ty).clone() {
@@ -584,7 +589,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 })
             }
             TypeKind::AnonymousEnum(def) => {
-                let pure = def.variants.iter().all(|variant| variant.payload_ty.is_none());
+                let pure = def
+                    .variants
+                    .iter()
+                    .all(|variant| variant.payload_ty.is_none());
                 let mono_id = if !pure {
                     self.instantiate_anon_enum(norm_target_ty)
                 } else {
@@ -626,9 +634,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         if let Some(info) = adt_info {
                             if let ExprKind::EnumLiteral(variant_name) = &val_expr.kind {
                                 let tag_value = match info {
-                                    MatchAdtInfo::Named { def, .. } => self
-                                        .named_enum_variant_info(def, *variant_name, val_expr.span)
-                                        .1,
+                                    MatchAdtInfo::Named { def, .. } => {
+                                        self.named_enum_variant_info(
+                                            def,
+                                            *variant_name,
+                                            val_expr.span,
+                                        )
+                                        .1
+                                    }
                                     MatchAdtInfo::Anonymous { def, .. } => self
                                         .anon_enum_variant_info(def, *variant_name)
                                         .map(|(_, tag_value)| tag_value)

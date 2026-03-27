@@ -7,7 +7,7 @@ use kernc_lower::Lowerer;
 use kernc_sema::BuiltinInjector;
 use kernc_sema::SemaContext;
 use kernc_sema::checker::TypeckDriver;
-use kernc_sema::passes::{Collector, ImportResolver, TypeResolver, LinkageChecker};
+use kernc_sema::passes::{Collector, ImportResolver, LinkageChecker, TypeResolver};
 use kernc_utils::Session;
 use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode, LinkProfile};
 
@@ -130,10 +130,10 @@ impl CompilerDriver {
                 .as_deref()
                 .expect("compile mode requires a source input"),
         )
-            .file_stem()
-            .unwrap_or_default()
-            .to_str()
-            .unwrap_or("kern_module");
+        .file_stem()
+        .unwrap_or_default()
+        .to_str()
+        .unwrap_or("kern_module");
 
         let mut codegen = CodeGenerator::new(
             &codegen_ctx,
@@ -179,13 +179,17 @@ impl CompilerDriver {
             })
         };
 
-        if let Err(e) = codegen.emit_to_file(&triple_str, &link_input_path, self.options.opt_level) {
+        if let Err(e) = codegen.emit_to_file(&triple_str, &link_input_path, self.options.opt_level)
+        {
             eprintln!("Error: LLVM failed to generate intermediate file: {}", e);
             return false;
         }
 
         if self.options.driver_mode.emits_linker_input() {
-            println!("Successfully emitted linker input to `{}`", self.options.output_file);
+            println!(
+                "Successfully emitted linker input to `{}`",
+                self.options.output_file
+            );
             return true;
         }
 
@@ -195,9 +199,7 @@ impl CompilerDriver {
             self.build_link_command(Some(&link_input_path), &triple_str, is_windows, is_darwin);
         self.maybe_print_link_command(&cmd);
 
-        match cmd
-            .status()
-        {
+        match cmd.status() {
             Ok(s) if s.success() => {
                 println!("Successfully compiled to `{}`", self.options.output_file);
                 true
@@ -237,9 +239,7 @@ impl CompilerDriver {
         let mut cmd = self.build_link_command(None, &triple_str, is_windows, is_darwin);
         self.maybe_print_link_command(&cmd);
 
-        match cmd
-            .status()
-        {
+        match cmd.status() {
             Ok(s) if s.success() => {
                 println!("Successfully linked to `{}`", self.options.output_file);
                 true
@@ -395,11 +395,21 @@ fn shell_quote(input: &str) -> String {
 }
 
 fn normalize_darwin_triple_str(triple_str: &str) -> String {
-    if triple_str.contains("macosx") && triple_str.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+    if triple_str.contains("macosx")
+        && triple_str
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_ascii_digit())
+    {
         return triple_str.to_string();
     }
 
-    if triple_str.contains("darwin") && triple_str.chars().last().is_some_and(|c| c.is_ascii_digit()) {
+    if triple_str.contains("darwin")
+        && triple_str
+            .chars()
+            .last()
+            .is_some_and(|c| c.is_ascii_digit())
+    {
         return triple_str.to_string();
     }
 

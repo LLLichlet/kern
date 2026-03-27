@@ -170,21 +170,39 @@ impl<'a> SemaContext<'a> {
             },
             crate::ty::TypeKind::Pointer { is_mut, elem } => {
                 let inner = self.mangle_type(elem);
-                if is_mut { format!("Pmut{}", inner) } else { format!("P{}", inner) }
+                if is_mut {
+                    format!("Pmut{}", inner)
+                } else {
+                    format!("P{}", inner)
+                }
             }
             crate::ty::TypeKind::VolatilePtr { is_mut, elem } => {
                 let inner = self.mangle_type(elem);
-                if is_mut { format!("Vmut{}", inner) } else { format!("V{}", inner) }
+                if is_mut {
+                    format!("Vmut{}", inner)
+                } else {
+                    format!("V{}", inner)
+                }
             }
             crate::ty::TypeKind::Slice { is_mut, elem } => {
                 let inner = self.mangle_type(elem);
-                if is_mut { format!("S{}_mut", inner) } else { format!("S{}", inner) }
+                if is_mut {
+                    format!("S{}_mut", inner)
+                } else {
+                    format!("S{}", inner)
+                }
             }
             crate::ty::TypeKind::Array { is_mut, elem, len } => {
                 let inner = self.mangle_type(elem);
-                if is_mut { format!("A{}mut{}", len, inner) } else { format!("A{}{}", len, inner) }
+                if is_mut {
+                    format!("A{}mut{}", len, inner)
+                } else {
+                    format!("A{}{}", len, inner)
+                }
             }
-            crate::ty::TypeKind::Def(def_id, gen_args) | crate::ty::TypeKind::Enum(def_id, gen_args) | crate::ty::TypeKind::TraitObject(def_id, gen_args) => {
+            crate::ty::TypeKind::Def(def_id, gen_args)
+            | crate::ty::TypeKind::Enum(def_id, gen_args)
+            | crate::ty::TypeKind::TraitObject(def_id, gen_args) => {
                 let def = &self.defs[def_id.0 as usize];
                 let base_name = if let Some(n) = def.name() {
                     self.resolve(n).to_string()
@@ -204,7 +222,8 @@ impl<'a> SemaContext<'a> {
                     s
                 }
             }
-            crate::ty::TypeKind::Function { params, ret, .. } | crate::ty::TypeKind::ClosureInterface { params, ret } => {
+            crate::ty::TypeKind::Function { params, ret, .. }
+            | crate::ty::TypeKind::ClosureInterface { params, ret } => {
                 let mut s = String::from("F");
                 for p in params {
                     let p_str = self.mangle_type(p);
@@ -234,12 +253,18 @@ impl<'a> SemaContext<'a> {
                     s
                 }
             }
-            crate::ty::TypeKind::AnonymousState { closure_node_id, .. } => {
+            crate::ty::TypeKind::AnonymousState {
+                closure_node_id, ..
+            } => {
                 format!("ClosureState{}", closure_node_id.0)
             }
             crate::ty::TypeKind::AnonymousStruct(is_extern, fields) => {
                 // 格式：AStr + (字段名长度+字段名) + (字段类型长度+字段类型) + E
-                let mut s = if is_extern { String::from("EStr") } else { String::from("AStr") };
+                let mut s = if is_extern {
+                    String::from("EStr")
+                } else {
+                    String::from("AStr")
+                };
                 for f in fields {
                     let name_str = self.resolve(f.name);
                     s.push_str(&format!("{}{}", name_str.len(), name_str));
@@ -250,7 +275,11 @@ impl<'a> SemaContext<'a> {
                 s
             }
             crate::ty::TypeKind::AnonymousUnion(is_extern, fields) => {
-                let mut s = if is_extern { String::from("EUni") } else { String::from("AUni") };
+                let mut s = if is_extern {
+                    String::from("EUni")
+                } else {
+                    String::from("AUni")
+                };
                 for f in fields {
                     let name_str = self.resolve(f.name);
                     s.push_str(&format!("{}{}", name_str.len(), name_str));
@@ -287,7 +316,7 @@ impl<'a> SemaContext<'a> {
                 let inner = self.mangle_type(enum_ty);
                 format!("AEnumPayload{}{}", inner.len(), inner)
             }
-            _ => "unknown".to_string()
+            _ => "unknown".to_string(),
         }
     }
 
@@ -332,7 +361,7 @@ impl<'a> SemaContext<'a> {
         // 3. 构建 Itanium 风格路径
         let mut mangled = String::from("_K");
         let mut path_components = Vec::new();
-        
+
         let mut current_parent = parent_id;
         while let Some(pid) = current_parent {
             match &self.defs[pid.0 as usize] {
@@ -341,7 +370,11 @@ impl<'a> SemaContext<'a> {
                     current_parent = m.parent;
                 }
                 Def::Impl(i) => {
-                    let target_ty = self.node_types.get(&i.target_type.id).copied().unwrap_or(TypeId::ERROR);
+                    let target_ty = self
+                        .node_types
+                        .get(&i.target_type.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
                     path_components.push(self.mangle_type(target_ty));
                     current_parent = i.parent_module;
                 }
@@ -355,7 +388,7 @@ impl<'a> SemaContext<'a> {
 
         // 4. 压入本体名字与泛型参数
         mangled.push_str(&format!("{}{}", name_str.len(), name_str));
-        
+
         if !args.is_empty() {
             mangled.push('I');
             for &arg in args {

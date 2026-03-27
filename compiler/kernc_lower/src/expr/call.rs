@@ -781,7 +781,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let actual_ty_str = self.ctx.ty_to_string(closure_interface_ty);
             self.ctx.emit_ice(
                 span,
-                format!("Kern ICE (Lowering): Expected `ClosureInterface`, found `{}`.", actual_ty_str),
+                format!(
+                    "Kern ICE (Lowering): Expected `ClosureInterface`, found `{}`.",
+                    actual_ty_str
+                ),
             );
             unreachable!()
         };

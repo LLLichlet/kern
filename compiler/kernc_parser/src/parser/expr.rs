@@ -70,6 +70,47 @@ impl Precedence {
     }
 }
 
+fn binary_operator_from_token(token: TokenType) -> BinaryOperator {
+    match token {
+        TokenType::Plus => BinaryOperator::Add,
+        TokenType::Minus => BinaryOperator::Subtract,
+        TokenType::Star => BinaryOperator::Multiply,
+        TokenType::Slash => BinaryOperator::Divide,
+        TokenType::Percent => BinaryOperator::Modulo,
+        TokenType::EqualEqual => BinaryOperator::Equal,
+        TokenType::NotEqual => BinaryOperator::NotEqual,
+        TokenType::LessThan => BinaryOperator::LessThan,
+        TokenType::GreaterThan => BinaryOperator::GreaterThan,
+        TokenType::LessEqual => BinaryOperator::LessOrEqual,
+        TokenType::GreaterEqual => BinaryOperator::GreaterOrEqual,
+        TokenType::And => BinaryOperator::LogicalAnd,
+        TokenType::Or => BinaryOperator::LogicalOr,
+        TokenType::Ampersand => BinaryOperator::BitwiseAnd,
+        TokenType::Pipe => BinaryOperator::BitwiseOr,
+        TokenType::Caret => BinaryOperator::BitwiseXor,
+        TokenType::LShift => BinaryOperator::ShiftLeft,
+        TokenType::RShift => BinaryOperator::ShiftRight,
+        _ => unreachable!("Token {:?} is not a binary operator", token),
+    }
+}
+
+fn assignment_operator_from_token(token: TokenType) -> AssignmentOperator {
+    match token {
+        TokenType::Assign => AssignmentOperator::Assign,
+        TokenType::PlusAssign => AssignmentOperator::AddAssign,
+        TokenType::MinusAssign => AssignmentOperator::SubtractAssign,
+        TokenType::StarAssign => AssignmentOperator::MultiplyAssign,
+        TokenType::SlashAssign => AssignmentOperator::DivideAssign,
+        TokenType::PercentAssign => AssignmentOperator::ModuloAssign,
+        TokenType::AmpersandAssign => AssignmentOperator::BitwiseAndAssign,
+        TokenType::PipeAssign => AssignmentOperator::BitwiseOrAssign,
+        TokenType::CaretAssign => AssignmentOperator::BitwiseXorAssign,
+        TokenType::LShiftAssign => AssignmentOperator::ShiftLeftAssign,
+        TokenType::RShiftAssign => AssignmentOperator::ShiftRightAssign,
+        _ => unreachable!("Token {:?} is not an assignment operator", token),
+    }
+}
+
 impl<'a> Parser<'a> {
     //  Binding Pattern
     pub fn parse_binding_pattern(&mut self) -> ParseResult<BindingPattern> {
@@ -842,7 +883,7 @@ impl<'a> Parser<'a> {
     // --- Infix Sub-Routines ---
 
     fn parse_binary_expr(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
-        let op = BinaryOperator::from_token(token.tag);
+        let op = binary_operator_from_token(token.tag);
         let precedence = Precedence::from_token(token.tag);
         let right = self.parse_expression(precedence)?;
         Ok(Expr {
@@ -891,7 +932,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_assignment_expr(&mut self, left: Expr, token: Token) -> ParseResult<Expr> {
-        let op = AssignmentOperator::from_token(token.tag);
+        let op = assignment_operator_from_token(token.tag);
         let right = self.parse_expression(Precedence::Lowest)?;
         Ok(Expr {
             id: self.new_id(),

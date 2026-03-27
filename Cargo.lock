@@ -52,7 +52,6 @@ dependencies = [
 name = "kernc_ast"
 version = "0.5.3"
 dependencies = [
- "kernc_lexer",
  "kernc_utils",
 ]
 

@@ -49,7 +49,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .bool_type()
                 .const_int(if *val { 1 } else { 0 }, false)
                 .into(),
-            MastExprKind::StringLiteral(_) => unreachable!("Handled dynamically in Globals"),
+            MastExprKind::StringLiteral(_) => {
+                self.sess.emit_ice(
+                    expr.span,
+                    "Kern ICE (Codegen): Unexpected StringLiteral reached expression codegen.",
+                );
+                self.get_undef_val(expected_llvm_ty)
+            }
 
             // === 2. 引用与解引用 ===
             MastExprKind::Var(name) => self.compile_var_ref(*name, expected_llvm_ty, expr.span),

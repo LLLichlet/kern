@@ -2,11 +2,13 @@ use inkwell::context::Context;
 use std::env;
 use std::process::Command;
 
+use kernc_ast as ast;
 use kernc_codegen::CodeGenerator;
 use kernc_lower::Lowerer;
 use kernc_sema::BuiltinInjector;
 use kernc_sema::SemaContext;
 use kernc_sema::checker::TypeckDriver;
+use kernc_sema::def::DefId;
 use kernc_sema::passes::{Collector, ImportResolver, LinkageChecker, TypeResolver};
 use kernc_utils::Session;
 use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode, LinkProfile};
@@ -21,6 +23,12 @@ pub struct CompilerDriver {
 /// 当变量离开作用域时，自动删除产生的临时文件
 struct TempFileGuard {
     path: String,
+}
+
+struct LinkTarget {
+    triple: String,
+    is_windows: bool,
+    is_darwin: bool,
 }
 
 impl Drop for TempFileGuard {
@@ -39,114 +47,39 @@ impl CompilerDriver {
             return self.link_only();
         }
 
-        // 1. 初始化最底层的全局 Session (掌管文件、报错、配置)
+        let Some(input_file) = self.options.input_file.as_deref() else {
+            eprintln!("Error: compile mode requires a source input.");
+            return false;
+        };
+
         let mut session = Session::new();
         session.apply_options(&self.options);
+        let mut ctx = self.build_sema_context(&mut session);
 
-        // 2. 初始化语义分析中枢
-        let mut ctx = SemaContext::new(&mut session);
-
-        ctx.module_aliases = self.options.module_aliases.clone();
-
-        // 3. 注入内置类型 (void, i32, bool 等)
-        let mut builtin = BuiltinInjector::new(&mut ctx);
-        builtin.inject();
-
-        // 4. 加载、解析和宏剪枝
-        let asts = {
-            let mut loader = ModuleLoader::new(&mut ctx);
-            // ModuleLoader 内部已经接管了文件读取和报错
-            let input_file = self
-                .options
-                .input_file
-                .as_deref()
-                .expect("compile mode requires a source input");
-            if loader.load_root(input_file).is_none() {
-                ctx.sess.print_diagnostics();
-                return false;
-            }
-            std::mem::take(&mut loader.asts)
+        let Some(asts) = self.load_asts(&mut ctx, input_file) else {
+            return false;
         };
 
-        if ctx.has_errors() {
-            ctx.sess.print_diagnostics();
+        if !self.run_sema_pipeline(&mut ctx, asts) {
             return false;
         }
 
-        ctx.inject_alias_roots();
-
-        // 5. 语义分析流水线
-        let mut collector = Collector::new(&mut ctx);
-        for (mod_id, ast) in asts {
-            collector.collect_ast(mod_id, &ast);
-        }
-        if ctx.has_errors() {
-            ctx.sess.print_diagnostics();
+        let Some(mast_module) = self.lower_module(&mut ctx) else {
             return false;
-        }
+        };
 
-        let mut import_resolver = ImportResolver::new(&mut ctx);
-        import_resolver.resolve_all();
-        if ctx.has_errors() {
-            ctx.sess.print_diagnostics();
-            return false;
-        }
-
-        let mut type_resolver = TypeResolver::new(&mut ctx);
-        type_resolver.resolve_all();
-        if ctx.has_errors() {
-            ctx.sess.print_diagnostics();
-            return false;
-        }
-
-        let mut typeck = TypeckDriver::new(&mut ctx);
-        typeck.check_all();
-        if ctx.has_errors() {
-            ctx.sess.print_diagnostics();
-            return false;
-        }
-
-        let mut linkage_checker = LinkageChecker::new(&mut ctx);
-        linkage_checker.check_all();
-        if ctx.has_errors() {
-            ctx.sess.print_diagnostics();
-            return false;
-        }
-
-        // 6. 中端降级
-        let mut lowerer = Lowerer::new(&mut ctx);
-        let mast_module = lowerer.lower_all();
-
-        if ctx.has_errors() {
-            ctx.sess.print_diagnostics();
-            return false;
-        }
-
-        // 7. 后端代码生成
         let codegen_ctx = Context::create();
-        let mod_name = std::path::Path::new(
-            self.options
-                .input_file
-                .as_deref()
-                .expect("compile mode requires a source input"),
-        )
-        .file_stem()
-        .unwrap_or_default()
-        .to_str()
-        .unwrap_or("kern_module");
-
         let mut codegen = CodeGenerator::new(
             &codegen_ctx,
-            mod_name,
+            &self.module_name_for_codegen(input_file),
             &mut *ctx.sess,
             &ctx.type_registry,
-            &ctx.defs,
         );
 
-        codegen.asm_dialect = match self.options.asm_dialect {
+        codegen.set_asm_dialect(match self.options.asm_dialect {
             AsmDialect::Intel => inkwell::InlineAsmDialect::Intel,
             AsmDialect::Att => inkwell::InlineAsmDialect::ATT,
-        };
+        });
 
         codegen.compile(&mast_module);
 
@@ -155,31 +88,12 @@ impl CompilerDriver {
             return true;
         }
 
-        // 处理跨平台逻辑
-        let triple_str = self.options.target.triple.to_string();
-        let is_windows = triple_str.contains("windows");
-        let is_darwin = triple_str.contains("darwin") || triple_str.contains("macosx");
-        let triple_str = if is_darwin {
-            normalize_darwin_triple_str(&triple_str)
-        } else {
-            triple_str
-        };
+        let target = self.normalized_target();
+        let link_input_path = self.prepare_link_input_path(&target);
+        let _guard = self.temp_link_input_guard(&link_input_path);
 
-        let link_input_path = if self.options.driver_mode.emits_linker_input() {
-            self.options.output_file.clone()
-        } else {
-            self.make_temp_link_input_path(is_windows)
-        };
-
-        let _guard = if self.options.driver_mode.emits_linker_input() {
-            None
-        } else {
-            Some(TempFileGuard {
-                path: link_input_path.clone(),
-            })
-        };
-
-        if let Err(e) = codegen.emit_to_file(&triple_str, &link_input_path, self.options.opt_level)
+        if let Err(e) =
+            codegen.emit_to_file(&target.triple, &link_input_path, self.options.opt_level)
         {
             eprintln!("Error: LLVM failed to generate intermediate file: {}", e);
             return false;
@@ -193,30 +107,7 @@ impl CompilerDriver {
             return true;
         }
 
-        println!("Linking for target: {} ...", triple_str);
-
-        let mut cmd =
-            self.build_link_command(Some(&link_input_path), &triple_str, is_windows, is_darwin);
-        self.maybe_print_link_command(&cmd);
-
-        match cmd.status() {
-            Ok(s) if s.success() => {
-                println!("Successfully compiled to `{}`", self.options.output_file);
-                true
-            }
-            Ok(s) => {
-                eprintln!("Error: Linker failed with exit code {}", s);
-                false
-            }
-            Err(e) => {
-                let cc_compiler = self.resolve_linker_driver(is_windows);
-                eprintln!(
-                    "Error: Failed to invoke linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
-                    cc_compiler, e
-                );
-                false
-            }
-        }
+        self.run_link_command(Some(&link_input_path), &target, "Successfully compiled")
     }
 
     fn link_only(&self) -> bool {
@@ -225,23 +116,147 @@ impl CompilerDriver {
             return false;
         }
 
-        let triple_str = self.options.target.triple.to_string();
-        let is_windows = triple_str.contains("windows");
-        let is_darwin = triple_str.contains("darwin") || triple_str.contains("macosx");
-        let triple_str = if is_darwin {
-            normalize_darwin_triple_str(&triple_str)
+        let target = self.normalized_target();
+        self.run_link_command(None, &target, "Successfully linked")
+    }
+
+    fn build_sema_context<'a>(&self, session: &'a mut Session) -> SemaContext<'a> {
+        let mut ctx = SemaContext::new(session);
+        ctx.module_aliases = self.options.module_aliases.clone();
+
+        let mut builtin = BuiltinInjector::new(&mut ctx);
+        builtin.inject();
+        ctx
+    }
+
+    fn load_asts<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        input_file: &str,
+    ) -> Option<Vec<(DefId, ast::Module)>> {
+        let mut loader = ModuleLoader::new(ctx);
+        if loader.load_root(input_file).is_none() {
+            loader.ctx.sess.print_diagnostics();
+            return None;
+        }
+        if !Self::report_diagnostics_if_errors(loader.ctx) {
+            return None;
+        }
+
+        loader.ctx.inject_alias_roots();
+        Some(std::mem::take(&mut loader.asts))
+    }
+
+    fn run_sema_pipeline<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        asts: Vec<(DefId, ast::Module)>,
+    ) -> bool {
+        let mut collector = Collector::new(ctx);
+        for (mod_id, ast) in asts {
+            collector.collect_ast(mod_id, &ast);
+        }
+        if !Self::report_diagnostics_if_errors(collector.context()) {
+            return false;
+        }
+
+        let mut import_resolver = ImportResolver::new(collector.into_context());
+        import_resolver.resolve_all();
+        if !Self::report_diagnostics_if_errors(import_resolver.context()) {
+            return false;
+        }
+
+        let mut type_resolver = TypeResolver::new(import_resolver.into_context());
+        type_resolver.resolve_all();
+        if !Self::report_diagnostics_if_errors(type_resolver.context()) {
+            return false;
+        }
+
+        let mut typeck = TypeckDriver::new(type_resolver.into_context());
+        typeck.check_all();
+        let ctx = typeck.into_context();
+        if !Self::report_diagnostics_if_errors(ctx) {
+            return false;
+        }
+
+        let mut linkage_checker = LinkageChecker::new(ctx);
+        linkage_checker.check_all();
+        Self::report_diagnostics_if_errors(linkage_checker.context())
+    }
+
+    fn lower_module<'a>(&self, ctx: &mut SemaContext<'a>) -> Option<kernc_mast::MastModule> {
+        let mut lowerer = Lowerer::new(ctx);
+        let module = lowerer.lower_all();
+        if !Self::report_diagnostics_if_errors(lowerer.context()) {
+            return None;
+        }
+        Some(module)
+    }
+
+    fn module_name_for_codegen(&self, input_file: &str) -> String {
+        std::path::Path::new(input_file)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("kern_module")
+            .to_string()
+    }
+
+    fn report_diagnostics_if_errors(ctx: &mut SemaContext<'_>) -> bool {
+        if ctx.has_errors() {
+            ctx.sess.print_diagnostics();
+            return false;
+        }
+        true
+    }
+
+    fn normalized_target(&self) -> LinkTarget {
+        let raw_triple = self.options.target.triple.to_string();
+        let is_windows = raw_triple.contains("windows");
+        let is_darwin = raw_triple.contains("darwin") || raw_triple.contains("macosx");
+        let triple = if is_darwin {
+            normalize_darwin_triple_str(&raw_triple)
         } else {
-            triple_str
+            raw_triple
         };
 
-        println!("Linking for target: {} ...", triple_str);
+        LinkTarget {
+            triple,
+            is_windows,
+            is_darwin,
+        }
+    }
 
-        let mut cmd = self.build_link_command(None, &triple_str, is_windows, is_darwin);
+    fn prepare_link_input_path(&self, target: &LinkTarget) -> String {
+        if self.options.driver_mode.emits_linker_input() {
+            self.options.output_file.clone()
+        } else {
+            self.make_temp_link_input_path(target.is_windows)
+        }
+    }
+
+    fn temp_link_input_guard(&self, link_input_path: &str) -> Option<TempFileGuard> {
+        if self.options.driver_mode.emits_linker_input() {
+            None
+        } else {
+            Some(TempFileGuard {
+                path: link_input_path.to_string(),
+            })
+        }
+    }
+
+    fn run_link_command(
+        &self,
+        link_input_path: Option<&str>,
+        target: &LinkTarget,
+        success_prefix: &str,
+    ) -> bool {
+        println!("Linking for target: {} ...", target.triple);
+        let mut cmd = self.build_link_command(link_input_path, target);
         self.maybe_print_link_command(&cmd);
 
         match cmd.status() {
             Ok(s) if s.success() => {
-                println!("Successfully linked to `{}`", self.options.output_file);
+                println!("{} to `{}`", success_prefix, self.options.output_file);
                 true
             }
             Ok(s) => {
@@ -249,7 +264,7 @@ impl CompilerDriver {
                 false
             }
             Err(e) => {
-                let cc_compiler = self.resolve_linker_driver(is_windows);
+                let cc_compiler = self.resolve_linker_driver(target.is_windows);
                 eprintln!(
                     "Error: Failed to invoke linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
                     cc_compiler, e
@@ -272,14 +287,8 @@ impl CompilerDriver {
         }
     }
 
-    fn build_link_command(
-        &self,
-        link_input_path: Option<&str>,
-        _target_triple: &str,
-        is_windows: bool,
-        is_darwin: bool,
-    ) -> Command {
-        let cc_compiler = self.resolve_linker_driver(is_windows);
+    fn build_link_command(&self, link_input_path: Option<&str>, target: &LinkTarget) -> Command {
+        let cc_compiler = self.resolve_linker_driver(target.is_windows);
         let mut cmd = Command::new(&cc_compiler);
 
         if let Some(link_input_path) = link_input_path {
@@ -292,7 +301,7 @@ impl CompilerDriver {
 
         cmd.arg("-o").arg(&self.options.output_file);
 
-        self.apply_link_profile(&mut cmd, is_windows, is_darwin);
+        self.apply_link_profile(&mut cmd, target.is_windows, target.is_darwin);
 
         for path in &self.options.linker_search_paths {
             cmd.arg(format!("-L{}", path));

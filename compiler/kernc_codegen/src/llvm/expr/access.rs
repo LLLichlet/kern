@@ -6,6 +6,74 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn null_ptr(&self) -> PointerValue<'ctx> {
+        self.context.ptr_type(Default::default()).const_zero()
+    }
+
+    fn lookup_struct_type(
+        &mut self,
+        struct_id: MonoId,
+        span: Span,
+        context: &str,
+    ) -> Option<inkwell::types::StructType<'ctx>> {
+        match self.structs.get(&struct_id).copied() {
+            Some(ty) => Some(ty),
+            None => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): missing struct MonoId {:?} while compiling {}.",
+                        struct_id, context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn slice_base_parts(
+        &mut self,
+        lhs: &MastExpr,
+        lhs_val: BasicValueEnum<'ctx>,
+    ) -> Option<(
+        PointerValue<'ctx>,
+        Option<inkwell::values::IntValue<'ctx>>,
+        TypeId,
+    )> {
+        let norm_lhs = self.type_registry.normalize(lhs.ty);
+        match self.type_registry.get(norm_lhs) {
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                Some((lhs_val.into_pointer_value(), None, *elem))
+            }
+            TypeKind::Slice { elem, .. } => {
+                let struct_val = lhs_val.into_struct_value();
+                let ptr = self
+                    .builder
+                    .build_extract_value(struct_val, 0, "s_ptr")
+                    .unwrap()
+                    .into_pointer_value();
+                let len = self
+                    .builder
+                    .build_extract_value(struct_val, 1, "s_len")
+                    .unwrap()
+                    .into_int_value();
+                Some((ptr, Some(len), *elem))
+            }
+            TypeKind::Array { elem, len, .. } => {
+                let ptr = if lhs_val.is_pointer_value() {
+                    lhs_val.into_pointer_value()
+                } else {
+                    let alloca = self.create_entry_block_alloca(lhs_val.get_type(), "arr_tmp");
+                    self.builder.build_store(alloca, lhs_val).unwrap();
+                    alloca
+                };
+                let len_val = self.context.i64_type().const_int(*len, false);
+                Some((ptr, Some(len_val), *elem))
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn compile_lvalue(&mut self, expr: &MastExpr) -> PointerValue<'ctx> {
         match &expr.kind {
             MastExprKind::Var(name) => {
@@ -20,7 +88,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             var_name
                         ),
                     );
-                    unreachable!()
+                    self.null_ptr()
                 }
             }
             MastExprKind::GlobalRef(mono_id) => {
@@ -31,7 +99,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         expr.span,
                         "Global reference not found in codegen".to_string(),
                     );
-                    unreachable!()
+                    self.null_ptr()
                 }
             }
             MastExprKind::FieldAccess {
@@ -40,9 +108,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 field_idx,
             } => {
                 let struct_ptr = self.compile_lvalue(lhs);
-                let struct_llvm_ty = self.structs.get(struct_id).unwrap();
+                let Some(struct_llvm_ty) =
+                    self.lookup_struct_type(*struct_id, expr.span, "field l-value")
+                else {
+                    return self.null_ptr();
+                };
                 self.builder
-                    .build_struct_gep(*struct_llvm_ty, struct_ptr, *field_idx as u32, "lvalue_gep")
+                    .build_struct_gep(struct_llvm_ty, struct_ptr, *field_idx as u32, "lvalue_gep")
                     .unwrap()
             }
             MastExprKind::IndexAccess { lhs, index } => {
@@ -132,23 +204,45 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 var_name, name.0
             )
         );
-        unreachable!()
+        expected_ty.const_zero()
     }
 
     pub(crate) fn compile_global_ref(
-        &self,
+        &mut self,
         mono_id: MonoId,
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let global_val = self.globals.get(&mono_id).expect("Global not found");
+        let Some(global_val) = self.globals.get(&mono_id) else {
+            self.sess.emit_ice(
+                Span::default(),
+                format!(
+                    "Global MonoId {:?} not found during code generation",
+                    mono_id
+                ),
+            );
+            return expected_ty.const_zero();
+        };
         let ptr = global_val.as_pointer_value();
         self.builder
             .build_load(expected_ty, ptr, "global_load")
             .unwrap()
     }
 
-    pub(crate) fn compile_func_ref(&self, mono_id: MonoId) -> BasicValueEnum<'ctx> {
-        let func_val = self.functions.get(&mono_id).expect("Function not found");
+    pub(crate) fn compile_func_ref(&mut self, mono_id: MonoId) -> BasicValueEnum<'ctx> {
+        let Some(func_val) = self.functions.get(&mono_id) else {
+            self.sess.emit_ice(
+                Span::default(),
+                format!(
+                    "Function MonoId {:?} not found during code generation",
+                    mono_id
+                ),
+            );
+            return self
+                .context
+                .ptr_type(Default::default())
+                .const_zero()
+                .into();
+        };
         func_val.as_global_value().as_pointer_value().into()
     }
 
@@ -171,7 +265,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let struct_ptr = self.compile_lvalue(lhs);
-        let struct_llvm_ty = self.structs.get(&struct_id).unwrap();
+        let Some(struct_llvm_ty) = self.lookup_struct_type(struct_id, lhs.span, "field access")
+        else {
+            return expected_ty.const_zero();
+        };
         let is_union = self.union_ids.contains(&struct_id);
 
         if is_union {
@@ -181,7 +278,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         } else {
             let field_ptr = self
                 .builder
-                .build_struct_gep(*struct_llvm_ty, struct_ptr, field_idx as u32, "field_gep")
+                .build_struct_gep(struct_llvm_ty, struct_ptr, field_idx as u32, "field_gep")
                 .unwrap();
             self.builder
                 .build_load(expected_ty, field_ptr, "field_load")
@@ -248,42 +345,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let lhs_val = self.compile_expr(lhs);
-        let norm_lhs = self.type_registry.normalize(lhs.ty);
-
-        // 1. 提取基底指针和基底长度
-        let (base_ptr, base_len) = match self.type_registry.get(norm_lhs) {
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } => {
-                // 原始指针没有长度，完全依赖用户提供的 end
-                (lhs_val.into_pointer_value(), None)
-            }
-            TypeKind::Slice { .. } => {
-                // 从现有的 Fat Pointer 结构体中提取
-                let struct_val = lhs_val.into_struct_value();
-                let ptr = self
-                    .builder
-                    .build_extract_value(struct_val, 0, "s_ptr")
-                    .unwrap()
-                    .into_pointer_value();
-                let len = self
-                    .builder
-                    .build_extract_value(struct_val, 1, "s_len")
-                    .unwrap()
-                    .into_int_value();
-                (ptr, Some(len))
-            }
-            TypeKind::Array { len, .. } => {
-                // 获取数组的内存地址
-                let ptr = if lhs_val.is_pointer_value() {
-                    lhs_val.into_pointer_value()
-                } else {
-                    let alloca = self.create_entry_block_alloca(lhs_val.get_type(), "arr_tmp");
-                    self.builder.build_store(alloca, lhs_val).unwrap();
-                    alloca
-                };
-                let len_val = self.context.i64_type().const_int(*len, false);
-                (ptr, Some(len_val))
-            }
-            _ => unreachable!("Invalid base type for slice operation"),
+        let Some((base_ptr, base_len, elem_ty)) = self.slice_base_parts(lhs, lhs_val) else {
+            self.sess.emit_ice(
+                lhs.span,
+                format!(
+                    "Kern ICE (Codegen): invalid base type `{:?}` for slice operation.",
+                    self.type_registry.get(self.type_registry.normalize(lhs.ty))
+                ),
+            );
+            return expected_llvm_ty.const_zero();
         };
 
         // 2. 计算 start (缺省为 0)
@@ -297,7 +367,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let end_val = if let Some(e) = end {
             self.compile_expr(e).into_int_value()
         } else {
-            base_len.expect("Fatal: slicing a raw pointer without an end index!")
+            let Some(len) = base_len else {
+                self.sess.emit_ice(
+                    lhs.span,
+                    "Kern ICE (Codegen): slicing a raw pointer requires an explicit end index.",
+                );
+                return expected_llvm_ty.const_zero();
+            };
+            len
         };
 
         // 4. 计算新切片的长度: len = end - start + (1 if inclusive)
@@ -314,13 +391,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         // 5. 偏移基底指针: ptr = base_ptr + start
-        let elem_ty = match self.type_registry.get(norm_lhs) {
-            TypeKind::Pointer { elem, .. }
-            | TypeKind::VolatilePtr { elem, .. }
-            | TypeKind::Slice { elem, .. } => *elem,
-            TypeKind::Array { elem, .. } => *elem,
-            _ => unreachable!(),
-        };
         let llvm_elem_ty = self.get_llvm_type(elem_ty);
 
         let slice_ptr = unsafe {

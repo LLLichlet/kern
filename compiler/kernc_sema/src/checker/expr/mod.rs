@@ -28,14 +28,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// FIXME: Unused??
-    #[allow(unused)]
-    pub(crate) fn new_type_var(&mut self) -> TypeId {
-        let vid = self.type_vars.len() as u32;
-        self.type_vars.push(None);
-        self.ctx.type_registry.intern(TypeKind::TypeVar(vid))
-    }
-
     /// 核心入口：检查表达式类型
     pub(crate) fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
         let ty = match &expr.kind {
@@ -221,7 +213,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // 直接借用 TypeResolver 的能力即可
             _ => {
                 let mut resolver = TypeResolver::new(self.ctx);
-                let scope = resolver.ctx.scopes.current_scope_id().unwrap();
+                let scope = resolver.current_scope_id().unwrap();
                 resolver.resolve_type(ty_node, scope)
             }
         };

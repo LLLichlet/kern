@@ -5,12 +5,20 @@ use kernc_ast::{UsePathKind, UseTarget};
 use kernc_utils::{Span, SymbolId};
 
 pub struct ImportResolver<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
+    ctx: &'a mut SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         Self { ctx }
+    }
+
+    pub fn context(&mut self) -> &mut SemaContext<'ctx> {
+        self.ctx
+    }
+
+    pub fn into_context(self) -> &'a mut SemaContext<'ctx> {
+        self.ctx
     }
 
     /// 执行完整的导入解析 Pass (支持不动点迭代)
@@ -233,34 +241,12 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                         (alias_root_id, self.get_module_scope(alias_root_id))
                     } else {
                         // 第二优先级：回退到本地主项目根目录
-                        let mut root_id = current_mod_id;
-                        loop {
-                            if let Def::Module(m) = &self.ctx.defs[root_id.0 as usize] {
-                                if let Some(pid) = m.parent {
-                                    root_id = pid;
-                                } else {
-                                    break;
-                                }
-                            } else {
-                                unreachable!()
-                            }
-                        }
+                        let root_id = self.root_module_id(current_mod_id)?;
                         (root_id, self.get_module_scope(root_id))
                     }
                 } else {
                     // 空路径容错
-                    let mut root_id = current_mod_id;
-                    loop {
-                        if let Def::Module(m) = &self.ctx.defs[root_id.0 as usize] {
-                            if let Some(pid) = m.parent {
-                                root_id = pid;
-                            } else {
-                                break;
-                            }
-                        } else {
-                            unreachable!()
-                        }
-                    }
+                    let root_id = self.root_module_id(current_mod_id)?;
                     (root_id, self.get_module_scope(root_id))
                 }
             }
@@ -270,8 +256,8 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             }
             UsePathKind::Parent => {
                 // 直接跳向父模块
-                if let Def::Module(m) = &self.ctx.defs[current_mod_id.0 as usize] {
-                    if let Some(pid) = m.parent {
+                if let Some(module) = self.module_def(current_mod_id).cloned() {
+                    if let Some(pid) = module.parent {
                         (pid, self.get_module_scope(pid))
                     } else {
                         if emit_errors {
@@ -282,7 +268,14 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                         return None;
                     }
                 } else {
-                    unreachable!()
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Imports): DefId {} is not a module while resolving a parent import path.",
+                            current_mod_id.0
+                        ),
+                    );
+                    return None;
                 }
             }
         };
@@ -295,12 +288,12 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         // 常规路径遍历
         for &segment in actual_path {
             if let Some(symbol) = self.ctx.scopes.resolve_in(curr_scope, segment) {
-                if symbol.kind == SymbolKind::Module {
-                    if let Some(target_def_id) = symbol.def_id {
-                        curr_mod_id = target_def_id;
-                        curr_scope = self.get_module_scope(target_def_id);
-                        continue;
-                    }
+                if symbol.kind == SymbolKind::Module
+                    && let Some(target_def_id) = symbol.def_id
+                {
+                    curr_mod_id = target_def_id;
+                    curr_scope = self.get_module_scope(target_def_id);
+                    continue;
                 }
 
                 if emit_errors {
@@ -373,11 +366,40 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
     //               Helpers
     // ==========================================
 
+    fn module_def(&self, mod_id: DefId) -> Option<&ModuleDef> {
+        match self.ctx.defs.get(mod_id.0 as usize) {
+            Some(Def::Module(module)) => Some(module),
+            _ => None,
+        }
+    }
+
+    fn root_module_id(&mut self, start_mod_id: DefId) -> Option<DefId> {
+        let mut root_id = start_mod_id;
+        loop {
+            let Some(module) = self.module_def(root_id).cloned() else {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Imports): DefId {} is not a module while searching for the root module.",
+                        root_id.0
+                    ),
+                );
+                return None;
+            };
+
+            if let Some(parent) = module.parent {
+                root_id = parent;
+            } else {
+                return Some(root_id);
+            }
+        }
+    }
+
     fn get_module_scope(&self, mod_id: DefId) -> ScopeId {
-        if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
-            m.scope_id
+        if let Some(module) = self.module_def(mod_id) {
+            module.scope_id
         } else {
-            panic!("DefId {:?} is not a module", mod_id)
+            ScopeId(0)
         }
     }
 
@@ -397,25 +419,26 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         let prev_scope = self.ctx.scopes.current_scope_id();
         self.ctx.scopes.set_current_scope(target_scope);
 
-        if let Err(old_info) = self.ctx.scopes.define(name, info.clone()) {
-            if emit_errors && old_info.span != span {
-                // 容忍特判：如果是导入同一个东西（比如显式的 use 和隐式的子模块同名），直接放行
-                if old_info.def_id == info.def_id && old_info.kind == info.kind {
-                    // 一切正常，它本来就在这里
-                } else {
-                    let name_str = self.ctx.resolve(name).to_string();
-                    self.ctx
-                        .struct_error(
-                            span,
-                            format!("the name `{}` is defined multiple times", name_str),
-                        )
-                        .with_hint(format!(
-                            "`{}` was already imported or defined in this module",
-                            name_str
-                        ))
-                        .with_span_label(old_info.span, "previous definition was here")
-                        .emit();
-                }
+        if let Err(old_info) = self.ctx.scopes.define(name, info.clone())
+            && emit_errors
+            && old_info.span != span
+        {
+            // 容忍特判：如果是导入同一个东西（比如显式的 use 和隐式的子模块同名），直接放行
+            if old_info.def_id == info.def_id && old_info.kind == info.kind {
+                // 一切正常，它本来就在这里
+            } else {
+                let name_str = self.ctx.resolve(name).to_string();
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!("the name `{}` is defined multiple times", name_str),
+                    )
+                    .with_hint(format!(
+                        "`{}` was already imported or defined in this module",
+                        name_str
+                    ))
+                    .with_span_label(old_info.span, "previous definition was here")
+                    .emit();
             }
         }
 

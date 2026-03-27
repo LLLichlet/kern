@@ -55,67 +55,58 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let exp_kind = self.ctx.type_registry.get(exp_base).clone();
 
         // 1. Array 到 Slice 的隐式转换
-        if let TypeKind::Slice { .. } = exp_kind {
-            if let TypeKind::Array { .. } = conc_kind {
-                mast_kind = MastExprKind::Cast {
-                    kind: MastCastKind::ArrayToSlice,
-                    operand: Box::new(MastExpr::new(concrete_ty, mast_kind, span)),
-                };
-                return MastExpr::new(exp_ty, mast_kind, span);
-            }
+        if let TypeKind::Slice { .. } = exp_kind
+            && let TypeKind::Array { .. } = conc_kind
+        {
+            mast_kind = MastExprKind::Cast {
+                kind: MastCastKind::ArrayToSlice,
+                operand: Box::new(MastExpr::new(concrete_ty, mast_kind, span)),
+            };
+            return MastExpr::new(exp_ty, mast_kind, span);
         }
 
         // 2. 指针隐式转换为 Trait Object 胖指针
         if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
-            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
-                if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind {
-                    let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
+                && let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind
+            {
+                let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
 
-                    let global_array_ty = match self
-                        .module
-                        .globals
-                        .iter()
-                        .find(|g| g.id == vtable_id)
-                    {
-                        Some(g) => g.ty,
-                        None => {
-                            self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global generated but not found in module globals map.");
-                            unreachable!()
-                        }
-                    };
-                    let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: false,
-                        elem: global_array_ty,
-                    });
+                let Some(global_array_ty) = self.vtable_global_type(vtable_id, span) else {
+                    return MastExpr::new(exp_ty, MastExprKind::Trap, span);
+                };
+                let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem: global_array_ty,
+                });
 
-                    let concrete_expr = MastExpr::new(concrete_ty, mast_kind, span);
-                    let meta_expr = MastExpr::new(
-                        TypeId::USIZE,
-                        MastExprKind::Cast {
-                            kind: MastCastKind::PtrToInt,
-                            operand: Box::new(MastExpr::new(
-                                array_ptr_ty,
-                                MastExprKind::AddressOf(Box::new(MastExpr::new(
-                                    global_array_ty,
-                                    MastExprKind::GlobalRef(vtable_id),
-                                    span,
-                                ))),
+                let concrete_expr = MastExpr::new(concrete_ty, mast_kind, span);
+                let meta_expr = MastExpr::new(
+                    TypeId::USIZE,
+                    MastExprKind::Cast {
+                        kind: MastCastKind::PtrToInt,
+                        operand: Box::new(MastExpr::new(
+                            array_ptr_ty,
+                            MastExprKind::AddressOf(Box::new(MastExpr::new(
+                                global_array_ty,
+                                MastExprKind::GlobalRef(vtable_id),
                                 span,
-                            )),
-                        },
-                        span,
-                    );
+                            ))),
+                            span,
+                        )),
+                    },
+                    span,
+                );
 
-                    return MastExpr::new(
-                        exp_ty,
-                        MastExprKind::ConstructFatPointer {
-                            data_ptr: Box::new(concrete_expr),
-                            meta: Box::new(meta_expr),
-                        },
-                        span,
-                    );
-                }
+                return MastExpr::new(
+                    exp_ty,
+                    MastExprKind::ConstructFatPointer {
+                        data_ptr: Box::new(concrete_expr),
+                        meta: Box::new(meta_expr),
+                    },
+                    span,
+                );
             }
         }
 
@@ -126,72 +117,59 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } = exp_kind
         {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
-            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm) {
-                if !matches!(
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
+                && !matches!(
                     conc_kind,
                     TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-                ) {
-                    let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: e_mut,
-                        elem: concrete_ty,
-                    });
+                )
+            {
+                let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: e_mut,
+                    elem: concrete_ty,
+                });
 
-                    // 核心：无中生有，原地包装一个取址操作 (AddressOf)
-                    let data_ptr_expr = MastExpr::new(
-                        ptr_ty,
-                        MastExprKind::AddressOf(Box::new(MastExpr::new(
-                            concrete_ty,
-                            mast_kind,
-                            span,
-                        ))),
-                        span,
-                    );
+                // 核心：无中生有，原地包装一个取址操作 (AddressOf)
+                let data_ptr_expr = MastExpr::new(
+                    ptr_ty,
+                    MastExprKind::AddressOf(Box::new(MastExpr::new(concrete_ty, mast_kind, span))),
+                    span,
+                );
 
-                    // 剩下的逻辑和普通指针打包完全一样，提取 VTable
-                    let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
-                    let global_array_ty = match self
-                        .module
-                        .globals
-                        .iter()
-                        .find(|g| g.id == vtable_id)
-                    {
-                        Some(g) => g.ty,
-                        None => {
-                            self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global generated but not found in module globals map.");
-                            unreachable!()
-                        }
-                    };
-                    let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: false,
-                        elem: global_array_ty,
-                    });
+                // 剩下的逻辑和普通指针打包完全一样，提取 VTable
+                let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
+                let Some(global_array_ty) = self.vtable_global_type(vtable_id, span) else {
+                    return MastExpr::new(exp_ty, MastExprKind::Trap, span);
+                };
+                let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem: global_array_ty,
+                });
 
-                    let meta_expr = MastExpr::new(
-                        TypeId::USIZE,
-                        MastExprKind::Cast {
-                            kind: MastCastKind::PtrToInt,
-                            operand: Box::new(MastExpr::new(
-                                array_ptr_ty,
-                                MastExprKind::AddressOf(Box::new(MastExpr::new(
-                                    global_array_ty,
-                                    MastExprKind::GlobalRef(vtable_id),
-                                    span,
-                                ))),
+                let meta_expr = MastExpr::new(
+                    TypeId::USIZE,
+                    MastExprKind::Cast {
+                        kind: MastCastKind::PtrToInt,
+                        operand: Box::new(MastExpr::new(
+                            array_ptr_ty,
+                            MastExprKind::AddressOf(Box::new(MastExpr::new(
+                                global_array_ty,
+                                MastExprKind::GlobalRef(vtable_id),
                                 span,
-                            )),
-                        },
-                        span,
-                    );
+                            ))),
+                            span,
+                        )),
+                    },
+                    span,
+                );
 
-                    return MastExpr::new(
-                        exp_ty,
-                        MastExprKind::ConstructFatPointer {
-                            data_ptr: Box::new(data_ptr_expr),
-                            meta: Box::new(meta_expr),
-                        },
-                        span,
-                    );
-                }
+                return MastExpr::new(
+                    exp_ty,
+                    MastExprKind::ConstructFatPointer {
+                        data_ptr: Box::new(data_ptr_expr),
+                        meta: Box::new(meta_expr),
+                    },
+                    span,
+                );
             }
         }
 

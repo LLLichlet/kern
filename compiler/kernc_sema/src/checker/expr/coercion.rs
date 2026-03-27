@@ -89,81 +89,104 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         } = exp_kind
         {
             let e_norm = self.resolve_tv(*e_inner);
-
-            // A. 指针到指针的安全降级 (*mut T -> *T)
-            if let TypeKind::Pointer {
-                is_mut: a_mut,
-                elem: a_inner,
-            } = act_kind
-            {
-                // 不可变指针绝不能升级为可变指针
-                if !*e_mut || (*e_mut && *a_mut) {
-                    let a_norm = self.resolve_tv(*a_inner);
-                    if e_norm == a_norm {
-                        return true;
-                    }
-
-                    // 1. *void 万能指针隐式降级
-                    // 只要目标期望类型是 void（且满足上方的 mut 安全性校验），则允许任何非胖指针自然降级
-                    if self.ctx.type_registry.is_void(e_norm) {
-                        return true;
-                    }
-
-                    // 2. 具名结构体 -> 匿名结构体
-                    if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
-                        return true;
-                    }
-
-                    // 3. 指针隐式打包为 Trait Object (*mut Type -> *mut Trait)
-                    if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
-                        let downgraded_act = if !*e_mut && *a_mut {
-                            self.ctx.type_registry.intern(TypeKind::Pointer {
-                                is_mut: false,
-                                elem: *a_inner,
-                            })
-                        } else {
-                            act
-                        };
-
-                        if self.check_trait_impl(downgraded_act, e_norm) {
-                            return true;
-                        }
-                    }
-                }
+            if self.check_pointer_to_pointer_coercion(*e_mut, e_norm, act, act_kind) {
+                return true;
             }
-
-            // D. BNC: 裸值到 Trait Object (T -> *Trait / T -> *mut Trait)
-            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
-                // 如果 actual 并不是一个指针，而是一个裸值 (T)
-                if !matches!(
-                    act_kind,
-                    TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-                ) {
-                    // 安全性检查：如果期望的是 *mut Trait，那么传入的 expr 必须是可变的
-                    if *e_mut && !self.is_lvalue_mutable(expr) {
-                        self.ctx
-                            .struct_error(
-                                expr.span,
-                                "cannot implicitly borrow an immutable value as a mutable trait object `*mut Trait`",
-                            )
-                            .with_hint("consider declaring the variable as `let mut`")
-                            .emit();
-                        return false; // 可变性校验失败
-                    }
-
-                    // 构造一个虚拟的指针类型去查 Trait 约束表
-                    let virtual_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: *e_mut,
-                        elem: act,
-                    });
-
-                    if self.check_trait_impl(virtual_ptr_ty, e_norm) {
-                        return true;
-                    }
-                }
+            if self.check_value_to_trait_object_pointer(expr, *e_mut, e_norm, act, act_kind) {
+                return true;
             }
         }
         false
+    }
+
+    fn pointer_mutability_allows(expected_mut: bool, actual_mut: bool) -> bool {
+        !expected_mut || actual_mut
+    }
+
+    fn check_pointer_to_pointer_coercion(
+        &mut self,
+        expected_mut: bool,
+        expected_elem: TypeId,
+        actual_ty: TypeId,
+        act_kind: &TypeKind,
+    ) -> bool {
+        let TypeKind::Pointer {
+            is_mut: actual_mut,
+            elem: actual_elem,
+        } = act_kind
+        else {
+            return false;
+        };
+
+        if !Self::pointer_mutability_allows(expected_mut, *actual_mut) {
+            return false;
+        }
+
+        let actual_elem_norm = self.resolve_tv(*actual_elem);
+        if expected_elem == actual_elem_norm
+            || self.ctx.type_registry.is_void(expected_elem)
+            || self.is_anonymous_aggregate_equivalent(expected_elem, actual_elem_norm)
+        {
+            return true;
+        }
+
+        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(expected_elem) {
+            let trait_source_ty = if !expected_mut && *actual_mut {
+                self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem: *actual_elem,
+                })
+            } else {
+                actual_ty
+            };
+
+            if self.check_trait_impl(trait_source_ty, expected_elem) {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    fn check_value_to_trait_object_pointer(
+        &mut self,
+        expr: &Expr,
+        expected_mut: bool,
+        expected_elem: TypeId,
+        actual_ty: TypeId,
+        act_kind: &TypeKind,
+    ) -> bool {
+        if !matches!(
+            self.ctx.type_registry.get(expected_elem),
+            TypeKind::TraitObject(..)
+        ) {
+            return false;
+        }
+
+        if matches!(
+            act_kind,
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        ) {
+            return false;
+        }
+
+        if expected_mut && !self.is_lvalue_mutable(expr) {
+            self.ctx
+                .struct_error(
+                    expr.span,
+                    "cannot implicitly borrow an immutable value as a mutable trait object `*mut Trait`",
+                )
+                .with_hint("consider declaring the variable as `let mut`")
+                .emit();
+            return false;
+        }
+
+        let virtual_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: expected_mut,
+            elem: actual_ty,
+        });
+
+        self.check_trait_impl(virtual_ptr_ty, expected_elem)
     }
 
     /// 核心辅助方法：检查一个具名聚合类型能否降级为匿名聚合类型
@@ -336,30 +359,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             is_mut: e_mut,
             elem: e_inner,
         } = exp_kind
-        {
-            if let TypeKind::VolatilePtr {
+            && let TypeKind::VolatilePtr {
                 is_mut: a_mut,
                 elem: a_inner,
             } = act_kind
+            && (!*e_mut || *a_mut)
+        {
+            let e_norm = self.resolve_tv(*e_inner);
+            let a_norm = self.resolve_tv(*a_inner);
+            if e_norm == a_norm {
+                return true;
+            }
+            if self.ctx.type_registry.is_void(e_norm) {
+                return true;
+            }
+            if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
+                return true;
+            }
+            if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm)
+                && self.check_trait_impl(act, e_norm)
             {
-                if !*e_mut || (*e_mut && *a_mut) {
-                    let e_norm = self.resolve_tv(*e_inner);
-                    let a_norm = self.resolve_tv(*a_inner);
-                    if e_norm == a_norm {
-                        return true;
-                    }
-                    if self.ctx.type_registry.is_void(e_norm) {
-                        return true;
-                    }
-                    if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
-                        return true;
-                    }
-                    if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {
-                        if self.check_trait_impl(act, e_norm) {
-                            return true;
-                        }
-                    }
-                }
+                return true;
             }
         }
         false
@@ -381,12 +401,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_mut: act_mut,
                 elem: act_elem,
             } = act_kind
+                && (!*e_mut || *act_mut)
+                && self.resolve_tv(*exp_elem) == self.resolve_tv(*act_elem)
             {
-                if (!*e_mut || (*e_mut && *act_mut))
-                    && self.resolve_tv(*exp_elem) == self.resolve_tv(*act_elem)
-                {
-                    return true;
-                }
+                return true;
             }
             match self.check_array_decay(*e_mut, *exp_elem, act_kind, expr.span) {
                 Ok(true) => return true,
@@ -403,37 +421,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_kind: &TypeKind,
         act_kind: &TypeKind,
     ) -> bool {
-        // A. 闭包退化规则: AnonymousState -> C-ABI 函数指针 (捕获必须严格为空)
         if let TypeKind::Function {
             params: e_params,
             ret: e_ret,
             is_variadic: false,
         } = exp_kind
+            && self.check_closure_decay_to_function(e_params, *e_ret, act_kind)
         {
-            if let TypeKind::AnonymousState {
-                captures: a_caps,
-                params: a_params,
-                ret: a_ret,
-                ..
-            } = act_kind
-            {
-                if a_caps.is_empty() && e_params.len() == a_params.len() {
-                    let mut map = HashMap::new();
-                    let mut ok = true;
-                    for (ep, ap) in e_params.iter().zip(a_params.iter()) {
-                        if !self.unify(*ep, *ap, &mut map) {
-                            ok = false;
-                            break;
-                        }
-                    }
-                    if ok && self.unify(*e_ret, *a_ret, &mut map) {
-                        return true;
-                    }
-                }
-            }
+            return true;
         }
 
-        // B. 闭包 BNC: 到动态胖指针接口
         if let TypeKind::Pointer {
             is_mut: e_mut,
             elem: e_inner,
@@ -445,109 +442,180 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 ret: e_ret,
             } = self.ctx.type_registry.get(e_norm).clone()
             {
-                // B.1 AnonymousState -> *Fn / *mut Fn
-                if let TypeKind::AnonymousState {
-                    params: a_params,
-                    ret: a_ret,
-                    ..
-                } = act_kind
-                {
-                    // 可变性安全检查：如果期待 *mut Fn，则闭包本身（匿名结构体）必须是可变的
-                    if *e_mut && !self.is_lvalue_mutable(expr) {
-                        self.ctx.struct_error(expr.span, "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`")
-                            .with_hint("consider declaring the closure variable as `let mut`")
-                            .emit();
-                        return false;
-                    }
-
-                    if e_params.len() == a_params.len() {
-                        let mut map = HashMap::new();
-                        let mut ok = true;
-                        for (ep, ap) in e_params.iter().zip(a_params.iter()) {
-                            if !self.unify(*ep, *ap, &mut map) {
-                                ok = false;
-                                break;
-                            }
-                        }
-                        if ok && self.unify(e_ret, *a_ret, &mut map) {
-                            return true;
-                        }
-                    }
+                if self.check_state_to_closure_interface(expr, *e_mut, e_params, e_ret, act_kind) {
+                    return true;
                 }
-
-                // B.2 Function / FnDef -> *Fn / *mut Fn (普通函数无状态，安全地塞入闭包胖指针)
-                if matches!(
-                    act_kind,
-                    TypeKind::Function {
-                        is_variadic: false,
-                        ..
-                    } | TypeKind::FnDef(_, _)
-                ) {
-                    let (a_params, a_ret) = self.extract_fn_sig_for_bnc(act_kind, expr.span);
-
-                    if e_params.len() == a_params.len() {
-                        let mut map = HashMap::new();
-                        let mut ok = true;
-                        for (ep, ap) in e_params.iter().zip(a_params.iter()) {
-                            if !self.unify(*ep, *ap, &mut map) {
-                                ok = false;
-                                break;
-                            }
-                        }
-                        if ok && self.unify(e_ret, a_ret, &mut map) {
-                            return true;
-                        }
-                    }
+                if self.check_fn_like_to_closure_interface(e_params, e_ret, act_kind, expr.span) {
+                    return true;
                 }
             }
         }
         false
     }
 
-    /// 提取函数定义项 (FnDef) 的确切签名，处理泛型代入
-    fn extract_fn_sig_for_bnc(&mut self, act_kind: &TypeKind, span: Span) -> (Vec<TypeId>, TypeId) {
-        match act_kind {
-            TypeKind::FnDef(def_id, args) => {
-                // 为了避免 self 生命周期冲突，我们 clone 一下 Def
-                let def = self.ctx.defs[def_id.0 as usize].clone();
-                if let Def::Function(fn_def) = def {
-                    if let Some(sig_ty) = fn_def.resolved_sig {
-                        let norm_sig = self.resolve_tv(sig_ty);
-                        if let TypeKind::Function { params, ret, .. } =
-                            self.ctx.type_registry.get(norm_sig).clone()
-                        {
-                            if fn_def.generics.is_empty() {
-                                return (params, ret);
-                            } else {
-                                // 处理泛型实例化
-                                let mut map = HashMap::new();
-                                for (i, param) in fn_def.generics.iter().enumerate() {
-                                    map.insert(param.name, args[i]);
-                                }
-                                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                                let inst_params =
-                                    params.into_iter().map(|p| subst.substitute(p)).collect();
-                                let inst_ret = subst.substitute(ret);
-                                return (inst_params, inst_ret);
-                            }
-                        }
-                    }
-                    self.ctx.emit_error(
-                        span,
-                        "Compiler ICE: Function definition lacks resolved signature during BNC",
-                    );
-                    unreachable!()
-                } else {
-                    self.ctx.emit_error(
-                        span,
-                        "Compiler ICE: FnDef ID does not point to a Function Def",
-                    );
-                    unreachable!()
-                }
-            }
-            TypeKind::Function { params, ret, .. } => (params.clone(), *ret),
-            _ => unreachable!(),
+    fn check_closure_decay_to_function(
+        &mut self,
+        expected_params: &[TypeId],
+        expected_ret: TypeId,
+        act_kind: &TypeKind,
+    ) -> bool {
+        let TypeKind::AnonymousState {
+            captures,
+            params,
+            ret,
+            ..
+        } = act_kind
+        else {
+            return false;
+        };
+
+        captures.is_empty()
+            && self.signatures_compatible(expected_params, expected_ret, params, *ret)
+    }
+
+    fn check_state_to_closure_interface(
+        &mut self,
+        expr: &Expr,
+        expected_mut: bool,
+        expected_params: &[TypeId],
+        expected_ret: TypeId,
+        act_kind: &TypeKind,
+    ) -> bool {
+        let TypeKind::AnonymousState { params, ret, .. } = act_kind else {
+            return false;
+        };
+
+        if expected_mut && !self.is_lvalue_mutable(expr) {
+            self.ctx
+                .struct_error(
+                    expr.span,
+                    "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`",
+                )
+                .with_hint("consider declaring the closure variable as `let mut`")
+                .emit();
+            return false;
         }
+
+        self.signatures_compatible(expected_params, expected_ret, params, *ret)
+    }
+
+    fn check_fn_like_to_closure_interface(
+        &mut self,
+        expected_params: &[TypeId],
+        expected_ret: TypeId,
+        act_kind: &TypeKind,
+        span: Span,
+    ) -> bool {
+        let Some((actual_params, actual_ret)) = self.extract_fn_sig_for_bnc(act_kind, span) else {
+            return false;
+        };
+
+        self.signatures_compatible(expected_params, expected_ret, &actual_params, actual_ret)
+    }
+
+    fn signatures_compatible(
+        &mut self,
+        expected_params: &[TypeId],
+        expected_ret: TypeId,
+        actual_params: &[TypeId],
+        actual_ret: TypeId,
+    ) -> bool {
+        if expected_params.len() != actual_params.len() {
+            return false;
+        }
+
+        let mut map = HashMap::new();
+        for (expected, actual) in expected_params.iter().zip(actual_params.iter()) {
+            if !self.unify(*expected, *actual, &mut map) {
+                return false;
+            }
+        }
+
+        self.unify(expected_ret, actual_ret, &mut map)
+    }
+
+    /// 提取函数定义项 (FnDef) 的确切签名，处理泛型代入
+    fn extract_fn_sig_for_bnc(
+        &mut self,
+        act_kind: &TypeKind,
+        span: Span,
+    ) -> Option<(Vec<TypeId>, TypeId)> {
+        match act_kind {
+            TypeKind::FnDef(def_id, args) => self.instantiate_fn_def_signature(*def_id, args, span),
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic: false,
+            } => Some((params.clone(), *ret)),
+            TypeKind::Function {
+                is_variadic: true, ..
+            } => None,
+            _ => None,
+        }
+    }
+
+    fn instantiate_fn_def_signature(
+        &mut self,
+        def_id: DefId,
+        args: &[TypeId],
+        span: Span,
+    ) -> Option<(Vec<TypeId>, TypeId)> {
+        let def = self.ctx.defs[def_id.0 as usize].clone();
+        let Def::Function(fn_def) = def else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Compiler ICE: FnDef `{}` does not point to a function during closure BNC",
+                    def_id.0
+                ),
+            );
+            return None;
+        };
+
+        let Some(sig_ty) = fn_def.resolved_sig else {
+            self.ctx.emit_ice(
+                span,
+                "Compiler ICE: function definition lacks resolved signature during closure BNC",
+            );
+            return None;
+        };
+
+        let norm_sig = self.resolve_tv(sig_ty);
+        let TypeKind::Function {
+            params,
+            ret,
+            is_variadic,
+        } = self.ctx.type_registry.get(norm_sig).clone()
+        else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Compiler ICE: resolved signature for FnDef `{}` is not a function type",
+                    def_id.0
+                ),
+            );
+            return None;
+        };
+
+        if is_variadic {
+            return None;
+        }
+
+        if fn_def.generics.is_empty() {
+            return Some((params, ret));
+        }
+
+        let mut map = HashMap::new();
+        for (i, param) in fn_def.generics.iter().enumerate() {
+            if let Some(&arg) = args.get(i) {
+                map.insert(param.name, arg);
+            }
+        }
+
+        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+        let inst_params = params.into_iter().map(|p| subst.substitute(p)).collect();
+        let inst_ret = subst.substitute(ret);
+        Some((inst_params, inst_ret))
     }
 
     pub(crate) fn unify(
@@ -904,13 +972,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     // 环境约束自身也可能继承自某个 Supertrait，递归检查
                     if let TypeKind::TraitObject(inst_def_id, _) =
                         self.ctx.type_registry.get(inst_norm)
+                        && visited.insert(*inst_def_id)
+                        && self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited)
                     {
-                        if visited.insert(*inst_def_id) {
-                            if self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited)
-                            {
-                                return true;
-                            }
-                        }
+                        return true;
                     }
                 }
             }
@@ -974,29 +1039,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     if let TypeKind::TraitObject(inst_def_id, _) =
                         self.ctx.type_registry.get(inst_norm)
+                        && visited.insert(*inst_def_id)
+                        && let Def::Trait(trait_def) = self.ctx.defs[inst_def_id.0 as usize].clone()
                     {
-                        if visited.insert(*inst_def_id) {
-                            if let Def::Trait(trait_def) =
-                                self.ctx.defs[inst_def_id.0 as usize].clone()
-                            {
-                                // 检查父特征 (Supertraits)
-                                for &super_ty in &trait_def.resolved_supertraits {
-                                    let inst_super_ty = {
-                                        let mut subst =
-                                            Substituter::new(&mut self.ctx.type_registry, &map);
-                                        subst.substitute(super_ty)
-                                    };
+                        // 检查父特征 (Supertraits)
+                        for &super_ty in &trait_def.resolved_supertraits {
+                            let inst_super_ty = {
+                                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                                subst.substitute(super_ty)
+                            };
 
-                                    if inst_super_ty == target_trait_ty
-                                        || self.check_trait_impl_inner(
-                                            source_ty,
-                                            inst_super_ty,
-                                            visited,
-                                        )
-                                    {
-                                        return true;
-                                    }
-                                }
+                            if inst_super_ty == target_trait_ty
+                                || self.check_trait_impl_inner(source_ty, inst_super_ty, visited)
+                            {
+                                return true;
                             }
                         }
                     }

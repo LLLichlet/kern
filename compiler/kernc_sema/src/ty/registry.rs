@@ -10,6 +10,12 @@ pub struct TypeRegistry {
     interner: HashMap<TypeKind, TypeId>,
 }
 
+impl Default for TypeRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TypeRegistry {
     pub fn new() -> Self {
         let mut reg = Self {

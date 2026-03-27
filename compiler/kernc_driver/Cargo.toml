@@ -13,3 +13,4 @@ kernc_parser = { workspace = true }
 kernc_sema = { workspace = true }
 kernc_codegen = { workspace = true }
 kernc_lower = { workspace = true }
+kernc_mast = { workspace = true }

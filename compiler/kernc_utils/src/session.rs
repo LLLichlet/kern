@@ -25,6 +25,12 @@ pub struct Session {
     pub custom_defines: HashMap<String, String>,
 }
 
+impl Default for Session {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Session {
     pub fn new() -> Self {
         Self {
@@ -144,40 +150,40 @@ impl Session {
     }
 
     fn print_source_snippet(&self, span: Span, level: DiagnosticLevel) {
-        if let Some(loc) = self.source_manager.lookup_location(span) {
-            if let Some(line_text) = self.source_manager.get_line_text(loc.clone()) {
-                let line_num_str = format!("{}", loc.line);
-                let padding = " ".repeat(line_num_str.len());
+        if let Some(loc) = self.source_manager.lookup_location(span)
+            && let Some(line_text) = self.source_manager.get_line_text(loc)
+        {
+            let line_num_str = format!("{}", loc.line);
+            let padding = " ".repeat(line_num_str.len());
 
-                eprintln!(" {} |", padding);
-                eprintln!(" {} | {}", line_num_str, line_text.trim_end());
-                eprint!(" {} | ", padding);
+            eprintln!(" {} |", padding);
+            eprintln!(" {} | {}", line_num_str, line_text.trim_end());
+            eprint!(" {} | ", padding);
 
-                // 安全截断：波浪线长度不能超过当前行的物理剩余长度
-                let text_len = line_text.trim_end().len();
-                let col_offset = loc.col.saturating_sub(1);
-                let max_possible_carets = text_len.saturating_sub(col_offset);
+            // 安全截断：波浪线长度不能超过当前行的物理剩余长度
+            let text_len = line_text.trim_end().len();
+            let col_offset = loc.col.saturating_sub(1);
+            let max_possible_carets = text_len.saturating_sub(col_offset);
 
-                let raw_span_len = span.end.saturating_sub(span.start);
-                let print_len = std::cmp::max(1, std::cmp::min(raw_span_len, max_possible_carets));
+            let raw_span_len = span.end.saturating_sub(span.start);
+            let print_len = std::cmp::max(1, std::cmp::min(raw_span_len, max_possible_carets));
 
-                let carets = "^".repeat(print_len);
+            let carets = "^".repeat(print_len);
 
-                if self.use_color {
-                    eprintln!(
-                        "{}{}{}\x1b[0m",
-                        " ".repeat(col_offset),
-                        level.color_prefix(),
-                        carets
-                    );
-                } else {
-                    let indent_str: String = line_text
-                        .chars()
-                        .take(col_offset)
-                        .map(|c| if c == '\t' { '\t' } else { ' ' })
-                        .collect();
-                    eprintln!("{}{}{}\x1b[0m", indent_str, level.color_prefix(), carets);
-                }
+            if self.use_color {
+                eprintln!(
+                    "{}{}{}\x1b[0m",
+                    " ".repeat(col_offset),
+                    level.color_prefix(),
+                    carets
+                );
+            } else {
+                let indent_str: String = line_text
+                    .chars()
+                    .take(col_offset)
+                    .map(|c| if c == '\t' { '\t' } else { ' ' })
+                    .collect();
+                eprintln!("{}{}{}\x1b[0m", indent_str, level.color_prefix(), carets);
             }
         }
     }

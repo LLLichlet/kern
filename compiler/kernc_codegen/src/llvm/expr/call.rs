@@ -1,10 +1,102 @@
 use crate::llvm::CodeGenerator;
-use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValueEnum;
+use inkwell::types::{BasicTypeEnum, FunctionType};
+use inkwell::values::{BasicValueEnum, FunctionValue};
 use kernc_mast::{BitIntrinsicKind, MastAsmBlock, MastExpr, MastExprKind};
 use kernc_sema::ty::{TypeId, TypeKind};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn lookup_function_value(
+        &mut self,
+        mono_id: kernc_mast::MonoId,
+        span: kernc_utils::Span,
+    ) -> Option<FunctionValue<'ctx>> {
+        match self.functions.get(&mono_id).copied() {
+            Some(func) => Some(func),
+            None => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): function MonoId {:?} not declared before call emission.",
+                        mono_id
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn llvm_fn_type_from_callable(
+        &mut self,
+        callee_ty: TypeId,
+        span: kernc_utils::Span,
+    ) -> Option<FunctionType<'ctx>> {
+        let norm_ty = self.type_registry.normalize(callee_ty);
+        let TypeKind::Function {
+            params,
+            ret,
+            is_variadic,
+        } = self.type_registry.get(norm_ty)
+        else {
+            self.sess.emit_ice(
+                span,
+                format!(
+                    "Kern ICE (Codegen): indirect call expected function type, found `{:?}`.",
+                    self.type_registry.get(norm_ty)
+                ),
+            );
+            return None;
+        };
+
+        let mut param_types = Vec::new();
+        for p in params {
+            param_types.push(self.get_llvm_type(*p).into());
+        }
+
+        let fn_ty = if *ret == TypeId::VOID {
+            self.context.void_type().fn_type(&param_types, *is_variadic)
+        } else {
+            match self.get_llvm_type(*ret) {
+                BasicTypeEnum::IntType(i) => i.fn_type(&param_types, *is_variadic),
+                BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, *is_variadic),
+                BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, *is_variadic),
+                BasicTypeEnum::StructType(s) => s.fn_type(&param_types, *is_variadic),
+                BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, *is_variadic),
+                BasicTypeEnum::VectorType(v) => v.fn_type(&param_types, *is_variadic),
+                BasicTypeEnum::ScalableVectorType(v) => v.fn_type(&param_types, *is_variadic),
+            }
+        };
+
+        Some(fn_ty)
+    }
+
+    fn inline_asm_fn_type(
+        &mut self,
+        asm_block: &MastAsmBlock,
+        param_types: &[inkwell::types::BasicMetadataTypeEnum<'ctx>],
+    ) -> FunctionType<'ctx> {
+        match asm_block.output_tys.len() {
+            0 => self.context.void_type().fn_type(param_types, false),
+            1 => match self.get_llvm_type(asm_block.output_tys[0]) {
+                BasicTypeEnum::IntType(i) => i.fn_type(param_types, false),
+                BasicTypeEnum::FloatType(f) => f.fn_type(param_types, false),
+                BasicTypeEnum::PointerType(p) => p.fn_type(param_types, false),
+                BasicTypeEnum::StructType(s) => s.fn_type(param_types, false),
+                BasicTypeEnum::ArrayType(a) => a.fn_type(param_types, false),
+                BasicTypeEnum::VectorType(v) => v.fn_type(param_types, false),
+                BasicTypeEnum::ScalableVectorType(sv) => sv.fn_type(param_types, false),
+            },
+            _ => {
+                let mut struct_fields = Vec::new();
+                for &ty in &asm_block.output_tys {
+                    struct_fields.push(self.get_llvm_type(ty));
+                }
+                self.context
+                    .struct_type(&struct_fields, false)
+                    .fn_type(param_types, false)
+            }
+        }
+    }
+
     pub(crate) fn compile_call(
         &mut self,
         callee: &MastExpr,
@@ -17,38 +109,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         let call_site = if let MastExprKind::FuncRef(mono_id) = callee.kind {
-            let llvm_func = self.functions.get(&mono_id).unwrap();
+            let Some(llvm_func) = self.lookup_function_value(mono_id, callee.span) else {
+                let llvm_ty = self.get_llvm_type(expr_ty);
+                return self.get_undef_val(llvm_ty);
+            };
             self.builder
-                .build_call(*llvm_func, &llvm_args, "call_ret")
+                .build_call(llvm_func, &llvm_args, "call_ret")
                 .unwrap()
         } else {
             let ptr_val = self.compile_expr(callee).into_pointer_value();
-            let norm_ty = self.type_registry.normalize(callee.ty);
-
-            let fn_type = if let TypeKind::Function {
-                params,
-                ret,
-                is_variadic,
-            } = self.type_registry.get(norm_ty)
-            {
-                let mut param_types = Vec::new();
-                for p in params {
-                    param_types.push(self.get_llvm_type(*p).into());
-                }
-                if *ret == TypeId::VOID {
-                    self.context.void_type().fn_type(&param_types, *is_variadic)
-                } else {
-                    match self.get_llvm_type(*ret) {
-                        BasicTypeEnum::IntType(i) => i.fn_type(&param_types, *is_variadic),
-                        BasicTypeEnum::FloatType(fl) => fl.fn_type(&param_types, *is_variadic),
-                        BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, *is_variadic),
-                        BasicTypeEnum::StructType(s) => s.fn_type(&param_types, *is_variadic),
-                        BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, *is_variadic),
-                        _ => unreachable!(),
-                    }
-                }
-            } else {
-                unreachable!()
+            let Some(fn_type) = self.llvm_fn_type_from_callable(callee.ty, callee.span) else {
+                let llvm_ty = self.get_llvm_type(expr_ty);
+                return self.get_undef_val(llvm_ty);
             };
 
             self.builder
@@ -74,34 +146,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             param_types.push(llvm_val.get_type().into());
         }
 
-        // 2 & 3. 确定返回值类型，并直接构建函数签名 FunctionType
-        let asm_fn_type = match asm_block.output_tys.len() {
-            0 => {
-                // 纯副作用汇编，返回 VoidType
-                self.context.void_type().fn_type(&param_types, false)
-            }
-            1 => {
-                // 单一返回值，使用 BasicTypeEnum
-                match self.get_llvm_type(asm_block.output_tys[0]) {
-                    BasicTypeEnum::IntType(i) => i.fn_type(&param_types, false),
-                    BasicTypeEnum::FloatType(f) => f.fn_type(&param_types, false),
-                    BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, false),
-                    BasicTypeEnum::StructType(s) => s.fn_type(&param_types, false),
-                    BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, false),
-                    BasicTypeEnum::VectorType(v) => v.fn_type(&param_types, false),
-                    BasicTypeEnum::ScalableVectorType(sv) => sv.fn_type(&param_types, false),
-                }
-            }
-            _ => {
-                // 多个返回值，打包成匿名的 StructType
-                let mut struct_fields = Vec::new();
-                for &ty in &asm_block.output_tys {
-                    struct_fields.push(self.get_llvm_type(ty));
-                }
-                let struct_ty = self.context.struct_type(&struct_fields, false);
-                struct_ty.fn_type(&param_types, false)
-            }
-        };
+        let asm_fn_type = self.inline_asm_fn_type(asm_block, &param_types);
 
         // 4. 创建 InlineAsm 实例
         let has_side_effects = asm_block.is_volatile || asm_block.output_tys.is_empty();
@@ -122,7 +167,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap();
 
         // 6. 将 LLVM 返回的值提取并 Store 到用户的指针中
-        if asm_block.output_tys.len() > 0 {
+        if !asm_block.output_tys.is_empty() {
             let asm_result = call_site.try_as_basic_value().unwrap_basic();
 
             for (i, ptr_expr) in asm_block.output_ptrs.iter().enumerate() {

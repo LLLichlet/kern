@@ -5,9 +5,40 @@ use crate::ty::TypeId;
 use kernc_ast::{self as ast, Decl, DeclKind, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
+struct FunctionCollectSpec<'a> {
+    vis: Visibility,
+    parent_impl: Option<DefId>,
+    is_extern: bool,
+    generics: &'a [ast::GenericParam],
+    where_clauses: &'a [ast::WhereClause],
+    params: &'a [ast::FuncParam],
+    ret_type: &'a ast::TypeNode,
+    body: &'a Option<Box<ast::Expr>>,
+    is_variadic: bool,
+}
+
+struct AliasCollectSpec<'a> {
+    vis: Visibility,
+    where_clauses: &'a [ast::WhereClause],
+    bounds: &'a [ast::TypeNode],
+    is_extern: bool,
+    generics: &'a [ast::GenericParam],
+    target: &'a ast::TypeNode,
+}
+
+struct SymbolDefSpec {
+    name: SymbolId,
+    kind: SymbolKind,
+    node_id: NodeId,
+    def_id: Option<DefId>,
+    span: Span,
+    is_pub: bool,
+    is_mut: bool,
+}
+
 pub struct Collector<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
-    pub current_module: Option<DefId>,
+    ctx: &'a mut SemaContext<'ctx>,
+    current_module: Option<DefId>,
 }
 
 impl<'a, 'ctx> Collector<'a, 'ctx> {
@@ -18,13 +49,29 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         }
     }
 
+    pub fn context(&mut self) -> &mut SemaContext<'ctx> {
+        self.ctx
+    }
+
+    pub fn into_context(self) -> &'a mut SemaContext<'ctx> {
+        self.ctx
+    }
+
     /// 收集特定模块 AST 的内部成员
     pub fn collect_ast(&mut self, mod_id: DefId, module: &ast::Module) {
-        let (scope_id, submodules) = if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
-            (m.scope_id, m.submodules.clone())
-        } else {
-            unreachable!()
-        };
+        let (scope_id, submodules) =
+            if let Some(Def::Module(m)) = self.ctx.defs.get(mod_id.0 as usize) {
+                (m.scope_id, m.submodules.clone())
+            } else {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Collect): DefId {} is not a module during AST collection.",
+                        mod_id.0
+                    ),
+                );
+                return;
+            };
 
         let parent_module = self.current_module;
         self.current_module = Some(mod_id);
@@ -54,15 +101,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 }
                 DeclKind::ModDecl { is_pub } => {
                     if let Some(&sub_id) = submodules.get(&decl.name) {
-                        self.define_symbol(
-                            decl.name,
-                            SymbolKind::Module,
-                            decl.id,
-                            Some(sub_id),
-                            decl.span,
-                            *is_pub, // 精确提取可见性
-                            false,
-                        );
+                        self.define_symbol(SymbolDefSpec {
+                            name: decl.name,
+                            kind: SymbolKind::Module,
+                            node_id: decl.id,
+                            def_id: Some(sub_id),
+                            span: decl.span,
+                            is_pub: *is_pub,
+                            is_mut: false,
+                        });
                     }
                 }
                 DeclKind::ExternBlock { decls, .. } => {
@@ -119,15 +166,17 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
                 self.collect_function(
                     decl,
-                    vis,
-                    parent_impl,
-                    force_extern || *is_extern,
-                    &combined_generics,
-                    where_clauses,
-                    params,
-                    ret_type,
-                    body,
-                    *is_variadic,
+                    FunctionCollectSpec {
+                        vis,
+                        parent_impl,
+                        is_extern: force_extern || *is_extern,
+                        generics: &combined_generics,
+                        where_clauses,
+                        params,
+                        ret_type,
+                        body,
+                        is_variadic: *is_variadic,
+                    },
                 )
             }
             DeclKind::Var {
@@ -151,12 +200,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 bounds,
             } => self.collect_type_alias_or_struct(
                 decl,
-                vis,
-                where_clauses,
-                bounds,
-                force_extern || *is_extern,
-                generics,
-                target,
+                AliasCollectSpec {
+                    vis,
+                    where_clauses,
+                    bounds,
+                    is_extern: force_extern || *is_extern,
+                    generics,
+                    target,
+                },
             ),
             DeclKind::Impl {
                 generics,
@@ -187,24 +238,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         }
     }
 
-    fn collect_function(
-        &mut self,
-        decl: &Decl,
-        vis: Visibility,
-        parent_impl: Option<DefId>,
-        is_extern: bool,
-        generics: &[ast::GenericParam],
-        where_clauses: &[ast::WhereClause],
-        params: &[ast::FuncParam],
-        ret_type: &ast::TypeNode,
-        body: &Option<Box<ast::Expr>>,
-        is_variadic: bool,
-    ) -> Option<DefId> {
+    fn collect_function(&mut self, decl: &Decl, spec: FunctionCollectSpec<'_>) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
 
-        let mut actual_params = params.to_vec();
+        let mut actual_params = spec.params.to_vec();
 
-        if parent_impl.is_some() {
+        if spec.parent_impl.is_some() {
             let self_sym = self.ctx.intern("self");
             let node_id = self.ctx.next_node_id();
 
@@ -229,15 +268,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: decl.name,
-            vis,
-            parent: parent_impl.or(self.current_module),
-            generics: generics.to_vec(),
-            where_clauses: where_clauses.to_vec(),
+            vis: spec.vis,
+            parent: spec.parent_impl.or(self.current_module),
+            generics: spec.generics.to_vec(),
+            where_clauses: spec.where_clauses.to_vec(),
             params: actual_params,
-            ret_type: ret_type.clone(),
-            body: body.clone(),
-            is_extern,
-            is_variadic,
+            ret_type: spec.ret_type.clone(),
+            body: spec.body.clone(),
+            is_extern: spec.is_extern,
+            is_variadic: spec.is_variadic,
             is_intrinsic: false,
             span: decl.span,
             resolved_sig: None,
@@ -247,17 +286,16 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx.add_def(Def::Function(func_def));
 
         // 如果不是 impl 块中的方法，则将其注册到当前词法作用域
-        if parent_impl.is_none() {
-            let is_pub = vis == Visibility::Public;
-            self.define_symbol(
-                decl.name,
-                SymbolKind::Function,
-                decl.id,
-                Some(def_id),
-                decl.span,
-                is_pub,
-                false,
-            );
+        if spec.parent_impl.is_none() {
+            self.define_symbol(SymbolDefSpec {
+                name: decl.name,
+                kind: SymbolKind::Function,
+                node_id: decl.id,
+                def_id: Some(def_id),
+                span: decl.span,
+                is_pub: spec.vis == Visibility::Public,
+                is_mut: false,
+            });
         }
 
         Some(def_id)
@@ -295,15 +333,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         };
         let is_pub = vis == Visibility::Public;
 
-        self.define_symbol(
-            decl.name,
-            sym_kind,
-            decl.id,
-            Some(def_id),
-            decl.span,
+        self.define_symbol(SymbolDefSpec {
+            name: decl.name,
+            kind: sym_kind,
+            node_id: decl.id,
+            def_id: Some(def_id),
+            span: decl.span,
             is_pub,
             is_mut,
-        );
+        });
 
         Some(def_id)
     }
@@ -312,17 +350,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     fn collect_type_alias_or_struct(
         &mut self,
         decl: &Decl,
-        vis: Visibility,
-        where_clauses: &[ast::WhereClause],
-        bounds: &[ast::TypeNode],
-        is_extern: bool,
-        generics: &[ast::GenericParam],
-        target: &ast::TypeNode,
+        spec: AliasCollectSpec<'_>,
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
         let mut sym_kind = SymbolKind::TypeAlias;
 
-        let def = match &target.kind {
+        let def = match &spec.target.kind {
             // TODO:
             TypeKind::Struct {
                 is_extern: target_extern,
@@ -332,11 +365,11 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::Struct(StructDef {
                     id: def_id,
                     name: decl.name,
-                    vis,
-                    generics: generics.to_vec(),
-                    where_clauses: where_clauses.to_vec(),
+                    vis: spec.vis,
+                    generics: spec.generics.to_vec(),
+                    where_clauses: spec.where_clauses.to_vec(),
                     fields: fields.clone(),
-                    is_extern: is_extern || *target_extern,
+                    is_extern: spec.is_extern || *target_extern,
                     span: decl.span,
                     attributes: decl.attributes.clone(),
                 })
@@ -349,11 +382,11 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::Union(UnionDef {
                     id: def_id,
                     name: decl.name,
-                    vis,
-                    generics: generics.to_vec(),
-                    where_clauses: where_clauses.to_vec(),
+                    vis: spec.vis,
+                    generics: spec.generics.to_vec(),
+                    where_clauses: spec.where_clauses.to_vec(),
                     fields: fields.clone(),
-                    is_extern: is_extern || *target_extern,
+                    is_extern: spec.is_extern || *target_extern,
                     span: decl.span,
                 })
             }
@@ -361,7 +394,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 backing_type,
                 variants,
             } => {
-                if is_extern {
+                if spec.is_extern {
                     self.ctx
                         .struct_error(decl.span, "enum types do not support `extern`")
                         .with_hint("use `extern` on structs or unions for C-ABI layout control")
@@ -371,9 +404,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::Enum(EnumDef {
                     id: def_id,
                     name: decl.name,
-                    vis,
-                    generics: generics.to_vec(),
-                    where_clauses: where_clauses.to_vec(),
+                    vis: spec.vis,
+                    generics: spec.generics.to_vec(),
+                    where_clauses: spec.where_clauses.to_vec(),
                     backing_type: backing_type.clone(),
                     variants: variants.clone(),
                     span: decl.span,
@@ -384,10 +417,10 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::Trait(TraitDef {
                     id: def_id,
                     name: decl.name,
-                    vis,
-                    generics: generics.to_vec(),
-                    where_clauses: where_clauses.to_vec(),
-                    supertraits: bounds.to_vec(),
+                    vis: spec.vis,
+                    generics: spec.generics.to_vec(),
+                    where_clauses: spec.where_clauses.to_vec(),
+                    supertraits: spec.bounds.to_vec(),
                     methods: fields.clone(),
                     resolved_methods: Vec::new(),
                     resolved_supertraits: Vec::new(),
@@ -401,26 +434,25 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 Def::TypeAlias(TypeAliasDef {
                     id: def_id,
                     name: decl.name,
-                    vis,
-                    generics: generics.to_vec(),
-                    where_clauses: where_clauses.to_vec(),
-                    target: target.clone(),
+                    vis: spec.vis,
+                    generics: spec.generics.to_vec(),
+                    where_clauses: spec.where_clauses.to_vec(),
+                    target: spec.target.clone(),
                     span: decl.span,
                 })
             }
         };
 
         self.ctx.add_def(def);
-        let is_pub = vis == Visibility::Public;
-        self.define_symbol(
-            decl.name,
-            sym_kind,
-            decl.id,
-            Some(def_id),
-            decl.span,
-            is_pub,
-            false,
-        );
+        self.define_symbol(SymbolDefSpec {
+            name: decl.name,
+            kind: sym_kind,
+            node_id: decl.id,
+            def_id: Some(def_id),
+            span: decl.span,
+            is_pub: spec.vis == Visibility::Public,
+            is_mut: false,
+        });
 
         Some(def_id)
     }
@@ -478,37 +510,28 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     // ==========================================
 
     /// 向当前作用域注册符号，处理重定义错误并提供极其友好的诊断信息
-    fn define_symbol(
-        &mut self,
-        name: SymbolId,
-        kind: SymbolKind,
-        node_id: NodeId,
-        def_id: Option<DefId>,
-        span: Span,
-        is_pub: bool,
-        is_mut: bool,
-    ) {
+    fn define_symbol(&mut self, spec: SymbolDefSpec) {
         // 如果是 `_`，直接忽略，不存入作用域
-        if self.ctx.resolve(name) == "_" {
+        if self.ctx.resolve(spec.name) == "_" {
             return;
         }
         let info = SymbolInfo {
-            kind,
-            node_id,
+            kind: spec.kind,
+            node_id: spec.node_id,
             type_id: TypeId::ERROR, // Collect 阶段尚未推导类型
-            def_id,
-            span, // 记录符号的诞生位置
-            is_pub,
-            is_mut,
+            def_id: spec.def_id,
+            span: spec.span, // 记录符号的诞生位置
+            is_pub: spec.is_pub,
+            is_mut: spec.is_mut,
         };
 
         // 利用 DiagnosticBuilder 提供多 Span 的关联报错
-        if let Err(old_info) = self.ctx.scopes.define(name, info) {
-            let name_str = self.ctx.resolve(name).to_string();
+        if let Err(old_info) = self.ctx.scopes.define(spec.name, info) {
+            let name_str = self.ctx.resolve(spec.name).to_string();
 
             self.ctx
                 .struct_error(
-                    span,
+                    spec.span,
                     format!("the name `{}` is defined multiple times", name_str),
                 )
                 .with_hint(format!(
@@ -527,15 +550,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         for param in generics {
             let generic_node_id = self.ctx.next_node_id();
 
-            self.define_symbol(
-                param.name,
-                SymbolKind::TypeParam,
-                generic_node_id,
-                None,
-                param.span,
-                false,
-                false,
-            );
+            self.define_symbol(SymbolDefSpec {
+                name: param.name,
+                kind: SymbolKind::TypeParam,
+                node_id: generic_node_id,
+                def_id: None,
+                span: param.span,
+                is_pub: false,
+                is_mut: false,
+            });
         }
     }
 }

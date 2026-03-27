@@ -16,28 +16,30 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let trait_def_id = match self.ctx.type_registry.get(trait_ty) {
             TypeKind::TraitObject(id, _) => *id,
             other => {
-                self.ctx.emit_ice(
-                    Span::default(),
+                return self.build_invalid_vtable(
+                    key,
+                    source_ty,
+                    trait_ty,
                     format!(
                         "Kern ICE (Lowering): Target must be a TraitObject, found: {:?}",
                         other
                     ),
                 );
-                unreachable!()
             }
         };
 
         let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_def_id.0 as usize] {
             t.clone()
         } else {
-            self.ctx.emit_ice(
-                Span::default(),
+            return self.build_invalid_vtable(
+                key,
+                source_ty,
+                trait_ty,
                 format!(
                     "Kern ICE (Lowering): DefId {} is not a Trait!",
                     trait_def_id.0
                 ),
             );
-            unreachable!()
         };
 
         let (base_source_ty, source_args) = self.resolve_vtable_source_base(source_ty);
@@ -47,11 +49,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             None => {
                 let src_name = self.ctx.ty_to_string(base_source_ty);
                 let trait_name = self.ctx.resolve(trait_def.name);
-                self.ctx.emit_ice(
-                    Span::default(),
-                    format!("Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.", src_name, trait_name)
+                return self.build_invalid_vtable(
+                    key,
+                    source_ty,
+                    trait_ty,
+                    format!(
+                        "Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.",
+                        src_name, trait_name
+                    ),
                 );
-                unreachable!()
             }
         };
 
@@ -113,49 +119,88 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let norm_src_base = self.ctx.type_registry.normalize(base_source_ty);
 
         for &impl_id in &self.ctx.global_impls {
-            if let Def::Impl(impl_def) = &self.ctx.defs[impl_id.0 as usize] {
-                if let Some(impl_trait_node) = &impl_def.trait_type {
-                    // 检查 Impl 块声称实现的 Trait
-                    let i_trait_ty = self
+            if let Def::Impl(impl_def) = &self.ctx.defs[impl_id.0 as usize]
+                && let Some(impl_trait_node) = &impl_def.trait_type
+            {
+                // 检查 Impl 块声称实现的 Trait
+                let i_trait_ty = self
+                    .ctx
+                    .node_types
+                    .get(&impl_trait_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+
+                if let TypeKind::TraitObject(i_trait_id, _) = self.ctx.type_registry.get(i_trait_ty)
+                    && *i_trait_id == target_trait_id
+                {
+                    // 检查 Impl 块的目标类型是否匹配
+                    let i_target_ty = self
                         .ctx
                         .node_types
-                        .get(&impl_trait_node.id)
+                        .get(&impl_def.target_type.id)
                         .copied()
                         .unwrap_or(TypeId::ERROR);
+                    let (i_target_base, _) = self.resolve_vtable_source_base(i_target_ty);
 
-                    if let TypeKind::TraitObject(i_trait_id, _) =
-                        self.ctx.type_registry.get(i_trait_ty)
+                    // 1. 如果两者都是聚合类型 (Struct/Union/Enum)，比对 DefId (忽略具体泛型参数)
+                    if let (Some(target_id), Some(src_id)) =
+                        (get_base_def_id(i_target_base), src_base_id)
                     {
-                        if *i_trait_id == target_trait_id {
-                            // 检查 Impl 块的目标类型是否匹配
-                            let i_target_ty = self
-                                .ctx
-                                .node_types
-                                .get(&impl_def.target_type.id)
-                                .copied()
-                                .unwrap_or(TypeId::ERROR);
-                            let (i_target_base, _) = self.resolve_vtable_source_base(i_target_ty);
-
-                            // 1. 如果两者都是聚合类型 (Struct/Union/Enum)，比对 DefId (忽略具体泛型参数)
-                            if let (Some(target_id), Some(src_id)) =
-                                (get_base_def_id(i_target_base), src_base_id)
-                            {
-                                if target_id == src_id {
-                                    return Some(impl_def.clone());
-                                }
-                            }
-                            // 2. 兜底比对：支持标量类型匹配 (例如 impl Trait for i32)
-                            else if self.ctx.type_registry.normalize(i_target_base)
-                                == norm_src_base
-                            {
-                                return Some(impl_def.clone());
-                            }
+                        if target_id == src_id {
+                            return Some(impl_def.clone());
                         }
+                    }
+                    // 2. 兜底比对：支持标量类型匹配 (例如 impl Trait for i32)
+                    else if self.ctx.type_registry.normalize(i_target_base) == norm_src_base {
+                        return Some(impl_def.clone());
                     }
                 }
             }
         }
         None
+    }
+
+    fn build_invalid_vtable(
+        &mut self,
+        key: (TypeId, TypeId),
+        source_ty: TypeId,
+        trait_ty: TypeId,
+        message: String,
+    ) -> MonoId {
+        self.ctx.emit_ice(Span::default(), message);
+
+        if let Some(&existing) = self.vtable_cache.get(&key) {
+            return existing;
+        }
+
+        let id = self.new_mono_id();
+        self.vtable_cache.insert(key, id);
+
+        let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::VOID,
+        });
+        let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array {
+            is_mut: false,
+            elem: void_ptr_ty,
+            len: 0,
+        });
+
+        self.module.globals.push(MastGlobal {
+            id,
+            name: format!("__vtable_invalid_{}_{}", source_ty.0, trait_ty.0),
+            ty: vtable_array_ty,
+            is_mut: false,
+            init: Some(MastExpr::new(
+                vtable_array_ty,
+                MastExprKind::ArrayInit(vec![]),
+                Span::default(),
+            )),
+            is_extern: false,
+            attributes: vec![],
+        });
+
+        id
     }
 
     /// 辅助方法 3：将提取出来的方法单态化，组装成数组，并插入到全局 MastGlobal
@@ -180,11 +225,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             // 在 Impl 块中找到对应的实现
             for &m_id in &impl_def.methods {
-                if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize] {
-                    if f.name == trait_method.name {
-                        method_mono_id = Some(self.instantiate_function(m_id, source_args));
-                        break;
-                    }
+                if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
+                    && f.name == trait_method.name
+                {
+                    method_mono_id = Some(self.instantiate_function(m_id, source_args));
+                    break;
                 }
             }
 
@@ -196,7 +241,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         Span::default(),
                         format!("Kern ICE (Lowering): Missing implementation for trait method `{}`. Sema failed to check trait completeness.", method_name)
                     );
-                    unreachable!()
+                    let null_ptr =
+                        MastExpr::new(void_ptr_ty, MastExprKind::Integer(0), Span::default());
+                    vtable_methods.push(null_ptr);
+                    continue;
                 }
             };
 

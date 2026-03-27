@@ -62,6 +62,12 @@ pub struct SymbolTable {
     current_scope: Option<ScopeId>,
 }
 
+impl Default for SymbolTable {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SymbolTable {
     pub fn new() -> Self {
         let mut table = Self {
@@ -95,7 +101,8 @@ impl SymbolTable {
             // 获取当前作用域的父节点，并将其设为 current
             self.current_scope = self.scopes[current.0].parent;
         } else {
-            panic!("Cannot exit scope: current scope is already None!");
+            // 保底恢复：作用域栈已经失衡时，重新指回根作用域，避免后续阶段直接崩溃。
+            self.current_scope = self.scopes.first().map(|scope| scope.id);
         }
     }
 
@@ -113,9 +120,17 @@ impl SymbolTable {
     /// 如果成功，返回 Ok(())。
     /// 如果失败（发生同名冲突），返回 Err(旧的 SymbolInfo)，以便调用者可以报出极具建设性的错误
     pub fn define(&mut self, name: SymbolId, info: SymbolInfo) -> Result<(), SymbolInfo> {
-        let current_id = self
-            .current_scope
-            .expect("No active scope to define symbol");
+        let current_id = if let Some(scope_id) = self.current_scope {
+            scope_id
+        } else {
+            let fallback = self
+                .scopes
+                .first()
+                .map(|scope| scope.id)
+                .unwrap_or_else(|| self.create_scope(None));
+            self.current_scope = Some(fallback);
+            fallback
+        };
         let current_scope = &mut self.scopes[current_id.0];
 
         if let Some(existing) = current_scope.symbols.get(&name) {

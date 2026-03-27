@@ -2,7 +2,7 @@ mod format;
 mod layout;
 mod registry;
 
-pub use format::TypeFormatter;
+pub(crate) use format::TypeFormatter;
 pub use layout::LayoutEngine;
 pub use registry::TypeRegistry;
 

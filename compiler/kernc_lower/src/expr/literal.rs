@@ -9,6 +9,98 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn lower_literal_ice(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
+        self.ctx.emit_ice(span, message);
+        MastExprKind::Trap
+    }
+
+    fn require_enum_def(
+        &mut self,
+        def_id: DefId,
+        span: Span,
+        context: &str,
+    ) -> Option<kernc_sema::def::EnumDef> {
+        match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Enum(def)) => Some(def),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): Expected enum definition while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): Missing DefId {} while trying to {}.",
+                        def_id.0, context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn require_anon_enum(
+        &mut self,
+        concrete_ty: TypeId,
+        span: Span,
+        context: &str,
+    ) -> Option<kernc_sema::ty::AnonymousEnum> {
+        let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
+        match self.ctx.type_registry.get(norm_ty).clone() {
+            TypeKind::AnonymousEnum(enum_def) => Some(enum_def),
+            other => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): Expected anonymous enum while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn require_identifier(&mut self, expr: &Expr, context: &str) -> Option<SymbolId> {
+        match expr.kind {
+            ExprKind::Identifier(id) => Some(id),
+            _ => {
+                self.ctx.emit_ice(
+                    expr.span,
+                    format!(
+                        "Kern ICE (Lowering): Expected identifier while trying to {}.",
+                        context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn vtable_global_type(&mut self, vtable_id: MonoId, span: Span) -> Option<TypeId> {
+        match self
+            .module
+            .globals
+            .iter()
+            .find(|global| global.id == vtable_id)
+        {
+            Some(global) => Some(global.ty),
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    "Kern ICE (Lowering): VTable global missing when constructing trait object literal.",
+                );
+                None
+            }
+        }
+    }
+
     pub(crate) fn lower_string_literal(&mut self, s: &str, span: Span) -> MastExprKind {
         let global_id = self.new_mono_id();
         let len = s.len() as u64;
@@ -120,13 +212,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         } = self.ctx.type_registry.get(raw_inner_norm)
                         {
                             // 查表获取对应的函数 MonoId (代码指针)
-                            let func_mono_id = match self.closure_fn_map.get(closure_node_id) {
-                                Some(&id) => id,
-                                None => {
-                                    self.ctx.emit_ice(span, "Kern ICE (Lowering): Failed to find lowered closure function for explicit fat pointer construction.");
-                                    unreachable!()
-                                }
-                            };
+                            let func_mono_id = self.get_closure_func_mono_id(*closure_node_id);
 
                             // 组装胖指针
                             let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
@@ -225,8 +311,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         self.lower_union_init(fields, def_id, &u, &gen_args, subst_map)
                     }
                     _ => {
-                        self.ctx.emit_ice(Span::default(), "Kern ICE (Lowering): DefId must point to a Struct or Union during structural initialization.");
-                        unreachable!()
+                        self.lower_literal_ice(
+                            Span::default(),
+                            "Kern ICE (Lowering): DefId must point to a Struct or Union during structural initialization.",
+                        )
                     }
                 }
             }
@@ -244,7 +332,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         norm
                     ),
                 );
-                unreachable!()
+                MastExprKind::Trap
             }
         }
     }
@@ -258,19 +346,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let mono_id = self.instantiate_data(def_id, gen_args);
-        let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
-            d.clone()
-        } else {
-            self.ctx.emit_ice(
-                Span::default(),
-                "Kern ICE (Lowering): Expected Enum definition.",
-            );
-            unreachable!()
+        let Some(def) =
+            self.require_enum_def(def_id, Span::default(), "lower an enum payload literal")
+        else {
+            return MastExprKind::Trap;
         };
 
         let init_f = &fields[0];
-        let (variant_idx, tag_val) =
-            self.named_enum_variant_info(&def, init_f.name, init_f.value.span);
+        let Some((variant_idx, tag_val)) =
+            self.named_enum_variant_info(&def, init_f.name, init_f.value.span)
+        else {
+            return MastExprKind::Trap;
+        };
 
         let mut variant_subst_map = HashMap::new();
         for (i, param) in def.generics.iter().enumerate() {
@@ -281,8 +368,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let payload_id = match &variant_def.payload_type {
             Some(p) => p.id,
             None => {
-                self.ctx.emit_ice(init_f.value.span, "Kern ICE (Lowering): Attempted to initialize payload for a variant without payload.");
-                unreachable!()
+                return self.lower_literal_ice(
+                    init_f.value.span,
+                    "Kern ICE (Lowering): Attempted to initialize payload for a variant without payload.",
+                );
             }
         };
 
@@ -377,14 +466,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let field_idx = match u.fields.iter().position(|f| f.name == init_f.name) {
             Some(idx) => idx,
             None => {
-                self.ctx.emit_ice(
+                return self.lower_literal_ice(
                     init_f.value.span,
                     format!(
                         "Kern ICE (Lowering): Field `{}` not found in union.",
                         self.ctx.resolve(init_f.name)
                     ),
                 );
-                unreachable!()
             }
         };
 
@@ -418,16 +506,24 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             (is_extern, fields)
         } else {
-            unreachable!()
+            return self.lower_literal_ice(
+                Span::default(),
+                "Kern ICE (Lowering): Expected anonymous struct during literal lowering.",
+            );
         };
 
         let struct_id = self.instantiate_anon_struct(norm_ty);
         let mut ast_ordered_exprs = Vec::new();
         for field_def in &anon_fields {
-            let init_f = fields
-                .iter()
-                .find(|field| field.name == field_def.name)
-                .unwrap();
+            let Some(init_f) = fields.iter().find(|field| field.name == field_def.name) else {
+                return self.lower_literal_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Lowering): Missing field `{}` in anonymous struct literal.",
+                        self.ctx.resolve(field_def.name)
+                    ),
+                );
+            };
             ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(field_def.ty)));
         }
 
@@ -457,7 +553,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         {
             fields
         } else {
-            unreachable!()
+            return self.lower_literal_ice(
+                Span::default(),
+                "Kern ICE (Lowering): Expected anonymous union during literal lowering.",
+            );
         };
 
         let union_id = self.instantiate_anon_union(norm_ty);
@@ -465,7 +564,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let field_idx = anon_fields
             .iter()
             .position(|field| field.name == init_f.name)
-            .unwrap();
+            .unwrap_or(usize::MAX);
+        if field_idx == usize::MAX {
+            return self.lower_literal_ice(
+                init_f.span,
+                format!(
+                    "Kern ICE (Lowering): Field `{}` not found in anonymous union.",
+                    self.ctx.resolve(init_f.name)
+                ),
+            );
+        }
         let field_ty = anon_fields[field_idx].ty;
         let value = self.lower_expr(&init_f.value, subst_map, Some(field_ty));
 
@@ -483,32 +591,39 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
-        let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
-            self.ctx.type_registry.get(norm_ty).clone()
-        {
-            enum_def
-        } else {
-            unreachable!()
+        let Some(enum_def) = self.require_anon_enum(
+            concrete_ty,
+            Span::default(),
+            "lower an anonymous enum payload literal",
+        ) else {
+            return MastExprKind::Trap;
         };
 
         let mono_id = self.instantiate_anon_enum(norm_ty);
         let init_f = &fields[0];
-        let tag_value = self
-            .anon_enum_tag_value(&enum_def, init_f.name)
-            .unwrap_or_else(|| {
-                self.ctx.emit_ice(
-                    init_f.span,
-                    "anonymous enum variant not found during lowering",
-                );
-                unreachable!()
-            });
+        let Some(tag_value) = self.anon_enum_tag_value(&enum_def, init_f.name) else {
+            return self.lower_literal_ice(
+                init_f.span,
+                "Kern ICE (Lowering): Anonymous enum variant not found during payload lowering.",
+            );
+        };
 
-        let variant = enum_def
+        let Some(variant) = enum_def
             .variants
             .iter()
             .find(|variant| variant.name == init_f.name)
-            .unwrap();
-        let payload_ty = variant.payload_ty.unwrap();
+        else {
+            return self.lower_literal_ice(
+                init_f.span,
+                "Kern ICE (Lowering): Failed to resolve anonymous enum variant during payload lowering.",
+            );
+        };
+        let Some(payload_ty) = variant.payload_ty else {
+            return self.lower_literal_ice(
+                init_f.span,
+                "Kern ICE (Lowering): Attempted to build anonymous enum payload for a payload-less variant.",
+            );
+        };
         let payload = self.lower_expr(&init_f.value, subst_map, Some(payload_ty));
 
         MastExprKind::DataInit {
@@ -586,19 +701,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         def_id: DefId,
         gen_args: &[TypeId],
     ) -> MastExprKind {
-        let def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
-            d.clone()
-        } else {
-            unreachable!()
+        let Some(def) = self.require_enum_def(def_id, inner.span, "lower a scalar enum literal")
+        else {
+            return MastExprKind::Trap;
         };
 
-        let variant_name = if let ExprKind::Identifier(id) = &inner.kind {
-            *id
-        } else {
-            unreachable!()
+        let Some(variant_name) = self.require_identifier(inner, "lower a scalar enum literal")
+        else {
+            return MastExprKind::Trap;
         };
 
-        let (_, tag_val) = self.named_enum_variant_info(&def, variant_name, inner.span);
+        let Some((_, tag_val)) = self.named_enum_variant_info(&def, variant_name, inner.span)
+        else {
+            return MastExprKind::Trap;
+        };
 
         // 纯数据优化：如果没有任何负载，直接降级为硬编码整数
         if self.is_pure_enum(&def) {
@@ -619,21 +735,26 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         concrete_ty: TypeId,
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
-        let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
-            self.ctx.type_registry.get(norm_ty).clone()
-        {
-            enum_def
-        } else {
-            unreachable!()
+        let Some(enum_def) = self.require_anon_enum(
+            concrete_ty,
+            inner.span,
+            "lower a scalar anonymous enum literal",
+        ) else {
+            return MastExprKind::Trap;
         };
 
-        let variant_name = if let ExprKind::Identifier(id) = &inner.kind {
-            *id
-        } else {
-            unreachable!()
+        let Some(variant_name) =
+            self.require_identifier(inner, "lower a scalar anonymous enum literal")
+        else {
+            return MastExprKind::Trap;
         };
 
-        let tag_value = self.anon_enum_tag_value(&enum_def, variant_name).unwrap();
+        let Some(tag_value) = self.anon_enum_tag_value(&enum_def, variant_name) else {
+            return self.lower_literal_ice(
+                inner.span,
+                "Kern ICE (Lowering): Anonymous enum variant not found during scalar lowering.",
+            );
+        };
 
         if enum_def
             .variants
@@ -664,12 +785,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // 查找或生成 VTable
         let vtable_id = self.get_or_create_vtable(l.ty, trait_norm);
 
-        let global_array_ty = match self.module.globals.iter().find(|g| g.id == vtable_id) {
-            Some(g) => g.ty,
-            None => {
-                self.ctx.emit_ice(span, "Kern ICE (Lowering): VTable global missing when constructing trait object literal.");
-                unreachable!()
-            }
+        let Some(global_array_ty) = self.vtable_global_type(vtable_id, span) else {
+            return MastExprKind::Trap;
         };
         let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
@@ -705,16 +822,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExprKind {
         let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
         if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_ty).clone() {
-            let tag_value = self.anon_enum_tag_value(&enum_def, variant_name).unwrap_or_else(|| {
-                self.ctx.emit_ice(
+            let Some(tag_value) = self.anon_enum_tag_value(&enum_def, variant_name) else {
+                return self.lower_literal_ice(
                     Span::default(),
                     format!(
                         "Kern ICE (Lowering): Variant `{}` not found in anonymous enum literal resolution.",
                         self.ctx.resolve(variant_name)
                     ),
                 );
-                unreachable!()
-            });
+            };
 
             if enum_def
                 .variants
@@ -740,21 +856,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(norm_ty) {
                 (*id, args.clone())
             } else {
-                self.ctx.emit_ice(
+                return self.lower_literal_ice(
                     Span::default(),
                     "Kern ICE (Lowering): Expected Enum type for enum literal.",
                 );
-                unreachable!()
             };
 
-        let data_def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
-            d.clone()
-        } else {
-            self.ctx.emit_ice(
-                Span::default(),
-                "Kern ICE (Lowering): Expected Enum Definition.",
-            );
-            unreachable!()
+        let Some(data_def) =
+            self.require_enum_def(def_id, Span::default(), "lower an enum literal")
+        else {
+            return MastExprKind::Trap;
         };
 
         let mut current_val: i128 = 0;
@@ -791,7 +902,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.ctx.resolve(variant_name)
             ),
         );
-        unreachable!()
+        MastExprKind::Trap
     }
 
     fn anon_enum_tag_value(
@@ -808,7 +919,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         def: &kernc_sema::def::EnumDef,
         variant_name: SymbolId,
         span: Span,
-    ) -> (usize, u128) {
+    ) -> Option<(usize, u128)> {
         let mut current_val: i128 = 0;
 
         for (idx, variant) in def.variants.iter().enumerate() {
@@ -820,7 +931,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
 
             if variant.name == variant_name {
-                return (idx, current_val as u128);
+                return Some((idx, current_val as u128));
             }
 
             current_val += 1;
@@ -833,7 +944,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.ctx.resolve(variant_name)
             ),
         );
-        unreachable!()
+        None
     }
 
     pub(crate) fn anon_enum_variant_info(

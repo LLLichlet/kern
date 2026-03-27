@@ -7,19 +7,56 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    pub fn compile_global(&mut self, global: &MastGlobal) {
+    fn lookup_declared_global(
+        &mut self,
+        global_id: kernc_mast::MonoId,
+        span: Span,
+        name: &str,
+    ) -> Option<inkwell::values::GlobalValue<'ctx>> {
+        match self.globals.get(&global_id).copied() {
+            Some(global) => Some(global),
+            None => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): global `{}` is in MAST but missing from LLVM globals map.",
+                        name
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn lookup_declared_struct(
+        &mut self,
+        struct_id: kernc_mast::MonoId,
+        span: Span,
+        name: &str,
+    ) -> Option<inkwell::types::StructType<'ctx>> {
+        match self.structs.get(&struct_id).copied() {
+            Some(st) => Some(st),
+            None => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): struct `{}` disappeared during declaration lowering.",
+                        name
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn compile_global(&mut self, global: &MastGlobal) {
         if global.is_extern {
             return;
         }
-        let global_val = match self.globals.get(&global.id) {
-            Some(val) => *val,
-            None => {
-                self.sess.emit_ice(
-                    kernc_utils::Span::default(),
-                    format!("Kern ICE (Codegen): Global `{}` is in MAST but missing from LLVM globals map. `declare_globals` pass failed to register it!", global.name)
-                );
-                unreachable!()
-            }
+        let Some(global_val) =
+            self.lookup_declared_global(global.id, kernc_utils::Span::default(), &global.name)
+        else {
+            return;
         };
 
         if let Some(init) = &global.init {
@@ -48,8 +85,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             if let Some(func_val) = self.functions.get(&mono_id) {
                                 ptr_vals.push(func_val.as_global_value().as_pointer_value());
                             } else {
-                                self.sess.emit_ice(e.span, "Function reference in array init not found in LLVM functions map".to_string());
-                                unreachable!()
+                                self.sess.emit_ice(
+                                    e.span,
+                                    "Function reference in array init not found in LLVM functions map"
+                                        .to_string(),
+                                );
+                                ptr_vals.push(
+                                    self.context.ptr_type(AddressSpace::default()).const_null(),
+                                );
                             }
                         } else {
                             ptr_vals
@@ -69,7 +112,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub fn declare_structs(&mut self, structs: &[MastStruct]) {
+    pub(crate) fn declare_structs(&mut self, structs: &[MastStruct]) {
         for s in structs {
             let llvm_struct = self.context.opaque_struct_type(&s.name);
             self.structs.insert(s.id, llvm_struct);
@@ -79,15 +122,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         for s in structs {
-            let llvm_struct = match self.structs.get(&s.id) {
-                Some(st) => *st,
-                None => {
-                    self.sess.emit_ice(
-                        kernc_utils::Span::default(),
-                        format!("Struct {} disappeared during opaque body filling", s.name),
-                    );
-                    unreachable!()
-                }
+            let Some(llvm_struct) =
+                self.lookup_declared_struct(s.id, kernc_utils::Span::default(), &s.name)
+            else {
+                continue;
             };
 
             let is_packed = s.attributes.iter().any(|attr| {
@@ -107,39 +145,36 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub fn declare_globals(&mut self, globals: &[MastGlobal]) {
+    pub(crate) fn declare_globals(&mut self, globals: &[MastGlobal]) {
         for g in globals {
             let mut llvm_symbol_name = g.name.clone();
             let mut link_section = None;
             let mut align_bytes = None;
 
             for attr in &g.attributes {
-                match attr {
-                    ast::MetaItem::Call(id, expr) => {
-                        let name_str = self.resolve_symbol(*id);
-                        if name_str == "export_name" {
-                            if let ast::ExprKind::String(s) = &expr.kind {
-                                llvm_symbol_name = s.clone();
-                            }
-                        } else if name_str == "link_section" {
-                            if let ast::ExprKind::String(s) = &expr.kind {
-                                link_section = Some(s.clone());
-                            }
-                        } else if name_str == "align" {
-                            if let ast::ExprKind::Integer(val) = &expr.kind {
-                                align_bytes = Some(*val as u32);
-                            }
+                if let ast::MetaItem::Call(id, expr) = attr {
+                    let name_str = self.resolve_symbol(*id);
+                    if name_str == "export_name" {
+                        if let ast::ExprKind::String(s) = &expr.kind {
+                            llvm_symbol_name = s.clone();
                         }
+                    } else if name_str == "link_section" {
+                        if let ast::ExprKind::String(s) = &expr.kind {
+                            link_section = Some(s.clone());
+                        }
+                    } else if name_str == "align"
+                        && let ast::ExprKind::Integer(val) = &expr.kind
+                    {
+                        align_bytes = Some(*val as u32);
                     }
-                    _ => {}
                 }
             }
 
-            if g.is_extern {
-                if let Some(existing_global) = self.module.get_global(&llvm_symbol_name) {
-                    self.globals.insert(g.id, existing_global);
-                    continue;
-                }
+            if g.is_extern
+                && let Some(existing_global) = self.module.get_global(&llvm_symbol_name)
+            {
+                self.globals.insert(g.id, existing_global);
+                continue;
             }
 
             let llvm_ty = self.get_llvm_type(g.ty);
@@ -167,7 +202,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub fn declare_functions(&mut self, functions: &[MastFunction]) {
+    pub(crate) fn declare_functions(&mut self, functions: &[MastFunction]) {
         for f in functions {
             let ret_ty = self.get_llvm_type(f.ret_ty);
 
@@ -192,7 +227,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             Span::default(),
                             format!("Invalid LLVM return type for function {}", f.name),
                         );
-                        unreachable!()
+                        self.context
+                            .void_type()
+                            .fn_type(&param_types, f.is_variadic)
                     }
                 }
             };
@@ -210,10 +247,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             if let ast::ExprKind::String(s) = &expr.kind {
                                 llvm_symbol_name = s.clone();
                             }
-                        } else if name_str == "link_section" {
-                            if let ast::ExprKind::String(s) = &expr.kind {
-                                link_section = Some(s.clone());
-                            }
+                        } else if name_str == "link_section"
+                            && let ast::ExprKind::String(s) = &expr.kind
+                        {
+                            link_section = Some(s.clone());
                         }
                     }
                     ast::MetaItem::Marker(id) => {
@@ -227,11 +264,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
 
-            if f.is_extern {
-                if let Some(existing_func) = self.module.get_function(&llvm_symbol_name) {
-                    self.functions.insert(f.id, existing_func);
-                    continue;
-                }
+            if f.is_extern
+                && let Some(existing_func) = self.module.get_function(&llvm_symbol_name)
+            {
+                self.functions.insert(f.id, existing_func);
+                continue;
             }
 
             let llvm_func = self.module.add_function(&llvm_symbol_name, fn_type, None);

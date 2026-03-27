@@ -3,8 +3,8 @@ use kernc_utils::SymbolId;
 use std::collections::HashMap;
 
 pub struct Substituter<'a> {
-    pub registry: &'a mut TypeRegistry,
-    pub map: &'a HashMap<SymbolId, TypeId>,
+    registry: &'a mut TypeRegistry,
+    map: &'a HashMap<SymbolId, TypeId>,
 }
 
 impl<'a> Substituter<'a> {

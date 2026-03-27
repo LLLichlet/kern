@@ -1,5 +1,5 @@
 use super::expr::Precedence;
-use super::{ParseResult, Parser};
+use super::{ParseError, ParseResult, Parser};
 use kernc_ast::*;
 use kernc_lexer::TokenType;
 
@@ -65,7 +65,7 @@ impl<'a> Parser<'a> {
                         token.span,
                         "Expected `struct` or `union` after `extern` in type position".to_string(),
                     );
-                    Err(())
+                    Err(ParseError)
                 }
             }
 
@@ -85,7 +85,7 @@ impl<'a> Parser<'a> {
                     token.span,
                     format!("Expected type definition, found '{}'", found_text),
                 );
-                Err(())
+                Err(ParseError)
             }
         }
     }
@@ -438,7 +438,7 @@ impl<'a> Parser<'a> {
                 id_token.span,
                 format!("Unknown compile-time type intrinsic: @{}", name),
             );
-            Err(())
+            Err(ParseError)
         }
     }
 

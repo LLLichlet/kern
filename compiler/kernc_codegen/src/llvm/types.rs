@@ -6,7 +6,33 @@ use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    pub fn get_llvm_type(&mut self, ty: TypeId) -> BasicTypeEnum<'ctx> {
+    fn invalid_llvm_type(&mut self, span: Span, msg: impl Into<String>) -> BasicTypeEnum<'ctx> {
+        self.sess.emit_ice(span, msg);
+        self.context.struct_type(&[], false).into()
+    }
+
+    fn lookup_instantiated_struct(
+        &mut self,
+        mono_id: kernc_mast::MonoId,
+        span: Span,
+        context: &str,
+    ) -> Option<BasicTypeEnum<'ctx>> {
+        match self.structs.get(&mono_id).copied() {
+            Some(struct_ty) => Some(struct_ty.as_basic_type_enum()),
+            None => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): missing instantiated struct MonoId {:?} for {}.",
+                        mono_id, context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    pub(crate) fn get_llvm_type(&mut self, ty: TypeId) -> BasicTypeEnum<'ctx> {
         let norm = self.type_registry.normalize(ty);
 
         match self.type_registry.get(norm).clone() {
@@ -66,97 +92,110 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             TypeKind::Def(def_id, args) | TypeKind::Enum(def_id, args) => {
                 let key = (def_id, args.clone());
-                if let Some(&mono_id) = self.def_mono_map.get(&key) {
-                    if let Some(struct_ty) = self.structs.get(&mono_id) {
-                        return struct_ty.as_basic_type_enum();
-                    }
+                if let Some(&mono_id) = self.def_mono_map.get(&key)
+                    && let Some(struct_ty) =
+                        self.lookup_instantiated_struct(mono_id, Span::default(), "named data type")
+                {
+                    return struct_ty;
                 }
 
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!(
                         "Kern ICE (Codegen): DefId {} not instantiated by Lowerer",
                         def_id.0
                     ),
-                );
-                unreachable!()
+                )
             }
             TypeKind::EnumPayload(def_id, args) => {
                 let key = (def_id, args.clone());
-                if let Some(&wrapper_mono_id) = self.def_mono_map.get(&key) {
-                    if let Some(&payload_mono_id) = self.adt_union_map.get(&wrapper_mono_id) {
-                        if let Some(struct_ty) = self.structs.get(&payload_mono_id) {
-                            return struct_ty.as_basic_type_enum();
-                        }
-                    }
+                if let Some(&wrapper_mono_id) = self.def_mono_map.get(&key)
+                    && let Some(&payload_mono_id) = self.adt_union_map.get(&wrapper_mono_id)
+                    && let Some(struct_ty) = self.lookup_instantiated_struct(
+                        payload_mono_id,
+                        Span::default(),
+                        "enum payload",
+                    )
+                {
+                    return struct_ty;
                 }
 
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!(
                         "Kern ICE (Codegen): EnumPayload for DefId {} not instantiated",
                         def_id.0
                     ),
-                );
-                unreachable!()
+                )
             }
             TypeKind::AnonymousStruct(..) => {
-                if let Some(&mono_id) = self.anon_struct_map.get(&norm) {
-                    if let Some(struct_ty) = self.structs.get(&mono_id) {
-                        return struct_ty.as_basic_type_enum();
-                    }
+                if let Some(&mono_id) = self.anon_struct_map.get(&norm)
+                    && let Some(struct_ty) = self.lookup_instantiated_struct(
+                        mono_id,
+                        Span::default(),
+                        "anonymous struct",
+                    )
+                {
+                    return struct_ty;
                 }
 
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!("Kern ICE (Codegen): AnonymousStruct TypeId({:?}) not instantiated by Lowerer", norm),
-                );
-                unreachable!()
+                )
             }
             TypeKind::AnonymousUnion(..) => {
-                if let Some(&mono_id) = self.anon_union_map.get(&norm) {
-                    if let Some(struct_ty) = self.structs.get(&mono_id) {
-                        return struct_ty.as_basic_type_enum();
-                    }
+                if let Some(&mono_id) = self.anon_union_map.get(&norm)
+                    && let Some(struct_ty) = self.lookup_instantiated_struct(
+                        mono_id,
+                        Span::default(),
+                        "anonymous union",
+                    )
+                {
+                    return struct_ty;
                 }
 
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!("Kern ICE (Codegen): AnonymousUnion TypeId({:?}) not instantiated by Lowerer", norm),
-                );
-                unreachable!()
+                )
             }
             TypeKind::AnonymousEnum(..) => {
-                if let Some(&mono_id) = self.anon_enum_map.get(&norm) {
-                    if let Some(struct_ty) = self.structs.get(&mono_id) {
-                        return struct_ty.as_basic_type_enum();
-                    }
+                if let Some(&mono_id) = self.anon_enum_map.get(&norm)
+                    && let Some(struct_ty) = self.lookup_instantiated_struct(
+                        mono_id,
+                        Span::default(),
+                        "anonymous enum",
+                    )
+                {
+                    return struct_ty;
                 }
 
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!("Kern ICE (Codegen): AnonymousEnum TypeId({:?}) not instantiated by Lowerer", norm),
-                );
-                unreachable!()
+                )
             }
             TypeKind::AnonymousEnumPayload(enum_ty) => {
                 let enum_ty = self.type_registry.normalize(enum_ty);
-                if let Some(&wrapper_mono_id) = self.anon_enum_map.get(&enum_ty) {
-                    if let Some(&payload_mono_id) = self.adt_union_map.get(&wrapper_mono_id) {
-                        if let Some(struct_ty) = self.structs.get(&payload_mono_id) {
-                            return struct_ty.as_basic_type_enum();
-                        }
-                    }
+                if let Some(&wrapper_mono_id) = self.anon_enum_map.get(&enum_ty)
+                    && let Some(&payload_mono_id) = self.adt_union_map.get(&wrapper_mono_id)
+                    && let Some(struct_ty) = self.lookup_instantiated_struct(
+                        payload_mono_id,
+                        Span::default(),
+                        "anonymous enum payload",
+                    )
+                {
+                    return struct_ty;
                 }
 
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!(
                         "Kern ICE (Codegen): AnonymousEnumPayload for TypeId({:?}) not instantiated",
                         enum_ty
                     ),
-                );
-                unreachable!()
+                )
             }
             TypeKind::AnonymousState { captures, .. } => {
                 let mut field_tys = Vec::new();
@@ -166,31 +205,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.context.struct_type(&field_tys, false).into()
             }
             TypeKind::ClosureInterface { .. } => {
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     "Kern ICE (Codegen): Naked `ClosureInterface` cannot be materialized. \
                      Sema `ensure_sized` failed to catch this. You must use a fat pointer (e.g., `*Fn`)."
-                );
-                unreachable!()
+                )
             }
 
             TypeKind::TypeVar(vid) => {
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!("Unresolved TypeVar `?T{}` leaked into LLVM Codegen! Semantic Analyzer missed it.", vid)
-                );
-                unreachable!()
+                )
             }
             _ => {
-                self.sess.emit_ice(
+                self.invalid_llvm_type(
                     Span::default(),
                     format!(
                         "Frontend failed to resolve type! TypeId: {:?}, Kind: {:?}",
                         norm,
                         self.type_registry.get(norm)
                     ),
-                );
-                unreachable!()
+                )
             }
         }
     }

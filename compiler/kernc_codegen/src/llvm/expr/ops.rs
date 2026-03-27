@@ -6,6 +6,41 @@ use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn zero_i8_value(&self) -> BasicValueEnum<'ctx> {
+        self.context.i8_type().const_zero().into()
+    }
+
+    fn ptr_elem_llvm_type(
+        &mut self,
+        ptr_ty: TypeId,
+        span: Span,
+        context: &str,
+    ) -> Option<inkwell::types::BasicTypeEnum<'ctx>> {
+        let Some(elem_sema_ty) = self.type_registry.get_elem_type(ptr_ty) else {
+            self.sess.emit_ice(
+                span,
+                format!(
+                    "Kern ICE (Codegen): missing pointee type while compiling {}.",
+                    context
+                ),
+            );
+            return None;
+        };
+        Some(self.get_llvm_type(elem_sema_ty))
+    }
+
+    fn pointer_compare_pred(op: BinaryOperator) -> Option<inkwell::IntPredicate> {
+        match op {
+            BinaryOperator::Equal => Some(inkwell::IntPredicate::EQ),
+            BinaryOperator::NotEqual => Some(inkwell::IntPredicate::NE),
+            BinaryOperator::LessThan => Some(inkwell::IntPredicate::ULT),
+            BinaryOperator::LessOrEqual => Some(inkwell::IntPredicate::ULE),
+            BinaryOperator::GreaterThan => Some(inkwell::IntPredicate::UGT),
+            BinaryOperator::GreaterOrEqual => Some(inkwell::IntPredicate::UGE),
+            _ => None,
+        }
+    }
+
     // 辅助方法判断是否为有符号整数
     pub(crate) fn is_signed_int(&self, ty: TypeId) -> bool {
         let norm = self.type_registry.normalize(ty);
@@ -49,9 +84,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         } else if l_val.is_float_value() && r_val.is_float_value() {
             self.compile_float_math(op, l_val.into_float_value(), r_val.into_float_value(), span)
         } else {
-            // 注: 请根据你 CodeGenerator 里的实际字段使用 self.sess 或 self.ctx
-            self.sess.emit_ice(span, "Kern ICE (Codegen): Unsupported types for binary operation. Sema missed this type mismatch.");
-            unreachable!()
+            self.sess.emit_ice(
+                span,
+                "Kern ICE (Codegen): Unsupported types for binary operation. Sema missed this type mismatch.",
+            );
+            self.zero_i8_value()
         }
     }
 
@@ -70,14 +107,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             Add => {
                 let (ptr_val, int_val) = if l_val.is_pointer_value() {
                     if !r_val.is_int_value() {
-                        self.sess.emit_ice(span, "Kern ICE (Codegen): Expected integer for RHS of pointer addition. Sema missed this.");
-                        unreachable!()
+                        self.sess.emit_ice(
+                            span,
+                            "Kern ICE (Codegen): expected integer for RHS of pointer addition.",
+                        );
+                        return self.zero_i8_value();
                     }
                     (l_val.into_pointer_value(), r_val.into_int_value())
                 } else {
                     if !l_val.is_int_value() {
-                        self.sess.emit_ice(span, "Kern ICE (Codegen): Expected integer for LHS of pointer addition. Sema missed this.");
-                        unreachable!()
+                        self.sess.emit_ice(
+                            span,
+                            "Kern ICE (Codegen): expected integer for LHS of pointer addition.",
+                        );
+                        return self.zero_i8_value();
                     }
                     (r_val.into_pointer_value(), l_val.into_int_value())
                 };
@@ -87,8 +130,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 } else {
                     rhs_ty
                 };
-                let elem_sema_ty = self.type_registry.get_elem_type(ptr_ty).unwrap();
-                let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
+                let Some(elem_llvm_ty) = self.ptr_elem_llvm_type(ptr_ty, span, "pointer addition")
+                else {
+                    return self.zero_i8_value();
+                };
 
                 unsafe {
                     self.builder
@@ -101,7 +146,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 if l_val.is_pointer_value() && r_val.is_pointer_value() {
                     let l_ptr = l_val.into_pointer_value();
                     let r_ptr = r_val.into_pointer_value();
-                    let elem_sema_ty = self.type_registry.get_elem_type(lhs_ty).unwrap();
+                    let Some(elem_sema_ty) = self.type_registry.get_elem_type(lhs_ty) else {
+                        self.sess.emit_ice(
+                            span,
+                            "Kern ICE (Codegen): pointer subtraction missing pointee type.",
+                        );
+                        return self.zero_i8_value();
+                    };
 
                     // *void - *void === 0
                     if self.is_void_type(elem_sema_ty) {
@@ -118,8 +169,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     let ptr_val = l_val.into_pointer_value();
                     let int_val = r_val.into_int_value();
                     let neg_int = self.builder.build_int_neg(int_val, "neg_offset").unwrap();
-                    let elem_sema_ty = self.type_registry.get_elem_type(lhs_ty).unwrap();
-                    let elem_llvm_ty = self.get_llvm_type(elem_sema_ty);
+                    let Some(elem_llvm_ty) =
+                        self.ptr_elem_llvm_type(lhs_ty, span, "pointer subtraction")
+                    else {
+                        return self.zero_i8_value();
+                    };
 
                     unsafe {
                         self.builder
@@ -158,14 +212,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 };
 
                 // 指针比较一律按无符号整数 (Unsigned) 处理
-                let pred = match op {
-                    Equal => inkwell::IntPredicate::EQ,
-                    NotEqual => inkwell::IntPredicate::NE,
-                    LessThan => inkwell::IntPredicate::ULT,
-                    LessOrEqual => inkwell::IntPredicate::ULE,
-                    GreaterThan => inkwell::IntPredicate::UGT,
-                    GreaterOrEqual => inkwell::IntPredicate::UGE,
-                    _ => unreachable!(),
+                let Some(pred) = Self::pointer_compare_pred(op) else {
+                    self.sess.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Codegen): invalid pointer comparison operator `{:?}`.",
+                            op
+                        ),
+                    );
+                    return self.zero_i8_value();
                 };
 
                 self.builder
@@ -175,8 +230,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
 
             _ => {
-                self.sess.emit_ice(span, format!("Kern ICE (Codegen): Invalid pointer arithmetic operation `{:?}`. Sema missed this.", op));
-                unreachable!()
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): invalid pointer arithmetic operation `{:?}`.",
+                        op
+                    ),
+                );
+                self.zero_i8_value()
             }
         }
     }
@@ -305,7 +366,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     span,
                     format!("Kern ICE (Codegen): Unhandled integer operator `{:?}`.", op),
                 );
-                unreachable!()
+                l_int.get_type().const_zero().into()
             }
         }
     }
@@ -380,7 +441,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     span,
                     format!("Kern ICE (Codegen): Unhandled float operator `{:?}`.", op),
                 );
-                unreachable!()
+                l_float.get_type().const_zero().into()
             }
         }
     }
@@ -406,8 +467,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .unwrap()
                         .into()
                 } else {
-                    self.sess.emit_ice(span, "Kern ICE (Codegen): Negate `-` operator applied to a non-numeric type. Sema missed this.");
-                    unreachable!()
+                    self.sess.emit_ice(
+                        span,
+                        "Kern ICE (Codegen): negate operator applied to a non-numeric type.",
+                    );
+                    self.zero_i8_value()
                 }
             }
             ast::UnaryOperator::LogicalNot | ast::UnaryOperator::BitwiseNot => {
@@ -417,8 +481,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .unwrap()
                         .into()
                 } else {
-                    self.sess.emit_ice(span, format!("Kern ICE (Codegen): Not operator `{:?}` applied to a non-integer/boolean type. Sema missed this.", op));
-                    unreachable!()
+                    self.sess.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Codegen): not operator `{:?}` applied to a non-integer/boolean type.",
+                            op
+                        ),
+                    );
+                    self.zero_i8_value()
                 }
             }
             ast::UnaryOperator::MetaOf => {
@@ -433,8 +503,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .build_extract_value(op_val.into_struct_value(), 1, "slice_len")
                         .unwrap(),
                     other => {
-                        self.sess.emit_ice(span, format!("Kern ICE (Codegen): `MetaOf` applied to invalid type {:?}. Sema missed this.", other));
-                        unreachable!()
+                        self.sess.emit_ice(
+                            span,
+                            format!(
+                                "Kern ICE (Codegen): `MetaOf` applied to invalid type {:?}.",
+                                other
+                            ),
+                        );
+                        self.zero_i8_value()
                     }
                 }
             }
@@ -443,7 +519,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     span,
                     format!("Kern ICE (Codegen): Unhandled unary operator `{:?}`.", op),
                 );
-                unreachable!()
+                self.zero_i8_value()
             }
         }
     }
@@ -544,7 +620,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                                 op
                             ),
                         );
-                        unreachable!()
+                        l_int.get_type().const_zero().into()
                     }
                 }
             } else if lhs_val.is_float_value() {
@@ -585,12 +661,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                                 op
                             ),
                         );
-                        unreachable!()
+                        l_float.get_type().const_zero().into()
                     }
                 }
             } else {
-                self.sess.emit_ice(span, "Kern ICE (Codegen): Unsupported type for compound assignment. Sema missed this.");
-                unreachable!()
+                self.sess.emit_ice(
+                    span,
+                    "Kern ICE (Codegen): unsupported type for compound assignment.",
+                );
+                self.zero_i8_value()
             };
             self.builder.build_store(ptr, new_val).unwrap();
         }

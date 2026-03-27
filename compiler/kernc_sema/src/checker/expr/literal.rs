@@ -7,7 +7,92 @@ use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
+type StructLiteralDefInfo = (
+    Vec<(kernc_utils::SymbolId, TypeId, bool)>,
+    String,
+    Vec<ast::GenericParam>,
+    Vec<TypeId>,
+    bool,
+);
+
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn resolve_data_init_target_type(
+        &mut self,
+        type_node: Option<&ast::TypeNode>,
+        expected_ty: Option<TypeId>,
+        span: Span,
+    ) -> TypeId {
+        if let Some(ty_ast) = type_node {
+            let mut resolver = TypeResolver::new(self.ctx);
+            let Some(scope) = resolver.current_scope_id() else {
+                resolver.context().emit_ice(
+                    span,
+                    "Compiler ICE: explicit data literal type was resolved without an active scope.",
+                );
+                return TypeId::ERROR;
+            };
+            return resolver.resolve_type(ty_ast, scope);
+        }
+
+        if let Some(exp) = expected_ty {
+            return self.resolve_tv(exp);
+        }
+
+        self.ctx
+            .struct_error(
+                span,
+                "cannot infer type for anonymous initialization `.{...}`",
+            )
+            .with_hint(
+                "provide an explicit type context or prepend the type name, e.g., `MyStruct.{...}`",
+            )
+            .emit();
+        TypeId::ERROR
+    }
+
+    fn check_anon_enum_payload_literal(
+        &mut self,
+        init_fields: &[ast::StructFieldInit],
+        expected: TypeId,
+        enum_def: &crate::ty::AnonymousEnum,
+        span: Span,
+    ) -> TypeId {
+        if init_fields.len() != 1 {
+            self.ctx
+                .struct_error(span, "Enum literal must specify exactly one variant")
+                .emit();
+            return TypeId::ERROR;
+        }
+
+        let init_f = &init_fields[0];
+        let variant = enum_def.variants.iter().find(|v| v.name == init_f.name);
+        if let Some(v) = variant {
+            if let Some(payload_ty) = v.payload_ty {
+                let val_ty = self.check_expr(&init_f.value, Some(payload_ty));
+                self.check_coercion(&init_f.value, payload_ty, val_ty);
+            } else {
+                let v_str = self.ctx.resolve(v.name).to_string();
+                self.ctx
+                    .struct_error(
+                        init_f.span,
+                        format!("variant `{}` does not take a payload", v_str),
+                    )
+                    .with_hint(format!("initialize it as `.{{ {} }}` instead", v_str))
+                    .emit();
+            }
+        } else {
+            let v_str = self.ctx.resolve(init_f.name);
+            self.ctx
+                .struct_error(
+                    init_f.span,
+                    format!("variant `{}` not found in anonymous enum", v_str),
+                )
+                .emit();
+        }
+
+        expected
+    }
+
     pub(crate) fn check_integer(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
         // 默认 fallback 为 usize
         let mut res_ty = self
@@ -20,14 +105,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let kind = self.ctx.type_registry.get(norm).clone();
 
             // 如果上下文期望一个整数或浮点数，直接复用期望的类型
-            if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
-                res_ty = exp;
-            }
-            // 如果上下文明确期望一个指针，让这个整数直接吸收该指针类型
-            else if matches!(
-                kind,
-                TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-            ) {
+            if self.ctx.type_registry.is_integer(norm)
+                || self.ctx.type_registry.is_float(norm)
+                || matches!(
+                    kind,
+                    TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+                )
+            {
                 res_ty = exp;
             }
         }
@@ -58,25 +142,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
-        // 智能决定目标类型
-        let target_ty = if let Some(ty_ast) = type_node {
-            // 情况 A: 显式指定了类型前缀 (如 Result[i32, i32].{ ... })
-            let mut resolver = TypeResolver::new(self.ctx);
-            let scope = resolver.ctx.scopes.current_scope_id().unwrap();
-            resolver.resolve_type(ty_ast, scope)
-        } else if let Some(exp) = expected_ty {
-            // 情况 B: 省略了前缀，但外层有期望的类型 (如 `(ret_type)` Option[i32] = .{ ... })
-            // 去除 Mut 修饰符，拿到真正的数据类型
-            self.resolve_tv(exp)
-        } else {
-            // 情况 C: 既没写前缀，外层又不知道该是什么类型 (如 let x = .{ 10 })
-            self.ctx.struct_error(span, "cannot infer type for anonymous initialization `.{...}`")
-                .with_hint("provide an explicit type context or prepend the type name, e.g., `MyStruct.{...}`")
-                .emit();
+        let target_ty = self.resolve_data_init_target_type(type_node, expected_ty, span);
+        if target_ty == TypeId::ERROR {
             return TypeId::ERROR;
-        };
+        }
 
-        // 将确定的 target_ty 继续下传给具体的字面量检查器
         self.check_data_literal(literal, target_ty, span)
     }
 
@@ -302,51 +372,40 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_norm: TypeId,
         span: Span,
     ) -> TypeId {
-        let (def_id, generic_args) =
-            if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(exp_norm) {
-                (*id, args.clone())
+        let anon_enum =
+            if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(exp_norm) {
+                Some(enum_def.clone())
             } else {
-                if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(exp_norm) {
-                    if init_fields.len() != 1 {
-                        self.ctx
-                            .struct_error(span, "Enum literal must specify exactly one variant")
-                            .emit();
-                        return TypeId::ERROR;
-                    }
-
-                    let init_f = &init_fields[0];
-                    let variant = enum_def.variants.iter().find(|v| v.name == init_f.name);
-                    if let Some(v) = variant {
-                        if let Some(payload_ty) = v.payload_ty {
-                            let val_ty = self.check_expr(&init_f.value, Some(payload_ty));
-                            self.check_coercion(&init_f.value, payload_ty, val_ty);
-                        } else {
-                            let v_str = self.ctx.resolve(v.name).to_string();
-                            self.ctx
-                                .struct_error(
-                                    init_f.span,
-                                    format!("variant `{}` does not take a payload", v_str),
-                                )
-                                .with_hint(format!("initialize it as `.{{ {} }}` instead", v_str))
-                                .emit();
-                        }
-                    } else {
-                        let v_str = self.ctx.resolve(init_f.name);
-                        self.ctx
-                            .struct_error(
-                                init_f.span,
-                                format!("variant `{}` not found in anonymous enum", v_str),
-                            )
-                            .emit();
-                    }
-                    return expected;
-                }
-                unreachable!()
+                None
             };
+        if let Some(enum_def) = anon_enum.as_ref() {
+            return self.check_anon_enum_payload_literal(init_fields, expected, enum_def, span);
+        }
+
+        let (def_id, generic_args) = match self.ctx.type_registry.get(exp_norm) {
+            TypeKind::Enum(id, args) => (*id, args.clone()),
+            _ => {
+                let exp_str = self.ctx.ty_to_string(exp_norm);
+                self.ctx
+                    .struct_error(span, "expected an enum type for enum payload literal")
+                    .with_hint(format!("context expects `{}`", exp_str))
+                    .emit();
+                return TypeId::ERROR;
+            }
+        };
 
         let data_def = match &self.ctx.defs[def_id.0 as usize] {
             Def::Enum(d) => d.clone(),
-            _ => unreachable!(),
+            _ => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: enum payload literal resolved to non-enum DefId {}.",
+                        def_id.0
+                    ),
+                );
+                return TypeId::ERROR;
+            }
         };
 
         if init_fields.len() != 1 {
@@ -430,19 +489,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         // 2. 如果是定长数组，校验长度
-        if let Some(len) = expected_len {
-            if elems.len() as u64 != len {
-                self.ctx
-                    .struct_error(
-                        span,
-                        format!(
-                            "array literal length ({}) does not match expected length ({})",
-                            elems.len(),
-                            len
-                        ),
-                    )
-                    .emit();
-            }
+        if let Some(len) = expected_len
+            && elems.len() as u64 != len
+        {
+            self.ctx
+                .struct_error(
+                    span,
+                    format!(
+                        "array literal length ({}) does not match expected length ({})",
+                        elems.len(),
+                        len
+                    ),
+                )
+                .emit();
         }
 
         // 3. 校验所有元素的类型
@@ -507,10 +566,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 4. 返回最终类型
         if is_infer {
             let mut ce = ConstEvaluator::new(self.ctx);
-            let actual_len = match ce.eval_usize(count) {
-                Ok(val) => val,
-                Err(_) => 0, // 兜底填0
-            };
+            let actual_len = ce.eval_usize(count).unwrap_or_default();
 
             self.ctx.type_registry.intern(TypeKind::Array {
                 is_mut: exp_is_mut,
@@ -531,105 +587,103 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> TypeId {
         // 1. 提取定义信息与泛型实参，同时识别是 Struct 还是 Union
-        let (def_fields, def_name, def_generics, generic_args, is_union): (
-            Vec<(kernc_utils::SymbolId, TypeId, bool)>,
-            String,
-            Vec<ast::GenericParam>,
-            Vec<TypeId>,
-            bool,
-        ) = if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
-            match &self.ctx.defs[def_id.0 as usize] {
-                Def::Struct(s) => {
-                    let fields = s
-                        .fields
-                        .iter()
-                        .map(|field| {
-                            (
-                                field.name,
-                                self.ctx
-                                    .node_types
-                                    .get(&field.type_node.id)
-                                    .copied()
-                                    .unwrap_or(TypeId::ERROR),
-                                field.default_value.is_some(),
-                            )
-                        })
-                        .collect();
-                    (
-                        fields,
-                        self.ctx.resolve(s.name).to_string(),
-                        s.generics.clone(),
-                        args.clone(),
-                        false,
-                    )
-                }
-                Def::Union(u) => {
-                    let fields = u
-                        .fields
-                        .iter()
-                        .map(|field| {
-                            (
-                                field.name,
-                                self.ctx
-                                    .node_types
-                                    .get(&field.type_node.id)
-                                    .copied()
-                                    .unwrap_or(TypeId::ERROR),
-                                false,
-                            )
-                        })
-                        .collect();
-                    (
-                        fields,
-                        self.ctx.resolve(u.name).to_string(),
-                        u.generics.clone(),
-                        args.clone(),
-                        true,
-                    )
-                }
-                _ => {
-                    self.ctx
-                        .struct_error(
-                            span,
-                            "expected a struct or union type for literal initialization",
+        let (def_fields, def_name, def_generics, generic_args, is_union): StructLiteralDefInfo =
+            if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
+                match &self.ctx.defs[def_id.0 as usize] {
+                    Def::Struct(s) => {
+                        let fields = s
+                            .fields
+                            .iter()
+                            .map(|field| {
+                                (
+                                    field.name,
+                                    self.ctx
+                                        .node_types
+                                        .get(&field.type_node.id)
+                                        .copied()
+                                        .unwrap_or(TypeId::ERROR),
+                                    field.default_value.is_some(),
+                                )
+                            })
+                            .collect();
+                        (
+                            fields,
+                            self.ctx.resolve(s.name).to_string(),
+                            s.generics.clone(),
+                            args.clone(),
+                            false,
                         )
-                        .emit();
-                    return TypeId::ERROR;
+                    }
+                    Def::Union(u) => {
+                        let fields = u
+                            .fields
+                            .iter()
+                            .map(|field| {
+                                (
+                                    field.name,
+                                    self.ctx
+                                        .node_types
+                                        .get(&field.type_node.id)
+                                        .copied()
+                                        .unwrap_or(TypeId::ERROR),
+                                    false,
+                                )
+                            })
+                            .collect();
+                        (
+                            fields,
+                            self.ctx.resolve(u.name).to_string(),
+                            u.generics.clone(),
+                            args.clone(),
+                            true,
+                        )
+                    }
+                    _ => {
+                        self.ctx
+                            .struct_error(
+                                span,
+                                "expected a struct or union type for literal initialization",
+                            )
+                            .emit();
+                        return TypeId::ERROR;
+                    }
                 }
-            }
-        } else if let TypeKind::AnonymousStruct(_, fields) = self.ctx.type_registry.get(exp_norm) {
-            let defs: Vec<_> = fields
-                .iter()
-                .map(|field| (field.name, field.ty, false))
-                .collect();
-            (
-                defs,
-                self.ctx.ty_to_string(exp_norm),
-                Vec::new(),
-                Vec::new(),
-                false,
-            )
-        } else if let TypeKind::AnonymousUnion(_, fields) = self.ctx.type_registry.get(exp_norm) {
-            let defs: Vec<_> = fields
-                .iter()
-                .map(|field| (field.name, field.ty, false))
-                .collect();
-            (
-                defs,
-                self.ctx.ty_to_string(exp_norm),
-                Vec::new(),
-                Vec::new(),
-                true,
-            )
-        } else {
-            self.ctx
-                .struct_error(
-                    span,
-                    "expected a struct or union type for literal initialization",
+            } else if let TypeKind::AnonymousStruct(_, fields) =
+                self.ctx.type_registry.get(exp_norm)
+            {
+                let defs: Vec<_> = fields
+                    .iter()
+                    .map(|field| (field.name, field.ty, false))
+                    .collect();
+                (
+                    defs,
+                    self.ctx.ty_to_string(exp_norm),
+                    Vec::new(),
+                    Vec::new(),
+                    false,
                 )
-                .emit();
-            return TypeId::ERROR;
-        };
+            } else if let TypeKind::AnonymousUnion(_, fields) = self.ctx.type_registry.get(exp_norm)
+            {
+                let defs: Vec<_> = fields
+                    .iter()
+                    .map(|field| (field.name, field.ty, false))
+                    .collect();
+                (
+                    defs,
+                    self.ctx.ty_to_string(exp_norm),
+                    Vec::new(),
+                    Vec::new(),
+                    true,
+                )
+            } else {
+                self.ctx
+                    .struct_error(
+                        span,
+                        "expected a struct or union type for literal initialization",
+                    )
+                    .emit();
+                return TypeId::ERROR;
+            };
 
         let mut initialized = std::collections::HashSet::new();
 
@@ -719,13 +773,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_undef(&mut self, expected_ty: Option<TypeId>, span: Span) -> TypeId {
-        if expected_ty.is_none() {
-            self.ctx
-                .struct_error(span, "`undef` must have a known expected type context")
-                .emit();
-            TypeId::ERROR
-        } else {
-            expected_ty.unwrap()
+        match expected_ty {
+            Some(ty) => ty,
+            None => {
+                self.ctx
+                    .struct_error(span, "`undef` must have a known expected type context")
+                    .emit();
+                TypeId::ERROR
+            }
         }
     }
 
@@ -828,7 +883,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let interface_kind = self.ctx.type_registry.get(closure_interface_norm).clone();
         let (interface_params, interface_ret) = match interface_kind {
             TypeKind::ClosureInterface { params, ret } => (params, ret),
-            _ => unreachable!(),
+            _ => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: closure object init expected `ClosureInterface`, found `{}`.",
+                        self.ctx.ty_to_string(closure_interface_norm)
+                    ),
+                );
+                return TypeId::ERROR;
+            }
         };
 
         let inner_elem_ty = self
@@ -869,7 +933,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return TypeId::ERROR;
                 }
-                return expected_ptr_ty;
+                expected_ptr_ty
             }
             _ => {
                 let actual_ty_str = self.ctx.ty_to_string(inner_elem_norm);
@@ -877,7 +941,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .struct_error(inner.span, "expected a closure anonymous state pointer")
                     .with_hint(format!("found pointer to `{}`", actual_ty_str))
                     .emit();
-                return TypeId::ERROR;
+                TypeId::ERROR
             }
         }
     }

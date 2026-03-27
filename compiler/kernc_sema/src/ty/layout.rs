@@ -7,7 +7,7 @@ use kernc_utils::SymbolId;
 use std::collections::HashMap;
 
 pub struct LayoutEngine<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
+    ctx: &'a mut SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
@@ -23,39 +23,38 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         generic_args: &[TypeId],
         depth: usize,
     ) -> (Vec<usize>, Vec<usize>) {
-        let def = self.ctx.defs[def_id.0 as usize].clone();
-        if let Def::Struct(s) = def {
-            let map = self.prepare_generic_subst(&s.generics, generic_args);
-            let mut field_metas = Vec::new();
+        let Some(struct_def) = self.lookup_struct_def(def_id, "build a struct layout mapping")
+        else {
+            return (Vec::new(), Vec::new());
+        };
+        let map = self.prepare_generic_subst(&struct_def.generics, generic_args);
+        let mut field_metas = Vec::new();
 
-            for (ast_idx, field) in s.fields.iter().enumerate() {
-                let f_ty = self.resolve_field_type(&field.type_node, &map);
-                let f_align = self.compute_type_align_inner(f_ty, depth + 1);
-                let f_size = self.compute_type_size_inner(f_ty, depth + 1);
-                field_metas.push((ast_idx, f_align, f_size));
-            }
-
-            // 除非标记了 extern，否则强行优化内存布局
-            if !s.is_extern {
-                field_metas.sort_by(|a, b| {
-                    b.1.cmp(&a.1) // 1. 对齐要求降序 (Alignment)
-                        .then_with(|| b.2.cmp(&a.2)) // 2. 大小降序 (Size)
-                        .then_with(|| a.0.cmp(&b.0)) // 3. AST 原始索引升序 (稳定排序)
-                });
-            }
-
-            let mut ast_to_physical = vec![0; field_metas.len()];
-            let mut physical_to_ast = vec![0; field_metas.len()];
-
-            for (phys_idx, meta) in field_metas.into_iter().enumerate() {
-                ast_to_physical[meta.0] = phys_idx;
-                physical_to_ast[phys_idx] = meta.0;
-            }
-
-            (ast_to_physical, physical_to_ast)
-        } else {
-            unreachable!("Not a struct definition")
+        for (ast_idx, field) in struct_def.fields.iter().enumerate() {
+            let f_ty = self.resolve_field_type(&field.type_node, &map);
+            let f_align = self.compute_type_align_inner(f_ty, depth + 1);
+            let f_size = self.compute_type_size_inner(f_ty, depth + 1);
+            field_metas.push((ast_idx, f_align, f_size));
         }
+
+        // 除非标记了 extern，否则强行优化内存布局
+        if !struct_def.is_extern {
+            field_metas.sort_by(|a, b| {
+                b.1.cmp(&a.1) // 1. 对齐要求降序 (Alignment)
+                    .then_with(|| b.2.cmp(&a.2)) // 2. 大小降序 (Size)
+                    .then_with(|| a.0.cmp(&b.0)) // 3. AST 原始索引升序 (稳定排序)
+            });
+        }
+
+        let mut ast_to_physical = vec![0; field_metas.len()];
+        let mut physical_to_ast = vec![0; field_metas.len()];
+
+        for (phys_idx, meta) in field_metas.into_iter().enumerate() {
+            ast_to_physical[meta.0] = phys_idx;
+            physical_to_ast[phys_idx] = meta.0;
+        }
+
+        (ast_to_physical, physical_to_ast)
     }
 
     /// 计算匿名结构体的物理排布 (匿名结构体永远被优化)
@@ -141,13 +140,11 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 max_align
             }
             TypeKind::AnonymousEnumPayload(enum_ty) => {
-                let enum_ty = self.ctx.type_registry.normalize(enum_ty);
-                let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
-                    self.ctx.type_registry.get(enum_ty).clone()
-                {
-                    enum_def
-                } else {
-                    unreachable!()
+                let Some(enum_def) = self.lookup_anonymous_enum(
+                    enum_ty,
+                    "compute the alignment of an anonymous enum payload",
+                ) else {
+                    return 1;
                 };
 
                 let mut max_align = 1;
@@ -186,10 +183,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Primitive(p) => self.primitive_align(p),
 
             TypeKind::EnumPayload(def_id, generic_args) => {
-                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
-                    a.clone()
-                } else {
-                    unreachable!()
+                let Some(def) =
+                    self.lookup_enum_def(def_id, "compute the alignment of an enum payload")
+                else {
+                    return 1;
                 };
                 let map = self.prepare_generic_subst(&def.generics, &generic_args);
                 let mut max_payload_align = 1;
@@ -309,13 +306,11 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 Self::align_to(payload_offset + payload_size, max_align)
             }
             TypeKind::AnonymousEnumPayload(enum_ty) => {
-                let enum_ty = self.ctx.type_registry.normalize(enum_ty);
-                let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
-                    self.ctx.type_registry.get(enum_ty).clone()
-                {
-                    enum_def
-                } else {
-                    unreachable!()
+                let Some(enum_def) = self.lookup_anonymous_enum(
+                    enum_ty,
+                    "compute the size of an anonymous enum payload",
+                ) else {
+                    return 0;
                 };
 
                 let mut max_payload_size = 0;
@@ -333,10 +328,9 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Primitive(p) => self.primitive_size(p),
 
             TypeKind::EnumPayload(def_id, generic_args) => {
-                let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
-                    a.clone()
-                } else {
-                    unreachable!()
+                let Some(def) = self.lookup_enum_def(def_id, "compute the size of an enum payload")
+                else {
+                    return 0;
                 };
                 let map = self.prepare_generic_subst(&def.generics, &generic_args);
                 let mut max_payload_size = 0;
@@ -368,6 +362,79 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
     fn align_to(offset: u64, align: u64) -> u64 {
         (offset + align - 1) & !(align - 1)
+    }
+
+    fn lookup_struct_def(&mut self, def_id: DefId, context: &str) -> Option<crate::def::StructDef> {
+        match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Struct(def)) => Some(def),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    kernc_utils::Span::default(),
+                    format!(
+                        "Kern ICE (Layout): Expected struct definition while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    kernc_utils::Span::default(),
+                    format!(
+                        "Kern ICE (Layout): Missing DefId {} while trying to {}.",
+                        def_id.0, context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn lookup_enum_def(&mut self, def_id: DefId, context: &str) -> Option<crate::def::EnumDef> {
+        match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Enum(def)) => Some(def),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    kernc_utils::Span::default(),
+                    format!(
+                        "Kern ICE (Layout): Expected enum definition while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    kernc_utils::Span::default(),
+                    format!(
+                        "Kern ICE (Layout): Missing DefId {} while trying to {}.",
+                        def_id.0, context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn lookup_anonymous_enum(
+        &mut self,
+        enum_ty: TypeId,
+        context: &str,
+    ) -> Option<crate::ty::AnonymousEnum> {
+        let enum_ty = self.ctx.type_registry.normalize(enum_ty);
+        match self.ctx.type_registry.get(enum_ty).clone() {
+            TypeKind::AnonymousEnum(enum_def) => Some(enum_def),
+            other => {
+                self.ctx.emit_ice(
+                    kernc_utils::Span::default(),
+                    format!(
+                        "Kern ICE (Layout): Expected anonymous enum while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+        }
     }
 
     fn primitive_align(&self, p: PrimitiveType) -> u64 {

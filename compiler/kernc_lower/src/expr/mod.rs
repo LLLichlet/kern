@@ -157,15 +157,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 params,
                 ret_type: _,
                 body,
-            } => self.lower_closure_expr(
-                expr.id,
+            } => self.lower_closure_expr(control::ClosureLowerSpec {
+                node_id: expr.id,
                 captures,
                 params,
                 body,
                 concrete_ty,
                 subst_map,
                 exp_ty,
-            ),
+            }),
             ExprKind::Block { .. } => {
                 MastExprKind::Block(self.lower_block_as_body(expr, subst_map, exp_ty))
             }
@@ -201,7 +201,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     is_inclusive: *is_inclusive,
                 }
             }
-            _ => unreachable!("Unhandled ExprKind in lowering: {:?}", expr.kind),
+            _ => {
+                self.ctx.emit_ice(
+                    expr.span,
+                    format!("Unhandled ExprKind in lowering: {:?}", expr.kind),
+                );
+                MastExprKind::Trap
+            }
         };
 
         self.apply_implicit_cast(mast_kind, concrete_ty, exp_ty, expr.span)
@@ -214,12 +220,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .get(&expr.id)
             .copied()
             .unwrap_or(TypeId::ERROR);
-        if raw_ty == TypeId::ERROR {
-            if let ExprKind::Identifier(name) = &expr.kind {
-                for scope in self.local_types.iter().rev() {
-                    if let Some(&(local_ty, _)) = scope.get(name) {
-                        return local_ty;
-                    }
+        if raw_ty == TypeId::ERROR
+            && let ExprKind::Identifier(name) = &expr.kind
+        {
+            for scope in self.local_types.iter().rev() {
+                if let Some(&(local_ty, _)) = scope.get(name) {
+                    return local_ty;
                 }
             }
         }

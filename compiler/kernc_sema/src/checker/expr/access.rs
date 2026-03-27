@@ -8,6 +8,36 @@ use kernc_utils::{NodeId, Span, SymbolId};
 use std::collections::HashMap;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn trait_def_for_access(
+        &mut self,
+        trait_def_id: DefId,
+        span: Span,
+    ) -> Option<crate::def::TraitDef> {
+        match self.ctx.defs.get(trait_def_id.0 as usize).cloned() {
+            Some(Def::Trait(def)) => Some(def),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Typeck): Expected trait definition during member lookup, found {:?}.",
+                        other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Typeck): Missing DefId {} during trait member lookup.",
+                        trait_def_id.0
+                    ),
+                );
+                None
+            }
+        }
+    }
+
     pub(crate) fn check_identifier(&mut self, name: SymbolId, span: Span) -> TypeId {
         if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
             if info.kind == SymbolKind::Function {
@@ -25,8 +55,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             // 处理 `use` 导入或乱序声明的常量/静态变量的按需推导
-            if info.type_id == TypeId::ERROR && info.def_id.is_some() {
-                let def_id = info.def_id.unwrap();
+            if info.type_id == TypeId::ERROR
+                && let Some(def_id) = info.def_id
+            {
                 let global_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
                     Some(g.value.clone())
                 } else {
@@ -170,7 +201,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                 m.scope_id
             } else {
-                unreachable!()
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Typeck): Expected module definition during module field lookup for DefId {}.",
+                        mod_def_id.0
+                    ),
+                );
+                return TypeId::ERROR;
             };
             if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field) {
                 let real_ty = if target_info.kind == SymbolKind::Function {
@@ -272,28 +310,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 1. 如果是 Trait Object
         if let TypeKind::TraitObject(trait_def_id, trait_args) =
             self.ctx.type_registry.get(search_norm).clone()
-        {
-            if let Some(m) =
+            && let Some(m) =
                 self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty)
-            {
-                return Some(m);
-            }
+        {
+            return Some(m);
         }
 
         // 2. 如果是具名类型 (Struct/Union/Enum)
         if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
+            && let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field)
         {
-            if let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field) {
-                return Some(field_ty);
-            }
+            return Some(field_ty);
         }
         // 支持匿名结构体/联合体的字段访问
         if let TypeKind::AnonymousStruct(_, ref fields) | TypeKind::AnonymousUnion(_, ref fields) =
             self.ctx.type_registry.get(search_norm).clone()
+            && let Some(f) = fields.iter().find(|f| f.name == field)
         {
-            if let Some(f) = fields.iter().find(|f| f.name == field) {
-                return Some(f.ty);
-            }
+            return Some(f.ty);
         }
 
         // 3. 检查 active_bounds 环境约束
@@ -305,15 +339,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     let bound_norm = self.resolve_tv(bound_ty);
                     if let TypeKind::TraitObject(trait_def_id, trait_args) =
                         self.ctx.type_registry.get(bound_norm).clone()
-                    {
-                        if let Some(m) = self.resolve_trait_object_method_silent(
+                        && let Some(m) = self.resolve_trait_object_method_silent(
                             trait_def_id,
                             &trait_args,
                             field,
                             lhs_ty,
-                        ) {
-                            return Some(m);
-                        }
+                        )
+                    {
+                        return Some(m);
                     }
                 }
             }
@@ -335,10 +368,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field: SymbolId,
         receiver_ty: TypeId,
     ) -> Option<TypeId> {
-        let trait_def = match &self.ctx.defs[trait_def_id.0 as usize] {
-            Def::Trait(t) => t.clone(),
-            _ => unreachable!(),
-        };
+        let trait_def = self.trait_def_for_access(trait_def_id, Span::default())?;
 
         if let Some(&(_, mut method_ty)) = trait_def
             .resolved_methods
@@ -548,11 +578,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 // 在匹配的 Impl 块内寻找目标函数
                 for &method_id in &impl_def.methods {
-                    if let Def::Function(func_def) = &self.ctx.defs[method_id.0 as usize] {
-                        if func_def.name == field {
-                            found_method_id = Some(method_id);
-                            break;
-                        }
+                    if let Def::Function(func_def) = &self.ctx.defs[method_id.0 as usize]
+                        && func_def.name == field
+                    {
+                        found_method_id = Some(method_id);
+                        break;
                     }
                 }
             }

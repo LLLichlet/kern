@@ -10,6 +10,203 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn maybe_lower_asm_call(
+        &mut self,
+        callee: &Expr,
+        args: &[Expr],
+        subst_map: &HashMap<SymbolId, TypeId>,
+        span: Span,
+    ) -> Option<MastExprKind> {
+        let ExprKind::Identifier(sym) = &callee.kind else {
+            return None;
+        };
+
+        if self.ctx.resolve(*sym) == "@asm" {
+            Some(self.lower_asm_call(args, subst_map, span))
+        } else {
+            None
+        }
+    }
+
+    fn detect_method_call(
+        &mut self,
+        callee: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> Option<(SymbolId, MastExpr)> {
+        let ExprKind::FieldAccess { lhs, field } = &callee.kind else {
+            return None;
+        };
+
+        let lhs_ty = self
+            .ctx
+            .node_types
+            .get(&lhs.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
+        if matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(_)) {
+            return None;
+        }
+
+        let callee_ty = self
+            .ctx
+            .node_types
+            .get(&callee.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        let norm_callee = self.ctx.type_registry.normalize(callee_ty);
+        if !matches!(
+            self.ctx.type_registry.get(norm_callee),
+            TypeKind::FnDef(..) | TypeKind::Function { .. }
+        ) {
+            return None;
+        }
+
+        Some((*field, self.lower_expr(lhs, subst_map, None)))
+    }
+
+    fn asm_config_fields<'b>(
+        &mut self,
+        args: &'b [Expr],
+        span: Span,
+    ) -> Option<&'b [ast::StructFieldInit]> {
+        let Some(config_arg) = args.first() else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): `@asm` lowering expected one configuration argument.",
+            );
+            return None;
+        };
+
+        if let ExprKind::DataInit {
+            literal: ast::DataLiteralKind::Struct(fields),
+            ..
+        } = &config_arg.kind
+        {
+            Some(fields)
+        } else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): `@asm` macro argument must be a structural data literal (e.g. `.{ ... }`). Sema failed to validate this.",
+            );
+            None
+        }
+    }
+
+    fn lower_asm_template(&mut self, value: &Expr) -> Option<String> {
+        match &value.kind {
+            ExprKind::String(s) => Some(s.clone()),
+            ExprKind::DataInit {
+                literal: ast::DataLiteralKind::Array(elems),
+                ..
+            } => {
+                let mut lines = Vec::new();
+                for e in elems {
+                    if let ExprKind::String(s) = &e.kind {
+                        lines.push(s.as_str());
+                    } else {
+                        self.ctx.emit_ice(
+                            e.span,
+                            "Kern ICE (Lowering): `@asm` template array must contain only strings.",
+                        );
+                        return None;
+                    }
+                }
+                Some(lines.join("\n"))
+            }
+            _ => {
+                self.ctx.emit_ice(
+                    value.span,
+                    "Kern ICE (Lowering): invalid format for `asm` field in `@asm` macro.",
+                );
+                None
+            }
+        }
+    }
+
+    fn asm_output_value_type(&mut self, ptr_expr: &MastExpr, span: Span) -> Option<TypeId> {
+        match self.ctx.type_registry.get_elem_type(ptr_expr.ty) {
+            Some(ty) => Some(ty),
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    "Kern ICE (Lowering): `@asm` output operand must lower to a pointer value.",
+                );
+                None
+            }
+        }
+    }
+
+    fn lower_intrinsic_call(
+        &mut self,
+        fn_id: DefId,
+        callee_ty: TypeId,
+        arg_masts: &mut Vec<MastExpr>,
+    ) -> Option<MastExprKind> {
+        let Def::Function(f) = &self.ctx.defs[fn_id.0 as usize] else {
+            return None;
+        };
+        if !f.is_intrinsic {
+            return None;
+        }
+
+        let name_str = self.ctx.resolve(f.name);
+        match name_str {
+            "@sizeOf" => {
+                let target_ty = self.intrinsic_generic_arg(callee_ty, 0);
+                let mut le = LayoutEngine::new(self.ctx);
+                Some(MastExprKind::Integer(
+                    le.compute_type_size(target_ty) as u128
+                ))
+            }
+            "@alignOf" => {
+                let target_ty = self.intrinsic_generic_arg(callee_ty, 0);
+                let mut le = LayoutEngine::new(self.ctx);
+                Some(MastExprKind::Integer(
+                    le.compute_type_align(target_ty) as u128
+                ))
+            }
+            "@unreachable" => Some(MastExprKind::Unreachable),
+            "@popCount" => Some(MastExprKind::BitIntrinsic {
+                kind: BitIntrinsicKind::PopCount,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@clz" => Some(MastExprKind::BitIntrinsic {
+                kind: BitIntrinsicKind::Clz,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@ctz" => Some(MastExprKind::BitIntrinsic {
+                kind: BitIntrinsicKind::Ctz,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@bswap" => Some(MastExprKind::BitIntrinsic {
+                kind: BitIntrinsicKind::Bswap,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@trap" => Some(MastExprKind::Trap),
+            "@fence" => Some(MastExprKind::Fence),
+            "@breakpoint" => Some(MastExprKind::Breakpoint),
+            "@memcpy" => Some(MastExprKind::Memcpy {
+                dest: Box::new(arg_masts.remove(0)),
+                src: Box::new(arg_masts.remove(0)),
+                len: Box::new(arg_masts.remove(0)),
+            }),
+            "@memset" => Some(MastExprKind::Memset {
+                dest: Box::new(arg_masts.remove(0)),
+                val: Box::new(arg_masts.remove(0)),
+                len: Box::new(arg_masts.remove(0)),
+            }),
+            _ => None,
+        }
+    }
+
+    fn intrinsic_generic_arg(&mut self, callee_ty: TypeId, index: usize) -> TypeId {
+        match self.ctx.type_registry.get(callee_ty) {
+            TypeKind::FnDef(_, args) => args.get(index).copied().unwrap_or(TypeId::ERROR),
+            _ => TypeId::ERROR,
+        }
+    }
+
     pub(crate) fn lower_call(
         &mut self,
         callee: &Expr,
@@ -17,49 +214,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExprKind {
-        // 拦截 @asm 宏调用
-        // 必须在查询节点类型之前，因为 @asm 不是一个真实的函数
-        if let ExprKind::Identifier(sym) = &callee.kind {
-            if self.ctx.resolve(*sym) == "@asm" {
-                return self.lower_asm_call(args, subst_map, span);
-            }
-        }
-        let mut receiver_mast = None;
-        let mut is_method = false;
-        let mut method_field_sym = None;
-
-        // 1. 嗅探是否为方法调用
-        if let ExprKind::FieldAccess { lhs, field } = &callee.kind {
-            let lhs_ty = self
-                .ctx
-                .node_types
-                .get(&lhs.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let norm_lhs = self.ctx.type_registry.normalize(lhs_ty);
-            let is_module = matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(_));
-
-            if !is_module {
-                let callee_ty = self
-                    .ctx
-                    .node_types
-                    .get(&callee.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let norm_callee = self.ctx.type_registry.normalize(callee_ty);
-
-                if matches!(
-                    self.ctx.type_registry.get(norm_callee),
-                    TypeKind::FnDef(..) | TypeKind::Function { .. }
-                ) {
-                    is_method = true;
-                    method_field_sym = Some(*field);
-                    receiver_mast = Some(self.lower_expr(lhs, subst_map, None));
-                }
-            }
+        if let Some(asm_call) = self.maybe_lower_asm_call(callee, args, subst_map, span) {
+            return asm_call;
         }
 
-        // 2. 提取预期的参数签名 (处理泛型替换)
         let raw_callee_ty = self
             .ctx
             .node_types
@@ -71,19 +229,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let substituted_callee = subst.substitute(raw_callee_ty);
         let norm_callee = self.ctx.type_registry.normalize(substituted_callee);
         let expected_param_tys = self.get_callee_expected_params(norm_callee);
+        let method_call = self.detect_method_call(callee, subst_map);
 
-        // 3. 准备实参 (处理方法调用的参数偏移)
         let mut arg_masts = Vec::new();
         for (i, a) in args.iter().enumerate() {
-            let param_idx = if is_method { i + 1 } else { i };
+            let param_idx = if method_call.is_some() { i + 1 } else { i };
             let exp_ty = expected_param_tys.get(param_idx).copied();
             arg_masts.push(self.lower_expr(a, subst_map, exp_ty));
         }
 
-        // 4. 执行调用的具体分发
-        if is_method {
-            let field = method_field_sym.unwrap();
-            let recv = receiver_mast.unwrap();
+        if let Some((field, recv)) = method_call {
             self.lower_method_call(recv, field, arg_masts, norm_callee, span)
         } else {
             self.lower_normal_call(callee, arg_masts, subst_map)
@@ -96,16 +251,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExprKind {
-        let config_arg = &args[0];
-        let fields = if let ExprKind::DataInit {
-            literal: ast::DataLiteralKind::Struct(f),
-            ..
-        } = &config_arg.kind
-        {
-            f
-        } else {
-            self.ctx.emit_ice(span, "Kern ICE (Lowering): `@asm` macro argument must be a structural data literal (e.g. `.{ ... }`). Sema failed to validate this.");
-            unreachable!()
+        let Some(fields) = self.asm_config_fields(args, span) else {
+            return MastExprKind::Trap;
         };
 
         let mut asm_template = String::new();
@@ -119,30 +266,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let field_name = self.ctx.resolve(field.name);
             match field_name {
                 "asm" => {
-                    match &field.value.kind {
-                        // 支持单字符串 asm: "nop"
-                        ExprKind::String(s) => asm_template = s.clone(),
-                        // 支持数组形式 asm: .{ "out dx, al", "in al, dx" }
-                        ExprKind::DataInit {
-                            literal: ast::DataLiteralKind::Array(elems),
-                            ..
-                        } => {
-                            let mut lines = Vec::new();
-                            for e in elems {
-                                if let ExprKind::String(s) = &e.kind {
-                                    lines.push(s.as_str());
-                                } else {
-                                    self.ctx.emit_ice(e.span, "Kern ICE (Lowering): `@asm` template array must contain only strings.");
-                                    unreachable!()
-                                }
-                            }
-                            asm_template = lines.join("\n");
-                        }
-                        _ => {
-                            self.ctx.emit_ice(field.value.span, "Kern ICE (Lowering): Invalid format for `asm` field in `@asm` macro.");
-                            unreachable!()
-                        }
-                    }
+                    let Some(template) = self.lower_asm_template(&field.value) else {
+                        return MastExprKind::Trap;
+                    };
+                    asm_template = template;
                 }
                 "volatile" => {
                     if let ExprKind::Bool(b) = &field.value.kind {
@@ -167,7 +294,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             };
 
                             let ptr_expr = self.lower_expr(&reg.value, subst_map, None);
-                            let val_ty = self.ctx.type_registry.get_elem_type(ptr_expr.ty).unwrap();
+                            let Some(val_ty) =
+                                self.asm_output_value_type(&ptr_expr, reg.value.span)
+                            else {
+                                return MastExprKind::Trap;
+                            };
                             outputs.push((constraint, ptr_expr, val_ty));
                         }
                     }
@@ -315,11 +446,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                         if matched {
                             for &m_id in &impl_def.methods {
-                                if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize] {
-                                    if f.name == field {
-                                        target_func_id = Some(m_id);
-                                        break;
-                                    }
+                                if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
+                                    && f.name == field
+                                {
+                                    target_func_id = Some(m_id);
+                                    break;
                                 }
                             }
                         }
@@ -354,29 +485,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             matched_ptr = true; // 都不是指针的情况，直接继续往下判断
                         }
 
-                        if matched_ptr {
-                            if let TypeKind::Def(base_def_id, base_args) =
+                        if matched_ptr
+                            && let TypeKind::Def(base_def_id, base_args) =
                                 self.ctx.type_registry.get(check_base).clone()
-                            {
-                                if let TypeKind::Def(impl_def_id, impl_raw_args) =
-                                    self.ctx.type_registry.get(check_impl).clone()
+                            && let TypeKind::Def(impl_def_id, impl_raw_args) =
+                                self.ctx.type_registry.get(check_impl).clone()
+                            && base_def_id == impl_def_id
+                            && base_args.len() == impl_raw_args.len()
+                        {
+                            resolved_impl_args = base_args.clone();
+                            for &m_id in &impl_def.methods {
+                                if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
+                                    && f.name == field
                                 {
-                                    // 实体相同且参数数量一致，确认命中
-                                    if base_def_id == impl_def_id
-                                        && base_args.len() == impl_raw_args.len()
-                                    {
-                                        resolved_impl_args = base_args.clone();
-                                        for &m_id in &impl_def.methods {
-                                            if let Def::Function(f) =
-                                                &self.ctx.defs[m_id.0 as usize]
-                                            {
-                                                if f.name == field {
-                                                    target_func_id = Some(m_id);
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
+                                    target_func_id = Some(m_id);
+                                    break;
                                 }
                             }
                         }
@@ -394,17 +517,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                 // 核心修复 2：为 LLVM 后端抹平类型差异。
                 // 如果发生了安全降级 (*mut -> *)，在此刻主动插入一个 Bitcast 节点。
-                if let Some(&exp_self) = expected_params.first() {
-                    if final_recv.ty != exp_self {
-                        final_recv = MastExpr::new(
-                            exp_self,
-                            MastExprKind::Cast {
-                                kind: MastCastKind::Bitcast,
-                                operand: Box::new(final_recv),
-                            },
-                            span,
-                        );
-                    }
+                if let Some(&exp_self) = expected_params.first()
+                    && final_recv.ty != exp_self
+                {
+                    final_recv = MastExpr::new(
+                        exp_self,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::Bitcast,
+                            operand: Box::new(final_recv),
+                        },
+                        span,
+                    );
                 }
 
                 arg_masts.insert(0, final_recv);
@@ -417,8 +540,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             } else {
                 let type_name = self.ctx.ty_to_string(norm_base);
                 let field_name = self.ctx.resolve(field);
-                self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Failed to devirtualize static trait method `{}` for exact type `{}`. Sema passed it, but no matching impl found.", field_name, type_name));
-                unreachable!()
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): failed to devirtualize static trait method `{}` for exact type `{}`.",
+                        field_name, type_name
+                    ),
+                );
+                MastExprKind::Trap
             }
         }
     }
@@ -434,17 +563,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExprKind {
         let expected_params = self.get_callee_expected_params(norm_callee);
-        if let Some(&exp_self) = expected_params.first() {
-            if recv.ty != exp_self {
-                recv = MastExpr::new(
-                    exp_self,
-                    MastExprKind::Cast {
-                        kind: MastCastKind::Bitcast,
-                        operand: Box::new(recv),
-                    },
-                    span,
-                );
-            }
+        if let Some(&exp_self) = expected_params.first()
+            && recv.ty != exp_self
+        {
+            recv = MastExpr::new(
+                exp_self,
+                MastExprKind::Cast {
+                    kind: MastCastKind::Bitcast,
+                    operand: Box::new(recv),
+                },
+                span,
+            );
         }
 
         arg_masts.insert(0, recv);
@@ -469,16 +598,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let trait_def = match &self.ctx.defs[trait_id.0 as usize] {
             Def::Trait(t) => t.clone(),
             _ => {
-                self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Expected Trait definition for TraitObject method call, found something else. DefId: {}", trait_id.0));
-                unreachable!()
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): expected Trait definition for TraitObject method call, found DefId {}.",
+                        trait_id.0
+                    ),
+                );
+                return MastExprKind::Trap;
             }
         };
 
         let vtable_idx = match trait_def.methods.iter().position(|m| m.name == field) {
             Some(idx) => idx,
             None => {
-                self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Method `{}` not found in trait definition. Sema missed method bound check.", self.ctx.resolve(field)));
-                unreachable!()
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): method `{}` not found in trait definition.",
+                        self.ctx.resolve(field)
+                    ),
+                );
+                return MastExprKind::Trap;
             }
         };
 
@@ -544,7 +685,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 span,
                 "Kern ICE (Lowering): Callee type of dynamic method dispatch is not a Function.",
             );
-            unreachable!()
+            return MastExprKind::Trap;
         };
 
         if !patched_params.is_empty() {
@@ -596,84 +737,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
         {
-            // 拦截内置函数 (Intrinsic)
-            if let Def::Function(f) = &self.ctx.defs[fn_id.0 as usize] {
-                if f.is_intrinsic {
-                    let name_str = self.ctx.resolve(f.name);
-
-                    // 编译期常量折叠: @sizeof[T]() -> usize
-                    if name_str == "@sizeOf" {
-                        // 从函数调用的泛型参数中提取 T
-                        let target_ty = if let TypeKind::FnDef(_, args) =
-                            self.ctx.type_registry.get(callee_mast.ty)
-                        {
-                            args[0] // T 是第一个泛型参数
-                        } else {
-                            TypeId::ERROR
-                        };
-                        let mut le = LayoutEngine::new(self.ctx);
-                        let size = le.compute_type_size(target_ty);
-                        return MastExprKind::Integer(size as u128);
-                    }
-                    // 对齐计算 @alignOf[T]() -> usize
-                    else if name_str == "@alignOf" {
-                        let target_ty = if let TypeKind::FnDef(_, args) =
-                            self.ctx.type_registry.get(callee_mast.ty)
-                        {
-                            args[0]
-                        } else {
-                            TypeId::ERROR
-                        };
-                        let mut le = LayoutEngine::new(self.ctx);
-                        let align = le.compute_type_align(target_ty);
-                        return MastExprKind::Integer(align as u128);
-                    }
-                    // 不可达: @unreachable() -> !
-                    else if name_str == "@unreachable" {
-                        return MastExprKind::Unreachable;
-                    } else if name_str == "@popCount" {
-                        return MastExprKind::BitIntrinsic {
-                            kind: BitIntrinsicKind::PopCount,
-                            operand: Box::new(arg_masts.remove(0)),
-                        };
-                    } else if name_str == "@clz" {
-                        return MastExprKind::BitIntrinsic {
-                            kind: BitIntrinsicKind::Clz,
-                            operand: Box::new(arg_masts.remove(0)),
-                        };
-                    } else if name_str == "@ctz" {
-                        return MastExprKind::BitIntrinsic {
-                            kind: BitIntrinsicKind::Ctz,
-                            operand: Box::new(arg_masts.remove(0)),
-                        };
-                    } else if name_str == "@bswap" {
-                        return MastExprKind::BitIntrinsic {
-                            kind: BitIntrinsicKind::Bswap,
-                            operand: Box::new(arg_masts.remove(0)),
-                        };
-                    } else if name_str == "@trap" {
-                        return MastExprKind::Trap;
-                    } else if name_str == "@fence" {
-                        return MastExprKind::Fence;
-                    } else if name_str == "@breakpoint" {
-                        return MastExprKind::Breakpoint;
-                    } else if name_str == "@memcpy" {
-                        return MastExprKind::Memcpy {
-                            dest: Box::new(arg_masts.remove(0)),
-                            src: Box::new(arg_masts.remove(0)),
-                            len: Box::new(arg_masts.remove(0)),
-                        };
-                    } else if name_str == "@memset" {
-                        return MastExprKind::Memset {
-                            dest: Box::new(arg_masts.remove(0)),
-                            val: Box::new(arg_masts.remove(0)),
-                            len: Box::new(arg_masts.remove(0)),
-                        };
-                    }
-                }
+            if let Some(intrinsic) =
+                self.lower_intrinsic_call(fn_id, callee_mast.ty, &mut arg_masts)
+            {
+                return intrinsic;
             }
 
-            // 如果不是内置函数，走正常的实例化和函数调用逻辑
             let mono_id = self.instantiate_function(fn_id, &fn_args);
             let func_ref =
                 MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), callee.span);
@@ -786,7 +855,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     actual_ty_str
                 ),
             );
-            unreachable!()
+            return MastExprKind::Trap;
         };
 
         let mut patched_params = params.clone();

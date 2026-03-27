@@ -8,6 +8,37 @@ use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn match_enum_def(
+        &mut self,
+        def_id: crate::def::DefId,
+        span: Span,
+        context: &str,
+    ) -> Option<crate::def::EnumDef> {
+        match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Enum(def)) => Some(def),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Typeck): Expected enum definition while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Typeck): Missing DefId {} while trying to {}.",
+                        def_id.0, context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
     /// 核心 Match 检查逻辑：环境提取与详尽性检查
     pub(crate) fn check_match_expr(
         &mut self,
@@ -48,8 +79,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if common_ret_ty.is_none() || common_ret_ty == Some(TypeId::NEVER) {
                 common_ret_ty = Some(body_ty);
-            } else if body_ty != TypeId::NEVER {
-                self.check_coercion(&arm.body, common_ret_ty.unwrap(), body_ty);
+            } else if let Some(common_ty) = common_ret_ty.filter(|ty| *ty != TypeId::NEVER)
+                && body_ty != TypeId::NEVER
+            {
+                self.check_coercion(&arm.body, common_ty, body_ty);
             }
         }
 
@@ -58,17 +91,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if is_adt {
                 let missing: Vec<_> = match self.ctx.type_registry.get(norm_target).clone() {
                     TypeKind::Enum(def_id, _) => {
-                        let adt_def = match &self.ctx.defs[def_id.0 as usize] {
-                            Def::Enum(a) => a,
-                            _ => unreachable!(),
-                        };
-
-                        adt_def
-                            .variants
-                            .iter()
-                            .filter(|v| !handled_variants.contains(&v.name))
-                            .map(|v| self.ctx.resolve(v.name).to_string())
-                            .collect()
+                        match self.match_enum_def(def_id, span, "check match exhaustiveness") {
+                            Some(adt_def) => adt_def
+                                .variants
+                                .iter()
+                                .filter(|v| !handled_variants.contains(&v.name))
+                                .map(|v| self.ctx.resolve(v.name).to_string())
+                                .collect(),
+                            None => Vec::new(),
+                        }
                     }
                     TypeKind::AnonymousEnum(enum_def) => enum_def
                         .variants
@@ -113,20 +144,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
                     let v_ty = self.check_expr(v, Some(norm_target));
-                    self.check_coercion(&v, norm_target, v_ty);
+                    self.check_coercion(v, norm_target, v_ty);
 
                     // 尝试从值匹配中回收 EnumLiteral 以辅助穷尽性检查
-                    if is_adt {
-                        if let ExprKind::EnumLiteral(name) = &v.kind {
-                            handled_variants.insert(*name);
-                        }
+                    if is_adt && let ExprKind::EnumLiteral(name) = &v.kind {
+                        handled_variants.insert(*name);
                     }
                 }
                 ast::MatchPatternKind::Range { start, end, .. } => {
                     let s_ty = self.check_expr(start, Some(norm_target));
                     let e_ty = self.check_expr(end, Some(norm_target));
-                    self.check_coercion(&start, norm_target, s_ty);
-                    self.check_coercion(&end, norm_target, e_ty);
+                    self.check_coercion(start, norm_target, s_ty);
+                    self.check_coercion(end, norm_target, e_ty);
                 }
                 ast::MatchPatternKind::Variant {
                     target_type,
@@ -143,7 +172,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     if let Some(explicit_ty_ast) = target_type {
                         let mut resolver = TypeResolver::new(self.ctx);
-                        let scope = resolver.ctx.scopes.current_scope_id().unwrap();
+                        let scope = resolver.current_scope_id().unwrap();
                         let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
 
                         // 纯类型匹配检查，不涉及表达式和 BNC
@@ -157,9 +186,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     match self.ctx.type_registry.get(norm_target).clone() {
                         TypeKind::Enum(def_id, generic_args) => {
-                            let adt_def = match &self.ctx.defs[def_id.0 as usize] {
-                                Def::Enum(a) => a.clone(),
-                                _ => unreachable!(),
+                            let Some(adt_def) =
+                                self.match_enum_def(def_id, pat.span, "check a match arm")
+                            else {
+                                continue;
                             };
 
                             if let Some(v) =
@@ -271,7 +301,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                     .emit();
                             }
                         }
-                        _ => unreachable!(),
+                        _ => {
+                            self.ctx.emit_ice(
+                                pat.span,
+                                "Kern ICE (Typeck): Expected ADT target during variant match checking.",
+                            );
+                        }
                     }
                 }
                 ast::MatchPatternKind::CatchAll => {
@@ -297,14 +332,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let Some(ret_ty) = self.current_return_type {
                 self.check_coercion(v, ret_ty, val_ty);
             }
-        } else {
-            if expected_ret != TypeId::VOID && expected_ret != TypeId::ERROR {
-                let ret_str = self.ctx.ty_to_string(expected_ret);
-                self.ctx
-                    .struct_error(span, "expected a return value, but found empty return")
-                    .with_hint(format!("function is expected to return `{}`", ret_str))
-                    .emit();
-            }
+        } else if expected_ret != TypeId::VOID && expected_ret != TypeId::ERROR {
+            let ret_str = self.ctx.ty_to_string(expected_ret);
+            self.ctx
+                .struct_error(span, "expected a return value, but found empty return")
+                .with_hint(format!("function is expected to return `{}`", ret_str))
+                .emit();
         }
         TypeId::VOID
     }

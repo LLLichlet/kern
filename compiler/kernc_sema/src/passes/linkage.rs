@@ -5,12 +5,16 @@ use kernc_utils::Span;
 use std::collections::HashMap;
 
 pub struct LinkageChecker<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
+    ctx: &'a mut SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         Self { ctx }
+    }
+
+    pub fn context(&mut self) -> &mut SemaContext<'ctx> {
+        self.ctx
     }
 
     pub fn check_all(&mut self) {
@@ -25,12 +29,11 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                 Def::Function(f) => {
                     // 检查是否是泛型函数（自身带泛型，或身处泛型 impl 块中）
                     let mut is_generic = !f.generics.is_empty();
-                    if let Some(parent_id) = f.parent {
-                        if let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize] {
-                            if !impl_def.generics.is_empty() {
-                                is_generic = true;
-                            }
-                        }
+                    if let Some(parent_id) = f.parent
+                        && let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize]
+                        && !impl_def.generics.is_empty()
+                    {
+                        is_generic = true;
                     }
 
                     // 泛型模板不产生实际的 C ABI 链接符号，直接跳过

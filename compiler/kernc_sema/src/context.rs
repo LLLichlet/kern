@@ -78,7 +78,7 @@ impl<'a> SemaContext<'a> {
         for (name, mod_id) in aliases {
             let info = crate::scope::SymbolInfo {
                 kind: crate::scope::SymbolKind::Module,
-                node_id: node_id,
+                node_id,
                 type_id: TypeId::ERROR,
                 def_id: Some(mod_id),
                 span: kernc_utils::Span::default(),
@@ -323,8 +323,10 @@ impl<'a> SemaContext<'a> {
     /// 获取实体的最终全局链接符号名
     pub fn get_export_name(&self, def_id: DefId, args: &[TypeId]) -> String {
         let def = &self.defs[def_id.0 as usize];
-        let name_sym = def.name().expect("Cannot mangle anonymous def");
-        let name_str = self.resolve(name_sym).to_string();
+        let name_str = def
+            .name()
+            .map(|name_sym| self.resolve(name_sym).to_string())
+            .unwrap_or_else(|| format!("AnonDef{}", def_id.0));
 
         let empty_attrs: &[kernc_ast::Attribute] = &[]; // 静态空切片
         let (is_extern, attrs, parent_id) = match def {
@@ -341,12 +343,11 @@ impl<'a> SemaContext<'a> {
             for attr in attrs {
                 if let kernc_ast::AttributeKind::Meta(items) = &attr.kind {
                     for item in items {
-                        if let kernc_ast::MetaItem::Call(sym_id, arg_expr) = item {
-                            if self.resolve(*sym_id) == "export_name" {
-                                if let kernc_ast::ExprKind::String(ref s) = arg_expr.kind {
-                                    return s.clone();
-                                }
-                            }
+                        if let kernc_ast::MetaItem::Call(sym_id, arg_expr) = item
+                            && self.resolve(*sym_id) == "export_name"
+                            && let kernc_ast::ExprKind::String(ref s) = arg_expr.kind
+                        {
+                            return s.clone();
                         }
                     }
                 }

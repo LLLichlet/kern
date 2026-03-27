@@ -30,7 +30,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     /// 获取下一个 Token
-    pub fn next(&mut self) -> Token {
+    pub fn next_token(&mut self) -> Token {
         if let Some(err_token) = self.skip_whitespace_and_comments() {
             return err_token;
         }
@@ -70,27 +70,28 @@ impl<'a> Tokenizer<'a> {
             b'.' => {
                 if self.match_char(b'.') {
                     if self.match_char(b'.') {
-                        return self.make_token(TokenType::Ellipsis);
+                        self.make_token(TokenType::Ellipsis)
                     } else if self.match_char(b'=') {
-                        return self.make_token(TokenType::DotDotEqual);
+                        self.make_token(TokenType::DotDotEqual)
                     } else if self.match_char(b'&') {
                         // 解析为 ..& (可变取地址)
-                        return self.make_token(TokenType::DotDotAmpersand);
+                        self.make_token(TokenType::DotDotAmpersand)
                     } else if self.match_char(b'[') {
                         // 解析为 ..[ (可变切片)
-                        return self.make_token(TokenType::DotDotLBracket);
+                        self.make_token(TokenType::DotDotLBracket)
+                    } else {
+                        self.make_token(TokenType::DotDot)
                     }
-                    return self.make_token(TokenType::DotDot);
                 } else if self.match_char(b'*') {
-                    return self.make_token(TokenType::DotStar);
+                    self.make_token(TokenType::DotStar)
                 } else if self.match_char(b'&') {
-                    return self.make_token(TokenType::DotAmpersand);
+                    self.make_token(TokenType::DotAmpersand)
                 } else if self.match_char(b'[') {
-                    return self.make_token(TokenType::DotLBracket);
+                    self.make_token(TokenType::DotLBracket)
                 } else if self.match_char(b'{') {
-                    return self.make_token(TokenType::DotLBrace);
+                    self.make_token(TokenType::DotLBrace)
                 } else {
-                    return self.make_token(TokenType::Dot);
+                    self.make_token(TokenType::Dot)
                 }
             }
 
@@ -633,11 +634,11 @@ fn is_alpha_numeric(c: u8) -> bool {
 }
 
 fn is_alpha(c: u8) -> bool {
-    (b'a'..=b'z').contains(&c) || (b'A'..=b'Z').contains(&c) || c == b'_'
+    c.is_ascii_alphabetic() || c == b'_'
 }
 
 fn is_digit(c: u8) -> bool {
-    (b'0'..=b'9').contains(&c)
+    c.is_ascii_digit()
 }
 
 fn is_hex_digit(c: u8) -> bool {

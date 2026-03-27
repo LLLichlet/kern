@@ -139,7 +139,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 {
                     *len
                 } else {
-                    unreachable!()
+                    self.sess.emit_ice(
+                        operand.span,
+                        format!(
+                            "Kern ICE (Codegen): Expected array operand for ArrayToSlice cast, found {:?}.",
+                            self.type_registry
+                                .get(self.type_registry.normalize(operand.ty))
+                        ),
+                    );
+                    0
                 };
 
                 // 组装 Slice 胖指针

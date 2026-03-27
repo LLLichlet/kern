@@ -2,12 +2,12 @@ use crate::SemaContext;
 
 use super::{PrimitiveType, TypeId, TypeKind};
 
-pub struct TypeFormatter<'a, 'ctx> {
-    pub ctx: &'a SemaContext<'ctx>,
+pub(crate) struct TypeFormatter<'a, 'ctx> {
+    pub(crate) ctx: &'a SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
-    pub fn format(&self, ty: TypeId) -> String {
+    pub(crate) fn format(&self, ty: TypeId) -> String {
         let kind = self.ctx.type_registry.get(ty);
         match kind {
             TypeKind::Primitive(p) => match p {

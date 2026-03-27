@@ -1,5 +1,5 @@
 use super::expr::Precedence;
-use super::{ParseResult, Parser};
+use super::{ParseError, ParseResult, Parser};
 use kernc_ast::*;
 use kernc_lexer::TokenType;
 use kernc_utils::Span;
@@ -147,13 +147,11 @@ impl<'a> Parser<'a> {
         };
         let is_extern = self.match_token(&[TokenType::Extern]);
 
-        if is_extern {
-            if self.check(TokenType::LBrace) || self.check(TokenType::StringLiteral) {
-                if is_pub {
-                    self.add_error(start_span, "Extern blocks cannot be pub".to_string());
-                }
-                return Ok(Some(self.parse_extern_block(start_span)?));
+        if is_extern && (self.check(TokenType::LBrace) || self.check(TokenType::StringLiteral)) {
+            if is_pub {
+                self.add_error(start_span, "Extern blocks cannot be pub".to_string());
             }
+            return Ok(Some(self.parse_extern_block(start_span)?));
         }
 
         let token = self.peek();
@@ -185,7 +183,7 @@ impl<'a> Parser<'a> {
                     .slice_source(token.span)
                     .to_string();
                 self.add_error(token.span, format!("Expected declaration, found '{}'", txt));
-                Err(())
+                Err(ParseError)
             }
         };
         match decl_res {
@@ -390,9 +388,8 @@ impl<'a> Parser<'a> {
         }
 
         // Init
-        let value;
-        if self.match_token(&[TokenType::Assign]) {
-            value = self.parse_expression(Precedence::Lowest)?;
+        let value = if self.match_token(&[TokenType::Assign]) {
+            self.parse_expression(Precedence::Lowest)?
         } else {
             // 无论是 extern 还是普通全局变量，都必须带 =
             self.add_error(
@@ -400,8 +397,8 @@ impl<'a> Parser<'a> {
                 "Global/extern vars must be initialized (use `= Type.{undef};` for externs)"
                     .to_string(),
             );
-            return Err(());
-        }
+            return Err(ParseError);
+        };
         self.expect(TokenType::Semicolon)?;
         let end = self.stream.prev_span();
 
@@ -604,7 +601,7 @@ impl<'a> Parser<'a> {
                     Ok(base)
                 } else {
                     self.add_error(expr.span, "Invalid path used as type".to_string());
-                    Err(())
+                    Err(ParseError)
                 }
             }
             ExprKind::GenericInstantiation { target, types } => {
@@ -618,7 +615,7 @@ impl<'a> Parser<'a> {
                     Ok(base)
                 } else {
                     self.add_error(expr.span, "Invalid generic type target".to_string());
-                    Err(())
+                    Err(ParseError)
                 }
             }
             _ => {
@@ -626,7 +623,7 @@ impl<'a> Parser<'a> {
                     expr.span,
                     "Invalid expression used as a type prefix".to_string(),
                 );
-                Err(())
+                Err(ParseError)
             }
         }
     }

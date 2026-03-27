@@ -2,20 +2,121 @@ use super::ExprChecker;
 use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
-use crate::scope::{SymbolInfo, SymbolKind};
+use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::Span;
 use std::collections::HashMap;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn resolve_current_scope_for_types(&mut self, span: Span, context: &str) -> Option<ScopeId> {
+        match self.ctx.scopes.current_scope_id() {
+            Some(scope) => Some(scope),
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: missing active scope while resolving types for {}.",
+                        context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn fn_def_signature_parts(
+        &mut self,
+        def_id: DefId,
+        span: Span,
+    ) -> Option<(TypeId, Vec<ast::GenericParam>, kernc_utils::SymbolId)> {
+        match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(func) => {
+                let Some(raw_sig) = func.resolved_sig else {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Compiler ICE: function `{}` has no resolved signature during call checking.",
+                            self.ctx.resolve(func.name)
+                        ),
+                    );
+                    return None;
+                };
+                Some((raw_sig, func.generics.clone(), func.name))
+            }
+            other => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: expected function Def for callee, found `{:?}`.",
+                        other
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn function_params_from_sig(&mut self, sig_ty: TypeId, span: Span) -> Option<Vec<TypeId>> {
+        match self.ctx.type_registry.get(sig_ty).clone() {
+            TypeKind::Function { params, .. } => Some(params),
+            other => {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: expected function signature type during call checking, found `{:?}`.",
+                        other
+                    ),
+                );
+                None
+            }
+        }
+    }
+
+    fn generic_target_identity(
+        &mut self,
+        target_norm: TypeId,
+        span: Span,
+    ) -> Option<(DefId, Vec<TypeId>)> {
+        match self.ctx.type_registry.get(target_norm) {
+            TypeKind::FnDef(id, args)
+            | TypeKind::Def(id, args)
+            | TypeKind::Enum(id, args)
+            | TypeKind::TraitObject(id, args) => Some((*id, args.clone())),
+            _ => {
+                self.ctx
+                    .struct_error(
+                        span,
+                        "this expression does not support generic instantiation",
+                    )
+                    .emit();
+                None
+            }
+        }
+    }
+
+    fn resolve_generic_instantiation_types(
+        &mut self,
+        types: &[ast::TypeNode],
+        span: Span,
+    ) -> Option<Vec<TypeId>> {
+        let scope = self.resolve_current_scope_for_types(span, "generic instantiation")?;
+        let mut resolver = TypeResolver::new(self.ctx);
+
+        let mut arg_tys = Vec::with_capacity(types.len());
+        for ty_node in types {
+            arg_tys.push(resolver.resolve_type(ty_node, scope));
+        }
+        Some(arg_tys)
+    }
+
     pub(crate) fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> TypeId {
         // 1. 拦截 @asm 宏调用
-        if let ExprKind::Identifier(sym) = &callee.kind {
-            if self.ctx.resolve(*sym) == "@asm" {
-                self.ctx.node_types.insert(callee.id, TypeId::VOID);
-                return self.check_asm_call(args, span);
-            }
+        if let ExprKind::Identifier(sym) = &callee.kind
+            && self.ctx.resolve(*sym) == "@asm"
+        {
+            self.ctx.node_types.insert(callee.id, TypeId::VOID);
+            return self.check_asm_call(args, span);
         }
 
         let callee_ty = self.check_expr(callee, None);
@@ -92,15 +193,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if is_method && !params.is_empty() {
             let expected_self = params[0];
             self.check_method_receiver(expected_self, receiver_ty, callee);
-            if receiver_ty != expected_self {
-                if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
-                    self.ctx.node_types.insert(lhs.id, expected_self);
-                }
+            if receiver_ty != expected_self
+                && let ExprKind::FieldAccess { lhs, .. } = &callee.kind
+            {
+                self.ctx.node_types.insert(lhs.id, expected_self);
             }
         }
 
         self.check_call_arguments(args, &params, is_method, is_variadic);
-        return ret;
+        ret
     }
 
     /// 助手：智能泛型推导与签名解析
@@ -115,13 +216,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let TypeKind::FnDef(def_id, explicit_args) =
             self.ctx.type_registry.get(norm_callee).clone()
         {
-            let (raw_sig, generics, fn_name_id) = match &self.ctx.defs[def_id.0 as usize] {
-                Def::Function(func) => (
-                    func.resolved_sig.expect("Function signature missing"),
-                    func.generics.clone(), // 提取并拷贝一份泛型参数列表
-                    func.name,
-                ),
-                _ => unreachable!(),
+            let Some((raw_sig, generics, fn_name_id)) = self.fn_def_signature_parts(def_id, span)
+            else {
+                return (TypeId::ERROR, None);
             };
 
             let generics_count = generics.len();
@@ -152,12 +249,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             // 规则 C：泛型完全省略，启动单向参数推导
             let mut map = HashMap::new();
-            let raw_params = if let TypeKind::Function { params, .. } =
-                self.ctx.type_registry.get(raw_sig).clone()
-            {
-                params
-            } else {
-                unreachable!()
+            let Some(raw_params) = self.function_params_from_sig(raw_sig, span) else {
+                return (TypeId::ERROR, None);
             };
 
             let param_offset = if is_method { 1 } else { 0 };
@@ -179,15 +272,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
                 } else if let TypeKind::VolatilePtr { is_mut: false, .. } =
                     self.ctx.type_registry.get(expected_recv)
-                {
-                    if let TypeKind::VolatilePtr { is_mut: true, elem } =
+                    && let TypeKind::VolatilePtr { is_mut: true, elem } =
                         self.ctx.type_registry.get(stripped_recv).clone()
-                    {
-                        stripped_recv = self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                            is_mut: false,
-                            elem,
-                        });
-                    }
+                {
+                    stripped_recv = self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                        is_mut: false,
+                        elem,
+                    });
                 }
 
                 self.unify(expected_recv, stripped_recv, &mut map);
@@ -312,18 +403,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
                     .emit();
             }
-        } else {
-            if arg_count != expected_arg_count {
-                self.ctx
-                    .struct_error(
-                        span,
-                        format!(
-                            "function expects exactly {} arguments, but {} were provided",
-                            expected_arg_count, arg_count
-                        ),
-                    )
-                    .emit();
-            }
+        } else if arg_count != expected_arg_count {
+            self.ctx
+                .struct_error(
+                    span,
+                    format!(
+                        "function expects exactly {} arguments, but {} were provided",
+                        expected_arg_count, arg_count
+                    ),
+                )
+                .emit();
         }
     }
 
@@ -409,29 +498,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        let mut arg_tys = Vec::new();
-        {
-            let mut resolver = TypeResolver::new(self.ctx);
-            let scope = resolver.ctx.scopes.current_scope_id().unwrap();
-            for ty_node in types {
-                arg_tys.push(resolver.resolve_type(ty_node, scope));
-            }
-        }
+        let Some(resolved_arg_tys) = self.resolve_generic_instantiation_types(types, span) else {
+            return TypeId::ERROR;
+        };
+        let arg_tys = resolved_arg_tys;
 
-        let (def_id, _) = match self.ctx.type_registry.get(target_norm) {
-            TypeKind::FnDef(id, args) => (*id, args.clone()),
-            TypeKind::Def(id, args) => (*id, args.clone()),
-            TypeKind::Enum(id, args) => (*id, args.clone()),
-            TypeKind::TraitObject(id, args) => (*id, args.clone()),
-            _ => {
-                self.ctx
-                    .struct_error(
-                        span,
-                        "this expression does not support generic instantiation",
-                    )
-                    .emit();
-                return TypeId::ERROR;
-            }
+        let Some((def_id, _)) = self.generic_target_identity(target_norm, span) else {
+            return TypeId::ERROR;
         };
 
         let generics = {
@@ -441,7 +514,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 Def::Struct(s) => s.generics.clone(),
                 Def::Union(u) => u.generics.clone(),
                 Def::TypeAlias(t) => t.generics.clone(),
-                _ => unreachable!(),
+                Def::Enum(e) => e.generics.clone(),
+                Def::Trait(t) => t.generics.clone(),
+                other => {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Compiler ICE: generic instantiation resolved to unsupported def `{:?}`.",
+                            other
+                        ),
+                    );
+                    return TypeId::ERROR;
+                }
             }
         };
 
@@ -533,15 +617,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 4. 执行特征检查
         for (sub_target, sub_bound) in pairs_to_check {
-            if sub_target != TypeId::ERROR && sub_bound != TypeId::ERROR {
-                if !self.check_trait_impl(sub_target, sub_bound) {
-                    let req_str = self.ctx.ty_to_string(sub_bound);
-                    let act_str = self.ctx.ty_to_string(sub_target);
-                    self.ctx
-                        .struct_error(span, "type does not satisfy trait bounds")
-                        .with_hint(format!("required bound: `{}: {}`", act_str, req_str))
-                        .emit();
-                }
+            if sub_target != TypeId::ERROR
+                && sub_bound != TypeId::ERROR
+                && !self.check_trait_impl(sub_target, sub_bound)
+            {
+                let req_str = self.ctx.ty_to_string(sub_bound);
+                let act_str = self.ctx.ty_to_string(sub_target);
+                self.ctx
+                    .struct_error(span, "type does not satisfy trait bounds")
+                    .with_hint(format!("required bound: `{}: {}`", act_str, req_str))
+                    .emit();
             }
         }
     }
@@ -578,15 +663,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 在父作用域解析参数类型和返回类型
         // (类型签名必须在外部环境解析，因为可能会用到外部引入的别名)
-        let mut param_tys = Vec::new();
-        let mut type_resolver = TypeResolver::new(self.ctx);
-        for param in params {
-            let p_ty = type_resolver.resolve_type(&param.type_node, current_scope);
-            param_tys.push(p_ty);
-        }
-        let expected_ret = type_resolver.resolve_type(ast_ret_ty, current_scope);
-
-        drop(type_resolver);
+        let (param_tys, expected_ret) = {
+            let mut param_tys = Vec::new();
+            let mut type_resolver = TypeResolver::new(self.ctx);
+            for param in params {
+                let p_ty = type_resolver.resolve_type(&param.type_node, current_scope);
+                param_tys.push(p_ty);
+            }
+            let expected_ret = type_resolver.resolve_type(ast_ret_ty, current_scope);
+            (param_tys, expected_ret)
+        };
 
         let closure_state_ty = self.ctx.type_registry.intern(TypeKind::AnonymousState {
             closure_node_id: node_id,
@@ -739,12 +825,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             let val_ty = self.check_expr(&reg_field.value, None);
                             let val_ty_str = self.ctx.ty_to_string(val_ty);
 
-                            if field_name == "outputs" && val_ty != TypeId::ERROR {
-                                if !self.is_mut_pointer(val_ty) {
-                                    self.ctx.struct_error(reg_field.value.span, "inline assembly outputs must be bound to mutable pointers (e.g., `status..&`)")
-                                        .with_hint(format!("type found: {}", val_ty_str))
-                                        .emit();
-                                }
+                            if field_name == "outputs"
+                                && val_ty != TypeId::ERROR
+                                && !self.is_mut_pointer(val_ty)
+                            {
+                                self.ctx.struct_error(reg_field.value.span, "inline assembly outputs must be bound to mutable pointers (e.g., `status..&`)")
+                                    .with_hint(format!("type found: {}", val_ty_str))
+                                    .emit();
                             }
                         }
                     } else {

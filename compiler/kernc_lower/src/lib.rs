@@ -12,8 +12,8 @@ pub(crate) mod mono;
 pub(crate) mod vtable;
 
 pub struct Lowerer<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
-    pub module: MastModule,
+    ctx: &'a mut SemaContext<'ctx>,
+    module: MastModule,
 
     pub(crate) mono_cache: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pub(crate) next_mono_id: u32,
@@ -63,6 +63,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
+    pub fn context(&mut self) -> &mut SemaContext<'ctx> {
+        self.ctx
+    }
+
     fn new_mono_id(&mut self) -> MonoId {
         let id = self.next_mono_id;
         self.next_mono_id += 1;
@@ -101,12 +105,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     // 检查函数自身和其父级（Impl块）是否包含泛型
                     // 只有自己没泛型，且爹也没泛型的函数，才是真正的“自由函数”，才能在此刻被实例化
                     let mut is_generic = !f.generics.is_empty();
-                    if let Some(parent_id) = f.parent {
-                        if let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize] {
-                            if !impl_def.generics.is_empty() {
-                                is_generic = true;
-                            }
-                        }
+                    if let Some(parent_id) = f.parent
+                        && let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize]
+                        && !impl_def.generics.is_empty()
+                    {
+                        is_generic = true;
                     }
 
                     if !is_generic {
@@ -152,7 +155,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     Span::default(),
                     format!("Kern ICE (Lowering): Attempted to resolve a closure function ID before the closure expression (NodeId {}) was lowered.", closure_node_id.0)
                 );
-                unreachable!()
+                let placeholder = self.new_mono_id();
+                self.closure_fn_map.insert(closure_node_id, placeholder);
+                placeholder
             }
         }
     }

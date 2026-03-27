@@ -19,8 +19,13 @@ pub enum ConstValue {
     Undef,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConstEvalError;
+
+type ConstEvalResult<T> = Result<T, ConstEvalError>;
+
 pub struct ConstEvaluator<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
+    ctx: &'a mut SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
@@ -29,7 +34,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     }
 
     /// 提取数组长度等所需的无符号整数
-    pub fn eval_usize(&mut self, expr: &Expr) -> Result<u64, ()> {
+    pub fn eval_usize(&mut self, expr: &Expr) -> ConstEvalResult<u64> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => {
                 if val < 0 {
@@ -40,7 +45,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         )
                         .with_hint("array lengths and similar contexts require positive integers")
                         .emit();
-                    Err(())
+                    Err(ConstEvalError)
                 } else {
                     Ok(val as u64)
                 }
@@ -49,28 +54,28 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 self.ctx
                     .struct_error(expr.span, "expected an integer constant")
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
-            Err(_) => Err(()),
+            Err(_) => Err(ConstEvalError),
         }
     }
 
     /// 提取普通的有符号整数常量
-    pub fn eval_math(&mut self, expr: &Expr) -> Result<i128, ()> {
+    pub fn eval_math(&mut self, expr: &Expr) -> ConstEvalResult<i128> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => Ok(val),
             Ok(_) => {
                 self.ctx
                     .struct_error(expr.span, "expected an integer constant")
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
-            Err(_) => Err(()),
+            Err(_) => Err(ConstEvalError),
         }
     }
 
     /// 核心递归求值引擎
-    pub fn eval_inner(&mut self, expr: &Expr, depth: usize) -> Result<ConstValue, ()> {
+    pub fn eval_inner(&mut self, expr: &Expr, depth: usize) -> ConstEvalResult<ConstValue> {
         if depth > 100 {
             self.ctx
                 .struct_error(
@@ -79,7 +84,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 )
                 .with_hint("check for circular references in your `const` declarations")
                 .emit();
-            return Err(());
+            return Err(ConstEvalError);
         }
 
         let eval_result = match &expr.kind {
@@ -136,7 +141,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             "only integer casts are supported in const context currently",
                         )
                         .emit();
-                    Err(())
+                    Err(ConstEvalError)
                 }
             }
 
@@ -191,7 +196,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                         m.scope_id
                     } else {
-                        unreachable!()
+                        self.ctx.emit_ice(
+                            expr.span,
+                            format!(
+                                "Kern ICE (ConstEval): Expected module definition for DefId {} during constant field access.",
+                                mod_def_id.0
+                            ),
+                        );
+                        return Err(ConstEvalError);
                     };
                     if let Some(info) = self.ctx.scopes.resolve_in(mod_scope, *field).cloned() {
                         if info.kind == SymbolKind::Const {
@@ -200,11 +212,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                     if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
                                         g.value.clone()
                                     } else {
-                                        return Err(());
+                                        return Err(ConstEvalError);
                                     };
                                 self.eval_inner(&const_expr, depth + 1)
                             } else {
-                                Err(())
+                                Err(ConstEvalError)
                             }
                         } else {
                             let field_str = self.ctx.resolve(*field);
@@ -218,7 +230,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                     ),
                                 )
                                 .emit();
-                            Err(())
+                            Err(ConstEvalError)
                         }
                     } else {
                         let field_str = self.ctx.resolve(*field);
@@ -228,7 +240,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                 format!("constant `{}` not found in module", field_str),
                             )
                             .emit();
-                        Err(())
+                        Err(ConstEvalError)
                     }
                 } else {
                     let base = self.eval_inner(lhs, depth + 1)?;
@@ -243,7 +255,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                     format!("field `{}` not found in constant struct", field_str),
                                 )
                                 .emit();
-                            Err(())
+                            Err(ConstEvalError)
                         }
                     } else {
                         self.ctx
@@ -252,7 +264,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                 "attempted field access on a non-struct constant",
                             )
                             .emit();
-                        Err(())
+                        Err(ConstEvalError)
                     }
                 }
             }
@@ -267,13 +279,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         self.ctx
                             .struct_error(expr.span, "constant array index out of bounds")
                             .emit();
-                        Err(())
+                        Err(ConstEvalError)
                     }
                 } else {
                     self.ctx
                         .struct_error(expr.span, "attempted indexing into a non-array constant")
                         .emit();
-                    Err(())
+                    Err(ConstEvalError)
                 }
             }
 
@@ -284,13 +296,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         "generic instantiation cannot be evaluated directly as a value",
                     )
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
             _ => {
                 self.ctx
                     .struct_error(expr.span, "expected a valid constant expression")
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
         };
 
@@ -342,7 +354,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", v, self.ctx.ty_to_string(ty)))
                         .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
                         .emit();
-                    return Err(());
+                    return Err(ConstEvalError);
                 }
 
                 // 2. 检查数值是否溢出相应的位宽容量
@@ -374,7 +386,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             )
                             .with_hint(format!("the valid range is {} to {}", min, max))
                             .emit();
-                        return Err(());
+                        return Err(ConstEvalError);
                     }
                 }
             }
@@ -395,7 +407,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         rhs: &Expr,
         depth: usize,
         span: Span,
-    ) -> Result<ConstValue, ()> {
+    ) -> ConstEvalResult<ConstValue> {
         let left = self.eval_inner(lhs, depth + 1)?;
         let right = self.eval_inner(rhs, depth + 1)?;
 
@@ -411,7 +423,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             self.ctx
                                 .struct_error(span, "division by zero in constant expression")
                                 .emit();
-                            Err(())
+                            Err(ConstEvalError)
                         } else {
                             Ok(ConstValue::Int(l / r))
                         }
@@ -421,7 +433,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             self.ctx
                                 .struct_error(span, "modulo by zero in constant expression")
                                 .emit();
-                            Err(())
+                            Err(ConstEvalError)
                         } else {
                             Ok(ConstValue::Int(l % r))
                         }
@@ -441,7 +453,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         self.ctx
                             .struct_error(span, "unsupported operator for constant integers")
                             .emit();
-                        Err(())
+                        Err(ConstEvalError)
                     }
                 }
             }
@@ -462,7 +474,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         self.ctx
                             .struct_error(span, "unsupported operator for constant floats")
                             .emit();
-                        Err(())
+                        Err(ConstEvalError)
                     }
                 }
             }
@@ -477,7 +489,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         self.ctx
                             .struct_error(span, "unsupported operator for constant booleans")
                             .emit();
-                        Err(())
+                        Err(ConstEvalError)
                     }
                 }
             }
@@ -488,7 +500,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         "type mismatch or unsupported types in constant binary expression",
                     )
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
         }
     }
@@ -499,7 +511,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         operand: &Expr,
         depth: usize,
         span: Span,
-    ) -> Result<ConstValue, ()> {
+    ) -> ConstEvalResult<ConstValue> {
         let val = self.eval_inner(operand, depth + 1)?;
 
         let op_ty = self
@@ -529,7 +541,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     self.ctx.struct_error(span, "cannot apply unary minus `-` to an unsigned type")
                         .with_hint("unsigned types cannot be negative. use `~` or bitwise operations if you intend to manipulate bits")
                         .emit();
-                    return Err(());
+                    return Err(ConstEvalError);
                 }
                 Ok(ConstValue::Int(v.wrapping_neg()))
             }
@@ -540,7 +552,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 self.ctx
                     .struct_error(span, "invalid unary operator for the given constant type")
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
         }
     }
@@ -550,7 +562,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         name: SymbolId,
         depth: usize,
         span: Span,
-    ) -> Result<ConstValue, ()> {
+    ) -> ConstEvalResult<ConstValue> {
         let sym_info = self.ctx.scopes.resolve(name).cloned();
 
         if let Some(info) = sym_info {
@@ -559,7 +571,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
                         g.value.clone()
                     } else {
-                        return Err(());
+                        return Err(ConstEvalError);
                     };
 
                     return self.eval_inner(&const_expr, depth + 1);
@@ -577,13 +589,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     )
                     .with_hint("only `const` variables can be used in constant expressions")
                     .emit();
-                return Err(());
+                return Err(ConstEvalError);
             }
         }
         self.ctx
             .struct_error(span, "use of undeclared identifier in constant expression")
             .emit();
-        Err(())
+        Err(ConstEvalError)
     }
 
     pub(crate) fn eval_intrinsic_call(
@@ -592,7 +604,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         args: &[Expr],
         depth: usize,
         span: Span,
-    ) -> Result<ConstValue, ()> {
+    ) -> ConstEvalResult<ConstValue> {
         let callee_ty = self
             .ctx
             .node_types
@@ -610,7 +622,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         "function calls are not allowed in constant expressions",
                     )
                     .emit();
-                return Err(());
+                return Err(ConstEvalError);
             }
         };
 
@@ -618,7 +630,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
                 (f.is_intrinsic, f.name, f.generics.len())
             } else {
-                return Err(());
+                return Err(ConstEvalError);
             };
 
         if !is_intrinsic {
@@ -631,7 +643,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     "only compile-time intrinsics like `@sizeOf` or `@clz` are permitted here",
                 )
                 .emit();
-            return Err(());
+            return Err(ConstEvalError);
         }
 
         let name_str = self.ctx.resolve(fn_name_id).to_string();
@@ -648,7 +660,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 )
                 .with_hint(format!("example: `{}[u32](...)`", name_str))
                 .emit();
-            return Err(());
+            return Err(ConstEvalError);
         }
 
         // --- 核心路由 ---
@@ -670,7 +682,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         ),
                     )
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
             _ => {
                 self.ctx
@@ -682,7 +694,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         ),
                     )
                     .emit();
-                Err(())
+                Err(ConstEvalError)
             }
         }
     }
@@ -691,23 +703,31 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     // 具体的宏实现逻辑 (拆分后极易维护)
     // ==========================================
 
-    fn eval_size_of(&mut self, generic_args: &[TypeId], _span: Span) -> Result<ConstValue, ()> {
-        if let Some(&target_ty) = generic_args.get(0) {
+    fn eval_size_of(
+        &mut self,
+        generic_args: &[TypeId],
+        _span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        if let Some(&target_ty) = generic_args.first() {
             let mut layout = LayoutEngine::new(self.ctx);
             let size = layout.compute_type_size(target_ty);
             Ok(ConstValue::Int(size as i128))
         } else {
-            Err(()) // 这个错误理论上在前面检查泛型数量时已被拦截
+            Err(ConstEvalError) // 这个错误理论上在前面检查泛型数量时已被拦截
         }
     }
 
-    fn eval_align_of(&mut self, generic_args: &[TypeId], _span: Span) -> Result<ConstValue, ()> {
-        if let Some(&target_ty) = generic_args.get(0) {
+    fn eval_align_of(
+        &mut self,
+        generic_args: &[TypeId],
+        _span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        if let Some(&target_ty) = generic_args.first() {
             let mut layout = LayoutEngine::new(self.ctx);
             let align = layout.compute_type_align(target_ty);
             Ok(ConstValue::Int(align as i128))
         } else {
-            Err(())
+            Err(ConstEvalError)
         }
     }
 
@@ -717,8 +737,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         generic_args: &[TypeId],
         args: &[Expr],
         depth: usize,
-        _span: Span,
-    ) -> Result<ConstValue, ()> {
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             let target_ty = generic_args[0];
             let mut layout = LayoutEngine::new(self.ctx);
@@ -741,11 +761,20 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         u_val.trailing_zeros() as i128
                     }
                 }
-                _ => unreachable!(),
+                _ => {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (ConstEval): Unsupported bit intrinsic `{}` in constant evaluation.",
+                            name
+                        ),
+                    );
+                    return Err(ConstEvalError);
+                }
             };
             return Ok(ConstValue::Int(res));
         }
-        Err(())
+        Err(ConstEvalError)
     }
 
     fn eval_int_cast(
@@ -754,7 +783,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         args: &[Expr],
         depth: usize,
         _span: Span,
-    ) -> Result<ConstValue, ()> {
+    ) -> ConstEvalResult<ConstValue> {
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             let target_ty = generic_args[1];
 
@@ -786,7 +815,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             return Ok(ConstValue::Int(u_val as i128));
         }
-        Err(())
+        Err(ConstEvalError)
     }
 
     fn eval_bswap(
@@ -795,7 +824,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         args: &[Expr],
         depth: usize,
         _span: Span,
-    ) -> Result<ConstValue, ()> {
+    ) -> ConstEvalResult<ConstValue> {
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             let target_ty = generic_args[0];
 
@@ -819,7 +848,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             };
             return Ok(ConstValue::Int(res));
         }
-        Err(())
+        Err(ConstEvalError)
     }
 
     fn eval_enum_literal(
@@ -828,7 +857,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         variant_name: SymbolId,
         depth: usize,
         span: Span,
-    ) -> Result<ConstValue, ()> {
+    ) -> ConstEvalResult<ConstValue> {
         let ty = self
             .ctx
             .node_types
@@ -846,13 +875,13 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     "variant literal type could not be resolved to a data type during constant evaluation",
                 )
                 .emit();
-            return Err(());
+            return Err(ConstEvalError);
         };
 
         let data_def = if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
             d.clone()
         } else {
-            return Err(());
+            return Err(ConstEvalError);
         };
 
         // 禁止对带有 Payload 的 ADT 变体进行常量整数求值
@@ -865,16 +894,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     )
                     .with_hint("only C-style `data` types (without payloads) can be implicitly evaluated to integers")
                     .emit();
-                return Err(());
+                return Err(ConstEvalError);
             }
         }
 
         let mut current_val: i128 = 0;
         for v in data_def.variants {
-            if let Some(v_expr) = v.value {
-                if let Ok(ConstValue::Int(val)) = self.eval_inner(&v_expr, depth + 1) {
-                    current_val = val;
-                }
+            if let Some(v_expr) = v.value
+                && let Ok(ConstValue::Int(val)) = self.eval_inner(&v_expr, depth + 1)
+            {
+                current_val = val;
             }
             if v.name == variant_name {
                 return Ok(ConstValue::Int(current_val));
@@ -886,7 +915,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         self.ctx
             .struct_error(span, format!("variant `.{}` not found in data type", v_str))
             .emit();
-        Err(())
+        Err(ConstEvalError)
     }
 
     fn kind_to_string(&self, kind: SymbolKind) -> &'static str {

@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use kernc_ast as ast;
 use kernc_parser::Parser;
@@ -29,34 +29,81 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         let path = PathBuf::from(root_file);
         let name = self.ctx.intern("root");
         let root_id = self.load_module(path, None, name);
+        self.load_alias_roots();
+        root_id
+    }
+
+    fn load_alias_roots(&mut self) {
         let aliases = self.ctx.module_aliases.clone();
         for (alias_name, alias_path) in aliases {
             let sym = self.ctx.intern(&alias_name);
-            let base_path = PathBuf::from(&alias_path);
-            let dir_init = base_path.join("init.kr");
-            let file_kn = PathBuf::from(format!("{}.kr", base_path.display()));
-
-            let sub_path = if dir_init.exists() {
-                Some(dir_init)
-            } else if file_kn.exists() {
-                Some(file_kn)
-            } else if base_path.exists() && base_path.is_file() {
-                Some(base_path)
-            } else {
+            let Some(path) = self.resolve_root_module_path(&PathBuf::from(&alias_path)) else {
                 eprintln!(
                     "Error: Cannot find module path for alias `{}` at `{}`",
                     alias_name, alias_path
                 );
-                None
+                continue;
             };
 
-            if let Some(p) = sub_path {
-                if let Some(mod_id) = self.load_module(p, None, sym) {
-                    self.ctx.alias_roots.insert(sym, mod_id);
-                }
+            if let Some(mod_id) = self.load_module(path, None, sym) {
+                self.ctx.alias_roots.insert(sym, mod_id);
             }
         }
-        root_id
+    }
+
+    fn resolve_root_module_path(&self, base_path: &Path) -> Option<PathBuf> {
+        let dir_init = base_path.join("init.kr");
+        let file_kn = PathBuf::from(format!("{}.kr", base_path.display()));
+
+        if dir_init.exists() {
+            Some(dir_init)
+        } else if file_kn.exists() {
+            Some(file_kn)
+        } else if base_path.exists() && base_path.is_file() {
+            Some(base_path.to_path_buf())
+        } else {
+            None
+        }
+    }
+
+    fn resolve_submodule_path(&mut self, dir_path: &Path, decl: &ast::Decl) -> Option<PathBuf> {
+        let mod_name_str = self.ctx.resolve(decl.name);
+        let dir_init = dir_path.join(mod_name_str).join("init.kr");
+        let file_kn = dir_path.join(format!("{}.kr", mod_name_str));
+
+        if dir_init.exists() {
+            Some(dir_init)
+        } else if file_kn.exists() {
+            Some(file_kn)
+        } else {
+            self.ctx
+                .struct_error(
+                    decl.span,
+                    format!("Cannot find module file for `{}`", mod_name_str),
+                )
+                .with_hint(format!(
+                    "expected to find `{}` or `{}`",
+                    file_kn.display(),
+                    dir_init.display()
+                ))
+                .emit();
+            None
+        }
+    }
+
+    fn read_module_source(&mut self, abs_path: &PathBuf) -> Option<String> {
+        match std::fs::read_to_string(abs_path) {
+            Ok(s) => Some(s),
+            Err(e) => {
+                self.ctx.sess.error_count += 1;
+                eprintln!(
+                    "Error: Cannot read module file '{}': {}",
+                    abs_path.display(),
+                    e
+                );
+                None
+            }
+        }
     }
 
     fn load_module(
@@ -71,28 +118,24 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             return Some(mod_id);
         }
 
-        let mod_id = DefId(self.ctx.defs.len() as u32);
-        self.loaded_files.insert(abs_path.clone(), mod_id);
-        let src = match std::fs::read_to_string(&abs_path) {
-            Ok(s) => s,
-            Err(e) => {
-                self.ctx.sess.error_count += 1;
-                eprintln!(
-                    "Error: Cannot read module file '{}': {}",
-                    abs_path.display(),
-                    e
-                );
-                return None;
-            }
+        let src = self.read_module_source(&abs_path)?;
+        let Some(dir_path) = abs_path.parent().map(|p| p.to_path_buf()) else {
+            self.ctx.sess.error_count += 1;
+            eprintln!(
+                "Error: Cannot determine parent directory for module file '{}'.",
+                abs_path.display()
+            );
+            return None;
         };
 
+        let mod_id = DefId(self.ctx.defs.len() as u32);
+        self.loaded_files.insert(abs_path.clone(), mod_id);
         let file_id = self
             .ctx
             .sess
             .source_manager
             .add_file(abs_path.to_string_lossy().to_string(), src.clone());
 
-        let dir_path = abs_path.parent().unwrap().to_path_buf();
         let scope_id = self.ctx.scopes.enter_scope();
         self.ctx.scopes.exit_scope();
 
@@ -126,35 +169,11 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         let mut submodules = HashMap::new();
 
         for decl in &ast.decls {
-            if let ast::DeclKind::ModDecl { .. } = &decl.kind {
-                let mod_name_str = self.ctx.resolve(decl.name);
-                let dir_init = dir_path.join(mod_name_str).join("init.kr");
-                let file_kn = dir_path.join(format!("{}.kr", mod_name_str));
-
-                let sub_path = if dir_init.exists() {
-                    Some(dir_init)
-                } else if file_kn.exists() {
-                    Some(file_kn)
-                } else {
-                    self.ctx
-                        .struct_error(
-                            decl.span,
-                            format!("Cannot find module file for `{}`", mod_name_str),
-                        )
-                        .with_hint(format!(
-                            "expected to find `{}` or `{}`",
-                            file_kn.display(),
-                            dir_init.display()
-                        ))
-                        .emit();
-                    None
-                };
-
-                if let Some(p) = sub_path {
-                    if let Some(sub_id) = self.load_module(p, Some(mod_id), decl.name) {
-                        submodules.insert(decl.name, sub_id);
-                    }
-                }
+            if let ast::DeclKind::ModDecl { .. } = &decl.kind
+                && let Some(p) = self.resolve_submodule_path(&dir_path, decl)
+                && let Some(sub_id) = self.load_module(p, Some(mod_id), decl.name)
+            {
+                submodules.insert(decl.name, sub_id);
             }
         }
 

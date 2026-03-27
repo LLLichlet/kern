@@ -7,7 +7,7 @@ use kernc_ast as ast;
 use kernc_utils::{Span, SymbolId};
 
 pub struct TypeResolver<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
+    ctx: &'a mut SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
@@ -15,10 +15,27 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         Self { ctx }
     }
 
+    pub fn context(&mut self) -> &mut SemaContext<'ctx> {
+        self.ctx
+    }
+
+    pub fn into_context(self) -> &'a mut SemaContext<'ctx> {
+        self.ctx
+    }
+
+    pub fn current_scope_id(&self) -> Option<ScopeId> {
+        self.ctx.scopes.current_scope_id()
+    }
+
     /// 执行完整的类型解析 Pass (Two-Pass 架构)
     pub fn resolve_all(&mut self) {
-        let module_ids: Vec<DefId> = self
-            .ctx
+        let module_ids = self.collect_module_ids();
+        self.resolve_module_pass(&module_ids, true);
+        self.resolve_module_pass(&module_ids, false);
+    }
+
+    fn collect_module_ids(&self) -> Vec<DefId> {
+        self.ctx
             .defs
             .iter()
             .filter_map(|def| {
@@ -28,277 +45,275 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     None
                 }
             })
-            .collect();
+            .collect()
+    }
 
-        // Pass 1: 优先解析所有的 TypeAlias
-        // 解决跨模块引用的前向依赖问题 (例如 Struct 字段依赖另一个模块的 TypeAlias)
-        for &mod_id in &module_ids {
-            let (mod_scope, items) = if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
-                (m.scope_id, m.items.clone())
-            } else {
-                unreachable!()
+    fn resolve_module_pass(&mut self, module_ids: &[DefId], aliases_only: bool) {
+        for &mod_id in module_ids {
+            let Some((mod_scope, items)) = self.module_scope_and_items(mod_id) else {
+                continue;
             };
 
             for item_id in items {
-                if matches!(self.ctx.defs[item_id.0 as usize], Def::TypeAlias(_)) {
-                    self.resolve_item(item_id, mod_scope);
-                }
-            }
-        }
-
-        // Pass 2: 解析其余所有的实体定义 (Struct, Union, Enum, Function, Trait 等)
-        for mod_id in module_ids {
-            let (mod_scope, items) = if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
-                (m.scope_id, m.items.clone())
-            } else {
-                unreachable!()
-            };
-
-            for item_id in items {
-                if !matches!(self.ctx.defs[item_id.0 as usize], Def::TypeAlias(_)) {
+                let is_alias = matches!(self.ctx.defs[item_id.0 as usize], Def::TypeAlias(_));
+                if aliases_only == is_alias {
                     self.resolve_item(item_id, mod_scope);
                 }
             }
         }
     }
 
-    /// 解析具体的项，为其开辟作用域并绑定泛型
+    fn module_scope_and_items(&mut self, mod_id: DefId) -> Option<(ScopeId, Vec<DefId>)> {
+        if let Def::Module(m) = &self.ctx.defs[mod_id.0 as usize] {
+            Some((m.scope_id, m.items.clone()))
+        } else {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!("TypeResolver expected DefId {:?} to be a module", mod_id),
+            );
+            None
+        }
+    }
+
     fn resolve_item(&mut self, item_id: DefId, parent_scope: ScopeId) {
         let def = self.ctx.defs[item_id.0 as usize].clone();
 
         match &def {
-            Def::Function(f) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let func_scope = self.ctx.scopes.enter_scope();
-
-                self.bind_generics(&f.generics, func_scope);
-                self.resolve_where_clauses(&f.where_clauses, func_scope);
-                if let Some(parent_id) = f.parent {
-                    if let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize] {
-                        let target_ty = self
-                            .ctx
-                            .node_types
-                            .get(&i.target_type.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
-                        self.bind_self_type(target_ty, func_scope, f.span);
-                    }
-                }
-
-                let mut param_tys = Vec::new();
-                for param in &f.params {
-                    let p_ty = self.resolve_type(&param.type_node, func_scope);
-                    self.ensure_sized(p_ty, param.type_node.span);
-                    param_tys.push(p_ty);
-                }
-                let ret_ty = self.resolve_type(&f.ret_type, func_scope);
-                if ret_ty != TypeId::VOID {
-                    self.ensure_sized(ret_ty, f.ret_type.span);
-                }
-
-                let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
-                    params: param_tys,
-                    ret: ret_ty,
-                    is_variadic: f.is_variadic,
-                });
-
-                if let Def::Function(mut updated_f) = self.ctx.defs[item_id.0 as usize].clone() {
-                    updated_f.resolved_sig = Some(sig_ty);
-                    self.ctx.defs[item_id.0 as usize] = Def::Function(updated_f);
-                }
-
-                if let Some(body) = &f.body {
-                    self.resolve_expr(body, func_scope);
-                }
-
-                self.ctx.scopes.exit_scope();
-
-                // 提取泛型参数
-                let mut gen_args = Vec::new();
-                for param in &f.generics {
-                    gen_args.push(self.ctx.type_registry.intern(TypeKind::Param(param.name)));
-                }
-                let fn_def_ty = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::FnDef(item_id, gen_args));
-
-                // 切换回父作用域
-                self.ctx.scopes.set_current_scope(parent_scope);
-
-                // 只有普通的独立函数才需要在当前作用域更新类型。
-                let is_impl_method = f.parent.map_or(false, |p_id| {
-                    matches!(self.ctx.defs[p_id.0 as usize], Def::Impl(_))
-                });
-
-                if !is_impl_method {
-                    self.ctx.scopes.update_type(f.name, fn_def_ty);
-                }
-            }
-            Def::Struct(s) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let struct_scope = self.ctx.scopes.enter_scope();
-
-                self.bind_generics(&s.generics, struct_scope);
-                self.resolve_where_clauses(&s.where_clauses, struct_scope);
-
-                for field in &s.fields {
-                    let f_ty = self.resolve_type(&field.type_node, struct_scope);
-                    self.ensure_sized(f_ty, field.type_node.span);
-                    if let Some(def_val) = &field.default_value {
-                        self.resolve_expr(def_val, struct_scope);
-                    }
-                }
-                self.ctx.scopes.exit_scope();
-                let struct_ty = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::Def(item_id, Vec::new()));
-                self.ctx.scopes.set_current_scope(parent_scope);
-                self.ctx.scopes.update_type(s.name, struct_ty);
-            }
-            Def::Union(u) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let union_scope = self.ctx.scopes.enter_scope();
-
-                self.bind_generics(&u.generics, union_scope);
-                self.resolve_where_clauses(&u.where_clauses, union_scope);
-
-                for field in &u.fields {
-                    let f_ty = self.resolve_type(&field.type_node, union_scope);
-                    self.ensure_sized(f_ty, field.type_node.span);
-                    if let Some(def_val) = &field.default_value {
-                        self.resolve_expr(def_val, union_scope);
-                    }
-                }
-                self.ctx.scopes.exit_scope();
-                let union_ty = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::Def(item_id, Vec::new()));
-                self.ctx.scopes.set_current_scope(parent_scope);
-                self.ctx.scopes.update_type(u.name, union_ty);
-            }
-            Def::Trait(t) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let trait_scope = self.ctx.scopes.enter_scope();
-
-                // 为 Trait 强制绑定 Self 类型
-                let self_ty = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::TraitObject(item_id, vec![]));
-                self.bind_self_type(self_ty, trait_scope, t.span);
-
-                self.bind_generics(&t.generics, trait_scope);
-                self.resolve_where_clauses(&t.where_clauses, trait_scope);
-
-                // 解析 supertraits
-                let mut resolved_supertraits = Vec::new();
-                for supertrait in &t.supertraits {
-                    resolved_supertraits.push(self.resolve_type(supertrait, trait_scope));
-                }
-
-                // 解析方法签名并收集
-                let mut resolved_methods = Vec::new();
-                for method in &t.methods {
-                    let sig_ty = self.resolve_type(&method.type_node, trait_scope);
-                    resolved_methods.push((method.name, sig_ty));
-                }
-                self.ctx.scopes.exit_scope();
-
-                if let Def::Trait(mut updated_t) = self.ctx.defs[item_id.0 as usize].clone() {
-                    updated_t.resolved_methods = resolved_methods;
-                    updated_t.resolved_supertraits = resolved_supertraits;
-                    self.ctx.defs[item_id.0 as usize] = Def::Trait(updated_t);
-                }
-            }
-            Def::TypeAlias(t) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let alias_scope = self.ctx.scopes.enter_scope();
-
-                self.bind_generics(&t.generics, alias_scope);
-                self.resolve_where_clauses(&t.where_clauses, alias_scope);
-
-                let target_ty = self.resolve_type(&t.target, alias_scope);
-
-                self.ctx.scopes.exit_scope();
-                self.ctx.scopes.set_current_scope(parent_scope);
-                self.ctx.scopes.update_type(t.name, target_ty);
-            }
-            Def::Impl(i) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let impl_scope = self.ctx.scopes.enter_scope();
-
-                self.bind_generics(&i.generics, impl_scope);
-                self.resolve_where_clauses(&i.where_clauses, impl_scope);
-
-                // 绑定 Self 类型到上下文中
-                let target_ty_id = self.resolve_type(&i.target_type, impl_scope);
-                self.bind_self_type(target_ty_id, impl_scope, i.span);
-
-                if let Some(trait_ty) = &i.trait_type {
-                    self.resolve_type(trait_ty, impl_scope);
-                }
-
-                // 递归解析 impl 块内部的方法 (这些方法并没有注册在 module 的 items 里)
-                for &method_id in &i.methods {
-                    self.resolve_item(method_id, impl_scope);
-                }
-
-                self.ctx.scopes.exit_scope();
-            }
-            Def::Global(g) => {
-                self.resolve_expr(&g.value, parent_scope);
-                let val_ty = self
-                    .ctx
-                    .node_types
-                    .get(&g.value.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                self.ensure_sized(val_ty, g.value.span);
-                self.ctx.scopes.set_current_scope(parent_scope);
-                self.ctx.scopes.update_type(g.name, val_ty);
-            }
-            Def::Enum(a) => {
-                self.ctx.scopes.set_current_scope(parent_scope);
-                let adt_scope = self.ctx.scopes.enter_scope();
-
-                // 绑定泛型参数，比如 Option[T] 里的 T
-                self.bind_generics(&a.generics, adt_scope);
-                self.resolve_where_clauses(&a.where_clauses, adt_scope);
-
-                // 解析并严格校验 backing_type
-                if let Some(backing_ty) = &a.backing_type {
-                    let resolved_ty = self.resolve_type(backing_ty, adt_scope);
-                    if !self.ctx.type_registry.is_integer(resolved_ty)
-                        && resolved_ty != TypeId::ERROR
-                    {
-                        self.ctx
-                            .emit_error(backing_ty.span, "Enum backing type must be an integer");
-                    }
-                }
-
-                // 解析所有变体的负载类型
-                for variant in &a.variants {
-                    if let Some(payload_ty) = &variant.payload_type {
-                        self.resolve_type(payload_ty, adt_scope);
-                    }
-                }
-
-                self.ctx.scopes.exit_scope();
-
-                // 生成基础类型的 TypeId (不带泛型实参的形式)
-                let adt_ty = self
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::Enum(item_id, Vec::new()));
-
-                self.ctx.scopes.set_current_scope(parent_scope);
-                self.ctx.scopes.update_type(a.name, adt_ty);
-            }
-            _ => {} // Module 自身无需在此解析
+            Def::Function(f) => self.resolve_function_item(item_id, f, parent_scope),
+            Def::Struct(s) => self.resolve_struct_item(item_id, s, parent_scope),
+            Def::Union(u) => self.resolve_union_item(item_id, u, parent_scope),
+            Def::Trait(t) => self.resolve_trait_item(item_id, t, parent_scope),
+            Def::TypeAlias(t) => self.resolve_type_alias_item(t, parent_scope),
+            Def::Impl(i) => self.resolve_impl_item(i, parent_scope),
+            Def::Global(g) => self.resolve_global_item(g, parent_scope),
+            Def::Enum(a) => self.resolve_enum_item(item_id, a, parent_scope),
+            _ => {}
         }
+    }
+
+    fn resolve_function_item(&mut self, item_id: DefId, f: &FunctionDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let func_scope = self.ctx.scopes.enter_scope();
+
+        self.bind_generics(&f.generics, func_scope);
+        self.resolve_where_clauses(&f.where_clauses, func_scope);
+        if let Some(parent_id) = f.parent
+            && let Def::Impl(i) = &self.ctx.defs[parent_id.0 as usize]
+        {
+            let target_ty = self
+                .ctx
+                .node_types
+                .get(&i.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            self.bind_self_type(target_ty, func_scope, f.span);
+        }
+
+        let mut param_tys = Vec::new();
+        for param in &f.params {
+            let p_ty = self.resolve_type(&param.type_node, func_scope);
+            self.ensure_sized(p_ty, param.type_node.span);
+            param_tys.push(p_ty);
+        }
+        let ret_ty = self.resolve_type(&f.ret_type, func_scope);
+        if ret_ty != TypeId::VOID {
+            self.ensure_sized(ret_ty, f.ret_type.span);
+        }
+
+        let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: param_tys,
+            ret: ret_ty,
+            is_variadic: f.is_variadic,
+        });
+
+        if let Def::Function(mut updated_f) = self.ctx.defs[item_id.0 as usize].clone() {
+            updated_f.resolved_sig = Some(sig_ty);
+            self.ctx.defs[item_id.0 as usize] = Def::Function(updated_f);
+        }
+
+        if let Some(body) = &f.body {
+            self.resolve_expr(body, func_scope);
+        }
+
+        self.ctx.scopes.exit_scope();
+
+        let gen_args = f
+            .generics
+            .iter()
+            .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
+            .collect();
+        let fn_def_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::FnDef(item_id, gen_args));
+
+        self.ctx.scopes.set_current_scope(parent_scope);
+
+        let is_impl_method = f
+            .parent
+            .is_some_and(|p_id| matches!(self.ctx.defs[p_id.0 as usize], Def::Impl(_)));
+        if !is_impl_method {
+            self.ctx.scopes.update_type(f.name, fn_def_ty);
+        }
+    }
+
+    fn resolve_struct_item(&mut self, item_id: DefId, s: &StructDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let struct_scope = self.ctx.scopes.enter_scope();
+
+        self.bind_generics(&s.generics, struct_scope);
+        self.resolve_where_clauses(&s.where_clauses, struct_scope);
+
+        for field in &s.fields {
+            let f_ty = self.resolve_type(&field.type_node, struct_scope);
+            self.ensure_sized(f_ty, field.type_node.span);
+            if let Some(def_val) = &field.default_value {
+                self.resolve_expr(def_val, struct_scope);
+            }
+        }
+        self.ctx.scopes.exit_scope();
+
+        let struct_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Def(item_id, Vec::new()));
+        self.ctx.scopes.set_current_scope(parent_scope);
+        self.ctx.scopes.update_type(s.name, struct_ty);
+    }
+
+    fn resolve_union_item(&mut self, item_id: DefId, u: &UnionDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let union_scope = self.ctx.scopes.enter_scope();
+
+        self.bind_generics(&u.generics, union_scope);
+        self.resolve_where_clauses(&u.where_clauses, union_scope);
+
+        for field in &u.fields {
+            let f_ty = self.resolve_type(&field.type_node, union_scope);
+            self.ensure_sized(f_ty, field.type_node.span);
+            if let Some(def_val) = &field.default_value {
+                self.resolve_expr(def_val, union_scope);
+            }
+        }
+        self.ctx.scopes.exit_scope();
+
+        let union_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Def(item_id, Vec::new()));
+        self.ctx.scopes.set_current_scope(parent_scope);
+        self.ctx.scopes.update_type(u.name, union_ty);
+    }
+
+    fn resolve_trait_item(&mut self, item_id: DefId, t: &TraitDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let trait_scope = self.ctx.scopes.enter_scope();
+
+        let self_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(item_id, vec![]));
+        self.bind_self_type(self_ty, trait_scope, t.span);
+
+        self.bind_generics(&t.generics, trait_scope);
+        self.resolve_where_clauses(&t.where_clauses, trait_scope);
+
+        let mut resolved_supertraits = Vec::new();
+        for supertrait in &t.supertraits {
+            resolved_supertraits.push(self.resolve_type(supertrait, trait_scope));
+        }
+
+        let mut resolved_methods = Vec::new();
+        for method in &t.methods {
+            let sig_ty = self.resolve_type(&method.type_node, trait_scope);
+            resolved_methods.push((method.name, sig_ty));
+        }
+        self.ctx.scopes.exit_scope();
+
+        if let Def::Trait(mut updated_t) = self.ctx.defs[item_id.0 as usize].clone() {
+            updated_t.resolved_methods = resolved_methods;
+            updated_t.resolved_supertraits = resolved_supertraits;
+            self.ctx.defs[item_id.0 as usize] = Def::Trait(updated_t);
+        }
+    }
+
+    fn resolve_type_alias_item(&mut self, t: &TypeAliasDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let alias_scope = self.ctx.scopes.enter_scope();
+
+        self.bind_generics(&t.generics, alias_scope);
+        self.resolve_where_clauses(&t.where_clauses, alias_scope);
+        let target_ty = self.resolve_type(&t.target, alias_scope);
+
+        self.ctx.scopes.exit_scope();
+        self.ctx.scopes.set_current_scope(parent_scope);
+        self.ctx.scopes.update_type(t.name, target_ty);
+    }
+
+    fn resolve_impl_item(&mut self, i: &ImplDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let impl_scope = self.ctx.scopes.enter_scope();
+
+        self.bind_generics(&i.generics, impl_scope);
+        self.resolve_where_clauses(&i.where_clauses, impl_scope);
+
+        let target_ty_id = self.resolve_type(&i.target_type, impl_scope);
+        self.bind_self_type(target_ty_id, impl_scope, i.span);
+
+        if let Some(trait_ty) = &i.trait_type {
+            self.resolve_type(trait_ty, impl_scope);
+        }
+
+        for &method_id in &i.methods {
+            self.resolve_item(method_id, impl_scope);
+        }
+
+        self.ctx.scopes.exit_scope();
+    }
+
+    fn resolve_global_item(&mut self, g: &GlobalDef, parent_scope: ScopeId) {
+        self.resolve_expr(&g.value, parent_scope);
+        let val_ty = self
+            .ctx
+            .node_types
+            .get(&g.value.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        self.ensure_sized(val_ty, g.value.span);
+        self.ctx.scopes.set_current_scope(parent_scope);
+        self.ctx.scopes.update_type(g.name, val_ty);
+    }
+
+    fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumDef, parent_scope: ScopeId) {
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let adt_scope = self.ctx.scopes.enter_scope();
+
+        self.bind_generics(&a.generics, adt_scope);
+        self.resolve_where_clauses(&a.where_clauses, adt_scope);
+
+        if let Some(backing_ty) = &a.backing_type {
+            let resolved_ty = self.resolve_type(backing_ty, adt_scope);
+            if !self.ctx.type_registry.is_integer(resolved_ty) && resolved_ty != TypeId::ERROR {
+                self.ctx
+                    .emit_error(backing_ty.span, "Enum backing type must be an integer");
+            }
+        }
+
+        for variant in &a.variants {
+            if let Some(payload_ty) = &variant.payload_type {
+                self.resolve_type(payload_ty, adt_scope);
+            }
+        }
+
+        self.ctx.scopes.exit_scope();
+
+        let adt_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Enum(item_id, Vec::new()));
+
+        self.ctx.scopes.set_current_scope(parent_scope);
+        self.ctx.scopes.update_type(a.name, adt_ty);
     }
 
     // ==========================================
@@ -309,10 +324,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
         // 优先检查是否已被 ExprChecker 现场推导过
         // 用于实现 @typeOf 的动态求类型
-        if let Some(&cached_ty) = self.ctx.node_types.get(&ty_node.id) {
-            if cached_ty != TypeId::ERROR {
-                return cached_ty;
-            }
+        if let Some(&cached_ty) = self.ctx.node_types.get(&ty_node.id)
+            && cached_ty != TypeId::ERROR
+        {
+            return cached_ty;
         }
 
         let ty_id = match &ty_node.kind {
@@ -416,10 +431,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::TypeKind::Array { is_mut, elem, len } => {
                 let base = self.resolve_type(elem, env_scope);
                 let mut evaluator = ConstEvaluator::new(self.ctx);
-                let length = match evaluator.eval_usize(len) {
-                    Ok(l) => l,
-                    Err(_) => 0, // 错误已经在 evaluator 内部 emit
-                };
+                let length = evaluator.eval_usize(len).unwrap_or_default();
                 self.ctx.type_registry.intern(TypeKind::Array {
                     is_mut: *is_mut,
                     elem: base,
@@ -509,7 +521,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         env_scope: ScopeId,
         _span: Span,
         kind_name: &str,
-        allow_default_values: bool,
+        _allow_default_values: bool,
     ) -> Vec<AnonymousField> {
         let mut anon_fields = Vec::with_capacity(fields.len());
 
@@ -518,11 +530,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             self.ensure_sized(f_ty, f.type_node.span);
 
             if f.default_value.is_some() {
-                let msg = if allow_default_values {
-                    format!("anonymous {}s cannot have default field values", kind_name)
-                } else {
-                    format!("anonymous {}s cannot have default field values", kind_name)
-                };
+                let msg = format!("anonymous {}s cannot have default field values", kind_name);
                 self.ctx
                     .struct_error(f.span, msg)
                     .with_hint("default values are only allowed in named struct declarations (`type Name = struct { ... }`)")
@@ -790,12 +798,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             // 如果还没到最后一段，当前符号必须是个模块
             if i < segments.len() - 1 {
                 if sym.kind == SymbolKind::Module {
-                    let mod_def_id = sym.def_id.unwrap();
-                    if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
-                        curr_scope = m.scope_id;
-                    } else {
-                        unreachable!()
-                    }
+                    let Some(mod_def_id) =
+                        self.required_def_id(sym, span, "module path segment", segment)
+                    else {
+                        return TypeId::ERROR;
+                    };
+                    let Some(module_scope) = self.module_scope_from_def(mod_def_id, span, segment)
+                    else {
+                        return TypeId::ERROR;
+                    };
+                    curr_scope = module_scope;
                 } else {
                     let name = self.ctx.resolve(segment).to_string();
                     self.ctx
@@ -805,7 +817,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
         }
 
-        let final_sym = target_symbol.unwrap();
+        let Some(final_sym) = target_symbol else {
+            self.ctx.emit_ice(
+                span,
+                "Type path resolution reached the end of a non-empty path without a final symbol",
+            );
+            return TypeId::ERROR;
+        };
 
         // 解析附带的泛型参数 (在原始的作用域中解析)
         let mut resolved_generics = Vec::with_capacity(generics.len());
@@ -816,19 +834,29 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         // 验证最终符号的类型
         match final_sym.kind {
             SymbolKind::Struct | SymbolKind::Union => {
-                let def_id = final_sym.def_id.unwrap();
+                let Some(def_id) = self.required_def_id(&final_sym, span, "type", segments[0])
+                else {
+                    return TypeId::ERROR;
+                };
                 self.ctx
                     .type_registry
                     .intern(TypeKind::Def(def_id, resolved_generics))
             }
             SymbolKind::Enum => {
-                let def_id = final_sym.def_id.unwrap();
+                let Some(def_id) = self.required_def_id(&final_sym, span, "enum type", segments[0])
+                else {
+                    return TypeId::ERROR;
+                };
                 self.ctx
                     .type_registry
                     .intern(TypeKind::Enum(def_id, resolved_generics))
             }
             SymbolKind::Trait => {
-                let def_id = final_sym.def_id.unwrap();
+                let Some(def_id) =
+                    self.required_def_id(&final_sym, span, "trait object type", segments[0])
+                else {
+                    return TypeId::ERROR;
+                };
                 self.ctx
                     .type_registry
                     .intern(TypeKind::TraitObject(def_id, resolved_generics))
@@ -846,7 +874,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 if final_sym.def_id.is_none() {
                     return final_sym.type_id;
                 }
-                let def_id = final_sym.def_id.unwrap();
+                let Some(def_id) =
+                    self.required_def_id(&final_sym, span, "type alias", segments[0])
+                else {
+                    return TypeId::ERROR;
+                };
 
                 // 动态获取最新解析的 AST 类型，不要用 Import 克隆带来的陈旧 final_sym.type_id
                 let target_ty = if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
@@ -861,7 +893,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
                 // 防止因循环依赖或解析顺序导致的静默 ERROR 污染 AST
                 if target_ty == TypeId::ERROR {
-                    let name = self.ctx.resolve(*segments.last().unwrap()).to_string();
+                    let name = self.last_segment_name(segments);
                     self.ctx.struct_error(span, format!("type alias `{}` could not be resolved", name))
                         .with_hint("this might be caused by an invalid circular alias dependency or use before resolution")
                         .emit();
@@ -875,7 +907,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     // 获取别名的定义以提取泛型名字
                     if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
                         if t_def.generics.len() != resolved_generics.len() {
-                            self.ctx.emit_error(span, format!("Type alias `{}` expects {} generic arguments, but {} were provided", self.ctx.resolve(*segments.last().unwrap()), t_def.generics.len(), resolved_generics.len()));
+                            self.ctx.emit_error(
+                                span,
+                                format!(
+                                    "Type alias `{}` expects {} generic arguments, but {} were provided",
+                                    self.last_segment_name(segments),
+                                    t_def.generics.len(),
+                                    resolved_generics.len()
+                                ),
+                            );
                             return TypeId::ERROR;
                         }
 
@@ -887,12 +927,20 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                         let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                         subst.substitute(target_ty)
                     } else {
-                        unreachable!()
+                        self.ctx.emit_ice(
+                            span,
+                            format!(
+                                "Type alias symbol `{}` resolved to non-alias def {:?}",
+                                self.last_segment_name(segments),
+                                def_id
+                            ),
+                        );
+                        TypeId::ERROR
                     }
                 }
             }
             _ => {
-                let name = self.ctx.resolve(*segments.last().unwrap()).to_string();
+                let name = self.last_segment_name(segments);
                 self.ctx.emit_error(
                     span,
                     format!(
@@ -932,6 +980,56 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             "never" => Some(TypeId::NEVER),
             _ => None,
         }
+    }
+
+    fn required_def_id(
+        &mut self,
+        symbol: &SymbolInfo,
+        span: Span,
+        context: &str,
+        segment: SymbolId,
+    ) -> Option<DefId> {
+        if let Some(def_id) = symbol.def_id {
+            Some(def_id)
+        } else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Resolved {} `{}` is missing a DefId",
+                    context,
+                    self.ctx.resolve(segment)
+                ),
+            );
+            None
+        }
+    }
+
+    fn module_scope_from_def(
+        &mut self,
+        def_id: DefId,
+        span: Span,
+        segment: SymbolId,
+    ) -> Option<ScopeId> {
+        if let Def::Module(m) = &self.ctx.defs[def_id.0 as usize] {
+            Some(m.scope_id)
+        } else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Resolved module path segment `{}` points to non-module def {:?}",
+                    self.ctx.resolve(segment),
+                    def_id
+                ),
+            );
+            None
+        }
+    }
+
+    fn last_segment_name(&self, segments: &[SymbolId]) -> String {
+        segments
+            .last()
+            .map(|sym| self.ctx.resolve(*sym).to_string())
+            .unwrap_or_else(|| "<empty-path>".to_string())
     }
 
     fn bind_generics(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {

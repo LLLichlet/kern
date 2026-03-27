@@ -138,7 +138,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         // 如果到了 Lowering 阶段 ArrayInfer 还没有被定长（通常在 constexpr 阶段就被处理了），
                         // 这里作为兜底，发出一个 ICE 错误。
                         self.ctx.emit_ice(operand.span, "Kern ICE (Lowering): Array length still inferred during MetaOf lowering.");
-                        unreachable!()
+                        return MastExprKind::Trap;
                     }
 
                     // 3. 闭包和 Trait 胖指针：提取底层的匿名状态指针 (Data)

@@ -7,7 +7,7 @@ use inkwell::values::{FunctionValue, GlobalValue, PointerValue};
 use std::collections::HashMap;
 
 use kernc_mast::*;
-use kernc_sema::def::{Def, DefId};
+use kernc_sema::def::DefId;
 use kernc_sema::ty::{TypeId, TypeRegistry};
 use kernc_utils::Session;
 use kernc_utils::config::OptLevel;
@@ -18,31 +18,30 @@ mod expr;
 mod types;
 
 pub struct CodeGenerator<'ctx, 'a> {
-    pub context: &'ctx LlvmContext,
-    pub builder: Builder<'ctx>,
-    pub module: LlvmModule<'ctx>,
+    context: &'ctx LlvmContext,
+    builder: Builder<'ctx>,
+    module: LlvmModule<'ctx>,
 
-    pub sess: &'a mut Session,
-    pub type_registry: &'a TypeRegistry,
-    pub ctx_defs: &'a Vec<Def>,
+    sess: &'a mut Session,
+    type_registry: &'a TypeRegistry,
 
-    pub structs: HashMap<MonoId, StructType<'ctx>>,
-    pub union_ids: std::collections::HashSet<MonoId>,
-    pub globals: HashMap<MonoId, GlobalValue<'ctx>>,
-    pub functions: HashMap<MonoId, FunctionValue<'ctx>>,
+    structs: HashMap<MonoId, StructType<'ctx>>,
+    union_ids: std::collections::HashSet<MonoId>,
+    globals: HashMap<MonoId, GlobalValue<'ctx>>,
+    functions: HashMap<MonoId, FunctionValue<'ctx>>,
 
-    pub locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
-    pub loop_targets: Vec<(
+    locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
+    loop_targets: Vec<(
         inkwell::basic_block::BasicBlock<'ctx>,
         inkwell::basic_block::BasicBlock<'ctx>,
     )>,
-    pub asm_dialect: inkwell::InlineAsmDialect,
+    asm_dialect: inkwell::InlineAsmDialect,
 
-    pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
-    pub adt_union_map: HashMap<MonoId, MonoId>,
-    pub anon_struct_map: HashMap<TypeId, MonoId>,
-    pub anon_union_map: HashMap<TypeId, MonoId>,
-    pub anon_enum_map: HashMap<TypeId, MonoId>,
+    def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
+    adt_union_map: HashMap<MonoId, MonoId>,
+    anon_struct_map: HashMap<TypeId, MonoId>,
+    anon_union_map: HashMap<TypeId, MonoId>,
+    anon_enum_map: HashMap<TypeId, MonoId>,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
@@ -51,7 +50,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         module_name: &str,
         sess: &'a mut Session,
         type_registry: &'a TypeRegistry,
-        ctx_defs: &'a Vec<Def>,
     ) -> Self {
         Self {
             context,
@@ -59,7 +57,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             module: context.create_module(module_name),
             sess,
             type_registry,
-            ctx_defs,
             structs: HashMap::new(),
             union_ids: std::collections::HashSet::new(),
             globals: HashMap::new(),
@@ -95,6 +92,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.compile_function(function);
             }
         }
+    }
+
+    pub fn set_asm_dialect(&mut self, dialect: inkwell::InlineAsmDialect) {
+        self.asm_dialect = dialect;
     }
 
     pub fn print_ir(&self) {
@@ -167,7 +168,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         Ok(())
     }
 
-    pub fn resolve_symbol(&self, sym: kernc_utils::SymbolId) -> &str {
+    fn resolve_symbol(&self, sym: kernc_utils::SymbolId) -> &str {
         self.sess.interner.resolve(sym).unwrap_or("<unknown>")
     }
 }

@@ -82,6 +82,7 @@ dependencies = [
  "kernc_ast",
  "kernc_codegen",
  "kernc_lower",
+ "kernc_mast",
  "kernc_parser",
  "kernc_sema",
  "kernc_utils",

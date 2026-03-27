@@ -23,7 +23,7 @@ impl<'a> TokenStream<'a> {
     /// 或者直到遇到 EOF
     fn fill_buffer(&mut self, n: usize) {
         while self.buffer.len() <= n {
-            let token = self.lexer.next();
+            let token = self.lexer.next_token();
             let is_eof = token.tag == TokenType::Eof;
             self.buffer.push_back(token);
 
@@ -43,7 +43,7 @@ impl<'a> TokenStream<'a> {
         // 如果请求的索引超出了缓冲区长度（说明中间遇到了 EOF）
         // 直接返回缓冲区最后一个元素（即 EOF）
         if n >= self.buffer.len() {
-            return self.buffer.back().copied().unwrap_or_else(|| {
+            return self.buffer.back().copied().unwrap_or({
                 // 理论上不可能进入这里，除非 fill_buffer 逻辑有误
                 // 造一个假的 EOF
                 Token {
@@ -70,13 +70,16 @@ impl<'a> TokenStream<'a> {
     pub fn bump(&mut self) -> Token {
         // 确保缓冲区里至少有一个元素
         if self.buffer.is_empty() {
-            let t = self.lexer.next();
+            let t = self.lexer.next_token();
             self.last_span = t.span;
             return t;
         }
 
         // 从队首弹出
-        let token = self.buffer.pop_front().unwrap();
+        let token = self.buffer.pop_front().unwrap_or(Token {
+            tag: TokenType::Eof,
+            span: self.last_span,
+        });
         self.last_span = token.span;
         token
     }

@@ -86,16 +86,11 @@ impl Default for TargetMachine {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AsmDialect {
+    #[default]
     Intel,
     Att,
-}
-
-impl Default for AsmDialect {
-    fn default() -> Self {
-        AsmDialect::Intel // 默认使用 Intel
-    }
 }
 
 #[derive(Debug, Clone)]

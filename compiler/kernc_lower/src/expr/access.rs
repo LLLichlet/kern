@@ -10,34 +10,38 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn lower_access_ice(&mut self, span: Span, message: impl Into<String>) -> MastExprKind {
+        self.ctx.emit_ice(span, message);
+        MastExprKind::Trap
+    }
+
     pub(crate) fn lower_identifier(&mut self, name: SymbolId) -> MastExprKind {
         // 常量内联
-        if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
-            if info.kind == SymbolKind::Const {
-                if let Some(def_id) = info.def_id {
-                    let const_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                        Some(g.value.clone())
-                    } else {
-                        None
-                    };
+        if let Some(info) = self.ctx.scopes.resolve(name).cloned()
+            && info.kind == SymbolKind::Const
+            && let Some(def_id) = info.def_id
+        {
+            let const_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                Some(g.value.clone())
+            } else {
+                None
+            };
 
-                    if let Some(const_expr) = const_expr_opt {
-                        let mut ce = ConstEvaluator::new(self.ctx);
-                        if let Ok(val) = ce.eval_inner(&const_expr, 0) {
-                            match val {
-                                ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
-                                ConstValue::Float(f) => return MastExprKind::Float(f),
-                                ConstValue::Bool(b) => return MastExprKind::Bool(b),
-                                ConstValue::String(s) => return MastExprKind::StringLiteral(s),
-                                _ => {
-                                    let inlined_mast = self.lower_expr(
-                                        &const_expr,
-                                        &std::collections::HashMap::new(),
-                                        None,
-                                    );
-                                    return inlined_mast.kind;
-                                }
-                            }
+            if let Some(const_expr) = const_expr_opt {
+                let mut ce = ConstEvaluator::new(self.ctx);
+                if let Ok(val) = ce.eval_inner(&const_expr, 0) {
+                    match val {
+                        ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
+                        ConstValue::Float(f) => return MastExprKind::Float(f),
+                        ConstValue::Bool(b) => return MastExprKind::Bool(b),
+                        ConstValue::String(s) => return MastExprKind::StringLiteral(s),
+                        _ => {
+                            let inlined_mast = self.lower_expr(
+                                &const_expr,
+                                &std::collections::HashMap::new(),
+                                None,
+                            );
+                            return inlined_mast.kind;
                         }
                     }
                 }
@@ -80,11 +84,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.ctx.type_registry.get(norm_expr),
             TypeKind::FnDef(..) | TypeKind::Function { .. }
         ) {
-            self.ctx.emit_ice(
+            return self.lower_access_ice(
                 span,
-                format!("Attempted to access method `{}` without calling it. Bound Methods are not supported in Kern.", self.ctx.resolve(field))
+                format!(
+                    "Attempted to access method `{}` without calling it. Bound Methods are not supported in Kern.",
+                    self.ctx.resolve(field)
+                ),
             );
-            unreachable!()
         }
 
         let l = self.lower_expr(lhs, subst_map, None);
@@ -105,29 +111,33 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let norm_base = self.ctx.type_registry.normalize(base_ty);
 
-        if let TypeKind::Enum(def_id, _) = self.ctx.type_registry.get(norm_base) {
-            if let Def::Enum(_) = &self.ctx.defs[def_id.0 as usize] {
-                return self.lower_enum_literal(field, expr_ty);
-            }
+        if let TypeKind::Enum(def_id, _) = self.ctx.type_registry.get(norm_base)
+            && let Def::Enum(_) = &self.ctx.defs[def_id.0 as usize]
+        {
+            return self.lower_enum_literal(field, expr_ty);
         }
 
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_base).clone() {
             let mod_def = match &self.ctx.defs[mod_def_id.0 as usize] {
                 Def::Module(m) => m,
                 _ => {
-                    self.ctx.emit_ice(
+                    return self.lower_access_ice(
                         span,
                         "Kern ICE (Lowering): Expected Module Def, found something else.",
                     );
-                    unreachable!()
                 }
             };
 
             let target_info = match self.ctx.scopes.resolve_in(mod_def.scope_id, field) {
                 Some(info) => info,
                 None => {
-                    self.ctx.emit_ice(span, format!("Kern ICE (Lowering): Module field `{}` is undefined. Sema should have caught this.", self.ctx.resolve(field)));
-                    unreachable!()
+                    return self.lower_access_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Lowering): Module field `{}` is undefined. Sema should have caught this.",
+                            self.ctx.resolve(field)
+                        ),
+                    );
                 }
             };
 
@@ -168,45 +178,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         return MastExprKind::GlobalRef(mono_id);
                     } else {
                         let field_name = self.ctx.resolve(field);
-                        self.ctx.emit_ice(
+                        return self.lower_access_ice(
                             span,
                             format!("Kern ICE (Lowering): Cross-module constant `{}` could not be inlined, and its global definition was not found. Phase 1 global collection failed.", field_name)
                         );
-                        unreachable!()
                     }
                 }
                 SymbolKind::Static | SymbolKind::Function => {
                     if let Some(&mono_id) = self.global_symbol_map.get(&field) {
                         return MastExprKind::GlobalRef(mono_id);
                     } else if target_info.def_id.is_some() {
-                        self.ctx.emit_ice(
+                        return self.lower_access_ice(
                             span,
                             format!(
                                 "Kern ICE (Lowering): Symbol `{}` found but not instantiated.",
                                 self.ctx.resolve(field)
                             ),
                         );
-                        unreachable!()
                     } else {
-                        self.ctx.emit_ice(
+                        return self.lower_access_ice(
                             span,
                             format!(
                                 "Kern ICE (Lowering): Symbol `{}` lacks a def_id.",
                                 self.ctx.resolve(field)
                             ),
                         );
-                        unreachable!()
                     }
                 }
                 _ => {
-                    self.ctx.emit_ice(
+                    return self.lower_access_ice(
                         span,
                         format!(
                             "Kern ICE (Lowering): Unsupported symbol kind in module: {:?}",
                             target_info.kind
                         ),
                     );
-                    unreachable!()
                 }
             }
         }
@@ -218,11 +224,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::AnonymousStruct(..) => self.instantiate_anon_struct(norm_base),
             TypeKind::AnonymousUnion(..) => self.instantiate_anon_union(norm_base),
             _ => {
-                self.ctx.emit_ice(
+                return self.lower_access_ice(
                     span,
                     format!("Kern ICE (Lowering): Attempted to access field `{}` on an invalid base type: {:?}", self.ctx.resolve(field), norm_base)
                 );
-                unreachable!()
             }
         };
 
@@ -266,19 +271,29 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 self.ctx.resolve(field_name)
                             ),
                         );
-                        unreachable!()
+                        return 0;
                     }
                 };
                 let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
                 let (ast_to_physical, _) = layout.get_struct_mapping(def_id, &gen_args, 0);
-                return ast_to_physical[ast_idx];
+                return ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (Lowering): Physical field mapping missing index {} for `{}`.",
+                            ast_idx,
+                            self.ctx.resolve(field_name)
+                        ),
+                    );
+                    0
+                });
             } else if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
                 return match u.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
                         self.ctx
                             .emit_ice(span, "Kern ICE: Field not found in union".to_string());
-                        unreachable!()
+                        0
                     }
                 };
             }
@@ -287,10 +302,29 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let TypeKind::AnonymousStruct(is_extern, ref fields) =
             self.ctx.type_registry.get(norm).clone()
         {
-            let ast_idx = fields.iter().position(|f| f.name == field_name).unwrap();
+            let Some(ast_idx) = fields.iter().position(|f| f.name == field_name) else {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): Field `{}` not found in anonymous struct.",
+                        self.ctx.resolve(field_name)
+                    ),
+                );
+                return 0;
+            };
             let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
             let (ast_to_physical, _) = layout.get_anon_struct_mapping(is_extern, fields, 0);
-            return ast_to_physical[ast_idx];
+            return ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): Physical field mapping missing index {} for anonymous field `{}`.",
+                        ast_idx,
+                        self.ctx.resolve(field_name)
+                    ),
+                );
+                0
+            });
         }
 
         if let TypeKind::AnonymousUnion(_, ref fields) = self.ctx.type_registry.get(norm).clone() {
@@ -300,6 +334,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .unwrap_or(0);
         }
 
+        self.ctx.emit_ice(
+            span,
+            format!(
+                "Kern ICE (Lowering): Failed to compute physical field index for `{}` on type {:?}.",
+                self.ctx.resolve(field_name),
+                self.ctx.type_registry.get(norm)
+            ),
+        );
         0
     }
 }

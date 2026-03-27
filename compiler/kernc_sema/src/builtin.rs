@@ -6,7 +6,7 @@ use kernc_ast::{self as ast, GenericParam, TypeNode};
 use kernc_utils::Span;
 
 pub struct BuiltinInjector<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
+    ctx: &'a mut SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {

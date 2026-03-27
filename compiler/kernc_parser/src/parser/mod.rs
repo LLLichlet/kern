@@ -7,7 +7,10 @@ use super::TokenStream;
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::{DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
 
-pub type ParseResult<T> = Result<T, ()>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParseError;
+
+pub type ParseResult<T> = Result<T, ParseError>;
 
 pub struct Parser<'a> {
     stream: TokenStream<'a>,
@@ -67,11 +70,7 @@ impl<'a> Parser<'a> {
             Ok(self.advance())
         } else {
             let current = self.peek();
-            let found_text = self
-                .session
-                .source_manager
-                .slice_source(current.span)
-                .to_string();
+            let found_text = self.describe_token(current);
 
             let mut diag = self.session.struct_error(
                 current.span,
@@ -83,18 +82,39 @@ impl<'a> Parser<'a> {
                 TokenType::Semicolon => diag = diag.with_hint("consider adding a `;` here"),
                 TokenType::RBrace => diag = diag.with_hint("unclosed block"),
                 TokenType::RParen => diag = diag.with_hint("unclosed parenthesis"),
+                TokenType::RBracket => diag = diag.with_hint("unclosed bracket"),
                 _ => {}
             }
 
             diag.emit();
             self.panic_mode = true;
-            Err(())
+            Err(ParseError)
         }
     }
 
     fn intern_token(&mut self, token: Token) -> SymbolId {
         let text = self.session.source_manager.slice_source(token.span);
         self.session.interner.intern(text)
+    }
+
+    fn describe_token(&self, token: Token) -> String {
+        match token.tag {
+            TokenType::Eof => "end of file".to_string(),
+            TokenType::Illegal => "illegal token".to_string(),
+            TokenType::LexError(msg) => format!("lexical error ({})", msg),
+            _ => {
+                let text = self
+                    .session
+                    .source_manager
+                    .slice_source(token.span)
+                    .to_string();
+                if text.is_empty() {
+                    format!("{:?}", token.tag)
+                } else {
+                    text
+                }
+            }
+        }
     }
 
     // ==========================================

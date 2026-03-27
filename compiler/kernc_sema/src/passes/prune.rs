@@ -3,7 +3,7 @@ use kernc_ast::*;
 use kernc_utils::Session;
 
 pub struct Pruner<'a> {
-    pub sess: &'a mut Session,
+    sess: &'a mut Session,
 }
 
 impl<'a> Pruner<'a> {
@@ -12,7 +12,7 @@ impl<'a> Pruner<'a> {
     }
 
     /// 遍历所有模块，进行条件剪枝
-    pub fn prune_all(&mut self, asts: &mut Vec<(DefId, Module)>) {
+    pub fn prune_all(&mut self, asts: &mut [(DefId, Module)]) {
         for (_, module) in asts.iter_mut() {
             self.prune_module(module);
         }

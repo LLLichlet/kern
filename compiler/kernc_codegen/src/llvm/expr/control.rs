@@ -5,6 +5,55 @@ use kernc_mast::{MastBlock, MastExpr, MastSwitchCase};
 use kernc_sema::ty::TypeId;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn current_function_for_control(
+        &mut self,
+        context: &str,
+    ) -> Option<inkwell::values::FunctionValue<'ctx>> {
+        let Some(block) = self.builder.get_insert_block() else {
+            self.sess.emit_ice(
+                kernc_utils::Span::default(),
+                format!(
+                    "Kern ICE (Codegen): missing insertion block while compiling {}.",
+                    context
+                ),
+            );
+            return None;
+        };
+        let Some(func) = block.get_parent() else {
+            self.sess.emit_ice(
+                kernc_utils::Span::default(),
+                format!(
+                    "Kern ICE (Codegen): insertion block has no parent function while compiling {}.",
+                    context
+                ),
+            );
+            return None;
+        };
+        Some(func)
+    }
+
+    fn active_loop_target(
+        &mut self,
+        context: &str,
+    ) -> Option<(
+        inkwell::basic_block::BasicBlock<'ctx>,
+        inkwell::basic_block::BasicBlock<'ctx>,
+    )> {
+        match self.loop_targets.last().copied() {
+            Some(targets) => Some(targets),
+            None => {
+                self.sess.emit_ice(
+                    kernc_utils::Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): {} encountered outside of any active loop target.",
+                        context
+                    ),
+                );
+                None
+            }
+        }
+    }
+
     pub(crate) fn compile_if(
         &mut self,
         cond: &MastExpr,
@@ -14,12 +63,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let cond_val = self.compile_expr(cond).into_int_value();
-        let parent_func = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_parent()
-            .unwrap();
+        let Some(parent_func) = self.current_function_for_control("if expression") else {
+            return self.context.i8_type().const_zero().into();
+        };
 
         let then_bb = self.context.append_basic_block(parent_func, "then");
         let else_bb = self.context.append_basic_block(parent_func, "else");
@@ -84,12 +130,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         body: &MastBlock,
         latch: Option<&MastBlock>,
     ) -> BasicValueEnum<'ctx> {
-        let parent_func = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_parent()
-            .unwrap();
+        let Some(parent_func) = self.current_function_for_control("loop expression") else {
+            return self.context.i8_type().const_zero().into();
+        };
 
         let loop_bb = self.context.append_basic_block(parent_func, "loop");
         let latch_bb = self.context.append_basic_block(parent_func, "latch");
@@ -128,14 +171,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     pub(crate) fn compile_break(&mut self) -> BasicValueEnum<'ctx> {
-        let (_, merge_bb) = self.loop_targets.last().expect("Break outside of loop");
-        self.builder.build_unconditional_branch(*merge_bb).unwrap();
+        let Some((_, merge_bb)) = self.active_loop_target("`break`") else {
+            return self.context.i8_type().const_zero().into();
+        };
+        self.builder.build_unconditional_branch(merge_bb).unwrap();
         self.context.i8_type().const_zero().into()
     }
 
     pub(crate) fn compile_continue(&mut self) -> BasicValueEnum<'ctx> {
-        let (loop_bb, _) = self.loop_targets.last().expect("Continue outside of loop");
-        self.builder.build_unconditional_branch(*loop_bb).unwrap();
+        let Some((loop_bb, _)) = self.active_loop_target("`continue`") else {
+            return self.context.i8_type().const_zero().into();
+        };
+        self.builder.build_unconditional_branch(loop_bb).unwrap();
         self.context.i8_type().const_zero().into()
     }
 
@@ -148,12 +195,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let target_val = self.compile_expr(target).into_int_value();
-        let parent_func = self
-            .builder
-            .get_insert_block()
-            .unwrap()
-            .get_parent()
-            .unwrap();
+        let Some(parent_func) = self.current_function_for_control("switch expression") else {
+            return self.context.i8_type().const_zero().into();
+        };
 
         let merge_bb = self.context.append_basic_block(parent_func, "switchcont");
         let default_bb = self.context.append_basic_block(parent_func, "default");

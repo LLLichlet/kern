@@ -1,13 +1,93 @@
 use super::Lowerer;
+use kernc_ast as ast;
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
 use kernc_sema::checker::{ConstEvaluator, ConstValue, Substituter};
 use kernc_sema::def::{Def, DefId, GlobalDef};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::Span;
+use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn placeholder_function(&mut self, id: MonoId, name: String) {
+        if self.module.functions.iter().any(|func| func.id == id) {
+            return;
+        }
+
+        self.module.functions.push(MastFunction {
+            id,
+            name,
+            params: vec![],
+            ret_ty: TypeId::VOID,
+            body: Some(MastBlock {
+                stmts: vec![MastStmt::Expr(MastExpr::new(
+                    TypeId::VOID,
+                    MastExprKind::Trap,
+                    Span::default(),
+                ))],
+                result: None,
+                defers: vec![],
+            }),
+            is_extern: false,
+            is_variadic: false,
+            attributes: vec![],
+        });
+    }
+
+    fn placeholder_struct(&mut self, id: MonoId, name: String, is_union: bool) {
+        if self.module.structs.iter().any(|strukt| strukt.id == id) {
+            return;
+        }
+
+        self.module.structs.push(MastStruct {
+            id,
+            name,
+            fields: vec![],
+            is_extern: false,
+            is_union,
+            largest_field_idx: 0,
+            attributes: vec![],
+        });
+    }
+
+    fn placeholder_data_structs(
+        &mut self,
+        wrapper_id: MonoId,
+        payload_union_id: MonoId,
+        name: &str,
+    ) {
+        self.placeholder_struct(payload_union_id, format!("{}_payload", name), true);
+        self.placeholder_struct(wrapper_id, name.to_string(), false);
+    }
+
+    fn build_generic_subst_map(
+        &mut self,
+        owner_kind: &str,
+        owner_name: &str,
+        params: &[ast::GenericParam],
+        args: &[TypeId],
+    ) -> Option<HashMap<SymbolId, TypeId>> {
+        if params.len() != args.len() {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): Generics mismatch for {} `{}`. Expected {}, got {}.",
+                    owner_kind,
+                    owner_name,
+                    params.len(),
+                    args.len()
+                ),
+            );
+            return None;
+        }
+
+        let mut subst_map = HashMap::new();
+        for (param, arg) in params.iter().zip(args.iter().copied()) {
+            subst_map.insert(param.name, arg);
+        }
+        Some(subst_map)
+    }
+
     pub(crate) fn instantiate_function(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
         let key = (def_id, args.to_vec());
         if let Some(&id) = self.mono_cache.get(&key) {
@@ -24,24 +104,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 Span::default(),
                 format!("Kern ICE (Lowering): DefId {} is not a Function!", def_id.0),
             );
-            unreachable!()
+            self.placeholder_function(id, format!("__ice_fn_{}", id.0));
+            return id;
         };
 
-        let all_generic_params = def.generics.clone();
-
-        if all_generic_params.len() != args.len() {
-            let fn_name = self.ctx.resolve(def.name);
-            self.ctx.emit_ice(
-                Span::default(),
-                format!("Kern ICE (Lowering): Generics mismatch for function `{}`. Expected {}, got {}. Sema missed this.", fn_name, all_generic_params.len(), args.len())
-            );
-            unreachable!()
-        }
-
-        let mut subst_map = HashMap::new();
-        for (i, param) in all_generic_params.iter().enumerate() {
-            subst_map.insert(param.name, args[i]);
-        }
+        let fn_name = self.ctx.resolve(def.name).to_string();
+        let Some(subst_map) =
+            self.build_generic_subst_map("function", &fn_name, &def.generics, args)
+        else {
+            self.placeholder_function(id, format!("__ice_fn_{}", id.0));
+            return id;
+        };
 
         let mangled_name = self.ctx.get_export_name(def_id, args);
 
@@ -80,17 +153,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.local_types.push(std::collections::HashMap::new());
         for p in &mast_params {
-            self.local_types
-                .last_mut()
-                .unwrap()
-                .insert(p.name, (p.ty, p.is_mut));
+            if let Some(scope) = self.local_types.last_mut() {
+                scope.insert(p.name, (p.ty, p.is_mut));
+            } else {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    "Kern ICE (Lowering): Missing local type scope while instantiating a function.",
+                );
+                break;
+            }
         }
 
-        let body = if let Some(body_expr) = &def.body {
-            Some(self.lower_block_as_body(body_expr, &subst_map, conc_ret))
-        } else {
-            None
-        };
+        let body = def
+            .body
+            .as_ref()
+            .map(|body_expr| self.lower_block_as_body(body_expr, &subst_map, conc_ret));
 
         self.local_types.pop();
 
@@ -135,15 +212,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 Span::default(),
                 format!("Kern ICE (Lowering): DefId {} is not a Struct!", def_id.0),
             );
-            unreachable!()
+            self.placeholder_struct(id, format!("__ice_struct_{}", id.0), false);
+            return id;
         };
 
-        let mut subst_map = HashMap::new();
-        for (i, param) in def.generics.iter().enumerate() {
-            subst_map.insert(param.name, args[i]);
-        }
-
         let mangled_name = self.ctx.get_export_name(def_id, args);
+        let Some(subst_map) =
+            self.build_generic_subst_map("struct", &mangled_name, &def.generics, args)
+        else {
+            self.placeholder_struct(id, format!("__ice_struct_{}", id.0), false);
+            return id;
+        };
 
         let physical_to_ast = {
             let mut layout = LayoutEngine::new(self.ctx);
@@ -203,7 +282,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     self.ctx.type_registry.get(norm_ty)
                 ),
             );
-            unreachable!()
+            self.placeholder_struct(id, format!("__ice_anon_struct_{}", id.0), false);
+            return id;
         };
 
         let mut layout = LayoutEngine::new(self.ctx);
@@ -253,7 +333,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         self.ctx.type_registry.get(norm_ty)
                     ),
                 );
-                unreachable!()
+                self.placeholder_struct(id, format!("__ice_anon_union_{}", id.0), true);
+                return id;
             };
 
         let mut mast_fields = Vec::new();
@@ -309,7 +390,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     self.ctx.type_registry.get(norm_ty)
                 ),
             );
-            unreachable!()
+            self.placeholder_data_structs(
+                wrapper_id,
+                payload_union_id,
+                &format!("__ice_anon_enum_{}", wrapper_id.0),
+            );
+            return wrapper_id;
         };
 
         let mut union_fields = Vec::new();
@@ -385,15 +471,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 Span::default(),
                 format!("Kern ICE (Lowering): DefId {} is not a Union!", def_id.0),
             );
-            unreachable!()
+            self.placeholder_struct(id, format!("__ice_union_{}", id.0), true);
+            return id;
         };
 
-        let mut subst_map = HashMap::new();
-        for (i, param) in def.generics.iter().enumerate() {
-            subst_map.insert(param.name, args[i]);
-        }
-
         let mangled_name = self.ctx.get_export_name(def_id, args);
+        let Some(subst_map) =
+            self.build_generic_subst_map("union", &mangled_name, &def.generics, args)
+        else {
+            self.placeholder_struct(id, format!("__ice_union_{}", id.0), true);
+            return id;
+        };
 
         let mut mast_fields = Vec::new();
         let mut max_size = 0;
@@ -456,15 +544,25 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     def_id.0
                 ),
             );
-            unreachable!()
+            self.placeholder_data_structs(
+                wrapper_id,
+                payload_union_id,
+                &format!("__ice_enum_{}", wrapper_id.0),
+            );
+            return wrapper_id;
         };
 
         let mangled_name = self.ctx.get_export_name(def_id, args);
-
-        let mut subst_map = HashMap::new();
-        for (i, param) in def.generics.iter().enumerate() {
-            subst_map.insert(param.name, args[i]);
-        }
+        let Some(subst_map) =
+            self.build_generic_subst_map("enum", &mangled_name, &def.generics, args)
+        else {
+            self.placeholder_data_structs(
+                wrapper_id,
+                payload_union_id,
+                &format!("__ice_enum_{}", wrapper_id.0),
+            );
+            return wrapper_id;
+        };
 
         // 1. 构建内部的 Payload Union
         let mut union_fields = Vec::new();
@@ -479,11 +577,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .get(&payload_ast.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR);
-                let conc_ty = {
+                {
                     let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
                     subst.substitute(raw_ty)
-                };
-                conc_ty
+                }
             } else {
                 TypeId::VOID // LLVM 中对于空 Union 的处理可以是 i8 或者忽略
             };
@@ -567,7 +664,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     kernc_utils::Span::default(),
                     format!("Kern ICE (Lowering): Global MonoId for `{}` missing.", name),
                 );
-                unreachable!()
+                let placeholder = self.new_mono_id();
+                self.global_map.insert(g.id, placeholder);
+                placeholder
             }
         };
 

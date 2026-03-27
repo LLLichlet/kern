@@ -11,15 +11,20 @@ use crate::def::{Def, FunctionDef, ImplDef};
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast as ast;
+use kernc_utils::Span;
 
 /// 类型检查的主驱动器
 pub struct TypeckDriver<'a, 'ctx> {
-    pub ctx: &'a mut SemaContext<'ctx>,
+    ctx: &'a mut SemaContext<'ctx>,
 }
 
 impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         Self { ctx }
+    }
+
+    pub fn into_context(self) -> &'a mut SemaContext<'ctx> {
+        self.ctx
     }
 
     pub fn check_all(&mut self) {
@@ -50,10 +55,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     continue; // 已经成功推导的跳过
                 }
 
-                let g = if let Def::Global(g) = &self.ctx.defs[item_id.0 as usize] {
-                    g.clone()
-                } else {
-                    unreachable!()
+                let Some(g) = self.global_def(item_id, "infer a global initializer") else {
+                    continue;
                 };
 
                 // 备份当前的报错状态。如果推导失败，静默回滚，不污染终端。
@@ -82,11 +85,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                             let mut evaluator = ConstEvaluator::new(self.ctx);
                             let _ = evaluator.eval_inner(&g.value, 0);
                         }
-                    } else {
-                        if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef))
-                        {
-                            self.ctx.emit_error(g.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
-                        }
+                    } else if !matches!(g.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef))
+                    {
+                        self.ctx.emit_error(g.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
                     }
                 } else {
                     // 推导失败，回滚报错，等待下一轮迭代
@@ -103,10 +104,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         if resolved_globals.len() < globals.len() {
             for &(item_id, scope_id) in &globals {
                 if !resolved_globals.contains(&item_id) {
-                    let g = if let Def::Global(g) = &self.ctx.defs[item_id.0 as usize] {
-                        g.clone()
-                    } else {
-                        unreachable!()
+                    let Some(g) = self.global_def(item_id, "re-check an unresolved global") else {
+                        continue;
                     };
 
                     self.ctx.scopes.set_current_scope(scope_id);
@@ -144,6 +143,36 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             Def::Struct(s) => self.check_struct(&s, parent_scope),
             Def::Union(u) => self.check_union(&u, parent_scope),
             _ => {}
+        }
+    }
+
+    fn global_def(
+        &mut self,
+        def_id: crate::def::DefId,
+        context: &str,
+    ) -> Option<crate::def::GlobalDef> {
+        match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Global(global)) => Some(global),
+            Some(other) => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Typeck): Expected global definition while trying to {}, found {:?}.",
+                        context, other
+                    ),
+                );
+                None
+            }
+            None => {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Typeck): Missing DefId {} while trying to {}.",
+                        def_id.0, context
+                    ),
+                );
+                None
+            }
         }
     }
 
@@ -290,18 +319,19 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 let eval_ty = checker.check_expr(default_expr, Some(field_ty));
 
                 // 3. 检查默认值的类型是否与字段兼容
-                if field_ty != TypeId::ERROR && eval_ty != TypeId::ERROR {
-                    if !checker.check_coercion(default_expr, field_ty, eval_ty) {
-                        self.ctx.emit_error(
-                            default_expr.span,
-                            format!(
-                                "Default value type mismatch for field `{}`. Expected `{}`, found `{}`", 
-                                self.ctx.resolve(field.name),
-                                self.ctx.ty_to_string(field_ty),
-                                self.ctx.ty_to_string(eval_ty)
-                            ),
-                        );
-                    }
+                if field_ty != TypeId::ERROR
+                    && eval_ty != TypeId::ERROR
+                    && !checker.check_coercion(default_expr, field_ty, eval_ty)
+                {
+                    self.ctx.emit_error(
+                        default_expr.span,
+                        format!(
+                            "Default value type mismatch for field `{}`. Expected `{}`, found `{}`",
+                            self.ctx.resolve(field.name),
+                            self.ctx.ty_to_string(field_ty),
+                            self.ctx.ty_to_string(eval_ty)
+                        ),
+                    );
                 }
             }
         }
@@ -348,18 +378,19 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 let eval_ty = checker.check_expr(default_expr, Some(field_ty));
 
                 // 3. 检查默认值的类型是否与字段兼容
-                if field_ty != TypeId::ERROR && eval_ty != TypeId::ERROR {
-                    if !checker.check_coercion(default_expr, field_ty, eval_ty) {
-                        self.ctx.emit_error(
-                            default_expr.span,
-                            format!(
-                                "Default value type mismatch for union field `{}`. Expected `{}`, found `{}`", 
-                                self.ctx.resolve(field.name),
-                                self.ctx.ty_to_string(field_ty),
-                                self.ctx.ty_to_string(eval_ty)
-                            ),
-                        );
-                    }
+                if field_ty != TypeId::ERROR
+                    && eval_ty != TypeId::ERROR
+                    && !checker.check_coercion(default_expr, field_ty, eval_ty)
+                {
+                    self.ctx.emit_error(
+                        default_expr.span,
+                        format!(
+                            "Default value type mismatch for union field `{}`. Expected `{}`, found `{}`", 
+                            self.ctx.resolve(field.name),
+                            self.ctx.ty_to_string(field_ty),
+                            self.ctx.ty_to_string(eval_ty)
+                        ),
+                    );
                 }
             }
         }

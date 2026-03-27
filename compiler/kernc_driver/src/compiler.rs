@@ -9,7 +9,7 @@ use kernc_sema::SemaContext;
 use kernc_sema::checker::TypeckDriver;
 use kernc_sema::passes::{Collector, ImportResolver, TypeResolver, LinkageChecker};
 use kernc_utils::Session;
-use kernc_utils::config::{AsmDialect, CompileOptions};
+use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode, LinkProfile};
 
 use crate::loader::ModuleLoader;
 
@@ -35,8 +35,13 @@ impl CompilerDriver {
     }
 
     pub fn compile(&self) -> bool {
+        if self.options.driver_mode == DriverMode::LinkOnly {
+            return self.link_only();
+        }
+
         // 1. 初始化最底层的全局 Session (掌管文件、报错、配置)
         let mut session = Session::new();
+        session.apply_options(&self.options);
 
         // 2. 初始化语义分析中枢
         let mut ctx = SemaContext::new(&mut session);
@@ -51,7 +56,12 @@ impl CompilerDriver {
         let asts = {
             let mut loader = ModuleLoader::new(&mut ctx);
             // ModuleLoader 内部已经接管了文件读取和报错
-            if loader.load_root(&self.options.input_file).is_none() {
+            let input_file = self
+                .options
+                .input_file
+                .as_deref()
+                .expect("compile mode requires a source input");
+            if loader.load_root(input_file).is_none() {
                 ctx.sess.print_diagnostics();
                 return false;
             }
@@ -114,7 +124,12 @@ impl CompilerDriver {
 
         // 7. 后端代码生成
         let codegen_ctx = Context::create();
-        let mod_name = std::path::Path::new(&self.options.input_file)
+        let mod_name = std::path::Path::new(
+            self.options
+                .input_file
+                .as_deref()
+                .expect("compile mode requires a source input"),
+        )
             .file_stem()
             .unwrap_or_default()
             .to_str()
@@ -135,7 +150,7 @@ impl CompilerDriver {
 
         codegen.compile(&mast_module);
 
-        if self.options.emit_llvm_ir {
+        if self.options.driver_mode == DriverMode::EmitLlvmIr {
             codegen.print_ir();
             return true;
         }
@@ -150,59 +165,39 @@ impl CompilerDriver {
             triple_str
         };
 
-        // 8. 根据平台决定临时文件格式：Windows 走 IR，类 Unix 走 Object
-        let tmp_ext = if is_windows { "ll" } else { "o" };
-        let obj_path_str = format!("{}.tmp.{}", self.options.output_file, tmp_ext);
-        
-        let _guard = TempFileGuard {
-            path: obj_path_str.clone(),
+        let link_input_path = if self.options.driver_mode.emits_linker_input() {
+            self.options.output_file.clone()
+        } else {
+            self.make_temp_link_input_path(is_windows)
         };
 
-        if let Err(e) = codegen.emit_to_file(&triple_str, &obj_path_str, self.options.opt_level) {
+        let _guard = if self.options.driver_mode.emits_linker_input() {
+            None
+        } else {
+            Some(TempFileGuard {
+                path: link_input_path.clone(),
+            })
+        };
+
+        if let Err(e) = codegen.emit_to_file(&triple_str, &link_input_path, self.options.opt_level) {
             eprintln!("Error: LLVM failed to generate intermediate file: {}", e);
             return false;
         }
 
-        // 9. 智能链接器调用
-        println!("Linking for target: {} ...", triple_str);
-        
-        // 如果在 Windows 下且没有显式指定 --cc，我们强制使用 clang，因为它是能解析 .ll 的最佳驱动器
-        let cc_compiler = if is_windows && self.options.linker_cmd == "cc" {
-            "clang".to_string()
-        } else {
-            self.options.linker_cmd.clone()
-        };
-
-        let mut cmd = Command::new(&cc_compiler);
-
-        cmd.arg(&obj_path_str)
-            .arg("-o")
-            .arg(&self.options.output_file);
-
-        // 处理平台专属的链接选项
-        if is_windows {
-            // 静音由于三元组小版本不一致导致的警告
-            cmd.arg("-Wno-override-module");
-            // Windows 下不需要且不支持 -no-pie
-            if !self.options.link_libc {
-                cmd.arg("-nostdlib");
-                cmd.arg("-lkernel32"); // 链接必需的系统底层 API
-            }
-        } else if is_darwin {
-            if !self.options.link_libc {
-                cmd.arg("-nostdlib");
-                cmd.arg("-lSystem");
-                cmd.arg("-Wl,-e,_start");
-            }
-        } else {
-            // Linux 下
-            cmd.arg("-no-pie"); // 针对部分 Linux GCC 环境的配置
-            if !self.options.link_libc {
-                cmd.arg("-nostdlib");
-            }
+        if self.options.driver_mode.emits_linker_input() {
+            println!("Successfully emitted linker input to `{}`", self.options.output_file);
+            return true;
         }
 
-        match cmd.status() {
+        println!("Linking for target: {} ...", triple_str);
+
+        let mut cmd =
+            self.build_link_command(Some(&link_input_path), &triple_str, is_windows, is_darwin);
+        self.maybe_print_link_command(&cmd);
+
+        match cmd
+            .status()
+        {
             Ok(s) if s.success() => {
                 println!("Successfully compiled to `{}`", self.options.output_file);
                 true
@@ -212,6 +207,7 @@ impl CompilerDriver {
                 false
             }
             Err(e) => {
+                let cc_compiler = self.resolve_linker_driver(is_windows);
                 eprintln!(
                     "Error: Failed to invoke linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
                     cc_compiler, e
@@ -220,6 +216,182 @@ impl CompilerDriver {
             }
         }
     }
+
+    fn link_only(&self) -> bool {
+        if self.options.linker_inputs.is_empty() {
+            eprintln!("Error: `--link-only` requires at least one `--link-input`.");
+            return false;
+        }
+
+        let triple_str = self.options.target.triple.to_string();
+        let is_windows = triple_str.contains("windows");
+        let is_darwin = triple_str.contains("darwin") || triple_str.contains("macosx");
+        let triple_str = if is_darwin {
+            normalize_darwin_triple_str(&triple_str)
+        } else {
+            triple_str
+        };
+
+        println!("Linking for target: {} ...", triple_str);
+
+        let mut cmd = self.build_link_command(None, &triple_str, is_windows, is_darwin);
+        self.maybe_print_link_command(&cmd);
+
+        match cmd
+            .status()
+        {
+            Ok(s) if s.success() => {
+                println!("Successfully linked to `{}`", self.options.output_file);
+                true
+            }
+            Ok(s) => {
+                eprintln!("Error: Linker failed with exit code {}", s);
+                false
+            }
+            Err(e) => {
+                let cc_compiler = self.resolve_linker_driver(is_windows);
+                eprintln!(
+                    "Error: Failed to invoke linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
+                    cc_compiler, e
+                );
+                false
+            }
+        }
+    }
+
+    fn make_temp_link_input_path(&self, is_windows: bool) -> String {
+        let tmp_ext = if is_windows { "ll" } else { "o" };
+        format!("{}.tmp.{}", self.options.output_file, tmp_ext)
+    }
+
+    fn resolve_linker_driver(&self, is_windows: bool) -> String {
+        if is_windows && self.options.linker_cmd == "cc" {
+            "clang".to_string()
+        } else {
+            self.options.linker_cmd.clone()
+        }
+    }
+
+    fn build_link_command(
+        &self,
+        link_input_path: Option<&str>,
+        _target_triple: &str,
+        is_windows: bool,
+        is_darwin: bool,
+    ) -> Command {
+        let cc_compiler = self.resolve_linker_driver(is_windows);
+        let mut cmd = Command::new(&cc_compiler);
+
+        if let Some(link_input_path) = link_input_path {
+            cmd.arg(link_input_path);
+        }
+
+        for input in &self.options.linker_inputs {
+            cmd.arg(input);
+        }
+
+        cmd.arg("-o").arg(&self.options.output_file);
+
+        self.apply_link_profile(&mut cmd, is_windows, is_darwin);
+
+        for path in &self.options.linker_search_paths {
+            cmd.arg(format!("-L{}", path));
+        }
+
+        for lib in &self.options.linker_libraries {
+            cmd.arg(format!("-l{}", lib));
+        }
+
+        for arg in &self.options.linker_args {
+            cmd.arg(arg);
+        }
+
+        cmd
+    }
+
+    fn apply_link_profile(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
+        match self.options.link_profile {
+            LinkProfile::None => {}
+            LinkProfile::Hosted => {
+                if !is_windows && !is_darwin {
+                    cmd.arg("-no-pie");
+                }
+                if let Some(entry_symbol) = &self.options.entry_symbol {
+                    cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                }
+            }
+            LinkProfile::Freestanding => {
+                if is_windows {
+                    cmd.arg("-Wno-override-module");
+                    cmd.arg("-nostdlib");
+                } else if is_darwin {
+                    cmd.arg("-nostdlib");
+                    cmd.arg(format!(
+                        "-Wl,-e,{}",
+                        self.options.entry_symbol.as_deref().unwrap_or("_start")
+                    ));
+                } else {
+                    cmd.arg("-no-pie");
+                    cmd.arg("-nostdlib");
+                    if let Some(entry_symbol) = &self.options.entry_symbol {
+                        cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                    }
+                }
+            }
+            LinkProfile::Kern => {
+                if is_windows {
+                    cmd.arg("-Wno-override-module");
+                    cmd.arg("-nostdlib");
+                    cmd.arg("-lkernel32");
+                } else if is_darwin {
+                    cmd.arg("-nostdlib");
+                    cmd.arg("-lSystem");
+                    cmd.arg(format!(
+                        "-Wl,-e,{}",
+                        self.options.entry_symbol.as_deref().unwrap_or("_start")
+                    ));
+                } else {
+                    cmd.arg("-no-pie");
+                    cmd.arg("-nostdlib");
+                    if let Some(entry_symbol) = &self.options.entry_symbol {
+                        cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                    }
+                }
+            }
+        }
+    }
+
+    fn maybe_print_link_command(&self, cmd: &Command) {
+        if self.options.print_link_command {
+            println!("Link command: {}", self.format_command(cmd));
+        }
+    }
+
+    fn format_command(&self, cmd: &Command) -> String {
+        let mut parts = Vec::new();
+        parts.push(shell_quote(cmd.get_program().to_string_lossy().as_ref()));
+
+        for arg in cmd.get_args() {
+            parts.push(shell_quote(arg.to_string_lossy().as_ref()));
+        }
+
+        parts.join(" ")
+    }
+}
+
+fn shell_quote(input: &str) -> String {
+    if input.is_empty() {
+        return "''".to_string();
+    }
+
+    if input
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || matches!(c, '/' | '.' | '_' | '-' | '+' | '=' | ':'))
+    {
+        return input.to_string();
+    }
+
+    format!("'{}'", input.replace('\'', "'\"'\"'"))
 }
 
 fn normalize_darwin_triple_str(triple_str: &str) -> String {

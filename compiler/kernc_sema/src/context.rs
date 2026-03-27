@@ -249,6 +249,44 @@ impl<'a> SemaContext<'a> {
                 s.push('E');
                 s
             }
+            crate::ty::TypeKind::AnonymousUnion(is_extern, fields) => {
+                let mut s = if is_extern { String::from("EUni") } else { String::from("AUni") };
+                for f in fields {
+                    let name_str = self.resolve(f.name);
+                    s.push_str(&format!("{}{}", name_str.len(), name_str));
+                    let ty_str = self.mangle_type(f.ty);
+                    s.push_str(&format!("{}{}", ty_str.len(), ty_str));
+                }
+                s.push('E');
+                s
+            }
+            crate::ty::TypeKind::AnonymousEnum(enum_def) => {
+                let mut s = String::from("AEnum");
+                if let Some(backing_ty) = enum_def.backing_ty {
+                    let backing = self.mangle_type(backing_ty);
+                    s.push_str(&format!("B{}{}", backing.len(), backing));
+                }
+                for variant in &enum_def.variants {
+                    let name_str = self.resolve(variant.name);
+                    s.push_str(&format!("{}{}", name_str.len(), name_str));
+                    if let Some(payload_ty) = variant.payload_ty {
+                        let payload = self.mangle_type(payload_ty);
+                        s.push_str(&format!("P{}{}", payload.len(), payload));
+                    } else {
+                        s.push('N');
+                    }
+                    if let Some(value) = variant.explicit_value {
+                        s.push_str(&format!("V{}", value));
+                    }
+                    s.push('_');
+                }
+                s.push('E');
+                s
+            }
+            crate::ty::TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let inner = self.mangle_type(enum_ty);
+                format!("AEnumPayload{}{}", inner.len(), inner)
+            }
             _ => "unknown".to_string()
         }
     }

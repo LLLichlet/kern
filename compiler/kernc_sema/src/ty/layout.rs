@@ -112,6 +112,50 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Def(def_id, generic_args) | TypeKind::Enum(def_id, generic_args) => {
                 self.compute_def_align(def_id, &generic_args, depth)
             }
+            TypeKind::AnonymousUnion(_, fields) => {
+                let mut max_align = 1;
+                for f in fields {
+                    let align = self.compute_type_align_inner(f.ty, depth + 1);
+                    if align > max_align {
+                        max_align = align;
+                    }
+                }
+                max_align
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let tag_ty = enum_def.backing_ty.unwrap_or(TypeId::U32);
+                let mut max_align = self.compute_type_align_inner(tag_ty, depth + 1);
+                for variant in &enum_def.variants {
+                    if let Some(payload_ty) = variant.payload_ty {
+                        let align = self.compute_type_align_inner(payload_ty, depth + 1);
+                        if align > max_align {
+                            max_align = align;
+                        }
+                    }
+                }
+                max_align
+            }
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let enum_ty = self.ctx.type_registry.normalize(enum_ty);
+                let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
+                    self.ctx.type_registry.get(enum_ty).clone()
+                {
+                    enum_def
+                } else {
+                    unreachable!()
+                };
+
+                let mut max_align = 1;
+                for variant in &enum_def.variants {
+                    if let Some(payload_ty) = variant.payload_ty {
+                        let align = self.compute_type_align_inner(payload_ty, depth + 1);
+                        if align > max_align {
+                            max_align = align;
+                        }
+                    }
+                }
+                max_align
+            }
             TypeKind::AnonymousState { captures, .. } => {
                 let mut max_align = 1;
                 for cap_ty in captures {
@@ -226,6 +270,51 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     offset += f_size;
                 }
                 Self::align_to(offset, max_align)
+            }
+            TypeKind::AnonymousUnion(_, fields) => {
+                let mut max_size = 0;
+                for field in fields {
+                    let size = self.compute_type_size_inner(field.ty, depth + 1);
+                    if size > max_size {
+                        max_size = size;
+                    }
+                }
+                max_size
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let tag_ty = enum_def.backing_ty.unwrap_or(TypeId::U32);
+                let tag_size = self.compute_type_size_inner(tag_ty, depth + 1);
+                let tag_align = self.compute_type_align_inner(tag_ty, depth + 1);
+                let payload_ty = self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousEnumPayload(norm));
+                let payload_size = self.compute_type_size_inner(payload_ty, depth + 1);
+                let payload_align = self.compute_type_align_inner(payload_ty, depth + 1);
+                let max_align = tag_align.max(payload_align);
+                let payload_offset = Self::align_to(tag_size, payload_align);
+                Self::align_to(payload_offset + payload_size, max_align)
+            }
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let enum_ty = self.ctx.type_registry.normalize(enum_ty);
+                let enum_def = if let TypeKind::AnonymousEnum(enum_def) =
+                    self.ctx.type_registry.get(enum_ty).clone()
+                {
+                    enum_def
+                } else {
+                    unreachable!()
+                };
+
+                let mut max_payload_size = 0;
+                for variant in &enum_def.variants {
+                    if let Some(payload_ty) = variant.payload_ty {
+                        let size = self.compute_type_size_inner(payload_ty, depth + 1);
+                        if size > max_payload_size {
+                            max_payload_size = size;
+                        }
+                    }
+                }
+                max_payload_size
             }
             TypeKind::Error | TypeKind::Primitive(PrimitiveType::Never) => 0,
             TypeKind::Primitive(p) => self.primitive_size(p),

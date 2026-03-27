@@ -41,6 +41,8 @@ pub struct CodeGenerator<'ctx, 'a> {
     pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pub adt_union_map: HashMap<MonoId, MonoId>,
     pub anon_struct_map: HashMap<TypeId, MonoId>,
+    pub anon_union_map: HashMap<TypeId, MonoId>,
+    pub anon_enum_map: HashMap<TypeId, MonoId>,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
@@ -68,6 +70,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             def_mono_map: HashMap::new(),
             adt_union_map: HashMap::new(),
             anon_struct_map: HashMap::new(),
+            anon_union_map: HashMap::new(),
+            anon_enum_map: HashMap::new(),
         }
     }
 
@@ -76,6 +80,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.def_mono_map = module.def_mono_map.clone();
         self.adt_union_map = module.adt_union_map.clone();
         self.anon_struct_map = module.anon_struct_map.clone();
+        self.anon_union_map = module.anon_union_map.clone();
+        self.anon_enum_map = module.anon_enum_map.clone();
 
         self.declare_structs(&module.structs);
         self.declare_globals(&module.globals);

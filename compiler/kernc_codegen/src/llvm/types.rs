@@ -107,6 +107,51 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 );
                 unreachable!()
             }
+            TypeKind::AnonymousUnion(..) => {
+                if let Some(&mono_id) = self.anon_union_map.get(&norm) {
+                    if let Some(struct_ty) = self.structs.get(&mono_id) {
+                        return struct_ty.as_basic_type_enum();
+                    }
+                }
+
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!("Kern ICE (Codegen): AnonymousUnion TypeId({:?}) not instantiated by Lowerer", norm),
+                );
+                unreachable!()
+            }
+            TypeKind::AnonymousEnum(..) => {
+                if let Some(&mono_id) = self.anon_enum_map.get(&norm) {
+                    if let Some(struct_ty) = self.structs.get(&mono_id) {
+                        return struct_ty.as_basic_type_enum();
+                    }
+                }
+
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!("Kern ICE (Codegen): AnonymousEnum TypeId({:?}) not instantiated by Lowerer", norm),
+                );
+                unreachable!()
+            }
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let enum_ty = self.type_registry.normalize(enum_ty);
+                if let Some(&wrapper_mono_id) = self.anon_enum_map.get(&enum_ty) {
+                    if let Some(&payload_mono_id) = self.adt_union_map.get(&wrapper_mono_id) {
+                        if let Some(struct_ty) = self.structs.get(&payload_mono_id) {
+                            return struct_ty.as_basic_type_enum();
+                        }
+                    }
+                }
+
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): AnonymousEnumPayload for TypeId({:?}) not instantiated",
+                        enum_ty
+                    ),
+                );
+                unreachable!()
+            }
             TypeKind::AnonymousState { captures, .. } => {
                 let mut field_tys = Vec::new();
                 for cap in captures {

@@ -223,13 +223,150 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             id,
             name: mangled_name,
             fields: mast_fields,
-            is_extern: false,
+            is_extern,
             is_union: false,
             largest_field_idx: 0,
             attributes: vec![],
         });
         
         id
+    }
+
+    pub(crate) fn instantiate_anon_union(&mut self, norm_ty: TypeId) -> MonoId {
+        if let Some(&id) = self.anon_union_cache.get(&norm_ty) {
+            return id;
+        }
+
+        let id = self.new_mono_id();
+        self.anon_union_cache.insert(norm_ty, id);
+
+        let (is_extern, fields) =
+            if let TypeKind::AnonymousUnion(ext, f) = self.ctx.type_registry.get(norm_ty).clone() {
+                (ext, f)
+            } else {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Lowering): Expected AnonymousUnion, found {:?}",
+                        self.ctx.type_registry.get(norm_ty)
+                    ),
+                );
+                unreachable!()
+            };
+
+        let mut mast_fields = Vec::new();
+        let mut max_size = 0;
+        let mut largest_field_idx = 0;
+
+        for (idx, field) in fields.iter().enumerate() {
+            mast_fields.push(MastField {
+                name: field.name,
+                ty: field.ty,
+            });
+
+            let mut layout = LayoutEngine::new(self.ctx);
+            let size = layout.compute_type_size(field.ty);
+            if size > max_size {
+                max_size = size;
+                largest_field_idx = idx;
+            }
+        }
+
+        self.module.structs.push(MastStruct {
+            id,
+            name: self.ctx.mangle_type(norm_ty),
+            fields: mast_fields,
+            is_extern,
+            is_union: true,
+            largest_field_idx,
+            attributes: vec![],
+        });
+
+        id
+    }
+
+    pub(crate) fn instantiate_anon_enum(&mut self, norm_ty: TypeId) -> MonoId {
+        if let Some(&id) = self.anon_enum_cache.get(&norm_ty) {
+            return id;
+        }
+
+        let wrapper_id = self.new_mono_id();
+        let payload_union_id = self.new_mono_id();
+        self.anon_enum_cache.insert(norm_ty, wrapper_id);
+        self.adt_union_map.insert(wrapper_id, payload_union_id);
+
+        let enum_def =
+            if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_ty).clone() {
+                enum_def
+            } else {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Lowering): Expected AnonymousEnum, found {:?}",
+                        self.ctx.type_registry.get(norm_ty)
+                    ),
+                );
+                unreachable!()
+            };
+
+        let mut union_fields = Vec::new();
+        let mut largest_idx = 0;
+        let mut max_size = 0;
+        for (idx, variant) in enum_def.variants.iter().enumerate() {
+            let field_ty = variant.payload_ty.unwrap_or(TypeId::VOID);
+            union_fields.push(MastField {
+                name: variant.name,
+                ty: field_ty,
+            });
+
+            if field_ty != TypeId::VOID && field_ty != TypeId::ERROR {
+                let mut layout = LayoutEngine::new(self.ctx);
+                let size = layout.compute_type_size(field_ty);
+                if size > max_size {
+                    max_size = size;
+                    largest_idx = idx;
+                }
+            }
+        }
+
+        let mangled_name = self.ctx.mangle_type(norm_ty);
+
+        self.module.structs.push(MastStruct {
+            id: payload_union_id,
+            name: format!("{}_payload", mangled_name),
+            fields: union_fields,
+            is_extern: false,
+            is_union: true,
+            largest_field_idx: largest_idx,
+            attributes: vec![],
+        });
+
+        let payload_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnumPayload(norm_ty));
+        let tag_ty = enum_def.backing_ty.unwrap_or(TypeId::U32);
+
+        self.module.structs.push(MastStruct {
+            id: wrapper_id,
+            name: mangled_name,
+            fields: vec![
+                MastField {
+                    name: self.ctx.intern("__tag"),
+                    ty: tag_ty,
+                },
+                MastField {
+                    name: self.ctx.intern("__payload"),
+                    ty: payload_ty,
+                },
+            ],
+            is_extern: false,
+            is_union: false,
+            largest_field_idx: 0,
+            attributes: vec![],
+        });
+
+        wrapper_id
     }
 
     pub(crate) fn instantiate_union(
@@ -287,7 +424,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             id,
             name: mangled_name,
             fields: mast_fields,
-            is_extern: false,
+            is_extern: def.is_extern,
             is_union: true,
             largest_field_idx,
             attributes: vec![],

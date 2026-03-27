@@ -140,7 +140,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 统一识别 Enum 类型
-        let is_data = matches!(kind_enum, TypeKind::Enum(..));
+        let is_data = matches!(kind_enum, TypeKind::Enum(..) | TypeKind::AnonymousEnum(..));
 
         match kind {
             ast::DataLiteralKind::Array(elems) => {
@@ -237,6 +237,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         diag.emit();
                     }
                 }
+            } else if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_exp) {
+                if let Some(v) = enum_def.variants.iter().find(|v| v.name == variant_name) {
+                    if v.payload_ty.is_some() {
+                        let v_str = self.ctx.resolve(variant_name).to_string();
+                        self.ctx
+                            .struct_error(span, format!("variant `{}` requires a payload", v_str))
+                            .with_hint(format!("initialize it as `.{{ {}: value }}`", v_str))
+                            .emit();
+                    } else {
+                        res_ty = exp_ty;
+                    }
+                } else {
+                    let v_str = self.ctx.resolve(variant_name).to_string();
+                    let exp_str = self.ctx.ty_to_string(norm_exp);
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!("variant `.{}` does not exist in the expected data type", v_str),
+                        )
+                        .with_hint(format!("expected data type is `{}`", exp_str))
+                        .emit();
+                }
             } else if norm_exp != TypeId::ERROR {
                 let exp_str = self.ctx.ty_to_string(norm_exp);
                 self.ctx
@@ -268,6 +290,41 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let TypeKind::Enum(id, args) = self.ctx.type_registry.get(exp_norm) {
                 (*id, args.clone())
             } else {
+                if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(exp_norm) {
+                    if init_fields.len() != 1 {
+                        self.ctx
+                            .struct_error(span, "Enum literal must specify exactly one variant")
+                            .emit();
+                        return TypeId::ERROR;
+                    }
+
+                    let init_f = &init_fields[0];
+                    let variant = enum_def.variants.iter().find(|v| v.name == init_f.name);
+                    if let Some(v) = variant {
+                        if let Some(payload_ty) = v.payload_ty {
+                            let val_ty = self.check_expr(&init_f.value, Some(payload_ty));
+                            self.check_coercion(&init_f.value, payload_ty, val_ty);
+                        } else {
+                            let v_str = self.ctx.resolve(v.name).to_string();
+                            self.ctx
+                                .struct_error(
+                                    init_f.span,
+                                    format!("variant `{}` does not take a payload", v_str),
+                                )
+                                .with_hint(format!("initialize it as `.{{ {} }}` instead", v_str))
+                                .emit();
+                        }
+                    } else {
+                        let v_str = self.ctx.resolve(init_f.name);
+                        self.ctx
+                            .struct_error(
+                                init_f.span,
+                                format!("variant `{}` not found in anonymous enum", v_str),
+                            )
+                            .emit();
+                    }
+                    return expected;
+                }
                 unreachable!()
             };
 
@@ -458,23 +515,63 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> TypeId {
         // 1. 提取定义信息与泛型实参，同时识别是 Struct 还是 Union
-        let (def_fields, def_name, def_generics, generic_args, is_union) =
+        let (def_fields, def_name, def_generics, generic_args, is_union): (
+            Vec<(kernc_utils::SymbolId, TypeId, bool)>,
+            String,
+            Vec<ast::GenericParam>,
+            Vec<TypeId>,
+            bool,
+        ) =
             if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
                 match &self.ctx.defs[def_id.0 as usize] {
-                    Def::Struct(s) => (
-                        s.fields.clone(),
-                        self.ctx.resolve(s.name).to_string(),
-                        s.generics.clone(),
-                        args.clone(),
-                        false,
-                    ),
-                    Def::Union(u) => (
-                        u.fields.clone(),
-                        self.ctx.resolve(u.name).to_string(),
-                        u.generics.clone(),
-                        args.clone(),
-                        true,
-                    ),
+                    Def::Struct(s) => {
+                        let fields = s
+                            .fields
+                            .iter()
+                            .map(|field| {
+                                (
+                                    field.name,
+                                    self.ctx
+                                        .node_types
+                                        .get(&field.type_node.id)
+                                        .copied()
+                                        .unwrap_or(TypeId::ERROR),
+                                    field.default_value.is_some(),
+                                )
+                            })
+                            .collect();
+                        (
+                            fields,
+                            self.ctx.resolve(s.name).to_string(),
+                            s.generics.clone(),
+                            args.clone(),
+                            false,
+                        )
+                    }
+                    Def::Union(u) => {
+                        let fields = u
+                            .fields
+                            .iter()
+                            .map(|field| {
+                                (
+                                    field.name,
+                                    self.ctx
+                                        .node_types
+                                        .get(&field.type_node.id)
+                                        .copied()
+                                        .unwrap_or(TypeId::ERROR),
+                                    false,
+                                )
+                            })
+                            .collect();
+                        (
+                            fields,
+                            self.ctx.resolve(u.name).to_string(),
+                            u.generics.clone(),
+                            args.clone(),
+                            true,
+                        )
+                    }
                     _ => {
                         self.ctx
                             .struct_error(
@@ -485,6 +582,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return TypeId::ERROR;
                     }
                 }
+            } else if let TypeKind::AnonymousStruct(_, fields) = self.ctx.type_registry.get(exp_norm) {
+                let defs: Vec<_> = fields
+                    .iter()
+                    .map(|field| (field.name, field.ty, false))
+                    .collect();
+                (defs, self.ctx.ty_to_string(exp_norm), Vec::new(), Vec::new(), false)
+            } else if let TypeKind::AnonymousUnion(_, fields) = self.ctx.type_registry.get(exp_norm) {
+                let defs: Vec<_> = fields
+                    .iter()
+                    .map(|field| (field.name, field.ty, false))
+                    .collect();
+                (defs, self.ctx.ty_to_string(exp_norm), Vec::new(), Vec::new(), true)
             } else {
                 self.ctx
                     .struct_error(
@@ -499,22 +608,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 2. 校验用户提供的初始化字段的类型
         for init_f in init_fields {
-            if let Some(def_f) = def_fields.iter().find(|f| f.name == init_f.name) {
-                let mut f_ty = self
-                    .ctx
-                    .node_types
-                    .get(&def_f.type_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
+            if let Some(def_f) = def_fields.iter().find(|f| f.0 == init_f.name) {
+                let mut f_ty = def_f.1;
 
-                // 如果结构体本身的字段类型就是错的，必须强制抛出异常阻断编译
                 if f_ty == TypeId::ERROR {
                     self.ctx.struct_error(init_f.span, "internal compiler error: field type was unresolved prior to Typeck")
                         .with_hint("this is usually caused by a failing type resolver that missed emitting a diagnostic")
                         .emit();
                 }
 
-                // 处理泛型字段类型替换
                 if !def_generics.is_empty() && !generic_args.is_empty() {
                     let mut map = HashMap::new();
                     for (i, param) in def_generics.iter().enumerate() {
@@ -569,8 +671,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         } else {
             // Kern Struct 规则：无隐式零初始化。漏掉字段必须显式使用 undef 或具有默认值
             for def_f in &def_fields {
-                if !initialized.contains(&def_f.name) && def_f.default_value.is_none() {
-                    let name_str = self.ctx.resolve(def_f.name).to_string();
+                if !initialized.contains(&def_f.0) && !def_f.2 {
+                    let name_str = self.ctx.resolve(def_f.0).to_string();
                     self.ctx.struct_error(span, format!("field `{}` is missing and has no default value", name_str))
                         .with_hint("Kern structs do not zero-initialize implicitly.")
                         .with_hint(format!("use `{}: type.{{undef}}` if you intentionally want to leave memory uninitialized", name_str))

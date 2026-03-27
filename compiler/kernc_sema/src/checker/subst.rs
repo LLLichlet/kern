@@ -139,6 +139,39 @@ impl<'a> Substituter<'a> {
                 }).collect();
                 self.registry.intern(TypeKind::AnonymousStruct(is_extern, new_fields))
             }
+
+            TypeKind::AnonymousUnion(is_extern, fields) => {
+                let new_fields = fields.into_iter().map(|f| {
+                    crate::ty::AnonymousField {
+                        name: f.name,
+                        ty: self.substitute(f.ty),
+                    }
+                }).collect();
+                self.registry.intern(TypeKind::AnonymousUnion(is_extern, new_fields))
+            }
+
+            TypeKind::AnonymousEnum(enum_def) => {
+                let new_backing_ty = enum_def.backing_ty.map(|ty| self.substitute(ty));
+                let new_variants = enum_def
+                    .variants
+                    .into_iter()
+                    .map(|variant| crate::ty::AnonymousVariant {
+                        name: variant.name,
+                        payload_ty: variant.payload_ty.map(|ty| self.substitute(ty)),
+                        explicit_value: variant.explicit_value,
+                    })
+                    .collect();
+                self.registry.intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
+                    backing_ty: new_backing_ty,
+                    variants: new_variants,
+                }))
+            }
+
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                let substituted = self.substitute(enum_ty);
+                self.registry
+                    .intern(TypeKind::AnonymousEnumPayload(substituted))
+            }
         }
     }
 }

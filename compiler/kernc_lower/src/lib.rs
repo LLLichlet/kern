@@ -27,6 +27,8 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
     pub(crate) closure_fn_map: HashMap<NodeId, MonoId>,
     pub(crate) anon_struct_cache: HashMap<TypeId, MonoId>,
+    pub(crate) anon_union_cache: HashMap<TypeId, MonoId>,
+    pub(crate) anon_enum_cache: HashMap<TypeId, MonoId>,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -41,6 +43,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 def_mono_map: HashMap::new(),
                 adt_union_map: HashMap::new(),
                 anon_struct_map: HashMap::new(),
+                anon_union_map: HashMap::new(),
+                anon_enum_map: HashMap::new(),
             },
             mono_cache: HashMap::new(),
             next_mono_id: 1,
@@ -54,6 +58,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             adt_union_map: HashMap::new(),
             closure_fn_map: HashMap::new(),
             anon_struct_cache: HashMap::new(),
+            anon_union_cache: HashMap::new(),
+            anon_enum_cache: HashMap::new(),
         }
     }
 
@@ -115,6 +121,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.def_mono_map = self.mono_cache.clone();
         self.module.adt_union_map = self.adt_union_map.clone();
         self.module.anon_struct_map = self.anon_struct_cache.clone();
+        self.module.anon_union_map = self.anon_union_cache.clone();
+        self.module.anon_enum_map = self.anon_enum_cache.clone();
         
         self.module.clone()
     }

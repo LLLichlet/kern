@@ -149,6 +149,45 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 }
             }
 
+            TypeKind::AnonymousUnion(is_extern, fields) => {
+                let prefix = if *is_extern { "extern union" } else { "union" };
+                if fields.is_empty() {
+                    format!("{} {{}}", prefix)
+                } else {
+                    let field_strs: Vec<String> = fields
+                        .iter()
+                        .map(|f| format!("{}: {}", self.ctx.resolve(f.name), self.format(f.ty)))
+                        .collect();
+                    format!("{} {{ {} }}", prefix, field_strs.join(", "))
+                }
+            }
+
+            TypeKind::AnonymousEnum(enum_def) => {
+                let mut parts = Vec::new();
+                for variant in &enum_def.variants {
+                    let mut part = self.ctx.resolve(variant.name).to_string();
+                    if let Some(payload_ty) = variant.payload_ty {
+                        part.push_str(": ");
+                        part.push_str(&self.format(payload_ty));
+                    }
+                    if let Some(value) = variant.explicit_value {
+                        part.push_str(" = ");
+                        part.push_str(&value.to_string());
+                    }
+                    parts.push(part);
+                }
+
+                if let Some(backing_ty) = enum_def.backing_ty {
+                    format!("enum: {} {{ {} }}", self.format(backing_ty), parts.join(", "))
+                } else {
+                    format!("enum {{ {} }}", parts.join(", "))
+                }
+            }
+
+            TypeKind::AnonymousEnumPayload(enum_ty) => {
+                format!("[anon-enum-payload {}]", self.format(*enum_ty))
+            }
+
             TypeKind::Error => "{error}".to_string(),
         }
     }

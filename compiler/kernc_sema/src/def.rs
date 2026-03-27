@@ -130,6 +130,7 @@ pub struct UnionDef {
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub fields: Vec<ast::StructFieldDef>,
+    pub is_extern: bool,
     pub span: Span,
 }
 

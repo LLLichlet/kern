@@ -219,7 +219,13 @@ impl<'a> Parser<'a> {
             TokenType::At => self.parse_intrinsic_expr(token),
 
             // Explicitly Typed Initializations (e.g., [N]T.{...}, *T.{...})
-            TokenType::LBracket | TokenType::Star | TokenType::Caret | TokenType::Struct | TokenType::Extern => {
+            TokenType::LBracket
+            | TokenType::Star
+            | TokenType::Caret
+            | TokenType::Struct
+            | TokenType::Union
+            | TokenType::Enum
+            | TokenType::Extern => {
                 self.parse_typed_data_init_prefix(token)
             }
 
@@ -609,10 +615,74 @@ impl<'a> Parser<'a> {
                 // 原生 struct，is_extern = false
                 self.parse_struct_literal_fields(span, false)?
             }
+            TokenType::Union => {
+                self.parse_union_literal_fields(span, false)?
+            }
+            TokenType::Enum => {
+                let mut backing_type = None;
+                if self.match_token(&[TokenType::Colon]) {
+                    backing_type = Some(Box::new(self.parse_type()?));
+                }
+
+                self.expect(TokenType::LBrace)?;
+                let mut variants = Vec::new();
+
+                while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+                    let name_token = self.expect(TokenType::Identifier)?;
+                    let name_id = self.intern_token(name_token);
+
+                    let mut payload_type = None;
+                    let mut value = None;
+
+                    if self.match_token(&[TokenType::Colon]) {
+                        payload_type = Some(Box::new(self.parse_type()?));
+                    } else if self.match_token(&[TokenType::Assign]) {
+                        value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+                    }
+
+                    let mut variant_span = name_token.span;
+                    if let Some(ref p) = payload_type {
+                        variant_span = variant_span.to(p.span);
+                    }
+                    if let Some(ref v) = value {
+                        variant_span = variant_span.to(v.span);
+                    }
+
+                    variants.push(EnumVariant {
+                        name: name_id,
+                        payload_type,
+                        value,
+                        span: variant_span,
+                    });
+
+                    if !self.match_token(&[TokenType::Comma]) {
+                        break;
+                    }
+                }
+
+                let end_token = self.expect(TokenType::RBrace)?;
+                TypeNode {
+                    id: self.new_id(),
+                    span: span.to(end_token.span),
+                    kind: TypeKind::Enum {
+                        backing_type,
+                        variants,
+                    },
+                }
+            }
             TokenType::Extern => {
-                // extern struct，必须紧跟 struct 关键字
-                self.expect(TokenType::Struct)?;
-                self.parse_struct_literal_fields(span, true)?
+                if self.match_token(&[TokenType::Struct]) {
+                    self.parse_struct_literal_fields(span, true)?
+                } else if self.match_token(&[TokenType::Union]) {
+                    self.parse_union_literal_fields(span, true)?
+                } else {
+                    let err_span = self.peek().span;
+                    self.add_error(
+                        err_span,
+                        "Expected `struct` or `union` after `extern` in typed initialization".to_string(),
+                    );
+                    return Err(());
+                }
             }
             _ => unreachable!(),
         };
@@ -660,6 +730,52 @@ impl<'a> Parser<'a> {
             id: self.new_id(),
             span: start_span.to(end_token.span),
             kind: TypeKind::Struct { is_extern, fields },
+        })
+    }
+
+    fn parse_union_literal_fields(
+        &mut self,
+        start_span: Span,
+        is_extern: bool,
+    ) -> ParseResult<TypeNode> {
+        self.expect(TokenType::LBrace)?;
+
+        let mut fields = Vec::new();
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let name_token = self.expect(TokenType::Identifier)?;
+            let name_id = self.intern_token(name_token);
+            self.expect(TokenType::Colon)?;
+            let field_type = self.parse_type()?;
+
+            let mut default_value = None;
+            if self.match_token(&[TokenType::Assign]) {
+                default_value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            }
+
+            let field_span = name_token.span.to(if let Some(ref v) = default_value {
+                v.span
+            } else {
+                field_type.span
+            });
+
+            fields.push(StructFieldDef {
+                name: name_id,
+                type_node: field_type,
+                default_value,
+                span: field_span,
+            });
+
+            if !self.match_token(&[TokenType::Comma]) {
+                break;
+            }
+        }
+
+        let end_token = self.expect(TokenType::RBrace)?;
+
+        Ok(TypeNode {
+            id: self.new_id(),
+            span: start_span.to(end_token.span),
+            kind: TypeKind::Union { is_extern, fields },
         })
     }
 

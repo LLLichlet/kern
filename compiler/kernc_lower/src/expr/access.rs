@@ -215,6 +215,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::AnonymousStruct( .. ) => {
                 self.instantiate_anon_struct(norm_base)
             }
+            TypeKind::AnonymousUnion(..) => {
+                self.instantiate_anon_union(norm_base)
+            }
             _ => {
                 self.ctx.emit_ice(
                     span,
@@ -281,6 +284,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
             let (ast_to_physical, _) = layout.get_anon_struct_mapping(is_extern, fields, 0);
             return ast_to_physical[ast_idx];
+        }
+
+        if let TypeKind::AnonymousUnion(_, ref fields) = self.ctx.type_registry.get(norm).clone() {
+            return fields
+                .iter()
+                .position(|f| f.name == field_name)
+                .unwrap_or(0);
         }
 
         0

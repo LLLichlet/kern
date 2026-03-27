@@ -2,7 +2,7 @@ use crate::SemaContext;
 use crate::checker::{ConstEvaluator, Substituter};
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{AnonymousEnum, AnonymousField, AnonymousVariant, TypeId, TypeKind};
 use kernc_ast as ast;
 use kernc_utils::{Span, SymbolId};
 
@@ -323,41 +323,77 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
             // 内联的匿名结构体
             ast::TypeKind::Struct { is_extern, fields } => {
-                let mut anon_fields = Vec::with_capacity(fields.len());
-                
-                for f in fields {
-                    let f_ty = self.resolve_type(&f.type_node, env_scope);
-                    // 匿名结构体的字段必须是 Sized (大小在编译期已知)
-                    self.ensure_sized(f_ty, f.type_node.span); 
-                    
-                    // 核心哲学：匿名结构体只是一个“内存形状”，不允许携带默认值逻辑
-                    if f.default_value.is_some() {
-                        self.ctx.struct_error(f.span, "anonymous structs cannot have default field values")
-                            .with_hint("default values are only allowed in named struct declarations (`type Name = struct { ... }`)")
-                            .emit();
-                    }
+                let mut anon_fields = self.resolve_anonymous_fields(
+                    fields,
+                    env_scope,
+                    ty_node.span,
+                    "struct",
+                    true,
+                );
 
-                    anon_fields.push(crate::ty::AnonymousField {
-                        name: f.name,
-                        ty: f_ty,
-                    });
-                }
-                
                 if !*is_extern {
-                    // 如果是原生的，按 SymbolId 排序以保证结构等价性 (Duck Typing)
-                    // 这样 `struct { x: i32, y: i32 }` 和 `struct { y: i32, x: i32 }` 就能在底层的 TypeRegistry 收敛为同一个 TypeId
                     anon_fields.sort_by_key(|f| f.name);
                 }
 
-                // 检查排序后是否有重复字段
-                for i in 1..anon_fields.len() {
-                    if anon_fields[i - 1].name == anon_fields[i].name {
-                        let name_str = self.ctx.resolve(anon_fields[i].name).to_string();
-                        self.ctx.struct_error(ty_node.span, format!("duplicate field `{}` in anonymous struct", name_str)).emit();
+                self.check_duplicate_anon_fields(&anon_fields, ty_node.span, "anonymous struct");
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousStruct(*is_extern, anon_fields))
+            }
+
+            ast::TypeKind::Union { is_extern, fields } => {
+                let mut anon_fields = self.resolve_anonymous_fields(
+                    fields,
+                    env_scope,
+                    ty_node.span,
+                    "union",
+                    false,
+                );
+                anon_fields.sort_by_key(|f| f.name);
+                self.check_duplicate_anon_fields(&anon_fields, ty_node.span, "anonymous union");
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::AnonymousUnion(*is_extern, anon_fields))
+            }
+
+            ast::TypeKind::Enum { backing_type, variants } => {
+                let backing_ty = backing_type.as_ref().map(|bt| {
+                    let resolved_ty = self.resolve_type(bt, env_scope);
+                    if !self.ctx.type_registry.is_integer(resolved_ty) && resolved_ty != TypeId::ERROR
+                    {
+                        self.ctx
+                            .emit_error(bt.span, "anonymous enum backing type must be an integer");
                     }
+                    resolved_ty
+                });
+
+                let mut anon_variants = Vec::new();
+                for variant in variants {
+                    let payload_ty = variant.payload_type.as_ref().map(|payload_ty| {
+                        let resolved_ty = self.resolve_type(payload_ty, env_scope);
+                        self.ensure_sized(resolved_ty, payload_ty.span);
+                        resolved_ty
+                    });
+
+                    let explicit_value = variant.value.as_ref().map(|value_expr| {
+                        self.resolve_expr(value_expr, env_scope);
+                        let mut evaluator = ConstEvaluator::new(self.ctx);
+                        evaluator.eval_math(value_expr).unwrap_or(0)
+                    });
+
+                    anon_variants.push(AnonymousVariant {
+                        name: variant.name,
+                        payload_ty,
+                        explicit_value,
+                    });
                 }
 
-                self.ctx.type_registry.intern(TypeKind::AnonymousStruct(*is_extern, anon_fields))
+                self.check_duplicate_anon_variants(&anon_variants, ty_node.span);
+
+                self.ctx.type_registry.intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                    backing_ty,
+                    variants: anon_variants,
+                }))
             }
 
             ast::TypeKind::Pointer { is_mut, elem } => {
@@ -469,6 +505,70 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         self.ctx.node_types.insert(ty_node.id, ty_id);
         ty_id
+    }
+
+    fn resolve_anonymous_fields(
+        &mut self,
+        fields: &[ast::StructFieldDef],
+        env_scope: ScopeId,
+        _span: Span,
+        kind_name: &str,
+        allow_default_values: bool,
+    ) -> Vec<AnonymousField> {
+        let mut anon_fields = Vec::with_capacity(fields.len());
+
+        for f in fields {
+            let f_ty = self.resolve_type(&f.type_node, env_scope);
+            self.ensure_sized(f_ty, f.type_node.span);
+
+            if f.default_value.is_some() {
+                let msg = if allow_default_values {
+                    format!("anonymous {}s cannot have default field values", kind_name)
+                } else {
+                    format!("anonymous {}s cannot have default field values", kind_name)
+                };
+                self.ctx
+                    .struct_error(f.span, msg)
+                    .with_hint("default values are only allowed in named struct declarations (`type Name = struct { ... }`)")
+                    .emit();
+            }
+
+            anon_fields.push(AnonymousField {
+                name: f.name,
+                ty: f_ty,
+            });
+        }
+
+        anon_fields
+    }
+
+    fn check_duplicate_anon_fields(
+        &mut self,
+        fields: &[AnonymousField],
+        span: Span,
+        kind_name: &str,
+    ) {
+        for i in 1..fields.len() {
+            if fields[i - 1].name == fields[i].name {
+                let name_str = self.ctx.resolve(fields[i].name).to_string();
+                self.ctx
+                    .struct_error(span, format!("duplicate field `{}` in {}", name_str, kind_name))
+                    .emit();
+            }
+        }
+    }
+
+    fn check_duplicate_anon_variants(&mut self, variants: &[AnonymousVariant], span: Span) {
+        let mut sorted = variants.to_vec();
+        sorted.sort_by_key(|variant| variant.name);
+        for i in 1..sorted.len() {
+            if sorted[i - 1].name == sorted[i].name {
+                let name_str = self.ctx.resolve(sorted[i].name).to_string();
+                self.ctx
+                    .struct_error(span, format!("duplicate variant `{}` in anonymous enum", name_str))
+                    .emit();
+            }
+        }
     }
 
     // 递归查找并解析表达式内部的所有 TypeNode

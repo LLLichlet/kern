@@ -136,6 +136,15 @@ pub enum TypeKind {
     /// 匿名结构体 (结构等价)
     /// 为了保证 Hash 和 PartialEq 稳定，这里的 Vec 必须在构造前按字段名排序
     AnonymousStruct(bool, Vec<AnonymousField>),
+
+    /// 匿名联合体
+    AnonymousUnion(bool, Vec<AnonymousField>),
+
+    /// 匿名枚举/ADT
+    AnonymousEnum(AnonymousEnum),
+
+    /// 匿名枚举的底层 payload union
+    AnonymousEnumPayload(TypeId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -164,4 +173,17 @@ pub enum PrimitiveType {
 pub struct AnonymousField {
     pub name: SymbolId,
     pub ty: TypeId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnonymousEnum {
+    pub backing_ty: Option<TypeId>,
+    pub variants: Vec<AnonymousVariant>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct AnonymousVariant {
+    pub name: SymbolId,
+    pub payload_ty: Option<TypeId>,
+    pub explicit_value: Option<i128>,
 }

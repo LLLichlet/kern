@@ -27,8 +27,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        // 2. 值语义的结构体降级 (具名 -> 匿名) ===
-        if self.is_struct_structurally_equivalent(exp, act) {
+        // 2. 值语义的匿名聚合降级 (具名 -> 匿名) ===
+        if self.is_anonymous_aggregate_equivalent(exp, act) {
             return true;
         }
 
@@ -96,7 +96,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     }
 
                     // 2. 具名结构体 -> 匿名结构体
-                    if self.is_struct_structurally_equivalent(e_norm, a_norm) {
+                    if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
                         return true;
                     }
                     
@@ -149,63 +149,152 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    /// 核心辅助方法：检查一个具名结构体 (act_def) 能否降级为匿名结构体 (exp_anon)
-    pub(crate) fn is_struct_structurally_equivalent(&mut self, exp_anon: TypeId, act_def: TypeId) -> bool {
+    /// 核心辅助方法：检查一个具名聚合类型能否降级为匿名聚合类型
+    pub(crate) fn is_anonymous_aggregate_equivalent(&mut self, exp_anon: TypeId, act_def: TypeId) -> bool {
         let exp_kind = self.ctx.type_registry.get(exp_anon).clone();
         let act_kind = self.ctx.type_registry.get(act_def).clone();
-
-        let (exp_is_extern, exp_fields) = if let TypeKind::AnonymousStruct(is_ext, ref f) = exp_kind {
-            (is_ext, f)
-        } else {
-            return false;
-        };
 
         if let TypeKind::Def(def_id, ref act_args) = act_kind {
             let act_def_clone = self.ctx.defs[def_id.0 as usize].clone();
 
-            if let Def::Struct(act_s) = act_def_clone {
-                // extern 状态不一致不允许降级转换
-                if exp_is_extern != act_s.is_extern {
-                    return false;
-                }
-
-                // 字段数量不同，绝对不兼容
-                if exp_fields.len() != act_s.fields.len() {
-                    return false;
-                }
-
-                // 提取并替换具名结构体的真实字段类型
-                let mut act_fields = Vec::new();
-                for f in &act_s.fields {
-                    let raw_ty = self.ctx.node_types.get(&f.type_node.id).copied().unwrap_or(TypeId::ERROR);
-                    
-                    let inst_ty = if !act_args.is_empty() {
-                        let mut map = std::collections::HashMap::new();
-                        for (i, param) in act_s.generics.iter().enumerate() {
-                            map.insert(param.name, act_args[i]);
-                        }
-                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                        subst.substitute(raw_ty)
-                    } else {
-                        raw_ty
-                    };
-
-                    act_fields.push((f.name, self.resolve_tv(inst_ty)));
-                }
-
-                // 排序具名的字段，以便与匿名结构体进行zip比对
-                act_fields.sort_by_key(|f| f.0);
-
-                for (exp_f, act_f) in exp_fields.iter().zip(act_fields.iter()) {
-                    if exp_f.name != act_f.0 || self.resolve_tv(exp_f.ty) != act_f.1 {
+            match (exp_kind.clone(), act_def_clone) {
+                (TypeKind::AnonymousStruct(exp_is_extern, exp_fields), Def::Struct(act_s)) => {
+                    if exp_is_extern != act_s.is_extern {
                         return false;
                     }
+                    return self.compare_named_fields_to_anonymous(
+                        &act_s.generics,
+                        &act_s.fields,
+                        act_args,
+                        &exp_fields,
+                        true,
+                    );
+                }
+                (TypeKind::AnonymousUnion(exp_is_extern, exp_fields), Def::Union(act_u)) => {
+                    if exp_is_extern != act_u.is_extern {
+                        return false;
+                    }
+                    return self.compare_named_fields_to_anonymous(
+                        &act_u.generics,
+                        &act_u.fields,
+                        act_args,
+                        &exp_fields,
+                        false,
+                    );
+                }
+                _ => {}
+            }
+        }
+
+        if let TypeKind::Enum(def_id, ref act_args) = act_kind {
+            let act_def_clone = self.ctx.defs[def_id.0 as usize].clone();
+            if let (TypeKind::AnonymousEnum(exp_enum), Def::Enum(act_enum)) = (exp_kind, act_def_clone)
+            {
+                let exp_backing = exp_enum.backing_ty.unwrap_or(TypeId::U32);
+                let act_backing = act_enum.backing_type.as_ref().map_or(TypeId::U32, |bt| {
+                    self.ctx.node_types.get(&bt.id).copied().unwrap_or(TypeId::U32)
+                });
+
+                if self.resolve_tv(exp_backing) != self.resolve_tv(act_backing) {
+                    return false;
+                }
+
+                if exp_enum.variants.len() != act_enum.variants.len() {
+                    return false;
+                }
+
+                let mut subst_map = std::collections::HashMap::new();
+                for (i, param) in act_enum.generics.iter().enumerate() {
+                    subst_map.insert(param.name, act_args[i]);
+                }
+
+                let mut current_val: i128 = 0;
+                for (exp_variant, act_variant) in exp_enum.variants.iter().zip(act_enum.variants.iter()) {
+                    if let Some(v_expr) = &act_variant.value {
+                        let mut ce = crate::checker::ConstEvaluator::new(self.ctx);
+                        if let Ok(val) = ce.eval_math(v_expr) {
+                            current_val = val;
+                        }
+                    }
+
+                    if exp_variant.name != act_variant.name {
+                        return false;
+                    }
+
+                    let act_payload = act_variant.payload_type.as_ref().map(|payload_ast| {
+                        let raw_ty = self
+                            .ctx
+                            .node_types
+                            .get(&payload_ast.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                        let substituted = subst.substitute(raw_ty);
+                        self.resolve_tv(substituted)
+                    });
+
+                    if exp_variant.payload_ty.map(|ty| self.resolve_tv(ty)) != act_payload {
+                        return false;
+                    }
+
+                    let exp_value = exp_variant.explicit_value.unwrap_or(current_val);
+                    if exp_value != current_val {
+                        return false;
+                    }
+
+                    current_val += 1;
                 }
 
                 return true;
             }
         }
         false
+    }
+
+    fn compare_named_fields_to_anonymous(
+        &mut self,
+        generics: &[kernc_ast::GenericParam],
+        named_fields: &[kernc_ast::StructFieldDef],
+        args: &[TypeId],
+        anon_fields: &[crate::ty::AnonymousField],
+        _sort_named: bool,
+    ) -> bool {
+        if anon_fields.len() != named_fields.len() {
+            return false;
+        }
+
+        let mut act_fields = Vec::new();
+        for f in named_fields {
+            let raw_ty = self
+                .ctx
+                .node_types
+                .get(&f.type_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+
+            let inst_ty = if !generics.is_empty() && !args.is_empty() {
+                let mut map = std::collections::HashMap::new();
+                for (i, param) in generics.iter().enumerate() {
+                    map.insert(param.name, args[i]);
+                }
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                subst.substitute(raw_ty)
+            } else {
+                raw_ty
+            };
+
+            act_fields.push((f.name, self.resolve_tv(inst_ty)));
+        }
+
+        act_fields.sort_by_key(|f| f.0);
+
+        for (exp_f, act_f) in anon_fields.iter().zip(act_fields.iter()) {
+            if exp_f.name != act_f.0 || self.resolve_tv(exp_f.ty) != act_f.1 {
+                return false;
+            }
+        }
+
+        true
     }
     fn check_volatile_coercions(
         &mut self,
@@ -226,7 +315,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     if self.ctx.type_registry.is_void(e_norm) {
                         return true;
                     }
-                    if self.is_struct_structurally_equivalent(e_norm, a_norm) {
+                    if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
                         return true;
                     }
                     if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm) {

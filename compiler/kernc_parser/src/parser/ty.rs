@@ -55,9 +55,13 @@ impl<'a> Parser<'a> {
                     let mut struct_ty = self.parse_struct_type(false, true)?; 
                     struct_ty.span = ext_span.to(struct_ty.span);
                     Ok(struct_ty)
+                } else if self.check(TokenType::Union) {
+                    let mut union_ty = self.parse_struct_type(true, true)?;
+                    union_ty.span = ext_span.to(union_ty.span);
+                    Ok(union_ty)
                 } else {
                     let token = self.peek();
-                    self.add_error(token.span, "Expected `struct` after `extern` in type position".to_string());
+                    self.add_error(token.span, "Expected `struct` or `union` after `extern` in type position".to_string());
                     Err(())
                 }
             }
@@ -283,7 +287,7 @@ impl<'a> Parser<'a> {
 
         let end_token = self.expect(TokenType::RBrace)?;
         let kind = if is_union {
-            TypeKind::Union { fields }
+            TypeKind::Union { is_extern, fields }
         } else {
             TypeKind::Struct { is_extern, fields }
         };
@@ -295,7 +299,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_enum_type(&mut self) -> ParseResult<TypeNode> {
+    pub(super) fn parse_enum_type(&mut self) -> ParseResult<TypeNode> {
         let start_token = self.advance(); // 消费 'data'
 
         // 解析可选的底层存储类型

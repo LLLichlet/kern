@@ -63,6 +63,7 @@ pub enum TypeKind {
 
     /// 联合体定义
     Union {
+        is_extern: bool,
         fields: Vec<StructFieldDef>,
     },
 

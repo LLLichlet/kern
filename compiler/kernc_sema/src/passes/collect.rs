@@ -324,7 +324,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         let def = match &target.kind {
             // TODO:
-            TypeKind::Struct { fields, .. } => {
+            TypeKind::Struct { is_extern: target_extern, fields } => {
                 sym_kind = SymbolKind::Struct;
                 Def::Struct(StructDef {
                     id: def_id,
@@ -333,12 +333,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     generics: generics.to_vec(),
                     where_clauses: where_clauses.to_vec(),
                     fields: fields.clone(),
-                    is_extern,
+                    is_extern: is_extern || *target_extern,
                     span: decl.span,
                     attributes: decl.attributes.clone(),
                 })
             }
-            TypeKind::Union { fields } => {
+            TypeKind::Union { is_extern: target_extern, fields } => {
                 sym_kind = SymbolKind::Union;
                 Def::Union(UnionDef {
                     id: def_id,
@@ -347,6 +347,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     generics: generics.to_vec(),
                     where_clauses: where_clauses.to_vec(),
                     fields: fields.clone(),
+                    is_extern: is_extern || *target_extern,
                     span: decl.span,
                 })
             }
@@ -354,6 +355,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 backing_type,
                 variants,
             } => {
+                if is_extern {
+                    self.ctx
+                        .struct_error(decl.span, "enum types do not support `extern`")
+                        .with_hint("use `extern` on structs or unions for C-ABI layout control")
+                        .emit();
+                }
                 sym_kind = SymbolKind::Enum;
                 Def::Enum(EnumDef {
                     id: def_id,

@@ -6,7 +6,7 @@ fn smash_stack() void {
     let trash1 = i32.{1111};
     let trash2 = i32.{2222};
     let trash3 = i32.{3333};
-    println("Smashing stack with: {} {} {}", .{trash1.&, trash2.&, trash3.&});
+    println("Smashing stack with: {} {} {}", .{trash1, trash2, trash3});
 }
 type Tuple2 = struct {
     _0: *Fn(i32) i32,
@@ -42,6 +42,6 @@ extern fn main(args: [][]u8) i32 {
     
     let result = heap_cb(5);
     
-    println("Heap closure result: {}", .{result.&,}); // 50
+    println("Heap closure result: {}", .{result,}); // 50
     return 0;
 }

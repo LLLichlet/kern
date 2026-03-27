@@ -125,7 +125,8 @@ cargo build --release
 
 ## Documentation
 
-  * **[Kern Language Design Document](design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
+  * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
+  * **[Kern Language Design Document](docs/design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
   * *(Coming Soon)* **The Kern Type System**: A guide to understanding Kern's Contextual Top-Down Bidirectional Type Checking and ConstEval models.
 
 ## Contributing

@@ -44,7 +44,7 @@ When adding a new `.kn` test case, place it in `tests/pass/` for valid code, or 
 
 - `// expected-stdout: <text>`: (For `pass` tests) Asserts that the executed program prints the exact text.
 - `// expected-error: <text>`: (For `fail` tests) Asserts that the compiler fails and its stderr output contains the specified text.
-- `// compile-flags: <flags>`: Passes specific command-line arguments to `kernc` (e.g., `--freestanding`).
+- `// compile-flags: <flags>`: Passes specific command-line arguments to `kernc` (e.g., `--link-profile freestanding`).
 - `// build-only`: Compiles the file but skips execution.
 
 ## Commit Guidelines

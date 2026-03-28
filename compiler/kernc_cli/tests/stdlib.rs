@@ -35,7 +35,13 @@ fn compiles_std_hello_world_in_compile_only_mode() {
 
     let source_arg = source.to_string_lossy().into_owned();
     let object_arg = object.to_string_lossy().into_owned();
-    let args = vec!["-c", "--use-std", source_arg.as_str(), "-o", object_arg.as_str()];
+    let args = vec![
+        "-c",
+        "--use-std",
+        source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ];
     let output = run_kernc(&args);
 
     assert!(
@@ -44,7 +50,11 @@ fn compiles_std_hello_world_in_compile_only_mode() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(object.exists(), "expected object file at {}", object.display());
+    assert!(
+        object.exists(),
+        "expected object file at {}",
+        object.display()
+    );
 
     let _ = fs::remove_file(&object);
 }

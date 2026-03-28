@@ -158,6 +158,9 @@ impl<'a> Parser<'a> {
         let decl_res = match token.tag {
             TokenType::Mod => Ok(Some(self.parse_mod_decl(start_span, is_pub)?)),
             TokenType::Fn => Ok(Some(self.parse_fn_decl(start_span, is_pub, is_extern)?)),
+            TokenType::Const if self.stream.peek_nth(1).tag == TokenType::Fn => {
+                Ok(Some(self.parse_fn_decl(start_span, is_pub, is_extern)?))
+            }
             TokenType::Type => Ok(Some(
                 self.parse_type_alias_decl(start_span, is_pub, is_extern)?,
             )),
@@ -215,7 +218,8 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_fn_decl(&mut self, start: Span, is_pub: bool, is_extern: bool) -> ParseResult<Decl> {
-        self.advance(); // fn
+        let is_const = self.match_token(&[TokenType::Const]);
+        self.expect(TokenType::Fn)?;
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
@@ -255,6 +259,7 @@ impl<'a> Parser<'a> {
                 params,
                 ret_type,
                 body,
+                is_const,
                 is_extern,
                 is_variadic,
             },
@@ -280,7 +285,9 @@ impl<'a> Parser<'a> {
                 self.peek().span
             };
 
-            if self.check(TokenType::Fn) {
+            if self.check(TokenType::Fn)
+                || (self.check(TokenType::Const) && self.stream.peek_nth(1).tag == TokenType::Fn)
+            {
                 let mut d = self.parse_fn_decl(d_start, is_pub, true)?;
                 d.attributes = attributes; // 注入
                 decls.push(d);
@@ -327,7 +334,9 @@ impl<'a> Parser<'a> {
             } else {
                 self.peek().span
             };
-            if self.check(TokenType::Fn) {
+            if self.check(TokenType::Fn)
+                || (self.check(TokenType::Const) && self.stream.peek_nth(1).tag == TokenType::Fn)
+            {
                 let mut d = self.parse_fn_decl(d_start, is_pub, false)?;
                 d.attributes = attributes;
                 decls.push(d);

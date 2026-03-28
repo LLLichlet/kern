@@ -101,6 +101,7 @@ pub struct FunctionDef {
     pub params: Vec<ast::FuncParam>,
     pub ret_type: ast::TypeNode, // AST 类型，等待 Resolve Pass 转换为 TypeId
     pub body: Option<Box<ast::Expr>>,
+    pub is_const: bool,
     pub is_extern: bool,
     pub is_variadic: bool,
     pub is_intrinsic: bool,

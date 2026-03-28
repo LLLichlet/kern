@@ -169,7 +169,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 Some(g.value.clone())
                             } else {
                                 None
-                        };
+                            };
 
                         if let Some(const_expr) = const_expr_opt {
                             let prev_scope = self.ctx.scopes.current_scope_id();
@@ -181,10 +181,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 let mut ce = ConstEvaluator::new(self.ctx);
                                 if let Ok(val) = ce.eval_inner(&const_expr, 0) {
                                     match val {
-                                        ConstValue::Int(v) => Some(MastExprKind::Integer(v as u128)),
+                                        ConstValue::Int(v) => {
+                                            Some(MastExprKind::Integer(v as u128))
+                                        }
                                         ConstValue::Float(f) => Some(MastExprKind::Float(f)),
                                         ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
-                                        ConstValue::String(s) => Some(MastExprKind::StringLiteral(s)),
+                                        ConstValue::String(s) => {
+                                            Some(MastExprKind::StringLiteral(s))
+                                        }
                                         _ => {
                                             let inlined_mast =
                                                 self.lower_expr(&const_expr, &HashMap::new(), None);

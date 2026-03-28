@@ -84,7 +84,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 };
 
                 if let Some(g_expr) = global_expr_opt {
-                if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
+                    if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
                         return actual_ty;
                     }
                     let prev_scope = self.ctx.scopes.current_scope_id();
@@ -253,12 +253,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .intern(TypeKind::Module(target_info.def_id.unwrap()))
                 } else if target_info.type_id == TypeId::ERROR {
                     if let Some(def_id) = target_info.def_id {
-                        let global_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize]
-                        {
-                            Some(g.value.clone())
-                        } else {
-                            None
-                        };
+                        let global_expr_opt =
+                            if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                                Some(g.value.clone())
+                            } else {
+                                None
+                            };
 
                         if let Some(g_expr) = global_expr_opt {
                             if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {

@@ -27,6 +27,7 @@ pub enum DeclKind {
         params: Vec<FuncParam>,
         ret_type: TypeNode,
         body: Option<Box<Expr>>, // Block
+        is_const: bool,
         is_extern: bool,
         is_variadic: bool,
     },

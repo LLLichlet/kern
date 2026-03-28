@@ -131,6 +131,100 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn compiles_const_fn_in_global_array_len_and_method_calls() {
+    let output = compile_source(
+        r#"
+type Switch = enum {
+    Off = 0,
+    On = 1,
+    Value: i32,
+};
+
+type Pair = struct {
+    left: i32,
+    right: i32,
+};
+
+const fn inc(v: i32) i32 {
+    let next = v + 1;
+    return next;
+}
+
+const fn id[T](value: T) T {
+    return value;
+}
+
+const fn choose(flag: bool) Switch {
+    if (flag) {
+        return Switch.{ Value: 7 };
+    }
+    return Switch.{ On };
+}
+
+const fn unwrap_switch(v: Switch) i32 {
+    match (v) {
+        .Off => 0,
+        .On => 1,
+        .Value: payload => payload,
+    }
+}
+
+impl Pair {
+    pub const fn sum() i32 {
+        let total = self.left + self.right;
+        return total;
+    }
+}
+
+const TABLE = [inc(3)]u8.{ 1, 2, 3, 4 };
+const TOTAL = unwrap_switch(choose(true)) + Pair.{ left: 5, right: id[i32](3) }.sum() + (TABLE.[3] as i32);
+
+extern fn main(args: [][]u8) i32 {
+    return TOTAL;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_non_const_fn_in_const_context() {
+    let output = compile_source(
+        r#"
+fn runtime_only(v: i32) i32 {
+    return v + 1;
+}
+
+const BAD = runtime_only(1);
+
+extern fn main(args: [][]u8) i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("only `const fn` can be called in constant expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_arrays_larger_than_llvm_indexable_limit() {
     let output = compile_source(
         r#"

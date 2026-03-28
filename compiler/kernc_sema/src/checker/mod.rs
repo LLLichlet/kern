@@ -182,6 +182,11 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     // ==========================================
 
     fn check_function(&mut self, f: &FunctionDef, parent_scope: ScopeId) {
+        if f.is_const && f.is_extern {
+            self.ctx
+                .emit_error(f.span, "`const fn` cannot be declared `extern`");
+        }
+
         // 1. 验证 Extern 规则
         if !f.is_extern && f.body.is_none() {
             self.ctx

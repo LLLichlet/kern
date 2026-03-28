@@ -8,6 +8,7 @@ use kernc_utils::{NodeId, Span, SymbolId};
 struct FunctionCollectSpec<'a> {
     vis: Visibility,
     parent_impl: Option<DefId>,
+    is_const: bool,
     is_extern: bool,
     generics: &'a [ast::GenericParam],
     where_clauses: &'a [ast::WhereClause],
@@ -157,6 +158,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 params,
                 ret_type,
                 body,
+                is_const,
                 is_extern,
                 is_variadic,
             } => {
@@ -169,6 +171,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     FunctionCollectSpec {
                         vis,
                         parent_impl,
+                        is_const: *is_const,
                         is_extern: force_extern || *is_extern,
                         generics: &combined_generics,
                         where_clauses,
@@ -275,6 +278,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             params: actual_params,
             ret_type: spec.ret_type.clone(),
             body: spec.body.clone(),
+            is_const: spec.is_const,
             is_extern: spec.is_extern,
             is_variadic: spec.is_variadic,
             is_intrinsic: false,

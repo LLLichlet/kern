@@ -55,6 +55,44 @@ impl[T] []T {
         }
         return true;
     }
+
+    pub fn count(pred: *Fn(T) bool) usize {
+        let mut total = 0;
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            if (pred(self.[i])) {
+                total += 1;
+            }
+        }
+        return total;
+    }
+
+    pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            match (call_back(self.[i])) {
+                .Some: value => return .{ Some: value },
+                .None => {}
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn partition_point(pred: *Fn(T) bool) usize {
+        let mut left = 0;
+        let mut right = #self;
+
+        for (; left < right; ) {
+            let mid = left + (right - left) / 2;
+            if (pred(self.[mid])) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
 }
 
 impl[T] []mut T {
@@ -174,12 +212,44 @@ impl[T] []T
         if (#self > #other) return GREATER;
         return EQUAL;
     }
+
+    pub fn binary_search(target: T) Option[usize] {
+        let mut left = 0;
+        let mut right = #self;
+
+        for (; left < right; ) {
+            let mid = left + (right - left) / 2;
+            let ord = self.[mid].&.cmp(target);
+            if (ord == LESS) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        if (left < #self and self.[left].&.cmp(target) == EQUAL) {
+            return .{ Some: left };
+        }
+
+        return .{ None };
+    }
 }
 
 impl []u8 {
     pub fn find_byte(byte: u8) Option[usize] {
         let mut i = 0;
         for (; i < #self; i += 1) {
+            if (self.[i] == byte) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn rfind_byte(byte: u8) Option[usize] {
+        let mut i = #self;
+        for (; i > 0; ) {
+            i -= 1;
             if (self.[i] == byte) {
                 return .{ Some: i };
             }
@@ -239,6 +309,10 @@ pub fn find_byte(text: []u8, byte: u8) Option[usize] {
 
 pub fn contains_byte(text: []u8, byte: u8) bool {
     return text.contains_byte(byte);
+}
+
+pub fn rfind_byte(text: []u8, byte: u8) Option[usize] {
+    return text.rfind_byte(byte);
 }
 
 pub fn trim_ascii_start(text: []u8) []u8 {

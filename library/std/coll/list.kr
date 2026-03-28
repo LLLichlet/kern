@@ -339,6 +339,18 @@ impl[T] *List[T] {
     pub fn all(pred: *Fn(T) bool) bool {
         return self.as_slice().all(pred);
     }
+
+    pub fn count(pred: *Fn(T) bool) usize {
+        return self.as_slice().count(pred);
+    }
+
+    pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
+        return self.as_slice().find_map(call_back);
+    }
+
+    pub fn partition_point(pred: *Fn(T) bool) usize {
+        return self.as_slice().partition_point(pred);
+    }
 }
 
 impl[T] *List[T]
@@ -378,6 +390,10 @@ impl[T] *List[T]
 {
     pub fn lex_cmp(other: []T) Ordering {
         return self.as_slice().lex_cmp(other);
+    }
+
+    pub fn binary_search(target: T) Option[usize] {
+        return self.as_slice().binary_search(target);
     }
 }
 

@@ -646,7 +646,8 @@ extern fn main() i32 {
 fn runs_hosted_program_using_list_slice_and_string_algorithms() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.{List, String, trim_ascii_start, trim_ascii_end, trim_ascii};
+use std.{Option};
+use std.coll.{List, String, find_byte, rfind_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
 use std.cmp.{LESS, GREATER, EQUAL};
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
@@ -777,159 +778,214 @@ extern fn main() i32 {
     if (!list.as_slice().eq([2]i32.{3, 8})) {
         return 32;
     }
+    if (list.count(.[](value: i32) bool { return value >= 3; }) != 2) {
+        return 33;
+    }
+    let mapped_big = match (list.find_map(.[](value: i32) Option[i32] {
+        if (value > 3) {
+            return .{ Some: value * 10 };
+        }
+        return .{ None };
+    })) {
+        .Some: value => value,
+        .None => return 34,
+    };
+    if (mapped_big != 80) {
+        return 35;
+    }
+
+    let sorted = [6]i32.{1, 3, 3, 5, 8, 9};
+    let sorted_view = sorted.[0 .. 6];
+    let split = sorted_view.partition_point(.[](value: i32) bool {
+        return value < 5;
+    });
+    if (split != 3) {
+        return 36;
+    }
+    let found_eight = match (sorted_view.binary_search(8)) {
+        .Some: index => index,
+        .None => return 37,
+    };
+    if (found_eight != 4) {
+        return 38;
+    }
+    if (sorted_view.binary_search(7).is_some()) {
+        return 39;
+    }
 
     let text = String.{}..&;
     defer text.deinit(gpa);
     if (!text.reserve(gpa, 16)) {
-        return 33;
+        return 40;
     }
     if (!text.push_str(gpa, "kern") or !text.push_char(gpa, b'-') or !text.push_str(gpa, "lang")) {
-        return 34;
+        return 41;
     }
     if (!text.starts_with("kern") or !text.ends_with("lang")) {
-        return 35;
+        return 42;
     }
     if (!text.contains("-la")) {
-        return 36;
+        return 43;
     }
     let lang_index = match (text.find("lang")) {
         .Some: index => index,
-        .None => return 37,
+        .None => return 44,
     };
     if (lang_index != 5) {
-        return 38;
+        return 45;
     }
     if (!text.contains_byte(b'-')) {
-        return 39;
+        return 46;
     }
     let dash_index = match (text.find_byte(b'-')) {
         .Some: index => index,
-        .None => return 40,
+        .None => return 47,
     };
     if (dash_index != 4) {
-        return 41;
+        return 48;
     }
     if (text.lex_cmp("kern-lang") != EQUAL) {
-        return 42;
+        return 49;
     }
     if (text.lex_cmp("kern-lano") != LESS) {
-        return 43;
+        return 50;
     }
     if (text.lex_cmp("kern-lanf") != GREATER) {
-        return 44;
+        return 51;
     }
     let stripped_text_prefix = match (text.strip_prefix("kern-")) {
         .Some: tail => tail,
-        .None => return 45,
+        .None => return 52,
     };
     if (!stripped_text_prefix.eq("lang")) {
-        return 46;
+        return 53;
     }
     let stripped_text_suffix = match (text.strip_suffix("-lang")) {
         .Some: head => head,
-        .None => return 47,
+        .None => return 54,
     };
     if (!stripped_text_suffix.eq("kern")) {
-        return 48;
+        return 55;
     }
 
     let scratch = String.{}..&;
     defer scratch.deinit(gpa);
     if (!scratch.push_str(gpa, "abcde")) {
-        return 49;
+        return 56;
     }
     let scratch_bytes = scratch.as_mut_bytes();
     if (!scratch_bytes.swap(1, 3)) {
-        return 50;
+        return 57;
     }
     scratch_bytes.reverse();
     if (!scratch.eq("ebcda")) {
-        return 51;
+        return 58;
     }
 
     let snapshot = text.as_str();
     if (!text.push_str(gpa, snapshot)) {
-        return 52;
-    }
-    if (!text.eq("kern-langkern-lang")) {
-        return 53;
-    }
-
-    let extra = String.{}..&;
-    defer extra.deinit(gpa);
-    if (!extra.push_str(gpa, "!")) {
-        return 54;
-    }
-    if (!text.push_string(gpa, extra)) {
-        return 55;
-    }
-    if (!text.eq("kern-langkern-lang!")) {
-        return 56;
-    }
-    if (!text.as_bytes().ends_with("!")) {
-        return 57;
-    }
-
-    let popped = match (text.pop_char()) {
-        .Some: byte => byte,
-        .None => return 58,
-    };
-    if (popped != b'!') {
         return 59;
     }
     if (!text.eq("kern-langkern-lang")) {
         return 60;
     }
+    let last_dash = match (text.rfind_byte(b'-')) {
+        .Some: index => index,
+        .None => return 61,
+    };
+    if (last_dash != 13) {
+        return 62;
+    }
+    let free_last_dash = match (rfind_byte(text.as_str(), b'-')) {
+        .Some: index => index,
+        .None => return 63,
+    };
+    if (free_last_dash != 13) {
+        return 64;
+    }
+    let free_first_dash = match (find_byte(text.as_str(), b'-')) {
+        .Some: index => index,
+        .None => return 65,
+    };
+    if (free_first_dash != 4) {
+        return 66;
+    }
+
+    let extra = String.{}..&;
+    defer extra.deinit(gpa);
+    if (!extra.push_str(gpa, "!")) {
+        return 67;
+    }
+    if (!text.push_string(gpa, extra)) {
+        return 68;
+    }
+    if (!text.eq("kern-langkern-lang!")) {
+        return 69;
+    }
+    if (!text.as_bytes().ends_with("!")) {
+        return 70;
+    }
+
+    let popped = match (text.pop_char()) {
+        .Some: byte => byte,
+        .None => return 71,
+    };
+    if (popped != b'!') {
+        return 72;
+    }
+    if (!text.eq("kern-langkern-lang")) {
+        return 73;
+    }
 
     text.reverse_bytes();
     if (!text.eq("gnal-nrekgnal-nrek")) {
-        return 61;
+        return 74;
     }
     text.reverse_bytes();
     if (!text.eq("kern-langkern-lang")) {
-        return 62;
+        return 75;
     }
 
     let padded = " \t kern \r\n";
     if (!trim_ascii_start(padded).eq("kern \r\n")) {
-        return 63;
+        return 76;
     }
     if (!trim_ascii_end(padded).eq(" \t kern")) {
-        return 64;
+        return 77;
     }
     if (!trim_ascii(padded).eq("kern")) {
-        return 65;
+        return 78;
     }
     if (!padded.trim_ascii_start().eq("kern \r\n")) {
-        return 66;
+        return 79;
     }
     if (!padded.trim_ascii_end().eq(" \t kern")) {
-        return 67;
+        return 80;
     }
     if (!padded.trim_ascii().eq("kern")) {
-        return 68;
+        return 81;
     }
     let space_index = match (padded.find_byte(b'k')) {
         .Some: index => index,
-        .None => return 69,
+        .None => return 82,
     };
     if (space_index != 3) {
-        return 70;
+        return 83;
     }
 
     let spaced = String.{}..&;
     defer spaced.deinit(gpa);
     if (!spaced.push_str(gpa, "  hi\t")) {
-        return 71;
+        return 84;
     }
     if (!spaced.trim_ascii().eq("hi")) {
-        return 72;
+        return 85;
     }
 
     let spaced_bytes = spaced.as_mut_bytes();
     spaced_bytes.[2] = b'!';
     if (!spaced.eq("  !i\t")) {
-        return 73;
+        return 86;
     }
 
     return 0;

@@ -99,6 +99,10 @@ impl *String {
         return self.as_str().find_byte(byte);
     }
 
+    pub fn rfind_byte(byte: u8) Option[usize] {
+        return self.as_str().rfind_byte(byte);
+    }
+
     pub fn contains_byte(byte: u8) bool {
         return self.as_str().contains_byte(byte);
     }

@@ -1,0 +1,261 @@
+use std.Option;
+use std.cmp.Ord;
+use std.mem.layout_of;
+use std.mem.alloc.Allocator;
+use ..base.{
+    MIN_DEGREE,
+    Node,
+    TreeMap,
+    key_at,
+    value_at,
+    child_at,
+    set_key,
+    set_value,
+    set_child,
+    first_hit,
+    last_hit,
+};
+
+const MIN_KEYS = usize.{7};
+
+impl[K, V] *mut TreeMap[K, V]
+    where *K: Ord[K],
+{
+    fn delete_free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
+        alloc.free(node as *mut u8, layout_of[Node[K, V]]());
+    }
+
+    fn delete_search_slot(node: *mut Node[K, V], key: K) usize {
+        let mut index = 0;
+        for (; index < node.len; index += 1) {
+            if (key_at[K, V](node, index).&.cmp(key) >= 0) {
+                break;
+            }
+        }
+        return index;
+    }
+
+    fn delete_remove_from_leaf(node: *mut Node[K, V], index: usize) V {
+        let removed = value_at[K, V](node, index);
+
+        let mut i = index + 1;
+        for (; i < node.len; i += 1) {
+            set_key[K, V](node, i - 1, key_at[K, V](node, i));
+            set_value[K, V](node, i - 1, value_at[K, V](node, i));
+        }
+
+        node.len -= 1;
+        return removed;
+    }
+
+    fn delete_borrow_from_prev(parent: *mut Node[K, V], index: usize) void {
+        let child = child_at[K, V](parent, index);
+        let sibling = child_at[K, V](parent, index - 1);
+
+        let mut i = child.len;
+        for (; i > 0; i -= 1) {
+            set_key[K, V](child, i, key_at[K, V](child, i - 1));
+            set_value[K, V](child, i, value_at[K, V](child, i - 1));
+        }
+
+        if (!child.is_leaf) {
+            let mut c = child.len + 1;
+            for (; c > 0; c -= 1) {
+                set_child[K, V](child, c, child_at[K, V](child, c - 1));
+            }
+            set_child[K, V](child, 0, child_at[K, V](sibling, sibling.len));
+        }
+
+        set_key[K, V](child, 0, key_at[K, V](parent, index - 1));
+        set_value[K, V](child, 0, value_at[K, V](parent, index - 1));
+
+        set_key[K, V](parent, index - 1, key_at[K, V](sibling, sibling.len - 1));
+        set_value[K, V](parent, index - 1, value_at[K, V](sibling, sibling.len - 1));
+
+        child.len += 1;
+        sibling.len -= 1;
+    }
+
+    fn delete_borrow_from_next(parent: *mut Node[K, V], index: usize) void {
+        let child = child_at[K, V](parent, index);
+        let sibling = child_at[K, V](parent, index + 1);
+
+        set_key[K, V](child, child.len, key_at[K, V](parent, index));
+        set_value[K, V](child, child.len, value_at[K, V](parent, index));
+
+        if (!child.is_leaf) {
+            set_child[K, V](child, child.len + 1, child_at[K, V](sibling, 0));
+        }
+
+        set_key[K, V](parent, index, key_at[K, V](sibling, 0));
+        set_value[K, V](parent, index, value_at[K, V](sibling, 0));
+
+        let mut i = 1;
+        for (; i < sibling.len; i += 1) {
+            set_key[K, V](sibling, i - 1, key_at[K, V](sibling, i));
+            set_value[K, V](sibling, i - 1, value_at[K, V](sibling, i));
+        }
+
+        if (!sibling.is_leaf) {
+            let mut c = 1;
+            for (; c <= sibling.len; c += 1) {
+                set_child[K, V](sibling, c - 1, child_at[K, V](sibling, c));
+            }
+        }
+
+        child.len += 1;
+        sibling.len -= 1;
+    }
+
+    fn delete_merge_children(alloc: *mut Allocator, parent: *mut Node[K, V], index: usize) *mut Node[K, V] {
+        let left = child_at[K, V](parent, index);
+        let right = child_at[K, V](parent, index + 1);
+
+        set_key[K, V](left, left.len, key_at[K, V](parent, index));
+        set_value[K, V](left, left.len, value_at[K, V](parent, index));
+
+        let mut i = 0;
+        for (; i < right.len; i += 1) {
+            set_key[K, V](left, left.len + 1 + i, key_at[K, V](right, i));
+            set_value[K, V](left, left.len + 1 + i, value_at[K, V](right, i));
+        }
+
+        if (!left.is_leaf) {
+            let mut c = 0;
+            for (; c <= right.len; c += 1) {
+                set_child[K, V](left, left.len + 1 + c, child_at[K, V](right, c));
+            }
+        }
+
+        left.len += 1 + right.len;
+
+        let mut move_key = index + 1;
+        for (; move_key < parent.len; move_key += 1) {
+            set_key[K, V](parent, move_key - 1, key_at[K, V](parent, move_key));
+            set_value[K, V](parent, move_key - 1, value_at[K, V](parent, move_key));
+        }
+
+        let mut move_child = index + 2;
+        for (; move_child <= parent.len; move_child += 1) {
+            set_child[K, V](parent, move_child - 1, child_at[K, V](parent, move_child));
+        }
+
+        parent.len -= 1;
+        self.delete_free_node(alloc, right);
+        return left;
+    }
+
+    fn delete_remove_from_internal(
+        alloc: *mut Allocator,
+        node: *mut Node[K, V],
+        index: usize,
+        key: K,
+        removed: *mut Option[V],
+    ) bool {
+        removed.* = .{ Some: value_at[K, V](node, index) };
+
+        let left = child_at[K, V](node, index);
+        if (left.len >= MIN_DEGREE) {
+            let pred = match (last_hit[K, V](left)) {
+                .Some: hit => hit,
+                .None => return false,
+            };
+            let pred_key = key_at[K, V](pred.node, pred.index);
+            let pred_value = value_at[K, V](pred.node, pred.index);
+            set_key[K, V](node, index, pred_key);
+            set_value[K, V](node, index, pred_value);
+
+            let ignored = Option[V].{ None }..&;
+            return self.delete_remove_from_node(alloc, left, pred_key, ignored);
+        }
+
+        let right = child_at[K, V](node, index + 1);
+        if (right.len >= MIN_DEGREE) {
+            let succ = match (first_hit[K, V](right)) {
+                .Some: hit => hit,
+                .None => return false,
+            };
+            let succ_key = key_at[K, V](succ.node, succ.index);
+            let succ_value = value_at[K, V](succ.node, succ.index);
+            set_key[K, V](node, index, succ_key);
+            set_value[K, V](node, index, succ_value);
+
+            let ignored = Option[V].{ None }..&;
+            return self.delete_remove_from_node(alloc, right, succ_key, ignored);
+        }
+
+        let merged = self.delete_merge_children(alloc, node, index);
+        let ignored = Option[V].{ None }..&;
+        return self.delete_remove_from_node(alloc, merged, key, ignored);
+    }
+
+    fn delete_remove_from_node(
+        alloc: *mut Allocator,
+        node: *mut Node[K, V],
+        key: K,
+        removed: *mut Option[V],
+    ) bool {
+        let index = self.delete_search_slot(node, key);
+
+        if (index < node.len and key_at[K, V](node, index).&.cmp(key) == 0) {
+            if (node.is_leaf) {
+                removed.* = .{ Some: self.delete_remove_from_leaf(node, index) };
+                return true;
+            }
+            return self.delete_remove_from_internal(alloc, node, index, key, removed);
+        }
+
+        if (node.is_leaf) {
+            return false;
+        }
+
+        let mut child_index = index;
+        let child = child_at[K, V](node, child_index);
+        if (child.len == MIN_KEYS) {
+            if (child_index > 0 and child_at[K, V](node, child_index - 1).len >= MIN_DEGREE) {
+                self.delete_borrow_from_prev(node, child_index);
+            } else if (
+                child_index < node.len and
+                child_at[K, V](node, child_index + 1).len >= MIN_DEGREE
+            ) {
+                self.delete_borrow_from_next(node, child_index);
+            } else {
+                if (child_index < node.len) {
+                    let _ = self.delete_merge_children(alloc, node, child_index);
+                } else {
+                    child_index -= 1;
+                    let _ = self.delete_merge_children(alloc, node, child_index);
+                }
+            }
+        }
+
+        return self.delete_remove_from_node(alloc, child_at[K, V](node, child_index), key, removed);
+    }
+
+    pub fn remove(alloc: *mut Allocator, key: K) Option[V] {
+        if ((self.root as usize) == 0) {
+            return .{ None };
+        }
+
+        let removed = Option[V].{ None }..&;
+        if (!self.delete_remove_from_node(alloc, self.root, key, removed)) {
+            return .{ None };
+        }
+
+        self.len -= 1;
+
+        if (self.len == 0) {
+            self.delete_free_node(alloc, self.root);
+            self.root = 0;
+            return removed.*;
+        }
+
+        if (self.root.len == 0) {
+            let old_root = self.root;
+            self.root = child_at[K, V](old_root, 0);
+            self.delete_free_node(alloc, old_root);
+        }
+
+        return removed.*;
+    }
+}

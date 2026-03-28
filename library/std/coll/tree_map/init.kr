@@ -1,4 +1,5 @@
 mod base;
+mod delete;
 mod mutable;
 mod query;
 

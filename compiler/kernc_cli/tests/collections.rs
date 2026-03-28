@@ -864,6 +864,100 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_tree_map_remove() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.{TreeMap, String};
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = TreeMap[i32, i32].{}..&;
+    defer map.deinit(gpa);
+
+    let mut i = i32.{1};
+    for (; i <= 40; i += 1) {
+        if (!map.insert(gpa, i, i * 10)) {
+            return 1;
+        }
+    }
+
+    let removed_mid = match (map.remove(gpa, 20)) {
+        .Some: value => value,
+        .None => return 2,
+    };
+    if (removed_mid != 200 or map.contains(20)) {
+        return 3;
+    }
+
+    let removed_first = match (map.remove(gpa, 1)) {
+        .Some: value => value,
+        .None => return 4,
+    };
+    if (removed_first != 10 or map.contains(1)) {
+        return 5;
+    }
+
+    let removed_last = match (map.remove(gpa, 40)) {
+        .Some: value => value,
+        .None => return 6,
+    };
+    if (removed_last != 400 or map.contains(40)) {
+        return 7;
+    }
+
+    if (map.remove(gpa, 99).is_some()) {
+        return 8;
+    }
+    if (map.len != 37) {
+        return 9;
+    }
+
+    if (!map.first_key().is_some_and(.[](key: i32) bool { return key == 2; })) return 10;
+    if (!map.last_key().is_some_and(.[](key: i32) bool { return key == 39; })) return 11;
+    if (!map.ceil_key(20).is_some_and(.[](key: i32) bool { return key == 21; })) return 12;
+    if (!map.floor_key(20).is_some_and(.[](key: i32) bool { return key == 19; })) return 13;
+
+    let mut count = i32.{0};
+    let mut ordered = String.{}..&;
+    defer ordered.deinit(gpa);
+    map.for_each(.[count = count..&, ordered, gpa](key: i32, _: i32) void {
+        count.* += 1;
+        if (key >= 2 and key <= 9) {
+            let _ = ordered.push_char(gpa, (key as u8) + b'0');
+        }
+    });
+    if (count != 37 or !ordered.eq("23456789")) {
+        return 14;
+    }
+
+    let small = TreeMap[i32, i32].{}..&;
+    defer small.deinit(gpa);
+    if (!small.insert(gpa, 2, 20)) return 15;
+    if (!small.insert(gpa, 1, 10)) return 16;
+    if (!small.insert(gpa, 3, 30)) return 17;
+    if (!small.remove(gpa, 2).is_some_and(.[](value: i32) bool { return value == 20; })) return 18;
+    if (!small.remove(gpa, 1).is_some_and(.[](value: i32) bool { return value == 10; })) return 19;
+    if (!small.remove(gpa, 3).is_some_and(.[](value: i32) bool { return value == 30; })) return 20;
+    if (!small.is_empty()) return 21;
+    if (small.first().is_some()) return 22;
+    if (small.last().is_some()) return 23;
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_list_slice_and_string_algorithms() {
     let output = build_and_run_hosted(
         r#"

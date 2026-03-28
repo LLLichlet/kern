@@ -1,0 +1,7 @@
+pub type MemOrder = u8;
+
+pub const RELAXED = MemOrder.{0};
+pub const ACQUIRE = MemOrder.{1};
+pub const RELEASE = MemOrder.{2};
+pub const ACQ_REL = MemOrder.{3};
+pub const SEQ_CST = MemOrder.{4};

@@ -162,6 +162,30 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MastExprKind::BitIntrinsic { kind, operand } => {
                 self.compile_bit_intrinsic(*kind, operand, expected_llvm_ty)
             }
+            MastExprKind::AtomicLoad { ptr, ordering } => {
+                self.compile_atomic_load(ptr, *ordering, expected_llvm_ty)
+            }
+            MastExprKind::AtomicStore {
+                ptr,
+                value,
+                ordering,
+            } => self.compile_atomic_store(ptr, value, *ordering),
+            MastExprKind::AtomicCas {
+                weak,
+                ptr,
+                expected,
+                desired,
+                success,
+                failure,
+            } => {
+                self.compile_atomic_cas(expr.ty, *weak, ptr, expected, desired, *success, *failure)
+            }
+            MastExprKind::AtomicRmw {
+                op,
+                ptr,
+                value,
+                ordering,
+            } => self.compile_atomic_rmw(expr.ty, *op, ptr, value, *ordering),
             MastExprKind::Trap => {
                 let intrinsic = inkwell::intrinsics::Intrinsic::find("llvm.trap").unwrap();
                 let decl = intrinsic.get_declaration(&self.module, &[]).unwrap();
@@ -175,13 +199,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.builder.build_call(decl, &[], "bkpt").unwrap();
                 self.context.i8_type().const_zero().into() // Void return
             }
-            MastExprKind::Fence => {
-                // 生成严格的 Sequential Consistent 内存屏障
-                self.builder
-                    .build_fence(inkwell::AtomicOrdering::SequentiallyConsistent, 0, "mfence")
-                    .unwrap();
-                self.context.i8_type().const_zero().into() // Void return
-            }
+            MastExprKind::Fence { ordering } => self.compile_atomic_fence(*ordering),
             MastExprKind::Memcpy { dest, src, len } => {
                 let d = self.compile_expr(dest).into_pointer_value();
                 let s = self.compile_expr(src).into_pointer_value();

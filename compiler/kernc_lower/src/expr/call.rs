@@ -4,10 +4,10 @@ use std::collections::HashMap;
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
-use kernc_sema::checker::Substituter;
+use kernc_sema::checker::{ConstEvaluator, ConstValue, Substituter};
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn maybe_lower_asm_call(
@@ -141,6 +141,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         fn_id: DefId,
         callee_ty: TypeId,
+        args: &[Expr],
         arg_masts: &mut Vec<MastExpr>,
     ) -> Option<MastExprKind> {
         let Def::Function(f) = &self.ctx.defs[fn_id.0 as usize] else {
@@ -184,7 +185,103 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 operand: Box::new(arg_masts.remove(0)),
             }),
             "@trap" => Some(MastExprKind::Trap),
-            "@fence" => Some(MastExprKind::Fence),
+            "@atomicLoad" => Some(MastExprKind::AtomicLoad {
+                ptr: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[1]),
+            }),
+            "@atomicStore" => Some(MastExprKind::AtomicStore {
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicCas" | "@atomicCasWeak" => {
+                let is_weak = name_str == "@atomicCasWeak";
+                let result_ty = self.intrinsic_return_type(fn_id, callee_ty);
+                let norm_result_ty = self.ctx.type_registry.normalize(result_ty);
+                if matches!(
+                    self.ctx.type_registry.get(norm_result_ty),
+                    TypeKind::AnonymousStruct(..)
+                ) {
+                    self.instantiate_anon_struct(norm_result_ty);
+                }
+                Some(MastExprKind::AtomicCas {
+                    weak: is_weak,
+                    ptr: Box::new(arg_masts.remove(0)),
+                    expected: Box::new(arg_masts.remove(0)),
+                    desired: Box::new(arg_masts.remove(0)),
+                    success: self.atomic_ordering_arg(&args[3]),
+                    failure: self.atomic_ordering_arg(&args[4]),
+                })
+            }
+            "@atomicXchg" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Xchg,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwAdd" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Add,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwSub" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Sub,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwAnd" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::And,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwNand" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Nand,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwOr" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Or,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwXor" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Xor,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwMax" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Max,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwMin" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::Min,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwUMax" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::UMax,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@atomicRmwUMin" => Some(MastExprKind::AtomicRmw {
+                op: AtomicRmwOp::UMin,
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                ordering: self.atomic_ordering_arg(&args[2]),
+            }),
+            "@fence" => Some(MastExprKind::Fence {
+                ordering: self.atomic_ordering_arg(&args[0]),
+            }),
             "@breakpoint" => Some(MastExprKind::Breakpoint),
             "@memcpy" => Some(MastExprKind::Memcpy {
                 dest: Box::new(arg_masts.remove(0)),
@@ -204,6 +301,66 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         match self.ctx.type_registry.get(callee_ty) {
             TypeKind::FnDef(_, args) => args.get(index).copied().unwrap_or(TypeId::ERROR),
             _ => TypeId::ERROR,
+        }
+    }
+
+    fn intrinsic_return_type(&mut self, fn_id: DefId, callee_ty: TypeId) -> TypeId {
+        let Some(func) = (match &self.ctx.defs[fn_id.0 as usize] {
+            Def::Function(func) => Some(func.clone()),
+            _ => None,
+        }) else {
+            return TypeId::ERROR;
+        };
+
+        let Some(sig_ty) = func.resolved_sig else {
+            return TypeId::ERROR;
+        };
+        let TypeKind::Function { ret, .. } = self.ctx.type_registry.get(sig_ty).clone() else {
+            return TypeId::ERROR;
+        };
+
+        let fn_args = match self.ctx.type_registry.get(callee_ty).clone() {
+            TypeKind::FnDef(_, args) => args,
+            _ => Vec::new(),
+        };
+
+        if func.generics.is_empty() || fn_args.len() != func.generics.len() {
+            return ret;
+        }
+
+        let mut subst_map = HashMap::new();
+        for (param, arg) in func.generics.iter().zip(fn_args.iter().copied()) {
+            subst_map.insert(param.name, arg);
+        }
+
+        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+        subst.substitute(ret)
+    }
+
+    fn atomic_ordering_arg(&mut self, arg: &Expr) -> AtomicOrdering {
+        if let Some(&ordering) = self.ctx.atomic_orderings.get(&arg.id) {
+            return ordering;
+        }
+
+        let mut evaluator = ConstEvaluator::new(self.ctx);
+        match evaluator.eval_inner(arg, 0) {
+            Ok(ConstValue::Int(value)) => AtomicOrdering::from_abi_const(value).unwrap_or_else(|| {
+                self.ctx.emit_ice(
+                    arg.span,
+                    format!(
+                        "Kern ICE (Lowering): invalid atomic ordering constant `{}` passed semantic validation.",
+                        value
+                    ),
+                );
+                AtomicOrdering::SeqCst
+            }),
+            _ => {
+                self.ctx.emit_ice(
+                    arg.span,
+                    "Kern ICE (Lowering): atomic ordering argument was not reduced to a compile-time integer.",
+                );
+                AtomicOrdering::SeqCst
+            }
         }
     }
 
@@ -241,7 +398,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some((field, recv)) = method_call {
             self.lower_method_call(recv, field, arg_masts, norm_callee, span)
         } else {
-            self.lower_normal_call(callee, arg_masts, subst_map)
+            self.lower_normal_call(callee, args, arg_masts, subst_map)
         }
     }
 
@@ -716,6 +873,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_normal_call(
         &mut self,
         callee: &Expr,
+        args: &[Expr],
         mut arg_masts: Vec<MastExpr>,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
@@ -738,7 +896,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
         {
             if let Some(intrinsic) =
-                self.lower_intrinsic_call(fn_id, callee_mast.ty, &mut arg_masts)
+                self.lower_intrinsic_call(fn_id, callee_mast.ty, args, &mut arg_masts)
             {
                 return intrinsic;
             }

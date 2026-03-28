@@ -1,7 +1,7 @@
 use super::{MastBlock, MonoId};
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use kernc_sema::ty::TypeId;
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
 
 /// 每一个 MAST 表达式都必须显式携带它的具体类型。
 #[derive(Debug, Clone)]
@@ -23,7 +23,6 @@ pub enum MastExprKind {
     Undef,
     Unreachable,
     Trap,
-    Fence,
     Breakpoint,
     Integer(u128),
     Float(f64),
@@ -156,6 +155,32 @@ pub enum MastExprKind {
     BitIntrinsic {
         kind: BitIntrinsicKind,
         operand: Box<MastExpr>,
+    },
+    AtomicLoad {
+        ptr: Box<MastExpr>,
+        ordering: AtomicOrdering,
+    },
+    AtomicStore {
+        ptr: Box<MastExpr>,
+        value: Box<MastExpr>,
+        ordering: AtomicOrdering,
+    },
+    AtomicCas {
+        weak: bool,
+        ptr: Box<MastExpr>,
+        expected: Box<MastExpr>,
+        desired: Box<MastExpr>,
+        success: AtomicOrdering,
+        failure: AtomicOrdering,
+    },
+    AtomicRmw {
+        op: AtomicRmwOp,
+        ptr: Box<MastExpr>,
+        value: Box<MastExpr>,
+        ordering: AtomicOrdering,
+    },
+    Fence {
+        ordering: AtomicOrdering,
     },
 
     Memcpy {

@@ -9,8 +9,8 @@ use std::collections::HashMap;
 use kernc_mast::*;
 use kernc_sema::def::DefId;
 use kernc_sema::ty::{TypeId, TypeRegistry};
-use kernc_utils::Session;
 use kernc_utils::config::OptLevel;
+use kernc_utils::{Session, SymbolId};
 
 mod block;
 mod decl;
@@ -26,6 +26,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     type_registry: &'a TypeRegistry,
 
     structs: HashMap<MonoId, StructType<'ctx>>,
+    struct_fields: HashMap<MonoId, Vec<SymbolId>>,
     union_ids: std::collections::HashSet<MonoId>,
     globals: HashMap<MonoId, GlobalValue<'ctx>>,
     functions: HashMap<MonoId, FunctionValue<'ctx>>,
@@ -58,6 +59,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             sess,
             type_registry,
             structs: HashMap::new(),
+            struct_fields: HashMap::new(),
             union_ids: std::collections::HashSet::new(),
             globals: HashMap::new(),
             functions: HashMap::new(),

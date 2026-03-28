@@ -1,3 +1,4 @@
+pub mod atomic;
 pub mod config;
 mod diagnostic;
 mod interner;
@@ -6,6 +7,7 @@ mod session;
 mod source;
 mod span;
 
+pub use atomic::{AtomicOrdering, AtomicRmwOp};
 pub use diagnostic::{Diagnostic, DiagnosticBuilder, DiagnosticLevel};
 pub use interner::{Interner, SymbolId};
 pub use node::NodeId;

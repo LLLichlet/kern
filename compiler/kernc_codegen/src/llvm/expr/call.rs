@@ -1,10 +1,60 @@
 use crate::llvm::CodeGenerator;
+use inkwell::llvm_sys::core::LLVMSetWeak;
 use inkwell::types::{BasicTypeEnum, FunctionType};
-use inkwell::values::{BasicValueEnum, FunctionValue};
+use inkwell::values::{AsValueRef, BasicValue, BasicValueEnum, FunctionValue};
+use inkwell::{AtomicOrdering as LlvmAtomicOrdering, AtomicRMWBinOp};
 use kernc_mast::{BitIntrinsicKind, MastAsmBlock, MastExpr, MastExprKind};
 use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_utils::{AtomicOrdering, AtomicRmwOp};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn llvm_atomic_ordering(ordering: AtomicOrdering) -> LlvmAtomicOrdering {
+        match ordering {
+            AtomicOrdering::Relaxed => LlvmAtomicOrdering::Monotonic,
+            AtomicOrdering::Acquire => LlvmAtomicOrdering::Acquire,
+            AtomicOrdering::Release => LlvmAtomicOrdering::Release,
+            AtomicOrdering::AcqRel => LlvmAtomicOrdering::AcquireRelease,
+            AtomicOrdering::SeqCst => LlvmAtomicOrdering::SequentiallyConsistent,
+        }
+    }
+
+    fn struct_field_index_by_name(
+        &mut self,
+        struct_id: kernc_mast::MonoId,
+        name: &str,
+    ) -> Option<u32> {
+        let Some(fields) = self.struct_fields.get(&struct_id).cloned() else {
+            self.sess.emit_ice(
+                kernc_utils::Span::default(),
+                format!(
+                    "Kern ICE (Codegen): missing field metadata for struct MonoId {:?}.",
+                    struct_id
+                ),
+            );
+            return None;
+        };
+
+        for (idx, field) in fields.iter().enumerate() {
+            if self.resolve_symbol(*field) == name {
+                return Some(idx as u32);
+            }
+        }
+
+        self.sess.emit_ice(
+            kernc_utils::Span::default(),
+            format!(
+                "Kern ICE (Codegen): field `{}` not found in struct MonoId {:?}.",
+                name, struct_id
+            ),
+        );
+        None
+    }
+
+    fn atomic_xchg_pointer_width_int(&self) -> inkwell::types::IntType<'ctx> {
+        self.context
+            .custom_width_int_type((self.sess.target.pointer_size * 8) as u32)
+    }
+
     fn lookup_function_value(
         &mut self,
         mono_id: kernc_mast::MonoId,
@@ -223,5 +273,189 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
 
         call_site.try_as_basic_value().unwrap_basic()
+    }
+
+    pub(crate) fn compile_atomic_load(
+        &mut self,
+        ptr: &MastExpr,
+        ordering: AtomicOrdering,
+        expected_ty: BasicTypeEnum<'ctx>,
+    ) -> BasicValueEnum<'ctx> {
+        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let load = self
+            .builder
+            .build_load(expected_ty, ptr_val, "atomic_load")
+            .unwrap();
+        load.as_instruction_value()
+            .unwrap()
+            .set_atomic_ordering(Self::llvm_atomic_ordering(ordering))
+            .unwrap();
+        load
+    }
+
+    pub(crate) fn compile_atomic_store(
+        &mut self,
+        ptr: &MastExpr,
+        value: &MastExpr,
+        ordering: AtomicOrdering,
+    ) -> BasicValueEnum<'ctx> {
+        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let value_val = self.compile_expr(value);
+        let store = self.builder.build_store(ptr_val, value_val).unwrap();
+        store
+            .set_atomic_ordering(Self::llvm_atomic_ordering(ordering))
+            .unwrap();
+        self.context.i8_type().const_zero().into()
+    }
+
+    pub(crate) fn compile_atomic_fence(
+        &mut self,
+        ordering: AtomicOrdering,
+    ) -> BasicValueEnum<'ctx> {
+        self.builder
+            .build_fence(Self::llvm_atomic_ordering(ordering), 0, "")
+            .unwrap();
+        self.context.i8_type().const_zero().into()
+    }
+
+    pub(crate) fn compile_atomic_rmw(
+        &mut self,
+        expr_ty: TypeId,
+        op: AtomicRmwOp,
+        ptr: &MastExpr,
+        value: &MastExpr,
+        ordering: AtomicOrdering,
+    ) -> BasicValueEnum<'ctx> {
+        let llvm_order = Self::llvm_atomic_ordering(ordering);
+        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let value_val = self.compile_expr(value);
+
+        if matches!(
+            self.type_registry
+                .get(self.type_registry.normalize(expr_ty)),
+            TypeKind::Pointer { .. }
+        ) && op == AtomicRmwOp::Xchg
+        {
+            let ptr_int_ty = self.atomic_xchg_pointer_width_int();
+            let int_ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
+            let cast_ptr = self
+                .builder
+                .build_pointer_cast(ptr_val, int_ptr_ty, "atomic_xchg_ptr_cast")
+                .unwrap();
+            let result_ptr_ty = self.get_llvm_type(expr_ty).into_pointer_type();
+            let cast_val = self
+                .builder
+                .build_ptr_to_int(
+                    value_val.into_pointer_value(),
+                    ptr_int_ty,
+                    "atomic_xchg_val",
+                )
+                .unwrap();
+            let old_val = self
+                .builder
+                .build_atomicrmw(AtomicRMWBinOp::Xchg, cast_ptr, cast_val, llvm_order)
+                .unwrap();
+            return self
+                .builder
+                .build_int_to_ptr(old_val, result_ptr_ty, "atomic_xchg_old_ptr")
+                .unwrap()
+                .into();
+        }
+
+        let llvm_op = match op {
+            AtomicRmwOp::Xchg => AtomicRMWBinOp::Xchg,
+            AtomicRmwOp::Add => AtomicRMWBinOp::Add,
+            AtomicRmwOp::Sub => AtomicRMWBinOp::Sub,
+            AtomicRmwOp::And => AtomicRMWBinOp::And,
+            AtomicRmwOp::Nand => AtomicRMWBinOp::Nand,
+            AtomicRmwOp::Or => AtomicRMWBinOp::Or,
+            AtomicRmwOp::Xor => AtomicRMWBinOp::Xor,
+            AtomicRmwOp::Max => AtomicRMWBinOp::Max,
+            AtomicRmwOp::Min => AtomicRMWBinOp::Min,
+            AtomicRmwOp::UMax => AtomicRMWBinOp::UMax,
+            AtomicRmwOp::UMin => AtomicRMWBinOp::UMin,
+        };
+
+        self.builder
+            .build_atomicrmw(llvm_op, ptr_val, value_val.into_int_value(), llvm_order)
+            .unwrap()
+            .into()
+    }
+
+    pub(crate) fn compile_atomic_cas(
+        &mut self,
+        expr_ty: TypeId,
+        weak: bool,
+        ptr: &MastExpr,
+        expected: &MastExpr,
+        desired: &MastExpr,
+        success: AtomicOrdering,
+        failure: AtomicOrdering,
+    ) -> BasicValueEnum<'ctx> {
+        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let expected_val = self.compile_expr(expected);
+        let desired_val = self.compile_expr(desired);
+        let cas_pair = self
+            .builder
+            .build_cmpxchg(
+                ptr_val,
+                expected_val,
+                desired_val,
+                Self::llvm_atomic_ordering(success),
+                Self::llvm_atomic_ordering(failure),
+            )
+            .unwrap();
+        if weak {
+            let Some(cas_inst) = cas_pair.as_instruction() else {
+                self.sess.emit_ice(
+                    expected.span,
+                    "Kern ICE (Codegen): cmpxchg result did not lower to an instruction value.",
+                );
+                let llvm_ty = self.get_llvm_type(expr_ty);
+                return self.get_undef_val(llvm_ty);
+            };
+            unsafe { LLVMSetWeak(cas_inst.as_value_ref(), 1) };
+        }
+
+        let old_val = self
+            .builder
+            .build_extract_value(cas_pair, 0, "cas_old")
+            .unwrap();
+        let success_val = self
+            .builder
+            .build_extract_value(cas_pair, 1, "cas_success")
+            .unwrap();
+
+        let norm_ty = self.type_registry.normalize(expr_ty);
+        let Some(&struct_id) = self.anon_struct_map.get(&norm_ty) else {
+            self.sess.emit_ice(
+                expected.span,
+                format!(
+                    "Kern ICE (Codegen): cmpxchg result type `{:?}` was not instantiated as an anonymous struct.",
+                    norm_ty
+                ),
+            );
+            let llvm_ty = self.get_llvm_type(expr_ty);
+            return self.get_undef_val(llvm_ty);
+        };
+
+        let struct_ty = self.get_llvm_type(expr_ty).into_struct_type();
+        let mut result = struct_ty.const_zero();
+        if let Some(idx) = self.struct_field_index_by_name(struct_id, "success") {
+            result = self
+                .builder
+                .build_insert_value(result, success_val, idx, "cas_insert_success")
+                .unwrap()
+                .into_struct_value();
+        }
+        if let Some(idx) = self.struct_field_index_by_name(struct_id, "value") {
+            result = self
+                .builder
+                .build_insert_value(result, old_val, idx, "cas_insert_value")
+                .unwrap()
+                .into_struct_value();
+        }
+
+        result.into()
     }
 }

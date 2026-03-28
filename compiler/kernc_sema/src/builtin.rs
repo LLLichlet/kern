@@ -52,10 +52,25 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_bitwise("@clz", int_trait_id);
         self.inject_bitwise("@ctz", int_trait_id);
         self.inject_void_intrinsic("@trap", true);
-        self.inject_void_intrinsic("@fence", false);
         self.inject_void_intrinsic("@breakpoint", false);
         self.inject_memory_intrinsic("@memcpy", true);
         self.inject_memory_intrinsic("@memset", false);
+        self.inject_atomic_load();
+        self.inject_atomic_store();
+        self.inject_atomic_cas("@atomicCas");
+        self.inject_atomic_cas("@atomicCasWeak");
+        self.inject_atomic_xchg();
+        self.inject_atomic_rmw("@atomicRmwAdd");
+        self.inject_atomic_rmw("@atomicRmwSub");
+        self.inject_atomic_rmw("@atomicRmwAnd");
+        self.inject_atomic_rmw("@atomicRmwNand");
+        self.inject_atomic_rmw("@atomicRmwOr");
+        self.inject_atomic_rmw("@atomicRmwXor");
+        self.inject_atomic_rmw("@atomicRmwMax");
+        self.inject_atomic_rmw("@atomicRmwMin");
+        self.inject_atomic_rmw("@atomicRmwUMax");
+        self.inject_atomic_rmw("@atomicRmwUMin");
+        self.inject_atomic_fence();
     }
 
     // ==========================================
@@ -573,6 +588,210 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         };
 
         self.ctx.add_def(Def::Function(func_def));
+        let node_id = self.ctx.next_node_id();
+        let _ = self.ctx.scopes.define(
+            name_id,
+            SymbolInfo {
+                kind: SymbolKind::Function,
+                node_id,
+                type_id: self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(def_id, vec![])),
+                def_id: Some(def_id),
+                span: Default::default(),
+                is_pub: true,
+                is_mut: false,
+            },
+        );
+    }
+
+    fn inject_atomic_load(&mut self) {
+        let param_t = GenericParam {
+            name: self.ctx.intern("T"),
+            span: Default::default(),
+        };
+        let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+        let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: t_ty,
+        });
+        self.inject_builtin_function(
+            "@atomicLoad",
+            vec![param_t],
+            vec![("ptr", ptr_t), ("order", TypeId::U8)],
+            t_ty,
+        );
+    }
+
+    fn inject_atomic_store(&mut self) {
+        let param_t = GenericParam {
+            name: self.ctx.intern("T"),
+            span: Default::default(),
+        };
+        let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+        let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: t_ty,
+        });
+        self.inject_builtin_function(
+            "@atomicStore",
+            vec![param_t],
+            vec![("ptr", ptr_t), ("val", t_ty), ("order", TypeId::U8)],
+            TypeId::VOID,
+        );
+    }
+
+    fn inject_atomic_cas(&mut self, name: &str) {
+        let param_t = GenericParam {
+            name: self.ctx.intern("T"),
+            span: Default::default(),
+        };
+        let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+        let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: t_ty,
+        });
+        let success_name = self.ctx.intern("success");
+        let value_name = self.ctx.intern("value");
+        let ret_ty = self.ctx.type_registry.intern(TypeKind::AnonymousStruct(
+            false,
+            vec![
+                crate::ty::AnonymousField {
+                    name: success_name,
+                    ty: TypeId::BOOL,
+                },
+                crate::ty::AnonymousField {
+                    name: value_name,
+                    ty: t_ty,
+                },
+            ],
+        ));
+
+        self.inject_builtin_function(
+            name,
+            vec![param_t],
+            vec![
+                ("ptr", ptr_t),
+                ("expected", t_ty),
+                ("desired", t_ty),
+                ("succ", TypeId::U8),
+                ("fail", TypeId::U8),
+            ],
+            ret_ty,
+        );
+    }
+
+    fn inject_atomic_xchg(&mut self) {
+        let param_t = GenericParam {
+            name: self.ctx.intern("T"),
+            span: Default::default(),
+        };
+        let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+        let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: t_ty,
+        });
+        self.inject_builtin_function(
+            "@atomicXchg",
+            vec![param_t],
+            vec![("ptr", ptr_t), ("val", t_ty), ("order", TypeId::U8)],
+            t_ty,
+        );
+    }
+
+    fn inject_atomic_rmw(&mut self, name: &str) {
+        let param_t = GenericParam {
+            name: self.ctx.intern("T"),
+            span: Default::default(),
+        };
+        let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+        let ptr_t = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: t_ty,
+        });
+        self.inject_builtin_function(
+            name,
+            vec![param_t],
+            vec![("ptr", ptr_t), ("val", t_ty), ("order", TypeId::U8)],
+            t_ty,
+        );
+    }
+
+    fn inject_atomic_fence(&mut self) {
+        self.inject_builtin_function("@fence", vec![], vec![("order", TypeId::U8)], TypeId::VOID);
+    }
+
+    fn inject_builtin_function(
+        &mut self,
+        name: &str,
+        generics: Vec<GenericParam>,
+        params: Vec<(&str, TypeId)>,
+        ret_ty: TypeId,
+    ) {
+        let name_id = self.ctx.intern(name);
+        let def_id = DefId(self.ctx.defs.len() as u32);
+
+        let mut param_defs = Vec::with_capacity(params.len());
+        let mut param_tys = Vec::with_capacity(params.len());
+
+        for (param_name, ty) in params {
+            let type_node_id = self.ctx.next_node_id();
+            self.ctx.node_types.insert(type_node_id, ty);
+            param_tys.push(ty);
+            param_defs.push(ast::FuncParam {
+                pattern: ast::BindingPattern {
+                    name: self.ctx.intern(param_name),
+                    is_mut: false,
+                    span: Default::default(),
+                },
+                type_node: ast::TypeNode {
+                    id: type_node_id,
+                    span: Default::default(),
+                    kind: ast::TypeKind::Infer,
+                },
+                span: Default::default(),
+            });
+        }
+
+        let ret_id = self.ctx.next_node_id();
+        self.ctx.node_types.insert(ret_id, ret_ty);
+        let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: param_tys,
+            ret: ret_ty,
+            is_variadic: false,
+        });
+
+        let ret_kind = if ret_ty == TypeId::NEVER {
+            ast::TypeKind::Never
+        } else {
+            ast::TypeKind::Infer
+        };
+
+        let func_def = FunctionDef {
+            id: def_id,
+            name: name_id,
+            vis: Visibility::Public,
+            parent: None,
+            generics,
+            where_clauses: vec![],
+            params: param_defs,
+            ret_type: ast::TypeNode {
+                id: ret_id,
+                span: Default::default(),
+                kind: ret_kind,
+            },
+            body: None,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: true,
+            resolved_sig: Some(sig_ty),
+            span: Default::default(),
+            attributes: vec![],
+        };
+
+        self.ctx.add_def(Def::Function(func_def));
+        self.ctx.scopes.set_current_scope(ScopeId(0));
         let node_id = self.ctx.next_node_id();
         let _ = self.ctx.scopes.define(
             name_id,

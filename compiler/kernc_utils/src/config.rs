@@ -67,6 +67,10 @@ impl TargetMachine {
             pointer_size,
         })
     }
+
+    pub fn max_lock_free_atomic_bits(&self) -> u64 {
+        (self.pointer_size * 16).min(128)
+    }
 }
 
 impl Default for TargetMachine {

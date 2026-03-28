@@ -1,3 +1,4 @@
+use kernc_utils::AtomicOrdering;
 use kernc_utils::{DiagnosticBuilder, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
 use std::collections::HashMap;
 
@@ -14,6 +15,7 @@ pub struct SemaContext<'a> {
     pub type_registry: TypeRegistry,
     // 记录每个 AST 节点推导出的最终类型
     pub node_types: HashMap<NodeId, TypeId>,
+    pub atomic_orderings: HashMap<NodeId, AtomicOrdering>,
     // 用于临时存储当前作用域下泛型参数的 Trait 约束 (Bounds)
     pub active_bounds: Vec<(TypeId, Vec<TypeId>)>,
 
@@ -34,6 +36,7 @@ impl<'a> SemaContext<'a> {
             sess,
             type_registry: TypeRegistry::new(),
             node_types: HashMap::new(),
+            atomic_orderings: HashMap::new(),
             active_bounds: Vec::new(),
             defs: Vec::new(),
             scopes: SymbolTable::new(),

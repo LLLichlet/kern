@@ -116,6 +116,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         for s in structs {
             let llvm_struct = self.context.opaque_struct_type(&s.name);
             self.structs.insert(s.id, llvm_struct);
+            self.struct_fields
+                .insert(s.id, s.fields.iter().map(|field| field.name).collect());
             if s.is_union {
                 self.union_ids.insert(s.id);
             }

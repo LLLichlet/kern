@@ -659,7 +659,7 @@ These intrinsics evaluate completely at compile-time and incur zero runtime over
 
   * `@unreachable() -> !`: Emits an unreachable instruction. Informs the optimizer that a control flow path is physically impossible, allowing it to eliminate dead branches (often used in exhaustiveness fallback).
   * `@trap() -> !`: Emits an illegal instruction (`llvm.trap`) to deliberately crash/halt the program securely.
-  * `@fence()`: Emits a strictly sequentially-consistent memory fence (`mfence`) to prevent instruction reordering around sensitive MMIO operations.
+  * `@fence(order)`: Emits an explicit memory fence with programmer-specified ordering. `order` must be a compile-time constant and may be `Acquire`, `Release`, `AcqRel`, or `SeqCst`.
   * `@breakpoint()`: Triggers a hardware breakpoint (`llvm.debugtrap`) for system debuggers.
 
 *(Note: Kern does not provide `@volatileLoad` or `@volatileStore` intrinsics. Instead, Kern treats volatility as a first-class type qualifier (`^T` and `^mut T`). Hardware register accesses are performed via standard dereferencing `ptr.*` on a volatile pointer, yielding perfectly predictable code without intrinsic clutter.)*
@@ -674,3 +674,67 @@ Mapped directly to single-cycle CPU instructions and highly optimized backend pr
   * `@bswap[T: Integer](val: T) -> T`: Reverses the byte order of an integer value (useful for endianness conversions).
   * `@memcpy(dest: *mut u8, src: *u8, len: usize) void`: Performs a highly-optimized bulk memory copy.
   * `@memset(dest: *mut u8, val: u8, len: usize) void`: Performs a highly-optimized bulk memory fill.
+
+### 13.4 Atomic Operations and Memory Ordering
+
+Kern exposes lock-free atomic operations through dedicated compiler intrinsics rather than inline assembly. This preserves optimizer visibility while still lowering directly to LLVM atomic IR with zero runtime abstraction overhead.
+
+Atomic operations require an explicit compile-time memory ordering constant. The compiler consumes the following stable integer ABI:
+
+```kern
+Relaxed = 0
+Acquire = 1
+Release = 2
+AcqRel  = 3
+SeqCst  = 4
+```
+
+These numeric values are part of Kern's intrinsic ABI contract. The compiler maps them to the backend's actual atomic ordering semantics; source code does not depend on LLVM's internal enum numbering.
+
+The standard library provides named wrappers in `std.sync`:
+
+```kern
+use std.sync.{MemOrder, ACQUIRE, RELEASE};
+
+let load_order: MemOrder = ACQUIRE;
+let store_order: MemOrder = RELEASE;
+```
+
+Freestanding code that does not use `std` may pass the raw compile-time integers directly (for example `1` for Acquire or `4` for SeqCst).
+
+Supported atomic value types are:
+
+  * Native integers: `i8`..`i128`, `u8`..`u128`, `isize`, `usize`
+  * Normal raw pointers: `*T`, `*mut T`
+
+Rejected types include `bool`, floating-point types, volatile pointers (`^T`, `^mut T`), slices, arrays, trait objects, closure fat pointers, and any other non-thin-pointer aggregate.
+
+Kern is freestanding and does not permit LLVM to lower oversized atomics into runtime helper calls such as `__atomic_*`. The compiler therefore rejects atomic widths larger than the target's lock-free limit at compile time.
+
+  * `@atomicLoad[T](ptr: *T, order: u8) -> T`
+    `order` must be `Relaxed`, `Acquire`, or `SeqCst`.
+  * `@atomicStore[T](ptr: *mut T, val: T, order: u8) void`
+    `order` must be `Relaxed`, `Release`, or `SeqCst`.
+  * `@atomicCas[T](ptr: *mut T, expected: T, desired: T, succ: u8, fail: u8) -> struct { success: bool, value: T }`
+    This is a strong compare-and-exchange. `fail` must be `Relaxed`, `Acquire`, or `SeqCst`, and it cannot be stronger than `succ`.
+  * `@atomicCasWeak[T](ptr: *mut T, expected: T, desired: T, succ: u8, fail: u8) -> struct { success: bool, value: T }`
+    This is a weak compare-and-exchange and may fail spuriously. `fail` must be `Relaxed`, `Acquire`, or `SeqCst`, and it cannot be stronger than `succ`.
+  * `@atomicXchg[T](ptr: *mut T, val: T, order: u8) -> T`
+    Supports integer and normal raw-pointer payloads.
+  * `@atomicRmwAdd[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwSub[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwAnd[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwNand[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwOr[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwXor[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwMax[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwMin[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwUMax[T](ptr: *mut T, val: T, order: u8) -> T`
+  * `@atomicRmwUMin[T](ptr: *mut T, val: T, order: u8) -> T`
+    These read-modify-write intrinsics are integer-only. Their `order` must be one of `Relaxed`, `Acquire`, `Release`, `AcqRel`, or `SeqCst`.
+  * `@fence(order: u8) void`
+    `order` must be `Acquire`, `Release`, `AcqRel`, or `SeqCst`.
+
+For both compare-and-exchange intrinsics, the operand evaluation order is fixed: `ptr`, then `expected`, then `desired`, from left to right. This matters when `expected` or `desired` contains side effects.
+
+Atomic synchronization is for shared memory, not MMIO. Device registers should continue to use Kern's volatile pointer types and ordinary dereferencing rules.

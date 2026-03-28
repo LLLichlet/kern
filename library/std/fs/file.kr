@@ -317,6 +317,91 @@ fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) Result[String
     return .{ Ok: out };
 }
 
+fn last_separator(path: []u8) Option[usize] {
+    let prefix_len = root_prefix_len(path);
+    let mut index = #path;
+    for (; index > prefix_len; ) {
+        index -= 1;
+        if (is_path_separator(path.[index])) {
+            return .{ Some: index };
+        }
+    }
+    return .{ None };
+}
+
+pub fn file_name(path: []u8) Option[[]u8] {
+    let trimmed = trim_trailing_separators(path);
+    let prefix_len = root_prefix_len(trimmed);
+    if (#trimmed == 0 or #trimmed == prefix_len) {
+        return .{ None };
+    }
+
+    match (last_separator(trimmed)) {
+        .Some: index => return .{ Some: trimmed.[index + 1 .. #trimmed] },
+        .None => return .{ Some: trimmed },
+    }
+}
+
+pub fn parent(path: []u8) Option[[]u8] {
+    let trimmed = trim_trailing_separators(path);
+    let prefix_len = root_prefix_len(trimmed);
+    if (#trimmed == 0 or #trimmed == prefix_len) {
+        return .{ None };
+    }
+
+    match (last_separator(trimmed)) {
+        .Some: index => return .{ Some: trimmed.[0 .. index] },
+        .None => {
+            if (prefix_len > 0) {
+                return .{ Some: trimmed.[0 .. prefix_len] };
+            }
+            return .{ None };
+        },
+    }
+}
+
+pub fn extension(path: []u8) Option[[]u8] {
+    let name = match (file_name(path)) {
+        .Some: name => name,
+        .None => return .{ None },
+    };
+
+    let mut index = #name;
+    for (; index > 0; ) {
+        index -= 1;
+        if (name.[index] != b'.') {
+            continue;
+        }
+        if (index == 0 or index + 1 == #name) {
+            return .{ None };
+        }
+        return .{ Some: name.[index + 1 .. #name] };
+    }
+
+    return .{ None };
+}
+
+pub fn file_stem(path: []u8) Option[[]u8] {
+    let name = match (file_name(path)) {
+        .Some: name => name,
+        .None => return .{ None },
+    };
+
+    let mut index = #name;
+    for (; index > 0; ) {
+        index -= 1;
+        if (name.[index] != b'.') {
+            continue;
+        }
+        if (index == 0) {
+            return .{ Some: name };
+        }
+        return .{ Some: name.[0 .. index] };
+    }
+
+    return .{ Some: name };
+}
+
 pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     if (#path == 0) {
         return .{ Err: .{ InvalidPath } };

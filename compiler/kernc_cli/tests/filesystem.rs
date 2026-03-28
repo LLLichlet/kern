@@ -858,3 +858,83 @@ extern fn main() i32 {{
 
     let _ = fs::remove_dir_all(&temp_root);
 }
+
+#[test]
+fn runs_hosted_program_using_std_fs_path_views() {
+    let output = build_and_run_hosted(
+        r#"
+use std.fs;
+
+extern fn main() i32 {
+    let path = "/tmp/kern/archive.tar";
+
+    if (!fs.file_name(path).is_some_and(.[](name: []u8) bool {
+        return name.eq("archive.tar");
+    })) {
+        return 1;
+    }
+    if (!fs.parent(path).is_some_and(.[](dir: []u8) bool {
+        return dir.eq("/tmp/kern");
+    })) {
+        return 2;
+    }
+    if (!fs.extension(path).is_some_and(.[](ext: []u8) bool {
+        return ext.eq("tar");
+    })) {
+        return 3;
+    }
+    if (!fs.file_stem(path).is_some_and(.[](stem: []u8) bool {
+        return stem.eq("archive");
+    })) {
+        return 4;
+    }
+
+    if (!fs.parent("/tmp/kern/").is_some_and(.[](dir: []u8) bool {
+        return dir.eq("/tmp");
+    })) {
+        return 5;
+    }
+    if (!fs.parent("/tmp").is_some_and(.[](dir: []u8) bool {
+        return dir.eq("/");
+    })) {
+        return 6;
+    }
+    if (fs.parent("/").is_some()) {
+        return 7;
+    }
+    if (fs.file_name("/").is_some()) {
+        return 8;
+    }
+    if (fs.parent("plain.txt").is_some()) {
+        return 9;
+    }
+
+    if (!fs.file_stem(".gitignore").is_some_and(.[](stem: []u8) bool {
+        return stem.eq(".gitignore");
+    })) {
+        return 10;
+    }
+    if (fs.extension(".gitignore").is_some()) {
+        return 11;
+    }
+    if (!fs.file_stem("config.").is_some_and(.[](stem: []u8) bool {
+        return stem.eq("config");
+    })) {
+        return 12;
+    }
+    if (fs.extension("config.").is_some()) {
+        return 13;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -15,6 +15,11 @@ type Node[K, V] = struct {
     children: [16]*mut Node[K, V],
 };
 
+type SearchHit[K, V] = struct {
+    node: *mut Node[K, V],
+    index: usize,
+};
+
 fn key_at[K, V](node: *mut Node[K, V], index: usize) K {
     return node.keys.[index];
 }
@@ -37,6 +42,91 @@ fn set_value[K, V](node: *mut Node[K, V], index: usize, value: V) void {
 
 fn set_child[K, V](node: *mut Node[K, V], index: usize, child: *mut Node[K, V]) void {
     node.children.[index] = child;
+}
+
+fn first_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
+    if ((root as usize) == 0) {
+        return .{ None };
+    }
+
+    let mut node = root;
+    for (; !node.is_leaf; ) {
+        node = child_at[K, V](node, 0);
+    }
+    return .{ Some: SearchHit[K, V].{ node: node, index: 0 } };
+}
+
+fn last_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
+    if ((root as usize) == 0) {
+        return .{ None };
+    }
+
+    let mut node = root;
+    for (; !node.is_leaf; ) {
+        node = child_at[K, V](node, node.len);
+    }
+    return .{ Some: SearchHit[K, V].{ node: node, index: node.len - 1 } };
+}
+
+fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
+    where *K: Ord[K],
+{
+    let mut node = root;
+    let mut found = Option[SearchHit[K, V]].{ None };
+
+    for (; (node as usize) != 0; ) {
+        let current = node;
+        let mut index = 0;
+        for (; index < current.len; index += 1) {
+            let cmp = key_at[K, V](current, index).&.cmp(key);
+            if (cmp >= 0) {
+                found = .{ Some: SearchHit[K, V].{ node: current, index: index } };
+                if (cmp == 0 or current.is_leaf) {
+                    return found;
+                }
+                node = child_at[K, V](current, index);
+                break;
+            }
+        }
+
+        if (index == current.len) {
+            if (current.is_leaf) {
+                return found;
+            }
+            node = child_at[K, V](current, current.len);
+        }
+    }
+
+    return found;
+}
+
+fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
+    where *K: Ord[K],
+{
+    let mut node = root;
+    let mut found = Option[SearchHit[K, V]].{ None };
+
+    for (; (node as usize) != 0; ) {
+        let mut index = 0;
+        for (; index < node.len; index += 1) {
+            let cmp = key_at[K, V](node, index).&.cmp(key);
+            if (cmp > 0) {
+                break;
+            }
+            found = .{ Some: SearchHit[K, V].{ node: node, index: index } };
+            if (cmp == 0) {
+                return found;
+            }
+        }
+
+        if (node.is_leaf) {
+            return found;
+        }
+
+        node = child_at[K, V](node, index);
+    }
+
+    return found;
 }
 
 pub type TreeMap[K, V] where *K: Ord[K] = struct {
@@ -296,6 +386,38 @@ impl[K, V] *mut TreeMap[K, V]
     pub fn for_each_mut(visitor: *Fn(K, *mut V) void) void {
         self.for_each_mut_node(self.root, visitor);
     }
+
+    pub fn first_ptr() Option[*mut V] {
+        let hit = match (first_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: hit.node.values.[hit.index]..& };
+    }
+
+    pub fn last_ptr() Option[*mut V] {
+        let hit = match (last_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: hit.node.values.[hit.index]..& };
+    }
+
+    pub fn ceil_ptr(key: K) Option[*mut V] {
+        let hit = match (ceil_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: hit.node.values.[hit.index]..& };
+    }
+
+    pub fn floor_ptr(key: K) Option[*mut V] {
+        let hit = match (floor_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: hit.node.values.[hit.index]..& };
+    }
 }
 
 impl[K, V] *TreeMap[K, V]
@@ -358,6 +480,70 @@ impl[K, V] *TreeMap[K, V]
 
     pub fn fold[U](init: U, step: *Fn(U, K, V) U) U {
         return self.fold_node(self.root, init, step);
+    }
+
+    pub fn first_key() Option[K] {
+        let hit = match (first_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn first() Option[V] {
+        let hit = match (first_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn last_key() Option[K] {
+        let hit = match (last_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn last() Option[V] {
+        let hit = match (last_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn ceil_key(key: K) Option[K] {
+        let hit = match (ceil_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn ceil(key: K) Option[V] {
+        let hit = match (ceil_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn floor_key(key: K) Option[K] {
+        let hit = match (floor_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn floor(key: K) Option[V] {
+        let hit = match (floor_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     pub fn get(key: K) Option[V] {

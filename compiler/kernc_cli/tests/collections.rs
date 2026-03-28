@@ -784,6 +784,86 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_tree_map_boundary_queries() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.TreeMap;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = TreeMap[i32, i32].{}..&;
+    defer map.deinit(gpa);
+
+    if (!map.insert(gpa, 10, 100)) return 1;
+    if (!map.insert(gpa, 30, 300)) return 2;
+    if (!map.insert(gpa, 20, 200)) return 3;
+    if (!map.insert(gpa, 40, 400)) return 4;
+
+    if (!map.first_key().is_some_and(.[](key: i32) bool { return key == 10; })) return 5;
+    if (!map.first().is_some_and(.[](value: i32) bool { return value == 100; })) return 6;
+    if (!map.last_key().is_some_and(.[](key: i32) bool { return key == 40; })) return 7;
+    if (!map.last().is_some_and(.[](value: i32) bool { return value == 400; })) return 8;
+
+    if (!map.ceil_key(5).is_some_and(.[](key: i32) bool { return key == 10; })) return 9;
+    if (!map.ceil(10).is_some_and(.[](value: i32) bool { return value == 100; })) return 10;
+    if (!map.ceil_key(21).is_some_and(.[](key: i32) bool { return key == 30; })) return 11;
+    if (!map.ceil(39).is_some_and(.[](value: i32) bool { return value == 400; })) return 12;
+    if (map.ceil_key(41).is_some()) return 13;
+
+    if (map.floor_key(9).is_some()) return 14;
+    if (!map.floor_key(10).is_some_and(.[](key: i32) bool { return key == 10; })) return 15;
+    if (!map.floor(29).is_some_and(.[](value: i32) bool { return value == 200; })) return 16;
+    if (!map.floor_key(40).is_some_and(.[](key: i32) bool { return key == 40; })) return 17;
+
+    let first = match (map.first_ptr()) {
+        .Some: ptr => ptr,
+        .None => return 18,
+    };
+    first.* += 1;
+    let last = match (map.last_ptr()) {
+        .Some: ptr => ptr,
+        .None => return 19,
+    };
+    last.* += 2;
+    let ceil_mid = match (map.ceil_ptr(21)) {
+        .Some: ptr => ptr,
+        .None => return 20,
+    };
+    ceil_mid.* += 3;
+    let floor_mid = match (map.floor_ptr(29)) {
+        .Some: ptr => ptr,
+        .None => return 21,
+    };
+    floor_mid.* += 4;
+
+    if (!map.get(10).is_some_and(.[](value: i32) bool { return value == 101; })) return 22;
+    if (!map.get(20).is_some_and(.[](value: i32) bool { return value == 204; })) return 23;
+    if (!map.get(30).is_some_and(.[](value: i32) bool { return value == 303; })) return 24;
+    if (!map.get(40).is_some_and(.[](value: i32) bool { return value == 402; })) return 25;
+
+    let empty = TreeMap[i32, i32].{}..&;
+    defer empty.deinit(gpa);
+    if (empty.first().is_some()) return 26;
+    if (empty.last().is_some()) return 27;
+    if (empty.ceil(1).is_some()) return 28;
+    if (empty.floor(1).is_some()) return 29;
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_list_slice_and_string_algorithms() {
     let output = build_and_run_hosted(
         r#"

@@ -517,9 +517,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ret: e_ret,
             is_variadic: false,
         } = exp_kind
-            && self.check_closure_decay_to_function(e_params, *e_ret, act_kind)
         {
-            return true;
+            if self.check_closure_decay_to_function(e_params, *e_ret, act_kind) {
+                return true;
+            }
+            if self.check_fn_like_to_closure_interface(e_params, *e_ret, act_kind, expr.span) {
+                return true;
+            }
         }
 
         if let TypeKind::Pointer {

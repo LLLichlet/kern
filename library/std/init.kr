@@ -11,4 +11,4 @@ pub mod sync;
 pub mod cmp;
 
 pub use .dbg.{Result, Option};
-pub use .cmp.{Ordering, LESS, EQUAL, GREATER, Comparable, Ord};
+pub use .cmp.{Ordering, LESS, EQUAL, GREATER, Comparable, Ord, ord_cmp};

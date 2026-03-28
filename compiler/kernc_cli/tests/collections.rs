@@ -107,6 +107,7 @@ fn runs_hosted_program_using_std_coll_tree_map() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.TreeMap;
+use std.cmp.ord_cmp;
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 extern fn main() i32 {
@@ -145,6 +146,78 @@ extern fn main() i32 {
     }
     if (map.len != 32) {
         return 6;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_hosted_program_using_std_cmp_ord_bridge_with_tree_map() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.TreeMap;
+use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER, ord_cmp};
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+type Key = struct {
+    major: i32,
+    minor: i32,
+};
+
+impl *Key : Comparable[Key] {
+    pub fn cmp(other: Key) Ordering {
+        if (self.major < other.major) return LESS;
+        if (self.major > other.major) return GREATER;
+        if (self.minor < other.minor) return LESS;
+        if (self.minor > other.minor) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl *Key : Ord[Key] {}
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = TreeMap[Key, i32].{
+        cmp: ord_cmp[Key],
+    }..&;
+    defer map.deinit(gpa);
+
+    if (!map.insert(gpa, Key.{ major: 1, minor: 0 }, 10)) {
+        return 1;
+    }
+    if (!map.insert(gpa, Key.{ major: 0, minor: 8 }, 8)) {
+        return 2;
+    }
+    if (!map.insert(gpa, Key.{ major: 1, minor: 2 }, 12)) {
+        return 3;
+    }
+    if (!map.insert(gpa, Key.{ major: 1, minor: 0 }, 99)) {
+        return 4;
+    }
+
+    if (!map.get(Key.{ major: 1, minor: 0 }).is_some_and(.[](value: i32) bool { return value == 99; })) {
+        return 5;
+    }
+    if (!map.get(Key.{ major: 0, minor: 8 }).is_some_and(.[](value: i32) bool { return value == 8; })) {
+        return 6;
+    }
+    if (map.contains(Key.{ major: 2, minor: 0 })) {
+        return 7;
+    }
+    if (map.len != 3) {
+        return 8;
     }
 
     return 0;

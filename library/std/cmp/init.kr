@@ -10,6 +10,12 @@ pub type Comparable[T] = trait {
 
 pub type Ord[T]: Comparable[T] = trait {};
 
+pub fn ord_cmp[T](lhs: T, rhs: T) Ordering
+    where *T: Ord[T],
+{
+    return lhs.&.cmp(rhs);
+}
+
 impl *i8 : Comparable[i8] {
     pub fn cmp(other: i8) Ordering {
         if (self.* < other) return LESS;

@@ -15,20 +15,14 @@ use ..base.{
     ctrl_at,
     set_ctrl,
     entry_ptr,
+    key_hash,
+    find_index_with_hash,
     max_occupied,
 };
 
 impl[K, V] *mut Map[K, V]
     where *K: Eq[K] + Hash[K],
 {
-    fn key_hash(key: K) u64 {
-        return key.&.hash();
-    }
-
-    fn keys_equal(lhs: K, rhs: K) bool {
-        return lhs.&.eq(rhs);
-    }
-
     fn next_capacity(current: usize) Option[usize] {
         if (current == 0) {
             return .{ Some: MIN_CAPACITY };
@@ -178,30 +172,6 @@ impl[K, V] *mut Map[K, V]
         return self.rebuild(alloc, target);
     }
 
-    fn find_index_with_hash(key: K, hash: u64) Option[usize] {
-        let mask = self.capacity - 1;
-        let mut index = (hash as usize) & mask;
-        let mut probes = 0;
-
-        for (; probes < self.capacity; probes += 1) {
-            let state = ctrl_at(self.ctrl, index);
-            if (state == EMPTY) {
-                return .{ None };
-            }
-
-            if (state == FULL) {
-                let entry = entry_ptr[K, V](self.entries, index);
-                if (entry.hash64 == hash and self.keys_equal(entry.key, key)) {
-                    return .{ Some: index };
-                }
-            }
-
-            index = (index + 1) & mask;
-        }
-
-        return .{ None };
-    }
-
     fn find_insert_slot(hash: u64) Option[usize] {
         let mask = self.capacity - 1;
         let mut index = (hash as usize) & mask;
@@ -270,9 +240,9 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
-        let hash = self.key_hash(key);
+        let hash = key_hash(key);
         if (self.capacity > 0) {
-            match (self.find_index_with_hash(key, hash)) {
+            match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
                 .Some: index => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     entry.value = value;
@@ -295,9 +265,9 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn get_or_insert(alloc: *mut Allocator, key: K, value: V) Option[*mut V] {
-        let hash = self.key_hash(key);
+        let hash = key_hash(key);
         if (self.capacity > 0) {
-            match (self.find_index_with_hash(key, hash)) {
+            match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
                 .Some: index => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     return .{ Some: entry.value..& };
@@ -318,9 +288,9 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn get_or_insert_with(alloc: *mut Allocator, key: K, make_value: *Fn() V) Option[*mut V] {
-        let hash = self.key_hash(key);
+        let hash = key_hash(key);
         if (self.capacity > 0) {
-            match (self.find_index_with_hash(key, hash)) {
+            match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
                 .Some: index => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     return .{ Some: entry.value..& };
@@ -344,8 +314,8 @@ impl[K, V] *mut Map[K, V]
     pub fn get_ptr(key: K) Option[*mut V] {
         if (self.capacity == 0) return .{ None };
 
-        let hash = self.key_hash(key);
-        let slot = match (self.find_index_with_hash(key, hash)) {
+        let hash = key_hash(key);
+        let slot = match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
             .Some: index => index,
             .None => return .{ None },
         };
@@ -383,8 +353,8 @@ impl[K, V] *mut Map[K, V]
     pub fn remove(key: K) Option[V] {
         if (self.capacity == 0) return .{ None };
 
-        let hash = self.key_hash(key);
-        let slot = match (self.find_index_with_hash(key, hash)) {
+        let hash = key_hash(key);
+        let slot = match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
             .Some: index => index,
             .None => return .{ None },
         };

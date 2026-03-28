@@ -31,6 +31,44 @@ pub fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, V]
     return entries + index;
 }
 
+pub fn key_hash[K](key: K) u64
+    where *K: Eq[K] + Hash[K],
+{
+    return key.&.hash();
+}
+
+pub fn keys_equal[K](lhs: K, rhs: K) bool
+    where *K: Eq[K] + Hash[K],
+{
+    return lhs.&.eq(rhs);
+}
+
+pub fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, key: K, hash: u64) Option[usize]
+    where *K: Eq[K] + Hash[K],
+{
+    let mask = capacity - 1;
+    let mut index = (hash as usize) & mask;
+    let mut probes = 0;
+
+    for (; probes < capacity; probes += 1) {
+        let state = ctrl_at(ctrl, index);
+        if (state == EMPTY) {
+            return .{ None };
+        }
+
+        if (state == FULL) {
+            let entry = entry_ptr[K, V](entries, index);
+            if (entry.hash64 == hash and keys_equal(entry.key, key)) {
+                return .{ Some: index };
+            }
+        }
+
+        index = (index + 1) & mask;
+    }
+
+    return .{ None };
+}
+
 pub fn max_occupied(capacity: usize) usize {
     return capacity - capacity / 4;
 }

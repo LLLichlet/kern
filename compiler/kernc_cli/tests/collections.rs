@@ -986,6 +986,18 @@ extern fn main() i32 {
         return 4;
     }
 
+    let option_fallback = none.or_else(.[seen = seen..&]() Option[i32] {
+        seen.* += 100;
+        return .{ Some: 123 };
+    });
+    let option_fallback_value = match (option_fallback) {
+        .Some: value => value,
+        .None => return 5,
+    };
+    if (option_fallback_value != 123 or seen != 117) {
+        return 6;
+    }
+
     let result = Result[i32, i32].{ Ok: 5 };
     let mapped_result = result.map(.[seen = seen..&](value: i32) i32 {
         seen.* += value;
@@ -995,10 +1007,10 @@ extern fn main() i32 {
         return .{ Ok: value * 2 };
     })) {
         .Ok: value => value,
-        .Err: _ => return 5,
+        .Err: _ => return 7,
     };
-    if (chained != 12 or seen != 22) {
-        return 6;
+    if (chained != 12 or seen != 122) {
+        return 8;
     }
 
     let mut err_seen = i32.{0};
@@ -1006,7 +1018,17 @@ extern fn main() i32 {
         err_seen.* = err;
     });
     if (err_seen != 4) {
-        return 7;
+        return 9;
+    }
+
+    let recovered = match (Result[i32, i32].{ Err: 8 }.or_else(.[](err: i32) Result[i32, i32] {
+        return .{ Ok: err + 2 };
+    })) {
+        .Ok: value => value,
+        .Err: _ => return 10,
+    };
+    if (recovered != 10) {
+        return 11;
     }
 
     return 0;

@@ -5,16 +5,17 @@
 1.  [Core Philosophy](#1-core-philosophy-and-manifesto)
 2.  [Type System](#2-type-system)
 3.  [Declarations and Storage](#3-declarations-and-storage)
-4.  [Enum Structures](#4-data-structures)
-5.  [Functions and Traits](#5-functions-and-traits)
-6.  [Control Flow](#6-control-flow)
-7.  [Modules](#7-modules)
-8.  [Interoperability](#8-interoperability)
-9.  [Enum Types (`enum`) and Pattern Matching](#9-enum-types-enum-and-pattern-matching)
-10. [Closures and Anonymous Functions](#10-closures-and-anonymous-functions)
-11. [Inline Assembly (`@asm`)](#11-inline-assembly-asm)
-12. [AST Attributes and Metadata (`#[...]`)](#12-ast-attributes-and-metadata--and-)
-13. [Compiler Intrinsics (`@...`)](#13-compiler-intrinsics-)
+4.  [Const and Compile-Time Evaluation](#4-const-and-compile-time-evaluation)
+5.  [Enum Structures](#5-enum-structures)
+6.  [Functions and Traits](#6-functions-and-traits)
+7.  [Control Flow](#7-control-flow)
+8.  [Modules](#8-modules)
+9.  [Interoperability](#9-interoperability)
+10. [Enum Types (`enum`) and Pattern Matching](#10-enum-types-enum-and-pattern-matching)
+11. [Closures and Anonymous Functions](#11-closures-and-anonymous-functions)
+12. [Inline Assembly (`@asm`)](#12-inline-assembly-asm)
+13. [AST Attributes and Metadata (`#[...]`)](#13-ast-attributes-and-metadata--and-)
+14. [Compiler Intrinsics (`@...`)](#14-compiler-intrinsics-)
 
 -----
 
@@ -109,7 +110,7 @@ BNC is a zero-cost compiler mechanism that naturally "decays" or "packages" a ri
 
 Kern currently relies on four common BNC pathways:
 1. **Array to Slice Decay**: A fixed-size array `[N]T` naturally converts into a dynamic slice `[]T`. The compiler automatically extracts the memory address and synthesizes the fat pointer's length metadata using the compile-time `N`.
-2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`.[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `fn(Args) Ret` (See Section 10.3).
+2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`.[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `fn(Args) Ret` (See Section 11.3).
 3. **Named Struct to Anonymous Struct Decay**: A named structural type (e.g., `type Vector = struct { x: i32, y: i32 }`) naturally decays into an equivalent Anonymous Struct (`struct { x: i32, y: i32 }`) or its pointer variant when passed across a boundary. This enables secure "Duck Typing" without boilerplate. 
    * *Strict ABI Contract*: BNC is aggressively guarded by ABI compatibility. A native `struct` will **never** implicitly decay into an `extern struct` (and vice versa), as their underlying memory layouts are physically distinct.
 4. **Trait Object Upcast**: A trait object pointer `*Sub` naturally boundary-converts to `*Super` if `Super` appears in `Sub`'s fully instantiated supertrait graph. This rewrites only the fat pointer metadata; the data pointer is unchanged.
@@ -123,9 +124,76 @@ BNC guarantees that the developer does not need to write boilerplate fat-pointer
   * **Constants**: `const NAME = Expr;`
   * **Uninitialized Memory**: `let mut x = Type.{undef};`
 
-## 4\. Enum Structures
+## 4\. Const and Compile-Time Evaluation
 
-### 4.1 Structs
+`const` in Kern is a language-level compile-time execution mechanism, not merely a "read-only storage class". Semantically it is much closer to a restricted `comptime` model: the compiler is allowed to interpret expressions, follow constant references, and execute explicitly marked functions in order to materialize values during compilation.
+
+### 4.1 Design Position
+
+Kern is freestanding by default, so compile-time evaluation is intentionally independent of the runtime library split.
+
+  * `const` does **not** depend on `std`, `kernstd`, `libc`, or any startup object.
+  * Kern does **not** need a Rust-style `core/std` split to model compile-time capability. Const evaluation is part of the language and compiler, not a special sub-library.
+  * The standard library may expose more `const fn`, but the mechanism itself remains runtime-agnostic.
+
+### 4.2 Constant Contexts
+
+The compiler evaluates constant expressions wherever the language requires a compile-time value.
+
+  * Global `const` initializers.
+  * Array lengths such as `[N]T`.
+  * Enum discriminant expressions.
+  * Repeat-literal counts such as `.{ value; N }`.
+  * Intrinsic or API operands that are explicitly specified as compile-time constants.
+
+The guiding rule is simple: if a construct must be fully known before lowering and code generation, Kern routes it through the constant evaluator instead of inventing a separate ad hoc rule.
+
+### 4.3 `const fn`
+
+Kern uses explicit syntax:
+
+```kern
+const fn align_up(value: usize, align: usize) usize {
+    let mask = align - 1;
+    return (value + mask) & ~mask;
+}
+```
+
+`const fn` has the following semantics:
+
+  * It is still a normal function item in the type system and code generator.
+  * It can be called at runtime like any other function.
+  * It may additionally be executed by the compiler when it appears in a constant context.
+  * It may be generic and may appear as a method inside `impl`.
+  * It is **not** a separate ABI, calling convention, or second function model.
+  * `extern const fn` is rejected. Crossing an external ABI boundary and compile-time interpretation are intentionally kept separate.
+
+This means Kern does not hardcode special cases such as a magical compile-time-only `main`. Instead, `const fn` is the explicit marker that grants the evaluator permission to interpret a function body.
+
+### 4.4 Evaluation Model
+
+Kern reuses the normal semantic model as far as possible.
+
+  * Constant evaluation resolves names in the owning module scope of the referenced constant or function.
+  * `const fn` bodies may use local `let` bindings, nested blocks, `if`, `match`, and `return`.
+  * Constant evaluation may call other `const fn` or supported compiler intrinsics.
+  * Methods are evaluated with the same `self` model as ordinary methods; there is no separate const-method object model.
+
+This is intentional robustness policy: Kern prefers one strong evaluator over many special-case folders spread across the compiler.
+
+### 4.5 Rejection Policy
+
+Kern is strict about rejecting constructs whose compile-time behavior is not yet fully specified or would imply hidden runtime effects.
+
+  * Calling a non-`const fn` in a constant context is an error.
+  * Runtime-only or effectful constructs are rejected instead of being silently approximated.
+  * Unsupported constant constructs should fail loudly at compile time rather than degrading into partial evaluation with surprising semantics.
+
+In other words, Kern treats `const` as an execution boundary with explicit admission rules, not as a best-effort optimizer hint.
+
+## 5\. Enum Structures
+
+### 5.1 Structs
 
 ```kern
 type Point = struct {
@@ -134,7 +202,7 @@ type Point = struct {
 };
 ```
 
-  * **Generics**: `type Point[T] = struct { x: T, y: T };` (See 5.6 for Trait constraints via where clauses).
+  * **Generics**: `type Point[T] = struct { x: T, y: T };` (See 6.6 for Trait constraints via where clauses).
   * **Default fields**: `type Config = struct { port: u16 = 8080, host: u32 = 0 };`
   * **Zero-Cost Memory Layout**: By default, Kern employs a highly optimized physical layout engine. It aggressively reorders struct fields at compile-time (descending by alignment requirements, then size) to eliminate memory padding (empty holes). 
   * **C-ABI Compatibility (`extern`)**: If a struct must strictly maintain its source-code declaration order to interface with C or hardware, it must be prefixed with `extern` (e.g., `extern type Header = struct { ... };`). This disables reordering and guarantees standard C-ABI layout.
@@ -156,7 +224,7 @@ let y = i32.{20};
 let p3 = Point.{x: x, y: y};
 ```
 
-### 4.2 Unions
+### 5.2 Unions
 
 ```kern
 type Payload = union {
@@ -168,7 +236,7 @@ type Payload = union {
 
 No active‑field tracking; no default values.
 
-### 4.3 Simple Enum (formerly Enums)
+### 5.3 Simple Enum (formerly Enums)
 
 In Kern v0.5.0, C-style integer constant sets and complex Algebraic Enum Types are unified under the `enum` keyword. For simple sets, the backing type can be explicitly defined (defaults to `u32`).
 
@@ -194,7 +262,7 @@ let color = match (raw_data) {
 };
 ```
 
-### 4.4 Conversions
+### 5.4 Conversions
 
 In Kern v0.5.0, type conversions are explicitly and uniformly handled by the `as` operator.
 
@@ -202,7 +270,7 @@ In Kern v0.5.0, type conversions are explicitly and uniformly handled by the `as
   * **Pointer Reinterpretation**: `as` preserves the physical bit pattern when casting between pointer types or between pointers and `usize`/`isize`.
   * **Strict Boundaries**: The `as` operator **cannot** be used to implicitly construct Trait Objects, nor can it cast arbitrary integers directly into `data` variants. Fat pointer construction requires Explicit Constructor Syntax (`Trait.{ ptr }`).
 
-### 4.5 Anonymous Structs
+### 5.5 Anonymous Structs
 
 Kern treats Anonymous Structs as first-class citizens to facilitate lightweight data grouping, Duck Typing, and closure state management.
 
@@ -219,9 +287,9 @@ let val: struct { a: u8, b: u64 } = .{ a: 1, b: 2 };
 extern {fn process_c_data(data: *extern struct { a: u8, b: u64 }) void; }
 ```
 
-## 5\. Functions and Traits
+## 6\. Functions and Traits
 
-### 5.2 Implementation Blocks (`impl`)
+### 6.2 Implementation Blocks (`impl`)
 
 `impl` blocks attach methods to a concrete type (including pointer types). The `self` parameter is implicitly injected and managed by the Semantic Analyzer.
 
@@ -237,7 +305,7 @@ impl *mut Point {
 }
 ```
 
-### 5.4 Traits
+### 6.4 Traits
 
 Traits define a VTable contract. Methods implicitly receive a `self` reference.
 
@@ -247,7 +315,7 @@ type Writer = trait {
 };
 ```
 
-### 5.5 Trait Objects (Fat Pointers)
+### 6.5 Trait Objects (Fat Pointers)
 
 A Trait Object is a runtime-dynamic fat pointer consisting of a data pointer and a VTable pointer. They are constructed using **Explicit Constructor Syntax**.
 
@@ -282,7 +350,7 @@ let base1 = *Reader.{ reader }; // explicit upcast
 use_reader(reader);             // implicit BNC upcast to *Reader
 ```
 
-### 5.6 Generic Constraints (`where` clauses)
+### 6.6 Generic Constraints (`where` clauses)
 
 Unlike some languages where generic parameter declaration and trait bounding are mixed, Kern enforces a strict separation between **generic introduction** and **type bounding** using `where` clauses. Because Kern is strictly type-oriented, constraints must explicitly specify the exact type derivation being bounded.
 
@@ -316,9 +384,9 @@ type Point[T]
 };
 ```
 
-## 6\. Control Flow
+## 7\. Control Flow
 
-### 6.1 Conditional Expressions
+### 7.1 Conditional Expressions
 
 `if` is an expression.
 
@@ -326,7 +394,7 @@ type Point[T]
 let a = if (b < 10) i32.{10} else i32.{20};
 ```
 
-### 6.2 Match Expressions
+### 7.2 Match Expressions
 
 Enhanced pattern matching and branching. In Kern v0.5.0, `match` completely replaces `switch` for all branching logic (integers, strings, and `enum` variants). No fallthrough.
 
@@ -345,7 +413,7 @@ let result = match (val) {
 
   * **Exhaustiveness**: Match expressions must be exhaustive. When matching on a `enum` type, `_ =>` is not required if all variants are explicitly matched.
 
-### 6.3 For Loops
+### 7.3 For Loops
 
 Only `for` (no `while`, `do‑while`).
 
@@ -355,7 +423,7 @@ for (; cond ;) { … }          // while
 for (;;) { … }                // infinite loop
 ```
 
-### 6.4 Defer
+### 7.4 Defer
 
 Executes an expression or block when the **current lexical scope (block `{\}`)** exits (LIFO). `defer` is strictly block‑scoped, not function‑scoped.
 
@@ -364,7 +432,7 @@ let ptr = malloc(1024);
 defer free(ptr);
 ```
 
-### 6.5 Blocks, Expressions, and Discards
+### 7.5 Blocks, Expressions, and Discards
 
 Blocks evaluate to their last expression.
 Kern strictly mandates that returned values cannot be implicitly ignored to prevent logical errors in systems programming.
@@ -382,11 +450,11 @@ When a block `{ … }` evaluates as an expression and contains `defer` statement
 
 > **Warning**: Returning a pointer to a resource that is freed by a `defer` within the exact same block will result in a dangling pointer. Kern prioritizes explicit execution order over implicit memory protection.
 
-## 7\. Modules
+## 8\. Modules
 
 Kern's module system is designed to be explicit, highly predictable, and strictly controlled by the programmer. In v0.4.0, Kern transitioned to an explicit module tree declaration model to support robust visibility control, re-exports, and conditional compilation.
 
-### 7.1 Explicit Module Tree (`mod`)
+### 8.1 Explicit Module Tree (`mod`)
 
 Files and directories do not implicitly become part of the compilation unit just by existing on the filesystem. A module must be explicitly declared using the `mod` keyword.
 
@@ -409,7 +477,7 @@ mod linux;
 mod windows;
 ```
 
-### 7.2 Imports and Path Resolution (`use`)
+### 8.2 Imports and Path Resolution (`use`)
 
 Absolute paths in Kern are resolved through two precise roots:
 
@@ -423,7 +491,7 @@ Paths are navigated strictly:
   * **Relative import (Parent)**: `use ..common.types;` (Starts from the parent module)
   * **Grouped imports**: `use std.os.{Handle, write, exit};`
 
-### 7.3 Facade Pattern and Re-exports (`pub use`)
+### 8.3 Facade Pattern and Re-exports (`pub use`)
 
 Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled.
 
@@ -437,15 +505,15 @@ mod linux;
 pub use .linux.{Handle, get_stdout_handle, write, exit};
 ```
 
-### 7.4 Multi-Pass Resolution
+### 8.4 Multi-Pass Resolution
 
 Kern utilizes a multi-pass Semantic Analyzer. Circular type dependencies across different module files (e.g., Module A uses a struct from Module B, which contains a pointer to a struct from Module A) are fully supported natively. There is no need for C-style forward declarations or header files.
 
-## 8\. Interoperability
+## 9\. Interoperability
 
 Kern uses the C Application Binary Interface (ABI) as the universal language for all external communication.
 
-### 8.1 Name Mangling and Exporting to C/Assembly
+### 9.1 Name Mangling and Exporting to C/Assembly
 
 To safely support Generics, Modules, and Trait implementations without symbol collisions, Kern uses a deterministic, **Itanium-style Name Mangling Engine** (e.g., a generic method might be compiled as `_K3std11collections15ArrayListI3i32E3new`).
 
@@ -469,7 +537,7 @@ extern fn main(args: [][]u8) i32 {
 
 When using a hosted C runtime instead, Kern does not force the `std.rt` entry shim. In that environment, the program should expose whichever `extern` entry signature the hosted runtime expects (for example a C-style `main`).
 
-### 8.2 Importing External Functions and Statics
+### 9.2 Importing External Functions and Statics
 
 External C functions can use the `...` syntax to support C-style variadic arguments. External statics must be declared using `T.{undef}`. Items inside an `extern` block can be marked `pub` to expose them through the Kern module system.
 
@@ -481,11 +549,11 @@ extern {
 }
 ```
 
-## 9\. Enum Types (`enum`) and Pattern Matching
+## 10\. Enum Types (`enum`) and Pattern Matching
 
 Kern v0.5.0 unifies all tagged unions and enumerations under the `enum` keyword, paired exclusively with `match` for branching.
 
-### 9.1 Defining Enum Types
+### 10.1 Defining Enum Types
 
 Use the `enum` keyword to define tagged unions with payloads (Algebraic Enum Types).
 
@@ -496,7 +564,7 @@ pub type Option[T] = enum {
 };
 ```
 
-### 9.2 Elided Initialization Syntax
+### 10.2 Elided Initialization Syntax
 
 Where the target type context is strictly explicit (e.g., function returns, arguments, explicit variable declarations), **any type** (including Enum, Arrays, and Structs) can be initialized using the elided literal syntax `.{ ... }`.
 
@@ -507,7 +575,7 @@ fn safe_divide(a: i32, b: i32) Result[i32, i32] {
 }
 ```
 
-### 9.3 Pattern Matching (`match`)
+### 10.3 Pattern Matching (`match`)
 
 Pattern matching is the only way to access the payload of a `enum` variant. Bindings within a match arm can be made mutable.
 
@@ -521,11 +589,11 @@ match (opt) {
 }
 ```
 
-## 10. Closures and Anonymous Functions
+## 11. Closures and Anonymous Functions
 
 Kern explicitly separates the physical state of a closure from its dynamic invocation interface. A closure in Kern is not a magical opaque type; it is fundamentally an anonymous structure combined with a function.
 
-### 10.1 Syntax and Capture Assignments
+### 11.1 Syntax and Capture Assignments
 
 Closures use the `.[captures](args) ReturnType { ... }` syntax. 
 Capturing must be explicit and follows **Pure Value Semantics**. You define bindings in the capture list using `=`. If the target binding name matches a local variable in scope, you can use the capture elision shorthand. (Note: Unlike struct initialization which requires strict `field: value` pairs, closure capture lists uniquely permit this safe shorthand because the `.[...]` syntax is unambiguous).
@@ -541,7 +609,7 @@ let closure = .[a, ptr = counter..&](b: i32) i32 {
 };
 ```
 
-### 10.2 The Dual-Type Nature of Closures
+### 11.2 The Dual-Type Nature of Closures
 
 Understanding closures in Kern requires distinguishing between two distinct types:
 
@@ -550,7 +618,7 @@ Understanding closures in Kern requires distinguishing between two distinct type
     * `*Fn(Args) Ret`: An immutable closure pointer (read-only access to captured state).
     * `*mut Fn(Args) Ret`: A mutable closure pointer (can mutate captured state).
 
-### 10.3 Boundary Natural Conversion and Decay
+### 11.3 Boundary Natural Conversion and Decay
 
 Kern seamlessly bridges the Anonymous Closure State and the Closure Fat Pointer through **Boundary Natural Conversion (BNC)** (See Section 2.5).
 
@@ -567,7 +635,7 @@ arr.sort(.[](a: i32, b: i32) bool {
 });
 ```
 
-### 10.4 Explicit Escape, Heap Allocation, and State Extraction (`#`)
+### 11.4 Explicit Escape, Heap Allocation, and State Extraction (`#`)
 
 Because closures evaluate to standard structs on the stack, escaping a closure requires explicitly allocating memory for its anonymous type and manually assembling the `*Fn` fat pointer.
 
@@ -594,11 +662,11 @@ let ptr_to_free = (#heap_cb) as *mut u8;
 free(ptr_to_free, size); 
 ```
 
-## 11\. Inline Assembly (`@asm`)
+## 12\. Inline Assembly (`@asm`)
 
 To maintain Kern's philosophy of "explicit over implicit", inline assembly does not use format strings with hidden index bindings. Instead, it leverages Kern's elided struct literal syntax (`.{ ... }`) to create a strict, named mapping between CPU registers and Kern variables.
 
-### 11.1 Syntax, Register Binding, and MAST Evaluation
+### 12.1 Syntax, Register Binding, and MAST Evaluation
 
 The parameters passed to `@asm` (such as the `asm` string array, `clobbers`, and `volatile` flag) are **not runtime structures**. They are resolved and evaluated entirely at compile-time during the MAST (Monomorphized Abstract Syntax Tree) phase.
 
@@ -621,16 +689,16 @@ pub fn outb_and_read(port: u16, data: u8) u8 {
 }
 ```
 
-## 12\. AST Attributes and Metadata (`#[...]` and `#![...]`)
+## 13\. AST Attributes and Metadata (`#[...]` and `#![...]`)
 
 Kern completely rejects traditional C-style preprocessor macros, substituting them with an **Attribute Mini-Language**. Attributes are strictly parsed by the frontend and natively understood by the compiler backend to control memory layout, linkage, and optimization.
 
-### 12.1 Scope: Outer vs. Inner Attributes
+### 13.1 Scope: Outer vs. Inner Attributes
 
   * **Outer Attributes (`#[...]`)**: Attached to the immediately following AST node (e.g., a function, struct, or variable declaration).
   * **Inner Attributes (`#![...]`)**: Applies to the entire enclosing lexical scope (usually the file). If placed at the top of an `init.kr` file, the attribute applies to the entire module.
 
-### 12.2 Mutually Exclusive Content
+### 13.2 Mutually Exclusive Content
 
 Kern strictly enforces single-responsibility for attribute brackets. The content inside the brackets `[...]` must be **either** a condition evaluator **or** a list of metadata tags.
 
@@ -665,11 +733,11 @@ A comma-separated list of tags attached to the AST for compiler side-effects. Me
 
 -----
 
-## 13\. Compiler Intrinsics (`@...`)
+## 14\. Compiler Intrinsics (`@...`)
 
 Intrinsics are special functions implemented directly within the Kern compiler backend (e.g., LLVM). They are prefixed with `@` to strictly separate them from user-defined functions. They are used for operations that alter data representation, query compile-time information, or emit specialized CPU instructions.
 
-### 13.1 Compile-Time Type Information
+### 14.1 Compile-Time Type Information
 
 These intrinsics evaluate completely at compile-time and incur zero runtime overhead.
 
@@ -677,7 +745,7 @@ These intrinsics evaluate completely at compile-time and incur zero runtime over
   * `@sizeOf[T]() -> usize`: Returns the memory footprint (size in bytes) of type `T`.
   * `@alignOf[T]() -> usize`: Returns the ABI-required alignment (in bytes) of type `T`.
 
-### 13.2 Hardware & Execution Control
+### 14.2 Hardware & Execution Control
 
   * `@unreachable() -> !`: Emits an unreachable instruction. Informs the optimizer that a control flow path is physically impossible, allowing it to eliminate dead branches (often used in exhaustiveness fallback).
   * `@trap() -> !`: Emits an illegal instruction (`llvm.trap`) to deliberately crash/halt the program securely.
@@ -686,7 +754,7 @@ These intrinsics evaluate completely at compile-time and incur zero runtime over
 
 *(Note: Kern does not provide `@volatileLoad` or `@volatileStore` intrinsics. Instead, Kern treats volatility as a first-class type qualifier (`^T` and `^mut T`). Hardware register accesses are performed via standard dereferencing `ptr.*` on a volatile pointer, yielding perfectly predictable code without intrinsic clutter.)*
 
-### 13.3 Bitwise Math & Memory Operations
+### 14.3 Bitwise Math & Memory Operations
 
 Mapped directly to single-cycle CPU instructions and highly optimized backend primitives where available:
 
@@ -697,7 +765,7 @@ Mapped directly to single-cycle CPU instructions and highly optimized backend pr
   * `@memcpy(dest: *mut u8, src: *u8, len: usize) void`: Performs a highly-optimized bulk memory copy.
   * `@memset(dest: *mut u8, val: u8, len: usize) void`: Performs a highly-optimized bulk memory fill.
 
-### 13.4 Atomic Operations and Memory Ordering
+### 14.4 Atomic Operations and Memory Ordering
 
 Kern exposes lock-free atomic operations through dedicated compiler intrinsics rather than inline assembly. This preserves optimizer visibility while still lowering directly to LLVM atomic IR with zero runtime abstraction overhead.
 

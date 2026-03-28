@@ -1034,3 +1034,111 @@ extern fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn runs_hosted_program_using_std_fs_copy_and_append() {
+    let temp_root = unique_temp_path("kernc_std_fs_copy_append", "dir");
+    let from_file = temp_root.join("from.txt");
+    let to_file = temp_root.join("to.txt");
+    let from_path = kern_string_literal(&from_file);
+    let to_path = kern_string_literal(&to_file);
+
+    let _ = fs::remove_file(&from_file);
+    let _ = fs::remove_file(&to_file);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{root_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 1,
+    }}
+
+    let written = match (fs.write_all(gpa, "{from_path}", "kern")) {{
+        .Ok: count => count,
+        .Err: _ => return 2,
+    }};
+    if (written != 4) {{
+        return 3;
+    }}
+
+    let copied = match (fs.copy(gpa, "{from_path}", "{to_path}")) {{
+        .Ok: count => count,
+        .Err: _ => return 4,
+    }};
+    if (copied != 4) {{
+        return 5;
+    }}
+
+    let appended = match (fs.append_all(gpa, "{to_path}", "-lang")) {{
+        .Ok: count => count,
+        .Err: _ => return 6,
+    }};
+    if (appended != 5) {{
+        return 7;
+    }}
+
+    let mut text = match (fs.read_to_string(gpa, "{to_path}")) {{
+        .Ok: text => text,
+        .Err: _ => return 8,
+    }};
+    defer text..&.deinit(gpa);
+    if (!text.&.eq("kern-lang")) {{
+        return 9;
+    }}
+
+    let mut src = match (fs.open_read(gpa, "{from_path}")) {{
+        .Ok: file => file,
+        .Err: _ => return 10,
+    }};
+    defer src..&.deinit();
+
+    let mut dst = match (fs.create(gpa, "{to_path}")) {{
+        .Ok: file => file,
+        .Err: _ => return 11,
+    }};
+    defer dst..&.deinit();
+
+    let roundtrip = match (src..&.copy_to(dst..&)) {{
+        .Ok: count => count,
+        .Err: _ => return 12,
+    }};
+    if (roundtrip != 4) {{
+        return 13;
+    }}
+
+    let mut text2 = match (fs.read_to_string(gpa, "{to_path}")) {{
+        .Ok: text => text,
+        .Err: _ => return 14,
+    }};
+    defer text2..&.deinit(gpa);
+    if (!text2.&.eq("kern")) {{
+        return 15;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = kern_string_literal(&temp_root),
+        from_path = from_path,
+        to_path = to_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&from_file);
+    let _ = fs::remove_file(&to_file);
+    let _ = fs::remove_dir_all(&temp_root);
+}

@@ -10,6 +10,7 @@ pub type Error = enum {
     InvalidOptions,
     InvalidPath,
     NotDirectory,
+    WriteZero,
     Os: os.Error,
 };
 
@@ -799,6 +800,31 @@ pub fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Err
     return file..&.write_all(buf);
 }
 
+pub fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Error] {
+    let mut file = match (open_append(alloc, path)) {
+        .Ok: file => file,
+        .Err: err => return .{ Err: err },
+    };
+    defer file..&.deinit();
+    return file..&.write_all(buf);
+}
+
+pub fn copy(alloc: *mut Allocator, from_path: []u8, to_path: []u8) Result[usize, Error] {
+    let mut from = match (open_read(alloc, from_path)) {
+        .Ok: file => file,
+        .Err: err => return .{ Err: err },
+    };
+    defer from..&.deinit();
+
+    let mut to = match (create(alloc, to_path)) {
+        .Ok: file => file,
+        .Err: err => return .{ Err: err },
+    };
+    defer to..&.deinit();
+
+    return from..&.copy_to(to..&);
+}
+
 impl *mut File {
     pub fn from_handle(handle: os.Handle) File {
         return .{ handle: handle };
@@ -840,11 +866,33 @@ impl *mut File {
                 .Err: err => return .{ Err: err },
             };
             if (written == 0) {
-                return .{ Ok: total };
+                return .{ Err: .{ WriteZero } };
             }
             total += written;
         }
         return .{ Ok: total };
+    }
+
+    pub fn copy_to(other: *mut File) Result[usize, Error] {
+        let chunk = [4096]mut u8.{undef};
+        let mut total = 0;
+
+        for (;;) {
+            let read = match (self.read(chunk..[0 .. 4096])) {
+                .Ok: count => count,
+                .Err: err => return .{ Err: err },
+            };
+
+            if (read == 0) {
+                return .{ Ok: total };
+            }
+
+            let written = match (other.write_all(chunk.[0 .. read])) {
+                .Ok: count => count,
+                .Err: err => return .{ Err: err },
+            };
+            total += written;
+        }
     }
 
     pub fn close() Result[bool, Error] {

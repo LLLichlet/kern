@@ -35,4 +35,6 @@ pub use .file.{
     stderr,
     read_to_string,
     write_all,
+    append_all,
+    copy,
 };

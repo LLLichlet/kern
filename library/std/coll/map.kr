@@ -135,7 +135,7 @@ impl[K, V] *mut Map[K, V]
         hash: u64,
         key: K,
         value: V,
-    ) void {
+    ) bool {
         let mask = capacity - 1;
         let mut index = (hash as usize) & mask;
         let mut probes = 0;
@@ -147,12 +147,12 @@ impl[K, V] *mut Map[K, V]
                 entry.key = key;
                 entry.value = value;
                 set_ctrl(ctrl, index, FULL);
-                return;
+                return true;
             }
             index = (index + 1) & mask;
         }
 
-        @trap();
+        return false;
     }
 
     fn rebuild(alloc: *mut Allocator, requested_capacity: usize) bool {
@@ -167,7 +167,10 @@ impl[K, V] *mut Map[K, V]
             if (ctrl_at(self.ctrl, i) != FULL) continue;
 
             let entry = entry_ptr[K, V](self.entries, i);
-            self.insert_into_raw(table.ctrl, table.entries, table.capacity, entry.hash64, entry.key, entry.value);
+            if (!self.insert_into_raw(table.ctrl, table.entries, table.capacity, entry.hash64, entry.key, entry.value)) {
+                self.free_table(alloc, table.ctrl, table.entries, table.capacity);
+                return false;
+            }
         }
 
         self.free_table(alloc, self.ctrl, self.entries, self.capacity);
@@ -227,7 +230,7 @@ impl[K, V] *mut Map[K, V]
         return .{ None };
     }
 
-    fn find_insert_slot(hash: u64) usize {
+    fn find_insert_slot(hash: u64) Option[usize] {
         let mask = self.capacity - 1;
         let mut index = (hash as usize) & mask;
         let mut first_deleted = self.capacity;
@@ -237,9 +240,9 @@ impl[K, V] *mut Map[K, V]
             let state = ctrl_at(self.ctrl, index);
             if (state == EMPTY) {
                 if (first_deleted < self.capacity) {
-                    return first_deleted;
+                    return .{ Some: first_deleted };
                 }
-                return index;
+                return .{ Some: index };
             }
             if (state == DELETED and first_deleted == self.capacity) {
                 first_deleted = index;
@@ -248,10 +251,10 @@ impl[K, V] *mut Map[K, V]
         }
 
         if (first_deleted < self.capacity) {
-            return first_deleted;
+            return .{ Some: first_deleted };
         }
 
-        @trap();
+        return .{ None };
     }
 
     fn write_slot(slot: usize, hash: u64, key: K, value: V) *mut V {
@@ -311,7 +314,10 @@ impl[K, V] *mut Map[K, V]
             return false;
         }
 
-        let slot = self.find_insert_slot(hash);
+        let slot = match (self.find_insert_slot(hash)) {
+            .Some: slot => slot,
+            .None => return false,
+        };
         let _ = self.write_slot(slot, hash, key, value);
         return true;
     }
@@ -332,7 +338,10 @@ impl[K, V] *mut Map[K, V]
             return .{ None };
         }
 
-        let slot = self.find_insert_slot(hash);
+        let slot = match (self.find_insert_slot(hash)) {
+            .Some: slot => slot,
+            .None => return .{ None },
+        };
         return .{ Some: self.write_slot(slot, hash, key, value) };
     }
 
@@ -353,7 +362,10 @@ impl[K, V] *mut Map[K, V]
         }
 
         let value = make_value();
-        let slot = self.find_insert_slot(hash);
+        let slot = match (self.find_insert_slot(hash)) {
+            .Some: slot => slot,
+            .None => return .{ None },
+        };
         return .{ Some: self.write_slot(slot, hash, key, value) };
     }
 

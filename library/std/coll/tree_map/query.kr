@@ -1,0 +1,165 @@
+use std.Option;
+use std.cmp.Ord;
+use ..base.{
+    Node,
+    TreeMap,
+    key_at,
+    value_at,
+    child_at,
+    first_hit,
+    last_hit,
+    ceil_hit,
+    floor_hit,
+};
+
+impl[K, V] *TreeMap[K, V]
+    where *K: Ord[K],
+{
+    fn compare(lhs: K, rhs: K) i32 {
+        return lhs.&.cmp(rhs);
+    }
+
+    fn for_each_node(node: *mut Node[K, V], visitor: *Fn(K, V) void) void {
+        if ((node as usize) == 0) {
+            return;
+        }
+
+        let mut i = 0;
+        for (; i < node.len; i += 1) {
+            if (!node.is_leaf) {
+                self.for_each_node(child_at[K, V](node, i), visitor);
+            }
+            visitor(key_at[K, V](node, i), value_at[K, V](node, i));
+        }
+
+        if (!node.is_leaf) {
+            self.for_each_node(child_at[K, V](node, node.len), visitor);
+        }
+    }
+
+    fn fold_node[U](node: *mut Node[K, V], init: U, step: *Fn(U, K, V) U) U {
+        if ((node as usize) == 0) {
+            return init;
+        }
+
+        let mut accum = init;
+        let mut i = 0;
+        for (; i < node.len; i += 1) {
+            if (!node.is_leaf) {
+                accum = self.fold_node(child_at[K, V](node, i), accum, step);
+            }
+            accum = step(accum, key_at[K, V](node, i), value_at[K, V](node, i));
+        }
+
+        if (!node.is_leaf) {
+            accum = self.fold_node(child_at[K, V](node, node.len), accum, step);
+        }
+
+        return accum;
+    }
+
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+
+    pub fn contains(key: K) bool {
+        return self.get(key).is_some();
+    }
+
+    pub fn for_each(visitor: *Fn(K, V) void) void {
+        self.for_each_node(self.root, visitor);
+    }
+
+    pub fn fold[U](init: U, step: *Fn(U, K, V) U) U {
+        return self.fold_node(self.root, init, step);
+    }
+
+    pub fn first_key() Option[K] {
+        let hit = match (first_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn first() Option[V] {
+        let hit = match (first_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn last_key() Option[K] {
+        let hit = match (last_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn last() Option[V] {
+        let hit = match (last_hit[K, V](self.root)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn ceil_key(key: K) Option[K] {
+        let hit = match (ceil_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn ceil(key: K) Option[V] {
+        let hit = match (ceil_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn floor_key(key: K) Option[K] {
+        let hit = match (floor_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: key_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn floor(key: K) Option[V] {
+        let hit = match (floor_hit[K, V](self.root, key)) {
+            .Some: hit => hit,
+            .None => return .{ None },
+        };
+        return .{ Some: value_at[K, V](hit.node, hit.index) };
+    }
+
+    pub fn get(key: K) Option[V] {
+        let mut node = self.root;
+
+        for (; (node as usize) != 0; ) {
+            let mut index = 0;
+            for (; index < node.len; index += 1) {
+                let cmp = self.compare(key_at[K, V](node, index), key);
+                if (cmp == 0) {
+                    return .{ Some: value_at[K, V](node, index) };
+                }
+                if (cmp > 0) {
+                    break;
+                }
+            }
+
+            if (node.is_leaf) {
+                return .{ None };
+            }
+
+            node = child_at[K, V](node, index);
+        }
+
+        return .{ None };
+    }
+}

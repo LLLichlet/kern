@@ -8,5 +8,7 @@ pub mod mem;
 pub mod coll;
 pub mod num;
 pub mod sync;
+pub mod cmp;
 
 pub use .dbg.{Result, Option};
+pub use .cmp.{Ordering, LESS, EQUAL, GREATER, Comparable, Ord};

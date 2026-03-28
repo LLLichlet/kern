@@ -43,6 +43,27 @@ fn compile_source(source: &str) -> std::process::Output {
     output
 }
 
+fn compile_source_with_std(source: &str) -> std::process::Output {
+    let source_path = unique_temp_path("kernc_trait_test_std", "kr");
+    let object_path = unique_temp_path("kernc_trait_test_std", "o");
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let args = vec![
+        "-c",
+        "--use-std",
+        source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ];
+    let output = run_kernc(&args);
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&object_path);
+    output
+}
+
 #[test]
 fn compiles_multi_supertrait_lookup_through_generic_bound() {
     let output = compile_source(
@@ -269,5 +290,90 @@ extern fn main(args: [][]u8) i32 {
         stderr.contains("ambiguous inherited trait method `foo`"),
         "unexpected stderr:\n{}",
         stderr
+    );
+}
+
+#[test]
+fn compiles_std_cmp_ord_bound_for_builtin_scalars() {
+    let output = compile_source_with_std(
+        r#"
+use std.cmp.{Ord, LESS, EQUAL, GREATER};
+
+fn classify[T](lhs: *T, rhs: T) i32
+    where *T: Ord[T],
+{
+    match (lhs.cmp(rhs)) {
+        LESS => -1,
+        EQUAL => 0,
+        GREATER => 1,
+        _ => 99,
+    }
+}
+
+extern fn main(args: [][]u8) i32 {
+    let a = i32.{3};
+    let b = i32.{7};
+    let c = bool.{true};
+    let d = bool.{false};
+    return classify(a.&, b) + classify(c.&, d);
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_std_cmp_ord_bound_for_custom_impls() {
+    let output = compile_source_with_std(
+        r#"
+use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
+
+type Key = struct {
+    raw: i32,
+    bias: i32,
+};
+
+impl *Key : Comparable[Key] {
+    pub fn cmp(other: Key) Ordering {
+        let lhs = self.raw + self.bias;
+        let rhs = other.raw + other.bias;
+        if (lhs < rhs) return LESS;
+        if (lhs > rhs) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl *Key : Ord[Key] {}
+
+fn classify[T](lhs: *T, rhs: T) i32
+    where *T: Ord[T],
+{
+    match (lhs.cmp(rhs)) {
+        LESS => -1,
+        EQUAL => 0,
+        GREATER => 1,
+        _ => 99,
+    }
+}
+
+extern fn main(args: [][]u8) i32 {
+    let lhs = Key.{ raw: 3, bias: 4 };
+    let rhs = Key.{ raw: 6, bias: 0 };
+    return classify(lhs.&, rhs);
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 }

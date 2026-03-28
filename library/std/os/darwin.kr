@@ -23,11 +23,23 @@ extern {
     #[export_name("stat")]
     fn system_stat(path: *u8, stat: *mut Stat) i32;
 
+    #[export_name("opendir")]
+    fn system_opendir(path: *u8) *mut u8;
+
+    #[export_name("readdir")]
+    fn system_readdir(dir: *mut u8) *mut Dirent;
+
+    #[export_name("closedir")]
+    fn system_closedir(dir: *mut u8) i32;
+
     #[export_name("mkdir")]
     fn system_mkdir(path: *u8, mode: i32) i32;
 
     #[export_name("rmdir")]
     fn system_rmdir(path: *u8) i32;
+
+    #[export_name("rename")]
+    fn system_rename(old_path: *u8, new_path: *u8) i32;
 
     #[export_name("__error")]
     fn system_errno() *mut i32;
@@ -73,6 +85,15 @@ type Stat = extern struct {
     st_qspare: [2]i64,
 };
 
+type Dirent = extern struct {
+    d_ino: u64,
+    d_seekoff: u64,
+    d_reclen: u16,
+    d_namlen: u16,
+    d_type: u8,
+    d_name: [1024]u8,
+};
+
 pub const PROT_READ = 0x01;
 pub const PROT_WRITE = 0x02;
 pub const MAP_PRIVATE = 0x0002;
@@ -86,12 +107,15 @@ const O_WRONLY = i32.{1};
 const O_RDWR = i32.{2};
 const O_APPEND = i32.{8};
 const O_CREAT = i32.{512};
+const O_EXCL = i32.{2048};
 const O_TRUNC = i32.{1024};
 const DEFAULT_MODE = i32.{420};
 const MODE_DIR = i32.{493};
 const S_IFMT = u16.{61440};
 const S_IFDIR = u16.{16384};
 const S_IFREG = u16.{32768};
+const DT_DIR = u8.{4};
+const DT_REG = u8.{8};
 
 pub fn invalid_handle() Handle {
     return INVALID_HANDLE;
@@ -156,6 +180,26 @@ fn stat_file_type(mode: u16) FileType {
     return .Other;
 }
 
+fn dirent_file_type(kind: u8) FileType {
+    if (kind == DT_REG) {
+        return .File;
+    }
+    if (kind == DT_DIR) {
+        return .Directory;
+    }
+    return .Other;
+}
+
+fn is_dot_entry(name: []u8) bool {
+    if (#name == 1 and name.[0] == b'.') {
+        return true;
+    }
+    if (#name == 2 and name.[0] == b'.' and name.[1] == b'.') {
+        return true;
+    }
+    return false;
+}
+
 pub fn metadata(path: *u8) Result[Metadata, Error] {
     let mut stat = Stat.{undef};
     let ret = system_stat(path, stat..&);
@@ -172,12 +216,47 @@ pub fn metadata(path: *u8) Result[Metadata, Error] {
     };
 }
 
+pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
+    let _ = search_path;
+    let dir = system_opendir(path);
+    if (dir == 0) {
+        return .{ Err: last_error() };
+    }
+    defer {
+        let _ = system_closedir(dir);
+    };
+
+    let errno = system_errno();
+    let mut total = 0;
+    for (;;) {
+        errno.* = 0;
+        let entry = system_readdir(dir);
+        if (entry == 0) {
+            if (errno.* != 0) {
+                return .{ Err: last_error() };
+            }
+            return .{ Ok: total };
+        }
+
+        let name = entry.d_name.[0 .. entry.d_namlen as usize];
+        if (is_dot_entry(name)) {
+            continue;
+        }
+
+        total += 1;
+        if (!visitor(name, dirent_file_type(entry.d_type))) {
+            return .{ Ok: total };
+        }
+    }
+}
+
 pub fn open_file(
     path: *u8,
     options: *OpenOptions,
 ) Result[Handle, Error] {
     let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
     if (options.create) flags |= O_CREAT;
+    if (options.create_new) flags |= O_CREAT | O_EXCL;
     if (options.truncate) flags |= O_TRUNC;
     if (options.append) flags |= O_APPEND;
 
@@ -206,6 +285,14 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
 
 pub fn remove_file(path: *u8) Result[bool, Error] {
     let ret = system_unlink(path);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
+    let ret = system_rename(old_path, new_path);
     if (ret < 0) {
         return .{ Err: last_error() };
     }

@@ -17,6 +17,7 @@ const O_RDONLY = usize.{0};
 const O_WRONLY = usize.{1};
 const O_RDWR = usize.{2};
 const O_CREAT = usize.{64};
+const O_EXCL = usize.{128};
 const O_TRUNC = usize.{512};
 const O_APPEND = usize.{1024};
 const DEFAULT_MODE = usize.{420};
@@ -24,11 +25,15 @@ const MODE_DIR = usize.{493};
 const UNLINKAT = usize.{263};
 const MKDIRAT = usize.{258};
 const NEWFSTATAT = usize.{262};
+const RENAMEAT = usize.{264};
+const GETDENTS64 = usize.{217};
 const ENOENT = isize.{2};
 const EEXIST = isize.{17};
 const S_IFMT = u32.{61440};
 const S_IFDIR = u32.{16384};
 const S_IFREG = u32.{32768};
+const DT_DIR = u8.{4};
+const DT_REG = u8.{8};
 
 type Stat = extern struct {
     st_dev: u64,
@@ -49,6 +54,14 @@ type Stat = extern struct {
     st_ctime: i64,
     st_ctime_nsec: i64,
     __unused: [3]i64,
+};
+
+type Dirent64 = extern struct {
+    d_ino: u64,
+    d_off: i64,
+    d_reclen: u16,
+    d_type: u8,
+    d_name: u8,
 };
 
 fn syscall1_raw(sys_num: usize, arg1: usize) isize {
@@ -230,6 +243,26 @@ fn stat_file_type(mode: u32) FileType {
     return .Other;
 }
 
+fn dirent_file_type(kind: u8) FileType {
+    if (kind == DT_REG) {
+        return .File;
+    }
+    if (kind == DT_DIR) {
+        return .Directory;
+    }
+    return .Other;
+}
+
+fn is_dot_entry(name: []u8) bool {
+    if (#name == 1 and name.[0] == b'.') {
+        return true;
+    }
+    if (#name == 2 and name.[0] == b'.' and name.[1] == b'.') {
+        return true;
+    }
+    return false;
+}
+
 pub fn metadata(path: *u8) Result[Metadata, Error] {
     let mut stat = Stat.{undef};
     let ret = syscall4_raw(NEWFSTATAT, AT_FDCWD, path as usize, stat..& as usize, 0);
@@ -246,6 +279,60 @@ pub fn metadata(path: *u8) Result[Metadata, Error] {
     };
 }
 
+pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
+    let _ = search_path;
+    let options = OpenOptions.{ read: true };
+    let handle = match (open_file(path, options.&)) {
+        .Ok: handle => handle,
+        .Err: err => return .{ Err: err },
+    };
+    defer {
+        let _ = close_file(handle);
+    };
+
+    let mut total = 0;
+    let buf = [8192]mut u8.{undef};
+
+    for (;;) {
+        let read = syscall3_raw(GETDENTS64, handle, buf.[0]..& as usize, 8192);
+        if (read < 0) {
+            return error_result[usize](read);
+        }
+        if (read == 0) {
+            return .{ Ok: total };
+        }
+
+        let mut offset = 0;
+        let end = read as usize;
+        for (; offset < end; ) {
+            let entry = (buf.[0]..& + offset) as *Dirent64;
+            let reclen = entry.d_reclen as usize;
+            if (reclen == 0) {
+                break;
+            }
+
+            let max_name_len = reclen - 19;
+            let mut name_len = 0;
+            let name_ptr = entry.d_name.&;
+            for (; name_len < max_name_len; name_len += 1) {
+                if ((name_ptr + name_len).* == 0) {
+                    break;
+                }
+            }
+
+            let name = name_ptr.[0 .. name_len];
+            if (!is_dot_entry(name)) {
+                total += 1;
+                if (!visitor(name, dirent_file_type(entry.d_type))) {
+                    return .{ Ok: total };
+                }
+            }
+
+            offset += reclen;
+        }
+    }
+}
+
 pub fn open_file(
     path: *u8,
     options: *OpenOptions,
@@ -253,6 +340,7 @@ pub fn open_file(
     let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
 
     if (options.create) flags |= O_CREAT;
+    if (options.create_new) flags |= O_CREAT | O_EXCL;
     if (options.truncate) flags |= O_TRUNC;
     if (options.append) flags |= O_APPEND;
 
@@ -281,6 +369,14 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
 
 pub fn remove_file(path: *u8) Result[bool, Error] {
     let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, 0);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
+}
+
+pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
+    let ret = syscall4_raw(RENAMEAT, AT_FDCWD, old_path as usize, AT_FDCWD, new_path as usize);
     if (ret < 0) {
         return error_result[bool](ret);
     }

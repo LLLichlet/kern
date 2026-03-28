@@ -383,3 +383,401 @@ extern fn main() i32 {{
 
     let _ = fs::remove_file(&temp_file);
 }
+
+#[test]
+fn runs_hosted_program_using_std_fs_open_variants() {
+    let temp_file = unique_temp_path("kernc_std_fs_open_variants", "txt");
+    let temp_path = kern_string_literal(&temp_file);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    let mut created = match (fs.create_new(gpa, "{path}")) {{
+        .Ok: file => file,
+        .Err: _ => return 1,
+    }};
+    match (created..&.write_all("ab")) {{
+        .Ok: count => {{
+            if (count != 2) {{
+                return 2;
+            }}
+        }},
+        .Err: _ => return 3,
+    }}
+    created..&.deinit();
+
+    let created_again = fs.create_new(gpa, "{path}");
+    if (!created_again.is_err()) {{
+        return 4;
+    }}
+
+    let mut appended = match (fs.open_append(gpa, "{path}")) {{
+        .Ok: file => file,
+        .Err: _ => return 5,
+    }};
+    match (appended..&.write_all("cd")) {{
+        .Ok: count => {{
+            if (count != 2) {{
+                return 6;
+            }}
+        }},
+        .Err: _ => return 7,
+    }}
+    appended..&.deinit();
+
+    let mut writer = match (fs.open_write(gpa, "{path}")) {{
+        .Ok: file => file,
+        .Err: _ => return 8,
+    }};
+    match (writer..&.write("Z")) {{
+        .Ok: count => {{
+            if (count != 1) {{
+                return 9;
+            }}
+        }},
+        .Err: _ => return 10,
+    }}
+    writer..&.deinit();
+
+    let mut text = match (fs.read_to_string(gpa, "{path}")) {{
+        .Ok: text => text,
+        .Err: _ => return 11,
+    }};
+    defer text..&.deinit(gpa);
+
+    if (!text.&.eq("Zbcd")) {{
+        return 12;
+    }}
+
+    return 0;
+}}
+"#,
+        path = temp_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&temp_file);
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_create_dir_all() {
+    let temp_root = unique_temp_path("kernc_std_fs_dir_all", "dir");
+    let nested_dir = temp_root.join("a").join("b").join("c");
+    let nested_file = nested_dir.join("note.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let dir_path = kern_string_literal(&nested_dir);
+    let file_path = kern_string_literal(&nested_file);
+
+    let _ = fs::remove_file(&nested_file);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{dir_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 1,
+    }}
+
+    let root_is_dir = match (fs.is_dir(gpa, "{root_path}")) {{
+        .Ok: yes => yes,
+        .Err: _ => return 2,
+    }};
+    if (!root_is_dir) {{
+        return 3;
+    }}
+
+    let nested_is_dir = match (fs.is_dir(gpa, "{dir_path}")) {{
+        .Ok: yes => yes,
+        .Err: _ => return 4,
+    }};
+    if (!nested_is_dir) {{
+        return 5;
+    }}
+
+    match (fs.create_dir_all(gpa, "{dir_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 6,
+    }}
+
+    let written = match (fs.write_all(gpa, "{file_path}", "nested")) {{
+        .Ok: count => count,
+        .Err: _ => return 7,
+    }};
+    if (written != 6) {{
+        return 8;
+    }}
+
+    let mut text = match (fs.read_to_string(gpa, "{file_path}")) {{
+        .Ok: text => text,
+        .Err: _ => return 9,
+    }};
+    defer text..&.deinit(gpa);
+
+    if (!text.&.eq("nested")) {{
+        return 10;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        dir_path = dir_path,
+        file_path = file_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&nested_file);
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_rename() {
+    let temp_root = unique_temp_path("kernc_std_fs_rename", "dir");
+    let old_dir = temp_root.join("old_dir");
+    let new_dir = temp_root.join("new_dir");
+    let old_file = old_dir.join("before.txt");
+    let renamed_file = old_dir.join("after.txt");
+    let new_file = new_dir.join("after.txt");
+    let old_dir_path = kern_string_literal(&old_dir);
+    let new_dir_path = kern_string_literal(&new_dir);
+    let old_file_path = kern_string_literal(&old_file);
+    let renamed_file_path = kern_string_literal(&renamed_file);
+    let new_file_path = kern_string_literal(&new_file);
+
+    let _ = fs::remove_file(&new_file);
+    let _ = fs::remove_file(&renamed_file);
+    let _ = fs::remove_file(&old_file);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{old_dir_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 1,
+    }}
+
+    match (fs.write_all(gpa, "{old_file_path}", "rename-me")) {{
+        .Ok: count => {{
+            if (count != 9) {{
+                return 2;
+            }}
+        }},
+        .Err: _ => return 3,
+    }}
+
+    match (fs.rename(gpa, "{old_file_path}", "{renamed_file_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 4,
+    }}
+
+    let old_file_exists = match (fs.exists(gpa, "{old_file_path}")) {{
+        .Ok: exists => exists,
+        .Err: _ => return 5,
+    }};
+    if (old_file_exists) {{
+        return 6;
+    }}
+
+    let mut text = match (fs.read_to_string(gpa, "{renamed_file_path}")) {{
+        .Ok: text => text,
+        .Err: _ => return 7,
+    }};
+    defer text..&.deinit(gpa);
+    if (!text.&.eq("rename-me")) {{
+        return 8;
+    }}
+
+    match (fs.rename(gpa, "{old_dir_path}", "{new_dir_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 9,
+    }}
+
+    let old_dir_exists = match (fs.exists(gpa, "{old_dir_path}")) {{
+        .Ok: exists => exists,
+        .Err: _ => return 10,
+    }};
+    if (old_dir_exists) {{
+        return 11;
+    }}
+
+    let new_dir_is_dir = match (fs.is_dir(gpa, "{new_dir_path}")) {{
+        .Ok: yes => yes,
+        .Err: _ => return 12,
+    }};
+    if (!new_dir_is_dir) {{
+        return 13;
+    }}
+
+    let new_file_exists = match (fs.exists(gpa, "{new_file_path}")) {{
+        .Ok: exists => exists,
+        .Err: _ => return 14,
+    }};
+    if (!new_file_exists) {{
+        return 15;
+    }}
+
+    return 0;
+}}
+"#,
+        old_dir_path = old_dir_path,
+        new_dir_path = new_dir_path,
+        old_file_path = old_file_path,
+        renamed_file_path = renamed_file_path,
+        new_file_path = new_file_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_read_dir() {
+    let temp_root = unique_temp_path("kernc_std_fs_read_dir", "dir");
+    let alpha_dir = temp_root.join("alpha");
+    let file_a = temp_root.join("a.txt");
+    let file_b = temp_root.join("b.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let alpha_path = kern_string_literal(&alpha_dir);
+    let file_a_path = kern_string_literal(&file_a);
+    let file_b_path = kern_string_literal(&file_b);
+
+    let _ = fs::remove_file(&file_a);
+    let _ = fs::remove_file(&file_b);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{alpha_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 1,
+    }}
+    match (fs.write_all(gpa, "{file_a_path}", "A")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 2,
+    }}
+    match (fs.write_all(gpa, "{file_b_path}", "B")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 3,
+    }}
+
+    let mut total = usize.{{0}};
+    let mut saw_alpha_dir = bool.{{false}};
+    let mut saw_a_file = bool.{{false}};
+    let mut saw_b_file = bool.{{false}};
+
+    let visited = match (fs.read_dir(gpa, "{root_path}", .[
+        total = total..&,
+        saw_alpha_dir = saw_alpha_dir..&,
+        saw_a_file = saw_a_file..&,
+        saw_b_file = saw_b_file..&
+    ](entry: fs.DirEntry) bool {{
+        total.* += 1;
+        if (entry.name.eq("alpha")) {{
+            if (!entry.is_dir()) {{
+                return false;
+            }}
+            saw_alpha_dir.* = true;
+        }}
+        if (entry.name.eq("a.txt")) {{
+            if (!entry.is_file()) {{
+                return false;
+            }}
+            saw_a_file.* = true;
+        }}
+        if (entry.name.eq("b.txt")) {{
+            if (!entry.is_file()) {{
+                return false;
+            }}
+            saw_b_file.* = true;
+        }}
+        return true;
+    }})) {{
+        .Ok: count => count,
+        .Err: _ => return 4,
+    }};
+
+    if (visited != 3 or total != 3) {{
+        return 5;
+    }}
+    if (!saw_alpha_dir or !saw_a_file or !saw_b_file) {{
+        return 6;
+    }}
+
+    let mut early = usize.{{0}};
+    let stopped = match (fs.read_dir(gpa, "{root_path}", .[
+        early = early..&
+    ](_: fs.DirEntry) bool {{
+        early.* += 1;
+        return false;
+    }})) {{
+        .Ok: count => count,
+        .Err: _ => return 7,
+    }};
+
+    if (stopped != 1 or early != 1) {{
+        return 8;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        alpha_path = alpha_path,
+        file_a_path = file_a_path,
+        file_b_path = file_b_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&temp_root);
+}

@@ -32,8 +32,12 @@ extern {
     ) i32;
     pub fn CloseHandle(hObject: *mut u8) i32;
     pub fn DeleteFileA(lpFileName: *u8) i32;
+    pub fn MoveFileA(lpExistingFileName: *u8, lpNewFileName: *u8) i32;
     pub fn CreateDirectoryA(lpPathName: *u8, lpSecurityAttributes: *mut u8) i32;
     pub fn RemoveDirectoryA(lpPathName: *u8) i32;
+    pub fn FindFirstFileA(lpFileName: *u8, lpFindFileData: *mut Win32FindDataA) *mut u8;
+    pub fn FindNextFileA(hFindFile: *mut u8, lpFindFileData: *mut Win32FindDataA) i32;
+    pub fn FindClose(hFindFile: *mut u8) i32;
     pub fn GetFileAttributesExA(lpFileName: *u8, fInfoLevelId: u32, lpFileInformation: *mut Win32FileAttributeData) i32;
     pub fn GetLastError() u32;
     pub fn ExitProcess(uExitCode: u32) void;
@@ -75,11 +79,25 @@ type Win32FileAttributeData = extern struct {
     nFileSizeLow: u32,
 };
 
+type Win32FindDataA = extern struct {
+    dwFileAttributes: u32,
+    ftCreationTime: FileTime,
+    ftLastAccessTime: FileTime,
+    ftLastWriteTime: FileTime,
+    nFileSizeHigh: u32,
+    nFileSizeLow: u32,
+    dwReserved0: u32,
+    dwReserved1: u32,
+    cFileName: [260]u8,
+    cAlternateFileName: [14]u8,
+};
+
 const INVALID_HANDLE_VALUE = ~usize.{0} as *mut u8;
 const GENERIC_READ = u32.{2147483648};
 const GENERIC_WRITE = u32.{1073741824};
 const FILE_SHARE_READ = u32.{1};
 const FILE_SHARE_WRITE = u32.{2};
+const CREATE_NEW = u32.{1};
 const FILE_ATTRIBUTE_DIRECTORY = u32.{16};
 const CREATE_ALWAYS = u32.{2};
 const OPEN_EXISTING = u32.{3};
@@ -88,6 +106,7 @@ const FILE_ATTRIBUTE_NORMAL = u32.{128};
 const GET_FILE_EX_INFO_STANDARD = u32.{0};
 const ERROR_FILE_NOT_FOUND = isize.{2};
 const ERROR_PATH_NOT_FOUND = isize.{3};
+const ERROR_NO_MORE_FILES = isize.{18};
 const ERROR_INVALID_PARAMETER = isize.{87};
 const ERROR_FILE_EXISTS = isize.{80};
 const ERROR_ALREADY_EXISTS = isize.{183};
@@ -164,6 +183,65 @@ pub fn metadata(path: *u8) Result[Metadata, Error] {
     };
 }
 
+fn find_data_file_type(data: *Win32FindDataA) FileType {
+    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        return .Directory;
+    }
+    return .File;
+}
+
+fn find_data_name_len(data: *Win32FindDataA) usize {
+    let mut len = 0;
+    for (; len < 260; len += 1) {
+        if (data.cFileName.[len] == 0) {
+            return len;
+        }
+    }
+    return 260;
+}
+
+fn is_dot_entry(name: []u8) bool {
+    if (#name == 1 and name.[0] == b'.') {
+        return true;
+    }
+    if (#name == 2 and name.[0] == b'.' and name.[1] == b'.') {
+        return true;
+    }
+    return false;
+}
+
+pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
+    let _ = path;
+    let mut data = Win32FindDataA.{undef};
+    let handle = FindFirstFileA(search_path, data..&);
+    if (handle == INVALID_HANDLE_VALUE) {
+        return .{ Err: last_error() };
+    }
+    defer {
+        let _ = FindClose(handle);
+    };
+
+    let mut total = 0;
+    for (;;) {
+        let name_len = find_data_name_len(data.&);
+        let name = data.cFileName.[0 .. name_len];
+        if (!is_dot_entry(name)) {
+            total += 1;
+            if (!visitor(name, find_data_file_type(data.&))) {
+                return .{ Ok: total };
+            }
+        }
+
+        if (FindNextFileA(handle, data..&) == 0) {
+            let err = last_error();
+            if (err.code == ERROR_NO_MORE_FILES) {
+                return .{ Ok: total };
+            }
+            return .{ Err: err };
+        }
+    }
+}
+
 pub fn open_file(
     path: *u8,
     options: *OpenOptions,
@@ -178,6 +256,8 @@ pub fn open_file(
 
     let disposition = if (options.create and options.truncate) {
         CREATE_ALWAYS
+    } else if (options.create_new) {
+        CREATE_NEW
     } else if (options.create) {
         OPEN_ALWAYS
     } else {
@@ -215,6 +295,13 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
 
 pub fn remove_file(path: *u8) Result[bool, Error] {
     if (DeleteFileA(path) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
+    if (MoveFileA(old_path, new_path) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };

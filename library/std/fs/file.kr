@@ -8,16 +8,33 @@ use std.coll.String;
 pub type Error = enum {
     OutOfMemory,
     InvalidOptions,
+    InvalidPath,
     Os: os.Error,
 };
 
 pub type FileType = os.FileType;
 pub type Metadata = os.Metadata;
 
+pub type DirEntry = struct {
+    name: []u8,
+    file_type: FileType,
+};
+
+impl DirEntry {
+    pub fn is_file() bool {
+        return self.file_type == .File;
+    }
+
+    pub fn is_dir() bool {
+        return self.file_type == .Directory;
+    }
+}
+
 pub type OpenOptions = struct {
     read: bool = false,
     write: bool = false,
     create: bool = false,
+    create_new: bool = false,
     truncate: bool = false,
     append: bool = false,
 };
@@ -59,11 +76,63 @@ fn free_c_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
     alloc.free(ptr, layout);
 }
 
+fn dir_search_path_layout(path: []u8) Option[std.mem.Layout] {
+    #[if(os == "windows")]
+    {
+        let needs_sep = if (#path == 0) true else !is_path_separator(path.[#path - 1]);
+        let extra = if (needs_sep) 3 else 2;
+        return array_layout_of[u8](#path + extra);
+    }
+
+    return c_path_layout(path);
+}
+
+fn alloc_dir_search_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
+    let layout = match (dir_search_path_layout(path)) {
+        .Some: layout => layout,
+        .None => return .{ Err: .{ OutOfMemory } },
+    };
+    let ptr = match (alloc.alloc(layout)) {
+        .Some: ptr => ptr,
+        .None => return .{ Err: .{ OutOfMemory } },
+    };
+
+    let len = #path;
+    if (len > 0) {
+        @memcpy(ptr, path.[0].&, len);
+    }
+
+    #[if(os == "windows")]
+    {
+        let mut end = len;
+        let needs_sep = if (len == 0) true else !is_path_separator(path.[len - 1]);
+        if (needs_sep) {
+            (ptr + end).* = b'\\';
+            end += 1;
+        }
+        (ptr + end).* = b'*';
+        (ptr + end + 1).* = 0;
+        return .{ Ok: ptr };
+    }
+
+    (ptr + len).* = 0;
+    return .{ Ok: ptr };
+}
+
+fn free_dir_search_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
+    let layout = match (dir_search_path_layout(path)) {
+        .Some: layout => layout,
+        .None => return,
+    };
+    alloc.free(ptr, layout);
+}
+
 fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
     return os.OpenOptions.{
         read: options.read,
         write: options.write,
         create: options.create,
+        create_new: options.create_new,
         truncate: options.truncate,
         append: options.append,
     };
@@ -80,6 +149,13 @@ fn open_with_c_path(c_path: *u8, options: *OpenOptions) Result[File, Error] {
 fn metadata_with_c_path(c_path: *u8) Result[Metadata, Error] {
     match (os.metadata(c_path)) {
         .Ok: meta => return .{ Ok: meta },
+        .Err: err => return .{ Err: .{ Os: err } },
+    }
+}
+
+fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) Result[bool, Error] {
+    match (os.rename(old_c_path, new_c_path)) {
+        .Ok: renamed => return .{ Ok: renamed },
         .Err: err => return .{ Err: .{ Os: err } },
     }
 }
@@ -111,6 +187,184 @@ pub fn create(alloc: *mut Allocator, path: []u8) Result[File, Error] {
 pub fn open_read(alloc: *mut Allocator, path: []u8) Result[File, Error] {
     let options = OpenOptions.{ read: true };
     return open(alloc, path, options.&);
+}
+
+pub fn open_write(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{ write: true };
+    return open(alloc, path, options.&);
+}
+
+pub fn open_append(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{
+        write: true,
+        create: true,
+        append: true,
+    };
+    return open(alloc, path, options.&);
+}
+
+pub fn create_new(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{
+        write: true,
+        create_new: true,
+    };
+    return open(alloc, path, options.&);
+}
+
+fn is_path_separator(byte: u8) bool {
+    #[if(os == "windows")]
+    {
+        return byte == b'/' or byte == b'\\';
+    }
+
+    return byte == b'/';
+}
+
+fn root_prefix_len(path: []u8) usize {
+    let len = #path;
+    if (len == 0) {
+        return 0;
+    }
+
+    #[if(os == "windows")]
+    {
+        if (len >= 2) {
+            let drive = path.[0];
+            let is_alpha =
+                (drive >= b'a' and drive <= b'z') or
+                (drive >= b'A' and drive <= b'Z');
+            if (is_alpha and path.[1] == b':') {
+                if (len >= 3 and is_path_separator(path.[2])) {
+                    return 3;
+                }
+                return 2;
+            }
+        }
+    }
+
+    if (is_path_separator(path.[0])) {
+        return 1;
+    }
+    return 0;
+}
+
+fn trim_trailing_separators(path: []u8) []u8 {
+    let prefix_len = root_prefix_len(path);
+    let mut end = #path;
+    for (; end > prefix_len; ) {
+        if (!is_path_separator(path.[end - 1])) {
+            break;
+        }
+        end -= 1;
+    }
+    return path.[0 .. end];
+}
+
+fn ensure_directory(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    match (create_dir(alloc, path)) {
+        .Ok: created => return .{ Ok: created },
+        .Err: err => {
+            match (err) {
+                .Os: os_err => {
+                    if (os.is_already_exists(os_err)) {
+                        match (is_dir(alloc, path)) {
+                            .Ok: yes => {
+                                if (yes) {
+                                    return .{ Ok: true };
+                                }
+                                return .{ Err: .{ Os: os_err } };
+                            },
+                            .Err: nested => return .{ Err: nested },
+                        };
+                    }
+                    return .{ Err: .{ Os: os_err } };
+                },
+                _ => return .{ Err: err },
+            };
+        },
+    };
+    @unreachable()
+}
+
+pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    if (#path == 0) {
+        return .{ Err: .{ InvalidPath } };
+    }
+
+    let trimmed = trim_trailing_separators(path);
+    if (#trimmed == 0) {
+        return .{ Ok: true };
+    }
+
+    let prefix_len = root_prefix_len(trimmed);
+    let mut index = prefix_len;
+
+    for (; index < #trimmed; index += 1) {
+        if (!is_path_separator(trimmed.[index])) {
+            continue;
+        }
+        if (index == 0 or is_path_separator(trimmed.[index - 1])) {
+            continue;
+        }
+
+        let partial = trimmed.[0 .. index];
+        let created = match (ensure_directory(alloc, partial)) {
+            .Ok: created => created,
+            .Err: err => return .{ Err: err },
+        };
+        let _ = created;
+    }
+
+    return ensure_directory(alloc, trimmed);
+}
+
+pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool, Error] {
+    let old_c_path = match (alloc_c_path(alloc, old_path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+
+    let mut new_c_path = *mut u8.{undef};
+    match (alloc_c_path(alloc, new_path)) {
+        .Ok: ptr => new_c_path = ptr,
+        .Err: err => {
+            free_c_path(alloc, old_path, old_c_path);
+            return .{ Err: err };
+        },
+    };
+
+    let result = rename_with_c_paths(old_c_path, new_c_path);
+    free_c_path(alloc, old_path, old_c_path);
+    free_c_path(alloc, new_path, new_c_path);
+    return result;
+}
+
+pub fn read_dir(alloc: *mut Allocator, path: []u8, visitor: *Fn(DirEntry) bool) Result[usize, Error] {
+    let c_path = match (alloc_c_path(alloc, path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+
+    let mut search_c_path = *mut u8.{undef};
+    match (alloc_dir_search_path(alloc, path)) {
+        .Ok: ptr => search_c_path = ptr,
+        .Err: err => {
+            free_c_path(alloc, path, c_path);
+            return .{ Err: err };
+        },
+    };
+
+    let bridge = .[visitor](name: []u8, file_type: FileType) bool {
+        return visitor(DirEntry.{ name: name, file_type: file_type });
+    };
+
+    let result = match (os.scan_dir(c_path, search_c_path, bridge)) {
+        .Ok: count => Result[usize, Error].{ Ok: count },
+        .Err: err => Result[usize, Error].{ Err: .{ Os: err } },
+    };
+    free_c_path(alloc, path, c_path);
+    free_dir_search_path(alloc, path, search_c_path);
+    return result;
 }
 
 pub fn metadata(alloc: *mut Allocator, path: []u8) Result[Metadata, Error] {

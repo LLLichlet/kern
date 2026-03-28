@@ -2,6 +2,7 @@ pub type OpenOptions = struct {
     read: bool = false,
     write: bool = false,
     create: bool = false,
+    create_new: bool = false,
     truncate: bool = false,
     append: bool = false,
 };
@@ -30,14 +31,14 @@ impl Metadata {
 #[if(os == "linux")]
 mod linux;
 #[if(os == "linux")]
-pub use .linux.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, create_dir, remove_dir, remove_file, is_not_found, is_already_exists, write, exit};
+pub use .linux.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};
 
 #[if(os == "darwin")]
 mod darwin;
 #[if(os == "darwin")]
-pub use .darwin.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, create_dir, remove_dir, remove_file, is_not_found, is_already_exists, write, exit};
+pub use .darwin.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};
 
 #[if(os == "windows")]
 mod windows;
 #[if(os == "windows")]
-pub use .windows.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, create_dir, remove_dir, remove_file, is_not_found, is_already_exists, write, exit};
+pub use .windows.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};

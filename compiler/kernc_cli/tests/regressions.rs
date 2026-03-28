@@ -412,6 +412,41 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_match_arm_block_with_statement_before_return() {
+    let output = build_and_run_source(
+        r#"
+type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};
+
+fn fail() Result[i32, i32] {
+    return .{ Err: 7 };
+}
+
+extern fn main() i32 {
+    let _ = match (fail()) {
+        .Ok: v => v,
+        .Err: _err => {
+            let _ = i32.{0};
+            return 0;
+        },
+    };
+
+    return 1;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_assignment_through_non_mut_array_elements() {
     let output = compile_source(
         r#"

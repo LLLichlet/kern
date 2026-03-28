@@ -1,8 +1,26 @@
 pub mod impls;
 mod traits;
 mod fmt;
-mod file;
+
+use std.fs;
+use std.os;
 
 pub use .fmt.println;
 pub use .traits.{Printable, Writer};
-pub use .file.{File, stdout};
+
+pub type File = struct {
+    inner: fs.File,
+};
+
+impl *mut File : Writer {
+    pub fn write(buf: []u8) usize {
+        let len = #buf;
+        if (len == 0) return 0;
+
+        return os.write(self.inner.handle, buf.[0].&, len);
+    }
+}
+
+pub fn stdout() File {
+    return .{ inner: fs.stdout() };
+}

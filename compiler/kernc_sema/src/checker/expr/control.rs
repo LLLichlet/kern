@@ -351,22 +351,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> TypeId {
         self.ctx.scopes.enter_scope();
         if let Some(i) = init {
-            self.check_discarded_expr(i);
+            let _ = self.check_discarded_expr(i);
         }
         if let Some(c) = cond {
             let c_ty = self.check_expr(c, Some(TypeId::BOOL));
             self.check_coercion(c, TypeId::BOOL, c_ty);
         }
         if let Some(p) = post {
-            self.check_discarded_expr(p);
+            let _ = self.check_discarded_expr(p);
         }
-        self.check_discarded_expr(body);
+        let _ = self.check_discarded_expr(body);
         self.ctx.scopes.exit_scope();
         TypeId::VOID
     }
 
     /// 检查一个独立执行的表达式，其返回值是否被非法隐式丢弃
-    fn check_discarded_expr(&mut self, expr: &Expr) {
+    fn check_discarded_expr(&mut self, expr: &Expr) -> TypeId {
         let ty = self.check_expr(expr, None);
         let norm_ty = self.resolve_tv(ty);
 
@@ -382,6 +382,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .with_hint("in Kern, use `let _ = ...;` to explicitly discard the value")
                 .emit();
         }
+        ty
     }
 
     pub(crate) fn check_block(
@@ -391,14 +392,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
     ) -> TypeId {
         self.ctx.scopes.enter_scope();
+        let mut saw_diverging_stmt = false;
         for stmt in stmts {
             match &stmt.kind {
                 StmtKind::ExprStmt(e) | StmtKind::ExprValue(e) => {
-                    self.check_discarded_expr(e);
+                    let stmt_ty = self.check_discarded_expr(e);
+                    if self.resolve_tv(stmt_ty) == TypeId::NEVER {
+                        saw_diverging_stmt = true;
+                    }
                 }
             }
         }
-        let ret_ty = if let Some(res) = result {
+        let ret_ty = if saw_diverging_stmt {
+            if let Some(res) = result {
+                let _ = self.check_expr(res, expected_ty);
+            }
+            TypeId::NEVER
+        } else if let Some(res) = result {
             self.check_expr(res, expected_ty)
         } else {
             TypeId::VOID
@@ -436,7 +446,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_defer(&mut self, defer_expr: &Expr) -> TypeId {
-        self.check_discarded_expr(defer_expr);
+        let _ = self.check_discarded_expr(defer_expr);
         TypeId::VOID
     }
 }

@@ -1,0 +1,41 @@
+use std.os;
+
+pub type Error = enum {
+    OutOfMemory,
+    InvalidOptions,
+    InvalidPath,
+    NotDirectory,
+    WriteZero,
+    Os: os.Error,
+};
+
+pub type FileType = os.FileType;
+pub type Metadata = os.Metadata;
+
+pub type DirEntry = struct {
+    name: []u8,
+    file_type: FileType,
+};
+
+impl DirEntry {
+    pub fn is_file() bool {
+        return self.file_type == .File;
+    }
+
+    pub fn is_dir() bool {
+        return self.file_type == .Directory;
+    }
+}
+
+pub type OpenOptions = struct {
+    read: bool = false,
+    write: bool = false,
+    create: bool = false,
+    create_new: bool = false,
+    truncate: bool = false,
+    append: bool = false,
+};
+
+pub type File = struct {
+    handle: os.Handle,
+};

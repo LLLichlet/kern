@@ -3,56 +3,17 @@ use std.Option;
 use std.os;
 use std.mem.array_layout_of;
 use std.mem.alloc.Allocator;
-use std.coll.{String, List};
-
-pub type Error = enum {
-    OutOfMemory,
-    InvalidOptions,
-    InvalidPath,
-    NotDirectory,
-    WriteZero,
-    Os: os.Error,
-};
-
-pub type FileType = os.FileType;
-pub type Metadata = os.Metadata;
-
-pub type DirEntry = struct {
-    name: []u8,
-    file_type: FileType,
-};
-
-impl DirEntry {
-    pub fn is_file() bool {
-        return self.file_type == .File;
-    }
-
-    pub fn is_dir() bool {
-        return self.file_type == .Directory;
-    }
-}
-
-pub type OpenOptions = struct {
-    read: bool = false,
-    write: bool = false,
-    create: bool = false,
-    create_new: bool = false,
-    truncate: bool = false,
-    append: bool = false,
-};
-
-pub type File = struct {
-    handle: os.Handle,
-};
+use std.coll.String;
+use ..types.{Error, File, Metadata, OpenOptions};
 
 fn c_path_layout(path: []u8) Option[std.mem.Layout] {
     if (#path == std.num.USIZE_MAX) {
         return .{ None };
-    };
+    }
     return array_layout_of[u8](#path + 1);
 }
 
-fn alloc_c_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
+pub fn alloc_c_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
     let layout = match (c_path_layout(path)) {
         .Some: layout => layout,
         .None => return .{ Err: .{ OutOfMemory } },
@@ -65,64 +26,13 @@ fn alloc_c_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
     let len = #path;
     if (len > 0) {
         @memcpy(ptr, path.[0].&, len);
-    };
+    }
     (ptr + len).* = 0;
     return .{ Ok: ptr };
 }
 
-fn free_c_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
+pub fn free_c_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
     let layout = match (c_path_layout(path)) {
-        .Some: layout => layout,
-        .None => return,
-    };
-    alloc.free(ptr, layout);
-}
-
-fn dir_search_path_layout(path: []u8) Option[std.mem.Layout] {
-    #[if(os == "windows")]
-    {
-        let needs_sep = if (#path == 0) true else !is_path_separator(path.[#path - 1]);
-        let extra = if (needs_sep) 3 else 2;
-        return array_layout_of[u8](#path + extra);
-    }
-
-    return c_path_layout(path);
-}
-
-fn alloc_dir_search_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
-    let layout = match (dir_search_path_layout(path)) {
-        .Some: layout => layout,
-        .None => return .{ Err: .{ OutOfMemory } },
-    };
-    let ptr = match (alloc.alloc(layout)) {
-        .Some: ptr => ptr,
-        .None => return .{ Err: .{ OutOfMemory } },
-    };
-
-    let len = #path;
-    if (len > 0) {
-        @memcpy(ptr, path.[0].&, len);
-    }
-
-    #[if(os == "windows")]
-    {
-        let mut end = len;
-        let needs_sep = if (len == 0) true else !is_path_separator(path.[len - 1]);
-        if (needs_sep) {
-            (ptr + end).* = b'\\';
-            end += 1;
-        }
-        (ptr + end).* = b'*';
-        (ptr + end + 1).* = 0;
-        return .{ Ok: ptr };
-    }
-
-    (ptr + len).* = 0;
-    return .{ Ok: ptr };
-}
-
-fn free_dir_search_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
-    let layout = match (dir_search_path_layout(path)) {
         .Some: layout => layout,
         .None => return,
     };
@@ -165,7 +75,7 @@ fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) Result[bool, Error] {
 pub fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) Result[File, Error] {
     if (!options.read and !options.write) {
         return .{ Err: .{ InvalidOptions } };
-    };
+    }
 
     let c_path = match (alloc_c_path(alloc, path)) {
         .Ok: ptr => ptr,
@@ -213,347 +123,6 @@ pub fn create_new(alloc: *mut Allocator, path: []u8) Result[File, Error] {
     return open(alloc, path, options.&);
 }
 
-fn is_path_separator(byte: u8) bool {
-    #[if(os == "windows")]
-    {
-        return byte == b'/' or byte == b'\\';
-    }
-
-    return byte == b'/';
-}
-
-fn path_separator_byte() u8 {
-    #[if(os == "windows")]
-    {
-        return b'\\';
-    }
-
-    return b'/';
-}
-
-fn root_prefix_len(path: []u8) usize {
-    let len = #path;
-    if (len == 0) {
-        return 0;
-    }
-
-    #[if(os == "windows")]
-    {
-        if (len >= 2) {
-            let drive = path.[0];
-            let is_alpha =
-                (drive >= b'a' and drive <= b'z') or
-                (drive >= b'A' and drive <= b'Z');
-            if (is_alpha and path.[1] == b':') {
-                if (len >= 3 and is_path_separator(path.[2])) {
-                    return 3;
-                }
-                return 2;
-            }
-        }
-    }
-
-    if (is_path_separator(path.[0])) {
-        return 1;
-    }
-    return 0;
-}
-
-fn trim_trailing_separators(path: []u8) []u8 {
-    let prefix_len = root_prefix_len(path);
-    let mut end = #path;
-    for (; end > prefix_len; ) {
-        if (!is_path_separator(path.[end - 1])) {
-            break;
-        }
-        end -= 1;
-    }
-    return path.[0 .. end];
-}
-
-fn ensure_directory(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
-    match (create_dir(alloc, path)) {
-        .Ok: created => return .{ Ok: created },
-        .Err: err => {
-            match (err) {
-                .Os: os_err => {
-                    if (os.is_already_exists(os_err)) {
-                        match (is_dir(alloc, path)) {
-                            .Ok: yes => {
-                                if (yes) {
-                                    return .{ Ok: true };
-                                }
-                                return .{ Err: .{ Os: os_err } };
-                            },
-                            .Err: nested => return .{ Err: nested },
-                        };
-                    }
-                    return .{ Err: .{ Os: os_err } };
-                },
-                _ => return .{ Err: err },
-            };
-        },
-    };
-    @unreachable()
-}
-
-fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) Result[String, Error] {
-    let mut out = String.{};
-    if (!out..&.push_str(alloc, base)) {
-        return .{ Err: .{ OutOfMemory } };
-    }
-
-    if (#base > 0 and !is_path_separator(base.[#base - 1])) {
-        if (!out..&.push_char(alloc, path_separator_byte())) {
-            out..&.deinit(alloc);
-            return .{ Err: .{ OutOfMemory } };
-        }
-    }
-
-    if (!out..&.push_str(alloc, name)) {
-        out..&.deinit(alloc);
-        return .{ Err: .{ OutOfMemory } };
-    }
-
-    return .{ Ok: out };
-}
-
-fn append_path_segment(
-    out: *mut String,
-    alloc: *mut Allocator,
-    prefix_len: usize,
-    segment: []u8,
-) bool {
-    let out_len = out.len();
-    if (
-        out_len > 0 and
-        !is_path_separator(out.as_str().[out_len - 1]) and
-        (prefix_len == 0 or out_len > prefix_len)
-    ) {
-        if (!out.push_char(alloc, path_separator_byte())) {
-            return false;
-        }
-    }
-
-    return out.push_str(alloc, segment);
-}
-
-fn last_separator(path: []u8) Option[usize] {
-    let prefix_len = root_prefix_len(path);
-    let mut index = #path;
-    for (; index > prefix_len; ) {
-        index -= 1;
-        if (is_path_separator(path.[index])) {
-            return .{ Some: index };
-        }
-    }
-    return .{ None };
-}
-
-pub fn file_name(path: []u8) Option[[]u8] {
-    let trimmed = trim_trailing_separators(path);
-    let prefix_len = root_prefix_len(trimmed);
-    if (#trimmed == 0 or #trimmed == prefix_len) {
-        return .{ None };
-    }
-
-    match (last_separator(trimmed)) {
-        .Some: index => return .{ Some: trimmed.[index + 1 .. #trimmed] },
-        .None => return .{ Some: trimmed },
-    }
-}
-
-pub fn parent(path: []u8) Option[[]u8] {
-    let trimmed = trim_trailing_separators(path);
-    let prefix_len = root_prefix_len(trimmed);
-    if (#trimmed == 0 or #trimmed == prefix_len) {
-        return .{ None };
-    }
-
-    match (last_separator(trimmed)) {
-        .Some: index => return .{ Some: trimmed.[0 .. index] },
-        .None => {
-            if (prefix_len > 0) {
-                return .{ Some: trimmed.[0 .. prefix_len] };
-            }
-            return .{ None };
-        },
-    }
-}
-
-pub fn extension(path: []u8) Option[[]u8] {
-    let name = match (file_name(path)) {
-        .Some: name => name,
-        .None => return .{ None },
-    };
-
-    let mut index = #name;
-    for (; index > 0; ) {
-        index -= 1;
-        if (name.[index] != b'.') {
-            continue;
-        }
-        if (index == 0 or index + 1 == #name) {
-            return .{ None };
-        }
-        return .{ Some: name.[index + 1 .. #name] };
-    }
-
-    return .{ None };
-}
-
-pub fn file_stem(path: []u8) Option[[]u8] {
-    let name = match (file_name(path)) {
-        .Some: name => name,
-        .None => return .{ None },
-    };
-
-    let mut index = #name;
-    for (; index > 0; ) {
-        index -= 1;
-        if (name.[index] != b'.') {
-            continue;
-        }
-        if (index == 0) {
-            return .{ Some: name };
-        }
-        return .{ Some: name.[0 .. index] };
-    }
-
-    return .{ Some: name };
-}
-
-pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) Result[String, Error] {
-    if (root_prefix_len(child) > 0) {
-        let mut out = String.{};
-        if (!out..&.push_str(alloc, child)) {
-            return .{ Err: .{ OutOfMemory } };
-        }
-        return .{ Ok: out };
-    }
-
-    if (#base == 0) {
-        let mut out = String.{};
-        if (!out..&.push_str(alloc, child)) {
-            return .{ Err: .{ OutOfMemory } };
-        }
-        return .{ Ok: out };
-    }
-
-    if (#child == 0) {
-        let mut out = String.{};
-        if (!out..&.push_str(alloc, base)) {
-            return .{ Err: .{ OutOfMemory } };
-        }
-        return .{ Ok: out };
-    }
-
-    return build_child_path(alloc, base, child);
-}
-
-pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
-    let prefix_len = root_prefix_len(path);
-    let segments = List[[]u8].{}..&;
-    defer segments.deinit(alloc);
-
-    let mut index = prefix_len;
-    for (; index < #path; ) {
-        for (; index < #path and is_path_separator(path.[index]); index += 1) {}
-        if (index >= #path) {
-            break;
-        }
-
-        let start = index;
-        for (; index < #path and !is_path_separator(path.[index]); index += 1) {}
-        let segment = path.[start .. index];
-
-        if (segment.eq(".")) {
-            continue;
-        }
-
-        if (segment.eq("..")) {
-            let can_pop = segments.last().is_some_and(.[](last: []u8) bool {
-                return !last.eq("..");
-            });
-            if (can_pop) {
-                let _ = segments.pop();
-            } else if (prefix_len == 0) {
-                if (!segments.push(alloc, segment)) {
-                    return .{ Err: .{ OutOfMemory } };
-                }
-            }
-            continue;
-        }
-
-        if (!segments.push(alloc, segment)) {
-            return .{ Err: .{ OutOfMemory } };
-        }
-    }
-
-    let mut out = String.{};
-    if (prefix_len > 0) {
-        if (!out..&.push_str(alloc, path.[0 .. prefix_len])) {
-            return .{ Err: .{ OutOfMemory } };
-        }
-    }
-
-    if (segments.is_empty()) {
-        if (prefix_len > 0) {
-            return .{ Ok: out };
-        }
-        if (!out..&.push_str(alloc, ".")) {
-            return .{ Err: .{ OutOfMemory } };
-        }
-        return .{ Ok: out };
-    }
-
-    let mut seg_index = 0;
-    for (; seg_index < segments.len; seg_index += 1) {
-        let segment = match (segments.get(seg_index)) {
-            .Some: segment => segment,
-            .None => continue,
-        };
-        if (!append_path_segment(out..&, alloc, prefix_len, segment)) {
-            out..&.deinit(alloc);
-            return .{ Err: .{ OutOfMemory } };
-        }
-    }
-
-    return .{ Ok: out };
-}
-
-pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
-    if (#path == 0) {
-        return .{ Err: .{ InvalidPath } };
-    }
-
-    let trimmed = trim_trailing_separators(path);
-    if (#trimmed == 0) {
-        return .{ Ok: true };
-    }
-
-    let prefix_len = root_prefix_len(trimmed);
-    let mut index = prefix_len;
-
-    for (; index < #trimmed; index += 1) {
-        if (!is_path_separator(trimmed.[index])) {
-            continue;
-        }
-        if (index == 0 or is_path_separator(trimmed.[index - 1])) {
-            continue;
-        }
-
-        let partial = trimmed.[0 .. index];
-        let created = match (ensure_directory(alloc, partial)) {
-            .Ok: created => created,
-            .Err: err => return .{ Err: err },
-        };
-        let _ = created;
-    }
-
-    return ensure_directory(alloc, trimmed);
-}
-
 pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool, Error] {
     let old_c_path = match (alloc_c_path(alloc, old_path)) {
         .Ok: ptr => ptr,
@@ -573,168 +142,6 @@ pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool
     free_c_path(alloc, old_path, old_c_path);
     free_c_path(alloc, new_path, new_c_path);
     return result;
-}
-
-pub fn read_dir(alloc: *mut Allocator, path: []u8, visitor: *Fn(DirEntry) bool) Result[usize, Error] {
-    let c_path = match (alloc_c_path(alloc, path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
-    };
-
-    let mut search_c_path = *mut u8.{undef};
-    match (alloc_dir_search_path(alloc, path)) {
-        .Ok: ptr => search_c_path = ptr,
-        .Err: err => {
-            free_c_path(alloc, path, c_path);
-            return .{ Err: err };
-        },
-    };
-
-    let bridge = .[visitor](name: []u8, file_type: FileType) bool {
-        return visitor(DirEntry.{ name: name, file_type: file_type });
-    };
-
-    let result = match (os.scan_dir(c_path, search_c_path, bridge)) {
-        .Ok: count => Result[usize, Error].{ Ok: count },
-        .Err: err => Result[usize, Error].{ Err: .{ Os: err } },
-    };
-    free_c_path(alloc, path, c_path);
-    free_dir_search_path(alloc, path, search_c_path);
-    return result;
-}
-
-fn walk_dir_inner(
-    alloc: *mut Allocator,
-    path: []u8,
-    depth: usize,
-    visitor: *Fn([]u8, DirEntry, usize) bool,
-    total: *mut usize,
-    walk_err: *mut Option[Error],
-) bool {
-    let walk = .[
-        alloc,
-        base = path,
-        depth,
-        visitor,
-        total,
-        walk_err
-    ](entry: DirEntry) bool {
-        let mut child = match (build_child_path(alloc, base, entry.name)) {
-            .Ok: child => child,
-            .Err: err => {
-                walk_err.* = .{ Some: err };
-                return false;
-            }
-        };
-
-        let child_path = child.&.as_str();
-        total.* += 1;
-
-        if (!visitor(child_path, entry, depth)) {
-            child..&.deinit(alloc);
-            return false;
-        }
-
-        if (entry.is_dir()) {
-            if (!walk_dir_inner(alloc, child_path, depth + 1, visitor, total, walk_err)) {
-                child..&.deinit(alloc);
-                return false;
-            }
-        }
-
-        child..&.deinit(alloc);
-        return true;
-    };
-
-    match (read_dir(alloc, path, walk)) {
-        .Ok: _ => return true,
-        .Err: err => {
-            walk_err.* = .{ Some: err };
-            return false;
-        },
-    }
-}
-
-pub fn walk_dir(
-    alloc: *mut Allocator,
-    path: []u8,
-    visitor: *Fn([]u8, DirEntry, usize) bool,
-) Result[usize, Error] {
-    let meta = match (metadata(alloc, path)) {
-        .Ok: meta => meta,
-        .Err: err => return .{ Err: err },
-    };
-
-    if (!meta.is_dir()) {
-        return .{ Err: .{ NotDirectory } };
-    }
-
-    let mut total = usize.{0};
-    let mut walk_err = Option[Error].{ None };
-    let _ = walk_dir_inner(alloc, path, 1, visitor, total..&, walk_err..&);
-
-    match (walk_err) {
-        .Some: err => return .{ Err: err },
-        .None => return .{ Ok: total },
-    }
-}
-
-pub fn remove_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
-    let meta = match (metadata(alloc, path)) {
-        .Ok: meta => meta,
-        .Err: err => match (err) {
-            .Os: os_err => {
-                if (os.is_not_found(os_err)) {
-                    return .{ Ok: true };
-                }
-                return .{ Err: .{ Os: os_err } };
-            },
-            _ => return .{ Err: err },
-        },
-    };
-
-    if (!meta.is_dir()) {
-        return .{ Err: .{ NotDirectory } };
-    }
-
-    let mut walk_err = Option[Error].{ None };
-    let walk = .[alloc, base = path, walk_err = walk_err..&](entry: DirEntry) bool {
-        let mut child = match (build_child_path(alloc, base, entry.name)) {
-            .Ok: child => child,
-            .Err: err => {
-                walk_err.* = .{ Some: err };
-                return false;
-            }
-        };
-
-        let child_path = child.&.as_str();
-        let result = if (entry.is_dir()) {
-            remove_dir_all(alloc, child_path)
-        } else {
-            remove_file(alloc, child_path)
-        };
-        child..&.deinit(alloc);
-
-        match (result) {
-            .Ok: _ => return true,
-            .Err: err => {
-                walk_err.* = .{ Some: err };
-                return false;
-            },
-        }
-    };
-
-    match (read_dir(alloc, path, walk)) {
-        .Ok: _ => {}
-        .Err: err => return .{ Err: err },
-    }
-
-    match (walk_err) {
-        .Some: err => return .{ Err: err },
-        .None => {}
-    }
-
-    return remove_dir(alloc, path);
 }
 
 pub fn metadata(alloc: *mut Allocator, path: []u8) Result[Metadata, Error] {
@@ -771,65 +178,31 @@ pub fn exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 pub fn is_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     match (metadata(alloc, path)) {
         .Ok: meta => return .{ Ok: meta.is_file() },
-        .Err: err => {
-            match (err) {
-                .Os: os_err => {
-                    if (os.is_not_found(os_err)) {
-                        return .{ Ok: false };
-                    }
-                    return .{ Err: .{ Os: os_err } };
-                },
-                _ => return .{ Err: err },
-            };
+        .Err: err => match (err) {
+            .Os: os_err => {
+                if (os.is_not_found(os_err)) {
+                    return .{ Ok: false };
+                }
+                return .{ Err: .{ Os: os_err } };
+            },
+            _ => return .{ Err: err },
         },
-    };
-    @unreachable()
+    }
 }
 
 pub fn is_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     match (metadata(alloc, path)) {
         .Ok: meta => return .{ Ok: meta.is_dir() },
-        .Err: err => {
-            match (err) {
-                .Os: os_err => {
-                    if (os.is_not_found(os_err)) {
-                        return .{ Ok: false };
-                    }
-                    return .{ Err: .{ Os: os_err } };
-                },
-                _ => return .{ Err: err },
-            };
+        .Err: err => match (err) {
+            .Os: os_err => {
+                if (os.is_not_found(os_err)) {
+                    return .{ Ok: false };
+                }
+                return .{ Err: .{ Os: os_err } };
+            },
+            _ => return .{ Err: err },
         },
-    };
-    @unreachable()
-}
-
-pub fn create_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
-    let c_path = match (alloc_c_path(alloc, path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
-    };
-
-    let result = match (os.create_dir(c_path)) {
-        .Ok: created => Result[bool, Error].{ Ok: created },
-        .Err: err => Result[bool, Error].{ Err: .{ Os: err } },
-    };
-    free_c_path(alloc, path, c_path);
-    return result;
-}
-
-pub fn remove_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
-    let c_path = match (alloc_c_path(alloc, path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
-    };
-
-    let result = match (os.remove_dir(c_path)) {
-        .Ok: removed => Result[bool, Error].{ Ok: removed },
-        .Err: err => Result[bool, Error].{ Err: .{ Os: err } },
-    };
-    free_c_path(alloc, path, c_path);
-    return result;
+    }
 }
 
 pub fn remove_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
@@ -844,6 +217,21 @@ pub fn remove_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     };
     free_c_path(alloc, path, c_path);
     return result;
+}
+
+pub fn remove_file_if_exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    match (remove_file(alloc, path)) {
+        .Ok: removed => return .{ Ok: removed },
+        .Err: err => match (err) {
+            .Os: os_err => {
+                if (os.is_not_found(os_err)) {
+                    return .{ Ok: false };
+                }
+                return .{ Err: .{ Os: os_err } };
+            },
+            _ => return .{ Err: err },
+        },
+    }
 }
 
 pub fn stdin() File {

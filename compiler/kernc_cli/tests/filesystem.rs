@@ -1036,6 +1036,80 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_std_fs_path_replacements() {
+    let output = build_and_run_hosted(
+        r#"
+use std.fs;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+
+    let mut renamed = match (fs.with_file_name(gpa, "/tmp/kern/main.kr", "lib.kr")) {
+        .Ok: path => path,
+        .Err: _ => return 1,
+    };
+    defer renamed..&.deinit(gpa);
+    if (!renamed.&.eq("/tmp/kern/lib.kr")) {
+        return 2;
+    }
+
+    let mut reext = match (fs.with_extension(gpa, "/tmp/kern/main.kr", "ll")) {
+        .Ok: path => path,
+        .Err: _ => return 3,
+    };
+    defer reext..&.deinit(gpa);
+    if (!reext.&.eq("/tmp/kern/main.ll")) {
+        return 4;
+    }
+
+    let mut stripped = match (fs.with_extension(gpa, "archive.tar", "")) {
+        .Ok: path => path,
+        .Err: _ => return 5,
+    };
+    defer stripped..&.deinit(gpa);
+    if (!stripped.&.eq("archive")) {
+        return 6;
+    }
+
+    let mut hidden = match (fs.with_extension(gpa, ".gitignore", "txt")) {
+        .Ok: path => path,
+        .Err: _ => return 7,
+    };
+    defer hidden..&.deinit(gpa);
+    if (!hidden.&.eq(".gitignore.txt")) {
+        return 8;
+    }
+
+    let mut rooted = match (fs.with_file_name(gpa, "/", "boot")) {
+        .Ok: path => path,
+        .Err: _ => return 9,
+    };
+    defer rooted..&.deinit(gpa);
+    if (!rooted.&.eq("/boot")) {
+        return 10;
+    }
+
+    let bad = fs.with_extension(gpa, "/", "txt");
+    if (!bad.is_err()) {
+        return 11;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_std_fs_copy_and_append() {
     let temp_root = unique_temp_path("kernc_std_fs_copy_append", "dir");
     let from_file = temp_root.join("from.txt");
@@ -1230,6 +1304,42 @@ extern fn main() i32 {{
         return 6;
     }}
 
+    let mut file_hits = usize.{{0}};
+    let walked_files = match (fs.walk_files(gpa, "{root_path}", .[
+        file_hits = file_hits..&
+    ](_: []u8, entry: fs.DirEntry, _: usize) bool {{
+        if (!entry.is_file()) {{
+            return false;
+        }}
+        file_hits.* += 1;
+        return true;
+    }})) {{
+        .Ok: count => count,
+        .Err: _ => return 7,
+    }};
+
+    if (walked_files != 4 or file_hits != 2) {{
+        return 8;
+    }}
+
+    let mut dir_hits = usize.{{0}};
+    let walked_dirs = match (fs.walk_dirs(gpa, "{root_path}", .[
+        dir_hits = dir_hits..&
+    ](_: []u8, entry: fs.DirEntry, _: usize) bool {{
+        if (!entry.is_dir()) {{
+            return false;
+        }}
+        dir_hits.* += 1;
+        return true;
+    }})) {{
+        .Ok: count => count,
+        .Err: _ => return 9,
+    }};
+
+    if (walked_dirs != 4 or dir_hits != 2) {{
+        return 10;
+    }}
+
     let mut early = usize.{{0}};
     let stopped = match (fs.walk_dir(gpa, "{root_path}", .[
         early = early..&
@@ -1238,11 +1348,11 @@ extern fn main() i32 {{
         return false;
     }})) {{
         .Ok: count => count,
-        .Err: _ => return 7,
+        .Err: _ => return 11,
     }};
 
     if (stopped != 1 or early != 1) {{
-        return 8;
+        return 12;
     }}
 
     return 0;
@@ -1264,5 +1374,107 @@ extern fn main() i32 {{
 
     let _ = fs::remove_file(&beta_file);
     let _ = fs::remove_file(&root_file);
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_if_exists_helpers() {
+    let temp_root = unique_temp_path("kernc_std_fs_if_exists", "dir");
+    let file_path = temp_root.join("data.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let file_path_str = kern_string_literal(&file_path);
+
+    let _ = fs::remove_file(&file_path);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    let missing_dir = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
+        .Ok: removed => removed,
+        .Err: _ => return 1,
+    }};
+    if (missing_dir) {{
+        return 2;
+    }}
+
+    let created = match (fs.create_dir_if_missing(gpa, "{root_path}")) {{
+        .Ok: created => created,
+        .Err: _ => return 3,
+    }};
+    if (!created) {{
+        return 4;
+    }}
+
+    let created_again = match (fs.create_dir_if_missing(gpa, "{root_path}")) {{
+        .Ok: created => created,
+        .Err: _ => return 5,
+    }};
+    if (created_again) {{
+        return 6;
+    }}
+
+    match (fs.write_all(gpa, "{file_path}", "payload")) {{
+        .Ok: count => {{
+            if (count != 7) {{
+                return 7;
+            }}
+        }},
+        .Err: _ => return 8,
+    }}
+
+    let removed_file = match (fs.remove_file_if_exists(gpa, "{file_path}")) {{
+        .Ok: removed => removed,
+        .Err: _ => return 9,
+    }};
+    if (!removed_file) {{
+        return 10;
+    }}
+
+    let removed_file_again = match (fs.remove_file_if_exists(gpa, "{file_path}")) {{
+        .Ok: removed => removed,
+        .Err: _ => return 11,
+    }};
+    if (removed_file_again) {{
+        return 12;
+    }}
+
+    let removed_dir = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
+        .Ok: removed => removed,
+        .Err: _ => return 13,
+    }};
+    if (!removed_dir) {{
+        return 14;
+    }}
+
+    let removed_dir_again = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
+        .Ok: removed => removed,
+        .Err: _ => return 15,
+    }};
+    if (removed_dir_again) {{
+        return 16;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        file_path = file_path_str
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&file_path);
     let _ = fs::remove_dir_all(&temp_root);
 }

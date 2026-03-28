@@ -28,6 +28,22 @@ fn run_kernc(args: &[&str]) -> std::process::Output {
         .unwrap()
 }
 
+fn compile_source_with_std(source: &str) -> std::process::Output {
+    let source_path = unique_temp_path("kernc_std_coll_compile", "kr");
+    let object_path = unique_temp_path("kernc_std_coll_compile", "o");
+
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let args = vec!["-c", "--use-std", source_arg.as_str(), "-o", object_arg.as_str()];
+    let output = run_kernc(&args);
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&object_path);
+    output
+}
+
 fn build_and_run_hosted(source: &str) -> std::process::Output {
     let source_path = unique_temp_path("kernc_std_coll", "kr");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
@@ -107,19 +123,12 @@ fn runs_hosted_program_using_std_coll_tree_map() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.TreeMap;
-use std.cmp.ord_cmp;
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
-    let map = TreeMap[i32, i32].{
-        cmp: .[](a: i32, b: i32) i32 {
-            if (a < b) return -1;
-            if (a > b) return 1;
-            return 0;
-        },
-    }..&;
+    let map = TreeMap[i32, i32].{}..&;
     defer map.deinit(gpa);
 
     let mut i = 0;
@@ -162,11 +171,11 @@ extern fn main() i32 {
 }
 
 #[test]
-fn runs_hosted_program_using_std_cmp_ord_bridge_with_tree_map() {
+fn runs_hosted_program_using_custom_ord_tree_map_key() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.TreeMap;
-use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER, ord_cmp};
+use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 type Key = struct {
@@ -189,9 +198,7 @@ impl *Key : Ord[Key] {}
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
-    let map = TreeMap[Key, i32].{
-        cmp: ord_cmp[Key],
-    }..&;
+    let map = TreeMap[Key, i32].{}..&;
     defer map.deinit(gpa);
 
     if (!map.insert(gpa, Key.{ major: 1, minor: 0 }, 10)) {
@@ -230,5 +237,42 @@ extern fn main() i32 {
         "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_tree_map_key_without_ord() {
+    let output = compile_source_with_std(
+        r#"
+use std.coll.TreeMap;
+use std.mem.alloc.PageAllocator;
+
+type Key = struct {
+    raw: i32,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let page = PageAllocator.{}..&;
+    let map = TreeMap[Key, i32].{}..&;
+    if (map.insert(page, Key.{ raw: 1 }, 2)) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Ord[Key]") || stderr.contains("TreeMap[Key, i32]"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }

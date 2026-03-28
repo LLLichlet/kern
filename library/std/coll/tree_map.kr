@@ -1,4 +1,5 @@
 use std.Option;
+use std.cmp.Ord;
 use std.mem.layout_of;
 use std.mem.alloc.Allocator;
 
@@ -38,16 +39,16 @@ fn set_child[K, V](node: *mut Node[K, V], index: usize, child: *mut Node[K, V]) 
     node.children.[index] = child;
 }
 
-pub type TreeMap[K, V] = struct {
+pub type TreeMap[K, V] where *K: Ord[K] = struct {
     root: *mut Node[K, V] = 0,
     len: usize = 0,
-    cmp: fn(K, K) i32,
 };
 
-impl[K, V] *mut TreeMap[K, V] {
+impl[K, V] *mut TreeMap[K, V]
+    where *K: Ord[K],
+{
     fn compare(lhs: K, rhs: K) i32 {
-        let cmp = self.cmp;
-        return cmp(lhs, rhs);
+        return lhs.&.cmp(rhs);
     }
 
     fn alloc_node(alloc: *mut Allocator, is_leaf: bool) Option[*mut Node[K, V]] {
@@ -225,10 +226,11 @@ impl[K, V] *mut TreeMap[K, V] {
     }
 }
 
-impl[K, V] *TreeMap[K, V] {
+impl[K, V] *TreeMap[K, V]
+    where *K: Ord[K],
+{
     fn compare(lhs: K, rhs: K) i32 {
-        let cmp = self.cmp;
-        return cmp(lhs, rhs);
+        return lhs.&.cmp(rhs);
     }
 
     pub fn is_empty() bool {

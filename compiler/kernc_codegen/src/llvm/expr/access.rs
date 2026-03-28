@@ -60,13 +60,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 Some((ptr, Some(len), *elem))
             }
             TypeKind::Array { elem, len, .. } => {
-                let ptr = if lhs_val.is_pointer_value() {
-                    lhs_val.into_pointer_value()
-                } else {
-                    let alloca = self.create_entry_block_alloca(lhs_val.get_type(), "arr_tmp");
-                    self.builder.build_store(alloca, lhs_val).unwrap();
-                    alloca
-                };
+                let ptr = self.compile_lvalue(lhs);
                 let len_val = self.context.i64_type().const_int(*len, false);
                 Some((ptr, Some(len_val), *elem))
             }

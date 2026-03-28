@@ -1,8 +1,36 @@
 #![if(os == "darwin")]
 
+use std.Result;
+use std.os.{FileType, Metadata};
+use std.os.OpenOptions;
+
 extern {
     #[export_name("write")]
     fn system_write(fd: i32, ptr: *u8, len: usize) isize;
+
+    #[export_name("read")]
+    fn system_read(fd: i32, ptr: *mut u8, len: usize) isize;
+
+    #[export_name("open")]
+    fn system_open(path: *u8, flags: i32, mode: i32) i32;
+
+    #[export_name("close")]
+    fn system_close(fd: i32) i32;
+
+    #[export_name("unlink")]
+    fn system_unlink(path: *u8) i32;
+
+    #[export_name("stat")]
+    fn system_stat(path: *u8, stat: *mut Stat) i32;
+
+    #[export_name("mkdir")]
+    fn system_mkdir(path: *u8, mode: i32) i32;
+
+    #[export_name("rmdir")]
+    fn system_rmdir(path: *u8) i32;
+
+    #[export_name("__error")]
+    fn system_errno() *mut i32;
 
     #[export_name("exit")]
     fn system_exit(code: i32) void;
@@ -15,19 +43,180 @@ extern {
 }
 
 pub type Handle = i32;
+pub type Error = struct {
+    code: isize,
+};
+
+type Timespec = extern struct {
+    tv_sec: i64,
+    tv_nsec: isize,
+};
+
+type Stat = extern struct {
+    st_dev: i32,
+    st_mode: u16,
+    st_nlink: u16,
+    st_ino: u64,
+    st_uid: u32,
+    st_gid: u32,
+    st_rdev: i32,
+    st_atimespec: Timespec,
+    st_mtimespec: Timespec,
+    st_ctimespec: Timespec,
+    st_birthtimespec: Timespec,
+    st_size: i64,
+    st_blocks: i64,
+    st_blksize: i32,
+    st_flags: u32,
+    st_gen: u32,
+    st_lspare: i32,
+    st_qspare: [2]i64,
+};
 
 pub const PROT_READ = 0x01;
 pub const PROT_WRITE = 0x02;
 pub const MAP_PRIVATE = 0x0002;
 pub const MAP_ANONYMOUS = 0x1000;
 pub const MAP_FAILED = ~usize.{0};
+const INVALID_HANDLE = i32.{-1};
+const ENOENT = isize.{2};
+const EEXIST = isize.{17};
+const O_RDONLY = i32.{0};
+const O_WRONLY = i32.{1};
+const O_RDWR = i32.{2};
+const O_APPEND = i32.{8};
+const O_CREAT = i32.{512};
+const O_TRUNC = i32.{1024};
+const DEFAULT_MODE = i32.{420};
+const MODE_DIR = i32.{493};
+const S_IFMT = u16.{61440};
+const S_IFDIR = u16.{16384};
+const S_IFREG = u16.{32768};
+
+pub fn invalid_handle() Handle {
+    return INVALID_HANDLE;
+}
+
+fn last_error() Error {
+    return .{ code: system_errno().* as isize };
+}
+
+pub fn is_not_found(err: Error) bool {
+    return err.code == ENOENT;
+}
+
+pub fn is_already_exists(err: Error) bool {
+    return err.code == EEXIST;
+}
+
+pub fn get_stdin_handle() Handle {
+    return 0;
+}
 
 pub fn get_stdout_handle() Handle {
     return 1;
 }
 
+pub fn get_stderr_handle() Handle {
+    return 2;
+}
+
+pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
+    let ret = system_read(handle, ptr, len);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: ret as usize };
+}
+
+pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
+    let ret = system_write(handle, ptr, len);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: ret as usize };
+}
+
+pub fn close_file(handle: Handle) Result[bool, Error] {
+    let ret = system_close(handle);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+fn stat_file_type(mode: u16) FileType {
+    let kind = mode & S_IFMT;
+    if (kind == S_IFREG) {
+        return .File;
+    }
+    if (kind == S_IFDIR) {
+        return .Directory;
+    }
+    return .Other;
+}
+
+pub fn metadata(path: *u8) Result[Metadata, Error] {
+    let mut stat = Stat.{undef};
+    let ret = system_stat(path, stat..&);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+
+    let size = if (stat.st_size < 0) usize.{0} else stat.st_size as usize;
+    return .{
+        Ok: .{
+            file_type: stat_file_type(stat.st_mode),
+            size: size,
+        },
+    };
+}
+
+pub fn open_file(
+    path: *u8,
+    options: *OpenOptions,
+) Result[Handle, Error] {
+    let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
+    if (options.create) flags |= O_CREAT;
+    if (options.truncate) flags |= O_TRUNC;
+    if (options.append) flags |= O_APPEND;
+
+    let ret = system_open(path, flags, DEFAULT_MODE);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: ret };
+}
+
+pub fn create_dir(path: *u8) Result[bool, Error] {
+    let ret = system_mkdir(path, MODE_DIR);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn remove_dir(path: *u8) Result[bool, Error] {
+    let ret = system_rmdir(path);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn remove_file(path: *u8) Result[bool, Error] {
+    let ret = system_unlink(path);
+    if (ret < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
-    return system_write(handle, ptr, len) as usize;
+    match (write_file(handle, ptr, len)) {
+        .Ok: written => return written,
+        .Err: _ => return 0,
+    }
 }
 
 pub fn exit(code: i32) ! {

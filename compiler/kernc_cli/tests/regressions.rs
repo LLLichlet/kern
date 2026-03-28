@@ -43,6 +43,38 @@ fn compile_source(source: &str) -> std::process::Output {
     output
 }
 
+fn build_and_run_source(source: &str) -> std::process::Output {
+    let source_path = unique_temp_path("kernc_regression_run", "kr");
+    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
+    let executable_path = unique_temp_path("kernc_regression_run", exe_ext);
+
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+    let args = vec![
+        "--link-profile",
+        "hosted",
+        source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ];
+    let output = run_kernc(&args);
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+    run_output
+}
+
 #[test]
 fn compiles_generic_supertrait_method_lookup() {
     let output = compile_source(
@@ -194,6 +226,82 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn compiles_concrete_slice_impl_methods() {
+    let output = compile_source(
+        r#"
+fn slice_len(value: []u8) usize {
+    return #value;
+}
+
+impl []u8 {
+    pub fn len_via_impl() usize {
+        return slice_len(self);
+    }
+}
+
+extern fn main(args: [][]u8) i32 {
+    let text = "hi";
+    return text.len_via_impl() as i32;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_captured_closure_boundary_conversions() {
+    let output = build_and_run_source(
+        r#"
+fn use_closure(cb: *Fn() i32) i32 {
+    return cb();
+}
+
+fn use_mut_closure(cb: *mut Fn() void) void {
+    cb();
+}
+
+extern fn main() i32 {
+    let mut calls = i32.{0};
+    let value = use_closure(.[ptr = calls..&]() i32 {
+        ptr.* += 1;
+        return 77;
+    });
+    if (value != 77) {
+        return 1;
+    }
+    if (calls != 1) {
+        return 2;
+    }
+
+    let mut counter = i32.{0};
+    let mut closure = .[ptr = counter..&]() void {
+        ptr.* += 1;
+    };
+    use_mut_closure(closure);
+    if (counter != 1) {
+        return 3;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_assignment_through_struct_array_fields_only() {
     let output = compile_source(
         r#"
@@ -222,6 +330,88 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn runs_array_and_slice_mutability_semantics() {
+    let output = build_and_run_source(
+        r#"
+extern fn main() i32 {
+    let arr = [5]mut u8.{ b'a', b'b', b'c', b'd', b'e' };
+    arr.[1] = b'x';
+    if (arr.[1] != b'x') {
+        return 1;
+    }
+
+    let view = arr..[1 .. 4];
+    view.[0] = b'd';
+    view.[1] = b'y';
+    view.[2] = b'x';
+    if (arr.[1] != b'd') {
+        return 2;
+    }
+    if (arr.[2] != b'y') {
+        return 3;
+    }
+    if (arr.[3] != b'x') {
+        return 4;
+    }
+
+    let mut whole = [3]u8.{ b'1', b'2', b'3' };
+    whole = [3]u8.{ b'4', b'5', b'6' };
+    if (whole.[0] != b'4' or whole.[1] != b'5' or whole.[2] != b'6') {
+        return 5;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_defer_after_return_value_evaluation() {
+    let output = build_and_run_source(
+        r#"
+type Guard = struct {
+    ptr: *mut i32,
+};
+
+impl *mut Guard {
+    pub fn deinit() void {
+        self.ptr.* = 2;
+    }
+}
+
+fn read_before_defer() i32 {
+    let mut state = i32.{1};
+    let mut guard = Guard.{ ptr: state..& };
+    defer guard..&.deinit();
+    return state;
+}
+
+extern fn main() i32 {
+    if (read_before_defer() != 1) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_assignment_through_non_mut_array_elements() {
     let output = compile_source(
         r#"
@@ -229,6 +419,33 @@ extern fn main(args: [][]u8) i32 {
     let mut arr = [4]i32.{ 0; 4 };
     arr.[0] = 3;
     return arr.[0];
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot assign to an immutable variable or location"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_rebinding_immutable_array_binding() {
+    let output = compile_source(
+        r#"
+extern fn main(args: [][]u8) i32 {
+    let arr = [3]u8.{ b'a', b'b', b'c' };
+    arr = [3]u8.{ b'x', b'y', b'z' };
+    return 0;
 }
 "#,
     );

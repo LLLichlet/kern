@@ -1,4 +1,5 @@
 pub mod io;
+pub mod fs;
 pub mod rt;
 pub mod os;
 pub mod env;

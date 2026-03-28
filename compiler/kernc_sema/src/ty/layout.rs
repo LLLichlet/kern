@@ -471,22 +471,18 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             Def::Struct(s) => {
                 let (_, physical_to_ast) = self.get_struct_mapping(def_id, generic_args, depth);
                 let map = self.prepare_generic_subst(&s.generics, generic_args);
-                let mut offset = 0;
                 let mut max_align = 1;
 
                 for &ast_idx in &physical_to_ast {
                     let field = &s.fields[ast_idx];
                     let f_ty = self.resolve_field_type(&field.type_node, &map);
                     let f_align = self.compute_type_align_inner(f_ty, depth + 1);
-                    let f_size = self.compute_type_size_inner(f_ty, depth + 1);
 
                     if f_align > max_align {
                         max_align = f_align;
                     }
-                    offset = Self::align_to(offset, f_align);
-                    offset += f_size;
                 }
-                Self::align_to(offset, max_align)
+                max_align
             }
             Def::Union(u) => {
                 let map = self.prepare_generic_subst(&u.generics, generic_args);

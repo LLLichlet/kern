@@ -1,11 +1,58 @@
 use super::CodeGenerator;
-use inkwell::types::BasicTypeEnum;
+use inkwell::types::{BasicType, BasicTypeEnum};
 use kernc_ast as ast;
 use kernc_mast::{MastExpr, MastExprKind, MastFunction, MastGlobal, MastStruct};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn union_storage_type(
+        &mut self,
+        size: usize,
+        align: usize,
+        span: Span,
+        name: &str,
+    ) -> BasicTypeEnum<'ctx> {
+        let size = size.max(1);
+        let align = align.max(1);
+
+        let (chunk_ty, chunk_size): (BasicTypeEnum<'ctx>, usize) = match align {
+            1 => (self.context.i8_type().into(), 1),
+            2 => (self.context.i16_type().into(), 2),
+            4 => (self.context.i32_type().into(), 4),
+            8 => (
+                self.context
+                    .custom_width_int_type((self.sess.target.pointer_size * 8) as u32)
+                    .into(),
+                self.sess.target.pointer_size as usize,
+            ),
+            16 => (self.context.i128_type().into(), 16),
+            _ => {
+                self.sess.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Codegen): unsupported union alignment {} for `{}`.",
+                        align, name
+                    ),
+                );
+                return self.context.i8_type().array_type(size as u32).into();
+            }
+        };
+
+        if size % chunk_size != 0 {
+            self.sess.emit_ice(
+                span,
+                format!(
+                    "Kern ICE (Codegen): union `{}` has size {} not divisible by alignment chunk {}.",
+                    name, size, chunk_size
+                ),
+            );
+            return self.context.i8_type().array_type(size as u32).into();
+        }
+
+        chunk_ty.array_type((size / chunk_size) as u32).into()
+    }
+
     fn compile_const_expr(
         &mut self,
         expr: &MastExpr,
@@ -249,8 +296,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             });
 
             if s.is_union {
-                let target_ty = self.get_llvm_type(s.fields[s.largest_field_idx].ty);
-                llvm_struct.set_body(&[target_ty], is_packed);
+                let storage_ty = self.union_storage_type(
+                    s.union_size,
+                    s.union_align,
+                    Span::default(),
+                    &s.name,
+                );
+                llvm_struct.set_body(&[storage_ty], is_packed);
             } else {
                 let mut field_types = Vec::new();
                 for field in &s.fields {

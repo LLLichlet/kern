@@ -1,5 +1,7 @@
 use std.mem.alloc.Allocator;
 use std.coll.List;
+use std.Option;
+use std.cmp.Ordering;
 use std.io.{Printable, Writer};
 
 pub type String = struct {
@@ -7,22 +9,34 @@ pub type String = struct {
 };
 
 impl *mut String {
-    /// 追加单个 ASCII 字符
     pub fn push_char(alloc: *mut Allocator, c: u8) bool {
         return self.raw..&.push(alloc, c);
     }
 
-    /// 追加字符串切片 (这是最高频的操作)
     pub fn push_str(alloc: *mut Allocator, text: []u8) bool {
         return self.raw..&.append_slice(alloc, text);
     }
 
-    /// 释放多余内存
+    pub fn push_string(alloc: *mut Allocator, other: *String) bool {
+        return self.push_str(alloc, other.as_str());
+    }
+
+    pub fn as_mut_bytes() []mut u8 {
+        return self.raw..&.as_mut_slice();
+    }
+
+    pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
+        return self.raw..&.reserve(alloc, additional);
+    }
+
+    pub fn pop_char() Option[u8] {
+        return self.raw..&.pop();
+    }
+
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
         return self.raw..&.shrink_to_fit(alloc);
     }
 
-    /// 彻底销毁并归还内存
     pub fn deinit(alloc: *mut Allocator) void {
         self.raw..&.deinit(alloc);
     }
@@ -30,11 +44,19 @@ impl *mut String {
     pub fn clear() void {
         self.raw..&.clear();
     }
+
+    pub fn reverse_bytes() void {
+        self.raw..&.reverse();
+    }
 }
 
 impl *String {
     pub fn as_str() []u8 {
         return self.raw.&.as_slice();
+    }
+
+    pub fn as_bytes() []u8 {
+        return self.as_str();
     }
 
     pub fn len() usize {
@@ -45,23 +67,61 @@ impl *String {
         return self.raw.&.is_empty();
     }
 
-    /// 比较两个字符串是否内容完全相等
     pub fn eq(other: []u8) bool {
-        let self_slice = self.raw.&.as_slice();
-        if (#self_slice != #other) return false;
-        
-        let mut i = 0;
-        let len = #self_slice;
-        for (; i < len; i += 1) {
-            if (self_slice.[i] != other.[i]) return false;
-        }
-        return true;
+        return self.as_str().eq(other);
+    }
+
+    pub fn starts_with(prefix: []u8) bool {
+        return self.as_str().starts_with(prefix);
+    }
+
+    pub fn ends_with(suffix: []u8) bool {
+        return self.as_str().ends_with(suffix);
+    }
+
+    pub fn find(needle: []u8) Option[usize] {
+        return self.as_str().find(needle);
+    }
+
+    pub fn contains(needle: []u8) bool {
+        return self.as_str().contains(needle);
+    }
+
+    pub fn strip_prefix(prefix: []u8) Option[[]u8] {
+        return self.as_str().strip_prefix(prefix);
+    }
+
+    pub fn strip_suffix(suffix: []u8) Option[[]u8] {
+        return self.as_str().strip_suffix(suffix);
+    }
+
+    pub fn find_byte(byte: u8) Option[usize] {
+        return self.as_str().find_byte(byte);
+    }
+
+    pub fn contains_byte(byte: u8) bool {
+        return self.as_str().contains_byte(byte);
+    }
+
+    pub fn trim_ascii_start() []u8 {
+        return self.as_str().trim_ascii_start();
+    }
+
+    pub fn trim_ascii_end() []u8 {
+        return self.as_str().trim_ascii_end();
+    }
+
+    pub fn trim_ascii() []u8 {
+        return self.as_str().trim_ascii();
+    }
+
+    pub fn lex_cmp(other: []u8) Ordering {
+        return self.as_str().lex_cmp(other);
     }
 }
 
 impl *String : Printable {
     pub fn fmt(writer: *mut Writer) void {
-        // 直接将底层的字节切片交给 Writer 输出
         let _ = writer.write(self.raw.&.as_slice());
     }
 }

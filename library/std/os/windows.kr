@@ -1,8 +1,21 @@
 #![if(os == "windows")]
 
+use std.Result;
+use std.os.{FileType, Metadata};
+use std.os.OpenOptions;
+
 // 链接 kernel32.dll 中的函数
 extern {
     pub fn GetStdHandle(nStdHandle: i32) *mut u8;
+    pub fn CreateFileA(
+        lpFileName: *u8,
+        dwDesiredAccess: u32,
+        dwShareMode: u32,
+        lpSecurityAttributes: *mut u8,
+        dwCreationDisposition: u32,
+        dwFlagsAndAttributes: u32,
+        hTemplateFile: *mut u8
+    ) *mut u8;
     pub fn WriteFile(
         hFile: *mut u8, 
         lpBuffer: *u8, 
@@ -10,6 +23,19 @@ extern {
         lpNumberOfBytesWritten: *mut u32, 
         lpOverlapped: *mut u8
     ) i32;
+    pub fn ReadFile(
+        hFile: *mut u8,
+        lpBuffer: *mut u8,
+        nNumberOfBytesToRead: u32,
+        lpNumberOfBytesRead: *mut u32,
+        lpOverlapped: *mut u8
+    ) i32;
+    pub fn CloseHandle(hObject: *mut u8) i32;
+    pub fn DeleteFileA(lpFileName: *u8) i32;
+    pub fn CreateDirectoryA(lpPathName: *u8, lpSecurityAttributes: *mut u8) i32;
+    pub fn RemoveDirectoryA(lpPathName: *u8) i32;
+    pub fn GetFileAttributesExA(lpFileName: *u8, fInfoLevelId: u32, lpFileInformation: *mut Win32FileAttributeData) i32;
+    pub fn GetLastError() u32;
     pub fn ExitProcess(uExitCode: u32) void;
     pub fn GetCommandLineA() *mut u8;
 }
@@ -31,15 +57,174 @@ pub fn exit(code: i32) ! {
 
 // *void
 pub type Handle = *mut u8;
+pub type Error = struct {
+    code: isize,
+};
+
+type FileTime = extern struct {
+    dwLowDateTime: u32,
+    dwHighDateTime: u32,
+};
+
+type Win32FileAttributeData = extern struct {
+    dwFileAttributes: u32,
+    ftCreationTime: FileTime,
+    ftLastAccessTime: FileTime,
+    ftLastWriteTime: FileTime,
+    nFileSizeHigh: u32,
+    nFileSizeLow: u32,
+};
+
+const INVALID_HANDLE_VALUE = ~usize.{0} as *mut u8;
+const GENERIC_READ = u32.{2147483648};
+const GENERIC_WRITE = u32.{1073741824};
+const FILE_SHARE_READ = u32.{1};
+const FILE_SHARE_WRITE = u32.{2};
+const FILE_ATTRIBUTE_DIRECTORY = u32.{16};
+const CREATE_ALWAYS = u32.{2};
+const OPEN_EXISTING = u32.{3};
+const OPEN_ALWAYS = u32.{4};
+const FILE_ATTRIBUTE_NORMAL = u32.{128};
+const GET_FILE_EX_INFO_STANDARD = u32.{0};
+const ERROR_FILE_NOT_FOUND = isize.{2};
+const ERROR_PATH_NOT_FOUND = isize.{3};
+const ERROR_INVALID_PARAMETER = isize.{87};
+const ERROR_FILE_EXISTS = isize.{80};
+const ERROR_ALREADY_EXISTS = isize.{183};
+
+pub fn invalid_handle() Handle {
+    return INVALID_HANDLE_VALUE;
+}
+
+fn last_error() Error {
+    return .{ code: GetLastError() as isize };
+}
+
+pub fn is_not_found(err: Error) bool {
+    return err.code == ERROR_FILE_NOT_FOUND or err.code == ERROR_PATH_NOT_FOUND;
+}
+
+pub fn is_already_exists(err: Error) bool {
+    return err.code == ERROR_FILE_EXISTS or err.code == ERROR_ALREADY_EXISTS;
+}
+
+pub fn get_stdin_handle() Handle {
+    return GetStdHandle(-10);
+}
 
 pub fn get_stdout_handle() Handle {
     return GetStdHandle(-11); // STD_OUTPUT_HANDLE
 }
 
-pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
+pub fn get_stderr_handle() Handle {
+    return GetStdHandle(-12);
+}
+
+pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
+    let mut read = u32.{0};
+    if (ReadFile(handle, ptr, len as u32, read..&, 0) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: read as usize };
+}
+
+pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
     let mut written = u32.{0};
-    let _ = WriteFile(handle, ptr, len as u32, written..&, 0);
-    return written as usize;
+    if (WriteFile(handle, ptr, len as u32, written..&, 0) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: written as usize };
+}
+
+pub fn close_file(handle: Handle) Result[bool, Error] {
+    if (CloseHandle(handle) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn metadata(path: *u8) Result[Metadata, Error] {
+    let mut data = Win32FileAttributeData.{undef};
+    if (GetFileAttributesExA(path, GET_FILE_EX_INFO_STANDARD, data..&) == 0) {
+        return .{ Err: last_error() };
+    }
+
+    let file_type = if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        .Directory
+    } else {
+        .File
+    };
+    let size64 = ((data.nFileSizeHigh as u64) << 32) | (data.nFileSizeLow as u64);
+
+    return .{
+        Ok: .{
+            file_type: file_type,
+            size: size64 as usize,
+        },
+    };
+}
+
+pub fn open_file(
+    path: *u8,
+    options: *OpenOptions,
+) Result[Handle, Error] {
+    if (options.append) {
+        return .{ Err: Error.{ code: ERROR_INVALID_PARAMETER } };
+    }
+
+    let mut access = u32.{0};
+    if (options.read) access |= GENERIC_READ;
+    if (options.write) access |= GENERIC_WRITE;
+
+    let disposition = if (options.create and options.truncate) {
+        CREATE_ALWAYS
+    } else if (options.create) {
+        OPEN_ALWAYS
+    } else {
+        OPEN_EXISTING
+    };
+
+    let handle = CreateFileA(
+        path,
+        access,
+        FILE_SHARE_READ | FILE_SHARE_WRITE,
+        0,
+        disposition,
+        FILE_ATTRIBUTE_NORMAL,
+        0,
+    );
+    if (handle == INVALID_HANDLE_VALUE) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: handle };
+}
+
+pub fn create_dir(path: *u8) Result[bool, Error] {
+    if (CreateDirectoryA(path, 0) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn remove_dir(path: *u8) Result[bool, Error] {
+    if (RemoveDirectoryA(path) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn remove_file(path: *u8) Result[bool, Error] {
+    if (DeleteFileA(path) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
+}
+
+pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
+    match (write_file(handle, ptr, len)) {
+        .Ok: written => return written,
+        .Err: _ => return 0,
+    }
 }
 
 extern {

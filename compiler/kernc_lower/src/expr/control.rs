@@ -160,71 +160,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: false,
             is_union: false,
             largest_field_idx: 0,
+            union_size: 0,
+            union_align: 1,
             attributes: vec![],
         });
-    }
-
-    fn build_closure_fat_pointer(
-        &mut self,
-        norm_exp: TypeId,
-        concrete_ty: TypeId,
-        func_id: MonoId,
-        struct_init: &MastExpr,
-    ) -> Option<MastExprKind> {
-        match self.ctx.type_registry.get(norm_exp).clone() {
-            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
-                let inner_norm = self.ctx.type_registry.normalize(elem);
-                if !matches!(
-                    self.ctx.type_registry.get(inner_norm),
-                    TypeKind::ClosureInterface { .. }
-                ) {
-                    return None;
-                }
-
-                let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem: TypeId::VOID,
-                });
-                let struct_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem: concrete_ty,
-                });
-
-                let data_ptr = MastExpr::new(
-                    struct_ptr_ty,
-                    MastExprKind::AddressOf(Box::new(struct_init.clone())),
-                    Span::default(),
-                );
-                let data_ptr_cast = MastExpr::new(
-                    void_ptr_ty,
-                    MastExprKind::Cast {
-                        kind: MastCastKind::Bitcast,
-                        operand: Box::new(data_ptr),
-                    },
-                    Span::default(),
-                );
-
-                let func_ref = MastExpr::new(
-                    TypeId::VOID,
-                    MastExprKind::FuncRef(func_id),
-                    Span::default(),
-                );
-                let code_ptr_cast = MastExpr::new(
-                    TypeId::USIZE,
-                    MastExprKind::Cast {
-                        kind: MastCastKind::PtrToInt,
-                        operand: Box::new(func_ref),
-                    },
-                    Span::default(),
-                );
-
-                Some(MastExprKind::ConstructFatPointer {
-                    data_ptr: Box::new(data_ptr_cast),
-                    meta: Box::new(code_ptr_cast),
-                })
-            }
-            _ => None,
-        }
     }
 
     fn resolve_named_match_adt(
@@ -476,10 +415,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.closure_fn_map.insert(spec.node_id, func_id);
 
         // 0. ================= 嗅探 Decay (退化) 上下文 =================
-        let norm_exp = self.ctx.type_registry.normalize(spec.exp_ty);
         let is_decay = spec.captures.is_empty()
             && matches!(
-                self.ctx.type_registry.get(norm_exp).clone(),
+                self.ctx.type_registry.get(self.ctx.type_registry.normalize(spec.exp_ty)).clone(),
                 TypeKind::Function { .. } | TypeKind::FnDef(..)
             );
 
@@ -604,12 +542,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if is_decay {
             // 直接返回生成的静态 C 函数指针
             return MastExprKind::FuncRef(func_id);
-        }
-
-        if let Some(fat_ptr) =
-            self.build_closure_fat_pointer(norm_exp, spec.concrete_ty, func_id, &struct_init)
-        {
-            return fat_ptr;
         }
 
         struct_init.kind
@@ -1073,7 +1005,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExprKind {
-        let v = val.map(|e| Box::new(self.lower_expr(e, subst_map, None)));
+        let v = val.map(|e| self.lower_expr(e, subst_map, None));
         let mut defer_stmts = Vec::new();
 
         // 倒序展开当前作用域栈中所有的 defer
@@ -1084,13 +1016,49 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         if defer_stmts.is_empty() {
-            MastExprKind::Return(v)
+            MastExprKind::Return(v.map(Box::new))
         } else {
-            defer_stmts.push(MastStmt::Expr(MastExpr::new(
-                TypeId::VOID,
-                MastExprKind::Return(v),
-                span,
-            )));
+            match v {
+                Some(ret_expr) if ret_expr.ty != TypeId::VOID && ret_expr.ty != TypeId::ERROR => {
+                    let temp_name = self.ctx.intern(&format!("__ret_tmp_{}", self.next_mono_id));
+                    self.next_mono_id += 1;
+                    let temp_ty = ret_expr.ty;
+
+                    defer_stmts.insert(
+                        0,
+                        MastStmt::Let {
+                            name: temp_name,
+                            ty: temp_ty,
+                            is_mut: false,
+                            init: ret_expr,
+                        },
+                    );
+                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
+                        TypeId::NEVER,
+                        MastExprKind::Return(Some(Box::new(MastExpr::new(
+                            temp_ty,
+                            MastExprKind::Var(temp_name),
+                            span,
+                        )))),
+                        span,
+                    )));
+                }
+                Some(ret_expr) => {
+                    defer_stmts.insert(0, MastStmt::Expr(ret_expr));
+                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
+                        TypeId::NEVER,
+                        MastExprKind::Return(None),
+                        span,
+                    )));
+                }
+                None => {
+                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
+                        TypeId::NEVER,
+                        MastExprKind::Return(None),
+                        span,
+                    )));
+                }
+            }
             MastExprKind::Block(MastBlock {
                 stmts: defer_stmts,
                 result: None,

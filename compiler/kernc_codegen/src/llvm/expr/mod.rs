@@ -127,7 +127,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 expr.ty,
                 expected_llvm_ty,
             ),
-            MastExprKind::Loop { body, latch } => self.compile_loop(body, latch.as_ref()),
+            MastExprKind::Loop { body, latch } => {
+                self.compile_loop(body, latch.as_ref(), expr.ty, expected_llvm_ty)
+            }
             MastExprKind::Break => self.compile_break(),
             MastExprKind::Continue => self.compile_continue(),
             MastExprKind::Switch {

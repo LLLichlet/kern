@@ -254,6 +254,20 @@ impl[K, V] *mut Map[K, V]
         @trap();
     }
 
+    fn write_slot(slot: usize, hash: u64, key: K, value: V) *mut V {
+        let entry = entry_ptr[K, V](self.entries, slot);
+        let prev_state = ctrl_at(self.ctrl, slot);
+        entry.hash64 = hash;
+        entry.key = key;
+        entry.value = value;
+        set_ctrl(self.ctrl, slot, FULL);
+        self.len += 1;
+        if (prev_state == DELETED) {
+            self.tombstones -= 1;
+        }
+        return entry.value..&;
+    }
+
     pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
         return self.reserve_internal(alloc, additional);
     }
@@ -281,32 +295,66 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
+        let hash = self.key_hash(key);
+        if (self.capacity > 0) {
+            match (self.find_index_with_hash(key, hash)) {
+                .Some: index => {
+                    let entry = entry_ptr[K, V](self.entries, index);
+                    entry.value = value;
+                    return true;
+                }
+                .None => {}
+            }
+        }
+
         if (!self.reserve_internal(alloc, 1)) {
             return false;
         }
 
+        let slot = self.find_insert_slot(hash);
+        let _ = self.write_slot(slot, hash, key, value);
+        return true;
+    }
+
+    pub fn get_or_insert(alloc: *mut Allocator, key: K, value: V) Option[*mut V] {
         let hash = self.key_hash(key);
-        match (self.find_index_with_hash(key, hash)) {
-            .Some: index => {
-                let entry = entry_ptr[K, V](self.entries, index);
-                entry.value = value;
-                return true;
+        if (self.capacity > 0) {
+            match (self.find_index_with_hash(key, hash)) {
+                .Some: index => {
+                    let entry = entry_ptr[K, V](self.entries, index);
+                    return .{ Some: entry.value..& };
+                }
+                .None => {}
             }
-            .None => {}
+        }
+
+        if (!self.reserve_internal(alloc, 1)) {
+            return .{ None };
         }
 
         let slot = self.find_insert_slot(hash);
-        let entry = entry_ptr[K, V](self.entries, slot);
-        let prev_state = ctrl_at(self.ctrl, slot);
-        entry.hash64 = hash;
-        entry.key = key;
-        entry.value = value;
-        set_ctrl(self.ctrl, slot, FULL);
-        self.len += 1;
-        if (prev_state == DELETED) {
-            self.tombstones -= 1;
+        return .{ Some: self.write_slot(slot, hash, key, value) };
+    }
+
+    pub fn get_or_insert_with(alloc: *mut Allocator, key: K, make_value: *Fn() V) Option[*mut V] {
+        let hash = self.key_hash(key);
+        if (self.capacity > 0) {
+            match (self.find_index_with_hash(key, hash)) {
+                .Some: index => {
+                    let entry = entry_ptr[K, V](self.entries, index);
+                    return .{ Some: entry.value..& };
+                }
+                .None => {}
+            }
         }
-        return true;
+
+        if (!self.reserve_internal(alloc, 1)) {
+            return .{ None };
+        }
+
+        let value = make_value();
+        let slot = self.find_insert_slot(hash);
+        return .{ Some: self.write_slot(slot, hash, key, value) };
     }
 
     pub fn get_ptr(key: K) Option[*mut V] {

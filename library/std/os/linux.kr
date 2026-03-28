@@ -1,8 +1,81 @@
 #![if(os == "linux")]
 
+use std.Result;
+use std.os.{FileType, Metadata};
+use std.os.OpenOptions;
+
+pub type Error = struct {
+    code: isize,
+};
+
+pub type Handle = usize;
+
+const INVALID_HANDLE = ~usize.{0};
+const AT_FDCWD = ~usize.{99};
+const AT_REMOVEDIR = usize.{512};
+const O_RDONLY = usize.{0};
+const O_WRONLY = usize.{1};
+const O_RDWR = usize.{2};
+const O_CREAT = usize.{64};
+const O_TRUNC = usize.{512};
+const O_APPEND = usize.{1024};
+const DEFAULT_MODE = usize.{420};
+const MODE_DIR = usize.{493};
+const UNLINKAT = usize.{263};
+const MKDIRAT = usize.{258};
+const NEWFSTATAT = usize.{262};
+const ENOENT = isize.{2};
+const EEXIST = isize.{17};
+const S_IFMT = u32.{61440};
+const S_IFDIR = u32.{16384};
+const S_IFREG = u32.{32768};
+
+type Stat = extern struct {
+    st_dev: u64,
+    st_ino: u64,
+    st_nlink: u64,
+    st_mode: u32,
+    st_uid: u32,
+    st_gid: u32,
+    __pad0: i32,
+    st_rdev: u64,
+    st_size: i64,
+    st_blksize: i64,
+    st_blocks: i64,
+    st_atime: i64,
+    st_atime_nsec: i64,
+    st_mtime: i64,
+    st_mtime_nsec: i64,
+    st_ctime: i64,
+    st_ctime_nsec: i64,
+    __unused: [3]i64,
+};
+
+fn syscall1_raw(sys_num: usize, arg1: usize) isize {
+    let mut ret = isize.{undef};
+
+    @asm(.{
+        asm: .{ "syscall", },
+        outputs: .{ rax: ret..& },
+        inputs: .{
+            rax: sys_num,
+            rdi: arg1,
+        },
+        clobbers: .{ "rcx", "r11", "memory" },
+        volatile: true
+    });
+
+    return ret;
+}
+
 // 基础的 3 参数系统调用封装
 pub fn syscall3(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) usize {
-    let mut ret = usize.{undef};
+    let ret = syscall3_raw(sys_num, arg1, arg2, arg3);
+    return ret as usize;
+}
+
+fn syscall3_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) isize {
+    let mut ret = isize.{undef};
 
     @asm(.{
         asm: .{ "syscall", },
@@ -12,6 +85,26 @@ pub fn syscall3(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) usize {
             rdi: arg1, 
             rsi: arg2, 
             rdx: arg3 
+        },
+        clobbers: .{ "rcx", "r11", "memory" },
+        volatile: true
+    });
+
+    return ret;
+}
+
+fn syscall4_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize) isize {
+    let mut ret = isize.{undef};
+
+    @asm(.{
+        asm: .{ "syscall", },
+        outputs: .{ rax: ret..& },
+        inputs: .{
+            rax: sys_num,
+            rdi: arg1,
+            rsi: arg2,
+            rdx: arg3,
+            r10: arg4,
         },
         clobbers: .{ "rcx", "r11", "memory" },
         volatile: true
@@ -30,16 +123,28 @@ pub fn exit(code: i32) ! {
     @unreachable()
 }
 
-// Linux 的句柄就是个 usize 整数 (fd)
-pub type Handle = usize;
+pub fn invalid_handle() Handle {
+    return INVALID_HANDLE;
+}
+
+pub fn is_not_found(err: Error) bool {
+    return err.code == ENOENT;
+}
+
+pub fn is_already_exists(err: Error) bool {
+    return err.code == EEXIST;
+}
+
+pub fn get_stdin_handle() Handle {
+    return 0;
+}
 
 pub fn get_stdout_handle() Handle {
     return 1; // Linux 的 stdout fd 是 1
 }
 
-pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
-    // syscall3(SYS_write, fd, buf, count)
-    return syscall3(1, handle, ptr as usize, len);
+pub fn get_stderr_handle() Handle {
+    return 2;
 }
 
 pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize) usize {
@@ -80,4 +185,111 @@ pub fn mmap(addr: usize, len: usize, prot: usize, flags: usize, fd: usize, offse
 pub fn munmap(addr: usize, len: usize) usize {
     // 补齐缺少的参数用 0
     return syscall6(11, addr, len, 0, 0, 0, 0); 
+}
+
+fn error_result[T](ret: isize) Result[T, Error] {
+    return .{
+        Err: Error.{
+            code: -ret,
+        },
+    };
+}
+
+pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
+    let ret = syscall3_raw(0, handle, ptr as usize, len);
+    if (ret < 0) {
+        return error_result[usize](ret);
+    }
+    return .{ Ok: ret as usize };
+}
+
+pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
+    let ret = syscall3_raw(1, handle, ptr as usize, len);
+    if (ret < 0) {
+        return error_result[usize](ret);
+    }
+    return .{ Ok: ret as usize };
+}
+
+pub fn close_file(handle: Handle) Result[bool, Error] {
+    let ret = syscall1_raw(3, handle);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
+}
+
+fn stat_file_type(mode: u32) FileType {
+    let kind = mode & S_IFMT;
+    if (kind == S_IFREG) {
+        return .File;
+    }
+    if (kind == S_IFDIR) {
+        return .Directory;
+    }
+    return .Other;
+}
+
+pub fn metadata(path: *u8) Result[Metadata, Error] {
+    let mut stat = Stat.{undef};
+    let ret = syscall4_raw(NEWFSTATAT, AT_FDCWD, path as usize, stat..& as usize, 0);
+    if (ret < 0) {
+        return error_result[Metadata](ret);
+    }
+
+    let size = if (stat.st_size < 0) usize.{0} else stat.st_size as usize;
+    return .{
+        Ok: .{
+            file_type: stat_file_type(stat.st_mode),
+            size: size,
+        },
+    };
+}
+
+pub fn open_file(
+    path: *u8,
+    options: *OpenOptions,
+) Result[Handle, Error] {
+    let mut flags = if (options.read and options.write) O_RDWR else if (options.write) O_WRONLY else O_RDONLY;
+
+    if (options.create) flags |= O_CREAT;
+    if (options.truncate) flags |= O_TRUNC;
+    if (options.append) flags |= O_APPEND;
+
+    let ret = syscall4_raw(257, AT_FDCWD, path as usize, flags, DEFAULT_MODE);
+    if (ret < 0) {
+        return error_result[Handle](ret);
+    }
+    return .{ Ok: ret as usize };
+}
+
+pub fn create_dir(path: *u8) Result[bool, Error] {
+    let ret = syscall3_raw(MKDIRAT, AT_FDCWD, path as usize, MODE_DIR);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
+}
+
+pub fn remove_dir(path: *u8) Result[bool, Error] {
+    let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, AT_REMOVEDIR);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
+}
+
+pub fn remove_file(path: *u8) Result[bool, Error] {
+    let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, 0);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
+}
+
+pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
+    match (write_file(handle, ptr, len)) {
+        .Ok: written => return written,
+        .Err: _ => return 0,
+    }
 }

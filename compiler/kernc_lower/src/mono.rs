@@ -46,6 +46,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: false,
             is_union,
             largest_field_idx: 0,
+            union_size: if is_union { 1 } else { 0 },
+            union_align: 1,
             attributes: vec![],
         });
     }
@@ -264,6 +266,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: def.is_extern,
             is_union: false,
             largest_field_idx: 0,
+            union_size: 0,
+            union_align: 1,
             attributes: self.extract_meta_items(&def.attributes),
         });
 
@@ -317,6 +321,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern,
             is_union: false,
             largest_field_idx: 0,
+            union_size: 0,
+            union_align: 1,
             attributes: vec![],
         });
 
@@ -348,6 +354,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut mast_fields = Vec::new();
         let mut max_size = 0;
+        let mut max_align = 1;
         let mut largest_field_idx = 0;
 
         for (idx, field) in fields.iter().enumerate() {
@@ -359,10 +366,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             let mut layout = LayoutEngine::new(self.ctx);
             let size = layout.compute_type_size(field.ty);
+            let align = layout.compute_type_align(field.ty);
             if size > max_size {
                 max_size = size;
                 largest_field_idx = idx;
             }
+            max_align = max_align.max(align);
         }
 
         self.module.structs.push(MastStruct {
@@ -372,6 +381,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern,
             is_union: true,
             largest_field_idx,
+            union_size: max_size.max(1) as usize,
+            union_align: max_align.max(1) as usize,
             attributes: vec![],
         });
 
@@ -411,6 +422,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut union_fields = Vec::new();
         let mut largest_idx = 0;
         let mut max_size = 0;
+        let mut max_align = 1;
         for (idx, variant) in enum_def.variants.iter().enumerate() {
             let field_ty = variant.payload_ty.unwrap_or(TypeId::VOID);
             union_fields.push(MastField {
@@ -421,10 +433,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if field_ty != TypeId::VOID && field_ty != TypeId::ERROR {
                 let mut layout = LayoutEngine::new(self.ctx);
                 let size = layout.compute_type_size(field_ty);
+                let align = layout.compute_type_align(field_ty);
                 if size > max_size {
                     max_size = size;
                     largest_idx = idx;
                 }
+                max_align = max_align.max(align);
             }
         }
 
@@ -437,6 +451,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: false,
             is_union: true,
             largest_field_idx: largest_idx,
+            union_size: max_size.max(1) as usize,
+            union_align: max_align.max(1) as usize,
             attributes: vec![],
         });
 
@@ -462,6 +478,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: false,
             is_union: false,
             largest_field_idx: 0,
+            union_size: 0,
+            union_align: 1,
             attributes: vec![],
         });
 
@@ -495,6 +513,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut mast_fields = Vec::new();
         let mut max_size = 0;
+        let mut max_align = 1;
         let mut largest_field_idx = 0;
 
         for (idx, f) in def.fields.iter().enumerate() {
@@ -514,11 +533,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
             let mut le = LayoutEngine::new(self.ctx);
             let size = le.compute_type_size(conc_ty);
+            let align = le.compute_type_align(conc_ty);
 
             if size > max_size {
                 max_size = size;
                 largest_field_idx = idx;
             }
+            max_align = max_align.max(align);
         }
 
         self.module.structs.push(MastStruct {
@@ -528,6 +549,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: def.is_extern,
             is_union: true,
             largest_field_idx,
+            union_size: max_size.max(1) as usize,
+            union_align: max_align.max(1) as usize,
             attributes: vec![],
         });
         id
@@ -578,6 +601,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut union_fields = Vec::new();
         let mut largest_idx = 0;
         let mut max_size = 0;
+        let mut max_align = 1;
 
         for (idx, variant) in def.variants.iter().enumerate() {
             let field_ty = if let Some(payload_ast) = &variant.payload_type {
@@ -605,11 +629,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     let mut le = LayoutEngine::new(self.ctx);
                     le.compute_type_size(field_ty)
                 };
+                let align = {
+                    let mut le = LayoutEngine::new(self.ctx);
+                    le.compute_type_align(field_ty)
+                };
 
                 if size > max_size {
                     max_size = size;
                     largest_idx = idx;
                 }
+                max_align = max_align.max(align);
             }
         }
 
@@ -620,6 +649,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: false,
             is_union: true,
             largest_field_idx: largest_idx,
+            union_size: max_size.max(1) as usize,
+            union_align: max_align.max(1) as usize,
             attributes: vec![],
         });
 
@@ -659,6 +690,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: false,
             is_union: false,
             largest_field_idx: 0,
+            union_size: 0,
+            union_align: 1,
             attributes: vec![],
         });
 

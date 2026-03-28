@@ -1,0 +1,254 @@
+use std.Option;
+use std.cmp.{Eq, Ord, Ordering, LESS, EQUAL, GREATER};
+
+impl[T] []T {
+    pub fn is_empty() bool {
+        return #self == 0;
+    }
+
+    pub fn get(index: usize) Option[T] {
+        if (index >= #self) return .{ None };
+        return .{ Some: self.[index] };
+    }
+
+    pub fn first() Option[T] {
+        if (#self == 0) return .{ None };
+        return .{ Some: self.[0] };
+    }
+
+    pub fn last() Option[T] {
+        if (#self == 0) return .{ None };
+        return .{ Some: self.[#self - 1] };
+    }
+
+    pub fn position(pred: *Fn(T) bool) Option[usize] {
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            if (pred(self.[i])) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn rposition(pred: *Fn(T) bool) Option[usize] {
+        let mut i = #self;
+        for (; i > 0; ) {
+            i -= 1;
+            if (pred(self.[i])) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn any(pred: *Fn(T) bool) bool {
+        return self.position(pred).is_some();
+    }
+
+    pub fn all(pred: *Fn(T) bool) bool {
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            if (!pred(self.[i])) {
+                return false;
+            }
+        }
+        return true;
+    }
+}
+
+impl[T] []mut T {
+    pub fn swap(lhs: usize, rhs: usize) bool {
+        if (lhs >= #self or rhs >= #self) {
+            return false;
+        }
+        if (lhs == rhs) {
+            return true;
+        }
+
+        let tmp = self.[lhs];
+        self.[lhs] = self.[rhs];
+        self.[rhs] = tmp;
+        return true;
+    }
+
+    pub fn reverse() void {
+        let mut left = 0;
+        let mut right = #self;
+        for (; left < right; ) {
+            right -= 1;
+            if (left >= right) {
+                return;
+            }
+            let _ = self.swap(left, right);
+            left += 1;
+        }
+    }
+}
+
+impl[T] []T
+    where *T: Eq[T],
+{
+    fn elem_eq(lhs: T, rhs: T) bool {
+        return lhs.&.eq(rhs);
+    }
+
+    fn matches_at(index: usize, needle: []T) bool {
+        let mut j = 0;
+        for (; j < #needle; j += 1) {
+            if (!self.elem_eq(self.[index + j], needle.[j])) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn eq(other: []T) bool {
+        if (#self != #other) return false;
+        return self.starts_with(other);
+    }
+
+    pub fn starts_with(prefix: []T) bool {
+        if (#prefix > #self) return false;
+        return self.matches_at(0, prefix);
+    }
+
+    pub fn ends_with(suffix: []T) bool {
+        if (#suffix > #self) return false;
+        return self.matches_at(#self - #suffix, suffix);
+    }
+
+    pub fn find(needle: []T) Option[usize] {
+        let needle_len = #needle;
+        if (needle_len == 0) {
+            return .{ Some: 0 };
+        }
+        if (needle_len > #self) {
+            return .{ None };
+        }
+
+        let last_start = #self - needle_len;
+        let mut i = 0;
+        for (; i <= last_start; i += 1) {
+            if (self.matches_at(i, needle)) {
+                return .{ Some: i };
+            }
+        }
+
+        return .{ None };
+    }
+
+    pub fn contains(needle: []T) bool {
+        return self.find(needle).is_some();
+    }
+
+    pub fn strip_prefix(prefix: []T) Option[[]T] {
+        if (!self.starts_with(prefix)) {
+            return .{ None };
+        }
+        return .{ Some: self.[#prefix .. #self] };
+    }
+
+    pub fn strip_suffix(suffix: []T) Option[[]T] {
+        if (!self.ends_with(suffix)) {
+            return .{ None };
+        }
+        return .{ Some: self.[0 .. #self - #suffix] };
+    }
+}
+
+impl[T] []T
+    where *T: Ord[T],
+{
+    pub fn lex_cmp(other: []T) Ordering {
+        let shared = if (#self < #other) #self else #other;
+        let mut i = 0;
+        for (; i < shared; i += 1) {
+            let ord = self.[i].&.cmp(other.[i]);
+            if (ord != EQUAL) {
+                return ord;
+            }
+        }
+
+        if (#self < #other) return LESS;
+        if (#self > #other) return GREATER;
+        return EQUAL;
+    }
+}
+
+impl []u8 {
+    pub fn find_byte(byte: u8) Option[usize] {
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            if (self.[i] == byte) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn contains_byte(byte: u8) bool {
+        return self.find_byte(byte).is_some();
+    }
+
+    pub fn trim_ascii_start() []u8 {
+        let mut start = 0;
+        for (; start < #self; start += 1) {
+            let b = self.[start];
+            if (
+                b != b' ' and
+                b != b'\t' and
+                b != b'\n' and
+                b != b'\r' and
+                b != u8.{11} and
+                b != u8.{12}
+            ) {
+                return self.[start .. #self];
+            }
+        }
+        return self.[#self .. #self];
+    }
+
+    pub fn trim_ascii_end() []u8 {
+        let mut end = #self;
+        for (; end > 0; ) {
+            let b = self.[end - 1];
+            if (
+                b != b' ' and
+                b != b'\t' and
+                b != b'\n' and
+                b != b'\r' and
+                b != u8.{11} and
+                b != u8.{12}
+            ) {
+                return self.[0 .. end];
+            }
+            end -= 1;
+        }
+        return self.[0 .. 0];
+    }
+
+    pub fn trim_ascii() []u8 {
+        return self.trim_ascii_start().trim_ascii_end();
+    }
+}
+
+pub fn find_byte(text: []u8, byte: u8) Option[usize] {
+    return text.find_byte(byte);
+}
+
+pub fn contains_byte(text: []u8, byte: u8) bool {
+    return text.contains_byte(byte);
+}
+
+pub fn trim_ascii_start(text: []u8) []u8 {
+    return text.trim_ascii_start();
+}
+
+pub fn trim_ascii_end(text: []u8) []u8 {
+    return text.trim_ascii_end();
+}
+
+pub fn trim_ascii(text: []u8) []u8 {
+    return text.trim_ascii();
+}

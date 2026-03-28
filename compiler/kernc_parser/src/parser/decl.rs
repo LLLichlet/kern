@@ -6,6 +6,9 @@ use kernc_utils::Span;
 
 impl<'a> Parser<'a> {
     fn parse_generic_params(&mut self) -> ParseResult<Vec<GenericParam>> {
+        if self.check(TokenType::LBracket) && self.stream.peek_nth(1).tag == TokenType::RBracket {
+            return Ok(Vec::new());
+        }
         if !self.match_token(&[TokenType::LBracket]) {
             return Ok(Vec::new());
         }

@@ -1,8 +1,10 @@
 use std.mem.alloc.Allocator;
 use std.mem.{Layout, layout_of, array_layout_of};
 use std.Option;
+use std.cmp.{Eq, Ord, Ordering};
 use std.io.{Printable, Writer};
 use std.num.USIZE_MAX;
+use std.rt.mem.memmove;
 
 pub type List[T] = struct {
     ptr: *mut T = 0,
@@ -15,29 +17,40 @@ impl[T] *mut List[T] {
         return layout_of[T]();
     }
 
+    fn is_zst() bool {
+        return self.elem_layout().is_zst();
+    }
+
+    fn zst_ptr() *mut T {
+        return *mut T.{1};
+    }
+
     fn buffer_layout(count: usize) Option[Layout] {
         return array_layout_of[T](count);
     }
 
-    // 内部辅助函数：确保容量能够装下 required_cap 个元素
     fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
         if (self.capacity >= required_cap) return true;
 
-        // 拦截零大小类型
-        if (self.elem_layout().is_zst()) {
-            // 将 capacity 设为最大值
-            self.capacity = USIZE_MAX; 
+        if (self.is_zst()) {
+            self.ptr = self.zst_ptr();
+            self.capacity = USIZE_MAX;
             return true;
         }
-        
-        let double_cap = if (self.capacity == 0) 8 else self.capacity * 2;
-        let new_cap = if (double_cap > required_cap) double_cap else required_cap;
 
-        // 防止容量与类型大小相乘时溢出
-        // 判断 new_cap 是否超过了 usize 所能容纳的最大元素个数
-        let max_alloc_items = (USIZE_MAX) / @sizeOf[T]();
-        if (new_cap > max_alloc_items) {
-            return false; // 容量超出硬件寻址极限，直接拒绝
+        let elem_size = self.elem_layout().size;
+        let max_alloc_items = USIZE_MAX / elem_size;
+        if (required_cap > max_alloc_items) {
+            return false;
+        }
+
+        let mut new_cap = if (self.capacity == 0) 8 else self.capacity;
+        for (; new_cap < required_cap; ) {
+            if (new_cap > max_alloc_items / 2) {
+                new_cap = required_cap;
+                break;
+            }
+            new_cap *= 2;
         }
 
         let new_layout = match (self.buffer_layout(new_cap)) {
@@ -46,17 +59,23 @@ impl[T] *mut List[T] {
         };
         let new_ptr_u8 = match (alloc.alloc(new_layout)) {
             .Some: ptr => ptr,
-            .None => return false, // OOM 保护
+            .None => return false,
         };
 
         let new_ptr = new_ptr_u8 as *mut T;
 
-        if (self.capacity > 0) {
+        if (self.capacity > 0 and self.len > 0) {
             let old_layout = match (self.buffer_layout(self.capacity)) {
                 .Some: layout => layout,
                 .None => return false,
             };
-            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * self.elem_layout().size);
+            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * elem_size);
+            alloc.free(self.ptr as *mut u8, old_layout);
+        } else if (self.capacity > 0) {
+            let old_layout = match (self.buffer_layout(self.capacity)) {
+                .Some: layout => layout,
+                .None => return false,
+            };
             alloc.free(self.ptr as *mut u8, old_layout);
         }
 
@@ -65,11 +84,19 @@ impl[T] *mut List[T] {
         return true;
     }
 
+    pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
+        if (additional > USIZE_MAX - self.len) {
+            return false;
+        }
+        return self.ensure_capacity(alloc, self.len + additional);
+    }
+
     pub fn push(alloc: *mut Allocator, item: T) bool {
-        if (!self.ensure_capacity(alloc, self.len + 1)) return false;
-        
-        let target = self.ptr + self.len;
-        target.* = item;
+        if (!self.reserve(alloc, 1)) return false;
+        if (!self.is_zst()) {
+            let target = self.ptr + self.len;
+            target.* = item;
+        }
         self.len += 1;
         return true;
     }
@@ -82,14 +109,19 @@ impl[T] *mut List[T] {
 
     pub fn insert(alloc: *mut Allocator, index: usize, item: T) bool {
         if (index > self.len) return false;
-        if (!self.ensure_capacity(alloc, self.len + 1)) return false;
+        if (!self.reserve(alloc, 1)) return false;
 
-        // 从后往前遍历，将元素向后平移一位
-        let mut i = self.len;
-        for (; i > index; i -= 1) {
-            (self.ptr + i).* = (self.ptr + i - 1).*;
+        if (self.is_zst()) {
+            self.len += 1;
+            return true;
         }
-        
+
+        let moved = self.len - index;
+        if (moved > 0) {
+            let bytes = moved * self.elem_layout().size;
+            let _ = memmove((self.ptr + index + 1) as *mut u8, (self.ptr + index) as *u8, bytes);
+        }
+
         (self.ptr + index).* = item;
         self.len += 1;
         return true;
@@ -97,24 +129,39 @@ impl[T] *mut List[T] {
 
     pub fn remove(index: usize) Option[T] {
         if (index >= self.len) return .{ None };
-        
+
         let removed_val = (self.ptr + index).*;
-        
-        // 从前往后遍历，将元素向前覆盖
-        let mut i = index;
-        for (; i < self.len - 1; i += 1) {
-            (self.ptr + i).* = (self.ptr + i + 1).*;
+
+        if (!self.is_zst()) {
+            let moved = self.len - index - 1;
+            if (moved > 0) {
+                let bytes = moved * self.elem_layout().size;
+                let _ = memmove((self.ptr + index) as *mut u8, (self.ptr + index + 1) as *u8, bytes);
+            }
         }
-        
+
         self.len -= 1;
         return .{ Some: removed_val };
     }
-    
+
+    pub fn truncate(new_len: usize) void {
+        if (new_len < self.len) {
+            self.len = new_len;
+        }
+    }
+
     pub fn clear() void {
-        self.len = 0; // 容量保留，只清空逻辑长度
+        self.len = 0;
     }
 
     pub fn deinit(alloc: *mut Allocator) void {
+        if (self.is_zst()) {
+            self.ptr = *mut T.{0};
+            self.len = 0;
+            self.capacity = 0;
+            return;
+        }
+
         if (self.capacity > 0) {
             let layout = match (self.buffer_layout(self.capacity)) {
                 .Some: layout => layout,
@@ -135,64 +182,68 @@ impl[T] *mut List[T] {
 
     pub fn swap_remove(index: usize) Option[T] {
         if (index >= self.len) return .{ None };
-        
-        // 保存要被删除的元素
+
         let removed_val = (self.ptr + index).*;
-        
-        // 如果不是最后一个元素，把最后一个元素挪到这里填补空缺
-        if (index != self.len - 1) {
+
+        if (!self.is_zst() and index != self.len - 1) {
             let last_val = (self.ptr + self.len - 1).*;
             (self.ptr + index).* = last_val;
         }
-        
+
         self.len -= 1;
         return .{ Some: removed_val };
     }
 
-    // 批量追加一个切片
     pub fn append_slice(alloc: *mut Allocator, slice: []T) bool {
         let additional = #slice;
         if (additional == 0) return true;
 
-        if (!self.ensure_capacity(alloc, self.len + additional)) {
-            return false;
+        let old_len = self.len;
+        if (!self.reserve(alloc, additional)) return false;
+
+        if (self.is_zst()) {
+            self.len = old_len + additional;
+            return true;
         }
 
-        // 目标内存地址：当前 ptr 加上已有的 len
-        let target_ptr = self.ptr + self.len;
-        
-        // 利用切片的底层特性，直接进行内存级块拷贝
+        let mut src_ptr = slice.[0].& as *T;
+        let base_addr = self.ptr as usize;
+        let end_addr = (self.ptr + old_len) as usize;
+        let src_addr = src_ptr as usize;
+        if (src_addr >= base_addr and src_addr < end_addr) {
+            let src_offset = (src_addr - base_addr) / self.elem_layout().size;
+            src_ptr = self.ptr + src_offset;
+        }
+
+        let target_ptr = self.ptr + old_len;
         let copy_bytes = additional * self.elem_layout().size;
-        
-        let src_ptr = slice.[0].& as *u8; 
-        
-        @memcpy(target_ptr as *mut u8, src_ptr, copy_bytes);
-        
-        self.len += additional;
+        let _ = memmove(target_ptr as *mut u8, src_ptr as *u8, copy_bytes);
+        self.len = old_len + additional;
         return true;
     }
-    
-    // 释放多余的容量，退还给操作系统或分配器
+
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
         if (self.capacity == self.len) return true;
         if (self.len == 0) {
             self.deinit(alloc);
             return true;
         }
-        
-        // 申请一个正好装下 len 的新内存块
+        if (self.is_zst()) {
+            self.capacity = USIZE_MAX;
+            return true;
+        }
+
         let exact_layout = match (self.buffer_layout(self.len)) {
             .Some: layout => layout,
             .None => return false,
         };
         let new_ptr_u8 = match (alloc.alloc(exact_layout)) {
             .Some: ptr => ptr,
-            .None => return false, // OOM 保护
+            .None => return false,
         };
-        
+
         let new_ptr = new_ptr_u8 as *mut T;
-        
-        // 拷贝现有数据并释放老数据
+
         @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_layout.size);
         let old_layout = match (self.buffer_layout(self.capacity)) {
             .Some: layout => layout,
@@ -204,6 +255,49 @@ impl[T] *mut List[T] {
         self.capacity = self.len;
         return true;
     }
+
+    pub fn reverse() void {
+        self.as_mut_slice().reverse();
+    }
+
+    pub fn retain(pred: *Fn(T) bool) void {
+        if (self.len == 0) {
+            return;
+        }
+
+        if (self.is_zst()) {
+            let mut kept = 0;
+            let mut i = 0;
+            for (; i < self.len; i += 1) {
+                if (pred(self.zst_ptr().*)) {
+                    kept += 1;
+                }
+            }
+            self.len = kept;
+            return;
+        }
+
+        let mut write = 0;
+        let mut read = 0;
+        for (; read < self.len; read += 1) {
+            let item = (self.ptr + read).*;
+            if (!pred(item)) {
+                continue;
+            }
+            if (write != read) {
+                (self.ptr + write).* = item;
+            }
+            write += 1;
+        }
+
+        self.len = write;
+    }
+}
+
+impl[T] *mut List[T] {
+    pub fn as_mut_slice() []mut T {
+        return self.ptr..[0 .. self.len];
+    }
 }
 
 impl[T] *List[T] {
@@ -211,21 +305,79 @@ impl[T] *List[T] {
         return self.ptr.[0 .. self.len];
     }
 
-    // 检查是否为空
     pub fn is_empty() bool {
         return self.len == 0;
     }
 
-    // 安全获取指定位置的元素拷贝
     pub fn get(index: usize) Option[T] {
         if (index >= self.len) return .{ None };
         return .{ Some: (self.ptr + index).* };
     }
 
-    // 获取尾部元素的拷贝
+    pub fn first() Option[T] {
+        if (self.len == 0) return .{ None };
+        return .{ Some: self.ptr.* };
+    }
+
     pub fn last() Option[T] {
         if (self.len == 0) return .{ None };
         return .{ Some: (self.ptr + self.len - 1).* };
+    }
+
+    pub fn position(pred: *Fn(T) bool) Option[usize] {
+        return self.as_slice().position(pred);
+    }
+
+    pub fn rposition(pred: *Fn(T) bool) Option[usize] {
+        return self.as_slice().rposition(pred);
+    }
+
+    pub fn any(pred: *Fn(T) bool) bool {
+        return self.as_slice().any(pred);
+    }
+
+    pub fn all(pred: *Fn(T) bool) bool {
+        return self.as_slice().all(pred);
+    }
+}
+
+impl[T] *List[T]
+    where *T: Eq[T],
+{
+    pub fn eq(other: []T) bool {
+        return self.as_slice().eq(other);
+    }
+
+    pub fn starts_with(prefix: []T) bool {
+        return self.as_slice().starts_with(prefix);
+    }
+
+    pub fn ends_with(suffix: []T) bool {
+        return self.as_slice().ends_with(suffix);
+    }
+
+    pub fn find(needle: []T) Option[usize] {
+        return self.as_slice().find(needle);
+    }
+
+    pub fn contains(needle: []T) bool {
+        return self.as_slice().contains(needle);
+    }
+
+    pub fn strip_prefix(prefix: []T) Option[[]T] {
+        return self.as_slice().strip_prefix(prefix);
+    }
+
+    pub fn strip_suffix(suffix: []T) Option[[]T] {
+        return self.as_slice().strip_suffix(suffix);
+    }
+}
+
+impl[T] *List[T]
+    where *T: Ord[T],
+{
+    pub fn lex_cmp(other: []T) Ordering {
+        return self.as_slice().lex_cmp(other);
     }
 }
 

@@ -71,6 +71,10 @@ In Kern, **mutability is a property of storage, not an intrinsic part of the bas
   * **Variable Bindings**: Controlled by the `mut` keyword in the binding pattern.
       * `let x = i32.{10};` (Immutable binding)
       * `let mut y = i32.{20};` (Mutable binding)
+  * **No Automatic Inheritance**: `let mut` does **not** automatically make the internals of every value mutable. It means the binding itself may be assigned a new value of the same type. Element or pointee mutability still comes from the type and access path.
+      * `let mut arr = [4]u8.{ 1, 2, 3, 4 };` allows `arr = [4]u8.{ 5, 6, 7, 8 };`, but `arr.[0] = 9;` is rejected because the array element type is not mutable.
+      * `let arr = [4]mut u8.{ 1, 2, 3, 4 };` does **not** allow rebinding `arr`, but `arr.[0] = 9;` is valid because the array's storage elements are mutable.
+      * This is the same style of split that Kern uses for pointers: `*mut T` grants write access through the pointer, while `let mut p` only controls whether the pointer variable itself may be rebound.
   * **Top-Down Bidirectional Flow**: Kern uses contextual typing. Literals like `10` are "type-neutral" and absorb the **Expected Type** flowing down from declarations or function signatures.
 
 ### 2.3 Pointers and Volatility
@@ -97,6 +101,10 @@ Pointers explicitly carry mutability permissions for the memory they point to.
 
   * **Arrays**: `[N]T` – Fixed-size value type.
   * **Slices**: `[]T` or `[]mut T` – A fat pointer containing a pointer and a `usize` length.
+  * **Explicit Slice Permissions**: Slicing follows the same permission split as address-of.
+      * `arr.[a .. b]` produces `[]T` (read-only slice view).
+      * `arr..[a .. b]` produces `[]mut T` (mutable slice view), and requires the base storage to have mutable element/write permission.
+      * The distinction is intentional: Kern does not silently upgrade a read-only view into a mutable one.
   * **String Literals**: `"Hello"` evaluates to `[]u8` (an immutable slice).
   * **Fat-Pointer State Extractor (`#`)**: The unary `#` operator is a universal primitive used to extract the implicit runtime metadata (or state) from a fat pointer or a container.
       * For Arrays and Slices, `#` evaluates to the length (`usize`).

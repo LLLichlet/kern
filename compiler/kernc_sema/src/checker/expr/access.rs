@@ -586,8 +586,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 如果是 `..[`，必须确保目标内存具有可变性
-        if is_mut && !self.is_lvalue_mutable(lhs) && lhs_ty != TypeId::ERROR {
+        let norm_lhs = self.resolve_tv(lhs_ty);
+        let base_allows_mut_slice = match self.ctx.type_registry.get(norm_lhs).clone() {
+            TypeKind::Pointer {
+                is_mut: true, ..
+            }
+            | TypeKind::VolatilePtr {
+                is_mut: true, ..
+            }
+            | TypeKind::Slice {
+                is_mut: true, ..
+            }
+            | TypeKind::Array {
+                is_mut: true, ..
+            }
+            | TypeKind::ArrayInfer {
+                is_mut: true, ..
+            } => true,
+            _ => false,
+        } || self.is_lvalue_mutable(lhs);
+
+        // 如果是 `..[`，必须确保目标内存具有可变权限
+        if is_mut && !base_allows_mut_slice && lhs_ty != TypeId::ERROR {
             self.ctx
                 .struct_error(
                     span,
@@ -597,7 +617,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
         }
 
-        let norm_lhs = self.resolve_tv(lhs_ty);
         match self.ctx.type_registry.get(norm_lhs).clone() {
             TypeKind::Array { elem, .. }
             | TypeKind::Slice { elem, .. }
@@ -724,8 +743,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
 
                 // 将 Impl 块捕获的泛型参数提取出来
+                let mut candidate_impl_args = Vec::new();
                 for param in &impl_def.generics {
-                    resolved_impl_args.push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
+                    candidate_impl_args.push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
                 }
                 // 在匹配的 Impl 块内寻找目标函数
                 for &method_id in &impl_def.methods {
@@ -733,6 +753,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         && func_def.name == field
                     {
                         found_method_id = Some(method_id);
+                        resolved_impl_args = candidate_impl_args;
                         break;
                     }
                 }

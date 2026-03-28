@@ -224,6 +224,56 @@ impl[K, V] *mut TreeMap[K, V]
     pub fn clear(alloc: *mut Allocator) void {
         self.deinit(alloc);
     }
+
+    pub fn get_ptr(key: K) Option[*mut V] {
+        let mut node = self.root;
+
+        for (; (node as usize) != 0; ) {
+            let mut index = 0;
+            for (; index < node.len; index += 1) {
+                let cmp = self.compare(key_at[K, V](node, index), key);
+                if (cmp == 0) {
+                    return .{ Some: node.values.[index]..& };
+                }
+                if (cmp > 0) {
+                    break;
+                }
+            }
+
+            if (node.is_leaf) {
+                return .{ None };
+            }
+
+            node = child_at[K, V](node, index);
+        }
+
+        return .{ None };
+    }
+
+    pub fn get_or_insert(alloc: *mut Allocator, key: K, value: V) Option[*mut V] {
+        match (self.get_ptr(key)) {
+            .Some: ptr => return .{ Some: ptr },
+            .None => {}
+        }
+
+        if (!self.insert(alloc, key, value)) {
+            return .{ None };
+        }
+        return self.get_ptr(key);
+    }
+
+    pub fn get_or_insert_with(alloc: *mut Allocator, key: K, make_value: *Fn() V) Option[*mut V] {
+        match (self.get_ptr(key)) {
+            .Some: ptr => return .{ Some: ptr },
+            .None => {}
+        }
+
+        let value = make_value();
+        if (!self.insert(alloc, key, value)) {
+            return .{ None };
+        }
+        return self.get_ptr(key);
+    }
 }
 
 impl[K, V] *TreeMap[K, V]

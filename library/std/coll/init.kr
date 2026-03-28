@@ -1,9 +1,11 @@
 mod list;
 mod map;
+mod slice;
 mod string;
 mod tree_map;
 
 pub use .list.List;
 pub use .map.Map;
+pub use .slice.{find_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
 pub use .string.String;
 pub use .tree_map.TreeMap;

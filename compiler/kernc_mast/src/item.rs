@@ -30,6 +30,8 @@ pub struct MastStruct {
     pub is_extern: bool, // 用于对接 C 的 struct
     pub is_union: bool,
     pub largest_field_idx: usize,
+    pub union_size: usize,
+    pub union_align: usize,
     pub attributes: Vec<MetaItem>,
 }
 

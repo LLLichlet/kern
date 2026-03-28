@@ -82,6 +82,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         let mut incoming = Vec::new();
+        let mut merge_reachable = else_branch.is_none();
 
         // 编译 Then 分支
         self.builder.position_at_end(then_bb);
@@ -89,6 +90,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let then_exit_bb = self.builder.get_insert_block().unwrap();
         if then_exit_bb.get_terminator().is_none() {
             self.builder.build_unconditional_branch(merge_bb).unwrap();
+            merge_reachable = true;
             // 只有真实发生跳转，才加入 PHI 节点前驱！
             if let Some(val) = then_result {
                 incoming.push((val, then_exit_bb));
@@ -104,6 +106,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let else_exit_bb = self.builder.get_insert_block().unwrap();
         if else_exit_bb.get_terminator().is_none() {
             self.builder.build_unconditional_branch(merge_bb).unwrap();
+            merge_reachable = true;
             // 只有真实发生跳转，才加入 PHI 节点前驱
             if let Some(val) = else_result {
                 incoming.push((val, else_exit_bb));
@@ -112,7 +115,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // 生成 PHI 节点
         self.builder.position_at_end(merge_bb);
-        if expr_ty != TypeId::VOID && !incoming.is_empty() {
+        if !merge_reachable {
+            self.builder.build_unreachable().unwrap();
+            self.get_undef_val(expected_llvm_ty)
+        } else if expr_ty != TypeId::VOID && incoming.is_empty() {
+            self.sess.emit_ice(
+                cond.span,
+                "Kern ICE (Codegen): reachable `if` expression with non-void type produced no incoming values.",
+            );
+            self.get_undef_val(expected_llvm_ty)
+        } else if expr_ty != TypeId::VOID {
             let phi = self.builder.build_phi(expected_llvm_ty, "iftmp").unwrap();
             let mut incoming_refs = Vec::new();
             for (val, bb) in &incoming {
@@ -129,6 +141,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         &mut self,
         body: &MastBlock,
         latch: Option<&MastBlock>,
+        expr_ty: TypeId,
+        expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let Some(parent_func) = self.current_function_for_control("loop expression") else {
             return self.context.i8_type().const_zero().into();
@@ -167,7 +181,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // --- 编译结束后的出口 ---
         self.builder.position_at_end(merge_bb);
-        self.context.i8_type().const_zero().into()
+        if expr_ty != TypeId::VOID {
+            self.builder.build_unreachable().unwrap();
+            self.get_undef_val(expected_llvm_ty)
+        } else {
+            self.context.i8_type().const_zero().into()
+        }
     }
 
     pub(crate) fn compile_break(&mut self) -> BasicValueEnum<'ctx> {
@@ -218,6 +237,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap();
 
         let mut incoming = Vec::new();
+        let mut merge_reachable = false;
 
         // 编译 Default 分支
         self.builder.position_at_end(default_bb);
@@ -226,6 +246,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let def_exit_bb = self.builder.get_insert_block().unwrap();
             if def_exit_bb.get_terminator().is_none() {
                 self.builder.build_unconditional_branch(merge_bb).unwrap();
+                merge_reachable = true;
                 if let Some(val) = def_val {
                     incoming.push((val, def_exit_bb));
                 }
@@ -242,6 +263,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
             if case_exit_bb.get_terminator().is_none() {
                 self.builder.build_unconditional_branch(merge_bb).unwrap();
+                merge_reachable = true;
                 if let Some(val) = case_val {
                     incoming.push((val, case_exit_bb));
                 }
@@ -250,7 +272,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // 构建 PHI 返回值
         self.builder.position_at_end(merge_bb);
-        if expr_ty != TypeId::VOID && !incoming.is_empty() {
+        if !merge_reachable {
+            self.builder.build_unreachable().unwrap();
+            self.get_undef_val(expected_llvm_ty)
+        } else if expr_ty != TypeId::VOID && incoming.is_empty() {
+            self.sess.emit_ice(
+                target.span,
+                "Kern ICE (Codegen): reachable `match` expression with non-void type produced no incoming values.",
+            );
+            self.get_undef_val(expected_llvm_ty)
+        } else if expr_ty != TypeId::VOID {
             let phi = self
                 .builder
                 .build_phi(expected_llvm_ty, "switchtmp")

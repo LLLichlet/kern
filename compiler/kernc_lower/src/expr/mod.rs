@@ -42,15 +42,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::ByteChar(b) => MastExprKind::Integer(*b as u128),
             ExprKind::String(s) => self.lower_string_literal(s, expr.span),
             ExprKind::Identifier(name) => {
-                let expr_ty = self
-                    .ctx
-                    .node_types
-                    .get(&expr.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let norm_ty = self.ctx.type_registry.normalize(expr_ty);
+                let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
 
-                // 核心修复：直接通过语义类型来判断！
                 match self.ctx.type_registry.get(norm_ty).clone() {
                     TypeKind::FnDef(fn_id, fn_args) => {
                         let mono_id = self.instantiate_function(fn_id, &fn_args);
@@ -99,15 +92,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             ExprKind::Call { callee, args } => self.lower_call(callee, args, subst_map, expr.span),
             ExprKind::FieldAccess { lhs, field } => {
-                // 通过 AST 节点的推导类型直接判断是否是静态函数
-                // 解决跨模块调用时，Scope 丢失导致的误判问题
-                let expr_ty = self
-                    .ctx
-                    .node_types
-                    .get(&expr.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let norm_ty = self.ctx.type_registry.normalize(expr_ty);
+                // 必须使用代换后的 concrete_ty，避免在泛型函数体里提前以 Param 实参实例化 FnDef。
+                let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
 
                 if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone()
                 {

@@ -43,6 +43,27 @@ fn compile_source(source: &str) -> std::process::Output {
     output
 }
 
+fn compile_source_with_std(source: &str) -> std::process::Output {
+    let source_path = unique_temp_path("kernc_regression_std_test", "kr");
+    let object_path = unique_temp_path("kernc_regression_std_test", "o");
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let args = vec![
+        "-c",
+        "--use-std",
+        source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ];
+    let output = run_kernc(&args);
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&object_path);
+    output
+}
+
 fn build_and_run_source(source: &str) -> std::process::Output {
     let source_path = unique_temp_path("kernc_regression_run", "kr");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
@@ -242,6 +263,42 @@ impl []u8 {
 extern fn main(args: [][]u8) i32 {
     let text = "hi";
     return text.len_via_impl() as i32;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_generic_std_helper_calling_layout_of_recursive_type() {
+    let output = compile_source_with_std(
+        r#"
+use std.mem.layout_of;
+
+type Node[K, V] = struct {
+    next: *mut Node[K, V],
+    key: K,
+    value: V,
+};
+
+fn free_node[K, V](alloc: *mut std.mem.alloc.Allocator, node: *mut Node[K, V]) void {
+    alloc.free(node as *mut u8, layout_of[Node[K, V]]());
+}
+
+fn wrap_free[K, V](alloc: *mut std.mem.alloc.Allocator, node: *mut Node[K, V]) void {
+    free_node(alloc, node);
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = wrap_free[i32, i32];
+    let _ = args;
+    return 0;
 }
 "#,
     );

@@ -107,7 +107,9 @@ This is the core mechanism for wiring module roots into the compiler. It is inte
 2. A path relative to the current executable
 3. `library/std` in the repository layout
 
-`--use-std` is mutually exclusive with hosted C library linkage.
+`--use-std` can be combined with hosted C library linkage.
+
+When `--link-profile hosted` (or `--link-libc`) is active, `kernc` still injects `std`, but the standard library can prune Kern-specific runtime entry shims via compile-time conditions such as `#[if(kern_rt)]`. This allows `std` facilities like `std.io` or allocators to coexist with a hosted C startup without forcing the Kern `_start` / `mainCRTStartup` path.
 
 ## Compilation Controls
 
@@ -157,6 +159,13 @@ kernc -D debug_mode=true -D board=qemu app.kr
 ```
 
 These values are available to `#[if(...)]` and `#![if(...)]` conditions handled by the frontend pruning pass.
+
+In addition to user-provided `-D` values, `kernc` injects a small set of driver-controlled condition variables:
+
+- `link_profile`: one of `"kern"`, `"freestanding"`, `"hosted"`, or `"none"`
+- `hosted`: `true` when using the hosted link profile
+- `libc`: currently mirrors `hosted`
+- `kern_rt`: `true` when `std` should provide Kern runtime entry shims
 
 ## Linking Model
 
@@ -339,7 +348,7 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 
 ### Standard Library
 
-- `--use-std`: enable the Kern standard library
+- `--use-std`: enable the Kern standard library; hosted links automatically prune `std.rt` entry shims
 
 ### Information
 

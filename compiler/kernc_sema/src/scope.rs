@@ -155,6 +155,20 @@ impl SymbolTable {
         None
     }
 
+    pub fn resolve_from(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
+        let mut curr = Some(scope_id);
+
+        while let Some(id) = curr {
+            let scope = &self.scopes[id.0];
+            if let Some(info) = scope.symbols.get(&name) {
+                return Some(info);
+            }
+            curr = scope.parent;
+        }
+
+        None
+    }
+
     /// 仅在当前作用域查找 (用于检查重定义)
     pub fn resolve_local(&self, name: SymbolId) -> Option<&SymbolInfo> {
         let current_id = self.current_scope?;

@@ -28,22 +28,39 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
 
             if let Some(const_expr) = const_expr_opt {
-                let mut ce = ConstEvaluator::new(self.ctx);
-                if let Ok(val) = ce.eval_inner(&const_expr, 0) {
-                    match val {
-                        ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
-                        ConstValue::Float(f) => return MastExprKind::Float(f),
-                        ConstValue::Bool(b) => return MastExprKind::Bool(b),
-                        ConstValue::String(s) => return MastExprKind::StringLiteral(s),
-                        _ => {
-                            let inlined_mast = self.lower_expr(
-                                &const_expr,
-                                &std::collections::HashMap::new(),
-                                None,
-                            );
-                            return inlined_mast.kind;
+                let prev_scope = self.ctx.scopes.current_scope_id();
+                if let Some(owner_scope) = self.global_owner_scope(def_id) {
+                    self.ctx.scopes.set_current_scope(owner_scope);
+                }
+
+                let lowered_kind = {
+                    let mut ce = ConstEvaluator::new(self.ctx);
+                    if let Ok(val) = ce.eval_inner(&const_expr, 0) {
+                        match val {
+                            ConstValue::Int(v) => Some(MastExprKind::Integer(v as u128)),
+                            ConstValue::Float(f) => Some(MastExprKind::Float(f)),
+                            ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
+                            ConstValue::String(s) => Some(MastExprKind::StringLiteral(s)),
+                            _ => {
+                                let inlined_mast = self.lower_expr(
+                                    &const_expr,
+                                    &std::collections::HashMap::new(),
+                                    None,
+                                );
+                                Some(inlined_mast.kind)
+                            }
                         }
+                    } else {
+                        None
                     }
+                };
+
+                if let Some(prev_scope) = prev_scope {
+                    self.ctx.scopes.set_current_scope(prev_scope);
+                }
+
+                if let Some(kind) = lowered_kind {
+                    return kind;
                 }
             }
         }
@@ -152,23 +169,39 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 Some(g.value.clone())
                             } else {
                                 None
-                            };
+                        };
 
                         if let Some(const_expr) = const_expr_opt {
-                            let mut ce = ConstEvaluator::new(self.ctx);
-                            if let Ok(val) = ce.eval_inner(&const_expr, 0) {
-                                match val {
-                                    ConstValue::Int(v) => return MastExprKind::Integer(v as u128),
-                                    ConstValue::Float(f) => return MastExprKind::Float(f),
-                                    ConstValue::Bool(b) => return MastExprKind::Bool(b),
-                                    ConstValue::String(s) => return MastExprKind::StringLiteral(s),
+                            let prev_scope = self.ctx.scopes.current_scope_id();
+                            if let Some(owner_scope) = self.global_owner_scope(def_id) {
+                                self.ctx.scopes.set_current_scope(owner_scope);
+                            }
 
-                                    _ => {
-                                        let inlined_mast =
-                                            self.lower_expr(&const_expr, &HashMap::new(), None);
-                                        return inlined_mast.kind;
+                            let lowered_kind = {
+                                let mut ce = ConstEvaluator::new(self.ctx);
+                                if let Ok(val) = ce.eval_inner(&const_expr, 0) {
+                                    match val {
+                                        ConstValue::Int(v) => Some(MastExprKind::Integer(v as u128)),
+                                        ConstValue::Float(f) => Some(MastExprKind::Float(f)),
+                                        ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
+                                        ConstValue::String(s) => Some(MastExprKind::StringLiteral(s)),
+                                        _ => {
+                                            let inlined_mast =
+                                                self.lower_expr(&const_expr, &HashMap::new(), None);
+                                            Some(inlined_mast.kind)
+                                        }
                                     }
+                                } else {
+                                    None
                                 }
+                            };
+
+                            if let Some(prev_scope) = prev_scope {
+                                self.ctx.scopes.set_current_scope(prev_scope);
+                            }
+
+                            if let Some(kind) = lowered_kind {
+                                return kind;
                             }
                         }
                     }

@@ -454,7 +454,7 @@ Because of this, internal Kern functions are physically invisible to standard C 
 The `extern` keyword acts as an explicit ABI boundary contract: it forces the compiler to use the standard C calling convention and **completely disables name mangling** for that symbol.
 
 **The `main` Function Contract:**
-Because the runtime environment (like `_start` or `kern_entry`) looks for a raw symbol named `main` to begin execution, the entry point of any Kern executable must be explicitly marked as `extern`.
+When a program uses the Kern runtime entry path (for example `std.rt` providing `_start`, `start`, or `mainCRTStartup`), the runtime looks for a raw symbol named `main`, so the entry point must be explicitly marked as `extern` and must match the runtime's expected ABI.
 
 ```kern
 use std.io;
@@ -466,6 +466,8 @@ extern fn main(args: [][]u8) i32 {
     0
 }
 ```
+
+When using a hosted C runtime instead, Kern does not force the `std.rt` entry shim. In that environment, the program should expose whichever `extern` entry signature the hosted runtime expects (for example a C-style `main`).
 
 ### 8.2 Importing External Functions and Statics
 

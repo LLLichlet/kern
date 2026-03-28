@@ -691,19 +691,36 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // 常量折叠
         let init = if !g.is_extern {
-            let mut ce = ConstEvaluator::new(self.ctx);
-            if let Ok(val) = ce.eval_inner(&g.value, 0) {
-                match val {
-                    ConstValue::Int(v) => {
-                        Some(MastExpr::new(ty, MastExprKind::Integer(v as u128), g.span))
-                    }
-                    ConstValue::Float(f) => Some(MastExpr::new(ty, MastExprKind::Float(f), g.span)),
-                    ConstValue::Bool(b) => Some(MastExpr::new(ty, MastExprKind::Bool(b), g.span)),
-                    _ => Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty))),
-                }
-            } else {
-                Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty)))
+            let prev_scope = self.ctx.scopes.current_scope_id();
+            if let Some(owner_scope) = self.global_owner_scope(g.id) {
+                self.ctx.scopes.set_current_scope(owner_scope);
             }
+
+            let folded = {
+                let mut ce = ConstEvaluator::new(self.ctx);
+                if let Ok(val) = ce.eval_inner(&g.value, 0) {
+                    match val {
+                        ConstValue::Int(v) => {
+                            Some(MastExpr::new(ty, MastExprKind::Integer(v as u128), g.span))
+                        }
+                        ConstValue::Float(f) => {
+                            Some(MastExpr::new(ty, MastExprKind::Float(f), g.span))
+                        }
+                        ConstValue::Bool(b) => {
+                            Some(MastExpr::new(ty, MastExprKind::Bool(b), g.span))
+                        }
+                        _ => Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty))),
+                    }
+                } else {
+                    Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty)))
+                }
+            };
+
+            if let Some(prev_scope) = prev_scope {
+                self.ctx.scopes.set_current_scope(prev_scope);
+            }
+
+            folded
         } else {
             None
         };

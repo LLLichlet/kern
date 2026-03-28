@@ -13,6 +13,20 @@ struct TraitMethodLookup {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn global_owner_scope(&self, def_id: DefId) -> Option<crate::scope::ScopeId> {
+        self.ctx.defs.iter().find_map(|def| {
+            let Def::Module(module) = def else {
+                return None;
+            };
+
+            if module.items.contains(&def_id) {
+                Some(module.scope_id)
+            } else {
+                None
+            }
+        })
+    }
+
     fn trait_def_for_access(
         &mut self,
         trait_def_id: DefId,
@@ -70,10 +84,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 };
 
                 if let Some(g_expr) = global_expr_opt {
-                    if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
+                if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
                         return actual_ty;
                     }
+                    let prev_scope = self.ctx.scopes.current_scope_id();
+                    if let Some(owner_scope) = self.global_owner_scope(def_id) {
+                        self.ctx.scopes.set_current_scope(owner_scope);
+                    }
                     let computed_ty = self.check_expr(&g_expr, None);
+                    if let Some(prev_scope) = prev_scope {
+                        self.ctx.scopes.set_current_scope(prev_scope);
+                    }
                     return computed_ty;
                 }
             }
@@ -230,6 +251,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.ctx
                         .type_registry
                         .intern(TypeKind::Module(target_info.def_id.unwrap()))
+                } else if target_info.type_id == TypeId::ERROR {
+                    if let Some(def_id) = target_info.def_id {
+                        let global_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize]
+                        {
+                            Some(g.value.clone())
+                        } else {
+                            None
+                        };
+
+                        if let Some(g_expr) = global_expr_opt {
+                            if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
+                                actual_ty
+                            } else {
+                                let prev_scope = self.ctx.scopes.current_scope_id();
+                                if let Some(owner_scope) = self.global_owner_scope(def_id) {
+                                    self.ctx.scopes.set_current_scope(owner_scope);
+                                }
+                                let computed_ty = self.check_expr(&g_expr, None);
+                                if let Some(prev_scope) = prev_scope {
+                                    self.ctx.scopes.set_current_scope(prev_scope);
+                                }
+                                computed_ty
+                            }
+                        } else {
+                            target_info.type_id
+                        }
+                    } else {
+                        target_info.type_id
+                    }
                 } else {
                     target_info.type_id
                 };

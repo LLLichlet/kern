@@ -68,6 +68,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 self.ctx.scopes.set_current_scope(scope_id);
                 let mut checker = ExprChecker::new(self.ctx, None);
                 let init_ty = checker.check_expr(&g.value, None);
+                self.ctx.scopes.set_current_scope(scope_id);
 
                 if init_ty != TypeId::ERROR {
                     resolved_globals.insert(item_id);

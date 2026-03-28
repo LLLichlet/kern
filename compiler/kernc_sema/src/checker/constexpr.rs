@@ -1,7 +1,8 @@
 use crate::LayoutEngine;
 use crate::SemaContext;
-use crate::def::Def;
+use crate::def::{Def, DefId};
 use crate::scope::SymbolKind;
+use crate::scope::ScopeId;
 use crate::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_ast::{self as ast, BinaryOperator, Expr, ExprKind, UnaryOperator};
 use kernc_utils::{NodeId, Span, SymbolId};
@@ -30,11 +31,17 @@ type ConstEvalResult<T> = Result<T, ConstEvalError>;
 
 pub struct ConstEvaluator<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
+    const_scopes: Vec<ScopeId>,
 }
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
-        Self { ctx }
+        let mut const_scopes = Vec::new();
+        if let Some(scope_id) = ctx.scopes.current_scope_id() {
+            const_scopes.push(scope_id);
+        }
+
+        Self { ctx, const_scopes }
     }
 
     /// 提取数组长度等所需的无符号整数
@@ -76,6 +83,46 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             Err(_) => Err(ConstEvalError),
         }
+    }
+
+    fn global_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
+        self.ctx.defs.iter().find_map(|def| {
+            let Def::Module(module) = def else {
+                return None;
+            };
+
+            if module.items.contains(&def_id) {
+                Some(module.scope_id)
+            } else {
+                None
+            }
+        })
+    }
+
+    fn eval_const_def(&mut self, def_id: DefId, depth: usize) -> ConstEvalResult<ConstValue> {
+        let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+            g.value.clone()
+        } else {
+            return Err(ConstEvalError);
+        };
+
+        let prev_scope = self.ctx.scopes.current_scope_id();
+        let owner_scope = self.global_owner_scope(def_id);
+        if let Some(owner_scope) = owner_scope {
+            self.ctx.scopes.set_current_scope(owner_scope);
+            self.const_scopes.push(owner_scope);
+        }
+
+        let result = self.eval_inner(&const_expr, depth + 1);
+
+        if owner_scope.is_some() {
+            let _ = self.const_scopes.pop();
+        }
+        if let Some(prev_scope) = prev_scope {
+            self.ctx.scopes.set_current_scope(prev_scope);
+        }
+
+        result
     }
 
     fn eval_data_init(
@@ -475,13 +522,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     if let Some(info) = self.ctx.scopes.resolve_in(mod_scope, *field).cloned() {
                         if info.kind == SymbolKind::Const {
                             if let Some(def_id) = info.def_id {
-                                let const_expr =
-                                    if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                                        g.value.clone()
-                                    } else {
-                                        return Err(ConstEvalError);
-                                    };
-                                self.eval_inner(&const_expr, depth + 1)
+                                self.eval_const_def(def_id, depth)
                             } else {
                                 Err(ConstEvalError)
                             }
@@ -830,18 +871,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        let sym_info = self.ctx.scopes.resolve(name).cloned();
+        let sym_info = if let Some(&scope_id) = self.const_scopes.last() {
+            self.ctx.scopes.resolve_from(scope_id, name).cloned()
+        } else {
+            self.ctx.scopes.resolve(name).cloned()
+        };
 
         if let Some(info) = sym_info {
             if info.kind == SymbolKind::Const {
                 if let Some(def_id) = info.def_id {
-                    let const_expr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                        g.value.clone()
-                    } else {
-                        return Err(ConstEvalError);
-                    };
-
-                    return self.eval_inner(&const_expr, depth + 1);
+                    return self.eval_const_def(def_id, depth);
                 }
             } else {
                 let name_str = self.ctx.resolve(name).to_string();

@@ -5,6 +5,7 @@ use kernc_mast::*;
 use kernc_sema::SemaContext;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, EnumDef};
+use kernc_sema::scope::ScopeId;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -235,5 +236,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 placeholder
             }
         }
+    }
+
+    pub(crate) fn global_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
+        self.ctx.defs.iter().find_map(|def| {
+            let Def::Module(module) = def else {
+                return None;
+            };
+
+            if module.items.contains(&def_id) {
+                Some(module.scope_id)
+            } else {
+                None
+            }
+        })
     }
 }

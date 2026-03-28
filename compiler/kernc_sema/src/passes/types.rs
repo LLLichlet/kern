@@ -386,6 +386,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
                     let explicit_value = variant.value.as_ref().map(|value_expr| {
                         self.resolve_expr(value_expr, env_scope);
+                        self.ctx.scopes.set_current_scope(env_scope);
                         let mut evaluator = ConstEvaluator::new(self.ctx);
                         evaluator.eval_math(value_expr).unwrap_or(0)
                     });
@@ -430,6 +431,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
             ast::TypeKind::Array { is_mut, elem, len } => {
                 let base = self.resolve_type(elem, env_scope);
+                self.ctx.scopes.set_current_scope(env_scope);
                 let mut evaluator = ConstEvaluator::new(self.ctx);
                 let Ok(length) = evaluator.eval_usize(len) else {
                     return TypeId::ERROR;

@@ -49,7 +49,7 @@ fn print_usage(program_name: &str) {
     println!("                       Alias for `--link-profile none`");
     println!("  --link-libc          Alias for `--link-profile hosted`");
     println!(
-        "  --use-std            Enable the Kern standard library (mutually exclusive with --link-libc)"
+        "  --use-std            Enable the Kern standard library (hosted links prune std.rt entry shims)"
     );
     println!("  --emit-llvm          Print LLVM IR to stdout");
 
@@ -204,6 +204,31 @@ fn maybe_inject_std_alias(options: &mut CompileOptions) {
         .insert("std".to_string(), std_path.to_string_lossy().to_string());
 }
 
+fn inject_driver_condition_defines(options: &mut CompileOptions) {
+    let link_profile = match options.link_profile {
+        LinkProfile::Kern => "kern",
+        LinkProfile::Freestanding => "freestanding",
+        LinkProfile::Hosted => "hosted",
+        LinkProfile::None => "none",
+    };
+
+    let hosted = matches!(options.link_profile, LinkProfile::Hosted);
+    let kern_rt = options.use_std && !hosted;
+
+    options
+        .custom_defines
+        .insert("link_profile".to_string(), link_profile.to_string());
+    options
+        .custom_defines
+        .insert("hosted".to_string(), hosted.to_string());
+    options
+        .custom_defines
+        .insert("libc".to_string(), hosted.to_string());
+    options
+        .custom_defines
+        .insert("kern_rt".to_string(), kern_rt.to_string());
+}
+
 fn parse_args() -> CompileOptions {
     let mut args = env::args();
     let program_name = args.next().unwrap_or_else(|| "kernc".to_string());
@@ -304,14 +329,7 @@ fn parse_args() -> CompileOptions {
     validate_mode_inputs(&program_name, &options, &positional_source);
     options.input_file = positional_source;
     set_default_output_file(&mut options);
-
-    // Kern Std 与 C Libc 严格互斥
-    if options.use_std && options.link_profile == LinkProfile::Hosted {
-        cli_error(
-            "`--use-std` and `--link-libc` are strictly mutually exclusive.\nHint: Kern enforces a strict separation between its native freestanding environment and the C hosted environment.",
-        );
-    }
-
+    inject_driver_condition_defines(&mut options);
     maybe_inject_std_alias(&mut options);
 
     options

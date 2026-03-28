@@ -1,0 +1,112 @@
+use std.os;
+use std.cffi;
+
+extern {
+    fn main(args: [][]u8) i32;
+}
+
+#[if(os == "linux")]
+#[export_name("_start")]
+#[naked]
+extern fn _start_linux() void {
+    @asm(.{
+        asm: .{
+            "mov rdi, [rsp]",
+            "lea rsi, [rsp + 8]",
+            "and rsp, -16",
+            "call kern_entry",
+        },
+        clobbers: .{ "memory", "rdi", "rsi" },
+        volatile: true
+    });
+}
+
+#[if(os == "darwin" and arch == "aarch64")]
+#[export_name("start")]
+extern fn _start_darwin(argc: usize, argv: **u8) void {
+    kern_entry(argc, argv)
+}
+
+#[if(os == "darwin" and arch == "x86_64")]
+#[export_name("start")]
+#[naked]
+extern fn _start_darwin() void {
+    @asm(.{
+        asm: .{
+            "mov rdi, [rsp]",
+            "lea rsi, [rsp + 8]",
+            "and rsp, -16",
+            "call kern_entry",
+        },
+        clobbers: .{ "memory", "rdi", "rsi" },
+        volatile: true
+    });
+}
+
+#[if(os == "linux" or os == "darwin")]
+extern fn kern_entry(argc: usize, argv: **u8) void {
+    let ARGV_SLICES = [64]mut []u8.{undef};
+    let mut i = 0;
+    let limit = if (argc < 64) argc else 64;
+
+    for (; i < limit; i += 1) {
+        let c_str_ptr = (argv + i).*;
+        let len = cffi.cstr.len(c_str_ptr);
+        ARGV_SLICES.[i] = c_str_ptr.[0 .. len];
+    }
+
+    let args_slice = ARGV_SLICES.[0 .. limit];
+    let exit_code = main(args_slice);
+    os.exit(exit_code)
+}
+
+#[if(os == "windows")]
+#[export_name("mainCRTStartup")]
+extern fn _start_windows() void {
+    let ARGV_SLICES = [64]mut []u8.{undef};
+    let cmd_line = os.windows.GetCommandLineA();
+
+    let mut argc = 0;
+    let mut i = 0;
+
+    let mut in_word = false;
+    let mut word_start = cmd_line;
+    let mut word_len = 0;
+
+    for (;;) {
+        let current_char_ptr = cmd_line + i;
+        let c = current_char_ptr.*;
+
+        if (c == 0) {
+            if (in_word) {
+                if (argc < 64) {
+                    ARGV_SLICES.[argc] = word_start.[0 .. word_len];
+                    argc += 1;
+                }
+            }
+            break;
+        }
+
+        if (c == 32 or c == 9) {
+            if (in_word) {
+                if (argc < 64) {
+                    ARGV_SLICES.[argc] = word_start.[0 .. word_len];
+                    argc += 1;
+                }
+                in_word = false;
+            }
+        } else {
+            if (!in_word) {
+                word_start = current_char_ptr;
+                word_len = 0;
+                in_word = true;
+            }
+            word_len += 1;
+        }
+        i += 1;
+    }
+
+    let args_slice = ARGV_SLICES.[0 .. argc];
+    let exit_code = main(args_slice);
+    os.exit(exit_code)
+}

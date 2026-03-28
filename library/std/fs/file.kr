@@ -3,7 +3,7 @@ use std.Option;
 use std.os;
 use std.mem.array_layout_of;
 use std.mem.alloc.Allocator;
-use std.coll.String;
+use std.coll.{String, List};
 
 pub type Error = enum {
     OutOfMemory,
@@ -317,6 +317,26 @@ fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) Result[String
     return .{ Ok: out };
 }
 
+fn append_path_segment(
+    out: *mut String,
+    alloc: *mut Allocator,
+    prefix_len: usize,
+    segment: []u8,
+) bool {
+    let out_len = out.len();
+    if (
+        out_len > 0 and
+        !is_path_separator(out.as_str().[out_len - 1]) and
+        (prefix_len == 0 or out_len > prefix_len)
+    ) {
+        if (!out.push_char(alloc, path_separator_byte())) {
+            return false;
+        }
+    }
+
+    return out.push_str(alloc, segment);
+}
+
 fn last_separator(path: []u8) Option[usize] {
     let prefix_len = root_prefix_len(path);
     let mut index = #path;
@@ -400,6 +420,105 @@ pub fn file_stem(path: []u8) Option[[]u8] {
     }
 
     return .{ Some: name };
+}
+
+pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) Result[String, Error] {
+    if (root_prefix_len(child) > 0) {
+        let mut out = String.{};
+        if (!out..&.push_str(alloc, child)) {
+            return .{ Err: .{ OutOfMemory } };
+        }
+        return .{ Ok: out };
+    }
+
+    if (#base == 0) {
+        let mut out = String.{};
+        if (!out..&.push_str(alloc, child)) {
+            return .{ Err: .{ OutOfMemory } };
+        }
+        return .{ Ok: out };
+    }
+
+    if (#child == 0) {
+        let mut out = String.{};
+        if (!out..&.push_str(alloc, base)) {
+            return .{ Err: .{ OutOfMemory } };
+        }
+        return .{ Ok: out };
+    }
+
+    return build_child_path(alloc, base, child);
+}
+
+pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
+    let prefix_len = root_prefix_len(path);
+    let segments = List[[]u8].{}..&;
+    defer segments.deinit(alloc);
+
+    let mut index = prefix_len;
+    for (; index < #path; ) {
+        for (; index < #path and is_path_separator(path.[index]); index += 1) {}
+        if (index >= #path) {
+            break;
+        }
+
+        let start = index;
+        for (; index < #path and !is_path_separator(path.[index]); index += 1) {}
+        let segment = path.[start .. index];
+
+        if (segment.eq(".")) {
+            continue;
+        }
+
+        if (segment.eq("..")) {
+            let can_pop = segments.last().is_some_and(.[](last: []u8) bool {
+                return !last.eq("..");
+            });
+            if (can_pop) {
+                let _ = segments.pop();
+            } else if (prefix_len == 0) {
+                if (!segments.push(alloc, segment)) {
+                    return .{ Err: .{ OutOfMemory } };
+                }
+            }
+            continue;
+        }
+
+        if (!segments.push(alloc, segment)) {
+            return .{ Err: .{ OutOfMemory } };
+        }
+    }
+
+    let mut out = String.{};
+    if (prefix_len > 0) {
+        if (!out..&.push_str(alloc, path.[0 .. prefix_len])) {
+            return .{ Err: .{ OutOfMemory } };
+        }
+    }
+
+    if (segments.is_empty()) {
+        if (prefix_len > 0) {
+            return .{ Ok: out };
+        }
+        if (!out..&.push_str(alloc, ".")) {
+            return .{ Err: .{ OutOfMemory } };
+        }
+        return .{ Ok: out };
+    }
+
+    let mut seg_index = 0;
+    for (; seg_index < segments.len; seg_index += 1) {
+        let segment = match (segments.get(seg_index)) {
+            .Some: segment => segment,
+            .None => continue,
+        };
+        if (!append_path_segment(out..&, alloc, prefix_len, segment)) {
+            out..&.deinit(alloc);
+            return .{ Err: .{ OutOfMemory } };
+        }
+    }
+
+    return .{ Ok: out };
 }
 
 pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {

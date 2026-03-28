@@ -938,3 +938,99 @@ extern fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn runs_hosted_program_using_std_fs_path_join_and_normalize() {
+    let output = build_and_run_hosted(
+        r#"
+use std.fs;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+
+    let mut joined = match (fs.join(gpa, "/tmp/kern", "src/main.kr")) {
+        .Ok: path => path,
+        .Err: _ => return 1,
+    };
+    defer joined..&.deinit(gpa);
+    if (!joined.&.eq("/tmp/kern/src/main.kr")) {
+        return 2;
+    }
+
+    let mut bare = match (fs.join(gpa, "", "note.txt")) {
+        .Ok: path => path,
+        .Err: _ => return 3,
+    };
+    defer bare..&.deinit(gpa);
+    if (!bare.&.eq("note.txt")) {
+        return 4;
+    }
+
+    let mut rooted = match (fs.join(gpa, "/tmp/kern", "/etc/passwd")) {
+        .Ok: path => path,
+        .Err: _ => return 5,
+    };
+    defer rooted..&.deinit(gpa);
+    if (!rooted.&.eq("/etc/passwd")) {
+        return 6;
+    }
+
+    let mut normalized = match (fs.normalize(gpa, "/tmp/./kern//src/../out/file.txt")) {
+        .Ok: path => path,
+        .Err: _ => return 7,
+    };
+    defer normalized..&.deinit(gpa);
+    if (!normalized.&.eq("/tmp/kern/out/file.txt")) {
+        return 8;
+    }
+
+    let mut relative = match (fs.normalize(gpa, "alpha/./beta/../gamma")) {
+        .Ok: path => path,
+        .Err: _ => return 9,
+    };
+    defer relative..&.deinit(gpa);
+    if (!relative.&.eq("alpha/gamma")) {
+        return 10;
+    }
+
+    let mut escaped = match (fs.normalize(gpa, "../../alpha/../beta")) {
+        .Ok: path => path,
+        .Err: _ => return 11,
+    };
+    defer escaped..&.deinit(gpa);
+    if (!escaped.&.eq("../../beta")) {
+        return 12;
+    }
+
+    let mut root = match (fs.normalize(gpa, "/alpha/../..")) {
+        .Ok: path => path,
+        .Err: _ => return 13,
+    };
+    defer root..&.deinit(gpa);
+    if (!root.&.eq("/")) {
+        return 14;
+    }
+
+    let mut empty = match (fs.normalize(gpa, "")) {
+        .Ok: path => path,
+        .Err: _ => return 15,
+    };
+    defer empty..&.deinit(gpa);
+    if (!empty.&.eq(".")) {
+        return 16;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

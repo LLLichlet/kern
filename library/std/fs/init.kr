@@ -22,6 +22,8 @@ pub use .file.{
     parent,
     extension,
     file_stem,
+    join,
+    normalize,
     rename,
     create_dir,
     create_dir_all,

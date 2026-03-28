@@ -90,7 +90,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .struct_type(&[ptr_ty.into(), len_ty.into()], false)
                     .into()
             }
-            TypeKind::Def(def_id, args) | TypeKind::Enum(def_id, args) => {
+            TypeKind::Def(def_id, args) => {
                 let key = (def_id, args.clone());
                 if let Some(&mono_id) = self.def_mono_map.get(&key)
                     && let Some(struct_ty) =
@@ -103,6 +103,26 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     Span::default(),
                     format!(
                         "Kern ICE (Codegen): DefId {} not instantiated by Lowerer",
+                        def_id.0
+                    ),
+                )
+            }
+            TypeKind::Enum(def_id, args) => {
+                let key = (def_id, args.clone());
+                if let Some(&tag_ty) = self.pure_enum_tag_map.get(&key) {
+                    return self.get_llvm_type(tag_ty);
+                }
+                if let Some(&mono_id) = self.def_mono_map.get(&key)
+                    && let Some(struct_ty) =
+                        self.lookup_instantiated_struct(mono_id, Span::default(), "named enum")
+                {
+                    return struct_ty;
+                }
+
+                self.invalid_llvm_type(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): Enum DefId {} was not instantiated or recorded as a pure enum.",
                         def_id.0
                     ),
                 )

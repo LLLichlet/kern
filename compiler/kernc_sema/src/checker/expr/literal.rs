@@ -512,10 +512,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 4. 返回最终确定的类型
         if expected_len.is_none() {
+            let actual_len = elems.len() as u64;
+            if actual_len > u32::MAX as u64 {
+                self.ctx
+                    .struct_error(
+                        span,
+                        format!(
+                            "array length {} exceeds the current compiler limit of {} elements",
+                            actual_len,
+                            u32::MAX
+                        ),
+                    )
+                    .with_hint(
+                        "LLVM array types are emitted with a 32-bit element count; split the object or allocate dynamically instead",
+                    )
+                    .emit();
+                return TypeId::ERROR;
+            }
             self.ctx.type_registry.intern(TypeKind::Array {
                 is_mut: exp_is_mut,
                 elem: exp_elem_ty,
-                len: elems.len() as u64,
+                len: actual_len,
             })
         } else {
             // 原本就是 [N]T
@@ -566,7 +583,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 4. 返回最终类型
         if is_infer {
             let mut ce = ConstEvaluator::new(self.ctx);
-            let actual_len = ce.eval_usize(count).unwrap_or_default();
+            let Ok(actual_len) = ce.eval_usize(count) else {
+                return TypeId::ERROR;
+            };
+            if actual_len > u32::MAX as u64 {
+                self.ctx
+                    .struct_error(
+                        count.span,
+                        format!(
+                            "array length {} exceeds the current compiler limit of {} elements",
+                            actual_len,
+                            u32::MAX
+                        ),
+                    )
+                    .with_hint(
+                        "LLVM array types are emitted with a 32-bit element count; split the object or allocate dynamically instead",
+                    )
+                    .emit();
+                return TypeId::ERROR;
+            }
 
             self.ctx.type_registry.intern(TypeKind::Array {
                 is_mut: exp_is_mut,

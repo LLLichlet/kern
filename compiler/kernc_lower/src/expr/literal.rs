@@ -718,6 +718,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // 纯数据优化：如果没有任何负载，直接降级为硬编码整数
         if self.is_pure_enum(&def) {
+            self.record_pure_enum_tag_ty(def_id, gen_args);
             MastExprKind::Integer(tag_val)
         } else {
             let mono_id = self.instantiate_data(def_id, gen_args);
@@ -879,6 +880,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if v.name == variant_name {
                 // 直接返回整数。如果不是，包进 DataInit
                 if self.is_pure_enum(&data_def) {
+                    self.record_pure_enum_tag_ty(def_id, &gen_args);
                     return MastExprKind::Integer(current_val as u128);
                 } else {
                     let mono_id = self.instantiate_data(def_id, &gen_args);

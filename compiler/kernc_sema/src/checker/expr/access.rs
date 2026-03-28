@@ -333,9 +333,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 3. 检查 active_bounds 环境约束
         for i in 0..self.ctx.active_bounds.len() {
             let (env_target, bounds) = self.ctx.active_bounds[i].clone();
-            let env_norm = self.resolve_tv(env_target);
-            if env_norm == search_norm || env_target == search_norm {
-                for bound_ty in bounds {
+            let mut map = HashMap::new();
+            if self.unify(env_target, search_norm, &mut map) {
+                let instantiated_bounds: Vec<TypeId> = {
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    bounds
+                        .into_iter()
+                        .map(|bound| subst.substitute(bound))
+                        .collect()
+                };
+
+                for bound_ty in instantiated_bounds {
                     let bound_norm = self.resolve_tv(bound_ty);
                     if let TypeKind::TraitObject(trait_def_id, trait_args) =
                         self.ctx.type_registry.get(bound_norm).clone()
@@ -368,7 +376,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field: SymbolId,
         receiver_ty: TypeId,
     ) -> Option<TypeId> {
+        let mut visited = std::collections::HashSet::new();
+        self.resolve_trait_object_method_in_hierarchy(
+            trait_def_id,
+            trait_args,
+            field,
+            receiver_ty,
+            &mut visited,
+        )
+    }
+
+    fn resolve_trait_object_method_in_hierarchy(
+        &mut self,
+        trait_def_id: DefId,
+        trait_args: &[TypeId],
+        field: SymbolId,
+        receiver_ty: TypeId,
+        visited: &mut std::collections::HashSet<DefId>,
+    ) -> Option<TypeId> {
+        if !visited.insert(trait_def_id) {
+            return None;
+        }
+
         let trait_def = self.trait_def_for_access(trait_def_id, Span::default())?;
+        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
+            .generics
+            .iter()
+            .zip(trait_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect();
 
         if let Some(&(_, mut method_ty)) = trait_def
             .resolved_methods
@@ -392,16 +428,36 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 });
             }
 
-            if !trait_def.generics.is_empty() && !trait_args.is_empty() {
-                let mut map = HashMap::new();
-                for (i, param) in trait_def.generics.iter().enumerate() {
-                    map.insert(param.name, trait_args[i]);
-                }
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+            if !trait_arg_map.is_empty() {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
                 method_ty = subst.substitute(method_ty);
             }
             return Some(method_ty);
         }
+
+        for &super_ty in &trait_def.resolved_supertraits {
+            let inst_super_ty = if trait_arg_map.is_empty() {
+                super_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+                subst.substitute(super_ty)
+            };
+            let inst_super_norm = self.resolve_tv(inst_super_ty);
+
+            if let TypeKind::TraitObject(super_def_id, super_args) =
+                self.ctx.type_registry.get(inst_super_norm).clone()
+                && let Some(method_ty) = self.resolve_trait_object_method_in_hierarchy(
+                    super_def_id,
+                    &super_args,
+                    field,
+                    receiver_ty,
+                    visited,
+                )
+            {
+                return Some(method_ty);
+            }
+        }
+
         None
     }
 

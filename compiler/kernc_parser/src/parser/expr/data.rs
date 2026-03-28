@@ -21,6 +21,18 @@ impl<'a> Parser<'a> {
                             elem: Box::new(elem),
                         },
                     }
+                } else if self.match_token(&[TokenType::Underscore]) {
+                    self.expect(TokenType::RBracket)?;
+                    let is_mut = self.match_token(&[TokenType::Mut]);
+                    let elem = self.parse_type()?;
+                    TypeNode {
+                        id: self.new_id(),
+                        span: span.to(elem.span),
+                        kind: TypeKind::ArrayInfer {
+                            is_mut,
+                            elem: Box::new(elem),
+                        },
+                    }
                 } else {
                     let len_expr = self.parse_expression(Precedence::Lowest)?;
                     self.expect(TokenType::RBracket)?;

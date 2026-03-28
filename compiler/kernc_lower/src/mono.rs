@@ -126,8 +126,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         });
 
-        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-
         let mut mast_params = Vec::new();
         for p in &def.params {
             let raw_ty = self
@@ -136,7 +134,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .get(&p.type_node.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let conc_ty = subst.substitute(raw_ty);
+            let conc_ty = {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                subst.substitute(raw_ty)
+            };
+            self.track_pure_enum_repr_in_type(conc_ty);
             mast_params.push(MastParam {
                 name: p.pattern.name,
                 ty: conc_ty,
@@ -144,7 +146,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             });
         }
 
-        let conc_ret = subst.substitute(raw_ret);
+        let conc_ret = {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+            subst.substitute(raw_ret)
+        };
+        self.track_pure_enum_repr_in_type(conc_ret);
 
         let saved_local_types = std::mem::take(&mut self.local_types);
         let saved_defer_stack = std::mem::take(&mut self.defer_stack);
@@ -230,8 +236,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             p2a
         };
 
-        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-
         let mut mast_fields = Vec::with_capacity(def.fields.len());
 
         for &ast_idx in &physical_to_ast {
@@ -242,7 +246,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .get(&f.type_node.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let conc_ty = subst.substitute(raw_ty);
+            let conc_ty = {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                subst.substitute(raw_ty)
+            };
+            self.track_pure_enum_repr_in_type(conc_ty);
             mast_fields.push(MastField {
                 name: f.name,
                 ty: conc_ty,
@@ -293,6 +301,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         for &ast_idx in &physical_to_ast {
             let f = &fields[ast_idx];
+            self.track_pure_enum_repr_in_type(f.ty);
             mast_fields.push(MastField {
                 name: f.name,
                 ty: f.ty,
@@ -342,6 +351,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut largest_field_idx = 0;
 
         for (idx, field) in fields.iter().enumerate() {
+            self.track_pure_enum_repr_in_type(field.ty);
             mast_fields.push(MastField {
                 name: field.name,
                 ty: field.ty,
@@ -676,6 +686,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .get(&g.value.id)
             .copied()
             .unwrap_or(TypeId::ERROR);
+        self.track_pure_enum_repr_in_type(ty);
         let is_mut = g.is_mut;
 
         // 常量折叠

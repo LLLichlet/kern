@@ -15,6 +15,10 @@ pub enum ConstValue {
     String(String),
     Array(Vec<ConstValue>),
     Struct(HashMap<SymbolId, ConstValue>),
+    Enum {
+        tag: i128,
+        payload: Option<Box<ConstValue>>,
+    },
     Void,
     Undef,
 }
@@ -72,6 +76,290 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             Err(_) => Err(ConstEvalError),
         }
+    }
+
+    fn eval_data_init(
+        &mut self,
+        expr: &Expr,
+        literal: &ast::DataLiteralKind,
+        depth: usize,
+    ) -> ConstEvalResult<ConstValue> {
+        let target_ty = self
+            .ctx
+            .node_types
+            .get(&expr.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+
+        match self.ctx.type_registry.get(norm_target).clone() {
+            TypeKind::Enum(def_id, _) => {
+                self.eval_named_enum_data_init(def_id, literal, depth, expr.span)
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                self.eval_anon_enum_data_init(&enum_def, literal, depth, expr.span)
+            }
+            _ => match literal {
+                ast::DataLiteralKind::Scalar(inner) => self.eval_inner(inner, depth + 1),
+                ast::DataLiteralKind::Array(elems) => {
+                    let mut arr = Vec::new();
+                    for e in elems {
+                        arr.push(self.eval_inner(e, depth + 1)?);
+                    }
+                    Ok(ConstValue::Array(arr))
+                }
+                ast::DataLiteralKind::Struct(fields) => {
+                    let mut map = HashMap::new();
+                    for f in fields {
+                        map.insert(f.name, self.eval_inner(&f.value, depth + 1)?);
+                    }
+                    Ok(ConstValue::Struct(map))
+                }
+                ast::DataLiteralKind::Repeat { value, count } => {
+                    let val = self.eval_inner(value, depth + 1)?;
+                    let cnt = self.eval_usize(count)?;
+                    Ok(ConstValue::Array(vec![val; cnt as usize]))
+                }
+            },
+        }
+    }
+
+    fn eval_named_enum_data_init(
+        &mut self,
+        def_id: crate::def::DefId,
+        literal: &ast::DataLiteralKind,
+        depth: usize,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        let Some(Def::Enum(enum_def)) = self.ctx.defs.get(def_id.0 as usize).cloned() else {
+            return Err(ConstEvalError);
+        };
+
+        match literal {
+            ast::DataLiteralKind::Scalar(inner) => {
+                let Some(variant_name) = self.enum_ctor_variant_name(inner, span) else {
+                    return Err(ConstEvalError);
+                };
+                let Some((variant, tag)) =
+                    self.named_enum_variant_and_tag(&enum_def, variant_name, depth, span)
+                else {
+                    return Err(ConstEvalError);
+                };
+                if variant.payload_type.is_some() {
+                    self.ctx
+                        .struct_error(
+                            inner.span,
+                            format!(
+                                "variant `{}` requires a payload in constant initialization",
+                                self.ctx.resolve(variant_name)
+                            ),
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+
+                if enum_def.variants.iter().all(|v| v.payload_type.is_none()) {
+                    Ok(ConstValue::Int(tag))
+                } else {
+                    Ok(ConstValue::Enum { tag, payload: None })
+                }
+            }
+            ast::DataLiteralKind::Struct(fields) => {
+                if fields.len() != 1 {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "enum constant initialization must specify exactly one variant",
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+                let init = &fields[0];
+                let Some((variant, tag)) =
+                    self.named_enum_variant_and_tag(&enum_def, init.name, depth, init.span)
+                else {
+                    return Err(ConstEvalError);
+                };
+                let Some(_) = variant.payload_type else {
+                    self.ctx
+                        .struct_error(
+                            init.span,
+                            format!(
+                                "variant `{}` does not take a payload in constant initialization",
+                                self.ctx.resolve(init.name)
+                            ),
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                };
+                let payload = self.eval_inner(&init.value, depth + 1)?;
+                Ok(ConstValue::Enum {
+                    tag,
+                    payload: Some(Box::new(payload)),
+                })
+            }
+            _ => {
+                self.ctx
+                    .struct_error(span, "invalid enum constant initializer")
+                    .with_hint("use `Type.{ Variant }` or `Type.{ Variant: payload }`")
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
+    }
+
+    fn eval_anon_enum_data_init(
+        &mut self,
+        enum_def: &crate::ty::AnonymousEnum,
+        literal: &ast::DataLiteralKind,
+        depth: usize,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        match literal {
+            ast::DataLiteralKind::Scalar(inner) => {
+                let Some(variant_name) = self.enum_ctor_variant_name(inner, span) else {
+                    return Err(ConstEvalError);
+                };
+                let Some((variant, tag)) =
+                    self.anon_enum_variant_and_tag(enum_def, variant_name, span)
+                else {
+                    return Err(ConstEvalError);
+                };
+                if variant.payload_ty.is_some() {
+                    self.ctx
+                        .struct_error(
+                            inner.span,
+                            format!(
+                                "variant `{}` requires a payload in constant initialization",
+                                self.ctx.resolve(variant_name)
+                            ),
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+
+                if enum_def.variants.iter().all(|v| v.payload_ty.is_none()) {
+                    Ok(ConstValue::Int(tag))
+                } else {
+                    Ok(ConstValue::Enum { tag, payload: None })
+                }
+            }
+            ast::DataLiteralKind::Struct(fields) => {
+                if fields.len() != 1 {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "enum constant initialization must specify exactly one variant",
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+                let init = &fields[0];
+                let Some((variant, tag)) =
+                    self.anon_enum_variant_and_tag(enum_def, init.name, init.span)
+                else {
+                    return Err(ConstEvalError);
+                };
+                let Some(_) = variant.payload_ty else {
+                    self.ctx
+                        .struct_error(
+                            init.span,
+                            format!(
+                                "variant `{}` does not take a payload in constant initialization",
+                                self.ctx.resolve(init.name)
+                            ),
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                };
+                let payload = self.eval_inner(&init.value, depth + 1)?;
+                Ok(ConstValue::Enum {
+                    tag,
+                    payload: Some(Box::new(payload)),
+                })
+            }
+            _ => {
+                self.ctx
+                    .struct_error(span, "invalid enum constant initializer")
+                    .with_hint("use `Type.{ Variant }` or `Type.{ Variant: payload }`")
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
+    }
+
+    fn enum_ctor_variant_name(&mut self, inner: &Expr, span: Span) -> Option<SymbolId> {
+        match inner.kind {
+            ExprKind::Identifier(name) | ExprKind::EnumLiteral(name) => Some(name),
+            _ => {
+                self.ctx
+                    .struct_error(span, "enum constant initialization expects a variant name")
+                    .with_hint("write `Type.{ Variant }` for payload-less variants")
+                    .emit();
+                None
+            }
+        }
+    }
+
+    fn named_enum_variant_and_tag(
+        &mut self,
+        enum_def: &crate::def::EnumDef,
+        variant_name: SymbolId,
+        depth: usize,
+        span: Span,
+    ) -> Option<(ast::EnumVariant, i128)> {
+        let mut current_val: i128 = 0;
+        for variant in &enum_def.variants {
+            if let Some(value_expr) = &variant.value
+                && let Ok(ConstValue::Int(val)) = self.eval_inner(value_expr, depth + 1)
+            {
+                current_val = val;
+            }
+            if variant.name == variant_name {
+                return Some((variant.clone(), current_val));
+            }
+            current_val += 1;
+        }
+
+        self.ctx
+            .struct_error(
+                span,
+                format!(
+                    "variant `.{}` not found in enum constant initialization",
+                    self.ctx.resolve(variant_name)
+                ),
+            )
+            .emit();
+        None
+    }
+
+    fn anon_enum_variant_and_tag(
+        &mut self,
+        enum_def: &crate::ty::AnonymousEnum,
+        variant_name: SymbolId,
+        span: Span,
+    ) -> Option<(crate::ty::AnonymousVariant, i128)> {
+        let mut current_val: i128 = 0;
+        for variant in &enum_def.variants {
+            if let Some(explicit_value) = variant.explicit_value {
+                current_val = explicit_value;
+            }
+            if variant.name == variant_name {
+                return Some((variant.clone(), current_val));
+            }
+            current_val += 1;
+        }
+
+        self.ctx
+            .struct_error(
+                span,
+                format!(
+                    "variant `.{}` not found in enum constant initialization",
+                    self.ctx.resolve(variant_name)
+                ),
+            )
+            .emit();
+        None
     }
 
     /// 核心递归求值引擎
@@ -159,28 +447,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
 
             // === 6. 数据初始化 (支持嵌套 Array 和 Struct) ===
-            ExprKind::DataInit { literal, .. } => match literal {
-                ast::DataLiteralKind::Scalar(inner) => self.eval_inner(inner, depth + 1),
-                ast::DataLiteralKind::Array(elems) => {
-                    let mut arr = Vec::new();
-                    for e in elems {
-                        arr.push(self.eval_inner(e, depth + 1)?);
-                    }
-                    Ok(ConstValue::Array(arr))
-                }
-                ast::DataLiteralKind::Struct(fields) => {
-                    let mut map = HashMap::new();
-                    for f in fields {
-                        map.insert(f.name, self.eval_inner(&f.value, depth + 1)?);
-                    }
-                    Ok(ConstValue::Struct(map))
-                }
-                ast::DataLiteralKind::Repeat { value, count } => {
-                    let val = self.eval_inner(value, depth + 1)?;
-                    let cnt = self.eval_usize(count)?;
-                    Ok(ConstValue::Array(vec![val; cnt as usize]))
-                }
-            },
+            ExprKind::DataInit { literal, .. } => self.eval_data_init(expr, literal, depth),
 
             // === 7. 常量聚合访问 (提取结构体字段和数组索引) ===
             ExprKind::FieldAccess { lhs, field } => {

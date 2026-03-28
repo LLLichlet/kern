@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use kernc_ast as ast;
 use kernc_mast::*;
 use kernc_sema::SemaContext;
+use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, EnumDef};
-use kernc_sema::ty::TypeId;
+use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 pub(crate) mod expr;
@@ -16,6 +17,7 @@ pub struct Lowerer<'a, 'ctx> {
     module: MastModule,
 
     pub(crate) mono_cache: HashMap<(DefId, Vec<TypeId>), MonoId>,
+    pub(crate) pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
     pub(crate) next_mono_id: u32,
     pub(crate) defer_stack: Vec<Vec<MastExpr>>,
     pub(crate) global_map: HashMap<DefId, MonoId>,
@@ -41,12 +43,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 globals: Vec::new(),
                 functions: Vec::new(),
                 def_mono_map: HashMap::new(),
+                pure_enum_tag_map: HashMap::new(),
                 adt_union_map: HashMap::new(),
                 anon_struct_map: HashMap::new(),
                 anon_union_map: HashMap::new(),
                 anon_enum_map: HashMap::new(),
             },
             mono_cache: HashMap::new(),
+            pure_enum_tag_map: HashMap::new(),
             next_mono_id: 1,
             defer_stack: Vec::new(),
             global_map: HashMap::new(),
@@ -122,6 +126,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         self.module.def_mono_map = self.mono_cache.clone();
+        self.module.pure_enum_tag_map = self.pure_enum_tag_map.clone();
         self.module.adt_union_map = self.adt_union_map.clone();
         self.module.anon_struct_map = self.anon_struct_cache.clone();
         self.module.anon_union_map = self.anon_union_cache.clone();
@@ -143,6 +148,76 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     /// 纯数据探测器：如果所有的变体都没有负载，那么它在内存中就完全等价于一个整数。
     pub(crate) fn is_pure_enum(&self, def: &EnumDef) -> bool {
         def.variants.iter().all(|v| v.payload_type.is_none())
+    }
+
+    pub(crate) fn record_pure_enum_tag_ty(&mut self, def_id: DefId, args: &[TypeId]) -> TypeId {
+        let key = (def_id, args.to_vec());
+        if let Some(&tag_ty) = self.pure_enum_tag_map.get(&key) {
+            return tag_ty;
+        }
+
+        let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned() else {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): DefId {} is not an enum while recording pure enum representation.",
+                    def_id.0
+                ),
+            );
+            return TypeId::ERROR;
+        };
+
+        let raw_tag_ty = def.backing_type.as_ref().map_or(TypeId::U32, |backing_ty| {
+            self.ctx
+                .node_types
+                .get(&backing_ty.id)
+                .copied()
+                .unwrap_or(TypeId::U32)
+        });
+
+        let tag_ty = if def.generics.is_empty() || args.is_empty() {
+            raw_tag_ty
+        } else {
+            let mut subst_map = HashMap::new();
+            for (param, arg) in def.generics.iter().zip(args.iter().copied()) {
+                subst_map.insert(param.name, arg);
+            }
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
+            subst.substitute(raw_tag_ty)
+        };
+
+        self.pure_enum_tag_map.insert(key, tag_ty);
+        tag_ty
+    }
+
+    pub(crate) fn track_pure_enum_repr_in_type(&mut self, ty: TypeId) {
+        let norm_ty = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm_ty).clone() {
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Array { elem, .. }
+            | TypeKind::ArrayInfer { elem, .. } => self.track_pure_enum_repr_in_type(elem),
+            TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
+                for param in params {
+                    self.track_pure_enum_repr_in_type(param);
+                }
+                self.track_pure_enum_repr_in_type(ret);
+            }
+            TypeKind::Enum(def_id, args) => {
+                if let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned()
+                    && self.is_pure_enum(&def)
+                {
+                    self.record_pure_enum_tag_ty(def_id, &args);
+                }
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => {
+                for field in fields {
+                    self.track_pure_enum_repr_in_type(field.ty);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// 通过闭包结构体的 AST 节点 ID，获取对应的执行包装函数的 MonoId

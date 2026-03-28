@@ -1,12 +1,167 @@
 use super::CodeGenerator;
-use inkwell::AddressSpace;
 use inkwell::types::BasicTypeEnum;
 use kernc_ast as ast;
-use kernc_mast::{MastExprKind, MastFunction, MastGlobal, MastStruct};
+use kernc_mast::{MastExpr, MastExprKind, MastFunction, MastGlobal, MastStruct};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn compile_const_expr(
+        &mut self,
+        expr: &MastExpr,
+    ) -> Option<inkwell::values::BasicValueEnum<'ctx>> {
+        match &expr.kind {
+            MastExprKind::Integer(val) => {
+                let int_type = self.get_llvm_type(expr.ty).into_int_type();
+                Some(int_type.const_int(*val as u64, false).into())
+            }
+            MastExprKind::Float(val) => {
+                let float_type = self.get_llvm_type(expr.ty).into_float_type();
+                Some(float_type.const_float(*val).into())
+            }
+            MastExprKind::Bool(val) => Some(
+                self.context
+                    .bool_type()
+                    .const_int(if *val { 1 } else { 0 }, false)
+                    .into(),
+            ),
+            MastExprKind::StringLiteral(s) => {
+                Some(self.context.const_string(s.as_bytes(), false).into())
+            }
+            MastExprKind::ArrayInit(elems) => {
+                let array_ty = self.get_llvm_type(expr.ty).into_array_type();
+                let elem_ty = self
+                    .type_registry
+                    .get_elem_type(expr.ty)
+                    .map(|ty| self.get_llvm_type(ty));
+                let elem_consts: Vec<_> = elems
+                    .iter()
+                    .filter_map(|elem| self.compile_const_expr(elem))
+                    .collect();
+                if elem_consts.len() != elems.len() {
+                    return None;
+                }
+
+                match elem_ty {
+                    Some(BasicTypeEnum::IntType(int_ty)) => Some(
+                        int_ty
+                            .const_array(
+                                &elem_consts
+                                    .iter()
+                                    .map(|v| v.into_int_value())
+                                    .collect::<Vec<_>>(),
+                            )
+                            .into(),
+                    ),
+                    Some(BasicTypeEnum::FloatType(float_ty)) => Some(
+                        float_ty
+                            .const_array(
+                                &elem_consts
+                                    .iter()
+                                    .map(|v| v.into_float_value())
+                                    .collect::<Vec<_>>(),
+                            )
+                            .into(),
+                    ),
+                    Some(BasicTypeEnum::PointerType(ptr_ty)) => Some(
+                        ptr_ty
+                            .const_array(
+                                &elem_consts
+                                    .iter()
+                                    .map(|v| v.into_pointer_value())
+                                    .collect::<Vec<_>>(),
+                            )
+                            .into(),
+                    ),
+                    Some(BasicTypeEnum::StructType(struct_ty)) => Some(
+                        struct_ty
+                            .const_array(
+                                &elem_consts
+                                    .iter()
+                                    .map(|v| v.into_struct_value())
+                                    .collect::<Vec<_>>(),
+                            )
+                            .into(),
+                    ),
+                    Some(BasicTypeEnum::ArrayType(nested_array_ty)) => Some(
+                        nested_array_ty
+                            .const_array(
+                                &elem_consts
+                                    .iter()
+                                    .map(|v| v.into_array_value())
+                                    .collect::<Vec<_>>(),
+                            )
+                            .into(),
+                    ),
+                    _ => Some(array_ty.const_zero().into()),
+                }
+            }
+            MastExprKind::StructInit { struct_id, fields } => {
+                let struct_ty = *self.structs.get(struct_id)?;
+                let field_consts: Vec<_> = fields
+                    .iter()
+                    .filter_map(|field| self.compile_const_expr(field))
+                    .collect();
+                if field_consts.len() != fields.len() {
+                    return None;
+                }
+                Some(struct_ty.const_named_struct(&field_consts).into())
+            }
+            MastExprKind::UnionInit {
+                union_id, value, ..
+            } => {
+                let union_ty = *self.structs.get(union_id)?;
+                let value_const = self.compile_const_expr(value)?;
+                if union_ty.count_fields() == 1
+                    && union_ty.get_field_type_at_index(0) == Some(value_const.get_type())
+                {
+                    Some(union_ty.const_named_struct(&[value_const]).into())
+                } else {
+                    Some(union_ty.const_zero().into())
+                }
+            }
+            MastExprKind::DataInit {
+                data_struct_id,
+                tag_value,
+                payload,
+            } => {
+                let struct_ty = *self.structs.get(data_struct_id)?;
+                let tag_ty = struct_ty.get_field_type_at_index(0)?.into_int_type();
+                let tag_val = tag_ty.const_int(*tag_value as u64, false);
+
+                let union_ty = struct_ty.get_field_type_at_index(1)?.into_struct_type();
+                let union_val = if payload.ty == TypeId::VOID || payload.ty == TypeId::ERROR {
+                    union_ty.const_zero()
+                } else {
+                    let payload_const = self.compile_const_expr(payload)?;
+                    if union_ty.count_fields() == 1
+                        && union_ty.get_field_type_at_index(0) == Some(payload_const.get_type())
+                    {
+                        union_ty.const_named_struct(&[payload_const])
+                    } else {
+                        union_ty.const_zero()
+                    }
+                };
+
+                Some(
+                    struct_ty
+                        .const_named_struct(&[tag_val.into(), union_val.into()])
+                        .into(),
+                )
+            }
+            MastExprKind::FuncRef(mono_id) => self
+                .functions
+                .get(mono_id)
+                .map(|func| func.as_global_value().as_pointer_value().into()),
+            MastExprKind::GlobalRef(mono_id) => self
+                .globals
+                .get(mono_id)
+                .map(|global| global.as_pointer_value().into()),
+            MastExprKind::Undef => Some(self.get_llvm_type(expr.ty).const_zero()),
+            _ => None,
+        }
+    }
+
     fn lookup_declared_global(
         &mut self,
         global_id: kernc_mast::MonoId,
@@ -60,50 +215,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
 
         if let Some(init) = &global.init {
-            let const_val: inkwell::values::BasicValueEnum<'ctx> = match &init.kind {
-                MastExprKind::Integer(val) => {
-                    let int_type = self.get_llvm_type(init.ty).into_int_type();
-                    int_type.const_int(*val as u64, false).into()
-                }
-                MastExprKind::Float(val) => {
-                    let float_type = self.get_llvm_type(init.ty).into_float_type();
-                    float_type.const_float(*val).into()
-                }
-                MastExprKind::Bool(val) => self
-                    .context
-                    .bool_type()
-                    .const_int(if *val { 1 } else { 0 }, false)
-                    .into(),
-                MastExprKind::StringLiteral(s) => {
-                    let bytes = self.context.const_string(s.as_bytes(), false);
-                    bytes.into()
-                }
-                MastExprKind::ArrayInit(elems) => {
-                    let mut ptr_vals = Vec::new();
-                    for e in elems {
-                        if let MastExprKind::FuncRef(mono_id) = e.kind {
-                            if let Some(func_val) = self.functions.get(&mono_id) {
-                                ptr_vals.push(func_val.as_global_value().as_pointer_value());
-                            } else {
-                                self.sess.emit_ice(
-                                    e.span,
-                                    "Function reference in array init not found in LLVM functions map"
-                                        .to_string(),
-                                );
-                                ptr_vals.push(
-                                    self.context.ptr_type(AddressSpace::default()).const_null(),
-                                );
-                            }
-                        } else {
-                            ptr_vals
-                                .push(self.context.ptr_type(AddressSpace::default()).const_null());
-                        }
-                    }
-                    let ptr_ty = self.context.ptr_type(AddressSpace::default());
-                    ptr_ty.const_array(&ptr_vals).into()
-                }
-                _ => self.get_llvm_type(global.ty).const_zero(),
-            };
+            let const_val = self
+                .compile_const_expr(init)
+                .unwrap_or_else(|| self.get_llvm_type(global.ty).const_zero());
 
             global_val.set_initializer(&const_val);
         } else if !global.is_extern {

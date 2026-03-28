@@ -431,7 +431,25 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::TypeKind::Array { is_mut, elem, len } => {
                 let base = self.resolve_type(elem, env_scope);
                 let mut evaluator = ConstEvaluator::new(self.ctx);
-                let length = evaluator.eval_usize(len).unwrap_or_default();
+                let Ok(length) = evaluator.eval_usize(len) else {
+                    return TypeId::ERROR;
+                };
+                if length > u32::MAX as u64 {
+                    self.ctx
+                        .struct_error(
+                            len.span,
+                            format!(
+                                "array length {} exceeds the current compiler limit of {} elements",
+                                length,
+                                u32::MAX
+                            ),
+                        )
+                        .with_hint(
+                            "LLVM array types are emitted with a 32-bit element count; split the object or allocate dynamically instead",
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                }
                 self.ctx.type_registry.intern(TypeKind::Array {
                     is_mut: *is_mut,
                     elem: base,

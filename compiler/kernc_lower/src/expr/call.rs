@@ -7,7 +7,7 @@ use kernc_sema::LayoutEngine;
 use kernc_sema::checker::{ConstEvaluator, ConstValue, Substituter};
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
+use kernc_utils::{AtomicOrdering, AtomicRmwOp, NodeId, Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn maybe_lower_asm_call(
@@ -32,7 +32,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         callee: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
-    ) -> Option<(SymbolId, MastExpr)> {
+    ) -> Option<(NodeId, SymbolId, MastExpr)> {
         let ExprKind::FieldAccess { lhs, field } = &callee.kind else {
             return None;
         };
@@ -62,7 +62,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         }
 
-        Some((*field, self.lower_expr(lhs, subst_map, None)))
+        Some((callee.id, *field, self.lower_expr(lhs, subst_map, None)))
     }
 
     fn asm_config_fields<'b>(
@@ -395,8 +395,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             arg_masts.push(self.lower_expr(a, subst_map, exp_ty));
         }
 
-        if let Some((field, recv)) = method_call {
-            self.lower_method_call(recv, field, arg_masts, norm_callee, span)
+        if let Some((callee_id, field, recv)) = method_call {
+            self.lower_method_call(callee_id, recv, field, arg_masts, norm_callee, span)
         } else {
             self.lower_normal_call(callee, args, arg_masts, subst_map)
         }
@@ -531,6 +531,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(crate) fn lower_method_call(
         &mut self,
+        callee_id: NodeId,
         recv: MastExpr,
         field: SymbolId,
         mut arg_masts: Vec<MastExpr>,
@@ -549,10 +550,25 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             inner_ty = elem;
         }
 
+        let owner_trait_ty = self
+            .ctx
+            .trait_method_owners
+            .get(&callee_id)
+            .copied()
+            .unwrap_or(inner_ty);
+
         // 2. 根据探查到的类型，决定是动态分发(VTable)还是静态分发
-        if let TypeKind::TraitObject(trait_id, _) = self.ctx.type_registry.get(inner_ty) {
+        if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
             // 将完整的胖指针 recv 交给动态分发器提取 VTable
-            self.lower_dynamic_method_dispatch(recv, field, arg_masts, *trait_id, norm_callee, span)
+            self.lower_dynamic_method_dispatch(
+                recv,
+                field,
+                arg_masts,
+                inner_ty,
+                owner_trait_ty,
+                norm_callee,
+                span,
+            )
         } else if let TypeKind::FnDef(method_id, generics) =
             self.ctx.type_registry.get(norm_callee).clone()
         {
@@ -748,38 +764,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         recv: MastExpr,
         field: SymbolId,
         mut arg_masts: Vec<MastExpr>,
-        trait_id: DefId,
+        recv_trait_ty: TypeId,
+        owner_trait_ty: TypeId,
         norm_callee: TypeId,
         span: Span,
     ) -> MastExprKind {
-        let trait_def = match &self.ctx.defs[trait_id.0 as usize] {
-            Def::Trait(t) => t.clone(),
-            _ => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Lowering): expected Trait definition for TraitObject method call, found DefId {}.",
-                        trait_id.0
-                    ),
-                );
-                return MastExprKind::Trap;
-            }
-        };
-
-        let vtable_idx = match trait_def.methods.iter().position(|m| m.name == field) {
-            Some(idx) => idx,
-            None => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Lowering): method `{}` not found in trait definition.",
-                        self.ctx.resolve(field)
-                    ),
-                );
-                return MastExprKind::Trap;
-            }
-        };
-
         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
             elem: TypeId::VOID,
@@ -813,11 +802,65 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             span,
         );
 
+        let recv_trait_norm = self.ctx.type_registry.normalize(recv_trait_ty);
+        let owner_trait_norm = self.ctx.type_registry.normalize(owner_trait_ty);
+
+        let owner_vtable_ptr = if owner_trait_norm == recv_trait_norm {
+            vtable_ptr
+        } else {
+            let Some(super_slot) = self.vtable_supertrait_slot(recv_trait_norm, owner_trait_norm)
+            else {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): trait `{}` is not a supertrait of `{}` during dynamic dispatch.",
+                        self.ctx.ty_to_string(owner_trait_norm),
+                        self.ctx.ty_to_string(recv_trait_norm)
+                    ),
+                );
+                return MastExprKind::Trap;
+            };
+
+            let super_vtable_raw = MastExpr::new(
+                void_ptr_ty,
+                MastExprKind::IndexAccess {
+                    lhs: Box::new(vtable_ptr),
+                    index: Box::new(MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Integer(super_slot as u128),
+                        span,
+                    )),
+                },
+                span,
+            );
+
+            MastExpr::new(
+                vtable_ptr_ty,
+                MastExprKind::Cast {
+                    kind: MastCastKind::Bitcast,
+                    operand: Box::new(super_vtable_raw),
+                },
+                span,
+            )
+        };
+
+        let Some(vtable_idx) = self.direct_trait_method_slot(owner_trait_norm, field) else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Kern ICE (Lowering): method `{}` not found in owner trait `{}`.",
+                    self.ctx.resolve(field),
+                    self.ctx.ty_to_string(owner_trait_norm),
+                ),
+            );
+            return MastExprKind::Trap;
+        };
+
         // 获取函数指针
         let func_ptr = MastExpr::new(
             void_ptr_ty,
             MastExprKind::IndexAccess {
-                lhs: Box::new(vtable_ptr),
+                lhs: Box::new(owner_vtable_ptr),
                 index: Box::new(MastExpr::new(
                     TypeId::USIZE,
                     MastExprKind::Integer(vtable_idx as u128),

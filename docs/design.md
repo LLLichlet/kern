@@ -107,11 +107,12 @@ While Kern strictly enforces "explicit over implicit" (forbidding implicit integ
 
 BNC is a zero-cost compiler mechanism that naturally "decays" or "packages" a rigidly known compile-time type into a dynamic interface pointer when passing across function boundaries or assignments, without requiring the explicit `as` keyword.
 
-There are two primary BNC pathways in Kern:
+Kern currently relies on four common BNC pathways:
 1. **Array to Slice Decay**: A fixed-size array `[N]T` naturally converts into a dynamic slice `[]T`. The compiler automatically extracts the memory address and synthesizes the fat pointer's length metadata using the compile-time `N`.
 2. **Stateless Closure to Function Pointer**: An anonymous closure with an explicitly empty capture list (`.[]`) has a memory footprint of `0`. It naturally decays into a standard C-ABI stateless function pointer `fn(Args) Ret` (See Section 10.3).
 3. **Named Struct to Anonymous Struct Decay**: A named structural type (e.g., `type Vector = struct { x: i32, y: i32 }`) naturally decays into an equivalent Anonymous Struct (`struct { x: i32, y: i32 }`) or its pointer variant when passed across a boundary. This enables secure "Duck Typing" without boilerplate. 
    * *Strict ABI Contract*: BNC is aggressively guarded by ABI compatibility. A native `struct` will **never** implicitly decay into an `extern struct` (and vice versa), as their underlying memory layouts are physically distinct.
+4. **Trait Object Upcast**: A trait object pointer `*Sub` naturally boundary-converts to `*Super` if `Super` appears in `Sub`'s fully instantiated supertrait graph. This rewrites only the fat pointer metadata; the data pointer is unchanged.
 
 BNC guarantees that the developer does not need to write boilerplate fat-pointer assembly code when the compiler already possesses absolute, statically proven knowledge of the underlying metadata.
 
@@ -251,7 +252,17 @@ type Writer = trait {
 A Trait Object is a runtime-dynamic fat pointer consisting of a data pointer and a VTable pointer. They are constructed using **Explicit Constructor Syntax**.
 
   * **Construction**: You assemble a trait object by passing a concrete pointer to the Trait's constructor.
+  * **Upcast Construction**: You may also construct a parent trait object from an existing child trait object, as long as the parent is present in the fully instantiated supertrait graph.
   * **Safety Rule**: To prevent stack-size ambiguity, a Trait Object can only be constructed from a pointer type.
+  * **BNC Rule**: The same supertrait upcast is also allowed implicitly across assignment and call boundaries.
+  * **Ambiguity Rule**: If multiple inherited parent traits contribute the same method name, an unqualified call is rejected as ambiguous.
+
+Trait Object VTables use a two-part layout:
+
+  * **Header**: A flattened table of all transitive parent-trait VTable pointers, expanded in declaration-order DFS after generic instantiation and deduplicated by the final instantiated trait type.
+  * **Body**: Only the methods declared directly on the current trait, in declaration order.
+
+This makes `*Sub -> *Super` upcasts a constant-time metadata rewrite while avoiding C++-style subobject pointer adjustment.
 
 <!-- end list -->
 
@@ -260,6 +271,15 @@ let mut file = File.{ ... };
 // Assemble a mutable Trait Object from a mutable pointer
 let w = *mut Writer.{ file..& }; 
 w.write("Kern\0");
+```
+
+```kern
+type Reader = trait { read: fn() i32, };
+type BufReader: Reader = trait { fill: fn() void, };
+
+let reader = *BufReader.{ file.& };
+let base1 = *Reader.{ reader }; // explicit upcast
+use_reader(reader);             // implicit BNC upcast to *Reader
 ```
 
 ### 5.6 Generic Constraints (`where` clauses)

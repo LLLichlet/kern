@@ -1,10 +1,123 @@
 use super::Lowerer;
 use kernc_mast::*;
+use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, ImplDef, TraitDef};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::Span;
+use kernc_utils::{Span, SymbolId};
+use std::collections::{HashMap, HashSet};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    pub(crate) fn collect_transitive_supertraits(&mut self, trait_ty: TypeId) -> Vec<TypeId> {
+        let mut supertraits = Vec::new();
+        let mut visited = HashSet::new();
+        self.collect_transitive_supertraits_inner(
+            self.ctx.type_registry.normalize(trait_ty),
+            &mut visited,
+            &mut supertraits,
+        );
+        supertraits
+    }
+
+    fn collect_transitive_supertraits_inner(
+        &mut self,
+        trait_ty: TypeId,
+        visited: &mut HashSet<TypeId>,
+        supertraits: &mut Vec<TypeId>,
+    ) {
+        let trait_norm = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, trait_args) =
+            self.ctx.type_registry.get(trait_norm).clone()
+        else {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): Expected TraitObject while collecting supertraits, found {:?}.",
+                    self.ctx.type_registry.get(trait_norm)
+                ),
+            );
+            return;
+        };
+
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+        else {
+            self.ctx.emit_ice(
+                Span::default(),
+                format!(
+                    "Kern ICE (Lowering): DefId {} is not a trait while collecting supertraits.",
+                    trait_def_id.0
+                ),
+            );
+            return;
+        };
+
+        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
+            .generics
+            .iter()
+            .zip(trait_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect();
+
+        for &super_ty in &trait_def.resolved_supertraits {
+            let inst_super_ty = if trait_arg_map.is_empty() {
+                super_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+                subst.substitute(super_ty)
+            };
+            let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
+            if visited.insert(inst_super_norm) {
+                supertraits.push(inst_super_norm);
+                self.collect_transitive_supertraits_inner(inst_super_norm, visited, supertraits);
+            }
+        }
+    }
+
+    pub(crate) fn vtable_supertrait_slot(
+        &mut self,
+        trait_ty: TypeId,
+        target_trait_ty: TypeId,
+    ) -> Option<usize> {
+        let target_norm = self.ctx.type_registry.normalize(target_trait_ty);
+        self.collect_transitive_supertraits(trait_ty)
+            .iter()
+            .position(|&super_ty| super_ty == target_norm)
+    }
+
+    pub(crate) fn is_trait_object_upcast(
+        &mut self,
+        source_trait_ty: TypeId,
+        target_trait_ty: TypeId,
+    ) -> bool {
+        let source_norm = self.ctx.type_registry.normalize(source_trait_ty);
+        let target_norm = self.ctx.type_registry.normalize(target_trait_ty);
+        source_norm == target_norm
+            || self
+                .vtable_supertrait_slot(source_norm, target_norm)
+                .is_some()
+    }
+
+    pub(crate) fn direct_trait_method_slot(
+        &mut self,
+        trait_ty: TypeId,
+        method_name: SymbolId,
+    ) -> Option<usize> {
+        let trait_norm = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, _) = self.ctx.type_registry.get(trait_norm).clone()
+        else {
+            return None;
+        };
+        let Some(Def::Trait(trait_def)) = self.ctx.defs.get(trait_def_id.0 as usize).cloned()
+        else {
+            return None;
+        };
+
+        let direct_idx = trait_def
+            .methods
+            .iter()
+            .position(|method| method.name == method_name)?;
+        Some(self.collect_transitive_supertraits(trait_norm).len() + direct_idx)
+    }
+
     pub(crate) fn get_or_create_vtable(&mut self, source_ty: TypeId, trait_ty: TypeId) -> MonoId {
         let norm_source = self.ctx.type_registry.normalize(source_ty);
         let norm_trait = self.ctx.type_registry.normalize(trait_ty);
@@ -13,7 +126,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return id;
         }
 
-        let trait_def_id = match self.ctx.type_registry.get(trait_ty) {
+        let trait_def_id = match self.ctx.type_registry.get(norm_trait) {
             TypeKind::TraitObject(id, _) => *id,
             other => {
                 return self.build_invalid_vtable(
@@ -67,7 +180,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.build_and_inject_vtable_global(
             vtable_id,
             source_ty,
-            trait_ty,
+            norm_trait,
             &trait_def,
             &impl_def,
             &source_args,
@@ -76,7 +189,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         vtable_id
     }
 
-    /// 辅助方法 1：剥离来源指针的所有包装，获取真正的具名底层类型和泛型实参
     pub(crate) fn resolve_vtable_source_base(&self, source_ty: TypeId) -> (TypeId, Vec<TypeId>) {
         let mut base_ty = source_ty;
         loop {
@@ -100,13 +212,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         (base_ty, source_args)
     }
 
-    /// 辅助方法 2：在全局寻找 (SourceBaseType -> TargetTrait) 的确切 Impl 块实现
     pub(crate) fn find_matching_impl_block(
         &self,
         base_source_ty: TypeId,
         target_trait_id: DefId,
     ) -> Option<ImplDef> {
-        // 辅助闭包：提取底层类型的 DefId，兼容 Struct/Union (Def) 和 Enum (Adt)
         let get_base_def_id = |ty: TypeId| -> Option<DefId> {
             let norm = self.ctx.type_registry.normalize(ty);
             match self.ctx.type_registry.get(norm) {
@@ -122,7 +232,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Def::Impl(impl_def) = &self.ctx.defs[impl_id.0 as usize]
                 && let Some(impl_trait_node) = &impl_def.trait_type
             {
-                // 检查 Impl 块声称实现的 Trait
                 let i_trait_ty = self
                     .ctx
                     .node_types
@@ -133,7 +242,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let TypeKind::TraitObject(i_trait_id, _) = self.ctx.type_registry.get(i_trait_ty)
                     && *i_trait_id == target_trait_id
                 {
-                    // 检查 Impl 块的目标类型是否匹配
                     let i_target_ty = self
                         .ctx
                         .node_types
@@ -142,16 +250,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         .unwrap_or(TypeId::ERROR);
                     let (i_target_base, _) = self.resolve_vtable_source_base(i_target_ty);
 
-                    // 1. 如果两者都是聚合类型 (Struct/Union/Enum)，比对 DefId (忽略具体泛型参数)
                     if let (Some(target_id), Some(src_id)) =
                         (get_base_def_id(i_target_base), src_base_id)
                     {
                         if target_id == src_id {
                             return Some(impl_def.clone());
                         }
-                    }
-                    // 2. 兜底比对：支持标量类型匹配 (例如 impl Trait for i32)
-                    else if self.ctx.type_registry.normalize(i_target_base) == norm_src_base {
+                    } else if self.ctx.type_registry.normalize(i_target_base) == norm_src_base {
                         return Some(impl_def.clone());
                     }
                 }
@@ -203,7 +308,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         id
     }
 
-    /// 辅助方法 3：将提取出来的方法单态化，组装成数组，并插入到全局 MastGlobal
     pub(crate) fn build_and_inject_vtable_global(
         &mut self,
         vtable_id: MonoId,
@@ -217,16 +321,26 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_mut: false,
             elem: TypeId::VOID,
         });
-        let mut vtable_methods = Vec::new();
+        let mut vtable_entries = Vec::new();
 
-        // 遍历 Trait 定义的每一个方法契约
-        for trait_method in &trait_def.methods {
+        for super_trait_ty in self.collect_transitive_supertraits(actual_trait_ty) {
+            let super_vtable_id = self.get_or_create_vtable(source_ty, super_trait_ty);
+            match self.vtable_global_void_ptr_expr(super_vtable_id, Span::default()) {
+                Some(expr) => vtable_entries.push(expr),
+                None => vtable_entries.push(MastExpr::new(
+                    void_ptr_ty,
+                    MastExprKind::Integer(0),
+                    Span::default(),
+                )),
+            }
+        }
+
+        for method in &trait_def.methods {
             let mut method_mono_id = None;
 
-            // 在 Impl 块中找到对应的实现
             for &m_id in &impl_def.methods {
                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
-                    && f.name == trait_method.name
+                    && f.name == method.name
                 {
                     method_mono_id = Some(self.instantiate_function(m_id, source_args));
                     break;
@@ -236,27 +350,31 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let m_id = match method_mono_id {
                 Some(id) => id,
                 None => {
-                    let method_name = self.ctx.resolve(trait_method.name);
+                    let method_name = self.ctx.resolve(method.name);
                     self.ctx.emit_ice(
                         Span::default(),
-                        format!("Kern ICE (Lowering): Missing implementation for trait method `{}`. Sema failed to check trait completeness.", method_name)
+                        format!(
+                            "Kern ICE (Lowering): Missing implementation for trait method `{}`. Sema failed to check trait completeness.",
+                            method_name
+                        ),
                     );
-                    let null_ptr =
-                        MastExpr::new(void_ptr_ty, MastExprKind::Integer(0), Span::default());
-                    vtable_methods.push(null_ptr);
+                    vtable_entries.push(MastExpr::new(
+                        void_ptr_ty,
+                        MastExprKind::Integer(0),
+                        Span::default(),
+                    ));
                     continue;
                 }
             };
 
-            // 将单态化后的函数指针强转为 *void 存入虚表
-            vtable_methods.push(MastExpr::new(
+            vtable_entries.push(MastExpr::new(
                 void_ptr_ty,
                 MastExprKind::FuncRef(m_id),
                 Span::default(),
             ));
         }
 
-        let vtable_len = vtable_methods.len() as u64;
+        let vtable_len = vtable_entries.len() as u64;
         let vtable_array_ty = self.ctx.type_registry.intern(TypeKind::Array {
             is_mut: false,
             elem: void_ptr_ty,
@@ -265,7 +383,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let vtable_init = MastExpr::new(
             vtable_array_ty,
-            MastExprKind::ArrayInit(vtable_methods),
+            MastExprKind::ArrayInit(vtable_entries),
             Span::default(),
         );
 
@@ -273,7 +391,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             id: vtable_id,
             name: format!("__vtable_{}_{}", source_ty.0, actual_trait_ty.0),
             ty: vtable_array_ty,
-            is_mut: false, // 虚表永远是静态不可变的只读数据
+            is_mut: false,
             init: Some(vtable_init),
             is_extern: false,
             attributes: vec![],

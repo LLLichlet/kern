@@ -71,38 +71,36 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
                 && let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } = conc_kind
             {
-                let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
+                let actual_elem_norm = match conc_kind {
+                    TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                        self.ctx.type_registry.normalize(elem)
+                    }
+                    _ => TypeId::ERROR,
+                };
 
-                let Some(global_array_ty) = self.vtable_global_type(vtable_id, span) else {
+                if matches!(
+                    self.ctx.type_registry.get(actual_elem_norm),
+                    TypeKind::TraitObject(..)
+                ) && self.is_trait_object_upcast(actual_elem_norm, e_inner_norm)
+                {
+                    return self.lower_trait_object_upcast(
+                        MastExpr::new(concrete_ty, mast_kind, span),
+                        exp_ty,
+                        actual_elem_norm,
+                        e_inner_norm,
+                        span,
+                    );
+                }
+
+                let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
+                let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
                     return MastExpr::new(exp_ty, MastExprKind::Trap, span);
                 };
-                let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem: global_array_ty,
-                });
-
-                let concrete_expr = MastExpr::new(concrete_ty, mast_kind, span);
-                let meta_expr = MastExpr::new(
-                    TypeId::USIZE,
-                    MastExprKind::Cast {
-                        kind: MastCastKind::PtrToInt,
-                        operand: Box::new(MastExpr::new(
-                            array_ptr_ty,
-                            MastExprKind::AddressOf(Box::new(MastExpr::new(
-                                global_array_ty,
-                                MastExprKind::GlobalRef(vtable_id),
-                                span,
-                            ))),
-                            span,
-                        )),
-                    },
-                    span,
-                );
 
                 return MastExpr::new(
                     exp_ty,
                     MastExprKind::ConstructFatPointer {
-                        data_ptr: Box::new(concrete_expr),
+                        data_ptr: Box::new(MastExpr::new(concrete_ty, mast_kind, span)),
                         meta: Box::new(meta_expr),
                     },
                     span,
@@ -137,30 +135,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                 // 剩下的逻辑和普通指针打包完全一样，提取 VTable
                 let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
-                let Some(global_array_ty) = self.vtable_global_type(vtable_id, span) else {
+                let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
                     return MastExpr::new(exp_ty, MastExprKind::Trap, span);
                 };
-                let array_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem: global_array_ty,
-                });
-
-                let meta_expr = MastExpr::new(
-                    TypeId::USIZE,
-                    MastExprKind::Cast {
-                        kind: MastCastKind::PtrToInt,
-                        operand: Box::new(MastExpr::new(
-                            array_ptr_ty,
-                            MastExprKind::AddressOf(Box::new(MastExpr::new(
-                                global_array_ty,
-                                MastExprKind::GlobalRef(vtable_id),
-                                span,
-                            ))),
-                            span,
-                        )),
-                    },
-                    span,
-                );
 
                 return MastExpr::new(
                     exp_ty,
@@ -271,6 +248,102 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // 兜底返回原样 (如果遇到其他类型在 Sema 被判合法，但 Lowering 不需要干预)
         MastExpr::new(exp_ty, mast_kind, span)
+    }
+
+    pub(crate) fn lower_trait_object_upcast(
+        &mut self,
+        source_expr: MastExpr,
+        target_ptr_ty: TypeId,
+        source_trait_ty: TypeId,
+        target_trait_ty: TypeId,
+        span: Span,
+    ) -> MastExpr {
+        let source_trait_norm = self.ctx.type_registry.normalize(source_trait_ty);
+        let target_trait_norm = self.ctx.type_registry.normalize(target_trait_ty);
+
+        let data_ptr = MastExpr::new(
+            self.ctx.type_registry.intern(TypeKind::Pointer {
+                is_mut: false,
+                elem: TypeId::VOID,
+            }),
+            MastExprKind::ExtractFatPtrData(Box::new(source_expr.clone())),
+            span,
+        );
+
+        let meta_expr = if source_trait_norm == target_trait_norm {
+            MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::ExtractFatPtrMeta(Box::new(source_expr)),
+                span,
+            )
+        } else {
+            let Some(super_slot) =
+                self.vtable_supertrait_slot(source_trait_norm, target_trait_norm)
+            else {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Kern ICE (Lowering): trait object upcast target `{}` is not a parent of `{}`.",
+                        self.ctx.ty_to_string(target_trait_norm),
+                        self.ctx.ty_to_string(source_trait_norm),
+                    ),
+                );
+                return MastExpr::new(target_ptr_ty, MastExprKind::Trap, span);
+            };
+
+            let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                is_mut: false,
+                elem: TypeId::VOID,
+            });
+            let vtable_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+                is_mut: false,
+                elem: void_ptr_ty,
+            });
+
+            let source_vtable_meta = MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::ExtractFatPtrMeta(Box::new(source_expr)),
+                span,
+            );
+            let source_vtable_ptr = MastExpr::new(
+                vtable_ptr_ty,
+                MastExprKind::Cast {
+                    kind: MastCastKind::IntToPtr,
+                    operand: Box::new(source_vtable_meta),
+                },
+                span,
+            );
+            let target_vtable_raw = MastExpr::new(
+                void_ptr_ty,
+                MastExprKind::IndexAccess {
+                    lhs: Box::new(source_vtable_ptr),
+                    index: Box::new(MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::Integer(super_slot as u128),
+                        span,
+                    )),
+                },
+                span,
+            );
+
+            MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::Cast {
+                    kind: MastCastKind::PtrToInt,
+                    operand: Box::new(target_vtable_raw),
+                },
+                span,
+            )
+        };
+
+        MastExpr::new(
+            target_ptr_ty,
+            MastExprKind::ConstructFatPointer {
+                data_ptr: Box::new(data_ptr),
+                meta: Box::new(meta_expr),
+            },
+            span,
+        )
     }
 
     pub(crate) fn determine_cast_kind(&mut self, from: TypeId, to: TypeId) -> MastCastKind {

@@ -7,6 +7,11 @@ use kernc_ast::{self as ast, Expr};
 use kernc_utils::{NodeId, Span, SymbolId};
 use std::collections::HashMap;
 
+struct TraitMethodLookup {
+    owner_trait_ty: TypeId,
+    method_ty: TypeId,
+}
+
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn trait_def_for_access(
         &mut self,
@@ -184,7 +189,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn check_field_access(&mut self, lhs: &Expr, field: SymbolId, span: Span) -> TypeId {
+    pub(crate) fn check_field_access(
+        &mut self,
+        expr_id: NodeId,
+        lhs: &Expr,
+        field: SymbolId,
+        span: Span,
+    ) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
         if lhs_ty == TypeId::ERROR {
             return TypeId::ERROR;
@@ -274,7 +285,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 5. 按顺序逐级查找，一旦找到立刻返回
         for search_norm in search_tys {
-            if let Some(ty) = self.try_find_field_or_method_silent(search_norm, lhs_ty, field) {
+            if let Some((ty, owner_trait_ty)) =
+                self.try_find_field_or_method_silent(search_norm, lhs_ty, field)
+            {
+                if let Some(owner_trait_ty) = owner_trait_ty {
+                    self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
+                }
                 return ty;
             }
         }
@@ -306,28 +322,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         search_norm: TypeId,
         lhs_ty: TypeId,
         field: SymbolId,
-    ) -> Option<TypeId> {
+    ) -> Option<(TypeId, Option<TypeId>)> {
         // 1. 如果是 Trait Object
         if let TypeKind::TraitObject(trait_def_id, trait_args) =
             self.ctx.type_registry.get(search_norm).clone()
             && let Some(m) =
                 self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty)
         {
-            return Some(m);
+            return Some((m.method_ty, Some(m.owner_trait_ty)));
         }
 
         // 2. 如果是具名类型 (Struct/Union/Enum)
         if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
             && let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field)
         {
-            return Some(field_ty);
+            return Some((field_ty, None));
         }
         // 支持匿名结构体/联合体的字段访问
         if let TypeKind::AnonymousStruct(_, ref fields) | TypeKind::AnonymousUnion(_, ref fields) =
             self.ctx.type_registry.get(search_norm).clone()
             && let Some(f) = fields.iter().find(|f| f.name == field)
         {
-            return Some(f.ty);
+            return Some((f.ty, None));
         }
 
         // 3. 检查 active_bounds 环境约束
@@ -354,7 +370,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             lhs_ty,
                         )
                     {
-                        return Some(m);
+                        return Some((m.method_ty, Some(m.owner_trait_ty)));
                     }
                 }
             }
@@ -362,7 +378,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 4. 检查全局的 impl 块
         if let Some(method_ty) = self.resolve_impl_method(search_norm, field) {
-            return Some(method_ty);
+            return Some((method_ty, None));
         }
 
         None
@@ -375,7 +391,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         trait_args: &[TypeId],
         field: SymbolId,
         receiver_ty: TypeId,
-    ) -> Option<TypeId> {
+    ) -> Option<TraitMethodLookup> {
         let mut visited = std::collections::HashSet::new();
         self.resolve_trait_object_method_in_hierarchy(
             trait_def_id,
@@ -393,7 +409,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field: SymbolId,
         receiver_ty: TypeId,
         visited: &mut std::collections::HashSet<DefId>,
-    ) -> Option<TypeId> {
+    ) -> Option<TraitMethodLookup> {
         if !visited.insert(trait_def_id) {
             return None;
         }
@@ -432,9 +448,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
                 method_ty = subst.substitute(method_ty);
             }
-            return Some(method_ty);
+            let owner_trait_ty = self
+                .ctx
+                .type_registry
+                .intern(TypeKind::TraitObject(trait_def_id, trait_args.to_vec()));
+            return Some(TraitMethodLookup {
+                owner_trait_ty,
+                method_ty,
+            });
         }
 
+        let mut matches = Vec::new();
         for &super_ty in &trait_def.resolved_supertraits {
             let inst_super_ty = if trait_arg_map.is_empty() {
                 super_ty
@@ -446,7 +470,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if let TypeKind::TraitObject(super_def_id, super_args) =
                 self.ctx.type_registry.get(inst_super_norm).clone()
-                && let Some(method_ty) = self.resolve_trait_object_method_in_hierarchy(
+                && let Some(method_lookup) = self.resolve_trait_object_method_in_hierarchy(
                     super_def_id,
                     &super_args,
                     field,
@@ -454,11 +478,32 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     visited,
                 )
             {
-                return Some(method_ty);
+                matches.push(method_lookup);
             }
         }
 
-        None
+        if matches.len() > 1 {
+            let owners: Vec<String> = matches
+                .iter()
+                .map(|m| self.ctx.ty_to_string(m.owner_trait_ty))
+                .collect();
+            self.ctx
+                .struct_error(
+                    Span::default(),
+                    format!(
+                        "ambiguous inherited trait method `{}`",
+                        self.ctx.resolve(field)
+                    ),
+                )
+                .with_hint(format!(
+                    "the method is inherited from multiple parent traits: {}",
+                    owners.join(", ")
+                ))
+                .emit();
+            return None;
+        }
+
+        matches.into_iter().next()
     }
 
     pub(crate) fn check_slice_op(

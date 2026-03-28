@@ -71,7 +71,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::IndexAccess { lhs, index, is_mut } => {
                 self.check_index_access(lhs, index, *is_mut, expr.span)
             }
-            ExprKind::FieldAccess { lhs, field } => self.check_field_access(lhs, *field, expr.span),
+            ExprKind::FieldAccess { lhs, field } => {
+                self.check_field_access(expr.id, lhs, *field, expr.span)
+            }
             ExprKind::SliceOp {
                 lhs,
                 start,

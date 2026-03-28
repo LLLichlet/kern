@@ -835,8 +835,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let inner_ty_id = self.resolve_tv(inner_ty);
 
         // 1. 必须传入指针
-        let is_inner_ptr_mut = match self.ctx.type_registry.get(inner_ty_id) {
-            TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => *is_mut,
+        let (is_inner_ptr_mut, inner_elem_ty) = match self.ctx.type_registry.get(inner_ty_id) {
+            TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
+                (*is_mut, *elem)
+            }
             _ => {
                 self.ctx
                     .struct_error(
@@ -862,7 +864,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        // 3. 校验方法契约
+        let inner_elem_norm = self.resolve_tv(inner_elem_ty);
+
+        // 3. trait object 上转型
+        if matches!(
+            self.ctx.type_registry.get(inner_elem_norm),
+            TypeKind::TraitObject(..)
+        ) && self.is_trait_object_upcast(inner_elem_norm, trait_norm)
+        {
+            return expected_ptr_ty;
+        }
+
+        // 4. 校验方法契约
         if !self.check_trait_impl(inner_ty_id, trait_norm) {
             self.ctx
                 .struct_error(
@@ -873,7 +886,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        // 4. 返回构造好的胖指针类型
+        // 5. 返回构造好的胖指针类型
         expected_ptr_ty
     }
 

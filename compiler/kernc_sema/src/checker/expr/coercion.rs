@@ -130,6 +130,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
+        if matches!(
+            (
+                self.ctx.type_registry.get(expected_elem),
+                self.ctx.type_registry.get(actual_elem_norm)
+            ),
+            (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+        ) && self.is_trait_object_upcast(actual_elem_norm, expected_elem)
+        {
+            return true;
+        }
+
         if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(expected_elem) {
             let trait_source_ty = if !expected_mut && *actual_mut {
                 self.ctx.type_registry.intern(TypeKind::Pointer {
@@ -146,6 +157,76 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         false
+    }
+
+    pub(crate) fn is_trait_object_upcast(
+        &mut self,
+        source_trait_ty: TypeId,
+        target_trait_ty: TypeId,
+    ) -> bool {
+        let source_norm = self.resolve_tv(source_trait_ty);
+        let target_norm = self.resolve_tv(target_trait_ty);
+
+        if source_norm == target_norm {
+            return true;
+        }
+
+        let mut visited = HashSet::new();
+        self.find_supertrait_in_hierarchy(source_norm, target_norm, &mut visited)
+            .is_some()
+    }
+
+    pub(crate) fn find_supertrait_in_hierarchy(
+        &mut self,
+        source_trait_ty: TypeId,
+        target_trait_ty: TypeId,
+        visited: &mut HashSet<TypeId>,
+    ) -> Option<TypeId> {
+        let source_norm = self.resolve_tv(source_trait_ty);
+        let target_norm = self.resolve_tv(target_trait_ty);
+
+        if !visited.insert(source_norm) {
+            return None;
+        }
+
+        let TypeKind::TraitObject(source_def_id, source_args) =
+            self.ctx.type_registry.get(source_norm).clone()
+        else {
+            return None;
+        };
+
+        let Def::Trait(trait_def) = self.ctx.defs[source_def_id.0 as usize].clone() else {
+            return None;
+        };
+
+        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
+            .generics
+            .iter()
+            .zip(source_args.iter())
+            .map(|(param, arg)| (param.name, *arg))
+            .collect();
+
+        for &super_ty in &trait_def.resolved_supertraits {
+            let inst_super_ty = if trait_arg_map.is_empty() {
+                super_ty
+            } else {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+                subst.substitute(super_ty)
+            };
+            let inst_super_norm = self.resolve_tv(inst_super_ty);
+
+            if inst_super_norm == target_norm {
+                return Some(inst_super_norm);
+            }
+
+            if let Some(found) =
+                self.find_supertrait_in_hierarchy(inst_super_norm, target_norm, visited)
+            {
+                return Some(found);
+            }
+        }
+
+        None
     }
 
     fn check_value_to_trait_object_pointer(
@@ -374,6 +455,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return true;
             }
             if self.is_anonymous_aggregate_equivalent(e_norm, a_norm) {
+                return true;
+            }
+            if matches!(
+                (
+                    self.ctx.type_registry.get(e_norm),
+                    self.ctx.type_registry.get(a_norm)
+                ),
+                (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+            ) && self.is_trait_object_upcast(a_norm, e_norm)
+            {
                 return true;
             }
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_norm)

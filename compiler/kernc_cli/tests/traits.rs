@@ -297,15 +297,15 @@ extern fn main(args: [][]u8) i32 {
 fn compiles_std_cmp_ord_bound_for_builtin_scalars() {
     let output = compile_source_with_std(
         r#"
-use std.cmp.{Ord, LESS, EQUAL, GREATER};
+use std.cmp.Ord;
 
 fn classify[T](lhs: *T, rhs: T) i32
     where *T: Ord[T],
 {
     match (lhs.cmp(rhs)) {
-        LESS => -1,
-        EQUAL => 0,
-        GREATER => 1,
+        -1 => -1,
+        0 => 0,
+        1 => 1,
         _ => 99,
     }
 }
@@ -332,12 +332,18 @@ extern fn main(args: [][]u8) i32 {
 fn compiles_std_cmp_ord_bound_for_custom_impls() {
     let output = compile_source_with_std(
         r#"
-use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
+use std.cmp.{Eq, Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 
 type Key = struct {
     raw: i32,
     bias: i32,
 };
+
+impl *Key : Eq[Key] {
+    pub fn eq(other: Key) bool {
+        return self.raw == other.raw and self.bias == other.bias;
+    }
+}
 
 impl *Key : Comparable[Key] {
     pub fn cmp(other: Key) Ordering {
@@ -355,9 +361,9 @@ fn classify[T](lhs: *T, rhs: T) i32
     where *T: Ord[T],
 {
     match (lhs.cmp(rhs)) {
-        LESS => -1,
-        EQUAL => 0,
-        GREATER => 1,
+        -1 => -1,
+        0 => 0,
+        1 => 1,
         _ => 99,
     }
 }

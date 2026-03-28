@@ -1,7 +1,9 @@
 mod list;
+mod map;
 mod string;
 mod tree_map;
 
 pub use .list.List;
+pub use .map.Map;
 pub use .string.String;
 pub use .tree_map.TreeMap;

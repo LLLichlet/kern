@@ -1,0 +1,101 @@
+pub type Hash[T] = trait {
+    hash: fn() u64,
+};
+
+pub const fn mix_u64(value: u64) u64 {
+    let mut z = value + u64.{11400714819323198485};
+    z = (z ^ (z >> 30)) * u64.{13787848793156543929};
+    z = (z ^ (z >> 27)) * u64.{10723151780598845931};
+    return z ^ (z >> 31);
+}
+
+pub const fn mix_u128(value: u128) u64 {
+    let lo = value as u64;
+    let hi = (value >> 64) as u64;
+    return mix_u64(lo ^ mix_u64(hi + u64.{14029467366897019727}));
+}
+
+pub fn hash_of[T](value: T) u64
+    where *T: Hash[T],
+{
+    return value.&.hash();
+}
+
+impl *i8 : Hash[i8] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *i16 : Hash[i16] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *i32 : Hash[i32] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *i64 : Hash[i64] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *i128 : Hash[i128] {
+    pub fn hash() u64 {
+        return mix_u128(self.* as u128);
+    }
+}
+
+impl *isize : Hash[isize] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *u8 : Hash[u8] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *u16 : Hash[u16] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *u32 : Hash[u32] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *u64 : Hash[u64] {
+    pub fn hash() u64 {
+        return mix_u64(self.*);
+    }
+}
+
+impl *u128 : Hash[u128] {
+    pub fn hash() u64 {
+        return mix_u128(self.*);
+    }
+}
+
+impl *usize : Hash[usize] {
+    pub fn hash() u64 {
+        return mix_u64(self.* as u64);
+    }
+}
+
+impl *bool : Hash[bool] {
+    pub fn hash() u64 {
+        let bits = if (self.*) u64.{1} else u64.{0};
+        return mix_u64(bits);
+    }
+}

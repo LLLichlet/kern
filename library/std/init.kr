@@ -9,6 +9,8 @@ pub mod coll;
 pub mod num;
 pub mod sync;
 pub mod cmp;
+pub mod hash;
 
 pub use .dbg.{Result, Option};
-pub use .cmp.{Ordering, LESS, EQUAL, GREATER, Comparable, Ord, ord_cmp};
+pub use .cmp.{Eq, eq, Ordering, LESS, EQUAL, GREATER, Comparable, Ord, ord_cmp};
+pub use .hash.{Hash, hash_of, mix_u64, mix_u128};

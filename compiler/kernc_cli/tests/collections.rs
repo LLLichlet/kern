@@ -175,13 +175,19 @@ fn runs_hosted_program_using_custom_ord_tree_map_key() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.TreeMap;
-use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
+use std.cmp.{Eq, Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 type Key = struct {
     major: i32,
     minor: i32,
 };
+
+impl *Key : Eq[Key] {
+    pub fn eq(other: Key) bool {
+        return self.major == other.major and self.minor == other.minor;
+    }
+}
 
 impl *Key : Comparable[Key] {
     pub fn cmp(other: Key) Ordering {
@@ -268,6 +274,215 @@ extern fn main(args: [][]u8) i32 {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("Ord[Key]") || stderr.contains("TreeMap[Key, i32]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runs_hosted_program_using_std_coll_map() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.Map;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = Map[i32, i32].{}..&;
+    defer map.deinit(gpa);
+
+    let mut i = 0;
+    for (; i < 128; i += 1) {
+        let key = i as i32;
+        if (!map.insert(gpa, key, key * 3)) {
+            return 1;
+        }
+    }
+
+    if (!map.insert(gpa, 7, 99)) {
+        return 2;
+    }
+    if (map.len != 128) {
+        return 3;
+    }
+
+    let value_ptr = match (map.get_ptr(7)) {
+        .Some: ptr => ptr,
+        .None => return 4,
+    };
+    value_ptr.* = 123;
+
+    if (!map.get(7).is_some_and(.[](value: i32) bool { return value == 123; })) {
+        return 5;
+    }
+
+    let removed = match (map.remove(7)) {
+        .Some: value => value,
+        .None => return 6,
+    };
+    if (removed != 123) {
+        return 7;
+    }
+
+    if (map.contains(7)) {
+        return 8;
+    }
+
+    if (!map.insert(gpa, 7, 777)) {
+        return 9;
+    }
+    if (!map.get(7).is_some_and(.[](value: i32) bool { return value == 777; })) {
+        return 10;
+    }
+    if (!map.get(100).is_some_and(.[](value: i32) bool { return value == 300; })) {
+        return 11;
+    }
+
+    let missing = map.remove(999);
+    if (missing.is_some()) {
+        return 12;
+    }
+
+    map.clear();
+    if (!map.is_empty() or map.len != 0) {
+        return 13;
+    }
+
+    if (!map.insert(gpa, 42, 4242)) {
+        return 14;
+    }
+    if (!map.get(42).is_some_and(.[](value: i32) bool { return value == 4242; })) {
+        return 15;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_hosted_program_using_custom_hash_map_key_with_collisions() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.Map;
+use std.cmp.Eq;
+use std.hash.Hash;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+type Key = struct {
+    group: i32,
+    id: i32,
+};
+
+impl *Key : Eq[Key] {
+    pub fn eq(other: Key) bool {
+        return self.group == other.group and self.id == other.id;
+    }
+}
+
+impl *Key : Hash[Key] {
+    pub fn hash() u64 {
+        return self.group as u64;
+    }
+}
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = Map[Key, i32].{}..&;
+    defer map.deinit(gpa);
+
+    if (!map.insert(gpa, Key.{ group: 1, id: 10 }, 10)) {
+        return 1;
+    }
+    if (!map.insert(gpa, Key.{ group: 1, id: 11 }, 11)) {
+        return 2;
+    }
+    if (!map.insert(gpa, Key.{ group: 1, id: 12 }, 12)) {
+        return 3;
+    }
+    if (!map.insert(gpa, Key.{ group: 2, id: 99 }, 99)) {
+        return 4;
+    }
+    if (map.len != 4) {
+        return 5;
+    }
+
+    if (!map.get(Key.{ group: 1, id: 11 }).is_some_and(.[](value: i32) bool { return value == 11; })) {
+        return 6;
+    }
+
+    let removed = match (map.remove(Key.{ group: 1, id: 10 })) {
+        .Some: value => value,
+        .None => return 7,
+    };
+    if (removed != 10) {
+        return 8;
+    }
+
+    if (!map.insert(gpa, Key.{ group: 1, id: 13 }, 13)) {
+        return 9;
+    }
+    if (!map.get(Key.{ group: 1, id: 12 }).is_some_and(.[](value: i32) bool { return value == 12; })) {
+        return 10;
+    }
+    if (!map.get(Key.{ group: 1, id: 13 }).is_some_and(.[](value: i32) bool { return value == 13; })) {
+        return 11;
+    }
+    if (map.contains(Key.{ group: 1, id: 10 })) {
+        return 12;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_map_key_without_eq_and_hash() {
+    let output = compile_source_with_std(
+        r#"
+use std.coll.Map;
+
+type Key = struct {
+    raw: i32,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let map = Map[Key, i32].{}..&;
+    let _ = map;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Eq[Key]") || stderr.contains("Hash[Key]") || stderr.contains("Map[Key, i32]"),
         "unexpected stderr:\n{}",
         stderr
     );

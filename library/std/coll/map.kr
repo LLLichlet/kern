@@ -1,0 +1,382 @@
+use std.Option;
+use std.cmp.Eq;
+use std.hash.Hash;
+use std.mem.array_layout_of;
+use std.mem.alloc.Allocator;
+use std.num.USIZE_MAX;
+
+const EMPTY = u8.{0};
+const DELETED = u8.{1};
+const FULL = u8.{2};
+const MIN_CAPACITY = usize.{8};
+
+type Entry[K, V] = struct {
+    hash64: u64,
+    key: K,
+    value: V,
+};
+
+type Table[K, V] = struct {
+    ctrl: *mut u8,
+    entries: *mut Entry[K, V],
+    capacity: usize,
+};
+
+fn ctrl_at(ctrl: *u8, index: usize) u8 {
+    return (ctrl + index).*;
+}
+
+fn set_ctrl(ctrl: *mut u8, index: usize, value: u8) void {
+    (ctrl + index).* = value;
+}
+
+fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, V] {
+    return entries + index;
+}
+
+fn max_occupied(capacity: usize) usize {
+    return capacity - capacity / 4;
+}
+
+pub type Map[K, V] where *K: Eq[K] + Hash[K] = struct {
+    ctrl: *mut u8 = 0,
+    entries: *mut Entry[K, V] = 0,
+    capacity: usize = 0,
+    len: usize = 0,
+    tombstones: usize = 0,
+};
+
+impl[K, V] *mut Map[K, V]
+    where *K: Eq[K] + Hash[K],
+{
+    fn key_hash(key: K) u64 {
+        return key.&.hash();
+    }
+
+    fn keys_equal(lhs: K, rhs: K) bool {
+        return lhs.&.eq(rhs);
+    }
+
+    fn next_capacity(current: usize) Option[usize] {
+        if (current == 0) {
+            return .{ Some: MIN_CAPACITY };
+        }
+        if (current > USIZE_MAX / 2) {
+            return .{ None };
+        }
+        return .{ Some: current * 2 };
+    }
+
+    fn alloc_table(alloc: *mut Allocator, capacity: usize) Option[Table[K, V]] {
+        let ctrl_layout = match (array_layout_of[u8](capacity)) {
+            .Some: layout => layout,
+            .None => return .{ None },
+        };
+        let entries_layout = match (array_layout_of[Entry[K, V]](capacity)) {
+            .Some: layout => layout,
+            .None => return .{ None },
+        };
+
+        let ctrl = match (alloc.alloc(ctrl_layout)) {
+            .Some: ptr => ptr,
+            .None => return .{ None },
+        };
+        @memset(ctrl, EMPTY, capacity);
+
+        let entries_raw = match (alloc.alloc(entries_layout)) {
+            .Some: ptr => ptr,
+            .None => *mut u8.{0},
+        };
+        if ((entries_raw as usize) == 0) {
+            alloc.free(ctrl, ctrl_layout);
+            return .{ None };
+        }
+
+        return .{
+            Some: Table[K, V].{
+                ctrl: ctrl,
+                entries: entries_raw as *mut Entry[K, V],
+                capacity: capacity,
+            },
+        };
+    }
+
+    fn free_table(alloc: *mut Allocator, ctrl: *mut u8, entries: *mut Entry[K, V], capacity: usize) void {
+        if (capacity == 0) return;
+
+        let ctrl_layout = match (array_layout_of[u8](capacity)) {
+            .Some: layout => layout,
+            .None => return,
+        };
+        let entries_layout = match (array_layout_of[Entry[K, V]](capacity)) {
+            .Some: layout => layout,
+            .None => return,
+        };
+
+        alloc.free(ctrl, ctrl_layout);
+        alloc.free(entries as *mut u8, entries_layout);
+    }
+
+    fn insert_into_raw(
+        ctrl: *mut u8,
+        entries: *mut Entry[K, V],
+        capacity: usize,
+        hash: u64,
+        key: K,
+        value: V,
+    ) void {
+        let mask = capacity - 1;
+        let mut index = (hash as usize) & mask;
+        let mut probes = 0;
+
+        for (; probes < capacity; probes += 1) {
+            if (ctrl_at(ctrl, index) != FULL) {
+                let entry = entry_ptr[K, V](entries, index);
+                entry.hash64 = hash;
+                entry.key = key;
+                entry.value = value;
+                set_ctrl(ctrl, index, FULL);
+                return;
+            }
+            index = (index + 1) & mask;
+        }
+
+        @trap();
+    }
+
+    fn rebuild(alloc: *mut Allocator, requested_capacity: usize) bool {
+        let new_capacity = if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
+        let table = match (self.alloc_table(alloc, new_capacity)) {
+            .Some: table => table,
+            .None => return false,
+        };
+
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) continue;
+
+            let entry = entry_ptr[K, V](self.entries, i);
+            self.insert_into_raw(table.ctrl, table.entries, table.capacity, entry.hash64, entry.key, entry.value);
+        }
+
+        self.free_table(alloc, self.ctrl, self.entries, self.capacity);
+        self.ctrl = table.ctrl;
+        self.entries = table.entries;
+        self.capacity = table.capacity;
+        self.tombstones = 0;
+        return true;
+    }
+
+    fn reserve_internal(alloc: *mut Allocator, additional: usize) bool {
+        if (additional == 0) {
+            if (self.capacity == 0) return true;
+            if (self.tombstones == 0) return true;
+            return self.rebuild(alloc, self.capacity);
+        }
+
+        if (additional > USIZE_MAX - self.len) {
+            return false;
+        }
+
+        let required_len = self.len + additional;
+        let required_occupied = required_len + self.tombstones;
+
+        let mut target = if (self.capacity == 0) MIN_CAPACITY else self.capacity;
+        for (; required_occupied > max_occupied(target); ) {
+            target = match (self.next_capacity(target)) {
+                .Some: cap => cap,
+                .None => return false,
+            };
+        }
+
+        if (target == self.capacity and self.tombstones == 0) {
+            return true;
+        }
+
+        return self.rebuild(alloc, target);
+    }
+
+    fn find_index_with_hash(key: K, hash: u64) Option[usize] {
+        let mask = self.capacity - 1;
+        let mut index = (hash as usize) & mask;
+        let mut probes = 0;
+
+        for (; probes < self.capacity; probes += 1) {
+            let state = ctrl_at(self.ctrl, index);
+            if (state == EMPTY) {
+                return .{ None };
+            }
+
+            if (state == FULL) {
+                let entry = entry_ptr[K, V](self.entries, index);
+                if (entry.hash64 == hash and self.keys_equal(entry.key, key)) {
+                    return .{ Some: index };
+                }
+            }
+
+            index = (index + 1) & mask;
+        }
+
+        return .{ None };
+    }
+
+    fn find_insert_slot(hash: u64) usize {
+        let mask = self.capacity - 1;
+        let mut index = (hash as usize) & mask;
+        let mut first_deleted = self.capacity;
+        let mut probes = 0;
+
+        for (; probes < self.capacity; probes += 1) {
+            let state = ctrl_at(self.ctrl, index);
+            if (state == EMPTY) {
+                if (first_deleted < self.capacity) {
+                    return first_deleted;
+                }
+                return index;
+            }
+            if (state == DELETED and first_deleted == self.capacity) {
+                first_deleted = index;
+            }
+            index = (index + 1) & mask;
+        }
+
+        if (first_deleted < self.capacity) {
+            return first_deleted;
+        }
+
+        @trap();
+    }
+
+    pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
+        return self.reserve_internal(alloc, additional);
+    }
+
+    pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
+        if (!self.reserve_internal(alloc, 1)) {
+            return false;
+        }
+
+        let hash = self.key_hash(key);
+        match (self.find_index_with_hash(key, hash)) {
+            .Some: index => {
+                let entry = entry_ptr[K, V](self.entries, index);
+                entry.value = value;
+                return true;
+            }
+            .None => {}
+        }
+
+        let slot = self.find_insert_slot(hash);
+        let entry = entry_ptr[K, V](self.entries, slot);
+        let prev_state = ctrl_at(self.ctrl, slot);
+        entry.hash64 = hash;
+        entry.key = key;
+        entry.value = value;
+        set_ctrl(self.ctrl, slot, FULL);
+        self.len += 1;
+        if (prev_state == DELETED) {
+            self.tombstones -= 1;
+        }
+        return true;
+    }
+
+    pub fn get_ptr(key: K) Option[*mut V] {
+        if (self.capacity == 0) return .{ None };
+
+        let hash = self.key_hash(key);
+        let slot = match (self.find_index_with_hash(key, hash)) {
+            .Some: index => index,
+            .None => return .{ None },
+        };
+        let entry = entry_ptr[K, V](self.entries, slot);
+        return .{ Some: entry.value..& };
+    }
+
+    pub fn remove(key: K) Option[V] {
+        if (self.capacity == 0) return .{ None };
+
+        let hash = self.key_hash(key);
+        let slot = match (self.find_index_with_hash(key, hash)) {
+            .Some: index => index,
+            .None => return .{ None },
+        };
+        let entry = entry_ptr[K, V](self.entries, slot);
+        let removed = entry.value;
+        set_ctrl(self.ctrl, slot, DELETED);
+        self.len -= 1;
+        self.tombstones += 1;
+        return .{ Some: removed };
+    }
+
+    pub fn clear() void {
+        if (self.capacity == 0) return;
+        @memset(self.ctrl, EMPTY, self.capacity);
+        self.len = 0;
+        self.tombstones = 0;
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.free_table(alloc, self.ctrl, self.entries, self.capacity);
+        self.ctrl = 0;
+        self.entries = 0;
+        self.capacity = 0;
+        self.len = 0;
+        self.tombstones = 0;
+    }
+}
+
+impl[K, V] *Map[K, V]
+    where *K: Eq[K] + Hash[K],
+{
+    fn key_hash(key: K) u64 {
+        return key.&.hash();
+    }
+
+    fn keys_equal(lhs: K, rhs: K) bool {
+        return lhs.&.eq(rhs);
+    }
+
+    fn find_index_with_hash(key: K, hash: u64) Option[usize] {
+        let mask = self.capacity - 1;
+        let mut index = (hash as usize) & mask;
+        let mut probes = 0;
+
+        for (; probes < self.capacity; probes += 1) {
+            let state = ctrl_at(self.ctrl, index);
+            if (state == EMPTY) {
+                return .{ None };
+            }
+
+            if (state == FULL) {
+                let entry = entry_ptr[K, V](self.entries, index);
+                if (entry.hash64 == hash and self.keys_equal(entry.key, key)) {
+                    return .{ Some: index };
+                }
+            }
+
+            index = (index + 1) & mask;
+        }
+
+        return .{ None };
+    }
+
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+
+    pub fn contains(key: K) bool {
+        return self.get(key).is_some();
+    }
+
+    pub fn get(key: K) Option[V] {
+        if (self.capacity == 0) return .{ None };
+
+        let hash = self.key_hash(key);
+        let slot = match (self.find_index_with_hash(key, hash)) {
+            .Some: index => index,
+            .None => return .{ None },
+        };
+        let entry = entry_ptr[K, V](self.entries, slot);
+        return .{ Some: entry.value };
+    }
+}

@@ -339,21 +339,36 @@ extern fn main() i32 {
         return 11;
     }
 
+    let before_compact = map.capacity;
+    if (!map.compact(gpa)) {
+        return 12;
+    }
+    if (map.capacity != before_compact) {
+        return 13;
+    }
+
     let missing = map.remove(999);
     if (missing.is_some()) {
-        return 12;
+        return 14;
     }
 
     map.clear();
     if (!map.is_empty() or map.len != 0) {
-        return 13;
+        return 15;
     }
 
     if (!map.insert(gpa, 42, 4242)) {
-        return 14;
+        return 16;
     }
     if (!map.get(42).is_some_and(.[](value: i32) bool { return value == 4242; })) {
-        return 15;
+        return 17;
+    }
+
+    if (!map.shrink_to_fit(gpa)) {
+        return 18;
+    }
+    if (map.capacity != 8) {
+        return 19;
     }
 
     return 0;
@@ -440,6 +455,29 @@ extern fn main() i32 {
     }
     if (map.contains(Key.{ group: 1, id: 10 })) {
         return 12;
+    }
+
+    let cap_before = map.capacity;
+    if (!map.reserve(gpa, 64)) {
+        return 13;
+    }
+    if (map.capacity < cap_before) {
+        return 14;
+    }
+    if (!map.get(Key.{ group: 1, id: 11 }).is_some_and(.[](value: i32) bool { return value == 11; })) {
+        return 15;
+    }
+
+    let _ = map.remove(Key.{ group: 1, id: 11 });
+    let _ = map.remove(Key.{ group: 1, id: 12 });
+    if (!map.compact(gpa)) {
+        return 16;
+    }
+    if (!map.insert(gpa, Key.{ group: 1, id: 14 }, 14)) {
+        return 17;
+    }
+    if (!map.get(Key.{ group: 1, id: 14 }).is_some_and(.[](value: i32) bool { return value == 14; })) {
+        return 18;
     }
 
     return 0;

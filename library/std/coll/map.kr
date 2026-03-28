@@ -67,6 +67,17 @@ impl[K, V] *mut Map[K, V]
         return .{ Some: current * 2 };
     }
 
+    fn capacity_for_len(required_len: usize) Option[usize] {
+        let mut target = MIN_CAPACITY;
+        for (; required_len > max_occupied(target); ) {
+            target = match (self.next_capacity(target)) {
+                .Some: cap => cap,
+                .None => return .{ None },
+            };
+        }
+        return .{ Some: target };
+    }
+
     fn alloc_table(alloc: *mut Allocator, capacity: usize) Option[Table[K, V]] {
         let ctrl_layout = match (array_layout_of[u8](capacity)) {
             .Some: layout => layout,
@@ -180,14 +191,10 @@ impl[K, V] *mut Map[K, V]
 
         let required_len = self.len + additional;
         let required_occupied = required_len + self.tombstones;
-
-        let mut target = if (self.capacity == 0) MIN_CAPACITY else self.capacity;
-        for (; required_occupied > max_occupied(target); ) {
-            target = match (self.next_capacity(target)) {
-                .Some: cap => cap,
-                .None => return false,
-            };
-        }
+        let target = match (self.capacity_for_len(required_occupied)) {
+            .Some: cap => cap,
+            .None => return false,
+        };
 
         if (target == self.capacity and self.tombstones == 0) {
             return true;
@@ -249,6 +256,28 @@ impl[K, V] *mut Map[K, V]
 
     pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
         return self.reserve_internal(alloc, additional);
+    }
+
+    pub fn compact(alloc: *mut Allocator) bool {
+        return self.reserve_internal(alloc, 0);
+    }
+
+    pub fn shrink_to_fit(alloc: *mut Allocator) bool {
+        if (self.len == 0) {
+            self.deinit(alloc);
+            return true;
+        }
+
+        let target = match (self.capacity_for_len(self.len)) {
+            .Some: cap => cap,
+            .None => return false,
+        };
+
+        if (target == self.capacity and self.tombstones == 0) {
+            return true;
+        }
+
+        return self.rebuild(alloc, target);
     }
 
     pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {

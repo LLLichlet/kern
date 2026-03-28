@@ -643,6 +643,147 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_map_traversal_and_filter_helpers() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.Map;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = Map[i32, i32].{}..&;
+    defer map.deinit(gpa);
+
+    if (!map.insert(gpa, 3, 30)) return 1;
+    if (!map.insert(gpa, 1, 10)) return 2;
+    if (!map.insert(gpa, 4, 40)) return 3;
+    if (!map.insert(gpa, 2, 20)) return 4;
+
+    let mut key_sum = i32.{0};
+    let mut value_sum = i32.{0};
+    map.for_each(.[key_sum = key_sum..&, value_sum = value_sum..&](key: i32, value: i32) void {
+        key_sum.* += key;
+        value_sum.* += value;
+    });
+    if (key_sum != 10 or value_sum != 100) {
+        return 5;
+    }
+
+    let folded = map.fold(i32.{0}, .[](accum: i32, key: i32, value: i32) i32 {
+        return accum + key + value;
+    });
+    if (folded != 110) {
+        return 6;
+    }
+
+    map.for_each_mut(.[](key: i32, value: *mut i32) void {
+        value.* += key;
+    });
+    if (!map.get(1).is_some_and(.[](value: i32) bool { return value == 11; })) return 7;
+    if (!map.get(2).is_some_and(.[](value: i32) bool { return value == 22; })) return 8;
+    if (!map.get(3).is_some_and(.[](value: i32) bool { return value == 33; })) return 9;
+    if (!map.get(4).is_some_and(.[](value: i32) bool { return value == 44; })) return 10;
+
+    map.retain(.[](key: i32, _: i32) bool {
+        return key % 2 == 0;
+    });
+    if (map.len != 2) {
+        return 11;
+    }
+    if (map.contains(1) or map.contains(3)) {
+        return 12;
+    }
+    if (!map.contains(2) or !map.contains(4)) {
+        return 13;
+    }
+
+    if (!map.compact(gpa)) {
+        return 14;
+    }
+    let retained = map.fold(i32.{0}, .[](accum: i32, key: i32, value: i32) i32 {
+        return accum + key * value;
+    });
+    if (retained != 220) {
+        return 15;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_hosted_program_using_tree_map_ordered_traversal_helpers() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.{TreeMap, String};
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = TreeMap[i32, i32].{}..&;
+    defer map.deinit(gpa);
+
+    if (!map.insert(gpa, 3, 30)) return 1;
+    if (!map.insert(gpa, 1, 10)) return 2;
+    if (!map.insert(gpa, 4, 40)) return 3;
+    if (!map.insert(gpa, 2, 20)) return 4;
+
+    let order = String.{}..&;
+    defer order.deinit(gpa);
+    map.for_each(.[order, gpa](key: i32, _: i32) void {
+        let _ = order.push_char(gpa, (key as u8) + b'0');
+    });
+    if (!order.eq("1234")) {
+        return 5;
+    }
+
+    let weighted = map.fold(i32.{0}, .[](accum: i32, key: i32, value: i32) i32 {
+        return accum + key * value;
+    });
+    if (weighted != 300) {
+        return 6;
+    }
+
+    map.for_each_mut(.[](key: i32, value: *mut i32) void {
+        value.* += key;
+    });
+    if (!map.get(1).is_some_and(.[](value: i32) bool { return value == 11; })) return 7;
+    if (!map.get(2).is_some_and(.[](value: i32) bool { return value == 22; })) return 8;
+    if (!map.get(3).is_some_and(.[](value: i32) bool { return value == 33; })) return 9;
+    if (!map.get(4).is_some_and(.[](value: i32) bool { return value == 44; })) return 10;
+
+    let updated = map.fold(i32.{0}, .[](accum: i32, key: i32, value: i32) i32 {
+        return accum + key + value;
+    });
+    if (updated != 120) {
+        return 11;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_list_slice_and_string_algorithms() {
     let output = build_and_run_hosted(
         r#"

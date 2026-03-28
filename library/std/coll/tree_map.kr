@@ -180,6 +180,24 @@ impl[K, V] *mut TreeMap[K, V]
         self.free_node(alloc, node);
     }
 
+    fn for_each_mut_node(node: *mut Node[K, V], visitor: *Fn(K, *mut V) void) void {
+        if ((node as usize) == 0) {
+            return;
+        }
+
+        let mut i = 0;
+        for (; i < node.len; i += 1) {
+            if (!node.is_leaf) {
+                self.for_each_mut_node(child_at[K, V](node, i), visitor);
+            }
+            visitor(key_at[K, V](node, i), node.values.[i]..&);
+        }
+
+        if (!node.is_leaf) {
+            self.for_each_mut_node(child_at[K, V](node, node.len), visitor);
+        }
+    }
+
     pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
         if ((self.root as usize) == 0) {
             let root = match (self.alloc_node(alloc, true)) {
@@ -274,6 +292,10 @@ impl[K, V] *mut TreeMap[K, V]
         }
         return self.get_ptr(key);
     }
+
+    pub fn for_each_mut(visitor: *Fn(K, *mut V) void) void {
+        self.for_each_mut_node(self.root, visitor);
+    }
 }
 
 impl[K, V] *TreeMap[K, V]
@@ -283,12 +305,59 @@ impl[K, V] *TreeMap[K, V]
         return lhs.&.cmp(rhs);
     }
 
+    fn for_each_node(node: *mut Node[K, V], visitor: *Fn(K, V) void) void {
+        if ((node as usize) == 0) {
+            return;
+        }
+
+        let mut i = 0;
+        for (; i < node.len; i += 1) {
+            if (!node.is_leaf) {
+                self.for_each_node(child_at[K, V](node, i), visitor);
+            }
+            visitor(key_at[K, V](node, i), value_at[K, V](node, i));
+        }
+
+        if (!node.is_leaf) {
+            self.for_each_node(child_at[K, V](node, node.len), visitor);
+        }
+    }
+
+    fn fold_node[U](node: *mut Node[K, V], init: U, step: *Fn(U, K, V) U) U {
+        if ((node as usize) == 0) {
+            return init;
+        }
+
+        let mut accum = init;
+        let mut i = 0;
+        for (; i < node.len; i += 1) {
+            if (!node.is_leaf) {
+                accum = self.fold_node(child_at[K, V](node, i), accum, step);
+            }
+            accum = step(accum, key_at[K, V](node, i), value_at[K, V](node, i));
+        }
+
+        if (!node.is_leaf) {
+            accum = self.fold_node(child_at[K, V](node, node.len), accum, step);
+        }
+
+        return accum;
+    }
+
     pub fn is_empty() bool {
         return self.len == 0;
     }
 
     pub fn contains(key: K) bool {
         return self.get(key).is_some();
+    }
+
+    pub fn for_each(visitor: *Fn(K, V) void) void {
+        self.for_each_node(self.root, visitor);
+    }
+
+    pub fn fold[U](init: U, step: *Fn(U, K, V) U) U {
+        return self.fold_node(self.root, init, step);
     }
 
     pub fn get(key: K) Option[V] {

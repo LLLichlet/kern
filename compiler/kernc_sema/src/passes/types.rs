@@ -1,10 +1,11 @@
 use crate::SemaContext;
-use crate::checker::{ConstEvaluator, Substituter};
+use crate::checker::{ConstEvaluator, ExprChecker, Substituter};
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::ty::{AnonymousEnum, AnonymousField, AnonymousVariant, TypeId, TypeKind};
 use kernc_ast as ast;
 use kernc_utils::{Span, SymbolId};
+use std::collections::HashMap;
 
 pub struct TypeResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
@@ -858,6 +859,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 else {
                     return TypeId::ERROR;
                 };
+                if !self.check_type_generic_bounds(span, def_id, &resolved_generics) {
+                    return TypeId::ERROR;
+                }
                 self.ctx
                     .type_registry
                     .intern(TypeKind::Def(def_id, resolved_generics))
@@ -867,6 +871,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 else {
                     return TypeId::ERROR;
                 };
+                if !self.check_type_generic_bounds(span, def_id, &resolved_generics) {
+                    return TypeId::ERROR;
+                }
                 self.ctx
                     .type_registry
                     .intern(TypeKind::Enum(def_id, resolved_generics))
@@ -877,6 +884,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 else {
                     return TypeId::ERROR;
                 };
+                if !self.check_type_generic_bounds(span, def_id, &resolved_generics) {
+                    return TypeId::ERROR;
+                }
                 self.ctx
                     .type_registry
                     .intern(TypeKind::TraitObject(def_id, resolved_generics))
@@ -899,6 +909,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 else {
                     return TypeId::ERROR;
                 };
+                if !self.check_type_generic_bounds(span, def_id, &resolved_generics) {
+                    return TypeId::ERROR;
+                }
 
                 // 动态获取最新解析的 AST 类型，不要用 Import 克隆带来的陈旧 final_sym.type_id
                 let target_ty = if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
@@ -999,6 +1012,186 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             "str" => Some(TypeId::STR),
             "never" => Some(TypeId::NEVER),
             _ => None,
+        }
+    }
+
+    fn check_type_generic_bounds(
+        &mut self,
+        span: Span,
+        def_id: DefId,
+        arg_tys: &[TypeId],
+    ) -> bool {
+        let Some((item_name, generics, where_clauses, kind_name)) =
+            self.generic_def_bounds_info(def_id)
+        else {
+            return true;
+        };
+
+        if generics.len() != arg_tys.len() {
+            self.ctx.emit_error(
+                span,
+                format!(
+                    "{} `{}` expects {} generic arguments, but {} were provided",
+                    kind_name,
+                    item_name,
+                    generics.len(),
+                    arg_tys.len()
+                ),
+            );
+            return false;
+        }
+
+        if arg_tys
+            .iter()
+            .any(|&ty| ty == TypeId::ERROR || self.type_contains_params(ty))
+        {
+            return true;
+        }
+
+        if where_clauses.is_empty() {
+            return true;
+        }
+
+        let mut map = HashMap::new();
+        for (param, arg_ty) in generics.iter().zip(arg_tys.iter()) {
+            map.insert(param.name, *arg_ty);
+        }
+
+        let mut pairs_to_check = Vec::new();
+        {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+            for clause in where_clauses {
+                let original_target = self
+                    .ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                let sub_target = subst.substitute(original_target);
+
+                for bound_ast in clause.bounds {
+                    let original_bound = self
+                        .ctx
+                        .node_types
+                        .get(&bound_ast.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    let sub_bound = subst.substitute(original_bound);
+                    pairs_to_check.push((sub_target, sub_bound));
+                }
+            }
+        }
+
+        let mut ok = true;
+        for (sub_target, sub_bound) in pairs_to_check {
+            if sub_target == TypeId::ERROR || sub_bound == TypeId::ERROR {
+                ok = false;
+                continue;
+            }
+
+            let bound_ok = {
+                let mut checker = ExprChecker::new(self.ctx, None);
+                checker.check_trait_impl(sub_target, sub_bound)
+            };
+
+            if !bound_ok {
+                ok = false;
+                let target_str = self.ctx.ty_to_string(sub_target);
+                let bound_str = self.ctx.ty_to_string(sub_bound);
+                self.ctx
+                    .struct_error(span, "type does not satisfy trait bounds")
+                    .with_hint(format!(
+                        "required bound: `{}: {}`",
+                        target_str,
+                        bound_str
+                    ))
+                    .emit();
+            }
+        }
+
+        ok
+    }
+
+    fn generic_def_bounds_info(
+        &self,
+        def_id: DefId,
+    ) -> Option<(String, Vec<ast::GenericParam>, Vec<ast::WhereClause>, &'static str)> {
+        match &self.ctx.defs[def_id.0 as usize] {
+            Def::Struct(s) => Some((
+                self.ctx.resolve(s.name).to_string(),
+                s.generics.clone(),
+                s.where_clauses.clone(),
+                "struct",
+            )),
+            Def::Union(u) => Some((
+                self.ctx.resolve(u.name).to_string(),
+                u.generics.clone(),
+                u.where_clauses.clone(),
+                "union",
+            )),
+            Def::Enum(e) => Some((
+                self.ctx.resolve(e.name).to_string(),
+                e.generics.clone(),
+                e.where_clauses.clone(),
+                "enum",
+            )),
+            Def::Trait(t) => Some((
+                self.ctx.resolve(t.name).to_string(),
+                t.generics.clone(),
+                t.where_clauses.clone(),
+                "trait",
+            )),
+            Def::TypeAlias(t) => Some((
+                self.ctx.resolve(t.name).to_string(),
+                t.generics.clone(),
+                t.where_clauses.clone(),
+                "type alias",
+            )),
+            _ => None,
+        }
+    }
+
+    fn type_contains_params(&mut self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Param(_) | TypeKind::TypeVar(_) => true,
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Alias(_, elem)
+            | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_params(elem),
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
+                self.type_contains_params(elem)
+            }
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::TraitObject(_, args)
+            | TypeKind::FnDef(_, args) => args.into_iter().any(|arg| self.type_contains_params(arg)),
+            TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
+                params.into_iter().any(|param| self.type_contains_params(param))
+                    || self.type_contains_params(ret)
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                captures
+                    .into_iter()
+                    .any(|capture| self.type_contains_params(capture))
+                    || params.into_iter().any(|param| self.type_contains_params(param))
+                    || self.type_contains_params(ret)
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
+                .into_iter()
+                .any(|field| self.type_contains_params(field.ty)),
+            TypeKind::AnonymousEnum(enum_def) => enum_def.variants.into_iter().any(|variant| {
+                variant
+                    .payload_ty
+                    .is_some_and(|payload_ty| self.type_contains_params(payload_ty))
+            }),
+            _ => false,
         }
     }
 

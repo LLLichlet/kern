@@ -245,18 +245,14 @@ fn rejects_tree_map_key_without_ord() {
     let output = compile_source_with_std(
         r#"
 use std.coll.TreeMap;
-use std.mem.alloc.PageAllocator;
 
 type Key = struct {
     raw: i32,
 };
 
 extern fn main(args: [][]u8) i32 {
-    let page = PageAllocator.{}..&;
     let map = TreeMap[Key, i32].{}..&;
-    if (map.insert(page, Key.{ raw: 1 }, 2)) {
-        return 1;
-    }
+    let _ = map;
     return 0;
 }
 "#,

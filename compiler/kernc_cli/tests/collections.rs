@@ -722,6 +722,116 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_map_predicate_algorithms() {
+    let output = build_and_run_hosted(
+        r#"
+use std.{Option};
+use std.coll.Map;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = Map[i32, i32].{}..&;
+    defer map.deinit(gpa);
+
+    if (!map.insert(gpa, 1, 10)) return 1;
+    if (!map.insert(gpa, 2, 20)) return 2;
+    if (!map.insert(gpa, 3, 30)) return 3;
+    if (!map.insert(gpa, 4, 40)) return 4;
+
+    if (!map.any(.[](key: i32, value: i32) bool {
+        return key == 3 and value == 30;
+    })) {
+        return 5;
+    }
+
+    if (map.any(.[](key: i32, _: i32) bool {
+        return key == 9;
+    })) {
+        return 6;
+    }
+
+    if (!map.all(.[](_: i32, value: i32) bool {
+        return value % 10 == 0;
+    })) {
+        return 7;
+    }
+
+    let even_count = map.count(.[](key: i32, _: i32) bool {
+        return key % 2 == 0;
+    });
+    if (even_count != 2) {
+        return 8;
+    }
+
+    let found = match (map.find_map(.[](key: i32, value: i32) Option[i32] {
+        if (key == 4) {
+            return .{ Some: value + 4 };
+        }
+        return .{ None };
+    })) {
+        .Some: value => value,
+        .None => return 9,
+    };
+    if (found != 44) {
+        return 10;
+    }
+
+    map.retain_mut(.[](key: i32, value: *mut i32) bool {
+        value.* += key;
+        return key >= 2;
+    });
+    if (map.len != 3) {
+        return 11;
+    }
+    if (map.contains(1)) {
+        return 12;
+    }
+    if (!map.get(2).is_some_and(.[](value: i32) bool { return value == 22; })) return 13;
+    if (!map.get(3).is_some_and(.[](value: i32) bool { return value == 33; })) return 14;
+    if (!map.get(4).is_some_and(.[](value: i32) bool { return value == 44; })) return 15;
+
+    let removed = match (map.remove_where(.[](key: i32, value: i32) bool {
+        return key == 3 and value == 33;
+    })) {
+        .Some: value => value,
+        .None => return 16,
+    };
+    if (removed != 33) {
+        return 17;
+    }
+    if (map.contains(3) or map.len != 2) {
+        return 18;
+    }
+
+    if (map.remove_where(.[](key: i32, _: i32) bool {
+        return key == 99;
+    }).is_some()) {
+        return 19;
+    }
+
+    let remaining = map.fold(i32.{0}, .[](accum: i32, key: i32, value: i32) i32 {
+        return accum + key + value;
+    });
+    if (remaining != 72) {
+        return 20;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_tree_map_ordered_traversal_helpers() {
     let output = build_and_run_hosted(
         r#"

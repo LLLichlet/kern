@@ -392,6 +392,22 @@ impl[K, V] *mut Map[K, V]
         }
     }
 
+    pub fn retain_mut(pred: *Fn(K, *mut V) bool) void {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (pred(entry.key, entry.value..&)) {
+                continue;
+            }
+            set_ctrl(self.ctrl, i, DELETED);
+            self.len -= 1;
+            self.tombstones += 1;
+        }
+    }
+
     pub fn remove(key: K) Option[V] {
         if (self.capacity == 0) return .{ None };
 
@@ -406,6 +422,25 @@ impl[K, V] *mut Map[K, V]
         self.len -= 1;
         self.tombstones += 1;
         return .{ Some: removed };
+    }
+
+    pub fn remove_where(pred: *Fn(K, V) bool) Option[V] {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (!pred(entry.key, entry.value)) {
+                continue;
+            }
+            let removed = entry.value;
+            set_ctrl(self.ctrl, i, DELETED);
+            self.len -= 1;
+            self.tombstones += 1;
+            return .{ Some: removed };
+        }
+        return .{ None };
     }
 
     pub fn retain(pred: *Fn(K, V) bool) void {
@@ -495,6 +530,49 @@ impl[K, V] *Map[K, V]
         }
     }
 
+    pub fn any(pred: *Fn(K, V) bool) bool {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (pred(entry.key, entry.value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn all(pred: *Fn(K, V) bool) bool {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (!pred(entry.key, entry.value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn count(pred: *Fn(K, V) bool) usize {
+        let mut total = usize.{0};
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (pred(entry.key, entry.value)) {
+                total += 1;
+            }
+        }
+        return total;
+    }
+
     pub fn fold[U](init: U, step: *Fn(U, K, V) U) U {
         let mut accum = init;
         let mut i = 0;
@@ -506,6 +584,21 @@ impl[K, V] *Map[K, V]
             accum = step(accum, entry.key, entry.value);
         }
         return accum;
+    }
+
+    pub fn find_map[U](visit: *Fn(K, V) Option[U]) Option[U] {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            match (visit(entry.key, entry.value)) {
+                .Some: value => return .{ Some: value },
+                .None => {}
+            }
+        }
+        return .{ None };
     }
 
     pub fn get(key: K) Option[V] {

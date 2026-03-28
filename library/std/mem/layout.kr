@@ -1,0 +1,43 @@
+use std.Option;
+use std.num.USIZE_MAX;
+
+pub type Layout = struct {
+    size: usize,
+    align: usize,
+};
+
+impl Layout {
+    pub const fn is_zst() bool {
+        return self.size == 0;
+    }
+}
+
+pub const fn layout_of[T]() Layout {
+    return .{
+        size: @sizeOf[T](),
+        align: @alignOf[T](),
+    };
+}
+
+pub const fn array_layout_of[T](count: usize) Option[Layout] {
+    let elem = layout_of[T]();
+    if (elem.size == 0) {
+        return .{
+            Some: .{
+                size: 0,
+                align: elem.align,
+            },
+        };
+    }
+
+    if (count > USIZE_MAX / elem.size) {
+        return .{ None };
+    }
+
+    return .{
+        Some: .{
+            size: count * elem.size,
+            align: elem.align,
+        },
+    };
+}

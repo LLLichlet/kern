@@ -1,15 +1,16 @@
 use std.os;
 use std.Option;
+use std.mem.Layout;
 use ..Allocator;
 
 pub type PageAllocator = struct {};
 
 impl *mut PageAllocator : Allocator{
-    pub fn alloc(size: usize, align: usize) Option[*mut u8] {
+    pub fn alloc(layout: Layout) Option[*mut u8] {
         #[if(os == "linux")] {
             // MAP_PRIVATE(2) | MAP_ANONYMOUS(32) = 34
             // PROT_READ(1) | PROT_WRITE(2) = 3
-            let ptr = os.linux.mmap(0, size, 3, 34, ~usize.{0}, 0);
+            let ptr = os.linux.mmap(0, layout.size, 3, 34, ~usize.{0}, 0);
             if (ptr == os.linux.MAP_FAILED) {
                 return .{ None };
             }
@@ -19,7 +20,7 @@ impl *mut PageAllocator : Allocator{
         #[if(os == "darwin")] {
             let ptr = os.darwin.mmap(
                 0 as *mut u8,
-                size,
+                layout.size,
                 (os.darwin.PROT_READ | os.darwin.PROT_WRITE) as i32,
                 (os.darwin.MAP_PRIVATE | os.darwin.MAP_ANONYMOUS) as i32,
                 -1,
@@ -34,18 +35,18 @@ impl *mut PageAllocator : Allocator{
         #[if(os == "windows")] {
             // MEM_COMMIT(4096) | MEM_RESERVE(8192) = 12288
             // PAGE_READWRITE = 4
-            let ptr = os.windows.VirtualAlloc(0 as *mut u8, size, 12288, 4);
+            let ptr = os.windows.VirtualAlloc(0 as *mut u8, layout.size, 12288, 4);
             return if (ptr == 0) .{ None } else .{ Some: ptr };
         };
     }
 
-    pub fn free(ptr: *mut u8, size: usize) void {
+    pub fn free(ptr: *mut u8, layout: Layout) void {
         #[if(os == "linux")] {
-            let _ = os.linux.munmap(ptr as usize, size);
+            let _ = os.linux.munmap(ptr as usize, layout.size);
         };
 
         #[if(os == "darwin")] {
-            let _ = os.darwin.munmap(ptr, size);
+            let _ = os.darwin.munmap(ptr, layout.size);
         };
 
         #[if(os == "windows")] {

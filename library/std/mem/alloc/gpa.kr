@@ -1,4 +1,5 @@
 use std.Option;
+use std.mem.Layout;
 use std.mem.alloc.Allocator;
 
 type BlockHeader = struct {
@@ -57,9 +58,9 @@ impl *mut GPAllocator : Allocator {
         }
     }
 
-    pub fn alloc(size: usize, align: usize) Option[*mut u8] {
+    pub fn alloc(layout: Layout) Option[*mut u8] {
         let header_size = @sizeOf[BlockHeader]();
-        let actual_size = align_up(size + header_size, 8);
+        let actual_size = align_up(layout.size + header_size, 8);
         
         // 设定最小分裂阈值：至少能容纳一个头部 + 8 字节数据
         let min_split = header_size + 8; 
@@ -106,7 +107,7 @@ impl *mut GPAllocator : Allocator {
         let page_size = 4096;
         let request_size = if (actual_size > page_size) actual_size else page_size;
 
-        let new_block_u8 = match (self.backing.alloc(request_size, 4096)) {
+        let new_block_u8 = match (self.backing.alloc(.{ size: request_size, align: 4096 })) {
             .Some: mut ptr => ptr,
             .None => return .{ None },
         };
@@ -130,8 +131,9 @@ impl *mut GPAllocator : Allocator {
         return .{ Some: user_ptr };
     }
 
-    pub fn free(ptr: *mut u8, size: usize) void {
+    pub fn free(ptr: *mut u8, layout: Layout) void {
         if (ptr as usize == 0) return;
+        let _ = layout;
 
         // 后退一个 Header
         let header_ptr = (ptr as *mut BlockHeader) - 1;

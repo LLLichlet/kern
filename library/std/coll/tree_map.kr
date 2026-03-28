@@ -1,0 +1,209 @@
+use std.Option;
+use std.mem.{Layout, layout_of, array_layout_of};
+use std.mem.alloc.Allocator;
+use std.num.USIZE_MAX;
+
+pub type TreeMap[K, V] = struct {
+    keys: *mut K = 0,
+    values: *mut V = 0,
+    len: usize = 0,
+    capacity: usize = 0,
+    cmp: fn(K, K) i32,
+};
+
+impl[K, V] *mut TreeMap[K, V] {
+    fn key_layout() Layout {
+        return layout_of[K]();
+    }
+
+    fn value_layout() Layout {
+        return layout_of[V]();
+    }
+
+    fn key_buffer_layout(count: usize) Option[Layout] {
+        return array_layout_of[K](count);
+    }
+
+    fn value_buffer_layout(count: usize) Option[Layout] {
+        return array_layout_of[V](count);
+    }
+
+    fn compare(lhs: K, rhs: K) i32 {
+        let cmp = self.cmp;
+        return cmp(lhs, rhs);
+    }
+
+    fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
+        if (self.capacity >= required_cap) return true;
+
+        let key_layout = self.key_layout();
+        let value_layout = self.value_layout();
+        if (key_layout.is_zst() or value_layout.is_zst()) {
+            return false;
+        }
+
+        let double_cap = if (self.capacity == 0) 8 else self.capacity * 2;
+        let new_cap = if (double_cap > required_cap) double_cap else required_cap;
+
+        let max_keys = USIZE_MAX / key_layout.size;
+        let max_values = USIZE_MAX / value_layout.size;
+        let max_items = if (max_keys < max_values) max_keys else max_values;
+        if (new_cap > max_items) {
+            return false;
+        }
+
+        let new_keys_layout = match (self.key_buffer_layout(new_cap)) {
+            .Some: layout => layout,
+            .None => return false,
+        };
+        let new_values_layout = match (self.value_buffer_layout(new_cap)) {
+            .Some: layout => layout,
+            .None => return false,
+        };
+
+        let new_keys_raw = match (alloc.alloc(new_keys_layout)) {
+            .Some: ptr => ptr,
+            .None => return false,
+        };
+        let new_values_opt = alloc.alloc(new_values_layout);
+        if (new_values_opt.is_none()) {
+            alloc.free(new_keys_raw, new_keys_layout);
+            return false;
+        }
+        let new_values_raw = match (new_values_opt) {
+            .Some: ptr => ptr,
+            .None => @trap(),
+        };
+
+        let new_keys = new_keys_raw as *mut K;
+        let new_values = new_values_raw as *mut V;
+
+        if (self.capacity > 0) {
+            let old_keys_layout = match (self.key_buffer_layout(self.capacity)) {
+                .Some: layout => layout,
+                .None => return false,
+            };
+            let old_values_layout = match (self.value_buffer_layout(self.capacity)) {
+                .Some: layout => layout,
+                .None => return false,
+            };
+
+            @memcpy(new_keys as *mut u8, self.keys as *mut u8, self.len * key_layout.size);
+            @memcpy(new_values as *mut u8, self.values as *mut u8, self.len * value_layout.size);
+
+            alloc.free(self.keys as *mut u8, old_keys_layout);
+            alloc.free(self.values as *mut u8, old_values_layout);
+        }
+
+        self.keys = new_keys;
+        self.values = new_values;
+        self.capacity = new_cap;
+        return true;
+    }
+
+    fn search_slot(key: K) usize {
+        let mut left = 0;
+        let mut right = self.len;
+
+        for (; left < right; ) {
+            let mid = left + ((right - left) / 2);
+            let cmp = self.compare((self.keys + mid).*, key);
+            if (cmp < 0) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
+
+    pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
+        let slot = self.search_slot(key);
+        if (slot < self.len and self.compare((self.keys + slot).*, key) == 0) {
+            (self.values + slot).* = value;
+            return true;
+        }
+
+        if (!self.ensure_capacity(alloc, self.len + 1)) {
+            return false;
+        }
+
+        let mut i = self.len;
+        for (; i > slot; i -= 1) {
+            (self.keys + i).* = (self.keys + i - 1).*;
+            (self.values + i).* = (self.values + i - 1).*;
+        }
+
+        (self.keys + slot).* = key;
+        (self.values + slot).* = value;
+        self.len += 1;
+        return true;
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        if (self.capacity > 0) {
+            let keys_layout = match (self.key_buffer_layout(self.capacity)) {
+                .Some: layout => layout,
+                .None => return,
+            };
+            let values_layout = match (self.value_buffer_layout(self.capacity)) {
+                .Some: layout => layout,
+                .None => return,
+            };
+
+            alloc.free(self.keys as *mut u8, keys_layout);
+            alloc.free(self.values as *mut u8, values_layout);
+        }
+
+        self.keys = *mut K.{0};
+        self.values = *mut V.{0};
+        self.len = 0;
+        self.capacity = 0;
+    }
+
+    pub fn clear() void {
+        self.len = 0;
+    }
+}
+
+impl[K, V] *TreeMap[K, V] {
+    fn compare(lhs: K, rhs: K) i32 {
+        let cmp = self.cmp;
+        return cmp(lhs, rhs);
+    }
+
+    fn search_slot(key: K) usize {
+        let mut left = 0;
+        let mut right = self.len;
+
+        for (; left < right; ) {
+            let mid = left + ((right - left) / 2);
+            let cmp = self.compare((self.keys + mid).*, key);
+            if (cmp < 0) {
+                left = mid + 1;
+            } else {
+                right = mid;
+            }
+        }
+
+        return left;
+    }
+
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+
+    pub fn contains(key: K) bool {
+        return self.get(key).is_some();
+    }
+
+    pub fn get(key: K) Option[V] {
+        let slot = self.search_slot(key);
+        if (slot < self.len and self.compare((self.keys + slot).*, key) == 0) {
+            return .{ Some: (self.values + slot).* };
+        }
+
+        return .{ None };
+    }
+}

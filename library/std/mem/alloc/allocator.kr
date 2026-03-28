@@ -1,8 +1,9 @@
 use std.Option;
+use std.mem.Layout;
 
 pub type Allocator = trait {
-    // 传入所需的字节数和内存对齐要求
-    alloc: fn(usize, usize) Option[*mut u8],
-    // 释放内存，必须精确传入之前分配的大小
-    free: fn(*mut u8, usize) void,
+    // 传入所需的内存布局信息
+    alloc: fn(Layout) Option[*mut u8],
+    // 释放内存，必须传回原始布局
+    free: fn(*mut u8, Layout) void,
 };

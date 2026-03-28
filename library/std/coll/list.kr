@@ -1,4 +1,5 @@
 use std.mem.alloc.Allocator;
+use std.mem.{Layout, layout_of, array_layout_of};
 use std.Option;
 use std.io.{Printable, Writer};
 use std.num.USIZE_MAX;
@@ -10,12 +11,20 @@ pub type List[T] = struct {
 };
 
 impl[T] *mut List[T] {
+    fn elem_layout() Layout {
+        return layout_of[T]();
+    }
+
+    fn buffer_layout(count: usize) Option[Layout] {
+        return array_layout_of[T](count);
+    }
+
     // 内部辅助函数：确保容量能够装下 required_cap 个元素
     fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
         if (self.capacity >= required_cap) return true;
 
         // 拦截零大小类型
-        if (@sizeOf[T]() == 0) {
+        if (self.elem_layout().is_zst()) {
             // 将 capacity 设为最大值
             self.capacity = USIZE_MAX; 
             return true;
@@ -31,8 +40,11 @@ impl[T] *mut List[T] {
             return false; // 容量超出硬件寻址极限，直接拒绝
         }
 
-        let new_size = new_cap * @sizeOf[T]();
-        let new_ptr_u8 = match (alloc.alloc(new_size, @alignOf[T]())) {
+        let new_layout = match (self.buffer_layout(new_cap)) {
+            .Some: layout => layout,
+            .None => return false,
+        };
+        let new_ptr_u8 = match (alloc.alloc(new_layout)) {
             .Some: ptr => ptr,
             .None => return false, // OOM 保护
         };
@@ -40,9 +52,12 @@ impl[T] *mut List[T] {
         let new_ptr = new_ptr_u8 as *mut T;
 
         if (self.capacity > 0) {
-            let old_size = self.capacity * @sizeOf[T]();
-            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * @sizeOf[T]());
-            alloc.free(self.ptr as *mut u8, old_size);
+            let old_layout = match (self.buffer_layout(self.capacity)) {
+                .Some: layout => layout,
+                .None => return false,
+            };
+            @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * self.elem_layout().size);
+            alloc.free(self.ptr as *mut u8, old_layout);
         }
 
         self.ptr = new_ptr;
@@ -101,7 +116,11 @@ impl[T] *mut List[T] {
 
     pub fn deinit(alloc: *mut Allocator) void {
         if (self.capacity > 0) {
-            alloc.free(self.ptr as *mut u8, self.capacity * @sizeOf[T]());
+            let layout = match (self.buffer_layout(self.capacity)) {
+                .Some: layout => layout,
+                .None => return,
+            };
+            alloc.free(self.ptr as *mut u8, layout);
             self.ptr = *mut T.{0};
             self.len = 0;
             self.capacity = 0;
@@ -143,7 +162,7 @@ impl[T] *mut List[T] {
         let target_ptr = self.ptr + self.len;
         
         // 利用切片的底层特性，直接进行内存级块拷贝
-        let copy_bytes = additional * @sizeOf[T]();
+        let copy_bytes = additional * self.elem_layout().size;
         
         let src_ptr = slice.[0].& as *u8; 
         
@@ -162,8 +181,11 @@ impl[T] *mut List[T] {
         }
         
         // 申请一个正好装下 len 的新内存块
-        let exact_size = self.len * @sizeOf[T]();
-        let new_ptr_u8 = match (alloc.alloc(exact_size, @alignOf[T]())) {
+        let exact_layout = match (self.buffer_layout(self.len)) {
+            .Some: layout => layout,
+            .None => return false,
+        };
+        let new_ptr_u8 = match (alloc.alloc(exact_layout)) {
             .Some: ptr => ptr,
             .None => return false, // OOM 保护
         };
@@ -171,8 +193,12 @@ impl[T] *mut List[T] {
         let new_ptr = new_ptr_u8 as *mut T;
         
         // 拷贝现有数据并释放老数据
-        @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_size);
-        alloc.free(self.ptr as *mut u8, self.capacity * @sizeOf[T]());
+        @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_layout.size);
+        let old_layout = match (self.buffer_layout(self.capacity)) {
+            .Some: layout => layout,
+            .None => return false,
+        };
+        alloc.free(self.ptr as *mut u8, old_layout);
         
         self.ptr = new_ptr;
         self.capacity = self.len;

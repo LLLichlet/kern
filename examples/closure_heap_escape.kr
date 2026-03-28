@@ -1,5 +1,5 @@
 use std.mem.alloc.{PageAllocator, GPAllocator};
-use std.mem.Allocator;
+use std.mem::{Allocator, Layout, layout_of};
 use std.io.println;
 
 fn smash_stack() void {
@@ -10,17 +10,16 @@ fn smash_stack() void {
 }
 type Tuple2 = struct {
     _0: *Fn(i32) i32,
-    _1: usize,
+    _1: Layout,
 };
 fn create_heap_closure(alc: *mut Allocator, factor: i32) Tuple2 {
     let stack_closure = .[factor](val: i32) i32 {
         return factor * val;
     };
 
-    let size = @sizeOf[@typeOf(stack_closure)]();
-    let align = @alignOf[@typeOf(stack_closure)]();
+    let layout = layout_of[@typeOf(stack_closure)]();
 
-    let heap_raw = match (alc.alloc(size, align)) {
+    let heap_raw = match (alc.alloc(layout)) {
         .Some: s => s as *mut @typeOf(stack_closure),
         .None => @trap(),
     };
@@ -28,7 +27,7 @@ fn create_heap_closure(alc: *mut Allocator, factor: i32) Tuple2 {
     heap_raw.* = stack_closure;
     .{
         _0: *Fn(i32) i32.{ heap_raw }, 
-        _1: size,
+        _1: layout,
     } 
 }
 extern fn main(args: [][]u8) i32 {

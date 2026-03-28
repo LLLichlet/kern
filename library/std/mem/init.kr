@@ -1,3 +1,5 @@
+mod layout;
 pub mod alloc;
 
+pub use .layout.{Layout, layout_of, array_layout_of};
 pub use .alloc.Allocator;

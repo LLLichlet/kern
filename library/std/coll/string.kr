@@ -17,8 +17,27 @@ impl *mut String {
         return self.raw..&.append_slice(alloc, text);
     }
 
+    pub fn push_repeat(alloc: *mut Allocator, byte: u8, count: usize) bool {
+        if (!self.raw..&.reserve(alloc, count)) {
+            return false;
+        }
+
+        let mut i = 0;
+        for (; i < count; i += 1) {
+            if (!self.raw..&.push(alloc, byte)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     pub fn push_string(alloc: *mut Allocator, other: *String) bool {
         return self.push_str(alloc, other.as_str());
+    }
+
+    pub fn clone_from(alloc: *mut Allocator, text: []u8) bool {
+        self.clear();
+        return self.push_str(alloc, text);
     }
 
     pub fn as_mut_bytes() []mut u8 {
@@ -85,6 +104,14 @@ impl *String {
 
     pub fn contains(needle: []u8) bool {
         return self.as_str().contains(needle);
+    }
+
+    pub fn for_each_byte(visitor: *Fn(u8) void) void {
+        self.as_str().for_each(visitor);
+    }
+
+    pub fn fold_bytes[U](init: U, step: *Fn(U, u8) U) U {
+        return self.as_str().fold(init, step);
     }
 
     pub fn strip_prefix(prefix: []u8) Option[[]u8] {

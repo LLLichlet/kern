@@ -1002,6 +1002,152 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_coll_iteration_and_copy_helpers() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.{List, String};
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+
+    let base = [4]i32.{1, 2, 3, 4};
+    let base_view = base.[0 .. 4];
+
+    let folded = base_view.fold(i32.{0}, .[](accum: i32, value: i32) i32 {
+        return accum + value;
+    });
+    if (folded != 10) {
+        return 1;
+    }
+
+    let mut visited = i32.{0};
+    base_view.for_each(.[visited = visited..&](value: i32) void {
+        visited.* += value;
+    });
+    if (visited != 10) {
+        return 2;
+    }
+
+    let bytes = [4]mut i32.{0, 0, 0, 0};
+    let writable = bytes..[0 .. 4];
+    writable.fill(3);
+    if (!bytes.[0 .. 4].eq([4]i32.{3, 3, 3, 3})) {
+        return 3;
+    }
+
+    if (!writable.copy_from(base_view)) {
+        return 4;
+    }
+    if (!bytes.[0 .. 4].eq(base_view)) {
+        return 5;
+    }
+
+    let overlap = bytes..[1 .. 4];
+    let source = bytes.[0 .. 3];
+    if (!overlap.copy_from(source)) {
+        return 6;
+    }
+    if (!bytes.[0 .. 4].eq([4]i32.{1, 1, 2, 3})) {
+        return 7;
+    }
+
+    writable.for_each_mut(.[](value: *mut i32) void {
+        value.* += 1;
+    });
+    if (!bytes.[0 .. 4].eq([4]i32.{2, 2, 3, 4})) {
+        return 8;
+    }
+
+    let list = List[i32].{}..&;
+    defer list.deinit(gpa);
+    if (!list.extend(gpa, base_view)) {
+        return 9;
+    }
+
+    let mut list_seen = i32.{0};
+    list.for_each(.[list_seen = list_seen..&](value: i32) void {
+        list_seen.* += value;
+    });
+    if (list_seen != 10) {
+        return 10;
+    }
+
+    let doubled = list.fold(i32.{0}, .[](accum: i32, value: i32) i32 {
+        return accum + value * 2;
+    });
+    if (doubled != 20) {
+        return 11;
+    }
+
+    list.for_each_mut(.[](value: *mut i32) void {
+        value.* *= 2;
+    });
+    if (!list.as_slice().eq([4]i32.{2, 4, 6, 8})) {
+        return 12;
+    }
+
+    list.fill(7);
+    if (!list.as_slice().eq([4]i32.{7, 7, 7, 7})) {
+        return 13;
+    }
+
+    let extra = List[i32].{}..&;
+    defer extra.deinit(gpa);
+    if (!extra.extend(gpa, [2]i32.{9, 10})) {
+        return 14;
+    }
+    if (!list.extend_from_list(gpa, extra)) {
+        return 15;
+    }
+    if (!list.as_slice().eq([6]i32.{7, 7, 7, 7, 9, 10})) {
+        return 16;
+    }
+
+    let text = String.{}..&;
+    defer text.deinit(gpa);
+    if (!text.clone_from(gpa, "kern")) {
+        return 17;
+    }
+    if (!text.push_repeat(gpa, b'!', 3)) {
+        return 18;
+    }
+    if (!text.eq("kern!!!")) {
+        return 19;
+    }
+
+    let mut bangs = i32.{0};
+    text.for_each_byte(.[bangs = bangs..&](byte: u8) void {
+        if (byte == b'!') {
+            bangs.* += 1;
+        }
+    });
+    if (bangs != 3) {
+        return 20;
+    }
+
+    let ascii_sum = text.fold_bytes(i32.{0}, .[](accum: i32, byte: u8) i32 {
+        return accum + byte as i32;
+    });
+    if (ascii_sum != 531) {
+        return 21;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_option_and_result_closure_methods() {
     let output = build_and_run_hosted(
         r#"

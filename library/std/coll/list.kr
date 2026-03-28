@@ -222,6 +222,14 @@ impl[T] *mut List[T] {
         return true;
     }
 
+    pub fn extend(alloc: *mut Allocator, items: []T) bool {
+        return self.append_slice(alloc, items);
+    }
+
+    pub fn extend_from_list(alloc: *mut Allocator, other: *List[T]) bool {
+        return self.append_slice(alloc, other.as_slice());
+    }
+
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
         if (self.capacity == self.len) return true;
         if (self.len == 0) {
@@ -258,6 +266,14 @@ impl[T] *mut List[T] {
 
     pub fn reverse() void {
         self.as_mut_slice().reverse();
+    }
+
+    pub fn fill(value: T) void {
+        self.as_mut_slice().fill(value);
+    }
+
+    pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
+        self.as_mut_slice().for_each_mut(visitor);
     }
 
     pub fn retain(pred: *Fn(T) bool) void {
@@ -342,6 +358,14 @@ impl[T] *List[T] {
 
     pub fn count(pred: *Fn(T) bool) usize {
         return self.as_slice().count(pred);
+    }
+
+    pub fn for_each(visitor: *Fn(T) void) void {
+        self.as_slice().for_each(visitor);
+    }
+
+    pub fn fold[U](init: U, step: *Fn(U, T) U) U {
+        return self.as_slice().fold(init, step);
     }
 
     pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {

@@ -1,5 +1,7 @@
 use std.Option;
 use std.cmp.{Eq, Ord, Ordering, LESS, EQUAL, GREATER};
+use std.mem.layout_of;
+use std.rt.mem.memmove;
 
 impl[T] []T {
     pub fn is_empty() bool {
@@ -67,6 +69,22 @@ impl[T] []T {
         return total;
     }
 
+    pub fn for_each(visitor: *Fn(T) void) void {
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            visitor(self.[i]);
+        }
+    }
+
+    pub fn fold[U](init: U, step: *Fn(U, T) U) U {
+        let mut accum = init;
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            accum = step(accum, self.[i]);
+        }
+        return accum;
+    }
+
     pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
         let mut i = 0;
         for (; i < #self; i += 1) {
@@ -107,6 +125,38 @@ impl[T] []mut T {
         let tmp = self.[lhs];
         self.[lhs] = self.[rhs];
         self.[rhs] = tmp;
+        return true;
+    }
+
+    pub fn fill(value: T) void {
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            self.[i] = value;
+        }
+    }
+
+    pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
+        let mut i = 0;
+        for (; i < #self; i += 1) {
+            visitor(self.[i]..&);
+        }
+    }
+
+    pub fn copy_from(source: []T) bool {
+        if (#self != #source) {
+            return false;
+        }
+        if (#self == 0) {
+            return true;
+        }
+
+        let elem_size = layout_of[T]().size;
+        if (elem_size == 0) {
+            return true;
+        }
+
+        let bytes = #self * elem_size;
+        let _ = memmove(self.[0]..& as *mut u8, source.[0].& as *u8, bytes);
         return true;
     }
 

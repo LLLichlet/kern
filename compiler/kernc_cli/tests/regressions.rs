@@ -194,6 +194,61 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn compiles_assignment_through_struct_array_fields_only() {
+    let output = compile_source(
+        r#"
+type Buffer = struct {
+    items: [4]i32,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let mut buf = Buffer.{ items: [4]i32.{ 0; 4 } };
+    buf.items.[0] = 5;
+
+    let ptr = buf..&;
+    ptr.items.[1] = 7;
+
+    return buf.items.[0] + ptr.items.[1];
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_assignment_through_non_mut_array_elements() {
+    let output = compile_source(
+        r#"
+extern fn main(args: [][]u8) i32 {
+    let mut arr = [4]i32.{ 0; 4 };
+    arr.[0] = 3;
+    return arr.[0];
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot assign to an immutable variable or location"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_non_const_fn_in_const_context() {
     let output = compile_source(
         r#"

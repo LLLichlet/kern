@@ -903,7 +903,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         is_mut
                     }
                     TypeKind::Slice { is_mut, .. } => is_mut,
-                    TypeKind::Array { is_mut, .. } => is_mut,
+                    TypeKind::Array { is_mut, .. } | TypeKind::ArrayInfer { is_mut, .. } => {
+                        is_mut
+                            || matches!(lhs.kind, ExprKind::FieldAccess { .. })
+                                && self.is_lvalue_mutable(lhs)
+                    }
                     _ => self.is_lvalue_mutable(lhs),
                 }
             }

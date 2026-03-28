@@ -1,169 +1,227 @@
 use std.Option;
-use std.mem.{Layout, layout_of, array_layout_of};
+use std.mem.layout_of;
 use std.mem.alloc.Allocator;
-use std.num.USIZE_MAX;
+
+const MIN_DEGREE = usize.{8};
+const MAX_KEYS = usize.{15};
+const MAX_CHILDREN = usize.{16};
+
+type Node[K, V] = struct {
+    is_leaf: bool,
+    len: usize,
+    keys: [15]K,
+    values: [15]V,
+    children: [16]*mut Node[K, V],
+};
+
+fn key_at[K, V](node: *mut Node[K, V], index: usize) K {
+    return node.keys.[index];
+}
+
+fn value_at[K, V](node: *mut Node[K, V], index: usize) V {
+    return node.values.[index];
+}
+
+fn child_at[K, V](node: *mut Node[K, V], index: usize) *mut Node[K, V] {
+    return node.children.[index];
+}
+
+fn set_key[K, V](node: *mut Node[K, V], index: usize, key: K) void {
+    node.keys.[index] = key;
+}
+
+fn set_value[K, V](node: *mut Node[K, V], index: usize, value: V) void {
+    node.values.[index] = value;
+}
+
+fn set_child[K, V](node: *mut Node[K, V], index: usize, child: *mut Node[K, V]) void {
+    node.children.[index] = child;
+}
 
 pub type TreeMap[K, V] = struct {
-    keys: *mut K = 0,
-    values: *mut V = 0,
+    root: *mut Node[K, V] = 0,
     len: usize = 0,
-    capacity: usize = 0,
     cmp: fn(K, K) i32,
 };
 
 impl[K, V] *mut TreeMap[K, V] {
-    fn key_layout() Layout {
-        return layout_of[K]();
-    }
-
-    fn value_layout() Layout {
-        return layout_of[V]();
-    }
-
-    fn key_buffer_layout(count: usize) Option[Layout] {
-        return array_layout_of[K](count);
-    }
-
-    fn value_buffer_layout(count: usize) Option[Layout] {
-        return array_layout_of[V](count);
-    }
-
     fn compare(lhs: K, rhs: K) i32 {
         let cmp = self.cmp;
         return cmp(lhs, rhs);
     }
 
-    fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
-        if (self.capacity >= required_cap) return true;
-
-        let key_layout = self.key_layout();
-        let value_layout = self.value_layout();
-        if (key_layout.is_zst() or value_layout.is_zst()) {
-            return false;
-        }
-
-        let double_cap = if (self.capacity == 0) 8 else self.capacity * 2;
-        let new_cap = if (double_cap > required_cap) double_cap else required_cap;
-
-        let max_keys = USIZE_MAX / key_layout.size;
-        let max_values = USIZE_MAX / value_layout.size;
-        let max_items = if (max_keys < max_values) max_keys else max_values;
-        if (new_cap > max_items) {
-            return false;
-        }
-
-        let new_keys_layout = match (self.key_buffer_layout(new_cap)) {
-            .Some: layout => layout,
-            .None => return false,
-        };
-        let new_values_layout = match (self.value_buffer_layout(new_cap)) {
-            .Some: layout => layout,
-            .None => return false,
-        };
-
-        let new_keys_raw = match (alloc.alloc(new_keys_layout)) {
+    fn alloc_node(alloc: *mut Allocator, is_leaf: bool) Option[*mut Node[K, V]] {
+        let node_raw = match (alloc.alloc(layout_of[Node[K, V]]())) {
             .Some: ptr => ptr,
-            .None => return false,
-        };
-        let new_values_opt = alloc.alloc(new_values_layout);
-        if (new_values_opt.is_none()) {
-            alloc.free(new_keys_raw, new_keys_layout);
-            return false;
-        }
-        let new_values_raw = match (new_values_opt) {
-            .Some: ptr => ptr,
-            .None => @trap(),
+            .None => return .{ None },
         };
 
-        let new_keys = new_keys_raw as *mut K;
-        let new_values = new_values_raw as *mut V;
+        let node = node_raw as *mut Node[K, V];
+        node.is_leaf = is_leaf;
+        node.len = 0;
 
-        if (self.capacity > 0) {
-            let old_keys_layout = match (self.key_buffer_layout(self.capacity)) {
-                .Some: layout => layout,
-                .None => return false,
-            };
-            let old_values_layout = match (self.value_buffer_layout(self.capacity)) {
-                .Some: layout => layout,
-                .None => return false,
-            };
-
-            @memcpy(new_keys as *mut u8, self.keys as *mut u8, self.len * key_layout.size);
-            @memcpy(new_values as *mut u8, self.values as *mut u8, self.len * value_layout.size);
-
-            alloc.free(self.keys as *mut u8, old_keys_layout);
-            alloc.free(self.values as *mut u8, old_values_layout);
+        let mut i = 0;
+        for (; i < MAX_CHILDREN; i += 1) {
+            set_child[K, V](node, i, 0);
         }
 
-        self.keys = new_keys;
-        self.values = new_values;
-        self.capacity = new_cap;
-        return true;
+        return .{ Some: node };
     }
 
-    fn search_slot(key: K) usize {
-        let mut left = 0;
-        let mut right = self.len;
+    fn free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
+        alloc.free(node as *mut u8, layout_of[Node[K, V]]());
+    }
 
-        for (; left < right; ) {
-            let mid = left + ((right - left) / 2);
-            let cmp = self.compare((self.keys + mid).*, key);
-            if (cmp < 0) {
-                left = mid + 1;
-            } else {
-                right = mid;
+    fn search_slot(node: *mut Node[K, V], key: K) usize {
+        let mut index = 0;
+        for (; index < node.len; index += 1) {
+            if (self.compare(key_at[K, V](node, index), key) >= 0) {
+                break;
+            }
+        }
+        return index;
+    }
+
+    fn split_child(alloc: *mut Allocator, parent: *mut Node[K, V], index: usize) bool {
+        let child = child_at[K, V](parent, index);
+        let right = match (self.alloc_node(alloc, child.is_leaf)) {
+            .Some: node => node,
+            .None => return false,
+        };
+
+        right.len = MIN_DEGREE - 1;
+
+        let mut j = 0;
+        for (; j < MIN_DEGREE - 1; j += 1) {
+            set_key[K, V](right, j, key_at[K, V](child, j + MIN_DEGREE));
+            set_value[K, V](right, j, value_at[K, V](child, j + MIN_DEGREE));
+        }
+
+        if (!child.is_leaf) {
+            let mut c = 0;
+            for (; c < MIN_DEGREE; c += 1) {
+                set_child[K, V](right, c, child_at[K, V](child, c + MIN_DEGREE));
             }
         }
 
-        return left;
-    }
+        child.len = MIN_DEGREE - 1;
 
-    pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
-        let slot = self.search_slot(key);
-        if (slot < self.len and self.compare((self.keys + slot).*, key) == 0) {
-            (self.values + slot).* = value;
-            return true;
+        let mut move_child = parent.len + 1;
+        for (; move_child > index + 1; move_child -= 1) {
+            set_child[K, V](parent, move_child, child_at[K, V](parent, move_child - 1));
+        }
+        set_child[K, V](parent, index + 1, right);
+
+        let mut move_key = parent.len;
+        for (; move_key > index; move_key -= 1) {
+            set_key[K, V](parent, move_key, key_at[K, V](parent, move_key - 1));
+            set_value[K, V](parent, move_key, value_at[K, V](parent, move_key - 1));
         }
 
-        if (!self.ensure_capacity(alloc, self.len + 1)) {
-            return false;
-        }
-
-        let mut i = self.len;
-        for (; i > slot; i -= 1) {
-            (self.keys + i).* = (self.keys + i - 1).*;
-            (self.values + i).* = (self.values + i - 1).*;
-        }
-
-        (self.keys + slot).* = key;
-        (self.values + slot).* = value;
-        self.len += 1;
+        set_key[K, V](parent, index, key_at[K, V](child, MIN_DEGREE - 1));
+        set_value[K, V](parent, index, value_at[K, V](child, MIN_DEGREE - 1));
+        parent.len += 1;
         return true;
     }
 
-    pub fn deinit(alloc: *mut Allocator) void {
-        if (self.capacity > 0) {
-            let keys_layout = match (self.key_buffer_layout(self.capacity)) {
-                .Some: layout => layout,
-                .None => return,
-            };
-            let values_layout = match (self.value_buffer_layout(self.capacity)) {
-                .Some: layout => layout,
-                .None => return,
-            };
+    fn insert_non_full(alloc: *mut Allocator, node: *mut Node[K, V], key: K, value: V) bool {
+        let slot = self.search_slot(node, key);
 
-            alloc.free(self.keys as *mut u8, keys_layout);
-            alloc.free(self.values as *mut u8, values_layout);
+        if (slot < node.len and self.compare(key_at[K, V](node, slot), key) == 0) {
+            set_value[K, V](node, slot, value);
+            return true;
         }
 
-        self.keys = *mut K.{0};
-        self.values = *mut V.{0};
-        self.len = 0;
-        self.capacity = 0;
+        if (node.is_leaf) {
+            let mut i = node.len;
+            for (; i > slot; i -= 1) {
+                set_key[K, V](node, i, key_at[K, V](node, i - 1));
+                set_value[K, V](node, i, value_at[K, V](node, i - 1));
+            }
+
+            set_key[K, V](node, slot, key);
+            set_value[K, V](node, slot, value);
+            node.len += 1;
+            self.len += 1;
+            return true;
+        }
+
+        let mut child_index = slot;
+        let child = child_at[K, V](node, child_index);
+        if (child.len == MAX_KEYS) {
+            if (!self.split_child(alloc, node, child_index)) {
+                return false;
+            }
+
+            let cmp_mid = self.compare(key_at[K, V](node, child_index), key);
+            if (cmp_mid == 0) {
+                set_value[K, V](node, child_index, value);
+                return true;
+            }
+            if (cmp_mid < 0) {
+                child_index += 1;
+            }
+        }
+
+        return self.insert_non_full(alloc, child_at[K, V](node, child_index), key, value);
     }
 
-    pub fn clear() void {
+    fn deinit_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
+        if ((node as usize) == 0) return;
+
+        if (!node.is_leaf) {
+            let mut i = 0;
+            for (; i <= node.len; i += 1) {
+                self.deinit_node(alloc, child_at[K, V](node, i));
+            }
+        }
+
+        self.free_node(alloc, node);
+    }
+
+    pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
+        if ((self.root as usize) == 0) {
+            let root = match (self.alloc_node(alloc, true)) {
+                .Some: node => node,
+                .None => return false,
+            };
+
+            set_key[K, V](root, 0, key);
+            set_value[K, V](root, 0, value);
+            root.len = 1;
+            self.root = root;
+            self.len = 1;
+            return true;
+        }
+
+        if (self.root.len == MAX_KEYS) {
+            let old_root = self.root;
+            let new_root = match (self.alloc_node(alloc, false)) {
+                .Some: node => node,
+                .None => return false,
+            };
+
+            set_child[K, V](new_root, 0, old_root);
+            self.root = new_root;
+
+            if (!self.split_child(alloc, new_root, 0)) {
+                self.root = old_root;
+                self.free_node(alloc, new_root);
+                return false;
+            }
+        }
+
+        return self.insert_non_full(alloc, self.root, key, value);
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.deinit_node(alloc, self.root);
+        self.root = 0;
         self.len = 0;
+    }
+
+    pub fn clear(alloc: *mut Allocator) void {
+        self.deinit(alloc);
     }
 }
 
@@ -171,23 +229,6 @@ impl[K, V] *TreeMap[K, V] {
     fn compare(lhs: K, rhs: K) i32 {
         let cmp = self.cmp;
         return cmp(lhs, rhs);
-    }
-
-    fn search_slot(key: K) usize {
-        let mut left = 0;
-        let mut right = self.len;
-
-        for (; left < right; ) {
-            let mid = left + ((right - left) / 2);
-            let cmp = self.compare((self.keys + mid).*, key);
-            if (cmp < 0) {
-                left = mid + 1;
-            } else {
-                right = mid;
-            }
-        }
-
-        return left;
     }
 
     pub fn is_empty() bool {
@@ -199,9 +240,25 @@ impl[K, V] *TreeMap[K, V] {
     }
 
     pub fn get(key: K) Option[V] {
-        let slot = self.search_slot(key);
-        if (slot < self.len and self.compare((self.keys + slot).*, key) == 0) {
-            return .{ Some: (self.values + slot).* };
+        let mut node = self.root;
+
+        for (; (node as usize) != 0; ) {
+            let mut index = 0;
+            for (; index < node.len; index += 1) {
+                let cmp = self.compare(key_at[K, V](node, index), key);
+                if (cmp == 0) {
+                    return .{ Some: value_at[K, V](node, index) };
+                }
+                if (cmp > 0) {
+                    break;
+                }
+            }
+
+            if (node.is_leaf) {
+                return .{ None };
+            }
+
+            node = child_at[K, V](node, index);
         }
 
         return .{ None };

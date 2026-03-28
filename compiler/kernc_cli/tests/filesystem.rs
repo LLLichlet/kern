@@ -781,3 +781,80 @@ extern fn main() i32 {{
 
     let _ = fs::remove_dir_all(&temp_root);
 }
+
+#[test]
+fn runs_hosted_program_using_std_fs_remove_dir_all() {
+    let temp_root = unique_temp_path("kernc_std_fs_remove_dir_all", "dir");
+    let nested_dir = temp_root.join("one").join("two");
+    let nested_file = nested_dir.join("deep.txt");
+    let sibling_file = temp_root.join("root.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let nested_dir_path = kern_string_literal(&nested_dir);
+    let nested_file_path = kern_string_literal(&nested_file);
+    let sibling_file_path = kern_string_literal(&sibling_file);
+
+    let _ = fs::remove_file(&nested_file);
+    let _ = fs::remove_file(&sibling_file);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{nested_dir_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 1,
+    }}
+    match (fs.write_all(gpa, "{nested_file_path}", "deep")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 2,
+    }}
+    match (fs.write_all(gpa, "{sibling_file_path}", "root")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 3,
+    }}
+
+    match (fs.remove_dir_all(gpa, "{root_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 4,
+    }}
+
+    let root_exists = match (fs.exists(gpa, "{root_path}")) {{
+        .Ok: exists => exists,
+        .Err: _ => return 5,
+    }};
+    if (root_exists) {{
+        return 6;
+    }}
+
+    let nested_exists = match (fs.exists(gpa, "{nested_file_path}")) {{
+        .Ok: exists => exists,
+        .Err: _ => return 7,
+    }};
+    if (nested_exists) {{
+        return 8;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        nested_dir_path = nested_dir_path,
+        nested_file_path = nested_file_path,
+        sibling_file_path = sibling_file_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&temp_root);
+}

@@ -946,6 +946,83 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_option_and_result_closure_methods() {
+    let output = build_and_run_hosted(
+        r#"
+use std.{Option, Result};
+
+extern fn main() i32 {
+    let mut seen = i32.{0};
+
+    let option = Option[i32].{ Some: 7 };
+    let mapped = match (option.map(.[seen = seen..&](value: i32) i32 {
+        seen.* += value;
+        return value * 3;
+    })) {
+        .Some: value => value,
+        .None => return 1,
+    };
+    if (mapped != 21 or seen != 7) {
+        return 2;
+    }
+
+    let filtered = option.filter(.[](value: i32) bool {
+        return value == 7;
+    });
+    if (!filtered.is_some()) {
+        return 3;
+    }
+
+    let none = Option[i32].{ None };
+    let fallback_default = .[seen = seen..&]() i32 {
+        seen.* += 10;
+        return 99;
+    };
+    let fallback_map = .[](value: i32) i32 {
+        return value;
+    };
+    let fallback = none.map_or_else(fallback_default, fallback_map);
+    if (fallback != 99 or seen != 17) {
+        return 4;
+    }
+
+    let result = Result[i32, i32].{ Ok: 5 };
+    let mapped_result = result.map(.[seen = seen..&](value: i32) i32 {
+        seen.* += value;
+        return value + 1;
+    });
+    let chained = match (mapped_result.and_then(.[](value: i32) Result[i32, i32] {
+        return .{ Ok: value * 2 };
+    })) {
+        .Ok: value => value,
+        .Err: _ => return 5,
+    };
+    if (chained != 12 or seen != 22) {
+        return 6;
+    }
+
+    let mut err_seen = i32.{0};
+    let _ = Result[i32, i32].{ Err: 4 }.inspect_err(.[err_seen = err_seen..&](err: i32) void {
+        err_seen.* = err;
+    });
+    if (err_seen != 4) {
+        return 7;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_map_key_without_eq_and_hash() {
     let output = compile_source_with_std(
         r#"

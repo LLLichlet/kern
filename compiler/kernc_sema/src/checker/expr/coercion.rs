@@ -713,6 +713,88 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         Some((inst_params, inst_ret))
     }
 
+    fn unify_signature_shape(
+        &mut self,
+        expected_params: &[TypeId],
+        expected_ret: TypeId,
+        actual_params: &[TypeId],
+        actual_ret: TypeId,
+        map: &mut std::collections::HashMap<SymbolId, TypeId>,
+    ) -> bool {
+        expected_params.len() == actual_params.len()
+            && expected_params
+                .iter()
+                .zip(actual_params.iter())
+                .all(|(expected, actual)| self.unify(*expected, *actual, map))
+            && self.unify(expected_ret, actual_ret, map)
+    }
+
+    fn unify_closure_interface_with_concrete(
+        &mut self,
+        expected_params: &[TypeId],
+        expected_ret: TypeId,
+        concrete_kind: &TypeKind,
+        map: &mut std::collections::HashMap<SymbolId, TypeId>,
+    ) -> bool {
+        match concrete_kind {
+            TypeKind::AnonymousState { params, ret, .. }
+            | TypeKind::ClosureInterface { params, ret } => {
+                self.unify_signature_shape(expected_params, expected_ret, params, *ret, map)
+            }
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic: false,
+            } => self.unify_signature_shape(expected_params, expected_ret, params, *ret, map),
+            TypeKind::FnDef(def_id, args) => {
+                let Some((params, ret)) =
+                    self.instantiate_fn_def_signature(*def_id, args, Span::default())
+                else {
+                    return false;
+                };
+                self.unify_signature_shape(expected_params, expected_ret, &params, ret, map)
+            }
+            _ => false,
+        }
+    }
+
+    fn unify_function_with_concrete(
+        &mut self,
+        expected_params: &[TypeId],
+        expected_ret: TypeId,
+        concrete_kind: &TypeKind,
+        map: &mut std::collections::HashMap<SymbolId, TypeId>,
+    ) -> bool {
+        match concrete_kind {
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                captures.is_empty()
+                    && self.unify_signature_shape(expected_params, expected_ret, params, *ret, map)
+            }
+            TypeKind::Function {
+                params,
+                ret,
+                is_variadic: false,
+            }
+            | TypeKind::ClosureInterface { params, ret } => {
+                self.unify_signature_shape(expected_params, expected_ret, params, *ret, map)
+            }
+            TypeKind::FnDef(def_id, args) => {
+                let Some((params, ret)) =
+                    self.instantiate_fn_def_signature(*def_id, args, Span::default())
+                else {
+                    return false;
+                };
+                self.unify_signature_shape(expected_params, expected_ret, &params, ret, map)
+            }
+            _ => false,
+        }
+    }
+
     pub(crate) fn unify(
         &mut self,
         generic_ty: TypeId,
@@ -745,6 +827,26 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     elem: c_e,
                 },
             ) => g_m == c_m && self.unify(g_e, c_e, map),
+            (
+                TypeKind::Pointer {
+                    elem: g_e, ..
+                },
+                concrete_kind,
+            ) => {
+                let g_inner = self.resolve_tv(g_e);
+                if let TypeKind::ClosureInterface { params, ret } =
+                    self.ctx.type_registry.get(g_inner).clone()
+                {
+                    self.unify_closure_interface_with_concrete(
+                        &params,
+                        ret,
+                        &concrete_kind,
+                        map,
+                    )
+                } else {
+                    false
+                }
+            }
             (
                 TypeKind::VolatilePtr {
                     is_mut: g_m,
@@ -787,6 +889,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     elem: c_e,
                 },
             ) => g_m == c_m && self.unify(g_e, c_e, map),
+            (
+                TypeKind::Function {
+                    params,
+                    ret,
+                    is_variadic: false,
+                },
+                concrete_kind,
+            ) => self.unify_function_with_concrete(&params, ret, &concrete_kind, map),
 
             (TypeKind::Def(g_id, g_args), TypeKind::Def(c_id, c_args)) if g_id == c_id => {
                 if g_args.len() != c_args.len() {

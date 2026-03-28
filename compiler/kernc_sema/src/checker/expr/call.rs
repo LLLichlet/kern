@@ -404,6 +404,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 2. 探查是否是方法调用，提取接收者 (Receiver) 信息
         let (is_method, receiver_ty) = self.resolve_method_context(callee);
+        let has_user_explicit_generics =
+            matches!(callee.kind, ExprKind::GenericInstantiation { .. });
 
         // 3. 智能推导泛型参数，获取解析后的签名与修复后的 Callee 类型
         let (sig_ty, inferred_callee_ty) = self.deduce_and_resolve_signature(
@@ -412,6 +414,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             is_method,
             receiver_ty,
             callee.span,
+            has_user_explicit_generics,
         );
 
         // 4. 如果推导成功，将补全了泛型参数的类型重新写入 AST 节点
@@ -505,6 +508,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         is_method: bool,
         receiver_ty: TypeId,
         span: Span,
+        has_user_explicit_generics: bool,
     ) -> (TypeId, Option<TypeId>) {
         if let TypeKind::FnDef(def_id, explicit_args) =
             self.ctx.type_registry.get(norm_callee).clone()
@@ -521,6 +525,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (raw_sig, None);
             }
 
+            if explicit_args.len() > generics_count {
+                let name_str = self.ctx.resolve(fn_name_id).to_string();
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: function `{}` carried {} generic arguments, but only {} generic parameters exist.",
+                        name_str,
+                        explicit_args.len(),
+                        generics_count
+                    ),
+                );
+                return (TypeId::ERROR, None);
+            }
+
             // 规则 A：用户显式提供了完整的泛型参数
             if explicit_args.len() == generics_count {
                 let mut map = HashMap::new();
@@ -531,8 +549,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (subst.substitute(raw_sig), None);
             }
 
-            // 规则 B：不允许部分提供泛型参数
-            if !explicit_args.is_empty() {
+            // 规则 B：不允许用户手写部分泛型参数。
+            // 方法查找阶段可能已经为 `impl`/trait 的宿主泛型预绑定了一个前缀；
+            // 这种前缀实参不是用户显式写出的，允许继续推导剩余泛型。
+            if has_user_explicit_generics && !explicit_args.is_empty() {
                 let name_str = self.ctx.resolve(fn_name_id).to_string();
                 self.ctx.struct_error(span, format!("function `{}` requires exactly {} generic arguments, but {} were provided", name_str, generics_count, explicit_args.len()))
                     .with_hint("either provide all generic arguments or omit them entirely to let the compiler infer them")
@@ -542,6 +562,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             // 规则 C：泛型完全省略，启动单向参数推导
             let mut map = HashMap::new();
+            for (i, explicit_arg) in explicit_args.iter().enumerate() {
+                map.insert(generics[i].name, *explicit_arg);
+            }
             let Some(raw_params) = self.function_params_from_sig(raw_sig, span) else {
                 return (TypeId::ERROR, None);
             };

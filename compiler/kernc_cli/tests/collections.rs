@@ -832,6 +832,101 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_map_list_bridge_helpers() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.{Map, List};
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    let map = Map[i32, i32].{}..&;
+    defer map.deinit(gpa);
+    let keys = List[i32].{}..&;
+    defer keys.deinit(gpa);
+    let values = List[i32].{}..&;
+    defer values.deinit(gpa);
+
+    if (!keys.push(gpa, 1000)) return 1;
+    if (!values.push(gpa, 2000)) return 2;
+
+    if (!map.insert(gpa, 1, 10)) return 3;
+    if (!map.insert(gpa, 2, 20)) return 4;
+    if (!map.insert(gpa, 3, 30)) return 5;
+    if (!map.insert(gpa, 4, 40)) return 6;
+
+    let removed = match (map.remove(2)) {
+        .Some: value => value,
+        .None => return 7,
+    };
+    if (removed != 20) {
+        return 8;
+    }
+
+    if (!map.insert(gpa, 4, 400)) {
+        return 9;
+    }
+
+    if (!map.append_keys(gpa, keys)) {
+        return 10;
+    }
+    if (!map.append_values(gpa, values)) {
+        return 11;
+    }
+
+    if (keys.len != 4 or values.len != 4) {
+        return 12;
+    }
+    if (!keys.first().is_some_and(.[](key: i32) bool { return key == 1000; })) {
+        return 13;
+    }
+    if (!values.first().is_some_and(.[](value: i32) bool { return value == 2000; })) {
+        return 14;
+    }
+
+    let key_sum = keys.fold(i32.{0}, .[](accum: i32, key: i32) i32 {
+        return accum + key;
+    });
+    if (key_sum != 1008) {
+        return 15;
+    }
+
+    let value_sum = values.fold(i32.{0}, .[](accum: i32, value: i32) i32 {
+        return accum + value;
+    });
+    if (value_sum != 2440) {
+        return 16;
+    }
+
+    let appended_keys = keys.count(.[](key: i32) bool {
+        return key >= 1 and key <= 4;
+    });
+    if (appended_keys != 3) {
+        return 17;
+    }
+
+    let appended_values = values.count(.[](value: i32) bool {
+        return value == 10 or value == 30 or value == 400;
+    });
+    if (appended_values != 3) {
+        return 18;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_tree_map_ordered_traversal_helpers() {
     let output = build_and_run_hosted(
         r#"

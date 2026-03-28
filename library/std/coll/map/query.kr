@@ -1,6 +1,8 @@
 use std.Option;
 use std.cmp.Eq;
 use std.hash.Hash;
+use std.coll.List;
+use std.mem.alloc.Allocator;
 use ..base.{
     EMPTY,
     FULL,
@@ -132,6 +134,42 @@ impl[K, V] *Map[K, V]
             }
         }
         return .{ None };
+    }
+
+    pub fn append_keys(alloc: *mut Allocator, out: *mut List[K]) bool {
+        if (!out.reserve(alloc, self.len)) {
+            return false;
+        }
+
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (!out.push(alloc, entry.key)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn append_values(alloc: *mut Allocator, out: *mut List[V]) bool {
+        if (!out.reserve(alloc, self.len)) {
+            return false;
+        }
+
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (!out.push(alloc, entry.value)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     pub fn get(key: K) Option[V] {

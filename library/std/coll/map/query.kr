@@ -1,0 +1,148 @@
+use std.Option;
+use std.cmp.Eq;
+use std.hash.Hash;
+use ..base.{
+    EMPTY,
+    FULL,
+    Map,
+    ctrl_at,
+    entry_ptr,
+};
+
+impl[K, V] *Map[K, V]
+    where *K: Eq[K] + Hash[K],
+{
+    fn key_hash(key: K) u64 {
+        return key.&.hash();
+    }
+
+    fn keys_equal(lhs: K, rhs: K) bool {
+        return lhs.&.eq(rhs);
+    }
+
+    fn find_index_with_hash(key: K, hash: u64) Option[usize] {
+        let mask = self.capacity - 1;
+        let mut index = (hash as usize) & mask;
+        let mut probes = 0;
+
+        for (; probes < self.capacity; probes += 1) {
+            let state = ctrl_at(self.ctrl, index);
+            if (state == EMPTY) {
+                return .{ None };
+            }
+
+            if (state == FULL) {
+                let entry = entry_ptr[K, V](self.entries, index);
+                if (entry.hash64 == hash and self.keys_equal(entry.key, key)) {
+                    return .{ Some: index };
+                }
+            }
+
+            index = (index + 1) & mask;
+        }
+
+        return .{ None };
+    }
+
+    pub fn is_empty() bool {
+        return self.len == 0;
+    }
+
+    pub fn contains(key: K) bool {
+        return self.get(key).is_some();
+    }
+
+    pub fn for_each(visitor: *Fn(K, V) void) void {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            visitor(entry.key, entry.value);
+        }
+    }
+
+    pub fn any(pred: *Fn(K, V) bool) bool {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (pred(entry.key, entry.value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    pub fn all(pred: *Fn(K, V) bool) bool {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (!pred(entry.key, entry.value)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn count(pred: *Fn(K, V) bool) usize {
+        let mut total = usize.{0};
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            if (pred(entry.key, entry.value)) {
+                total += 1;
+            }
+        }
+        return total;
+    }
+
+    pub fn fold[U](init: U, step: *Fn(U, K, V) U) U {
+        let mut accum = init;
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            accum = step(accum, entry.key, entry.value);
+        }
+        return accum;
+    }
+
+    pub fn find_map[U](visit: *Fn(K, V) Option[U]) Option[U] {
+        let mut i = 0;
+        for (; i < self.capacity; i += 1) {
+            if (ctrl_at(self.ctrl, i) != FULL) {
+                continue;
+            }
+            let entry = entry_ptr[K, V](self.entries, i);
+            match (visit(entry.key, entry.value)) {
+                .Some: value => return .{ Some: value },
+                .None => {}
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn get(key: K) Option[V] {
+        if (self.capacity == 0) return .{ None };
+
+        let hash = self.key_hash(key);
+        let slot = match (self.find_index_with_hash(key, hash)) {
+            .Some: index => index,
+            .None => return .{ None },
+        };
+        let entry = entry_ptr[K, V](self.entries, slot);
+        return .{ Some: entry.value };
+    }
+}

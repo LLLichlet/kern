@@ -18,6 +18,7 @@ pub use .file.{
     is_file,
     is_dir,
     read_dir,
+    walk_dir,
     file_name,
     parent,
     extension,

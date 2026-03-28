@@ -1142,3 +1142,127 @@ extern fn main() i32 {{
     let _ = fs::remove_file(&to_file);
     let _ = fs::remove_dir_all(&temp_root);
 }
+
+#[test]
+fn runs_hosted_program_using_std_fs_walk_dir() {
+    let temp_root = unique_temp_path("kernc_std_fs_walk_dir", "dir");
+    let alpha_dir = temp_root.join("alpha");
+    let beta_dir = alpha_dir.join("beta");
+    let root_file = temp_root.join("root.txt");
+    let beta_file = beta_dir.join("deep.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let alpha_path = kern_string_literal(&alpha_dir);
+    let beta_path = kern_string_literal(&beta_dir);
+    let root_file_path = kern_string_literal(&root_file);
+    let beta_file_path = kern_string_literal(&beta_file);
+
+    let _ = fs::remove_file(&beta_file);
+    let _ = fs::remove_file(&root_file);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{beta_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 1,
+    }}
+    match (fs.write_all(gpa, "{root_file_path}", "root")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 2,
+    }}
+    match (fs.write_all(gpa, "{beta_file_path}", "deep")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 3,
+    }}
+
+    let mut saw_alpha = bool.{{false}};
+    let mut saw_beta = bool.{{false}};
+    let mut saw_root_file = bool.{{false}};
+    let mut saw_beta_file = bool.{{false}};
+
+    let walked = match (fs.walk_dir(gpa, "{root_path}", .[
+        saw_alpha = saw_alpha..&,
+        saw_beta = saw_beta..&,
+        saw_root_file = saw_root_file..&,
+        saw_beta_file = saw_beta_file..&
+    ](path: []u8, entry: fs.DirEntry, depth: usize) bool {{
+        if (path.eq("{alpha_path}")) {{
+            if (!entry.is_dir() or depth != 1) {{
+                return false;
+            }}
+            saw_alpha.* = true;
+        }}
+        if (path.eq("{root_file_path}")) {{
+            if (!entry.is_file() or depth != 1) {{
+                return false;
+            }}
+            saw_root_file.* = true;
+        }}
+        if (path.eq("{beta_path}")) {{
+            if (!entry.is_dir() or depth != 2) {{
+                return false;
+            }}
+            saw_beta.* = true;
+        }}
+        if (path.eq("{beta_file_path}")) {{
+            if (!entry.is_file() or depth != 3) {{
+                return false;
+            }}
+            saw_beta_file.* = true;
+        }}
+        return true;
+    }})) {{
+        .Ok: count => count,
+        .Err: _ => return 4,
+    }};
+
+    if (walked != 4) {{
+        return 5;
+    }}
+    if (!saw_alpha or !saw_beta or !saw_root_file or !saw_beta_file) {{
+        return 6;
+    }}
+
+    let mut early = usize.{{0}};
+    let stopped = match (fs.walk_dir(gpa, "{root_path}", .[
+        early = early..&
+    ](_: []u8, _: fs.DirEntry, _: usize) bool {{
+        early.* += 1;
+        return false;
+    }})) {{
+        .Ok: count => count,
+        .Err: _ => return 7,
+    }};
+
+    if (stopped != 1 or early != 1) {{
+        return 8;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        alpha_path = alpha_path,
+        beta_path = beta_path,
+        root_file_path = root_file_path,
+        beta_file_path = beta_file_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&beta_file);
+    let _ = fs::remove_file(&root_file);
+    let _ = fs::remove_dir_all(&temp_root);
+}

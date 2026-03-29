@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version label to use for a dry-run release build.
+        required: true
+        default: v0.0.0-dev
 
 concurrency:
   group: release-${{ github.ref }}
@@ -25,18 +31,22 @@ jobs:
             target: x86_64-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
             artifact_ext: tar.gz
+            test_mode: all
           - os: windows-latest
             target: x86_64-windows-msvc
             rust_target: x86_64-pc-windows-msvc
             artifact_ext: zip
+            test_mode: smoke
           - os: macos-13
             target: x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
             artifact_ext: tar.gz
+            test_mode: all
           - os: macos-14
             target: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
             artifact_ext: tar.gz
+            test_mode: all
 
     permissions:
       contents: read
@@ -56,14 +66,40 @@ jobs:
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
 
-      - name: Run kernc Integration Tests
-        run: cargo test -p kernc_cli --tests
+      - name: Resolve Release Version (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "KERN_RELEASE_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+          else
+            echo "KERN_RELEASE_VERSION=${GITHUB_REF#refs/tags/}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Resolve Release Version (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            echo "KERN_RELEASE_VERSION=${{ inputs.version }}" >> $env:GITHUB_ENV
+          } else {
+            $version = $env:GITHUB_REF.Replace("refs/tags/", "")
+            echo "KERN_RELEASE_VERSION=$version" >> $env:GITHUB_ENV
+          }
+
+      - name: Run kernc Integration Tests (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/run_kernc_cli_tests.sh ${{ matrix.test_mode }}
+
+      - name: Run kernc Integration Tests (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\run_kernc_cli_tests.ps1 -Mode ${{ matrix.test_mode }}
 
       - name: Package Toolchain (Unix)
         if: matrix.os != 'windows-latest'
         run: |
           cargo build --release -p kernc_cli --bin kernc
-          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${KERN_RELEASE_VERSION}
           ./scripts/package_release.sh "$VERSION" "${{ matrix.target }}" --skip-build
           echo "ARTIFACT_FILE=kern-${VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
 
@@ -72,7 +108,7 @@ jobs:
         shell: powershell
         run: |
           cargo build --release -p kernc_cli --bin kernc
-          $VERSION = $env:GITHUB_REF.Replace("refs/tags/", "")
+          $VERSION = $env:KERN_RELEASE_VERSION
           .\scripts\package_release.ps1 -Version $VERSION -Target ${{ matrix.target }} -SkipBuild
           echo "ARTIFACT_FILE=kern-$VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV
 
@@ -87,6 +123,7 @@ jobs:
     name: Publish GitHub Release
     runs-on: ubuntu-latest
     needs: build
+    if: github.event_name == 'push'
     permissions:
       contents: write
 

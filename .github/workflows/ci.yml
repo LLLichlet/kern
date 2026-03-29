@@ -28,12 +28,15 @@ jobs:
           - name: linux
             os: ubuntu-latest
             rust_target: x86_64-unknown-linux-gnu
+            test_mode: all
           - name: windows
             os: windows-latest
             rust_target: x86_64-pc-windows-msvc
+            test_mode: smoke
           - name: macos
             os: macos-14
             rust_target: aarch64-apple-darwin
+            test_mode: all
 
     permissions:
       contents: read
@@ -53,5 +56,11 @@ jobs:
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
 
-      - name: Run kernc Integration Tests
-        run: cargo test -p kernc_cli --tests
+      - name: Run kernc Integration Tests (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/run_kernc_cli_tests.sh ${{ matrix.test_mode }}
+
+      - name: Run kernc Integration Tests (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\run_kernc_cli_tests.ps1 -Mode ${{ matrix.test_mode }}

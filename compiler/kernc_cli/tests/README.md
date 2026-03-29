@@ -22,4 +22,14 @@ cargo test -p kernc_cli --tests
 cargo test -p kernc_cli --test regressions
 ```
 
+```bash
+bash ./scripts/run_kernc_cli_tests.sh smoke
+```
+
+Available test layers:
+
+- `smoke`: fast compiler, runtime, and platform-critical coverage.
+- `hosted`: slower hosted standard-library coverage (`collections` and `filesystem`).
+- `all`: `smoke` plus `hosted`.
+
 Prefer adding a test to the narrowest existing suite that matches the behavior under change. If a new area becomes large enough to deserve its own suite, create another file in this directory and keep the support logic shared through `support/mod.rs`.

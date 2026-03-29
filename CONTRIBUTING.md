@@ -37,6 +37,12 @@ To run all tests, simply execute:
 cargo test -p kernc_cli --tests
 ```
 
+For the curated suite layers used by CI:
+
+```bash
+bash ./scripts/run_kernc_cli_tests.sh smoke
+```
+
 ### Adding a New Test
 
 Add new integration coverage to the narrowest existing suite in `compiler/kernc_cli/tests/`.

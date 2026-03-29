@@ -62,11 +62,26 @@ runs:
         echo "LLVM_SYS_211_PREFIX=$llvmPath" >> $env:GITHUB_ENV
         echo "$llvmPath\bin" >> $env:GITHUB_PATH
 
+    - name: Configure vcpkg Binary Cache (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $cachePath = "$env:GITHUB_WORKSPACE\.vcpkg-cache"
+        New-Item -ItemType Directory -Force -Path $cachePath | Out-Null
+        echo "VCPKG_DEFAULT_BINARY_CACHE=$cachePath" >> $env:GITHUB_ENV
+
+    - name: Cache vcpkg Binary Artifacts (Windows)
+      if: runner.os == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}\.vcpkg-cache
+        key: ${{ runner.os }}-vcpkg-libxml2-x64-windows-static-v1
+
     - name: Install libxml2 via vcpkg (Windows)
       if: runner.os == 'Windows'
       shell: powershell
       run: |
-        vcpkg install libxml2:x64-windows-static
+        vcpkg install libxml2:x64-windows-static "--binarysource=clear;files,$env:VCPKG_DEFAULT_BINARY_CACHE,readwrite"
         $vcpkgLib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib"
         $llvmLib = "LLVM-21\lib\libxml2s.lib"
         Copy-Item $vcpkgLib -Destination $llvmLib -Force

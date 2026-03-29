@@ -68,52 +68,41 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
 
         let then_bb = self.context.append_basic_block(parent_func, "then");
-        let else_bb = self.context.append_basic_block(parent_func, "else");
         let merge_bb = self.context.append_basic_block(parent_func, "ifcont");
+        let else_bb = else_branch.map(|_| self.context.append_basic_block(parent_func, "else"));
+        let false_bb = else_bb.unwrap_or(merge_bb);
 
-        if else_branch.is_some() {
-            self.builder
-                .build_conditional_branch(cond_val, then_bb, else_bb)
-                .unwrap();
-        } else {
-            self.builder
-                .build_conditional_branch(cond_val, then_bb, merge_bb)
-                .unwrap();
-        }
+        self.builder
+            .build_conditional_branch(cond_val, then_bb, false_bb)
+            .unwrap();
 
         let mut incoming = Vec::new();
         let mut merge_reachable = else_branch.is_none();
 
-        // 编译 Then 分支
         self.builder.position_at_end(then_bb);
         let then_result = self.compile_block(then_branch);
         let then_exit_bb = self.builder.get_insert_block().unwrap();
         if then_exit_bb.get_terminator().is_none() {
             self.builder.build_unconditional_branch(merge_bb).unwrap();
             merge_reachable = true;
-            // 只有真实发生跳转，才加入 PHI 节点前驱！
             if let Some(val) = then_result {
                 incoming.push((val, then_exit_bb));
             }
         }
 
-        // 编译 Else 分支
-        self.builder.position_at_end(else_bb);
-        let mut else_result = None;
-        if let Some(eb) = else_branch {
-            else_result = self.compile_block(eb);
-        }
-        let else_exit_bb = self.builder.get_insert_block().unwrap();
-        if else_exit_bb.get_terminator().is_none() {
-            self.builder.build_unconditional_branch(merge_bb).unwrap();
-            merge_reachable = true;
-            // 只有真实发生跳转，才加入 PHI 节点前驱
-            if let Some(val) = else_result {
-                incoming.push((val, else_exit_bb));
+        if let (Some(else_bb), Some(else_branch)) = (else_bb, else_branch) {
+            self.builder.position_at_end(else_bb);
+            let else_result = self.compile_block(else_branch);
+            let else_exit_bb = self.builder.get_insert_block().unwrap();
+            if else_exit_bb.get_terminator().is_none() {
+                self.builder.build_unconditional_branch(merge_bb).unwrap();
+                merge_reachable = true;
+                if let Some(val) = else_result {
+                    incoming.push((val, else_exit_bb));
+                }
             }
         }
 
-        // 生成 PHI 节点
         self.builder.position_at_end(merge_bb);
         if !merge_reachable {
             self.builder.build_unreachable().unwrap();
@@ -155,31 +144,26 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.builder.build_unconditional_branch(loop_bb).unwrap();
         self.builder.position_at_end(loop_bb);
 
-        // 把 latch_bb 压入栈,这样遇到 continue 时就会跳转到 latch_bb
         self.loop_targets.push((latch_bb, merge_bb));
 
         self.compile_block(body);
 
         let loop_exit_bb = self.builder.get_insert_block().unwrap();
         if loop_exit_bb.get_terminator().is_none() {
-            // 循环体自然结束，跳入 latch 块
             self.builder.build_unconditional_branch(latch_bb).unwrap();
         }
 
         self.loop_targets.pop();
 
-        // --- 编译 Latch Block (步进逻辑) ---
         self.builder.position_at_end(latch_bb);
         if let Some(latch_block) = latch {
             self.compile_block(latch_block);
         }
         let latch_exit_bb = self.builder.get_insert_block().unwrap();
         if latch_exit_bb.get_terminator().is_none() {
-            // 步进执行完毕，跳回循环头进行新一轮判断
             self.builder.build_unconditional_branch(loop_bb).unwrap();
         }
 
-        // --- 编译结束后的出口 ---
         self.builder.position_at_end(merge_bb);
         if expr_ty != TypeId::VOID {
             self.builder.build_unreachable().unwrap();
@@ -239,7 +223,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let mut incoming = Vec::new();
         let mut merge_reachable = false;
 
-        // 编译 Default 分支
         self.builder.position_at_end(default_bb);
         if let Some(def_block) = default_case {
             let def_val = self.compile_block(def_block);
@@ -252,10 +235,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
         } else {
-            self.builder.build_unreachable().unwrap(); // 前端已保证穷尽性
+            self.builder.build_unreachable().unwrap();
         }
 
-        // 编译所有 Case 分支
         for (i, case) in cases.iter().enumerate() {
             self.builder.position_at_end(case_blocks[i]);
             let case_val = self.compile_block(&case.body);
@@ -270,7 +252,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         }
 
-        // 构建 PHI 返回值
         self.builder.position_at_end(merge_bb);
         if !merge_reachable {
             self.builder.build_unreachable().unwrap();
@@ -308,7 +289,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(crate) fn compile_return(&mut self, ret_val: Option<&MastExpr>) -> BasicValueEnum<'ctx> {
         if let Some(val) = ret_val {
             let llvm_val = self.compile_expr(val);
-            // 如果是 void 表达式，忽略它产生的值，强行 build_return(None)
             if self.is_void_type(val.ty) {
                 self.builder.build_return(None).unwrap();
             } else {

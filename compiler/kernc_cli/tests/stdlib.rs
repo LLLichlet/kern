@@ -101,6 +101,39 @@ fn compiles_std_hello_world_in_compile_only_mode() {
     let _ = fs::remove_file(&object);
 }
 
+#[cfg(windows)]
+#[test]
+fn compiles_std_hello_world_to_unicode_object_path() {
+    let source = repo_root().join("examples/hello_world.kr");
+    let object = unique_temp_path("kernc_std_hello_world_对象", "o");
+
+    let source_arg = source.to_string_lossy().into_owned();
+    let object_arg = object.to_string_lossy().into_owned();
+    let args = vec![
+        "-c",
+        "--use-std",
+        source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ];
+    let output = run_kernc(&args);
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        object.exists(),
+        "expected object file at {}",
+        object.display()
+    );
+    assert_not_textual_llvm_ir(&object);
+
+    let _ = fs::remove_file(&object);
+}
+
 #[test]
 fn links_compile_only_object_via_link_only_mode() {
     let source_path = unique_temp_path("kernc_std_link_only", "kr");

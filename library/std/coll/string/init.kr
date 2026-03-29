@@ -1,0 +1,107 @@
+use std.mem.alloc.Allocator;
+use std.coll.List;
+use std.Option;
+
+mod query;
+mod fmt;
+
+pub type String = struct {
+    raw: List[u8] = List[u8].{},
+};
+
+impl *mut String {
+    pub fn push_char(alloc: *mut Allocator, c: u8) bool {
+        return self.raw..&.push(alloc, c);
+    }
+
+    pub fn push_str(alloc: *mut Allocator, text: []u8) bool {
+        return self.raw..&.append_slice(alloc, text);
+    }
+
+    pub fn push_repeat(alloc: *mut Allocator, byte: u8, count: usize) bool {
+        return self.raw..&.append_repeat(alloc, byte, count);
+    }
+
+    pub fn push_string(alloc: *mut Allocator, other: *String) bool {
+        return self.push_str(alloc, other.as_str());
+    }
+
+    pub fn insert_char(alloc: *mut Allocator, index: usize, byte: u8) bool {
+        return self.raw..&.insert(alloc, index, byte);
+    }
+
+    pub fn insert_str(alloc: *mut Allocator, index: usize, text: []u8) bool {
+        return self.raw..&.insert_slice(alloc, index, text);
+    }
+
+    pub fn insert_string(alloc: *mut Allocator, index: usize, other: *String) bool {
+        return self.insert_str(alloc, index, other.as_str());
+    }
+
+    pub fn clone_from(alloc: *mut Allocator, text: []u8) bool {
+        self.clear();
+        return self.push_str(alloc, text);
+    }
+
+    pub fn clone_from_string(alloc: *mut Allocator, other: *String) bool {
+        return self.clone_from(alloc, other.as_str());
+    }
+
+    pub fn as_mut_bytes() []mut u8 {
+        return self.raw..&.as_mut_slice();
+    }
+
+    pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
+        return self.raw..&.reserve(alloc, additional);
+    }
+
+    pub fn pop_char() Option[u8] {
+        return self.raw..&.pop();
+    }
+
+    pub fn shrink_to_fit(alloc: *mut Allocator) bool {
+        return self.raw..&.shrink_to_fit(alloc);
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.raw..&.deinit(alloc);
+    }
+
+    pub fn clear() void {
+        self.raw..&.clear();
+    }
+
+    pub fn truncate(new_len: usize) void {
+        self.raw..&.truncate(new_len);
+    }
+
+    pub fn reverse_bytes() void {
+        self.raw..&.reverse();
+    }
+
+    pub fn retain_bytes(pred: *Fn(u8) bool) void {
+        self.raw..&.retain(pred);
+    }
+}
+
+impl *String {
+    pub fn as_str() []u8 {
+        return self.raw.&.as_slice();
+    }
+
+    pub fn as_bytes() []u8 {
+        return self.as_str();
+    }
+
+    pub fn len() usize {
+        return self.raw.len;
+    }
+
+    pub fn capacity() usize {
+        return self.raw.&.capacity();
+    }
+
+    pub fn is_empty() bool {
+        return self.raw.&.is_empty();
+    }
+}

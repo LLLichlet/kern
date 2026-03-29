@@ -1415,174 +1415,202 @@ extern fn main() i32 {
     if (!text.reserve(gpa, 16)) {
         return 43;
     }
-    if (!text.push_str(gpa, "kern") or !text.push_char(gpa, b'-') or !text.push_str(gpa, "lang")) {
+    if (text.capacity() < 16) {
         return 44;
     }
-    if (!text.starts_with("kern") or !text.ends_with("lang")) {
+    if (!text.push_str(gpa, "kern") or !text.push_char(gpa, b'-') or !text.push_str(gpa, "lang")) {
         return 45;
     }
-    if (!text.contains("-la")) {
+    if (!text.starts_with("kern") or !text.ends_with("lang")) {
         return 46;
+    }
+    if (!text.contains("-la")) {
+        return 47;
     }
     let lang_index = match (text.find("lang")) {
         .Some: index => index,
-        .None => return 47,
+        .None => return 48,
     };
     if (lang_index != 5) {
-        return 48;
+        return 49;
     }
     if (!text.contains_byte(b'-')) {
-        return 49;
+        return 50;
     }
     let dash_index = match (text.find_byte(b'-')) {
         .Some: index => index,
-        .None => return 50,
+        .None => return 51,
     };
     if (dash_index != 4) {
-        return 51;
-    }
-    if (text.lex_cmp("kern-lang") != EQUAL) {
         return 52;
     }
+    if (text.lex_cmp("kern-lang") != EQUAL) {
+        return 53;
+    }
     if (text.lex_cmp("kern-lano") != LESS) {
-        return 50;
+        return 54;
     }
     if (text.lex_cmp("kern-lanf") != GREATER) {
-        return 51;
+        return 55;
     }
     let stripped_text_prefix = match (text.strip_prefix("kern-")) {
         .Some: tail => tail,
-        .None => return 52,
+        .None => return 56,
     };
     if (!stripped_text_prefix.eq("lang")) {
-        return 53;
+        return 57;
     }
     let stripped_text_suffix = match (text.strip_suffix("-lang")) {
         .Some: head => head,
-        .None => return 54,
+        .None => return 58,
     };
     if (!stripped_text_suffix.eq("kern")) {
-        return 55;
+        return 59;
+    }
+
+    let shaped = String.{}..&;
+    defer shaped.deinit(gpa);
+    if (!shaped.clone_from_string(gpa, text)) {
+        return 60;
+    }
+    if (!shaped.insert_char(gpa, 4, b'_')) {
+        return 61;
+    }
+    if (!shaped.insert_str(gpa, 5, "std")) {
+        return 62;
+    }
+    if (!shaped.eq("kern_std-lang")) {
+        return 63;
+    }
+    shaped.truncate(9);
+    if (!shaped.eq("kern_std-")) {
+        return 64;
+    }
+    shaped.retain_bytes(.[](byte: u8) bool {
+        return byte != b'_';
+    });
+    if (!shaped.eq("kernstd-")) {
+        return 65;
     }
 
     let scratch = String.{}..&;
     defer scratch.deinit(gpa);
     if (!scratch.push_str(gpa, "abcde")) {
-        return 56;
+        return 66;
     }
     let scratch_bytes = scratch.as_mut_bytes();
     if (!scratch_bytes.swap(1, 3)) {
-        return 57;
+        return 67;
     }
     scratch_bytes.reverse();
     if (!scratch.eq("ebcda")) {
-        return 58;
+        return 68;
     }
 
     let snapshot = text.as_str();
     if (!text.push_str(gpa, snapshot)) {
-        return 59;
+        return 69;
     }
     if (!text.eq("kern-langkern-lang")) {
-        return 60;
+        return 70;
     }
     let last_dash = match (text.rfind_byte(b'-')) {
         .Some: index => index,
-        .None => return 61,
+        .None => return 71,
     };
     if (last_dash != 13) {
-        return 62;
+        return 72;
     }
     let free_last_dash = match (rfind_byte(text.as_str(), b'-')) {
         .Some: index => index,
-        .None => return 63,
+        .None => return 73,
     };
     if (free_last_dash != 13) {
-        return 64;
+        return 74;
     }
     let free_first_dash = match (find_byte(text.as_str(), b'-')) {
         .Some: index => index,
-        .None => return 65,
+        .None => return 75,
     };
     if (free_first_dash != 4) {
-        return 66;
+        return 76;
     }
 
     let extra = String.{}..&;
     defer extra.deinit(gpa);
     if (!extra.push_str(gpa, "!")) {
-        return 67;
+        return 77;
     }
     if (!text.push_string(gpa, extra)) {
-        return 68;
+        return 78;
     }
     if (!text.eq("kern-langkern-lang!")) {
-        return 69;
+        return 79;
     }
     if (!text.as_bytes().ends_with("!")) {
-        return 70;
+        return 80;
     }
 
     let popped = match (text.pop_char()) {
         .Some: byte => byte,
-        .None => return 71,
+        .None => return 81,
     };
     if (popped != b'!') {
-        return 72;
+        return 82;
     }
     if (!text.eq("kern-langkern-lang")) {
-        return 73;
+        return 83;
     }
 
     text.reverse_bytes();
     if (!text.eq("gnal-nrekgnal-nrek")) {
-        return 74;
+        return 84;
     }
     text.reverse_bytes();
     if (!text.eq("kern-langkern-lang")) {
-        return 75;
+        return 85;
     }
 
     let padded = " \t kern \r\n";
     if (!trim_ascii_start(padded).eq("kern \r\n")) {
-        return 76;
+        return 86;
     }
     if (!trim_ascii_end(padded).eq(" \t kern")) {
-        return 77;
+        return 87;
     }
     if (!trim_ascii(padded).eq("kern")) {
-        return 78;
+        return 88;
     }
     if (!padded.trim_ascii_start().eq("kern \r\n")) {
-        return 79;
+        return 89;
     }
     if (!padded.trim_ascii_end().eq(" \t kern")) {
-        return 80;
+        return 90;
     }
     if (!padded.trim_ascii().eq("kern")) {
-        return 81;
+        return 91;
     }
     let space_index = match (padded.find_byte(b'k')) {
         .Some: index => index,
-        .None => return 82,
+        .None => return 92,
     };
     if (space_index != 3) {
-        return 83;
+        return 93;
     }
 
     let spaced = String.{}..&;
     defer spaced.deinit(gpa);
     if (!spaced.push_str(gpa, "  hi\t")) {
-        return 84;
+        return 94;
     }
     if (!spaced.trim_ascii().eq("hi")) {
-        return 85;
+        return 95;
     }
 
     let spaced_bytes = spaced.as_mut_bytes();
     spaced_bytes.[2] = b'!';
     if (!spaced.eq("  !i\t")) {
-        return 86;
+        return 96;
     }
 
     return 0;

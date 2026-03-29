@@ -1,0 +1,8 @@
+use std.io.{Printable, Writer};
+use ..String;
+
+impl *String : Printable {
+    pub fn fmt(writer: *mut Writer) void {
+        let _ = writer.write(self.as_str());
+    }
+}

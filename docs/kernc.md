@@ -120,7 +120,7 @@ Use `-o <file>` to set the output path.
 Default output names:
 
 - Compile-and-link: `a.out`
-- Compile-only: `<input-stem>.o` on Unix-like targets, `<input-stem>.ll` on Windows
+- Compile-only: `<input-stem>.o`
 
 ### Optimization Level
 

@@ -5,6 +5,15 @@ extern {
     fn main(args: [][]u8) i32;
 }
 
+#[if(os == "windows")]
+static mut WINDOWS_ARGV_SLICES = [64]mut []u8.{undef};
+
+#[if(os == "windows")]
+static mut WINDOWS_ARG_BUF = [32768]mut u8.{undef};
+
+#[if(os == "windows")]
+static mut WINDOWS_ARG_WIDE_BUF = [32768]mut u16.{undef};
+
 #[if(os == "linux")]
 #[export_name("_start")]
 #[naked]
@@ -61,52 +70,111 @@ extern fn kern_entry(argc: usize, argv: **u8) void {
 }
 
 #[if(os == "windows")]
+fn is_windows_cmd_whitespace(ch: u16) bool {
+    return ch == u16.{32} or ch == u16.{9};
+}
+
+#[if(os == "windows")]
 #[export_name("mainCRTStartup")]
 extern fn _start_windows() void {
-    let ARGV_SLICES = [64]mut []u8.{undef};
-    let cmd_line = os.windows.GetCommandLineA();
+    let cmd_line = os.windows.GetCommandLineW();
+    let cmd = cmd_line.[0 .. os.windows.utf16_z_len(cmd_line)];
 
     let mut argc = 0;
     let mut i = 0;
-
-    let mut in_word = false;
-    let mut word_start = cmd_line;
-    let mut word_len = 0;
+    let mut out_len = 0;
 
     for (;;) {
-        let current_char_ptr = cmd_line + i;
-        let c = current_char_ptr.*;
-
-        if (c == 0) {
-            if (in_word) {
-                if (argc < 64) {
-                    ARGV_SLICES.[argc] = word_start.[0 .. word_len];
-                    argc += 1;
-                }
-            }
+        for (; i < #cmd and is_windows_cmd_whitespace(cmd.[i]); i += 1) {}
+        if (i >= #cmd or argc >= 64) {
             break;
         }
 
-        if (c == 32 or c == 9) {
-            if (in_word) {
-                if (argc < 64) {
-                    ARGV_SLICES.[argc] = word_start.[0 .. word_len];
-                    argc += 1;
+        let arg_start = out_len;
+        let mut in_quotes = false;
+        let mut wide_len = 0;
+
+        for (; i < #cmd; ) {
+            let c = cmd.[i];
+
+            if (c == u16.{92}) {
+                let slash_start = i;
+                for (; i < #cmd and cmd.[i] == u16.{92}; i += 1) {}
+                let slash_count = i - slash_start;
+
+                if (i < #cmd and cmd.[i] == u16.{34}) {
+                    let mut emitted = 0;
+                    for (; emitted < (slash_count / 2); emitted += 1) {
+                        if (out_len + 1 >= 32768) {
+                            break;
+                        }
+                        WINDOWS_ARG_WIDE_BUF.[wide_len] = u16.{92};
+                        wide_len += 1;
+                    }
+
+                    if (slash_count % 2 == 0) {
+                        in_quotes = !in_quotes;
+                    } else {
+                        if (wide_len + 1 < 32768) {
+                            WINDOWS_ARG_WIDE_BUF.[wide_len] = u16.{34};
+                            wide_len += 1;
+                        }
+                    }
+
+                    i += 1;
+                    continue;
                 }
-                in_word = false;
+
+                let mut emitted = 0;
+                for (; emitted < slash_count; emitted += 1) {
+                    if (wide_len + 1 >= 32768) {
+                        break;
+                    }
+                    WINDOWS_ARG_WIDE_BUF.[wide_len] = u16.{92};
+                    wide_len += 1;
+                }
+                continue;
             }
-        } else {
-            if (!in_word) {
-                word_start = current_char_ptr;
-                word_len = 0;
-                in_word = true;
+
+            if (c == u16.{34}) {
+                in_quotes = !in_quotes;
+                i += 1;
+                continue;
             }
-            word_len += 1;
+
+            if (!in_quotes and is_windows_cmd_whitespace(c)) {
+                break;
+            }
+
+            if (wide_len + 1 < 32768) {
+                WINDOWS_ARG_WIDE_BUF.[wide_len] = c;
+                wide_len += 1;
+            }
+            i += 1;
         }
-        i += 1;
+
+        let written = match (os.windows.wide_to_utf8_into(
+            WINDOWS_ARG_WIDE_BUF.[0 .. wide_len],
+            WINDOWS_ARG_BUF..[out_len .. 32768]
+        )) {
+            .Ok: len => len,
+            .Err: _ => break,
+        };
+
+        out_len += written;
+        if (out_len < 32768) {
+            WINDOWS_ARG_BUF.[out_len] = 0;
+        }
+        WINDOWS_ARGV_SLICES.[argc] = WINDOWS_ARG_BUF.[arg_start .. out_len];
+        argc += 1;
+
+        if (out_len + 1 >= 32768) {
+            break;
+        }
+        out_len += 1;
     }
 
-    let args_slice = ARGV_SLICES.[0 .. argc];
+    let args_slice = WINDOWS_ARGV_SLICES.[0 .. argc];
     let exit_code = main(args_slice);
     os.exit(exit_code)
 }

@@ -226,11 +226,11 @@ impl CompilerDriver {
         }
     }
 
-    fn prepare_link_input_path(&self, target: &LinkTarget) -> String {
+    fn prepare_link_input_path(&self, _target: &LinkTarget) -> String {
         if self.options.driver_mode.emits_linker_input() {
             self.options.output_file.clone()
         } else {
-            self.make_temp_link_input_path(target.is_windows)
+            self.make_temp_link_input_path()
         }
     }
 
@@ -274,8 +274,8 @@ impl CompilerDriver {
         }
     }
 
-    fn make_temp_link_input_path(&self, is_windows: bool) -> String {
-        let tmp_ext = if is_windows { "ll" } else { "o" };
+    fn make_temp_link_input_path(&self) -> String {
+        let tmp_ext = "o";
         format!("{}.tmp.{}", self.options.output_file, tmp_ext)
     }
 
@@ -333,6 +333,10 @@ impl CompilerDriver {
                 if is_windows {
                     cmd.arg("-Wno-override-module");
                     cmd.arg("-nostdlib");
+                    cmd.arg("-Wl,/subsystem:console");
+                    if let Some(entry_symbol) = &self.options.entry_symbol {
+                        cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
+                    }
                 } else if is_darwin {
                     cmd.arg("-nostdlib");
                     cmd.arg(format!(
@@ -351,7 +355,11 @@ impl CompilerDriver {
                 if is_windows {
                     cmd.arg("-Wno-override-module");
                     cmd.arg("-nostdlib");
+                    cmd.arg("-Wl,/subsystem:console");
                     cmd.arg("-lkernel32");
+                    if let Some(entry_symbol) = &self.options.entry_symbol {
+                        cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
+                    }
                 } else if is_darwin {
                     cmd.arg("-nostdlib");
                     cmd.arg("-lSystem");

@@ -1,14 +1,15 @@
 #![if(os == "windows")]
 
 use std.Result;
+use std.cffi;
 use std.os.{FileType, Metadata};
 use std.os.OpenOptions;
 
 // 链接 kernel32.dll 中的函数
 extern {
     pub fn GetStdHandle(nStdHandle: i32) *mut u8;
-    pub fn CreateFileA(
-        lpFileName: *u8,
+    pub fn CreateFileW(
+        lpFileName: *u16,
         dwDesiredAccess: u32,
         dwShareMode: u32,
         lpSecurityAttributes: *mut u8,
@@ -31,17 +32,19 @@ extern {
         lpOverlapped: *mut u8
     ) i32;
     pub fn CloseHandle(hObject: *mut u8) i32;
-    pub fn DeleteFileA(lpFileName: *u8) i32;
-    pub fn MoveFileA(lpExistingFileName: *u8, lpNewFileName: *u8) i32;
-    pub fn CreateDirectoryA(lpPathName: *u8, lpSecurityAttributes: *mut u8) i32;
-    pub fn RemoveDirectoryA(lpPathName: *u8) i32;
-    pub fn FindFirstFileA(lpFileName: *u8, lpFindFileData: *mut Win32FindDataA) *mut u8;
-    pub fn FindNextFileA(hFindFile: *mut u8, lpFindFileData: *mut Win32FindDataA) i32;
+    pub fn DeleteFileW(lpFileName: *u16) i32;
+    pub fn MoveFileW(lpExistingFileName: *u16, lpNewFileName: *u16) i32;
+    pub fn CreateDirectoryW(lpPathName: *u16, lpSecurityAttributes: *mut u8) i32;
+    pub fn RemoveDirectoryW(lpPathName: *u16) i32;
+    pub fn FindFirstFileW(lpFileName: *u16, lpFindFileData: *mut Win32FindDataW) *mut u8;
+    pub fn FindNextFileW(hFindFile: *mut u8, lpFindFileData: *mut Win32FindDataW) i32;
     pub fn FindClose(hFindFile: *mut u8) i32;
-    pub fn GetFileAttributesExA(lpFileName: *u8, fInfoLevelId: u32, lpFileInformation: *mut Win32FileAttributeData) i32;
+    pub fn GetFileAttributesExW(lpFileName: *u16, fInfoLevelId: u32, lpFileInformation: *mut Win32FileAttributeData) i32;
     pub fn GetLastError() u32;
     pub fn ExitProcess(uExitCode: u32) void;
-    pub fn GetCommandLineA() *mut u8;
+    pub fn GetCommandLineW() *mut u16;
+    pub fn MultiByteToWideChar(CodePage: u32, dwFlags: u32, lpMultiByteStr: *u8, cbMultiByte: i32, lpWideCharStr: *mut u16, cchWideChar: i32) i32;
+    pub fn WideCharToMultiByte(CodePage: u32, dwFlags: u32, lpWideCharStr: *u16, cchWideChar: i32, lpMultiByteStr: *mut u8, cbMultiByte: i32, lpDefaultChar: *u8, lpUsedDefaultChar: *mut u8) i32;
 }
 
 pub fn write_stdout(ptr: *u8, len: usize) usize {
@@ -79,7 +82,7 @@ type Win32FileAttributeData = extern struct {
     nFileSizeLow: u32,
 };
 
-type Win32FindDataA = extern struct {
+type Win32FindDataW = extern struct {
     dwFileAttributes: u32,
     ftCreationTime: FileTime,
     ftLastAccessTime: FileTime,
@@ -88,13 +91,13 @@ type Win32FindDataA = extern struct {
     nFileSizeLow: u32,
     dwReserved0: u32,
     dwReserved1: u32,
-    cFileName: [260]u8,
-    cAlternateFileName: [14]u8,
+    cFileName: [260]u16,
+    cAlternateFileName: [14]u16,
 };
 
-const INVALID_HANDLE_VALUE = ~usize.{0} as *mut u8;
 const GENERIC_READ = u32.{2147483648};
 const GENERIC_WRITE = u32.{1073741824};
+const FILE_APPEND_DATA = u32.{4};
 const FILE_SHARE_READ = u32.{1};
 const FILE_SHARE_WRITE = u32.{2};
 const CREATE_NEW = u32.{1};
@@ -104,6 +107,7 @@ const OPEN_EXISTING = u32.{3};
 const OPEN_ALWAYS = u32.{4};
 const FILE_ATTRIBUTE_NORMAL = u32.{128};
 const GET_FILE_EX_INFO_STANDARD = u32.{0};
+const CP_UTF8 = u32.{65001};
 const ERROR_FILE_NOT_FOUND = isize.{2};
 const ERROR_PATH_NOT_FOUND = isize.{3};
 const ERROR_NO_MORE_FILES = isize.{18};
@@ -112,11 +116,15 @@ const ERROR_FILE_EXISTS = isize.{80};
 const ERROR_ALREADY_EXISTS = isize.{183};
 
 pub fn invalid_handle() Handle {
-    return INVALID_HANDLE_VALUE;
+    return (~usize.{0}) as *mut u8;
 }
 
 fn last_error() Error {
     return .{ code: GetLastError() as isize };
+}
+
+fn conversion_error() Error {
+    return .{ code: ERROR_INVALID_PARAMETER };
 }
 
 pub fn is_not_found(err: Error) bool {
@@ -137,6 +145,149 @@ pub fn get_stdout_handle() Handle {
 
 pub fn get_stderr_handle() Handle {
     return GetStdHandle(-12);
+}
+
+pub fn utf16_z_len(str: *u16) usize {
+    let mut len = 0;
+    for (;;) {
+        let current_ptr = str + len;
+        if (current_ptr.* == 0) {
+            return len;
+        }
+        len += 1;
+    }
+}
+
+fn alloc_wide_units(units: usize) Result[*mut u16, Error] {
+    let bytes = units * 2;
+    let ptr = VirtualAlloc(
+        0,
+        bytes,
+        (MEM_COMMIT | MEM_RESERVE) as u32,
+        PAGE_READWRITE as u32
+    );
+    if ((ptr as usize) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: ptr as *mut u16 };
+}
+
+pub fn free_wide_units(ptr: *mut u16) void {
+    if ((ptr as usize) == 0) {
+        return;
+    }
+    let _ = VirtualFree(ptr as *mut u8, 0, MEM_RELEASE as u32);
+}
+
+fn alloc_utf8_units(bytes: usize) Result[*mut u8, Error] {
+    let ptr = VirtualAlloc(
+        0,
+        bytes,
+        (MEM_COMMIT | MEM_RESERVE) as u32,
+        PAGE_READWRITE as u32
+    );
+    if ((ptr as usize) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: ptr };
+}
+
+pub fn free_utf8_units(ptr: *mut u8) void {
+    if ((ptr as usize) == 0) {
+        return;
+    }
+    let _ = VirtualFree(ptr, 0, MEM_RELEASE as u32);
+}
+
+pub fn utf8_z_to_wide(path: *u8) Result[*mut u16, Error] {
+    let bytes = cffi.cstr.len(path);
+    let required = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, 0, 0);
+    if (required <= 0) {
+        return .{ Err: last_error() };
+    }
+
+    let wide = match (alloc_wide_units(required as usize + 1)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+
+    let written = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, wide, required);
+    if (written <= 0) {
+        free_wide_units(wide);
+        return .{ Err: last_error() };
+    }
+
+    (wide + written as usize).* = 0;
+    return .{ Ok: wide };
+}
+
+pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) Result[usize, Error] {
+    if (#wide == 0) {
+        return .{ Ok: 0 };
+    }
+
+    let required = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wide.[0].&,
+        (#wide) as i32,
+        0,
+        0,
+        0,
+        0
+    );
+    if (required <= 0) {
+        return .{ Err: last_error() };
+    }
+    if ((required as usize) > #out) {
+        return .{ Err: conversion_error() };
+    }
+
+    let written = WideCharToMultiByte(
+        CP_UTF8,
+        0,
+        wide.[0].&,
+        (#wide) as i32,
+        out.[0]..&,
+        required,
+        0,
+        0
+    );
+    if (written <= 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: written as usize };
+}
+
+pub fn wide_z_to_utf8_alloc(ptr: *u16) Result[*mut u8, Error] {
+    let len = utf16_z_len(ptr);
+    if (len == 0) {
+        let out = match (alloc_utf8_units(1)) {
+            .Ok: ptr => ptr,
+            .Err: err => return .{ Err: err },
+        };
+        out.* = 0;
+        return .{ Ok: out };
+    }
+
+    let required = WideCharToMultiByte(CP_UTF8, 0, ptr, len as i32, 0, 0, 0, 0);
+    if (required <= 0) {
+        return .{ Err: last_error() };
+    }
+
+    let out = match (alloc_utf8_units(required as usize + 1)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+
+    let written = WideCharToMultiByte(CP_UTF8, 0, ptr, len as i32, out, required, 0, 0);
+    if (written <= 0) {
+        free_utf8_units(out);
+        return .{ Err: last_error() };
+    }
+
+    (out + written as usize).* = 0;
+    return .{ Ok: out };
 }
 
 pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
@@ -163,34 +314,44 @@ pub fn close_file(handle: Handle) Result[bool, Error] {
 }
 
 pub fn metadata(path: *u8) Result[Metadata, Error] {
+    let wide_path = match (utf8_z_to_wide(path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_path);
+
     let mut data = Win32FileAttributeData.{undef};
-    if (GetFileAttributesExA(path, GET_FILE_EX_INFO_STANDARD, data..&) == 0) {
+    if (GetFileAttributesExW(wide_path, GET_FILE_EX_INFO_STANDARD, data..&) == 0) {
         return .{ Err: last_error() };
     }
 
-    let file_type = if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
-        .Directory
-    } else {
-        .File
-    };
     let size64 = ((data.nFileSizeHigh as u64) << 32) | (data.nFileSizeLow as u64);
+
+    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
+        return .{
+            Ok: .{
+                file_type: .Directory,
+                size: size64 as usize,
+            },
+        };
+    }
 
     return .{
         Ok: .{
-            file_type: file_type,
+            file_type: .File,
             size: size64 as usize,
         },
     };
 }
 
-fn find_data_file_type(data: *Win32FindDataA) FileType {
+fn find_data_file_type(data: *Win32FindDataW) FileType {
     if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) {
         return .Directory;
     }
     return .File;
 }
 
-fn find_data_name_len(data: *Win32FindDataA) usize {
+fn find_data_name_len(data: *Win32FindDataW) usize {
     let mut len = 0;
     for (; len < 260; len += 1) {
         if (data.cFileName.[len] == 0) {
@@ -200,11 +361,11 @@ fn find_data_name_len(data: *Win32FindDataA) usize {
     return 260;
 }
 
-fn is_dot_entry(name: []u8) bool {
-    if (#name == 1 and name.[0] == b'.') {
+fn is_dot_entry(name: []u16) bool {
+    if (#name == 1 and name.[0] == u16.{46}) {
         return true;
     }
-    if (#name == 2 and name.[0] == b'.' and name.[1] == b'.') {
+    if (#name == 2 and name.[0] == u16.{46} and name.[1] == u16.{46}) {
         return true;
     }
     return false;
@@ -212,9 +373,15 @@ fn is_dot_entry(name: []u8) bool {
 
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
     let _ = path;
-    let mut data = Win32FindDataA.{undef};
-    let handle = FindFirstFileA(search_path, data..&);
-    if (handle == INVALID_HANDLE_VALUE) {
+    let wide_search_path = match (utf8_z_to_wide(search_path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_search_path);
+
+    let mut data = Win32FindDataW.{undef};
+    let handle = FindFirstFileW(wide_search_path, data..&);
+    if (handle == invalid_handle()) {
         return .{ Err: last_error() };
     }
     defer {
@@ -226,13 +393,19 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
         let name_len = find_data_name_len(data.&);
         let name = data.cFileName.[0 .. name_len];
         if (!is_dot_entry(name)) {
+            let utf8_name_buf = [1040]mut u8.{undef};
+            let utf8_name_len = match (wide_to_utf8_into(name, utf8_name_buf..[0 .. 1040])) {
+                .Ok: len => len,
+                .Err: err => return .{ Err: err },
+            };
+            let utf8_name = utf8_name_buf.[0 .. utf8_name_len];
             total += 1;
-            if (!visitor(name, find_data_file_type(data.&))) {
+            if (!visitor(utf8_name, find_data_file_type(data.&))) {
                 return .{ Ok: total };
             }
         }
 
-        if (FindNextFileA(handle, data..&) == 0) {
+        if (FindNextFileW(handle, data..&) == 0) {
             let err = last_error();
             if (err.code == ERROR_NO_MORE_FILES) {
                 return .{ Ok: total };
@@ -246,13 +419,19 @@ pub fn open_file(
     path: *u8,
     options: *OpenOptions,
 ) Result[Handle, Error] {
-    if (options.append) {
-        return .{ Err: Error.{ code: ERROR_INVALID_PARAMETER } };
-    }
+    let wide_path = match (utf8_z_to_wide(path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_path);
 
     let mut access = u32.{0};
     if (options.read) access |= GENERIC_READ;
-    if (options.write) access |= GENERIC_WRITE;
+    if (options.append) {
+        access |= FILE_APPEND_DATA;
+    } else if (options.write) {
+        access |= GENERIC_WRITE;
+    }
 
     let disposition = if (options.create and options.truncate) {
         CREATE_ALWAYS
@@ -264,44 +443,74 @@ pub fn open_file(
         OPEN_EXISTING
     };
 
-    let handle = CreateFileA(
-        path,
+    let handle = CreateFileW(
+        wide_path,
         access,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         0,
         disposition,
         FILE_ATTRIBUTE_NORMAL,
-        0,
+        0
     );
-    if (handle == INVALID_HANDLE_VALUE) {
+    if (handle == invalid_handle()) {
         return .{ Err: last_error() };
     }
     return .{ Ok: handle };
 }
 
 pub fn create_dir(path: *u8) Result[bool, Error] {
-    if (CreateDirectoryA(path, 0) == 0) {
+    let wide_path = match (utf8_z_to_wide(path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_path);
+
+    if (CreateDirectoryW(wide_path, 0) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
 }
 
 pub fn remove_dir(path: *u8) Result[bool, Error] {
-    if (RemoveDirectoryA(path) == 0) {
+    let wide_path = match (utf8_z_to_wide(path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_path);
+
+    if (RemoveDirectoryW(wide_path) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
 }
 
 pub fn remove_file(path: *u8) Result[bool, Error] {
-    if (DeleteFileA(path) == 0) {
+    let wide_path = match (utf8_z_to_wide(path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_path);
+
+    if (DeleteFileW(wide_path) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };
 }
 
 pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
-    if (MoveFileA(old_path, new_path) == 0) {
+    let wide_old_path = match (utf8_z_to_wide(old_path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_old_path);
+
+    let wide_new_path = match (utf8_z_to_wide(new_path)) {
+        .Ok: ptr => ptr,
+        .Err: err => return .{ Err: err },
+    };
+    defer free_wide_units(wide_new_path);
+
+    if (MoveFileW(wide_old_path, wide_new_path) == 0) {
         return .{ Err: last_error() };
     }
     return .{ Ok: true };

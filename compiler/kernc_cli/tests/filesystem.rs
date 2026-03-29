@@ -1110,6 +1110,198 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_std_fs_windows_path_semantics() {
+    if !cfg!(windows) {
+        return;
+    }
+
+    let output = build_and_run_hosted(
+        r#"
+use std.fs;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+
+    if (!fs.parent("C:\\kern\\src\\main.kr").is_some_and(.[](dir: []u8) bool {
+        return dir.eq("C:\\kern\\src");
+    })) {
+        return 1;
+    }
+    if (fs.parent("C:\\").is_some()) {
+        return 2;
+    }
+    if (!fs.file_name("C:\\kern\\main.kr").is_some_and(.[](name: []u8) bool {
+        return name.eq("main.kr");
+    })) {
+        return 3;
+    }
+
+    let mut joined = match (fs.join(gpa, "C:\\kern", "src\\main.kr")) {
+        .Ok: path => path,
+        .Err: _ => return 4,
+    };
+    defer joined..&.deinit(gpa);
+    if (!joined.&.eq("C:\\kern\\src\\main.kr")) {
+        return 5;
+    }
+
+    let mut forward = match (fs.join(gpa, "C:/kern", "src/main.kr")) {
+        .Ok: path => path,
+        .Err: _ => return 6,
+    };
+    defer forward..&.deinit(gpa);
+    if (!forward.&.eq("C:/kern/src/main.kr")) {
+        return 7;
+    }
+
+    let mut rooted = match (fs.join(gpa, "C:\\kern", "D:\\other\\out.kr")) {
+        .Ok: path => path,
+        .Err: _ => return 8,
+    };
+    defer rooted..&.deinit(gpa);
+    if (!rooted.&.eq("D:\\other\\out.kr")) {
+        return 9;
+    }
+
+    let mut normalized = match (fs.normalize(gpa, "C:\\kern\\.\\src\\\\..\\out\\file.txt")) {
+        .Ok: path => path,
+        .Err: _ => return 10,
+    };
+    defer normalized..&.deinit(gpa);
+    if (!normalized.&.eq("C:\\kern\\out\\file.txt")) {
+        return 11;
+    }
+
+    let mut forward_normalized = match (fs.normalize(gpa, "C:/kern/./src//../out/file.txt")) {
+        .Ok: path => path,
+        .Err: _ => return 12,
+    };
+    defer forward_normalized..&.deinit(gpa);
+    if (!forward_normalized.&.eq("C:/kern/out/file.txt")) {
+        return 13;
+    }
+
+    let mut unc_joined = match (fs.join(gpa, "\\\\server\\share", "dir\\main.kr")) {
+        .Ok: path => path,
+        .Err: _ => return 14,
+    };
+    defer unc_joined..&.deinit(gpa);
+    if (!unc_joined.&.eq("\\\\server\\share\\dir\\main.kr")) {
+        return 15;
+    }
+
+    let mut unc = match (fs.normalize(gpa, "\\\\server\\share\\src\\\\..\\out\\file.txt")) {
+        .Ok: path => path,
+        .Err: _ => return 16,
+    };
+    defer unc..&.deinit(gpa);
+    if (!unc.&.eq("\\\\server\\share\\out\\file.txt")) {
+        return 17;
+    }
+
+    if (!fs.parent("\\\\server\\share\\out\\file.txt").is_some_and(.[](dir: []u8) bool {
+        return dir.eq("\\\\server\\share\\out");
+    })) {
+        return 18;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_hosted_program_using_std_fs_unicode_paths_on_windows() {
+    if !cfg!(windows) {
+        return;
+    }
+
+    let temp_root = std::env::temp_dir().join("kern-\u{6D4B}\u{8BD5}-\u{6587}\u{4EF6}\u{5939}");
+    let temp_file = temp_root.join("\u{4F60}\u{597D}-emoji-\u{1F642}.txt");
+    let root_path = kern_string_literal(&temp_root);
+    let file_path = kern_string_literal(&temp_file);
+
+    let _ = fs::remove_file(&temp_file);
+    let _ = fs::remove_dir_all(&temp_root);
+
+    let output = build_and_run_hosted(&format!(
+        r#"
+use std.fs;
+use std.mem.alloc.{{PageAllocator, GPAllocator}};
+
+extern fn main() i32 {{
+    let page = PageAllocator.{{}}..&;
+    let gpa = GPAllocator.{{ backing: page }}..&;
+
+    match (fs.create_dir_all(gpa, "{root_path}")) {{
+        .Ok: _ => {{}},
+        .Err: _ => return 1,
+    }}
+
+    match (fs.write_all(gpa, "{file_path}", "unicode-ok")) {{
+        .Ok: count => {{
+            if (count != 10) {{
+                return 2;
+            }}
+        }},
+        .Err: _ => return 3,
+    }}
+
+    let mut text = match (fs.read_to_string(gpa, "{file_path}")) {{
+        .Ok: text => text,
+        .Err: _ => return 4,
+    }};
+    defer text..&.deinit(gpa);
+    if (!text.&.eq("unicode-ok")) {{
+        return 5;
+    }}
+
+    let mut hits = usize.{{0}};
+    let visited = match (fs.read_dir(gpa, "{root_path}", .[
+        hits = hits..&
+    ](entry: fs.DirEntry) bool {{
+        if (entry.name.eq("你好-emoji-🙂.txt")) {{
+            hits.* += 1;
+        }}
+        return true;
+    }})) {{
+        .Ok: count => count,
+        .Err: _ => return 6,
+    }};
+
+    if (visited != 1 or hits != 1) {{
+        return 7;
+    }}
+
+    return 0;
+}}
+"#,
+        root_path = root_path,
+        file_path = file_path
+    ));
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_file(&temp_file);
+    let _ = fs::remove_dir_all(&temp_root);
+}
+
+#[test]
 fn runs_hosted_program_using_std_fs_copy_and_append() {
     let temp_root = unique_temp_path("kernc_std_fs_copy_append", "dir");
     let from_file = temp_root.join("from.txt");

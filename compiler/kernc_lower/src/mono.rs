@@ -425,6 +425,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut max_align = 1;
         for (idx, variant) in enum_def.variants.iter().enumerate() {
             let field_ty = variant.payload_ty.unwrap_or(TypeId::VOID);
+            self.track_pure_enum_repr_in_type(field_ty);
+
             union_fields.push(MastField {
                 name: variant.name,
                 ty: field_ty,
@@ -527,6 +529,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
                 subst.substitute(raw_ty)
             };
+            self.track_pure_enum_repr_in_type(conc_ty);
             mast_fields.push(MastField {
                 name: f.name,
                 ty: conc_ty,

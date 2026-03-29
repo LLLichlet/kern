@@ -205,13 +205,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
                 self.track_pure_enum_repr_in_type(ret);
             }
+            TypeKind::Def(def_id, args) => {
+                self.instantiate_struct(def_id, &args);
+            }
             TypeKind::Enum(def_id, args) => {
                 if let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned()
-                    && self.is_pure_enum(&def)
                 {
-                    self.record_pure_enum_tag_ty(def_id, &args);
+                    if self.is_pure_enum(&def) {
+                        self.record_pure_enum_tag_ty(def_id, &args);
+                    } else {
+                        self.instantiate_data(def_id, &args);
+                    }
                 }
             }
+            TypeKind::Alias(_, inner) => self.track_pure_enum_repr_in_type(inner),
             TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => {
                 for field in fields {
                     self.track_pure_enum_repr_in_type(field.ty);

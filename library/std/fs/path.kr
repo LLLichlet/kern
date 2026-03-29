@@ -22,6 +22,25 @@ pub fn path_separator_byte() u8 {
     return b'/';
 }
 
+fn preferred_separator_byte(path: []u8) u8 {
+    #[if(os == "windows")]
+    {
+        let mut i = 0;
+        for (; i < #path; i += 1) {
+            if (path.[i] == b'\\') {
+                return b'\\';
+            }
+            if (path.[i] == b'/') {
+                return b'/';
+            }
+        }
+        return b'\\';
+    }
+
+    let _ = path;
+    return b'/';
+}
+
 pub fn root_prefix_len(path: []u8) usize {
     let len = #path;
     if (len == 0) {
@@ -30,6 +49,21 @@ pub fn root_prefix_len(path: []u8) usize {
 
     #[if(os == "windows")]
     {
+        if (len >= 2 and is_path_separator(path.[0]) and is_path_separator(path.[1])) {
+            let mut index = 2;
+            for (; index < len and !is_path_separator(path.[index]); index += 1) {}
+            if (index >= len) {
+                return 2;
+            }
+
+            index += 1;
+            for (; index < len and !is_path_separator(path.[index]); index += 1) {}
+            if (index < len and is_path_separator(path.[index])) {
+                return index + 1;
+            }
+            return index;
+        }
+
         if (len >= 2) {
             let drive = path.[0];
             let is_alpha =
@@ -64,12 +98,13 @@ pub fn trim_trailing_separators(path: []u8) []u8 {
 
 pub fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) Result[String, Error] {
     let mut out = String.{};
+    let sep = preferred_separator_byte(base);
     if (!out..&.push_str(alloc, base)) {
         return .{ Err: .{ OutOfMemory } };
     }
 
     if (#base > 0 and !is_path_separator(base.[#base - 1])) {
-        if (!out..&.push_char(alloc, path_separator_byte())) {
+        if (!out..&.push_char(alloc, sep)) {
             out..&.deinit(alloc);
             return .{ Err: .{ OutOfMemory } };
         }
@@ -87,6 +122,7 @@ fn append_path_segment(
     out: *mut String,
     alloc: *mut Allocator,
     prefix_len: usize,
+    sep: u8,
     segment: []u8,
 ) bool {
     let out_len = out.len();
@@ -95,7 +131,7 @@ fn append_path_segment(
         !is_path_separator(out.as_str().[out_len - 1]) and
         (prefix_len == 0 or out_len > prefix_len)
     ) {
-        if (!out.push_char(alloc, path_separator_byte())) {
+        if (!out.push_char(alloc, sep)) {
             return false;
         }
     }
@@ -218,6 +254,7 @@ pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) Result[String, Error
 
 pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
     let prefix_len = root_prefix_len(path);
+    let sep = preferred_separator_byte(path);
     let segments = List[[]u8].{}..&;
     defer segments.deinit(alloc);
 
@@ -278,7 +315,7 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
             .Some: segment => segment,
             .None => continue,
         };
-        if (!append_path_segment(out..&, alloc, prefix_len, segment)) {
+        if (!append_path_segment(out..&, alloc, prefix_len, sep, segment)) {
             out..&.deinit(alloc);
             return .{ Err: .{ OutOfMemory } };
         }

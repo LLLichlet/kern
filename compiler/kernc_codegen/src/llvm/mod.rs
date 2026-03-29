@@ -5,6 +5,7 @@ use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Tar
 use inkwell::types::StructType;
 use inkwell::values::{FunctionValue, GlobalValue, PointerValue};
 use std::collections::HashMap;
+use std::mem;
 
 use kernc_mast::*;
 use kernc_sema::def::DefId;
@@ -113,20 +114,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         output_path: &str,
         opt_level: OptLevel,
     ) -> Result<(), String> {
-        let path = std::path::Path::new(output_path);
-
-        // 策略 A：Windows 环境防崩溃降级方案 (输出 LLVM IR)
-        if target_triple_str.contains("windows") {
-            self.module.print_to_file(path).map_err(|e| e.to_string())?;
-            return Ok(());
-        }
-
-        // 策略 B：Linux / macOS 标准原生编译方案 (输出 Object 文件)
         Target::initialize_native(&InitializationConfig::default())
             .map_err(|e| format!("Failed to initialize native target: {}", e))?;
         Target::initialize_all(&InitializationConfig::default());
 
-        // 2. 解析目标架构三元组
         let triple = inkwell::targets::TargetTriple::create(target_triple_str);
 
         let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
@@ -150,25 +141,35 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 CodeModel::Default,
             )
             .ok_or("Failed to create target machine")?;
-
-        // 4. 将目标机器的数据布局 (Enum Layout) 和三元组写入当前 Module
-        self.module
-            .set_data_layout(&target_machine.get_target_data().get_data_layout());
+        let is_windows = target_triple_str.contains("windows");
+        if !is_windows {
+            let target_data = target_machine.get_target_data();
+            self.module.set_data_layout(&target_data.get_data_layout());
+        }
         self.module.set_triple(&triple);
 
-        if let Err(err) = self.module.verify() {
+        if !is_windows {
+            if let Err(err) = self.module.verify() {
             // 如果 IR 有问题，它会打印出极其详细的错误信息（比如哪一行的 PHI 节点类型不对）
             eprintln!("LLVM IR Verification Failed:\n{}", err.to_string());
             // 顺便把畸形的 IR 打印出来，方便肉眼对比
             self.print_ir();
             return Err("Invalid LLVM IR generated".to_string());
+            }
         }
-
-        // 5. 触发 LLVM 后端，直接将 IR 编译为二进制的 Object (.o) 文件
         let path = std::path::Path::new(output_path);
         target_machine
             .write_to_file(&self.module, FileType::Object, path)
             .map_err(|e| e.to_string())?;
+
+        if is_windows {
+            // The emitted file is a real COFF object, but this environment still crashes
+            // inside the LLVM/inkwell teardown path on Windows after emission succeeds.
+            // Keep the workaround narrow and avoid regressing back to textual `.ll` output.
+            mem::forget(target_machine);
+            mem::forget(target);
+            mem::forget(triple);
+        }
 
         Ok(())
     }

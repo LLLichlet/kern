@@ -129,18 +129,13 @@ fn set_default_output_file(options: &mut CompileOptions) {
 
     match options.driver_mode {
         DriverMode::CompileOnly => {
-            let ext = if options.target.triple.to_string().contains("windows") {
-                "ll"
-            } else {
-                "o"
-            };
             let stem = options
                 .input_file
                 .as_deref()
                 .and_then(|input| Path::new(input).file_stem())
                 .and_then(|s| s.to_str())
                 .unwrap_or("a.out");
-            options.output_file = format!("{}.{}", stem, ext);
+            options.output_file = format!("{}.o", stem);
         }
         _ => {
             options.output_file = "a.out".to_string();

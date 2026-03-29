@@ -305,11 +305,11 @@ impl *mut File {
     }
 
     pub fn copy_to(other: *mut File) Result[usize, Error] {
-        let chunk = [4096]mut u8.{undef};
+        let chunk = [1024]mut u8.{undef};
         let mut total = 0;
 
         for (;;) {
-            let read = match (self.read(chunk..[0 .. 4096])) {
+            let read = match (self.read(chunk..[0 .. 1024])) {
                 .Ok: count => count,
                 .Err: err => return .{ Err: err },
             };
@@ -346,11 +346,11 @@ impl *mut File {
 
     pub fn read_to_string(alloc: *mut Allocator) Result[String, Error] {
         let mut out = String.{};
-        let chunk = [4096]mut u8.{undef};
+        let chunk = [1024]mut u8.{undef};
 
         for (;;) {
             let mut read = 0;
-            match (self.read(chunk..[0 .. 4096])) {
+            match (self.read(chunk..[0 .. 1024])) {
                 .Ok: count => read = count,
                 .Err: err => {
                     out..&.deinit(alloc);

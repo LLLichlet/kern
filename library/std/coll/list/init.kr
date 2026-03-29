@@ -230,6 +230,34 @@ impl[T] *mut List[T] {
         return self.append_slice(alloc, other.as_slice());
     }
 
+    pub fn append_repeat(alloc: *mut Allocator, item: T, count: usize) bool {
+        if (!self.reserve(alloc, count)) {
+            return false;
+        }
+
+        let mut i = 0;
+        for (; i < count; i += 1) {
+            if (!self.push(alloc, item)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    pub fn resize(alloc: *mut Allocator, new_len: usize, fill: T) bool {
+        if (new_len <= self.len) {
+            self.truncate(new_len);
+            return true;
+        }
+
+        return self.append_repeat(alloc, fill, new_len - self.len);
+    }
+
+    pub fn clone_from(alloc: *mut Allocator, items: []T) bool {
+        self.clear();
+        return self.append_slice(alloc, items);
+    }
+
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
         if (self.cap == self.len) return true;
         if (self.len == 0) {

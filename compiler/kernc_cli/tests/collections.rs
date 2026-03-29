@@ -1633,17 +1633,41 @@ extern fn main() i32 {
     if (!list.as_slice().eq([6]i32.{7, 7, 7, 7, 9, 10})) {
         return 16;
     }
+    if (!list.resize(gpa, 8, 5)) {
+        return 17;
+    }
+    if (!list.as_slice().eq([8]i32.{7, 7, 7, 7, 9, 10, 5, 5})) {
+        return 18;
+    }
+    if (!list.resize(gpa, 3, 0)) {
+        return 19;
+    }
+    if (!list.as_slice().eq([3]i32.{7, 7, 7})) {
+        return 20;
+    }
+    if (!list.clone_from(gpa, [4]i32.{4, 3, 2, 1})) {
+        return 21;
+    }
+    if (!list.as_slice().eq([4]i32.{4, 3, 2, 1})) {
+        return 22;
+    }
+    if (!list.append_repeat(gpa, 6, 2)) {
+        return 23;
+    }
+    if (!list.as_slice().eq([6]i32.{4, 3, 2, 1, 6, 6})) {
+        return 24;
+    }
 
     let text = String.{}..&;
     defer text.deinit(gpa);
     if (!text.clone_from(gpa, "kern")) {
-        return 17;
+        return 25;
     }
     if (!text.push_repeat(gpa, b'!', 3)) {
-        return 18;
+        return 26;
     }
     if (!text.eq("kern!!!")) {
-        return 19;
+        return 27;
     }
 
     let mut bangs = i32.{0};
@@ -1653,14 +1677,14 @@ extern fn main() i32 {
         }
     });
     if (bangs != 3) {
-        return 20;
+        return 28;
     }
 
     let ascii_sum = text.fold_bytes(i32.{0}, .[](accum: i32, byte: u8) i32 {
         return accum + byte as i32;
     });
     if (ascii_sum != 531) {
-        return 21;
+        return 29;
     }
 
     return 0;

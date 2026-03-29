@@ -40,7 +40,7 @@ runs:
     - name: Cache LLVM 21 (Windows)
       id: cache-llvm
       if: runner.os == 'Windows'
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ github.workspace }}\LLVM-21
         key: ${{ runner.os }}-llvm-${{ inputs.llvm-version }}
@@ -72,7 +72,7 @@ runs:
 
     - name: Cache vcpkg Binary Artifacts (Windows)
       if: runner.os == 'Windows'
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: ${{ github.workspace }}\.vcpkg-cache
         key: ${{ runner.os }}-vcpkg-libxml2-x64-windows-static-v1

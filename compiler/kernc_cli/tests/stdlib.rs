@@ -113,3 +113,73 @@ extern fn main() i32 {
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
 }
+
+#[test]
+fn runs_hosted_program_using_std_env_get() {
+    let source_path = unique_temp_path("kernc_std_env", "kr");
+    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
+    let executable_path = unique_temp_path("kernc_std_env", exe_ext);
+
+    fs::write(
+        &source_path,
+        r#"
+use std.env;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+
+    let mut found = match (env.get(gpa, "KERN_STD_ENV_TEST")) {
+        .Some: value => value,
+        .None => return 1,
+    };
+    defer found..&.deinit(gpa);
+
+    if (!found.&.eq("alpha-beta")) {
+        return 2;
+    }
+
+    if (env.get(gpa, "KERN_STD_ENV_MISSING").is_some()) {
+        return 3;
+    }
+
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+    let args = vec![
+        "--use-std",
+        "--link-profile",
+        "hosted",
+        source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ];
+    let output = run_kernc(&args);
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run_output = Command::new(&executable_path)
+        .env("KERN_STD_ENV_TEST", "alpha-beta")
+        .output()
+        .unwrap();
+    assert!(
+        run_output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}

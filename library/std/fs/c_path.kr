@@ -1,38 +1,16 @@
 use std.Result;
-use std.Option;
-use std.mem.array_layout_of;
+use std.cffi;
 use std.mem.alloc.Allocator;
 use ..types.Error;
 
-fn c_path_layout(path: []u8) Option[std.mem.Layout] {
-    if (#path == std.num.USIZE_MAX) {
-        return .{ None };
-    }
-    return array_layout_of[u8](#path + 1);
-}
-
 pub fn alloc_c_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
-    let layout = match (c_path_layout(path)) {
-        .Some: layout => layout,
-        .None => return .{ Err: .{ OutOfMemory } },
-    };
-    let ptr = match (alloc.alloc(layout)) {
+    let ptr = match (cffi.cstr.alloc_z(alloc, path)) {
         .Some: ptr => ptr,
         .None => return .{ Err: .{ OutOfMemory } },
     };
-
-    let len = #path;
-    if (len > 0) {
-        @memcpy(ptr, path.[0].&, len);
-    }
-    (ptr + len).* = 0;
     return .{ Ok: ptr };
 }
 
 pub fn free_c_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
-    let layout = match (c_path_layout(path)) {
-        .Some: layout => layout,
-        .None => return,
-    };
-    alloc.free(ptr, layout);
+    cffi.cstr.free_z(alloc, path, ptr);
 }

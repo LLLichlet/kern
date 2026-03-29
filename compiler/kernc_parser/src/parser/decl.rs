@@ -154,7 +154,9 @@ impl<'a> Parser<'a> {
             if is_pub {
                 self.add_error(start_span, "Extern blocks cannot be pub".to_string());
             }
-            return Ok(Some(self.parse_extern_block(start_span)?));
+            let mut decl = self.parse_extern_block(start_span)?;
+            decl.attributes = attributes;
+            return Ok(Some(decl));
         }
 
         let token = self.peek();

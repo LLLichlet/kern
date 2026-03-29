@@ -234,6 +234,35 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn prunes_mutually_exclusive_extern_blocks_before_name_collection() {
+    let output = compile_source(
+        r#"
+#[if(arch == "x86_64")]
+extern {
+    fn system_probe() i32;
+}
+
+#[if(arch == "aarch64")]
+extern {
+    fn system_probe() i32;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_captured_closure_boundary_conversions() {
     let output = build_and_run_source(
         r#"

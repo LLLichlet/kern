@@ -1,0 +1,85 @@
+use std.Option;
+use std.cmp.{Eq, Ord, Ordering};
+use ..List;
+
+impl[T] *List[T] {
+    pub fn position(pred: *Fn(T) bool) Option[usize] {
+        return self.as_slice().position(pred);
+    }
+
+    pub fn rposition(pred: *Fn(T) bool) Option[usize] {
+        return self.as_slice().rposition(pred);
+    }
+
+    pub fn any(pred: *Fn(T) bool) bool {
+        return self.as_slice().any(pred);
+    }
+
+    pub fn all(pred: *Fn(T) bool) bool {
+        return self.as_slice().all(pred);
+    }
+
+    pub fn count(pred: *Fn(T) bool) usize {
+        return self.as_slice().count(pred);
+    }
+
+    pub fn for_each(visitor: *Fn(T) void) void {
+        self.as_slice().for_each(visitor);
+    }
+
+    pub fn fold[U](init: U, step: *Fn(U, T) U) U {
+        return self.as_slice().fold(init, step);
+    }
+
+    pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
+        return self.as_slice().find_map(call_back);
+    }
+
+    pub fn partition_point(pred: *Fn(T) bool) usize {
+        return self.as_slice().partition_point(pred);
+    }
+}
+
+impl[T] *List[T]
+    where *T: Eq[T],
+{
+    pub fn eq(other: []T) bool {
+        return self.as_slice().eq(other);
+    }
+
+    pub fn starts_with(prefix: []T) bool {
+        return self.as_slice().starts_with(prefix);
+    }
+
+    pub fn ends_with(suffix: []T) bool {
+        return self.as_slice().ends_with(suffix);
+    }
+
+    pub fn find(needle: []T) Option[usize] {
+        return self.as_slice().find(needle);
+    }
+
+    pub fn contains(needle: []T) bool {
+        return self.as_slice().contains(needle);
+    }
+
+    pub fn strip_prefix(prefix: []T) Option[[]T] {
+        return self.as_slice().strip_prefix(prefix);
+    }
+
+    pub fn strip_suffix(suffix: []T) Option[[]T] {
+        return self.as_slice().strip_suffix(suffix);
+    }
+}
+
+impl[T] *List[T]
+    where *T: Ord[T],
+{
+    pub fn lex_cmp(other: []T) Ordering {
+        return self.as_slice().lex_cmp(other);
+    }
+
+    pub fn binary_search(target: T) Option[usize] {
+        return self.as_slice().binary_search(target);
+    }
+}

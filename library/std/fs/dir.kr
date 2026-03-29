@@ -5,7 +5,8 @@ use std.mem.array_layout_of;
 use std.mem.alloc.Allocator;
 use ..types.{Error, FileType, DirEntry};
 use ..path.{is_path_separator, root_prefix_len, trim_trailing_separators, build_child_path};
-use ..file.{alloc_c_path, free_c_path, metadata, is_dir, remove_file};
+use ..c_path.{alloc_c_path, free_c_path};
+use ..file.{metadata, is_dir, remove_file};
 
 fn dir_search_path_layout(path: []u8) Option[std.mem.Layout] {
     #[if(os == "windows")]

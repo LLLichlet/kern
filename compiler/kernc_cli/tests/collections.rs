@@ -1181,110 +1181,113 @@ extern fn main() i32 {
     if (!list.reserve(gpa, 6)) {
         return 1;
     }
-    if (!list.push(gpa, 1) or !list.push(gpa, 2) or !list.push(gpa, 3)) {
+    if (list.capacity() < 6) {
         return 2;
     }
-    if (!list.insert(gpa, 1, 9)) {
+    if (!list.push(gpa, 1) or !list.push(gpa, 2) or !list.push(gpa, 3)) {
         return 3;
+    }
+    if (!list.insert(gpa, 1, 9)) {
+        return 4;
     }
 
     let removed = match (list.remove(2)) {
         .Some: value => value,
-        .None => return 4,
+        .None => return 5,
     };
     if (removed != 2) {
-        return 5;
+        return 6;
     }
 
     let prefix = list.as_slice();
     if (!list.append_slice(gpa, prefix)) {
-        return 6;
+        return 7;
     }
 
     let data = list.as_slice();
     if (!data.eq([6]i32.{1, 9, 3, 1, 9, 3})) {
-        return 7;
-    }
-    if (!data.starts_with([3]i32.{1, 9, 3})) {
         return 8;
     }
-    if (!data.ends_with([3]i32.{1, 9, 3})) {
+    if (!data.starts_with([3]i32.{1, 9, 3})) {
         return 9;
     }
-    if (!data.contains([2]i32.{9, 3})) {
+    if (!data.ends_with([3]i32.{1, 9, 3})) {
         return 10;
+    }
+    if (!data.contains([2]i32.{9, 3})) {
+        return 11;
     }
 
     let found = match (data.find([2]i32.{9, 3})) {
         .Some: index => index,
-        .None => return 11,
+        .None => return 12,
     };
     if (found != 1) {
-        return 12;
-    }
-    if (!data.first().is_some_and(.[](value: i32) bool { return value == 1; })) {
         return 13;
     }
-    if (!data.last().is_some_and(.[](value: i32) bool { return value == 3; })) {
+    if (!data.first().is_some_and(.[](value: i32) bool { return value == 1; })) {
         return 14;
+    }
+    if (!data.last().is_some_and(.[](value: i32) bool { return value == 3; })) {
+        return 15;
     }
 
     let view = list.as_mut_slice();
     view.[1] = 8;
     list.truncate(4);
     if (!list.as_slice().eq([4]i32.{1, 8, 3, 1})) {
-        return 15;
-    }
-    if (!list.first().is_some_and(.[](value: i32) bool { return value == 1; })) {
         return 16;
     }
-    if (!list.last().is_some_and(.[](value: i32) bool { return value == 1; })) {
+    if (!list.first().is_some_and(.[](value: i32) bool { return value == 1; })) {
         return 17;
     }
-    if (!list.contains([2]i32.{8, 3})) {
+    if (!list.last().is_some_and(.[](value: i32) bool { return value == 1; })) {
         return 18;
     }
-    if (list.lex_cmp([4]i32.{1, 8, 3, 2}) != LESS) {
+    if (!list.contains([2]i32.{8, 3})) {
         return 19;
+    }
+    if (list.lex_cmp([4]i32.{1, 8, 3, 2}) != LESS) {
+        return 20;
     }
     let first_big = match (list.position(.[](value: i32) bool { return value > 2; })) {
         .Some: index => index,
-        .None => return 20,
+        .None => return 21,
     };
     if (first_big != 1) {
-        return 21;
+        return 22;
     }
     let last_big = match (list.rposition(.[](value: i32) bool { return value > 2; })) {
         .Some: index => index,
-        .None => return 22,
+        .None => return 23,
     };
     if (last_big != 2) {
-        return 23;
-    }
-    if (!list.any(.[](value: i32) bool { return value == 8; })) {
         return 24;
     }
-    if (list.all(.[](value: i32) bool { return value < 8; })) {
+    if (!list.any(.[](value: i32) bool { return value == 8; })) {
         return 25;
+    }
+    if (list.all(.[](value: i32) bool { return value < 8; })) {
+        return 26;
     }
     let stripped_prefix = match (list.strip_prefix([2]i32.{1, 8})) {
         .Some: tail => tail,
-        .None => return 26,
+        .None => return 27,
     };
     if (!stripped_prefix.eq([2]i32.{3, 1})) {
-        return 27;
+        return 28;
     }
     let stripped_suffix = match (list.strip_suffix([2]i32.{3, 1})) {
         .Some: head => head,
-        .None => return 28,
+        .None => return 29,
     };
     if (!stripped_suffix.eq([2]i32.{1, 8})) {
-        return 29;
+        return 30;
     }
 
     list.reverse();
     if (!list.as_slice().eq([4]i32.{1, 3, 8, 1})) {
-        return 30;
+        return 31;
     }
 
     let mut kept = i32.{0};
@@ -1293,13 +1296,19 @@ extern fn main() i32 {
         return value >= 3;
     });
     if (kept != 4) {
-        return 31;
-    }
-    if (!list.as_slice().eq([2]i32.{3, 8})) {
         return 32;
     }
-    if (list.count(.[](value: i32) bool { return value >= 3; }) != 2) {
+    if (!list.as_slice().eq([2]i32.{3, 8})) {
         return 33;
+    }
+    if (!list.shrink_to_fit(gpa)) {
+        return 34;
+    }
+    if (list.capacity() != list.len) {
+        return 35;
+    }
+    if (list.count(.[](value: i32) bool { return value >= 3; }) != 2) {
+        return 36;
     }
     let mapped_big = match (list.find_map(.[](value: i32) Option[i32] {
         if (value > 3) {
@@ -1308,10 +1317,10 @@ extern fn main() i32 {
         return .{ None };
     })) {
         .Some: value => value,
-        .None => return 34,
+        .None => return 37,
     };
     if (mapped_big != 80) {
-        return 35;
+        return 38;
     }
 
     let sorted = [6]i32.{1, 3, 3, 5, 8, 9};
@@ -1320,52 +1329,52 @@ extern fn main() i32 {
         return value < 5;
     });
     if (split != 3) {
-        return 36;
+        return 39;
     }
     let found_eight = match (sorted_view.binary_search(8)) {
         .Some: index => index,
-        .None => return 37,
+        .None => return 40,
     };
     if (found_eight != 4) {
-        return 38;
+        return 41;
     }
     if (sorted_view.binary_search(7).is_some()) {
-        return 39;
+        return 42;
     }
 
     let text = String.{}..&;
     defer text.deinit(gpa);
     if (!text.reserve(gpa, 16)) {
-        return 40;
+        return 43;
     }
     if (!text.push_str(gpa, "kern") or !text.push_char(gpa, b'-') or !text.push_str(gpa, "lang")) {
-        return 41;
+        return 44;
     }
     if (!text.starts_with("kern") or !text.ends_with("lang")) {
-        return 42;
+        return 45;
     }
     if (!text.contains("-la")) {
-        return 43;
+        return 46;
     }
     let lang_index = match (text.find("lang")) {
         .Some: index => index,
-        .None => return 44,
+        .None => return 47,
     };
     if (lang_index != 5) {
-        return 45;
+        return 48;
     }
     if (!text.contains_byte(b'-')) {
-        return 46;
+        return 49;
     }
     let dash_index = match (text.find_byte(b'-')) {
         .Some: index => index,
-        .None => return 47,
+        .None => return 50,
     };
     if (dash_index != 4) {
-        return 48;
+        return 51;
     }
     if (text.lex_cmp("kern-lang") != EQUAL) {
-        return 49;
+        return 52;
     }
     if (text.lex_cmp("kern-lano") != LESS) {
         return 50;

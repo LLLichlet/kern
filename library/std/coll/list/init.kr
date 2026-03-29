@@ -1,15 +1,16 @@
 use std.mem.alloc.Allocator;
 use std.mem.{Layout, layout_of, array_layout_of};
 use std.Option;
-use std.cmp.{Eq, Ord, Ordering};
-use std.io.{Printable, Writer};
 use std.num.USIZE_MAX;
 use std.rt.mem.memmove;
+
+mod query;
+mod fmt;
 
 pub type List[T] = struct {
     ptr: *mut T = 0,
     pub len: usize = 0,
-    capacity: usize = 0,
+    cap: usize = 0,
 };
 
 impl[T] *mut List[T] {
@@ -30,11 +31,11 @@ impl[T] *mut List[T] {
     }
 
     fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
-        if (self.capacity >= required_cap) return true;
+        if (self.cap >= required_cap) return true;
 
         if (self.is_zst()) {
             self.ptr = self.zst_ptr();
-            self.capacity = USIZE_MAX;
+            self.cap = USIZE_MAX;
             return true;
         }
 
@@ -44,7 +45,7 @@ impl[T] *mut List[T] {
             return false;
         }
 
-        let mut new_cap = if (self.capacity == 0) 8 else self.capacity;
+        let mut new_cap = if (self.cap == 0) 8 else self.cap;
         for (; new_cap < required_cap; ) {
             if (new_cap > max_alloc_items / 2) {
                 new_cap = required_cap;
@@ -64,15 +65,15 @@ impl[T] *mut List[T] {
 
         let new_ptr = new_ptr_u8 as *mut T;
 
-        if (self.capacity > 0 and self.len > 0) {
-            let old_layout = match (self.buffer_layout(self.capacity)) {
+        if (self.cap > 0 and self.len > 0) {
+            let old_layout = match (self.buffer_layout(self.cap)) {
                 .Some: layout => layout,
                 .None => return false,
             };
             @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * elem_size);
             alloc.free(self.ptr as *mut u8, old_layout);
-        } else if (self.capacity > 0) {
-            let old_layout = match (self.buffer_layout(self.capacity)) {
+        } else if (self.cap > 0) {
+            let old_layout = match (self.buffer_layout(self.cap)) {
                 .Some: layout => layout,
                 .None => return false,
             };
@@ -80,7 +81,7 @@ impl[T] *mut List[T] {
         }
 
         self.ptr = new_ptr;
-        self.capacity = new_cap;
+        self.cap = new_cap;
         return true;
     }
 
@@ -158,23 +159,22 @@ impl[T] *mut List[T] {
         if (self.is_zst()) {
             self.ptr = *mut T.{0};
             self.len = 0;
-            self.capacity = 0;
+            self.cap = 0;
             return;
         }
 
-        if (self.capacity > 0) {
-            let layout = match (self.buffer_layout(self.capacity)) {
+        if (self.cap > 0) {
+            let layout = match (self.buffer_layout(self.cap)) {
                 .Some: layout => layout,
                 .None => return,
             };
             alloc.free(self.ptr as *mut u8, layout);
             self.ptr = *mut T.{0};
             self.len = 0;
-            self.capacity = 0;
+            self.cap = 0;
         }
     }
 
-    // 安全获取指定位置元素的 [可变指针]，用于就地修改
     pub fn get_ptr(index: usize) Option[*mut T] {
         if (index >= self.len) return .{ None };
         return .{ Some: self.ptr + index };
@@ -231,13 +231,13 @@ impl[T] *mut List[T] {
     }
 
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
-        if (self.capacity == self.len) return true;
+        if (self.cap == self.len) return true;
         if (self.len == 0) {
             self.deinit(alloc);
             return true;
         }
         if (self.is_zst()) {
-            self.capacity = USIZE_MAX;
+            self.cap = USIZE_MAX;
             return true;
         }
 
@@ -253,14 +253,14 @@ impl[T] *mut List[T] {
         let new_ptr = new_ptr_u8 as *mut T;
 
         @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_layout.size);
-        let old_layout = match (self.buffer_layout(self.capacity)) {
+        let old_layout = match (self.buffer_layout(self.cap)) {
             .Some: layout => layout,
             .None => return false,
         };
         alloc.free(self.ptr as *mut u8, old_layout);
-        
+
         self.ptr = new_ptr;
-        self.capacity = self.len;
+        self.cap = self.len;
         return true;
     }
 
@@ -308,9 +308,7 @@ impl[T] *mut List[T] {
 
         self.len = write;
     }
-}
 
-impl[T] *mut List[T] {
     pub fn as_mut_slice() []mut T {
         return self.ptr..[0 .. self.len];
     }
@@ -319,6 +317,10 @@ impl[T] *mut List[T] {
 impl[T] *List[T] {
     pub fn as_slice() []T {
         return self.ptr.[0 .. self.len];
+    }
+
+    pub fn capacity() usize {
+        return self.cap;
     }
 
     pub fn is_empty() bool {
@@ -339,153 +341,4 @@ impl[T] *List[T] {
         if (self.len == 0) return .{ None };
         return .{ Some: (self.ptr + self.len - 1).* };
     }
-
-    pub fn position(pred: *Fn(T) bool) Option[usize] {
-        return self.as_slice().position(pred);
-    }
-
-    pub fn rposition(pred: *Fn(T) bool) Option[usize] {
-        return self.as_slice().rposition(pred);
-    }
-
-    pub fn any(pred: *Fn(T) bool) bool {
-        return self.as_slice().any(pred);
-    }
-
-    pub fn all(pred: *Fn(T) bool) bool {
-        return self.as_slice().all(pred);
-    }
-
-    pub fn count(pred: *Fn(T) bool) usize {
-        return self.as_slice().count(pred);
-    }
-
-    pub fn for_each(visitor: *Fn(T) void) void {
-        self.as_slice().for_each(visitor);
-    }
-
-    pub fn fold[U](init: U, step: *Fn(U, T) U) U {
-        return self.as_slice().fold(init, step);
-    }
-
-    pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
-        return self.as_slice().find_map(call_back);
-    }
-
-    pub fn partition_point(pred: *Fn(T) bool) usize {
-        return self.as_slice().partition_point(pred);
-    }
-}
-
-impl[T] *List[T]
-    where *T: Eq[T],
-{
-    pub fn eq(other: []T) bool {
-        return self.as_slice().eq(other);
-    }
-
-    pub fn starts_with(prefix: []T) bool {
-        return self.as_slice().starts_with(prefix);
-    }
-
-    pub fn ends_with(suffix: []T) bool {
-        return self.as_slice().ends_with(suffix);
-    }
-
-    pub fn find(needle: []T) Option[usize] {
-        return self.as_slice().find(needle);
-    }
-
-    pub fn contains(needle: []T) bool {
-        return self.as_slice().contains(needle);
-    }
-
-    pub fn strip_prefix(prefix: []T) Option[[]T] {
-        return self.as_slice().strip_prefix(prefix);
-    }
-
-    pub fn strip_suffix(suffix: []T) Option[[]T] {
-        return self.as_slice().strip_suffix(suffix);
-    }
-}
-
-impl[T] *List[T]
-    where *T: Ord[T],
-{
-    pub fn lex_cmp(other: []T) Ordering {
-        return self.as_slice().lex_cmp(other);
-    }
-
-    pub fn binary_search(target: T) Option[usize] {
-        return self.as_slice().binary_search(target);
-    }
-}
-
-impl[T] *List[T] : Printable 
-    where *T: Printable,
-{
-    pub fn fmt(writer: *mut Writer) void {
-        let _ = writer.write("<List len=");
-        
-        let mut len_buf = [20]mut u8.{undef};
-        let len_str = u64_to_str(self.len as u64, len_buf..[0 .. 20]);
-        let _ = writer.write(len_str);
-
-        let _ = writer.write(", cap=");
-        
-        let mut cap_buf = [20]mut u8.{undef};
-        let cap_str = u64_to_str(self.capacity as u64, cap_buf..[0 .. 20]);
-        let _ = writer.write(cap_str);
-
-        let _ = writer.write(", items: [");
-
-        let mut i = 0;
-        for (; i < self.len; i += 1) {
-            let mut item_ptr = self.ptr + i; 
-            item_ptr.fmt(writer);
-
-            if (i < self.len - 1) {
-                let _ = writer.write(", ");
-            }
-        }
-
-        let _ = writer.write("]>");
-    }
-}
-
-pub fn u64_to_str(val: u64, buf: []mut u8) []u8 {
-    if (val == 0) {
-        if (#buf > 0) {
-            buf.[0] = b'0';
-            return buf.[0 .. 1];
-        }
-        return buf.[0 .. 0]; // 缓冲区太小
-    }
-
-    let mut curr = val;
-    let mut len = 0;
-
-    // 计算数字的长度
-    let mut temp = curr;
-    for (; temp > 0; ) {
-        len += 1;
-        temp /= 10;
-    }
-
-    // 防御性检查：确保传入的缓冲区足够大
-    if (len > #buf) {
-        return buf.[0 .. 0]; 
-    }
-
-    // 从后往前填充
-    let mut i = len;
-    for (; curr > 0; ) {
-        i -= 1;
-        let digit = curr % 10;
-        buf.[i] = digit as u8 + 48;
-        curr /= 10;
-    }
-
-    // 返回有效数据的切片视图
-    return buf.[0 .. len];
 }

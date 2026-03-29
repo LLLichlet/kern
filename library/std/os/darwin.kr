@@ -45,28 +45,51 @@ extern {
     pub fn munmap(addr: *mut u8, len: usize) i32;
 }
 
-#[if(arch == "aarch64")]
 extern {
     #[export_name("stat")]
-    fn system_stat(path: *u8, stat: *mut Stat) i32;
+    fn system_stat_default(path: *u8, stat: *mut Stat) i32;
 
     #[export_name("opendir")]
-    fn system_opendir(path: *u8) *mut u8;
+    fn system_opendir_default(path: *u8) *mut u8;
 
     #[export_name("readdir")]
-    fn system_readdir(dir: *mut u8) *mut Dirent;
-}
+    fn system_readdir_default(dir: *mut u8) *mut Dirent;
 
-#[if(arch == "x86_64")]
-extern {
     #[export_name("stat$INODE64")]
-    fn system_stat(path: *u8, stat: *mut Stat) i32;
+    fn system_stat_inode64(path: *u8, stat: *mut Stat) i32;
 
     #[export_name("opendir$INODE64")]
-    fn system_opendir(path: *u8) *mut u8;
+    fn system_opendir_inode64(path: *u8) *mut u8;
 
     #[export_name("readdir$INODE64")]
-    fn system_readdir(dir: *mut u8) *mut Dirent;
+    fn system_readdir_inode64(dir: *mut u8) *mut Dirent;
+}
+
+fn system_stat(path: *u8, stat: *mut Stat) i32 {
+    #[if(arch == "x86_64")]
+    {
+        return system_stat_inode64(path, stat);
+    }
+
+    return system_stat_default(path, stat);
+}
+
+fn system_opendir(path: *u8) *mut u8 {
+    #[if(arch == "x86_64")]
+    {
+        return system_opendir_inode64(path);
+    }
+
+    return system_opendir_default(path);
+}
+
+fn system_readdir(dir: *mut u8) *mut Dirent {
+    #[if(arch == "x86_64")]
+    {
+        return system_readdir_inode64(dir);
+    }
+
+    return system_readdir_default(dir);
 }
 
 pub type Handle = i32;

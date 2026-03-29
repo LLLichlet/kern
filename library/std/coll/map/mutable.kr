@@ -18,6 +18,7 @@ use ..base.{
     key_hash,
     find_index_with_hash,
     max_occupied,
+    visit_full,
 };
 
 impl[K, V] *mut Map[K, V]
@@ -324,14 +325,11 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn for_each_mut(visitor: *Fn(K, *mut V) void) void {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let visit = .[visitor](entry: *mut Entry[K, V]) bool {
             visitor(entry.key, entry.value..&);
-        }
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
     }
 
     pub fn retain_mut(pred: *Fn(K, *mut V) bool) void {

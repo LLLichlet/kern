@@ -4,13 +4,12 @@ use std.hash.Hash;
 use std.coll.List;
 use std.mem.alloc.Allocator;
 use ..base.{
-    EMPTY,
-    FULL,
+    Entry,
     Map,
-    ctrl_at,
     entry_ptr,
     key_hash,
     find_index_with_hash,
+    visit_full,
 };
 
 impl[K, V] *Map[K, V]
@@ -25,85 +24,75 @@ impl[K, V] *Map[K, V]
     }
 
     pub fn for_each(visitor: *Fn(K, V) void) void {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let visit = .[visitor](entry: *mut Entry[K, V]) bool {
             visitor(entry.key, entry.value);
-        }
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
     }
 
     pub fn any(pred: *Fn(K, V) bool) bool {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let mut matched = false;
+        let visit = .[pred, matched = matched..&](entry: *mut Entry[K, V]) bool {
             if (pred(entry.key, entry.value)) {
-                return true;
+                matched.* = true;
+                return false;
             }
-        }
-        return false;
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        return matched;
     }
 
     pub fn all(pred: *Fn(K, V) bool) bool {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let mut all_match = true;
+        let visit = .[pred, all_match = all_match..&](entry: *mut Entry[K, V]) bool {
             if (!pred(entry.key, entry.value)) {
+                all_match.* = false;
                 return false;
             }
-        }
-        return true;
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        return all_match;
     }
 
     pub fn count(pred: *Fn(K, V) bool) usize {
         let mut total = usize.{0};
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let visit = .[pred, total = total..&](entry: *mut Entry[K, V]) bool {
             if (pred(entry.key, entry.value)) {
-                total += 1;
+                total.* += 1;
             }
-        }
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return total;
     }
 
     pub fn fold[U](init: U, step: *Fn(U, K, V) U) U {
         let mut accum = init;
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
-            accum = step(accum, entry.key, entry.value);
-        }
+        let visit = .[step, accum = accum..&](entry: *mut Entry[K, V]) bool {
+            accum.* = step(accum.*, entry.key, entry.value);
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
         return accum;
     }
 
     pub fn find_map[U](visit: *Fn(K, V) Option[U]) Option[U] {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let mut found = Option[U].{ None };
+        let visit_entry = .[visit, found = found..&](entry: *mut Entry[K, V]) bool {
             match (visit(entry.key, entry.value)) {
-                .Some: value => return .{ Some: value },
+                .Some: value => {
+                    found.* = .{ Some: value };
+                    return false;
+                },
                 .None => {}
             }
-        }
-        return .{ None };
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit_entry);
+        return found;
     }
 
     pub fn append_keys(alloc: *mut Allocator, out: *mut List[K]) bool {
@@ -111,17 +100,16 @@ impl[K, V] *Map[K, V]
             return false;
         }
 
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let mut ok = true;
+        let visit = .[out, alloc, ok = ok..&](entry: *mut Entry[K, V]) bool {
             if (!out.push(alloc, entry.key)) {
+                ok.* = false;
                 return false;
             }
-        }
-        return true;
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        return ok;
     }
 
     pub fn append_values(alloc: *mut Allocator, out: *mut List[V]) bool {
@@ -129,17 +117,34 @@ impl[K, V] *Map[K, V]
             return false;
         }
 
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
-            if (ctrl_at(self.ctrl, i) != FULL) {
-                continue;
-            }
-            let entry = entry_ptr[K, V](self.entries, i);
+        let mut ok = true;
+        let visit = .[out, alloc, ok = ok..&](entry: *mut Entry[K, V]) bool {
             if (!out.push(alloc, entry.value)) {
+                ok.* = false;
                 return false;
             }
+            return true;
+        };
+        let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
+        return ok;
+    }
+
+    pub fn keys(alloc: *mut Allocator) Option[List[K]] {
+        let mut out = List[K].{};
+        if (!self.append_keys(alloc, out..&)) {
+            out..&.deinit(alloc);
+            return .{ None };
         }
-        return true;
+        return .{ Some: out };
+    }
+
+    pub fn values(alloc: *mut Allocator) Option[List[V]] {
+        let mut out = List[V].{};
+        if (!self.append_values(alloc, out..&)) {
+            out..&.deinit(alloc);
+            return .{ None };
+        }
+        return .{ Some: out };
     }
 
     pub fn get(key: K) Option[V] {

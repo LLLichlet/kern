@@ -31,6 +31,22 @@ pub fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, V]
     return entries + index;
 }
 
+pub fn visit_full[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, visitor: *Fn(*mut Entry[K, V]) bool) usize {
+    let mut total = 0;
+    let mut i = 0;
+    for (; i < capacity; i += 1) {
+        if (ctrl_at(ctrl, i) != FULL) {
+            continue;
+        }
+
+        total += 1;
+        if (!visitor(entry_ptr[K, V](entries, i))) {
+            return total;
+        }
+    }
+    return total;
+}
+
 pub fn key_hash[K](key: K) u64
     where *K: Eq[K] + Hash[K],
 {

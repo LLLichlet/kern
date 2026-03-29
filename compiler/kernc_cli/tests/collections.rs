@@ -981,6 +981,35 @@ extern fn main() i32 {
         return 18;
     }
 
+    let mut owned_keys = match (map.keys(gpa)) {
+        .Some: out => out,
+        .None => return 19,
+    };
+    defer owned_keys..&.deinit(gpa);
+    let mut owned_values = match (map.values(gpa)) {
+        .Some: out => out,
+        .None => return 20,
+    };
+    defer owned_values..&.deinit(gpa);
+
+    if (owned_keys.len != 3 or owned_values.len != 3) {
+        return 21;
+    }
+
+    let owned_key_sum = owned_keys.&.fold(i32.{0}, .[](accum: i32, key: i32) i32 {
+        return accum + key;
+    });
+    if (owned_key_sum != 8) {
+        return 22;
+    }
+
+    let owned_value_sum = owned_values.&.fold(i32.{0}, .[](accum: i32, value: i32) i32 {
+        return accum + value;
+    });
+    if (owned_value_sum != 440) {
+        return 23;
+    }
+
     return 0;
 }
 "#,

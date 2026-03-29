@@ -1,7 +1,5 @@
 use std.Option;
 use std.cmp.{Eq, Ord, Ordering, LESS, EQUAL, GREATER};
-use std.mem.layout_of;
-use std.rt.mem.memmove;
 
 impl[T] []T {
     pub fn is_empty() bool {
@@ -110,67 +108,6 @@ impl[T] []T {
         }
 
         return left;
-    }
-}
-
-impl[T] []mut T {
-    pub fn swap(lhs: usize, rhs: usize) bool {
-        if (lhs >= #self or rhs >= #self) {
-            return false;
-        }
-        if (lhs == rhs) {
-            return true;
-        }
-
-        let tmp = self.[lhs];
-        self.[lhs] = self.[rhs];
-        self.[rhs] = tmp;
-        return true;
-    }
-
-    pub fn fill(value: T) void {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
-            self.[i] = value;
-        }
-    }
-
-    pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
-            visitor(self.[i]..&);
-        }
-    }
-
-    pub fn copy_from(source: []T) bool {
-        if (#self != #source) {
-            return false;
-        }
-        if (#self == 0) {
-            return true;
-        }
-
-        let elem_size = layout_of[T]().size;
-        if (elem_size == 0) {
-            return true;
-        }
-
-        let bytes = #self * elem_size;
-        let _ = memmove(self.[0]..& as *mut u8, source.[0].& as *u8, bytes);
-        return true;
-    }
-
-    pub fn reverse() void {
-        let mut left = 0;
-        let mut right = #self;
-        for (; left < right; ) {
-            right -= 1;
-            if (left >= right) {
-                return;
-            }
-            let _ = self.swap(left, right);
-            left += 1;
-        }
     }
 }
 
@@ -283,96 +220,4 @@ impl[T] []T
 
         return .{ None };
     }
-}
-
-impl []u8 {
-    pub fn find_byte(byte: u8) Option[usize] {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
-            if (self.[i] == byte) {
-                return .{ Some: i };
-            }
-        }
-        return .{ None };
-    }
-
-    pub fn rfind_byte(byte: u8) Option[usize] {
-        let mut i = #self;
-        for (; i > 0; ) {
-            i -= 1;
-            if (self.[i] == byte) {
-                return .{ Some: i };
-            }
-        }
-        return .{ None };
-    }
-
-    pub fn contains_byte(byte: u8) bool {
-        return self.find_byte(byte).is_some();
-    }
-
-    pub fn trim_ascii_start() []u8 {
-        let mut start = 0;
-        for (; start < #self; start += 1) {
-            let b = self.[start];
-            if (
-                b != b' ' and
-                b != b'\t' and
-                b != b'\n' and
-                b != b'\r' and
-                b != u8.{11} and
-                b != u8.{12}
-            ) {
-                return self.[start .. #self];
-            }
-        }
-        return self.[#self .. #self];
-    }
-
-    pub fn trim_ascii_end() []u8 {
-        let mut end = #self;
-        for (; end > 0; ) {
-            let b = self.[end - 1];
-            if (
-                b != b' ' and
-                b != b'\t' and
-                b != b'\n' and
-                b != b'\r' and
-                b != u8.{11} and
-                b != u8.{12}
-            ) {
-                return self.[0 .. end];
-            }
-            end -= 1;
-        }
-        return self.[0 .. 0];
-    }
-
-    pub fn trim_ascii() []u8 {
-        return self.trim_ascii_start().trim_ascii_end();
-    }
-}
-
-pub fn find_byte(text: []u8, byte: u8) Option[usize] {
-    return text.find_byte(byte);
-}
-
-pub fn contains_byte(text: []u8, byte: u8) bool {
-    return text.contains_byte(byte);
-}
-
-pub fn rfind_byte(text: []u8, byte: u8) Option[usize] {
-    return text.rfind_byte(byte);
-}
-
-pub fn trim_ascii_start(text: []u8) []u8 {
-    return text.trim_ascii_start();
-}
-
-pub fn trim_ascii_end(text: []u8) []u8 {
-    return text.trim_ascii_end();
-}
-
-pub fn trim_ascii(text: []u8) []u8 {
-    return text.trim_ascii();
 }

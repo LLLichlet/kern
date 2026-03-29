@@ -1685,10 +1685,19 @@ extern fn main() i32 {
         return 8;
     }
 
+    let lhs = bytes..[0 .. 2];
+    let rhs = bytes..[2 .. 4];
+    if (!lhs.swap_with_slice(rhs)) {
+        return 9;
+    }
+    if (!bytes.[0 .. 4].eq([4]i32.{3, 4, 2, 2})) {
+        return 10;
+    }
+
     let list = List[i32].{}..&;
     defer list.deinit(gpa);
     if (!list.extend(gpa, base_view)) {
-        return 9;
+        return 11;
     }
 
     let mut list_seen = i32.{0};
@@ -1696,70 +1705,70 @@ extern fn main() i32 {
         list_seen.* += value;
     });
     if (list_seen != 10) {
-        return 10;
+        return 12;
     }
 
     let doubled = list.fold(i32.{0}, .[](accum: i32, value: i32) i32 {
         return accum + value * 2;
     });
     if (doubled != 20) {
-        return 11;
+        return 13;
     }
 
     list.for_each_mut(.[](value: *mut i32) void {
         value.* *= 2;
     });
     if (!list.as_slice().eq([4]i32.{2, 4, 6, 8})) {
-        return 12;
+        return 14;
     }
 
     list.fill(7);
     if (!list.as_slice().eq([4]i32.{7, 7, 7, 7})) {
-        return 13;
+        return 15;
     }
 
     let extra = List[i32].{}..&;
     defer extra.deinit(gpa);
     if (!extra.extend(gpa, [2]i32.{9, 10})) {
-        return 14;
-    }
-    if (!list.extend_from_list(gpa, extra)) {
-        return 15;
-    }
-    if (!list.as_slice().eq([6]i32.{7, 7, 7, 7, 9, 10})) {
         return 16;
     }
-    if (!list.resize(gpa, 8, 5)) {
+    if (!list.extend_from_list(gpa, extra)) {
         return 17;
     }
-    if (!list.as_slice().eq([8]i32.{7, 7, 7, 7, 9, 10, 5, 5})) {
+    if (!list.as_slice().eq([6]i32.{7, 7, 7, 7, 9, 10})) {
         return 18;
     }
-    if (!list.resize(gpa, 3, 0)) {
+    if (!list.resize(gpa, 8, 5)) {
         return 19;
     }
-    if (!list.as_slice().eq([3]i32.{7, 7, 7})) {
+    if (!list.as_slice().eq([8]i32.{7, 7, 7, 7, 9, 10, 5, 5})) {
         return 20;
     }
-    if (!list.clone_from(gpa, [4]i32.{4, 3, 2, 1})) {
+    if (!list.resize(gpa, 3, 0)) {
         return 21;
     }
-    if (!list.as_slice().eq([4]i32.{4, 3, 2, 1})) {
+    if (!list.as_slice().eq([3]i32.{7, 7, 7})) {
         return 22;
     }
-    if (!list.append_repeat(gpa, 6, 2)) {
+    if (!list.clone_from(gpa, [4]i32.{4, 3, 2, 1})) {
         return 23;
     }
-    if (!list.as_slice().eq([6]i32.{4, 3, 2, 1, 6, 6})) {
+    if (!list.as_slice().eq([4]i32.{4, 3, 2, 1})) {
         return 24;
+    }
+    if (!list.append_repeat(gpa, 6, 2)) {
+        return 25;
+    }
+    if (!list.as_slice().eq([6]i32.{4, 3, 2, 1, 6, 6})) {
+        return 26;
     }
 
     let middle = list.as_slice().[1 .. 3];
     if (!list.insert_slice(gpa, 2, middle)) {
-        return 25;
+        return 27;
     }
     if (!list.as_slice().eq([8]i32.{4, 3, 3, 2, 2, 1, 6, 6})) {
-        return 26;
+        return 28;
     }
 
     list.retain_mut(.[](value: *mut i32) bool {
@@ -1767,30 +1776,30 @@ extern fn main() i32 {
         return value.* >= 30;
     });
     if (!list.as_slice().eq([5]i32.{40, 30, 30, 60, 60})) {
-        return 27;
+        return 29;
     }
 
     let swapped = match (list.swap_remove(1)) {
         .Some: value => value,
-        .None => return 28,
+        .None => return 30,
     };
     if (swapped != 30) {
-        return 29;
+        return 31;
     }
     if (!list.as_slice().eq([4]i32.{40, 60, 30, 60})) {
-        return 30;
+        return 32;
     }
 
     let text = String.{}..&;
     defer text.deinit(gpa);
     if (!text.clone_from(gpa, "kern")) {
-        return 31;
+        return 33;
     }
     if (!text.push_repeat(gpa, b'!', 3)) {
-        return 32;
+        return 34;
     }
     if (!text.eq("kern!!!")) {
-        return 33;
+        return 35;
     }
 
     let mut bangs = i32.{0};
@@ -1800,14 +1809,14 @@ extern fn main() i32 {
         }
     });
     if (bangs != 3) {
-        return 34;
+        return 36;
     }
 
     let ascii_sum = text.fold_bytes(i32.{0}, .[](accum: i32, byte: u8) i32 {
         return accum + byte as i32;
     });
     if (ascii_sum != 531) {
-        return 35;
+        return 37;
     }
 
     return 0;

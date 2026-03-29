@@ -2,8 +2,8 @@ use std.Option;
 use std.num.USIZE_MAX;
 
 pub type Layout = struct {
-    size: usize,
-    align: usize,
+    pub size: usize,
+    pub align: usize,
 };
 
 impl Layout {

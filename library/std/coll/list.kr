@@ -8,7 +8,7 @@ use std.rt.mem.memmove;
 
 pub type List[T] = struct {
     ptr: *mut T = 0,
-    len: usize = 0,
+    pub len: usize = 0,
     capacity: usize = 0,
 };
 

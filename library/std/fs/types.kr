@@ -13,7 +13,7 @@ pub type FileType = os.FileType;
 pub type Metadata = os.Metadata;
 
 pub type DirEntry = struct {
-    name: []u8,
+    pub name: []u8,
     file_type: FileType,
 };
 
@@ -28,14 +28,14 @@ impl DirEntry {
 }
 
 pub type OpenOptions = struct {
-    read: bool = false,
-    write: bool = false,
-    create: bool = false,
-    create_new: bool = false,
-    truncate: bool = false,
-    append: bool = false,
+    pub read: bool = false,
+    pub write: bool = false,
+    pub create: bool = false,
+    pub create_new: bool = false,
+    pub truncate: bool = false,
+    pub append: bool = false,
 };
 
 pub type File = struct {
-    handle: os.Handle,
+    pub handle: os.Handle,
 };

@@ -181,6 +181,22 @@ impl SymbolTable {
         self.scopes[scope_id.0].symbols.get(&name)
     }
 
+    pub fn distance_to_ancestor(&self, scope_id: ScopeId, ancestor: ScopeId) -> Option<usize> {
+        let mut curr = Some(scope_id);
+        let mut distance = 0;
+
+        while let Some(id) = curr {
+            if id == ancestor {
+                return Some(distance);
+            }
+
+            curr = self.scopes[id.0].parent;
+            distance += 1;
+        }
+
+        None
+    }
+
     /// 更新已存在符号的类型 (用于 let 绑定的类型推导回填)
     pub fn update_type(&mut self, name: SymbolId, ty: TypeId) {
         let mut curr = self.current_scope;

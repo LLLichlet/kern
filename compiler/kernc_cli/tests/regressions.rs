@@ -64,6 +64,30 @@ fn compile_source_with_std(source: &str) -> std::process::Output {
     output
 }
 
+fn compile_source_tree(entry: &str, files: &[(&str, &str)]) -> std::process::Output {
+    let temp_dir = unique_temp_path("kernc_regression_tree", "dir");
+    let object_path = unique_temp_path("kernc_regression_tree", "o");
+    fs::create_dir_all(&temp_dir).unwrap();
+
+    for (relative_path, source) in files {
+        let path = temp_dir.join(relative_path);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(path, source).unwrap();
+    }
+
+    let entry_path = temp_dir.join(entry);
+    let source_arg = entry_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let args = vec!["-c", source_arg.as_str(), "-o", object_arg.as_str()];
+    let output = run_kernc(&args);
+
+    let _ = fs::remove_file(&object_path);
+    let _ = fs::remove_dir_all(&temp_dir);
+    output
+}
+
 fn build_and_run_source(source: &str) -> std::process::Output {
     let source_path = unique_temp_path("kernc_regression_run", "kr");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
@@ -604,5 +628,92 @@ extern fn main(args: [][]u8) i32 {
         "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn allows_private_named_struct_fields_within_defining_module() {
+    let output = compile_source_tree(
+        "main.kr",
+        &[
+            (
+                "main.kr",
+                r#"
+mod data;
+
+extern fn main(args: [][]u8) i32 {
+    return data.read_secret();
+}
+"#,
+            ),
+            (
+                "data.kr",
+                r#"
+pub type Bag = struct {
+    secret: i32,
+    pub open: i32,
+};
+
+pub fn read_secret() i32 {
+    let bag = Bag.{ secret: 5, open: 8 };
+    return bag.secret + bag.open;
+}
+"#,
+            ),
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_private_named_struct_fields_across_modules() {
+    let output = compile_source_tree(
+        "main.kr",
+        &[
+            (
+                "main.kr",
+                r#"
+mod data;
+
+extern fn main(args: [][]u8) i32 {
+    let bag = data.make();
+    return bag.secret + bag.open;
+}
+"#,
+            ),
+            (
+                "data.kr",
+                r#"
+pub type Bag = struct {
+    secret: i32,
+    pub open: i32,
+};
+
+pub fn make() Bag {
+    return Bag.{ secret: 5, open: 8 };
+}
+"#,
+            ),
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("field `secret` of type `Bag` is private"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }

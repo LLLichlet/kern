@@ -550,6 +550,16 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             let f_ty = self.resolve_type(&f.type_node, env_scope);
             self.ensure_sized(f_ty, f.type_node.span);
 
+            if f.is_pub {
+                let msg = format!("anonymous {} fields cannot be declared pub", kind_name);
+                self.ctx
+                    .struct_error(f.span, msg)
+                    .with_hint(
+                        "field-level `pub` is only supported on named declarations like `type Name = struct { ... }`",
+                    )
+                    .emit();
+            }
+
             if f.default_value.is_some() {
                 let msg = format!("anonymous {}s cannot have default field values", kind_name);
                 self.ctx

@@ -170,3 +170,33 @@ extern fn main(args: [][]u8) i32 {
         stderr
     );
 }
+
+#[test]
+fn rejects_pub_fields_on_anonymous_structs() {
+    let output = compile_source(
+        r#"
+fn read_pair(pair: struct { pub left: i32, right: i32 }) i32 {
+    return pair.left;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let pair = struct { pub left: i32, right: i32 }.{ left: 3, right: 4 };
+    return read_pair(pair);
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("anonymous struct fields cannot be declared pub"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}

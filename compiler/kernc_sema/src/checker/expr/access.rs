@@ -13,6 +13,40 @@ struct TraitMethodLookup {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn current_module_id(&self) -> Option<DefId> {
+        let current_scope = self.ctx.scopes.current_scope_id()?;
+
+        self.ctx
+            .defs
+            .iter()
+            .filter_map(|def| {
+                let Def::Module(module) = def else {
+                    return None;
+                };
+
+                self.ctx
+                    .scopes
+                    .distance_to_ancestor(current_scope, module.scope_id)
+                    .map(|distance| (module.id, distance))
+            })
+            .min_by_key(|(_, distance)| *distance)
+            .map(|(module_id, _)| module_id)
+    }
+
+    fn def_owner_module_id(&self, def_id: DefId) -> Option<DefId> {
+        self.ctx.defs.iter().find_map(|def| {
+            let Def::Module(module) = def else {
+                return None;
+            };
+
+            if module.items.contains(&def_id) {
+                Some(module.id)
+            } else {
+                None
+            }
+        })
+    }
+
     fn global_owner_scope(&self, def_id: DefId) -> Option<crate::scope::ScopeId> {
         self.ctx.defs.iter().find_map(|def| {
             let Def::Module(module) = def else {
@@ -336,7 +370,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // 5. 按顺序逐级查找，一旦找到立刻返回
         for search_norm in search_tys {
             if let Some((ty, owner_trait_ty)) =
-                self.try_find_field_or_method_silent(search_norm, lhs_ty, field)
+                self.try_find_field_or_method_silent(search_norm, lhs_ty, field, span)
             {
                 if let Some(owner_trait_ty) = owner_trait_ty {
                     self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
@@ -372,6 +406,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         search_norm: TypeId,
         lhs_ty: TypeId,
         field: SymbolId,
+        span: Span,
     ) -> Option<(TypeId, Option<TypeId>)> {
         // 1. 如果是 Trait Object
         if let TypeKind::TraitObject(trait_def_id, trait_args) =
@@ -384,7 +419,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // 2. 如果是具名类型 (Struct/Union/Enum)
         if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
-            && let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field)
+            && let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field, span)
         {
             return Some((field_ty, None));
         }
@@ -656,12 +691,31 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         def_id: DefId,
         generic_args: &[TypeId],
         field: SymbolId,
+        span: Span,
     ) -> Option<TypeId> {
         let def = self.ctx.defs[def_id.0 as usize].clone();
 
         match &def {
             Def::Struct(s) => {
                 if let Some(f) = s.fields.iter().find(|f| f.name == field) {
+                    if !f.is_pub && self.current_module_id() != self.def_owner_module_id(def_id) {
+                        let field_name = self.ctx.resolve(field);
+                        let type_name = self.ctx.resolve(s.name);
+                        self.ctx
+                            .struct_error(
+                                span,
+                                format!(
+                                    "field `{}` of type `{}` is private",
+                                    field_name, type_name
+                                ),
+                            )
+                            .with_hint(
+                                "mark the field `pub`, or access it from within the defining module",
+                            )
+                            .emit();
+                        return Some(TypeId::ERROR);
+                    }
+
                     return Some(self.apply_generics_to_field(
                         &s.generics,
                         generic_args,
@@ -671,6 +725,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             Def::Union(u) => {
                 if let Some(f) = u.fields.iter().find(|f| f.name == field) {
+                    if !f.is_pub && self.current_module_id() != self.def_owner_module_id(def_id) {
+                        let field_name = self.ctx.resolve(field);
+                        let type_name = self.ctx.resolve(u.name);
+                        self.ctx
+                            .struct_error(
+                                span,
+                                format!(
+                                    "field `{}` of type `{}` is private",
+                                    field_name, type_name
+                                ),
+                            )
+                            .with_hint(
+                                "mark the field `pub`, or access it from within the defining module",
+                            )
+                            .emit();
+                        return Some(TypeId::ERROR);
+                    }
+
                     return Some(self.apply_generics_to_field(
                         &u.generics,
                         generic_args,

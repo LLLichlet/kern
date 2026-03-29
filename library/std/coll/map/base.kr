@@ -8,15 +8,15 @@ pub const FULL = u8.{2};
 pub const MIN_CAPACITY = usize.{8};
 
 pub type Entry[K, V] = struct {
-    hash64: u64,
-    key: K,
-    value: V,
+    pub hash64: u64,
+    pub key: K,
+    pub value: V,
 };
 
 pub type Table[K, V] = struct {
-    ctrl: *mut u8,
-    entries: *mut Entry[K, V],
-    capacity: usize,
+    pub ctrl: *mut u8,
+    pub entries: *mut Entry[K, V],
+    pub capacity: usize,
 };
 
 pub fn ctrl_at(ctrl: *u8, index: usize) u8 {
@@ -74,9 +74,9 @@ pub fn max_occupied(capacity: usize) usize {
 }
 
 pub type Map[K, V] where *K: Eq[K] + Hash[K] = struct {
-    ctrl: *mut u8 = 0,
-    entries: *mut Entry[K, V] = 0,
-    capacity: usize = 0,
-    len: usize = 0,
-    tombstones: usize = 0,
+    pub ctrl: *mut u8 = 0,
+    pub entries: *mut Entry[K, V] = 0,
+    pub capacity: usize = 0,
+    pub len: usize = 0,
+    pub tombstones: usize = 0,
 };

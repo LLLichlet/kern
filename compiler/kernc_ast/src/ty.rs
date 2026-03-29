@@ -104,6 +104,7 @@ pub enum TypeKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructFieldDef {
     pub name: SymbolId,
+    pub is_pub: bool,
     pub type_node: TypeNode,
     pub default_value: Option<Box<Expr>>,
     pub span: Span,

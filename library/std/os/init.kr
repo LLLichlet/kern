@@ -1,10 +1,10 @@
 pub type OpenOptions = struct {
-    read: bool = false,
-    write: bool = false,
-    create: bool = false,
-    create_new: bool = false,
-    truncate: bool = false,
-    append: bool = false,
+    pub read: bool = false,
+    pub write: bool = false,
+    pub create: bool = false,
+    pub create_new: bool = false,
+    pub truncate: bool = false,
+    pub append: bool = false,
 };
 
 pub type FileType = enum {
@@ -15,7 +15,7 @@ pub type FileType = enum {
 
 pub type Metadata = struct {
     file_type: FileType,
-    size: usize,
+    pub size: usize,
 };
 
 impl Metadata {

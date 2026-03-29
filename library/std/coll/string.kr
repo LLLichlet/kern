@@ -1,7 +1,8 @@
 use std.mem.alloc.Allocator;
 use std.coll.List;
 use std.Option;
-use std.cmp.Ordering;
+use std.cmp.{Comparable, Ord, Ordering};
+use std.hash.{Hash, hash_bytes};
 use std.io.{Printable, Writer};
 
 pub type String = struct {
@@ -148,6 +149,20 @@ impl *String {
 
     pub fn lex_cmp(other: []u8) Ordering {
         return self.as_str().lex_cmp(other);
+    }
+}
+
+impl *String : Comparable[String] {
+    pub fn cmp(other: String) Ordering {
+        return self.as_str().lex_cmp(other.raw.&.as_slice());
+    }
+}
+
+impl *String : Ord[String] {}
+
+impl *String : Hash[String] {
+    pub fn hash() u64 {
+        return hash_bytes(self.as_str());
     }
 }
 

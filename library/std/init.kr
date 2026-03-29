@@ -14,4 +14,4 @@ pub mod hash;
 
 pub use .dbg.{Result, Option};
 pub use .cmp.{Eq, eq, Ordering, LESS, EQUAL, GREATER, Comparable, Ord, ord_cmp};
-pub use .hash.{Hash, hash_of, mix_u64, mix_u128};
+pub use .hash.{Hash, hash_of, hash_bytes, mix_u64, mix_u128};

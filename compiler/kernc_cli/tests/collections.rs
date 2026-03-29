@@ -540,6 +540,74 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_string_traits_for_ordering_and_hashing() {
+    let output = build_and_run_hosted(
+        r#"
+use std.coll.String;
+use std.cmp.{LESS, EQUAL, GREATER};
+use std.hash.hash_of;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+
+    let alpha = String.{}..&;
+    defer alpha.deinit(gpa);
+    if (!alpha.clone_from(gpa, "alpha")) {
+        return 1;
+    }
+
+    let alpha_copy = String.{}..&;
+    defer alpha_copy.deinit(gpa);
+    if (!alpha_copy.clone_from(gpa, "alpha")) {
+        return 2;
+    }
+
+    let beta = String.{}..&;
+    defer beta.deinit(gpa);
+    if (!beta.clone_from(gpa, "beta")) {
+        return 3;
+    }
+
+    if (alpha.cmp(alpha_copy.*) != EQUAL) {
+        return 4;
+    }
+    if (alpha.cmp(beta.*) == EQUAL) {
+        return 5;
+    }
+    if (alpha.cmp(beta.*) != LESS) {
+        return 6;
+    }
+    if (beta.cmp(alpha.*) != GREATER) {
+        return 7;
+    }
+
+    let alpha_hash = hash_of(alpha.*);
+    let alpha_copy_hash = hash_of(alpha_copy.*);
+    let beta_hash = hash_of(beta.*);
+
+    if (alpha_hash != alpha_copy_hash) {
+        return 8;
+    }
+    if (alpha_hash == beta_hash) {
+        return 9;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_map_get_or_insert_apis() {
     let output = build_and_run_hosted(
         r#"

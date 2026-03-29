@@ -130,6 +130,13 @@ extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
 
+    if (!env.has(gpa, "KERN_STD_ENV_TEST")) {
+        return 10;
+    }
+    if (env.has(gpa, "KERN_STD_ENV_MISSING")) {
+        return 11;
+    }
+
     let mut found = match (env.get(gpa, "KERN_STD_ENV_TEST")) {
         .Some: value => value,
         .None => return 1,
@@ -142,6 +149,41 @@ extern fn main() i32 {
 
     if (env.get(gpa, "KERN_STD_ENV_MISSING").is_some()) {
         return 3;
+    }
+
+    let mut fallback = match (env.get_or_clone(gpa, "KERN_STD_ENV_MISSING", "fallback")) {
+        .Some: value => value,
+        .None => return 4,
+    };
+    defer fallback..&.deinit(gpa);
+    if (!fallback.&.eq("fallback")) {
+        return 5;
+    }
+
+    let mut empty = match (env.get_or_empty(gpa, "KERN_STD_ENV_MISSING")) {
+        .Some: value => value,
+        .None => return 6,
+    };
+    defer empty..&.deinit(gpa);
+    if (!empty.&.is_empty()) {
+        return 7;
+    }
+
+    let mut saw_target = false;
+    let visited = env.visit(.[saw_target = saw_target..&](entry: env.Var) bool {
+        if (entry.name.eq("KERN_STD_ENV_TEST")) {
+            if (!entry.value.eq("alpha-beta")) {
+                return false;
+            }
+            saw_target.* = true;
+        }
+        return true;
+    });
+    if (visited == 0) {
+        return 8;
+    }
+    if (!saw_target) {
+        return 9;
     }
 
     return 0;

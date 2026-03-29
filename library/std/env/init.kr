@@ -8,11 +8,47 @@ use std.mem.alloc.Allocator;
 extern {
     #[export_name("getenv")]
     fn libc_getenv(name: *u8) *u8;
+
+    #[export_name("environ")]
+    static mut libc_environ = **u8.{undef};
 }
 
 #[if(os == "windows")]
 extern {
     pub fn GetEnvironmentVariableA(lpName: *u8, lpBuffer: *mut u8, nSize: u32) u32;
+    pub fn GetEnvironmentStringsA() *mut u8;
+    pub fn FreeEnvironmentStringsA(penv: *mut u8) i32;
+}
+
+pub type Var = struct {
+    pub name: []u8,
+    pub value: []u8,
+};
+
+fn split_var(entry: []u8) Option[Var] {
+    if (#entry == 0) {
+        return .{ None };
+    }
+
+    let mut start = 0;
+    if (entry.[0] == b'=' and #entry > 1) {
+        start = 1;
+    }
+
+    let mut i = start;
+    for (; i < #entry; i += 1) {
+        if (entry.[i] != b'=') {
+            continue;
+        }
+        return .{
+            Some: Var.{
+                name: entry.[0 .. i],
+                value: entry.[i + 1 .. #entry],
+            },
+        };
+    }
+
+    return .{ None };
 }
 
 fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
@@ -70,6 +106,90 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
     return clone_c_value(alloc, buffer, written);
 }
 
+#[if(libc and (os == "linux" or os == "darwin"))]
+fn has_posix(alloc: *mut Allocator, name: []u8) bool {
+    let c_name = match (cffi.cstr.alloc_z(alloc, name)) {
+        .Some: ptr => ptr,
+        .None => return false,
+    };
+    defer cffi.cstr.free_z(alloc, name, c_name);
+
+    return (libc_getenv(c_name) as usize) != 0;
+}
+
+#[if(os == "windows")]
+fn has_windows(alloc: *mut Allocator, name: []u8) bool {
+    let c_name = match (cffi.cstr.alloc_z(alloc, name)) {
+        .Some: ptr => ptr,
+        .None => return false,
+    };
+    defer cffi.cstr.free_z(alloc, name, c_name);
+
+    return (GetEnvironmentVariableA(c_name, 0, 0) as usize) != 0;
+}
+
+#[if(libc and (os == "linux" or os == "darwin"))]
+fn visit_posix(visitor: *Fn(Var) bool) usize {
+    let mut envp = libc_environ;
+    if ((envp as usize) == 0) {
+        return 0;
+    }
+
+    let mut total = 0;
+    for (;;) {
+        let entry_ptr = envp.*;
+        if ((entry_ptr as usize) == 0) {
+            return total;
+        }
+
+        let entry = entry_ptr.[0 .. cffi.cstr.len(entry_ptr)];
+        match (split_var(entry)) {
+            .Some: var => {
+                total += 1;
+                if (!visitor(var)) {
+                    return total;
+                }
+            },
+            .None => {},
+        }
+
+        envp = envp + 1;
+    }
+}
+
+#[if(os == "windows")]
+fn visit_windows(visitor: *Fn(Var) bool) usize {
+    let block = GetEnvironmentStringsA();
+    if ((block as usize) == 0) {
+        return 0;
+    }
+    defer {
+        let _ = FreeEnvironmentStringsA(block);
+    };
+
+    let mut cursor = block;
+    let mut total = 0;
+    for (;;) {
+        let len = cffi.cstr.len(cursor);
+        if (len == 0) {
+            return total;
+        }
+
+        let entry = cursor.[0 .. len];
+        match (split_var(entry)) {
+            .Some: var => {
+                total += 1;
+                if (!visitor(var)) {
+                    return total;
+                }
+            },
+            .None => {},
+        }
+
+        cursor = cursor + len + 1;
+    }
+}
+
 pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
     if (#name == 0) {
         return .{ None };
@@ -88,4 +208,57 @@ pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
     let _ = alloc;
     let _ = name;
     return .{ None };
+}
+
+pub fn has(alloc: *mut Allocator, name: []u8) bool {
+    if (#name == 0) {
+        return false;
+    }
+
+    #[if(libc and (os == "linux" or os == "darwin"))]
+    {
+        return has_posix(alloc, name);
+    }
+
+    #[if(os == "windows")]
+    {
+        return has_windows(alloc, name);
+    }
+
+    let _ = alloc;
+    let _ = name;
+    return false;
+}
+
+pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[String] {
+    match (get(alloc, name)) {
+        .Some: value => return .{ Some: value },
+        .None => {
+            let mut value = String.{};
+            if (!value..&.push_str(alloc, fallback)) {
+                value..&.deinit(alloc);
+                return .{ None };
+            }
+            return .{ Some: value };
+        },
+    }
+}
+
+pub fn get_or_empty(alloc: *mut Allocator, name: []u8) Option[String] {
+    return get_or_clone(alloc, name, "");
+}
+
+pub fn visit(visitor: *Fn(Var) bool) usize {
+    #[if(libc and (os == "linux" or os == "darwin"))]
+    {
+        return visit_posix(visitor);
+    }
+
+    #[if(os == "windows")]
+    {
+        return visit_windows(visitor);
+    }
+
+    let _ = visitor;
+    return 0;
 }

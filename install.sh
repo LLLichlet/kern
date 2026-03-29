@@ -10,7 +10,7 @@ LATEST_VERSION=$(curl -s https://api.github.com/repos/softfault/kern/releases/la
 if [ -z "$LATEST_VERSION" ]; then
     echo "Warning: Failed to fetch latest version from GitHub."
     echo "Falling back to default fallback version."
-    VERSION="v0.5.0" # 仅作为断网或 API 限制时的兜底
+    VERSION="v0.6.0"
 else
     VERSION="$LATEST_VERSION"
 fi

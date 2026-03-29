@@ -1,12 +1,28 @@
 param (
     [string]$Version = "dev",
-    [string]$Target = "x86_64-windows-msvc"
+    [string]$Target = "x86_64-windows-msvc",
+    [switch]$SkipBuild
 )
 
 $DistName = "kern-$Version-$Target"
 $ZipFile = "$DistName.zip"
 
+if (-not $SkipBuild) {
+    Write-Host "Building release binary..."
+    cargo build --release
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+}
+
 Write-Host "Packaging $DistName..."
+
+if (Test-Path $DistName) {
+    Remove-Item -Recurse -Force $DistName
+}
+if (Test-Path $ZipFile) {
+    Remove-Item -Force $ZipFile
+}
 
 New-Item -ItemType Directory -Force -Path "$DistName\bin" | Out-Null
 New-Item -ItemType Directory -Force -Path "$DistName\lib\kern" | Out-Null

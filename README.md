@@ -1,6 +1,6 @@
 # Kern Programming Language
 
-> **Status:** v0.5.3 (Experimental)  
+> **Status:** v0.6.0 (Experimental)  
 > *High Abstraction, Low Policy.*
 
 Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.
@@ -27,7 +27,7 @@ The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. 
 * `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
 * `kernc_utils`: Handles rigorous internal diagnostics, span tracking, and ICE (Internal Compiler Error) reporting.
 
-## A Taste of Kern (v0.5.2)
+## A Taste of Kern (v0.6.0)
 
 Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 
@@ -85,12 +85,13 @@ extern fn start() ! {
 
 ## Roadmap & Current Status
 
-The compiler is currently in its **`v0.5.x`** series, marking a massive architectural shift to a modular workspace, refined language semantics, and cross-platform stability.
+The compiler is currently in its **`v0.6.x`** series, focused on release engineering, cross-platform distribution, and continued standard library maturation.
 
   * **[Delivered] v0.1.x - v0.3.x:** Core stabilization, basic generics, initial LLVM backend, inline assembly (`@asm`), and basic AST attributes.
   * **[Delivered] v0.4.x (Language Core & Modules):** Implementation of the explicit module tree system (`mod`), core language unifications (unified `enum` types, exhaustive `match` branching, explicit `as` conversions), and the initial cross-platform freestanding standard library (`std`).
-  * **[Current-Focus] v0.5.x (Workspace, Windows & Stdlib Stabilization):** Complete decoupled compiler workspace (`kernc_*`), native Windows compilation support, rigorous test infrastructure, and standard library expansion (e.g., `std.coll.String`, `std.num`, hardened `GPAllocator`).
-  * **[Future] v0.6.x (Ecosystem, Tooling & Self-Hosting):** Package management foundations, expanding the native Kern toolchain, comprehensive standard library maturation, and exploring initial steps toward compiler self-hosting (tentative).
+  * **[Delivered] v0.5.x (Workspace, Cross-Platform & Stdlib Stabilization):** Complete decoupled compiler workspace (`kernc_*`), native Windows support, hosted/freestanding link profiles, stronger test coverage, and substantial `std` growth.
+  * **[Current-Focus] v0.6.x (Release Engineering, Darwin & Library Maturation):** Hardened release automation, macOS distribution support, broader standard library ergonomics, and continued compiler/runtime polish.
+  * **[Future] v0.7.x (Ecosystem, Tooling & Self-Hosting):** Package management foundations, expanding the native Kern toolchain, comprehensive standard library maturation, and exploring initial steps toward compiler self-hosting (tentative).
 
 ## Installation
 

@@ -4,7 +4,10 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+static UNIQUE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -19,7 +22,15 @@ pub fn unique_temp_path(prefix: &str, extension: &str) -> PathBuf {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos();
-    let file_name = format!("{}_{}_{}.{}", prefix, std::process::id(), nanos, extension);
+    let counter = UNIQUE_TEMP_COUNTER.fetch_add(1, Ordering::Relaxed);
+    let file_name = format!(
+        "{}_{}_{}_{}.{}",
+        prefix,
+        std::process::id(),
+        nanos,
+        counter,
+        extension
+    );
     std::env::temp_dir().join(file_name)
 }
 

@@ -5,10 +5,18 @@ on:
     tags:
       - 'v*.*.*'
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   build:
     name: Build ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
@@ -42,66 +50,19 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
-      - name: Install LLVM 21 (Linux)
-        if: matrix.os == 'ubuntu-latest'
-        run: |
-          wget https://apt.llvm.org/llvm.sh
-          chmod +x llvm.sh
-          sudo ./llvm.sh 21
-          sudo apt-get install -y llvm-21-dev libclang-21-dev libpolly-21-dev libzstd-dev zlib1g-dev
-          echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> $GITHUB_ENV
+      - name: Cache Cargo Artifacts
+        uses: Swatinem/rust-cache@v2
 
-      - name: Install LLVM 21 (macOS)
-        if: startsWith(matrix.os, 'macos-')
-        env:
-          HOMEBREW_NO_AUTO_UPDATE: "1"
-        run: |
-          LLVM_FORMULA="llvm@21"
-          if ! brew info "$LLVM_FORMULA" >/dev/null 2>&1; then
-            LLVM_FORMULA="llvm"
-          fi
-          brew install "$LLVM_FORMULA" libxml2
-          LLVM_PREFIX="$(brew --prefix "$LLVM_FORMULA")"
-          echo "LLVM_SYS_211_PREFIX=$LLVM_PREFIX" >> $GITHUB_ENV
-          echo "$LLVM_PREFIX/bin" >> $GITHUB_PATH
-          echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig" >> $GITHUB_ENV
-          echo "SDKROOT=$(xcrun --show-sdk-path)" >> $GITHUB_ENV
+      - name: Setup LLVM
+        uses: ./.github/actions/setup-llvm
 
-      - name: Setup LLVM 21 (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: powershell
-        run: |
-          Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-21.1.8/clang+llvm-21.1.8-x86_64-pc-windows-msvc.tar.xz" -OutFile "llvm.tar.xz"
-          tar -xf llvm.tar.xz
-          Rename-Item "clang+llvm-21.1.8-x86_64-pc-windows-msvc" "LLVM-21"
-
-          $llvm_path = (Resolve-Path "LLVM-21").Path
-          echo "LLVM_SYS_211_PREFIX=$llvm_path" >> $env:GITHUB_ENV
-          echo "$llvm_path\bin" >> $env:GITHUB_PATH
-
-      - name: Install libxml2 via vcpkg (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: powershell
-        run: |
-          vcpkg install libxml2:x64-windows-static
-          $VcpkgLib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib"
-          $LlvmLib = "LLVM-21\lib\libxml2s.lib"
-          Copy-Item $VcpkgLib -Destination $LlvmLib
-
-      - name: Run Tests (Unix)
-        if: matrix.os != 'windows-latest'
-        run: cargo test -q
-
-      - name: Run Tests (Windows)
-        if: matrix.os == 'windows-latest'
-        shell: powershell
-        run: |
-          cargo test -q
+      - name: Run kernc Integration Tests
+        run: cargo test -p kernc_cli --tests
 
       - name: Package Toolchain (Unix)
         if: matrix.os != 'windows-latest'
         run: |
-          cargo build --release
+          cargo build --release -p kernc_cli --bin kernc
           VERSION=${GITHUB_REF#refs/tags/}
           ./scripts/package_release.sh "$VERSION" "${{ matrix.target }}" --skip-build
           echo "ARTIFACT_FILE=kern-${VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
@@ -110,7 +71,7 @@ jobs:
         if: matrix.os == 'windows-latest'
         shell: powershell
         run: |
-          cargo build --release
+          cargo build --release -p kernc_cli --bin kernc
           $VERSION = $env:GITHUB_REF.Replace("refs/tags/", "")
           .\scripts\package_release.ps1 -Version $VERSION -Target ${{ matrix.target }} -SkipBuild
           echo "ARTIFACT_FILE=kern-$VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV

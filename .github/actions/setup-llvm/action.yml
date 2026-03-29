@@ -1,0 +1,72 @@
+name: Setup LLVM
+description: Install the LLVM toolchain and platform prerequisites used by Kern CI.
+
+inputs:
+  llvm-version:
+    description: LLVM release version to install on Windows.
+    required: false
+    default: 21.1.8
+
+runs:
+  using: composite
+  steps:
+    - name: Install LLVM 21 (Linux)
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        wget https://apt.llvm.org/llvm.sh
+        chmod +x llvm.sh
+        sudo ./llvm.sh 21
+        sudo apt-get install -y llvm-21-dev libclang-21-dev libpolly-21-dev libzstd-dev zlib1g-dev
+        echo "LLVM_SYS_211_PREFIX=$(llvm-config-21 --prefix)" >> "$GITHUB_ENV"
+
+    - name: Install LLVM 21 (macOS)
+      if: runner.os == 'macOS'
+      shell: bash
+      env:
+        HOMEBREW_NO_AUTO_UPDATE: "1"
+      run: |
+        LLVM_FORMULA="llvm@21"
+        if ! brew info "$LLVM_FORMULA" >/dev/null 2>&1; then
+          LLVM_FORMULA="llvm"
+        fi
+        brew install "$LLVM_FORMULA" libxml2
+        LLVM_PREFIX="$(brew --prefix "$LLVM_FORMULA")"
+        echo "LLVM_SYS_211_PREFIX=$LLVM_PREFIX" >> "$GITHUB_ENV"
+        echo "$LLVM_PREFIX/bin" >> "$GITHUB_PATH"
+        echo "PKG_CONFIG_PATH=$(brew --prefix libxml2)/lib/pkgconfig" >> "$GITHUB_ENV"
+        echo "SDKROOT=$(xcrun --show-sdk-path)" >> "$GITHUB_ENV"
+
+    - name: Cache LLVM 21 (Windows)
+      id: cache-llvm
+      if: runner.os == 'Windows'
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}\LLVM-21
+        key: ${{ runner.os }}-llvm-${{ inputs.llvm-version }}
+
+    - name: Install LLVM 21 (Windows)
+      if: runner.os == 'Windows' && steps.cache-llvm.outputs.cache-hit != 'true'
+      shell: powershell
+      run: |
+        Invoke-WebRequest -Uri "https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ inputs.llvm-version }}/clang+llvm-${{ inputs.llvm-version }}-x86_64-pc-windows-msvc.tar.xz" -OutFile "llvm.tar.xz"
+        tar -xf llvm.tar.xz
+        Remove-Item -Recurse -Force "LLVM-21" -ErrorAction SilentlyContinue
+        Rename-Item "clang+llvm-${{ inputs.llvm-version }}-x86_64-pc-windows-msvc" "LLVM-21"
+
+    - name: Configure LLVM 21 (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        $llvmPath = (Resolve-Path "LLVM-21").Path
+        echo "LLVM_SYS_211_PREFIX=$llvmPath" >> $env:GITHUB_ENV
+        echo "$llvmPath\bin" >> $env:GITHUB_PATH
+
+    - name: Install libxml2 via vcpkg (Windows)
+      if: runner.os == 'Windows'
+      shell: powershell
+      run: |
+        vcpkg install libxml2:x64-windows-static
+        $vcpkgLib = "$env:VCPKG_INSTALLATION_ROOT\installed\x64-windows-static\lib\libxml2.lib"
+        $llvmLib = "LLVM-21\lib\libxml2s.lib"
+        Copy-Item $vcpkgLib -Destination $llvmLib -Force

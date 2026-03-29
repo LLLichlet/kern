@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+# Avoid AppleDouble metadata files when packaging on macOS runners.
+export COPYFILE_DISABLE=1
+
 VERSION=${1:-"dev"}
 TARGET=${2:-"x86_64-linux-gnu"}
 SKIP_BUILD=${3:-""}

@@ -97,6 +97,8 @@ The compiler is currently in its **`v0.6.x`** series, focused on release enginee
 
 The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled compiler and the standard library toolchain to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
 
+Official release artifacts are published for Linux `x86_64`, Windows `x86_64`, macOS `x86_64`, and macOS `aarch64`.
+
 **For Linux / macOS:**
 
 ```bash

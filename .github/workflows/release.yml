@@ -17,6 +17,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   build:
@@ -37,7 +38,7 @@ jobs:
             rust_target: x86_64-pc-windows-msvc
             artifact_ext: zip
             test_mode: smoke
-          - os: macos-13
+          - os: macos-15-intel
             target: x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
             artifact_ext: tar.gz

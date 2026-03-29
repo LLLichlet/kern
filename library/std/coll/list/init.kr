@@ -128,6 +128,64 @@ impl[T] *mut List[T] {
         return true;
     }
 
+    pub fn insert_slice(alloc: *mut Allocator, index: usize, slice: []T) bool {
+        if (index > self.len) {
+            return false;
+        }
+
+        let additional = #slice;
+        if (additional == 0) {
+            return true;
+        }
+
+        let old_len = self.len;
+        if (!self.reserve(alloc, additional)) {
+            return false;
+        }
+
+        if (self.is_zst()) {
+            self.len = old_len + additional;
+            return true;
+        }
+
+        let elem_size = self.elem_layout().size;
+        let mut src_ptr = slice.[0].& as *T;
+        let mut temp_ptr = *mut u8.{0};
+        let mut temp_layout = Layout.{ size: 0, align: 1 };
+
+        let base_addr = self.ptr as usize;
+        let end_addr = (self.ptr + old_len) as usize;
+        let src_addr = src_ptr as usize;
+        if (src_addr >= base_addr and src_addr < end_addr) {
+            temp_layout = match (self.buffer_layout(additional)) {
+                .Some: layout => layout,
+                .None => return false,
+            };
+            temp_ptr = match (alloc.alloc(temp_layout)) {
+                .Some: ptr => ptr,
+                .None => return false,
+            };
+            @memcpy(temp_ptr, src_ptr as *u8, additional * elem_size);
+            src_ptr = temp_ptr as *T;
+        }
+        defer {
+            if ((temp_ptr as usize) != 0) {
+                alloc.free(temp_ptr, temp_layout);
+            }
+        };
+
+        let moved = old_len - index;
+        if (moved > 0) {
+            let move_bytes = moved * elem_size;
+            let _ = memmove((self.ptr + index + additional) as *mut u8, (self.ptr + index) as *u8, move_bytes);
+        }
+
+        let copy_bytes = additional * elem_size;
+        let _ = memmove((self.ptr + index) as *mut u8, src_ptr as *u8, copy_bytes);
+        self.len = old_len + additional;
+        return true;
+    }
+
     pub fn remove(index: usize) Option[T] {
         if (index >= self.len) return .{ None };
 
@@ -235,12 +293,17 @@ impl[T] *mut List[T] {
             return false;
         }
 
+        if (self.is_zst()) {
+            self.len += count;
+            return true;
+        }
+
+        let start = self.len;
         let mut i = 0;
         for (; i < count; i += 1) {
-            if (!self.push(alloc, item)) {
-                return false;
-            }
+            (self.ptr + start + i).* = item;
         }
+        self.len = start + count;
         return true;
     }
 
@@ -330,6 +393,39 @@ impl[T] *mut List[T] {
             }
             if (write != read) {
                 (self.ptr + write).* = item;
+            }
+            write += 1;
+        }
+
+        self.len = write;
+    }
+
+    pub fn retain_mut(pred: *Fn(*mut T) bool) void {
+        if (self.len == 0) {
+            return;
+        }
+
+        if (self.is_zst()) {
+            let mut kept = 0;
+            let mut i = 0;
+            for (; i < self.len; i += 1) {
+                if (pred(self.zst_ptr())) {
+                    kept += 1;
+                }
+            }
+            self.len = kept;
+            return;
+        }
+
+        let mut write = 0;
+        let mut read = 0;
+        for (; read < self.len; read += 1) {
+            let item_ptr = self.ptr + read;
+            if (!pred(item_ptr)) {
+                continue;
+            }
+            if (write != read) {
+                (self.ptr + write).* = item_ptr.*;
             }
             write += 1;
         }

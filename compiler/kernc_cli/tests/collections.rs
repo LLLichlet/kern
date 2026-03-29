@@ -1726,16 +1726,43 @@ extern fn main() i32 {
         return 24;
     }
 
+    let middle = list.as_slice().[1 .. 3];
+    if (!list.insert_slice(gpa, 2, middle)) {
+        return 25;
+    }
+    if (!list.as_slice().eq([8]i32.{4, 3, 3, 2, 2, 1, 6, 6})) {
+        return 26;
+    }
+
+    list.retain_mut(.[](value: *mut i32) bool {
+        value.* *= 10;
+        return value.* >= 30;
+    });
+    if (!list.as_slice().eq([5]i32.{40, 30, 30, 60, 60})) {
+        return 27;
+    }
+
+    let swapped = match (list.swap_remove(1)) {
+        .Some: value => value,
+        .None => return 28,
+    };
+    if (swapped != 30) {
+        return 29;
+    }
+    if (!list.as_slice().eq([4]i32.{40, 60, 30, 60})) {
+        return 30;
+    }
+
     let text = String.{}..&;
     defer text.deinit(gpa);
     if (!text.clone_from(gpa, "kern")) {
-        return 25;
+        return 31;
     }
     if (!text.push_repeat(gpa, b'!', 3)) {
-        return 26;
+        return 32;
     }
     if (!text.eq("kern!!!")) {
-        return 27;
+        return 33;
     }
 
     let mut bangs = i32.{0};
@@ -1745,14 +1772,14 @@ extern fn main() i32 {
         }
     });
     if (bangs != 3) {
-        return 28;
+        return 34;
     }
 
     let ascii_sum = text.fold_bytes(i32.{0}, .[](accum: i32, byte: u8) i32 {
         return accum + byte as i32;
     });
     if (ascii_sum != 531) {
-        return 29;
+        return 35;
     }
 
     return 0;

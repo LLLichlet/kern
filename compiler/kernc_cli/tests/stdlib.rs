@@ -1,73 +1,12 @@
+mod support;
+
 use std::fs;
-use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .to_path_buf()
-}
-
-fn unique_temp_path(prefix: &str, extension: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let file_name = format!("{}_{}_{}.{}", prefix, std::process::id(), nanos, extension);
-    std::env::temp_dir().join(file_name)
-}
-
-fn run_kernc(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_kernc"))
-        .current_dir(repo_root())
-        .args(args)
-        .output()
-        .unwrap()
-}
-
-fn build_temp_program(prefix: &str, source: &str, base_args: &[&str]) -> (PathBuf, PathBuf) {
-    let source_path = unique_temp_path(prefix, "kr");
-    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
-    let executable_path = unique_temp_path(prefix, exe_ext);
-
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let exe_arg = executable_path.to_string_lossy().into_owned();
-
-    let mut args = Vec::with_capacity(base_args.len() + 3);
-    args.extend_from_slice(base_args);
-    args.push(source_arg.as_str());
-    args.push("-o");
-    args.push(exe_arg.as_str());
-
-    let output = run_kernc(&args);
-    assert!(
-        output.status.success(),
-        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    (source_path, executable_path)
-}
-
-fn assert_not_textual_llvm_ir(path: &Path) {
-    let bytes = fs::read(path).unwrap();
-    let head_len = bytes.len().min(64);
-    let head = &bytes[..head_len];
-    let head_text = String::from_utf8_lossy(head);
-
-    assert!(
-        !head_text.contains("; ModuleID") && !head_text.contains("source_filename"),
-        "expected a native object file, got textual LLVM IR at {}:\n{}",
-        path.display(),
-        head_text
-    );
-}
+use support::{
+    assert_not_textual_llvm_ir, assert_success, build_temp_program, repo_root, run_kernc,
+    unique_temp_path,
+};
 
 #[test]
 fn compiles_std_hello_world_in_compile_only_mode() {
@@ -118,12 +57,7 @@ fn compiles_std_hello_world_to_unicode_object_path() {
     ];
     let output = run_kernc(&args);
 
-    assert!(
-        output.status.success(),
-        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_success(&output, "kernc");
     assert!(
         object.exists(),
         "expected object file at {}",
@@ -272,12 +206,7 @@ fn links_windows_kern_program_with_std_by_default() {
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let output = run_kernc(&["--use-std", source_arg.as_str(), "-o", exe_arg.as_str()]);
 
-    assert!(
-        output.status.success(),
-        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
+    assert_success(&output, "kernc");
     assert!(
         executable_path.exists(),
         "expected executable at {}",

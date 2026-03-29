@@ -1,68 +1,13 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+mod support;
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .to_path_buf()
-}
-
-fn unique_temp_path(prefix: &str, extension: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let file_name = format!("{}_{}_{}.{}", prefix, std::process::id(), nanos, extension);
-    std::env::temp_dir().join(file_name)
-}
-
-fn run_kernc(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_kernc"))
-        .current_dir(repo_root())
-        .args(args)
-        .output()
-        .unwrap()
-}
+use support::{compile_source_with_args as compile_with_args, emit_llvm_ir_with_args as emit_ir_with_args};
 
 fn compile_source_with_args(source: &str, extra_args: &[&str]) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_atomic_test", "kr");
-    let object_path = unique_temp_path("kernc_atomic_test", "o");
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let object_arg = object_path.to_string_lossy().into_owned();
-
-    let mut args = vec!["-c"];
-    args.extend_from_slice(extra_args);
-    args.push(source_arg.as_str());
-    args.push("-o");
-    args.push(object_arg.as_str());
-
-    let output = run_kernc(&args);
-
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&object_path);
-    output
+    compile_with_args("kernc_atomic_test", source, extra_args)
 }
 
 fn emit_llvm_ir_with_args(source: &str, extra_args: &[&str]) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_atomic_test", "kr");
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-
-    let mut args = vec!["--emit-llvm"];
-    args.extend_from_slice(extra_args);
-    args.push(source_arg.as_str());
-
-    let output = run_kernc(&args);
-
-    let _ = fs::remove_file(&source_path);
-    output
+    emit_ir_with_args("kernc_atomic_test", source, extra_args)
 }
 
 fn compile_source(source: &str) -> std::process::Output {

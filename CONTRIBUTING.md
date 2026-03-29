@@ -27,25 +27,25 @@ cargo build
 
 Before submitting a Pull Request, please ensure all tests pass.
 
-We use a data-driven testing approach for the compiler. Our tests are split into two parts:
-1. **Unit Tests:** Located within the Rust source files in `compiler/src/`.
-2. **Integration Tests:** Located in the root `tests/` directory as `.kn` source files.
+The active compiler regression suite is centered on the `kernc_cli` integration tests:
+1. **Rust unit tests:** Kept close to the implementation inside the relevant `compiler/kernc_*` crate.
+2. **CLI integration tests:** Located in [`compiler/kernc_cli/tests/`](compiler/kernc_cli/tests/). These tests compile and, where needed, execute temporary `.kr` programs against the real `kernc` binary.
 
 To run all tests, simply execute:
 
 ```bash
-cargo test
-
+cargo test -p kernc_cli --tests
 ```
 
 ### Adding a New Test
 
-When adding a new `.kn` test case, place it in `tests/pass/` for valid code, or `tests/fail/` for invalid code that the compiler must reject. You can use inline directives at the very top of the file:
+Add new integration coverage to the narrowest existing suite in `compiler/kernc_cli/tests/`.
 
-- `// expected-stdout: <text>`: (For `pass` tests) Asserts that the executed program prints the exact text.
-- `// expected-error: <text>`: (For `fail` tests) Asserts that the compiler fails and its stderr output contains the specified text.
-- `// compile-flags: <flags>`: Passes specific command-line arguments to `kernc` (e.g., `--link-profile freestanding`).
-- `// build-only`: Compiles the file but skips execution.
+- Reuse the shared harness in [`compiler/kernc_cli/tests/support/mod.rs`](compiler/kernc_cli/tests/support/mod.rs) instead of duplicating temporary-file or process-launch helpers.
+- Keep compile-only checks and hosted runtime checks explicit in the test body.
+- Prefer targeted regression tests for bug fixes, and suite-local helpers only when they genuinely encode behavior unique to that suite.
+
+If a new area grows beyond a few related cases, split it into a new integration test file and document the new suite in [`compiler/kernc_cli/tests/README.md`](compiler/kernc_cli/tests/README.md).
 
 ## Commit Guidelines
 

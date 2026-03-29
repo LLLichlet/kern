@@ -1,67 +1,13 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+mod support;
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .to_path_buf()
-}
-
-fn unique_temp_path(prefix: &str, extension: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let file_name = format!("{}_{}_{}.{}", prefix, std::process::id(), nanos, extension);
-    std::env::temp_dir().join(file_name)
-}
-
-fn run_kernc(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_kernc"))
-        .current_dir(repo_root())
-        .args(args)
-        .output()
-        .unwrap()
-}
+use support::compile_source_with_args;
 
 fn compile_source(source: &str) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_trait_test", "kr");
-    let object_path = unique_temp_path("kernc_trait_test", "o");
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let object_arg = object_path.to_string_lossy().into_owned();
-    let args = vec!["-c", source_arg.as_str(), "-o", object_arg.as_str()];
-    let output = run_kernc(&args);
-
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&object_path);
-    output
+    compile_source_with_args("kernc_trait_test", source, &[])
 }
 
 fn compile_source_with_std(source: &str) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_trait_test_std", "kr");
-    let object_path = unique_temp_path("kernc_trait_test_std", "o");
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let object_arg = object_path.to_string_lossy().into_owned();
-    let args = vec![
-        "-c",
-        "--use-std",
-        source_arg.as_str(),
-        "-o",
-        object_arg.as_str(),
-    ];
-    let output = run_kernc(&args);
-
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&object_path);
-    output
+    compile_source_with_args("kernc_trait_test_std", source, &["--use-std"])
 }
 
 #[test]

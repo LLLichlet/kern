@@ -1,68 +1,15 @@
+mod support;
+
 use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .to_path_buf()
-}
-
-fn unique_temp_path(prefix: &str, extension: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let file_name = format!("{}_{}_{}.{}", prefix, std::process::id(), nanos, extension);
-    std::env::temp_dir().join(file_name)
-}
-
-fn run_kernc(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_kernc"))
-        .current_dir(repo_root())
-        .args(args)
-        .output()
-        .unwrap()
-}
+use support::{build_and_run, kern_string_literal, unique_temp_path};
 
 fn build_and_run_hosted(source: &str) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_std_fs", "kr");
-    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
-    let executable_path = unique_temp_path("kernc_std_fs", exe_ext);
-
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let exe_arg = executable_path.to_string_lossy().into_owned();
-    let args = vec![
-        "--use-std",
-        "--link-profile",
-        "hosted",
-        source_arg.as_str(),
-        "-o",
-        exe_arg.as_str(),
-    ];
-    let output = run_kernc(&args);
-
-    assert!(
-        output.status.success(),
-        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let run_output = Command::new(&executable_path).output().unwrap();
-
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&executable_path);
-    run_output
-}
-
-fn kern_string_literal(path: &Path) -> String {
-    path.to_string_lossy().replace('\\', "\\\\")
+    build_and_run(
+        "kernc_std_fs",
+        source,
+        &["--use-std", "--link-profile", "hosted"],
+    )
 }
 
 #[test]

@@ -1,123 +1,21 @@
-use std::fs;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+mod support;
 
-fn repo_root() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .to_path_buf()
-}
-
-fn unique_temp_path(prefix: &str, extension: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let file_name = format!("{}_{}_{}.{}", prefix, std::process::id(), nanos, extension);
-    std::env::temp_dir().join(file_name)
-}
-
-fn run_kernc(args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_kernc"))
-        .current_dir(repo_root())
-        .args(args)
-        .output()
-        .unwrap()
-}
+use support::{build_and_run, compile_source_tree_with_args, compile_source_with_args};
 
 fn compile_source(source: &str) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_regression_test", "kr");
-    let object_path = unique_temp_path("kernc_regression_test", "o");
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let object_arg = object_path.to_string_lossy().into_owned();
-    let args = vec!["-c", source_arg.as_str(), "-o", object_arg.as_str()];
-    let output = run_kernc(&args);
-
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&object_path);
-    output
+    compile_source_with_args("kernc_regression_test", source, &[])
 }
 
 fn compile_source_with_std(source: &str) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_regression_std_test", "kr");
-    let object_path = unique_temp_path("kernc_regression_std_test", "o");
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let object_arg = object_path.to_string_lossy().into_owned();
-    let args = vec![
-        "-c",
-        "--use-std",
-        source_arg.as_str(),
-        "-o",
-        object_arg.as_str(),
-    ];
-    let output = run_kernc(&args);
-
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&object_path);
-    output
+    compile_source_with_args("kernc_regression_std_test", source, &["--use-std"])
 }
 
 fn compile_source_tree(entry: &str, files: &[(&str, &str)]) -> std::process::Output {
-    let temp_dir = unique_temp_path("kernc_regression_tree", "dir");
-    let object_path = unique_temp_path("kernc_regression_tree", "o");
-    fs::create_dir_all(&temp_dir).unwrap();
-
-    for (relative_path, source) in files {
-        let path = temp_dir.join(relative_path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).unwrap();
-        }
-        fs::write(path, source).unwrap();
-    }
-
-    let entry_path = temp_dir.join(entry);
-    let source_arg = entry_path.to_string_lossy().into_owned();
-    let object_arg = object_path.to_string_lossy().into_owned();
-    let args = vec!["-c", source_arg.as_str(), "-o", object_arg.as_str()];
-    let output = run_kernc(&args);
-
-    let _ = fs::remove_file(&object_path);
-    let _ = fs::remove_dir_all(&temp_dir);
-    output
+    compile_source_tree_with_args("kernc_regression_tree", entry, files, &["-c"])
 }
 
 fn build_and_run_source(source: &str) -> std::process::Output {
-    let source_path = unique_temp_path("kernc_regression_run", "kr");
-    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
-    let executable_path = unique_temp_path("kernc_regression_run", exe_ext);
-
-    fs::write(&source_path, source).unwrap();
-
-    let source_arg = source_path.to_string_lossy().into_owned();
-    let exe_arg = executable_path.to_string_lossy().into_owned();
-    let args = vec![
-        "--link-profile",
-        "hosted",
-        source_arg.as_str(),
-        "-o",
-        exe_arg.as_str(),
-    ];
-    let output = run_kernc(&args);
-
-    assert!(
-        output.status.success(),
-        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let run_output = Command::new(&executable_path).output().unwrap();
-
-    let _ = fs::remove_file(&source_path);
-    let _ = fs::remove_file(&executable_path);
-    run_output
+    build_and_run("kernc_regression_run", source, &["--link-profile", "hosted"])
 }
 
 #[test]

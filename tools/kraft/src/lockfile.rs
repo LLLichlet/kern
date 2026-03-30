@@ -1204,7 +1204,18 @@ shared = {{ workspace = true, features = ["simd"] }}
         .unwrap();
         fs::write(
             app_dir.join("kraft.kr"),
-            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+            format!(
+                r#"
+use kraft.plan;
+
+pub fn kraft(p: *mut plan.Plan) void {{
+    match (p.env("{env_name}")) {{
+        .Some: value => p.define_string("env_value", value),
+        .None => {{}},
+    }}
+}}
+"#
+            ),
         )
         .unwrap();
         fs::write(
@@ -1221,7 +1232,15 @@ kern = "0.7"
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         let lockfile = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
         let rendered = lockfile.render();
 
@@ -1283,7 +1302,15 @@ shared = { workspace = true }
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         let expected = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
         let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let loaded = Lockfile::load(&lock_path).unwrap();
@@ -1321,7 +1348,15 @@ kern = "0.7"
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
 
@@ -1359,7 +1394,15 @@ kern = "0.7"
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
 
         let (_, created) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(created, LockWriteResult::Created);
@@ -1380,7 +1423,15 @@ kern = "0.7"
 
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         let (_, updated) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(updated, LockWriteResult::Updated);
 
@@ -1426,14 +1477,33 @@ env = ["{env_name}"]
         .unwrap();
         fs::write(
             app_dir.join("kraft.kr"),
-            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+            format!(
+                r#"
+use kraft.plan;
+
+pub fn kraft(p: *mut plan.Plan) void {{
+    match (p.env("{env_name}")) {{
+        .Some: value => p.define_string("env_value", value),
+        .None => {{}},
+    }}
+}}
+"#
+            ),
         )
         .unwrap();
 
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
@@ -1447,7 +1517,15 @@ env = ["{env_name}"]
         );
 
         unsafe { std::env::set_var(&env_name, "v2") };
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Stale
@@ -1455,18 +1533,31 @@ env = ["{env_name}"]
 
         fs::write(
             app_dir.join("Kraft.toml"),
-            r#"
+            format!(
+                r#"
 [package]
 name = "app"
 version = "0.2.0"
 kern = "0.7"
-"#,
+
+[kraft]
+env = ["{env_name}"]
+"#
+            ),
         )
         .unwrap();
 
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Stale

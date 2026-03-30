@@ -18,18 +18,47 @@ pub type Profile = struct {
     pub debug: bool,
 };
 
+pub type Package = struct {
+    pub name: []u8,
+    pub version: []u8,
+    pub root: []u8,
+    pub is_root: bool,
+};
+
+pub type Workspace = struct {
+    pub root: []u8,
+    pub has_workspace: bool,
+};
+
 pub type DependencyKind = enum {
     normal,
     dev,
     build,
 };
 
+pub type Command = enum {
+    check,
+    lock,
+    build,
+    run,
+    test,
+};
+
+pub type EnvValue = enum {
+    Some: []u8,
+    None,
+};
+
 pub type Plan = extern struct {
+    pub package: Package,
+    pub workspace: Workspace,
     pub target: Target,
     pub profile: Profile,
+    pub command: Command,
 };
 
 extern fn __kraft_plan_feature_enabled(plan: *Plan, name: []u8) bool;
+extern fn __kraft_plan_env(plan: *Plan, name: []u8) EnvValue;
 extern fn __kraft_plan_cfg_bool(plan: *mut Plan, name: []u8, value: bool) void;
 extern fn __kraft_plan_cfg_string(plan: *mut Plan, name: []u8, value: []u8) void;
 extern fn __kraft_plan_define_bool(plan: *mut Plan, name: []u8, value: bool) void;
@@ -51,6 +80,10 @@ extern fn __kraft_plan_remove_dep(plan: *mut Plan, kind: DependencyKind, name: [
 impl *Plan {
     pub fn feature_enabled(name: []u8) bool {
         return __kraft_plan_feature_enabled(self, name);
+    }
+
+    pub fn env(name: []u8) EnvValue {
+        return __kraft_plan_env(self, name);
     }
 }
 

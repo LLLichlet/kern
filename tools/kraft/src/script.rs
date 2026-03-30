@@ -8,8 +8,76 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Session;
 use kernc_utils::config::CompileOptions;
 use kernc_utils::{Span, SymbolId};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptExecution {
+    pub env_inputs: Vec<ScriptEnvInput>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptEnvInput {
+    pub name: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptContext {
+    pub package: ScriptPackage,
+    pub workspace: ScriptWorkspace,
+    pub target: ScriptTarget,
+    pub profile: ScriptProfile,
+    pub command: ScriptCommand,
+    pub features: BTreeSet<String>,
+    pub env: BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptPackage {
+    pub name: String,
+    pub version: String,
+    pub root: String,
+    pub is_root: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptWorkspace {
+    pub root: String,
+    pub has_workspace: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptTarget {
+    pub os: ScriptOs,
+    pub arch: String,
+    pub vendor: String,
+    pub env: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ScriptProfile {
+    pub name: String,
+    pub opt: u8,
+    pub debug: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptCommand {
+    Check,
+    Lock,
+    Build,
+    Run,
+    Test,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptOs {
+    Unknown,
+    Linux,
+    Windows,
+    Darwin,
+}
 
 pub fn validate_kraft_script(path: &Path) -> Result<()> {
     let script_path = canonical_script_path(path)?;
@@ -22,7 +90,11 @@ pub fn validate_kraft_script(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn apply_kraft_script(path: &Path, package_plan: &mut PackagePlan) -> Result<()> {
+pub fn apply_kraft_script(
+    path: &Path,
+    package_plan: &mut PackagePlan,
+    script_context: &ScriptContext,
+) -> Result<ScriptExecution> {
     let script_path = canonical_script_path(path)?;
     let script_input = script_path.to_string_lossy().to_string();
     let mut session = Session::new();
@@ -30,17 +102,40 @@ pub fn apply_kraft_script(path: &Path, package_plan: &mut PackagePlan) -> Result
     let entry_def = find_kraft_entry(&mut ctx, &script_path)?;
     validate_kraft_entry(&mut ctx, entry_def, &script_path)?;
 
-    let mut host = PackagePlanHost { package_plan };
-    let arg_values = vec![plan_argument_value(&mut ctx)];
+    let mut host = PackagePlanHost {
+        package_plan,
+        script_context,
+        env_reads: BTreeSet::new(),
+    };
+    let arg_values = vec![plan_argument_value(&mut ctx, script_context)];
     let mut evaluator = ConstEvaluator::with_script_host(&mut ctx, &mut host);
     evaluator
         .eval_function(entry_def, &[], arg_values, Span::default())
         .map_err(|_| Error::ScriptValidation {
-            path: script_path,
-            message: "kraft script execution failed".to_string(),
+            path: script_path.clone(),
+            message: ctx
+                .sess
+                .diagnostics
+                .last()
+                .map(|diag| format!("kraft script execution failed: {}", diag.message))
+                .unwrap_or_else(|| "kraft script execution failed".to_string()),
         })?;
 
-    Ok(())
+    Ok(ScriptExecution {
+        env_inputs: host
+            .env_reads
+            .into_iter()
+            .map(|name| ScriptEnvInput {
+                value: host
+                    .script_context
+                    .env
+                    .get(&name)
+                    .cloned()
+                    .expect("env read must come from declared env map"),
+                name,
+            })
+            .collect(),
+    })
 }
 
 fn sdk_root() -> std::path::PathBuf {
@@ -186,6 +281,8 @@ fn validate_kraft_entry(
 
 struct PackagePlanHost<'a> {
     package_plan: &'a mut PackagePlan,
+    script_context: &'a ScriptContext,
+    env_reads: BTreeSet<String>,
 }
 
 impl ScriptHost for PackagePlanHost<'_> {
@@ -198,8 +295,36 @@ impl ScriptHost for PackagePlanHost<'_> {
         match name {
             "__kraft_plan_feature_enabled" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
-                let _feature = expect_string(args, 1, "feature name")?;
-                Ok(ConstValue::Bool(false))
+                let feature = expect_string(args, 1, "feature name")?;
+                Ok(ConstValue::Bool(
+                    self.script_context.features.contains(feature.as_str()),
+                ))
+            }
+            "__kraft_plan_env" => {
+                let _ = expect_arg(args, 0, "plan receiver")?;
+                let name = expect_string(args, 1, "environment name")?;
+                let Some(value) = self.script_context.env.get(&name).cloned() else {
+                    return Err(format!(
+                        "environment `{name}` was not declared under `[kraft].env` (declared: {})",
+                        self.script_context
+                            .env
+                            .keys()
+                            .cloned()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ));
+                };
+                self.env_reads.insert(name);
+                Ok(match value {
+                    Some(value) => ConstValue::Enum {
+                        tag: 0,
+                        payload: Some(Box::new(ConstValue::String(value))),
+                    },
+                    None => ConstValue::Enum {
+                        tag: 1,
+                        payload: None,
+                    },
+                })
             }
             "__kraft_plan_cfg_bool" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
@@ -395,33 +520,114 @@ fn expect_dependency_kind(
     }
 }
 
-fn plan_argument_value(ctx: &mut kernc_sema::SemaContext<'_>) -> ConstValue {
+fn plan_argument_value(
+    ctx: &mut kernc_sema::SemaContext<'_>,
+    script_context: &ScriptContext,
+) -> ConstValue {
     fn field(name: &str, ctx: &mut kernc_sema::SemaContext<'_>) -> SymbolId {
         ctx.intern(name)
     }
 
+    let mut package = HashMap::new();
+    package.insert(
+        field("name", ctx),
+        ConstValue::String(script_context.package.name.clone()),
+    );
+    package.insert(
+        field("version", ctx),
+        ConstValue::String(script_context.package.version.clone()),
+    );
+    package.insert(
+        field("root", ctx),
+        ConstValue::String(script_context.package.root.clone()),
+    );
+    package.insert(
+        field("is_root", ctx),
+        ConstValue::Bool(script_context.package.is_root),
+    );
+
+    let mut workspace = HashMap::new();
+    workspace.insert(
+        field("root", ctx),
+        ConstValue::String(script_context.workspace.root.clone()),
+    );
+    workspace.insert(
+        field("has_workspace", ctx),
+        ConstValue::Bool(script_context.workspace.has_workspace),
+    );
+
     let mut target = HashMap::new();
-    target.insert(field("os", ctx), ConstValue::Int(0));
+    target.insert(
+        field("os", ctx),
+        ConstValue::Enum {
+            tag: script_context.target.os.tag(),
+            payload: None,
+        },
+    );
     target.insert(
         field("arch", ctx),
-        ConstValue::String("unknown".to_string()),
+        ConstValue::String(script_context.target.arch.clone()),
     );
     target.insert(
         field("vendor", ctx),
-        ConstValue::String("unknown".to_string()),
+        ConstValue::String(script_context.target.vendor.clone()),
     );
-    target.insert(field("env", ctx), ConstValue::String("unknown".to_string()));
+    target.insert(
+        field("env", ctx),
+        ConstValue::String(script_context.target.env.clone()),
+    );
 
     let mut profile = HashMap::new();
-    profile.insert(field("name", ctx), ConstValue::String("dev".to_string()));
-    profile.insert(field("opt", ctx), ConstValue::Int(0));
-    profile.insert(field("debug", ctx), ConstValue::Bool(true));
+    profile.insert(
+        field("name", ctx),
+        ConstValue::String(script_context.profile.name.clone()),
+    );
+    profile.insert(
+        field("opt", ctx),
+        ConstValue::Int(i128::from(script_context.profile.opt)),
+    );
+    profile.insert(
+        field("debug", ctx),
+        ConstValue::Bool(script_context.profile.debug),
+    );
 
     let mut plan = HashMap::new();
+    plan.insert(field("package", ctx), ConstValue::Struct(package));
+    plan.insert(field("workspace", ctx), ConstValue::Struct(workspace));
     plan.insert(field("target", ctx), ConstValue::Struct(target));
     plan.insert(field("profile", ctx), ConstValue::Struct(profile));
+    plan.insert(
+        field("command", ctx),
+        ConstValue::Enum {
+            tag: script_context.command.tag(),
+            payload: None,
+        },
+    );
 
     ConstValue::Struct(plan)
+}
+
+impl ScriptCommand {
+    fn tag(self) -> i128 {
+        match self {
+            Self::Check => 0,
+            Self::Lock => 1,
+            Self::Build => 2,
+            Self::Run => 3,
+            Self::Test => 4,
+        }
+    }
+}
+
+impl ScriptOs {
+    fn tag(self) -> i128 {
+        match self {
+            Self::Unknown => 0,
+            Self::Linux => 1,
+            Self::Windows => 2,
+            Self::Darwin => 3,
+        }
+    }
 }
 
 #[cfg(test)]

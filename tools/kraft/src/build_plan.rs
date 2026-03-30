@@ -187,7 +187,15 @@ root = "tests/smoke.kr"
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
-        let elaboration = plan(&manifest_path, &manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Check,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         let build_plan = derive(&elaboration).unwrap();
 
         assert_eq!(build_plan.unit_count(), 3);
@@ -261,7 +269,15 @@ root = "src/lib.kr"
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
-        let elaboration = plan(&manifest_path, &manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Check,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
         let build_plan = derive(&elaboration).unwrap();
 
         let app_unit = build_plan

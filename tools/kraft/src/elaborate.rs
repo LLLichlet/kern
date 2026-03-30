@@ -6,7 +6,13 @@ use crate::plan::PackagePlan;
 use crate::resolver;
 use crate::resolver::ResolvedGraph;
 use crate::script;
+use crate::script::{
+    ScriptCommand, ScriptContext, ScriptExecution, ScriptOs, ScriptPackage, ScriptProfile,
+    ScriptTarget, ScriptWorkspace,
+};
 use crate::workspace::WorkspaceMember;
+use kernc_utils::config::CompileOptions;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -36,6 +42,21 @@ pub struct ElaborationPlan {
     pub resolved_graph: ResolvedGraph,
     pub workspace_script: Option<ScriptInput>,
     pub packages: Vec<PackageElaboration>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FeatureSelection {
+    pub enable_default: bool,
+    pub explicit: BTreeSet<String>,
+}
+
+impl Default for FeatureSelection {
+    fn default() -> Self {
+        Self {
+            enable_default: true,
+            explicit: BTreeSet::new(),
+        }
+    }
 }
 
 impl ElaborationPlan {
@@ -78,41 +99,60 @@ pub fn plan(
     manifest: &Manifest,
     workspace_members: &[WorkspaceMember],
     has_workspace: bool,
+    command: ScriptCommand,
+    feature_selection: &FeatureSelection,
 ) -> Result<ElaborationPlan> {
     let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let workspace_script = if has_workspace {
-        discover_script(
-            workspace_root,
-            workspace_root,
-            manifest.kraft_env_names(),
-            workspace_root,
-        )?
+    let mut workspace_script = if has_workspace {
+        discover_script(workspace_root, workspace_root)?
     } else {
         None
     };
+    let workspace_env = declared_env_map(manifest_path, manifest.kraft_env_names())?;
+    let target = host_target();
 
     let mut packages = Vec::new();
     if manifest.package.is_some() {
+        let features = selected_features(manifest_path, manifest, feature_selection)?;
         let mut plan = PackagePlan::from_manifest(
             manifest_path,
             &root_package_id(manifest_path, manifest)?,
             manifest,
         )?;
-        if let Some(workspace_script) = &workspace_script {
-            script::apply_kraft_script(&workspace_script.path, &mut plan)?;
+        let package_ctx = script_context(
+            &plan,
+            workspace_root,
+            has_workspace,
+            command,
+            &target,
+            &manifest_profile(manifest),
+            features,
+            declared_env_map(manifest_path, manifest.kraft_env_names())?,
+        );
+        if let Some(workspace_script) = &mut workspace_script {
+            let execution = script::apply_kraft_script(
+                &workspace_script.path,
+                &mut plan,
+                &ScriptContext {
+                    env: workspace_env.clone(),
+                    ..package_ctx.clone()
+                },
+            )?;
+            merge_script_env_inputs(&mut workspace_script.env_inputs, execution);
         }
         let script = if has_workspace {
             None
         } else {
-            discover_script(
-                workspace_root,
-                workspace_root,
-                manifest.kraft_env_names(),
-                manifest_path,
-            )?
+            discover_script(workspace_root, workspace_root)?
         };
-        if let Some(script) = &script {
-            script::apply_kraft_script(&script.path, &mut plan)?;
+        let mut script = script;
+        if let Some(script) = &mut script {
+            let execution = script::apply_kraft_script(&script.path, &mut plan, &package_ctx)?;
+            script.env_inputs = execution
+                .env_inputs
+                .into_iter()
+                .map(into_env_input)
+                .collect();
         }
         packages.push(PackageElaboration {
             package_id: plan.package_id.clone(),
@@ -126,22 +166,42 @@ pub fn plan(
             .manifest_path
             .parent()
             .unwrap_or_else(|| Path::new("."));
+        let features =
+            selected_features(&member.manifest_path, &member.manifest, feature_selection)?;
         let mut plan = PackagePlan::from_manifest(
             &member.manifest_path,
             &member_package_id(member, workspace_root)?,
             &member.manifest,
         )?;
-        if let Some(workspace_script) = &workspace_script {
-            script::apply_kraft_script(&workspace_script.path, &mut plan)?;
-        }
-        let script = discover_script(
+        let package_ctx = script_context(
+            &plan,
             workspace_root,
-            package_root,
-            member.manifest.kraft_env_names(),
-            &member.manifest_path,
-        )?;
-        if let Some(script) = &script {
-            script::apply_kraft_script(&script.path, &mut plan)?;
+            has_workspace,
+            command,
+            &target,
+            &manifest_profile(&member.manifest),
+            features,
+            declared_env_map(&member.manifest_path, member.manifest.kraft_env_names())?,
+        );
+        if let Some(workspace_script) = &mut workspace_script {
+            let execution = script::apply_kraft_script(
+                &workspace_script.path,
+                &mut plan,
+                &ScriptContext {
+                    env: workspace_env.clone(),
+                    ..package_ctx.clone()
+                },
+            )?;
+            merge_script_env_inputs(&mut workspace_script.env_inputs, execution);
+        }
+        let mut script = discover_script(workspace_root, package_root)?;
+        if let Some(script) = &mut script {
+            let execution = script::apply_kraft_script(&script.path, &mut plan, &package_ctx)?;
+            script.env_inputs = execution
+                .env_inputs
+                .into_iter()
+                .map(into_env_input)
+                .collect();
         }
         packages.push(PackageElaboration {
             package_id: plan.package_id.clone(),
@@ -201,12 +261,7 @@ fn member_package_id(member: &WorkspaceMember, workspace_root: &Path) -> Result<
     })
 }
 
-fn discover_script(
-    workspace_root: &Path,
-    package_root: &Path,
-    env_names: &[String],
-    manifest_path: &Path,
-) -> Result<Option<ScriptInput>> {
+fn discover_script(workspace_root: &Path, package_root: &Path) -> Result<Option<ScriptInput>> {
     let path = package_root.join("kraft.kr");
     if !path.is_file() {
         return Ok(None);
@@ -217,32 +272,155 @@ fn discover_script(
     Ok(Some(ScriptInput {
         relative_path: relative_display(workspace_root, &path),
         digest: digest_file(&path)?,
-        env_inputs: snapshot_env_inputs(env_names, manifest_path)?,
+        env_inputs: Vec::new(),
         path,
     }))
 }
 
-fn snapshot_env_inputs(env_names: &[String], manifest_path: &Path) -> Result<Vec<EnvInput>> {
-    let mut inputs = Vec::new();
+fn declared_env_map(
+    env_names_path: &Path,
+    env_names: &[String],
+) -> Result<BTreeMap<String, Option<String>>> {
+    let mut inputs = BTreeMap::new();
     for name in env_names {
         let value = match std::env::var(name) {
             Ok(value) => Some(value),
             Err(std::env::VarError::NotPresent) => None,
             Err(std::env::VarError::NotUnicode(_)) => {
                 return Err(Error::Validation {
-                    path: manifest_path.to_path_buf(),
+                    path: env_names_path.to_path_buf(),
                     message: format!(
                         "[kraft].env `{name}` produced a non-UTF-8 value, which `kraft.kr` does not accept"
                     ),
                 });
             }
         };
-        inputs.push(EnvInput {
-            name: name.clone(),
-            value,
-        });
+        inputs.insert(name.clone(), value);
     }
     Ok(inputs)
+}
+
+fn selected_features(
+    manifest_path: &Path,
+    manifest: &Manifest,
+    selection: &FeatureSelection,
+) -> Result<BTreeSet<String>> {
+    let mut enabled = BTreeSet::new();
+    let mut pending = Vec::new();
+
+    if selection.enable_default && manifest.features.contains_key("default") {
+        pending.push("default".to_string());
+    }
+
+    for feature in &selection.explicit {
+        if !manifest.features.contains_key(feature) {
+            return Err(Error::Validation {
+                path: manifest_path.to_path_buf(),
+                message: format!("selected feature `{feature}` is not declared in `[features]`"),
+            });
+        }
+        pending.push(feature.clone());
+    }
+
+    while let Some(feature) = pending.pop() {
+        if !enabled.insert(feature.clone()) {
+            continue;
+        }
+
+        let Some(members) = manifest.features.get(&feature) else {
+            continue;
+        };
+
+        for member in members {
+            if !manifest.features.contains_key(member) {
+                return Err(Error::Validation {
+                    path: manifest_path.to_path_buf(),
+                    message: format!("feature `{feature}` references unknown feature `{member}`"),
+                });
+            }
+            pending.push(member.clone());
+        }
+    }
+
+    Ok(enabled)
+}
+
+fn script_context(
+    plan: &PackagePlan,
+    workspace_root: &Path,
+    has_workspace: bool,
+    command: ScriptCommand,
+    target: &ScriptTarget,
+    profile: &ScriptProfile,
+    features: BTreeSet<String>,
+    env: BTreeMap<String, Option<String>>,
+) -> ScriptContext {
+    let package_root = plan
+        .manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+    ScriptContext {
+        package: ScriptPackage {
+            name: plan.package_id.name.clone(),
+            version: plan.package_id.version.clone(),
+            root: relative_display(workspace_root, package_root),
+            is_root: plan.package_id.source == SourceId::Root,
+        },
+        workspace: ScriptWorkspace {
+            root: relative_display(workspace_root, workspace_root),
+            has_workspace,
+        },
+        target: target.clone(),
+        profile: profile.clone(),
+        command,
+        features,
+        env,
+    }
+}
+
+fn host_target() -> ScriptTarget {
+    let triple = CompileOptions::default().target.triple;
+    let os = match triple.operating_system.to_string().as_str() {
+        "linux" => ScriptOs::Linux,
+        "windows" => ScriptOs::Windows,
+        "darwin" | "macosx" => ScriptOs::Darwin,
+        _ => ScriptOs::Unknown,
+    };
+
+    ScriptTarget {
+        os,
+        arch: triple.architecture.to_string(),
+        vendor: triple.vendor.to_string(),
+        env: triple.environment.to_string(),
+    }
+}
+
+fn manifest_profile(manifest: &Manifest) -> ScriptProfile {
+    let dev = manifest
+        .profile
+        .as_ref()
+        .and_then(|profiles| profiles.dev.as_ref());
+    ScriptProfile {
+        name: "dev".to_string(),
+        opt: dev.and_then(|profile| profile.opt).unwrap_or(0),
+        debug: dev.and_then(|profile| profile.debug).unwrap_or(true),
+    }
+}
+
+fn merge_script_env_inputs(into: &mut Vec<EnvInput>, execution: ScriptExecution) {
+    for input in execution.env_inputs {
+        if !into.iter().any(|existing| existing.name == input.name) {
+            into.push(into_env_input(input));
+        }
+    }
+    into.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+}
+
+fn into_env_input(input: script::ScriptEnvInput) -> EnvInput {
+    EnvInput {
+        name: input.name,
+        value: input.value,
+    }
 }
 
 fn relative_display(root: &Path, path: &Path) -> String {
@@ -337,7 +515,15 @@ kern = "0.7"
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
-        let elaboration = plan(&manifest_path, &manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             elaboration
@@ -413,7 +599,15 @@ pub fn kraft(p: *mut plan.Plan) void {
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
-        let elaboration = plan(&manifest_path, &manifest, &members, true).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
 
         let package = &elaboration.packages[0].plan;
         assert_eq!(
@@ -459,7 +653,15 @@ kern = "0.7"
 
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(&manifest_path, &manifest, &[], false).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
 
         assert!(elaboration.workspace_script.is_none());
         assert_eq!(elaboration.package_script_count(), 1);
@@ -475,7 +677,7 @@ kern = "0.7"
     }
 
     #[test]
-    fn snapshots_declared_env_inputs() {
+    fn records_only_env_inputs_read_by_kraft_script() {
         let root = temp_dir("kraft-elaborate-env");
         let env_name = format!(
             "KRAFT_TEST_ENV_{}",
@@ -503,13 +705,32 @@ env = ["{env_name}"]
         .unwrap();
         fs::write(
             root.join("kraft.kr"),
-            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+            format!(
+                r#"
+use kraft.plan;
+
+pub fn kraft(p: *mut plan.Plan) void {{
+    match (p.env("{env_name}")) {{
+        .Some: value => p.define_string("env_value", value),
+        .None => {{}},
+    }}
+}}
+"#
+            ),
         )
         .unwrap();
 
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(&manifest_path, &manifest, &[], false).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
 
         assert_eq!(
             elaboration.packages[0].script.as_ref().unwrap().env_inputs,
@@ -518,8 +739,168 @@ env = ["{env_name}"]
                 value: Some("enabled".to_string()),
             }]
         );
+        assert_eq!(
+            elaboration.packages[0].plan.define.get("env_value"),
+            Some(&crate::plan::PlanValue::String("enabled".to_string()))
+        );
 
         unsafe { std::env::remove_var(&env_name) };
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_env_reads_outside_declared_allowlist() {
+        let root = temp_dir("kraft-elaborate-env-undeclared");
+        let env_name = format!(
+            "KRAFT_UNDECLARED_ENV_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        unsafe { std::env::set_var(&env_name, "enabled") };
+
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("kraft.kr"),
+            format!(
+                r#"
+use kraft.plan;
+
+pub fn kraft(p: *mut plan.Plan) void {{
+    match (p.env("{env_name}")) {{
+        .Some: value => p.define_string("env_value", value),
+        .None => {{}},
+    }}
+}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Kraft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let err = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("was not declared under `[kraft].env`"),
+            "unexpected error: {err}"
+        );
+
+        unsafe { std::env::remove_var(&env_name) };
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn enables_transitive_default_features_for_kraft_scripts() {
+        let root = temp_dir("kraft-elaborate-features");
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[features]
+default = ["tls"]
+tls = ["simd"]
+simd = []
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("kraft.kr"),
+            r#"
+use kraft.plan;
+
+pub fn kraft(p: *mut plan.Plan) void {
+    if (p.feature_enabled("simd")) {
+        p.cfg_bool("simd", true);
+    }
+    if (p.feature_enabled("tls")) {
+        p.define_bool("tls", true);
+    }
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Kraft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            elaboration.packages[0].plan.cfg.get("simd"),
+            Some(&crate::plan::PlanValue::Bool(true))
+        );
+        assert_eq!(
+            elaboration.packages[0].plan.define.get("tls"),
+            Some(&crate::plan::PlanValue::Bool(true))
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_unknown_feature_members() {
+        let root = temp_dir("kraft-elaborate-bad-features");
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[features]
+default = ["missing"]
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Kraft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let err = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("feature `default` references unknown feature `missing`"),
+            "unexpected error: {err}"
+        );
+
         let _ = fs::remove_dir_all(root);
     }
 
@@ -553,6 +934,14 @@ use kraft.plan;
 pub fn kraft(p: *mut plan.Plan) void {
     p.cfg_bool("simd", true);
     p.define_string("abi", "sysv");
+    p.define_string("pkg", p.package.name);
+    match (p.command) {
+        .check => p.define_bool("is_check", true),
+        .lock => {},
+        .build => {},
+        .run => {},
+        .test => {},
+    }
     p.set_lib_root("src/alt_lib.kr");
     p.add_bin("demo", "src/main.kr");
     p.dep_registry(plan.DependencyKind.{ normal }, "log", "corp");
@@ -565,7 +954,15 @@ pub fn kraft(p: *mut plan.Plan) void {
 
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(&manifest_path, &manifest, &[], false).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
 
         let package = &elaboration.packages[0].plan;
         assert_eq!(
@@ -575,6 +972,14 @@ pub fn kraft(p: *mut plan.Plan) void {
         assert_eq!(
             package.define.get("abi"),
             Some(&crate::plan::PlanValue::String("sysv".to_string()))
+        );
+        assert_eq!(
+            package.define.get("pkg"),
+            Some(&crate::plan::PlanValue::String("demo".to_string()))
+        );
+        assert_eq!(
+            package.define.get("is_check"),
+            Some(&crate::plan::PlanValue::Bool(true))
         );
         assert!(package.targets.iter().any(|target| {
             target.kind == crate::plan::TargetKind::Lib && target.root == "src/alt_lib.kr"

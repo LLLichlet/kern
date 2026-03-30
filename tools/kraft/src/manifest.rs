@@ -38,17 +38,18 @@ pub struct NamedTarget {
     pub root: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DependencySpec {
     Version(String),
     Detailed(DetailedDependency),
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DetailedDependency {
     pub version: Option<String>,
     pub path: Option<String>,
     pub registry: Option<String>,
+    pub workspace: Option<bool>,
     pub package: Option<String>,
     pub optional: Option<bool>,
     pub default_features: Option<bool>,
@@ -665,6 +666,7 @@ fn parse_dependency(raw: &str) -> std::result::Result<DependencySpec, String> {
             "version" => dep.version = Some(parse_string(value)?),
             "path" => dep.path = Some(parse_string(value)?),
             "registry" => dep.registry = Some(parse_string(value)?),
+            "workspace" => dep.workspace = Some(parse_bool(value)?),
             "package" => dep.package = Some(parse_string(value)?),
             "optional" => dep.optional = Some(parse_bool(value)?),
             "default-features" => dep.default_features = Some(parse_bool(value)?),
@@ -759,9 +761,29 @@ fn validate_dependencies(
                 validate_non_empty(path, &format!("{section}.{name}"), version)?;
             }
             DependencySpec::Detailed(dep) => {
+                if section == "[workspace.dependencies]" && dep.workspace == Some(true) {
+                    return Err(Error::Validation {
+                        path: path.to_path_buf(),
+                        message: format!(
+                            "{section}.{name} cannot use `workspace = true` inside `[workspace.dependencies]`"
+                        ),
+                    });
+                }
+
+                if dep.workspace == Some(true)
+                    && (dep.version.is_some() || dep.path.is_some() || dep.registry.is_some())
+                {
+                    return Err(Error::Validation {
+                        path: path.to_path_buf(),
+                        message: format!(
+                            "{section}.{name} cannot combine `workspace = true` with `version`, `path`, or `registry`"
+                        ),
+                    });
+                }
+
                 let has_locator =
                     dep.version.is_some() || dep.path.is_some() || dep.registry.is_some();
-                if !has_locator {
+                if dep.workspace != Some(true) && !has_locator {
                     return Err(Error::Validation {
                         path: path.to_path_buf(),
                         message: format!(
@@ -818,7 +840,7 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::Manifest;
+    use super::{DependencySpec, Manifest};
 
     #[test]
     fn parses_package_manifest() {
@@ -894,5 +916,73 @@ opt = 7
         let path = std::path::Path::new("Kraft.toml");
         let err = manifest.validate(path).unwrap_err();
         assert!(err.to_string().contains("0..=3"));
+    }
+
+    #[test]
+    fn parses_workspace_inherited_dependency() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[dependencies]
+shared = { workspace = true, features = ["simd"] }
+"#,
+            std::path::Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        let dep = manifest.dependencies.get("shared").unwrap();
+        let DependencySpec::Detailed(dep) = dep else {
+            panic!("expected detailed dependency");
+        };
+
+        assert_eq!(dep.workspace, Some(true));
+        assert_eq!(dep.features, vec!["simd"]);
+    }
+
+    #[test]
+    fn rejects_workspace_inheritance_locators_in_member_dependency() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[dependencies]
+shared = { workspace = true, version = "2" }
+"#,
+            std::path::Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        let path = std::path::Path::new("Kraft.toml");
+        let err = manifest.validate(path).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("cannot combine `workspace = true`")
+        );
+    }
+
+    #[test]
+    fn rejects_workspace_inheritance_inside_workspace_dependencies() {
+        let manifest = Manifest::parse(
+            r#"
+[workspace]
+members = ["app"]
+
+[workspace.dependencies]
+shared = { workspace = true }
+"#,
+            std::path::Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        let path = std::path::Path::new("Kraft.toml");
+        let err = manifest.validate(path).unwrap_err();
+        assert!(err.to_string().contains("cannot use `workspace = true`"));
     }
 }

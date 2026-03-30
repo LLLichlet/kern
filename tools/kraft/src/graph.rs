@@ -1,5 +1,5 @@
 use crate::error::{Error, Result};
-use crate::manifest::{DependencySpec, Manifest};
+use crate::manifest::{DependencySpec, DetailedDependency, Manifest};
 use crate::workspace::WorkspaceMember;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -70,6 +70,10 @@ pub fn build_graph(
         .unwrap_or_else(|| Path::new("."))
         .to_path_buf();
     let root_dir = canonical_dir(&workspace_root)?;
+    let workspace_dependencies = manifest
+        .workspace
+        .as_ref()
+        .map(|workspace| &workspace.dependencies);
 
     let mut packages = Vec::new();
     if manifest.package.is_some() {
@@ -119,7 +123,14 @@ pub fn build_graph(
                 .expect("workspace member manifest must exist")
                 .manifest
         };
-        let dependencies = build_edges(&package_root, manifest, &root_dir, &local_index)?;
+        let dependencies = build_edges(
+            &package.manifest_path,
+            &package_root,
+            manifest,
+            workspace_dependencies,
+            &root_dir,
+            &local_index,
+        )?;
         graph_nodes.push(PackageNode {
             id: package.id,
             manifest_path: package.manifest_path,
@@ -136,15 +147,19 @@ pub fn build_graph(
 }
 
 fn build_edges(
+    manifest_path: &Path,
     package_root: &Path,
     manifest: &Manifest,
+    workspace_dependencies: Option<&BTreeMap<String, DependencySpec>>,
     workspace_root: &Path,
     local_index: &BTreeMap<PathBuf, PackageId>,
 ) -> Result<Vec<DependencyEdge>> {
     let mut edges = Vec::new();
     collect_dep_edges(
         &mut edges,
+        manifest_path,
         package_root,
+        workspace_dependencies,
         workspace_root,
         local_index,
         &manifest.dependencies,
@@ -152,7 +167,9 @@ fn build_edges(
     )?;
     collect_dep_edges(
         &mut edges,
+        manifest_path,
         package_root,
+        workspace_dependencies,
         workspace_root,
         local_index,
         &manifest.dev_dependencies,
@@ -160,7 +177,9 @@ fn build_edges(
     )?;
     collect_dep_edges(
         &mut edges,
+        manifest_path,
         package_root,
+        workspace_dependencies,
         workspace_root,
         local_index,
         &manifest.build_dependencies,
@@ -171,27 +190,98 @@ fn build_edges(
 
 fn collect_dep_edges(
     edges: &mut Vec<DependencyEdge>,
+    manifest_path: &Path,
     package_root: &Path,
+    workspace_dependencies: Option<&BTreeMap<String, DependencySpec>>,
     workspace_root: &Path,
     local_index: &BTreeMap<PathBuf, PackageId>,
     deps: &BTreeMap<String, DependencySpec>,
     kind: DependencyKind,
 ) -> Result<()> {
     for (dependency_name, spec) in deps {
+        let spec = normalize_dependency_spec(
+            manifest_path,
+            workspace_dependencies,
+            dependency_name,
+            spec,
+        )?;
         edges.push(DependencyEdge {
             kind,
             dependency_name: dependency_name.clone(),
-            package_name: requested_package_name(dependency_name, spec),
+            package_name: requested_package_name(dependency_name, &spec),
             target: dependency_target(
                 package_root,
                 workspace_root,
                 local_index,
                 dependency_name,
-                spec,
+                &spec,
             )?,
         });
     }
     Ok(())
+}
+
+fn normalize_dependency_spec(
+    manifest_path: &Path,
+    workspace_dependencies: Option<&BTreeMap<String, DependencySpec>>,
+    dependency_name: &str,
+    spec: &DependencySpec,
+) -> Result<DependencySpec> {
+    let DependencySpec::Detailed(overlay) = spec else {
+        return Ok(spec.clone());
+    };
+
+    if overlay.workspace != Some(true) {
+        return Ok(spec.clone());
+    }
+
+    let Some(workspace_dependencies) = workspace_dependencies else {
+        return Err(Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: format!(
+                "dependency `{dependency_name}` uses `workspace = true` but no `[workspace.dependencies]` are available"
+            ),
+        });
+    };
+
+    let Some(base_spec) = workspace_dependencies.get(dependency_name) else {
+        return Err(Error::Validation {
+            path: manifest_path.to_path_buf(),
+            message: format!(
+                "dependency `{dependency_name}` uses `workspace = true` but is missing from `[workspace.dependencies]`"
+            ),
+        });
+    };
+
+    let mut merged = dependency_spec_to_detailed(base_spec);
+    merged.workspace = None;
+
+    if let Some(package) = &overlay.package {
+        merged.package = Some(package.clone());
+    }
+    if let Some(optional) = overlay.optional {
+        merged.optional = Some(optional);
+    }
+    if let Some(default_features) = overlay.default_features {
+        merged.default_features = Some(default_features);
+    }
+    for feature in &overlay.features {
+        if !merged.features.contains(feature) {
+            merged.features.push(feature.clone());
+        }
+    }
+
+    Ok(DependencySpec::Detailed(merged))
+}
+
+fn dependency_spec_to_detailed(spec: &DependencySpec) -> DetailedDependency {
+    match spec {
+        DependencySpec::Version(version) => DetailedDependency {
+            version: Some(version.clone()),
+            ..DetailedDependency::default()
+        },
+        DependencySpec::Detailed(dep) => dep.clone(),
+    }
 }
 
 fn requested_package_name(name: &str, spec: &DependencySpec) -> String {
@@ -357,6 +447,105 @@ kern = "0.7"
                         if ext.source == SourceId::Registry { name: None }
                 )
         }));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn inherits_workspace_dependencies_into_member_graph_edges() {
+        let root = temp_dir("kraft-workspace-inherit");
+        let app_dir = root.join("app");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+
+[workspace.dependencies]
+shared = "2"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Kraft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[dependencies]
+shared = { workspace = true, features = ["simd"] }
+"#,
+        )
+        .unwrap();
+
+        let root_manifest = Manifest::load(&root.join("Kraft.toml")).unwrap();
+        let members = load_members(&root.join("Kraft.toml"), &root_manifest).unwrap();
+        let graph = build_graph(&root.join("Kraft.toml"), &root_manifest, &members).unwrap();
+
+        let app = graph
+            .packages
+            .iter()
+            .find(|pkg| pkg.id.name == "app")
+            .unwrap();
+        let shared = app
+            .dependencies
+            .iter()
+            .find(|dep| dep.dependency_name == "shared")
+            .unwrap();
+
+        assert_eq!(shared.kind, DependencyKind::Normal);
+        assert_eq!(shared.package_name, "shared");
+        match &shared.target {
+            DependencyTarget::External(ext) => {
+                assert_eq!(ext.source, SourceId::Registry { name: None });
+                assert_eq!(ext.version.as_deref(), Some("2"));
+            }
+            other => panic!("expected external dependency, got {other:?}"),
+        }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn rejects_missing_workspace_dependency_inheritance_entry() {
+        let root = temp_dir("kraft-workspace-missing-inherit");
+        let app_dir = root.join("app");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Kraft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[dependencies]
+shared = { workspace = true }
+"#,
+        )
+        .unwrap();
+
+        let root_manifest = Manifest::load(&root.join("Kraft.toml")).unwrap();
+        let members = load_members(&root.join("Kraft.toml"), &root_manifest).unwrap();
+        let err = build_graph(&root.join("Kraft.toml"), &root_manifest, &members).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("uses `workspace = true` but is missing from `[workspace.dependencies]`")
+        );
 
         let _ = fs::remove_dir_all(root);
     }

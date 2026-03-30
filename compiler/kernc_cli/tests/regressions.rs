@@ -525,6 +525,44 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn compiles_const_fn_mutating_local_struct_fields_and_array_elements() {
+    let output = compile_source(
+        r#"
+type Pair = struct {
+    left: i32,
+    right: i32,
+};
+
+const fn build_total() i32 {
+    let mut pair = Pair.{ left: 1, right: 2 };
+    pair.left += 4;
+    pair.right = pair.left + pair.right;
+
+    let mut items = [3]mut i32.{ 5, 6, 7 };
+    items.[1] = pair.right;
+    items.[2] += items.[0];
+
+    return pair.right + items.[1] + items.[2];
+}
+
+const TOTAL = build_total();
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return TOTAL;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_assignment_through_non_mut_array_elements() {
     let output = compile_source(
         r#"

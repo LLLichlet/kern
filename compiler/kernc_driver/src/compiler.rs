@@ -83,8 +83,13 @@ impl CompilerDriver {
         codegen.compile(&mast_module);
 
         if self.options.driver_mode == DriverMode::EmitLlvmIr {
-            codegen.print_ir();
-            return true;
+            return match codegen.print_ir() {
+                Ok(()) => true,
+                Err(err) => {
+                    eprintln!("Error: Failed to print LLVM IR: {}", err);
+                    false
+                }
+            };
         }
 
         let target = self.normalized_target();

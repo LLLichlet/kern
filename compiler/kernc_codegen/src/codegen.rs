@@ -117,8 +117,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.asm_dialect = dialect;
     }
 
-    pub fn print_ir(&self) {
-        self.module.print_to_stderr();
+    pub fn print_ir(&self) -> Result<(), String> {
+        let ir = self.module.ir_string()?;
+        print!("{}", ir);
+        Ok(())
     }
 
     pub fn emit_to_file(
@@ -145,7 +147,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         if let Err(err) = self.module.verify() {
             eprintln!("LLVM IR Verification Failed:\n{}", err);
-            self.print_ir();
+            let _ = self.print_ir();
             unsafe {
                 LLVMDisposeTargetData(target_data);
                 LLVMDisposeTargetMachine(target_machine);

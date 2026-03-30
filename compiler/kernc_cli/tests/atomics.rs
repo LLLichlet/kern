@@ -79,11 +79,16 @@ extern fn main(args: [][]u8) i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    let stdout = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(
         stdout.contains("cmpxchg weak"),
         "expected weak cmpxchg in LLVM IR, got:\n{}",
         stdout
+    );
+    assert!(
+        !String::from_utf8_lossy(&output.stderr).contains("cmpxchg weak"),
+        "expected LLVM IR on stdout, got stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 

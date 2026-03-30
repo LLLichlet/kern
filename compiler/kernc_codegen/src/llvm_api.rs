@@ -43,6 +43,9 @@ use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
+#[cfg(not(windows))]
+use llvm_sys::core::LLVMPrintModuleToString;
+
 fn to_c_string(input: &str) -> CString {
     CString::new(input).expect("LLVM strings cannot contain interior NUL bytes")
 }
@@ -473,7 +476,20 @@ impl<'ctx> Module<'ctx> {
         }
     }
 
-    pub fn print_to_stderr(&self) {
+    pub fn ir_string(&self) -> Result<String, String> {
+        #[cfg(windows)]
+        {
+            return self.ir_string_via_temp_file();
+        }
+
+        #[cfg(not(windows))]
+        {
+            return self.ir_string_via_llvm_string();
+        }
+    }
+
+    #[cfg(windows)]
+    fn ir_string_via_temp_file(&self) -> Result<String, String> {
         let unique = format!(
             "kernc_llvm_ir_{}_{}.ll",
             std::process::id(),
@@ -489,18 +505,32 @@ impl<'ctx> Module<'ctx> {
         let failed =
             unsafe { LLVMPrintModuleToFile(self.raw, path_cstr.as_ptr(), &mut message) } != 0;
         if failed {
-            let text = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
-            unsafe { LLVMDisposeMessage(message) };
-            eprintln!("Failed to print LLVM IR: {}", text);
-            return;
+            let text = if message.is_null() {
+                "Unknown LLVM error".to_string()
+            } else {
+                let text = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
+                unsafe { LLVMDisposeMessage(message) };
+                text
+            };
+            return Err(text);
         }
 
-        match std::fs::read_to_string(&path) {
-            Ok(text) => eprintln!("{}", text),
-            Err(err) => eprintln!("Failed to read printed LLVM IR from `{}`: {}", path.display(), err),
-        }
-
+        let read_result = std::fs::read_to_string(&path)
+            .map_err(|err| format!("Failed to read printed LLVM IR from `{}`: {}", path.display(), err));
         let _ = std::fs::remove_file(path);
+        read_result
+    }
+
+    #[cfg(not(windows))]
+    fn ir_string_via_llvm_string(&self) -> Result<String, String> {
+        let text = unsafe { LLVMPrintModuleToString(self.raw) };
+        if text.is_null() {
+            return Err("LLVM returned a null IR buffer".to_string());
+        }
+
+        let rendered = unsafe { CStr::from_ptr(text).to_string_lossy().into_owned() };
+        unsafe { LLVMDisposeMessage(text) };
+        Ok(rendered)
     }
 
     pub fn get_intrinsic_declaration(

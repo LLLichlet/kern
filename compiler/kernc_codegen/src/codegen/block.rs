@@ -1,13 +1,14 @@
 use super::CodeGenerator;
-use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValueEnum;
+use crate::basic_block::BasicBlock;
+use crate::types::BasicTypeEnum;
+use crate::values::{BasicValueEnum, FunctionValue, PointerValue};
 use kernc_mast::{MastBlock, MastFunction, MastStmt};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn current_insert_block(
         &mut self,
         context: &str,
-    ) -> Option<inkwell::basic_block::BasicBlock<'ctx>> {
+    ) -> Option<BasicBlock<'ctx>> {
         match self.builder.get_insert_block() {
             Some(block) => Some(block),
             None => {
@@ -25,10 +26,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     fn function_param_value(
         &mut self,
-        llvm_func: inkwell::values::FunctionValue<'ctx>,
+        llvm_func: FunctionValue<'ctx>,
         index: usize,
         func_name: &str,
-    ) -> Option<inkwell::values::BasicValueEnum<'ctx>> {
+    ) -> Option<BasicValueEnum<'ctx>> {
         match llvm_func.get_nth_param(index as u32) {
             Some(param) => Some(param),
             None => {
@@ -170,7 +171,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         &mut self,
         llvm_ty: BasicTypeEnum<'ctx>,
         name: &str,
-    ) -> inkwell::values::PointerValue<'ctx> {
+    ) -> PointerValue<'ctx> {
         let builder = self.context.create_builder();
 
         // 获取当前正在构建的函数
@@ -211,15 +212,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     fn restore_codegen_context(
         &mut self,
-        saved_locals: std::collections::HashMap<
-            kernc_utils::SymbolId,
-            inkwell::values::PointerValue<'ctx>,
-        >,
-        saved_loop_targets: Vec<(
-            inkwell::basic_block::BasicBlock<'ctx>,
-            inkwell::basic_block::BasicBlock<'ctx>,
-        )>,
-        saved_insert_block: Option<inkwell::basic_block::BasicBlock<'ctx>>,
+        saved_locals: std::collections::HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
+        saved_loop_targets: Vec<(BasicBlock<'ctx>, BasicBlock<'ctx>)>,
+        saved_insert_block: Option<BasicBlock<'ctx>>,
     ) {
         self.locals = saved_locals;
         self.loop_targets = saved_loop_targets;

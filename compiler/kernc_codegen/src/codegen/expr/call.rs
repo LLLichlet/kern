@@ -1,8 +1,9 @@
-use crate::llvm::CodeGenerator;
-use inkwell::llvm_sys::core::LLVMSetWeak;
-use inkwell::types::{BasicTypeEnum, FunctionType};
-use inkwell::values::{AsValueRef, BasicValue, BasicValueEnum, FunctionValue};
-use inkwell::{AtomicOrdering as LlvmAtomicOrdering, AtomicRMWBinOp};
+use crate::codegen::CodeGenerator;
+use crate::intrinsics::Intrinsic;
+use crate::llvm_sys::core::LLVMSetWeak;
+use crate::types::{BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, IntType};
+use crate::values::{AsValueRef, BasicValueEnum, FunctionValue};
+use crate::{AddressSpace, AtomicOrdering as LlvmAtomicOrdering, AtomicRMWBinOp};
 use kernc_mast::{BitIntrinsicKind, MastAsmBlock, MastExpr, MastExprKind};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{AtomicOrdering, AtomicRmwOp};
@@ -50,7 +51,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         None
     }
 
-    fn atomic_xchg_pointer_width_int(&self) -> inkwell::types::IntType<'ctx> {
+    fn atomic_xchg_pointer_width_int(&self) -> IntType<'ctx> {
         self.context
             .custom_width_int_type((self.sess.target.pointer_size * 8) as u32)
     }
@@ -122,7 +123,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn inline_asm_fn_type(
         &mut self,
         asm_block: &MastAsmBlock,
-        param_types: &[inkwell::types::BasicMetadataTypeEnum<'ctx>],
+        param_types: &[BasicMetadataTypeEnum<'ctx>],
     ) -> FunctionType<'ctx> {
         match asm_block.output_tys.len() {
             0 => self.context.void_type().fn_type(param_types, false),
@@ -256,7 +257,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             BitIntrinsicKind::Bswap => "llvm.bswap",
         };
 
-        let intrinsic = inkwell::intrinsics::Intrinsic::find(intrinsic_name).unwrap();
+        let intrinsic = Intrinsic::find(intrinsic_name).unwrap();
         let decl = intrinsic
             .get_declaration(&self.module, &[expected_ty])
             .unwrap();
@@ -337,7 +338,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         ) && op == AtomicRmwOp::Xchg
         {
             let ptr_int_ty = self.atomic_xchg_pointer_width_int();
-            let int_ptr_ty = self.context.ptr_type(inkwell::AddressSpace::default());
+            let int_ptr_ty = self.context.ptr_type(AddressSpace::default());
             let cast_ptr = self
                 .builder
                 .build_pointer_cast(ptr_val, int_ptr_ty, "atomic_xchg_ptr_cast")

@@ -1,7 +1,7 @@
 use super::CodeGenerator;
-use inkwell::AddressSpace;
-use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::BasicValueEnum;
+use crate::types::BasicTypeEnum;
+use crate::values::BasicValueEnum;
+use crate::AddressSpace;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 
@@ -251,7 +251,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 辅助函数：绕过 Inkwell BasicTypeEnum 没有统一 get_undef() 的限制
+    /// 辅助函数：统一为 LLVM 基础类型取 undef 值
     pub(crate) fn get_undef_val(&self, llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
         match llvm_ty {
             BasicTypeEnum::ArrayType(t) => t.get_undef().into(),

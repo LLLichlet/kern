@@ -1,7 +1,7 @@
-use crate::llvm::CodeGenerator;
-use inkwell::AddressSpace;
-use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValueEnum;
+use crate::codegen::CodeGenerator;
+use crate::types::BasicTypeEnum;
+use crate::values::BasicValueEnum;
+use crate::AddressSpace;
 use kernc_mast::{MastCastKind, MastExpr, MastExprKind};
 use kernc_sema::ty::TypeKind;
 

@@ -1,18 +1,21 @@
-use inkwell::builder::Builder;
-use inkwell::context::Context as LlvmContext;
-use inkwell::llvm_sys::core::{
+use crate::llvm_api::{
+    Builder, Context as LlvmContext, FunctionValue, GlobalValue, InlineAsmDialect,
+    Module as LlvmModule, PointerValue, StructType,
+};
+use llvm_sys::core::{
     LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
     LLVMSetTarget,
 };
-use inkwell::llvm_sys::target_machine::{
+use llvm_sys::target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout, LLVM_InitializeAllAsmParsers,
+    LLVM_InitializeAllAsmPrinters, LLVM_InitializeAllTargetInfos, LLVM_InitializeAllTargetMCs,
+    LLVM_InitializeAllTargets, LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter,
+    LLVM_InitializeNativeTarget};
+use llvm_sys::target_machine::{
     LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine,
-    LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
-    LLVMTargetMachineEmitToMemoryBuffer,
+    LLVMCreateTargetDataLayout, LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
+    LLVMTargetMachineEmitToFile, LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
+    LLVMTargetRef,
 };
-use inkwell::module::Module as LlvmModule;
-use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target};
-use inkwell::types::StructType;
-use inkwell::values::{FunctionValue, GlobalValue, PointerValue};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ptr;
@@ -44,10 +47,10 @@ pub struct CodeGenerator<'ctx, 'a> {
 
     locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
     loop_targets: Vec<(
-        inkwell::basic_block::BasicBlock<'ctx>,
-        inkwell::basic_block::BasicBlock<'ctx>,
+        crate::llvm_api::BasicBlock<'ctx>,
+        crate::llvm_api::BasicBlock<'ctx>,
     )>,
-    asm_dialect: inkwell::InlineAsmDialect,
+    asm_dialect: InlineAsmDialect,
 
     def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
@@ -77,7 +80,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             functions: HashMap::new(),
             locals: HashMap::new(),
             loop_targets: Vec::new(),
-            asm_dialect: inkwell::InlineAsmDialect::Intel,
+            asm_dialect: InlineAsmDialect::Intel,
             def_mono_map: HashMap::new(),
             pure_enum_tag_map: HashMap::new(),
             adt_union_map: HashMap::new(),
@@ -110,7 +113,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub fn set_asm_dialect(&mut self, dialect: inkwell::InlineAsmDialect) {
+    pub fn set_asm_dialect(&mut self, dialect: InlineAsmDialect) {
         self.asm_dialect = dialect;
     }
 
@@ -124,44 +127,52 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         output_path: &str,
         opt_level: OptLevel,
     ) -> Result<(), String> {
-        Target::initialize_native(&InitializationConfig::default())
-            .map_err(|e| format!("Failed to initialize native target: {}", e))?;
-        Target::initialize_all(&InitializationConfig::default());
+        initialize_llvm_targets();
 
         if target_triple_str.contains("windows") {
             return self.emit_to_file_windows(target_triple_str, output_path, opt_level);
         }
 
-        let triple = inkwell::targets::TargetTriple::create(target_triple_str);
-        let target = Target::from_triple(&triple).map_err(|e| e.to_string())?;
-        let target_machine = target
-            .create_target_machine(
-                &triple,
-                "generic",
-                "",
-                llvm_opt_level(opt_level),
-                RelocMode::Default,
-                CodeModel::Default,
-            )
-            .ok_or("Failed to create target machine")?;
-
-        let target_data = target_machine.get_target_data();
-        self.module.set_data_layout(&target_data.get_data_layout());
-        self.module.set_triple(&triple);
+        let triple = CString::new(target_triple_str).map_err(|_| {
+            format!("Target triple contains an interior NUL byte: {target_triple_str:?}")
+        })?;
+        let target_machine = create_target_machine(&triple, opt_level)?;
+        let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
+        unsafe {
+            LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
+            LLVMSetTarget(self.module.as_mut_ptr(), triple.as_ptr());
+        }
 
         if let Err(err) = self.module.verify() {
             eprintln!("LLVM IR Verification Failed:\n{}", err);
             self.print_ir();
+            unsafe {
+                LLVMDisposeTargetData(target_data);
+                LLVMDisposeTargetMachine(target_machine);
+            }
             return Err("Invalid LLVM IR generated".to_string());
         }
 
-        target_machine
-            .write_to_file(
-                &self.module,
-                FileType::Object,
-                std::path::Path::new(output_path),
+        let mut output = output_path.as_bytes().to_vec();
+        output.push(0);
+        let mut err = ptr::null_mut();
+        let emit_result = unsafe {
+            LLVMTargetMachineEmitToFile(
+                target_machine,
+                self.module.as_mut_ptr(),
+                output.as_mut_ptr() as *mut _,
+                LLVMCodeGenFileType::LLVMObjectFile,
+                &mut err,
             )
-            .map_err(|e| e.to_string())?;
+        };
+        unsafe {
+            LLVMDisposeTargetData(target_data);
+            LLVMDisposeTargetMachine(target_machine);
+        }
+
+        if emit_result != 0 {
+            return Err(take_llvm_message(err));
+        }
 
         Ok(())
     }
@@ -187,24 +198,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         }
 
-        let target_machine = unsafe {
-            LLVMCreateTargetMachine(
-                target,
-                triple.as_ptr(),
-                cpu.as_ptr(),
-                features.as_ptr(),
-                llvm_raw_opt_level(opt_level),
-                LLVMRelocMode::LLVMRelocDefault,
-                LLVMCodeModel::LLVMCodeModelDefault,
-            )
-        };
-        if target_machine.is_null() {
-            return Err("Failed to create target machine".to_string());
-        }
+        let target_machine = create_target_machine_from_parts(target, &triple, &cpu, &features, opt_level)?;
+        let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
 
-        // Keep the Windows module target explicit, but avoid the unstable inkwell
-        // TargetTriple wrapper/drop path by setting it with the raw C API.
+        // Keep the Windows module target explicit and set the triple through
+        // the raw LLVM C API so we fully control ownership/lifetime here.
         unsafe {
+            LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
             LLVMSetTarget(self.module.as_mut_ptr(), triple.as_ptr());
         }
 
@@ -223,6 +223,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         if result != 0 {
             unsafe {
+                LLVMDisposeTargetData(target_data);
                 LLVMDisposeTargetMachine(target_machine);
             }
             return Err(take_llvm_message(err));
@@ -239,6 +240,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         unsafe {
             LLVMDisposeMemoryBuffer(mem_buf);
+            LLVMDisposeTargetData(target_data);
             LLVMDisposeTargetMachine(target_machine);
         }
 
@@ -250,21 +252,68 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 }
 
-fn llvm_opt_level(opt_level: OptLevel) -> inkwell::OptimizationLevel {
-    match opt_level {
-        OptLevel::O0 => inkwell::OptimizationLevel::None,
-        OptLevel::O1 => inkwell::OptimizationLevel::Less,
-        OptLevel::O2 => inkwell::OptimizationLevel::Default,
-        OptLevel::O3 => inkwell::OptimizationLevel::Aggressive,
-    }
-}
-
 fn llvm_raw_opt_level(opt_level: OptLevel) -> LLVMCodeGenOptLevel {
     match opt_level {
         OptLevel::O0 => LLVMCodeGenOptLevel::LLVMCodeGenLevelNone,
         OptLevel::O1 => LLVMCodeGenOptLevel::LLVMCodeGenLevelLess,
         OptLevel::O2 => LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault,
         OptLevel::O3 => LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
+    }
+}
+
+fn initialize_llvm_targets() {
+    unsafe {
+        let _ = LLVM_InitializeNativeTarget();
+        let _ = LLVM_InitializeNativeAsmPrinter();
+        let _ = LLVM_InitializeNativeAsmParser();
+        LLVM_InitializeAllTargetInfos();
+        LLVM_InitializeAllTargets();
+        LLVM_InitializeAllTargetMCs();
+        LLVM_InitializeAllAsmPrinters();
+        LLVM_InitializeAllAsmParsers();
+    }
+}
+
+fn create_target_machine(
+    triple: &CString,
+    opt_level: OptLevel,
+) -> Result<LLVMTargetMachineRef, String> {
+    let cpu = CString::new("generic").unwrap();
+    let features = CString::new("").unwrap();
+
+    let mut target = ptr::null_mut();
+    let mut err = ptr::null_mut();
+    unsafe {
+        if LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut err) != 0 {
+            return Err(take_llvm_message(err));
+        }
+    }
+
+    create_target_machine_from_parts(target, triple, &cpu, &features, opt_level)
+}
+
+fn create_target_machine_from_parts(
+    target: LLVMTargetRef,
+    triple: &CString,
+    cpu: &CString,
+    features: &CString,
+    opt_level: OptLevel,
+) -> Result<LLVMTargetMachineRef, String> {
+    let target_machine = unsafe {
+        LLVMCreateTargetMachine(
+            target,
+            triple.as_ptr(),
+            cpu.as_ptr(),
+            features.as_ptr(),
+            llvm_raw_opt_level(opt_level),
+            LLVMRelocMode::LLVMRelocDefault,
+            LLVMCodeModel::LLVMCodeModelDefault,
+        )
+    };
+    if target_machine.is_null() {
+        Err("Failed to create target machine".to_string())
+    } else {
+        Ok(target_machine)
     }
 }
 

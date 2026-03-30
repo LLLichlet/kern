@@ -1,5 +1,8 @@
 use super::CodeGenerator;
-use inkwell::types::{BasicType, BasicTypeEnum};
+use crate::attributes::{Attribute, AttributeLoc};
+use crate::module::Linkage;
+use crate::types::{BasicTypeEnum, StructType};
+use crate::values::{BasicValueEnum, GlobalValue};
 use kernc_ast as ast;
 use kernc_mast::{MastExpr, MastExprKind, MastFunction, MastGlobal, MastStruct};
 use kernc_sema::ty::{TypeId, TypeKind};
@@ -56,7 +59,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn compile_const_expr(
         &mut self,
         expr: &MastExpr,
-    ) -> Option<inkwell::values::BasicValueEnum<'ctx>> {
+    ) -> Option<BasicValueEnum<'ctx>> {
         match &expr.kind {
             MastExprKind::Integer(val) => {
                 let int_type = self.get_llvm_type(expr.ty).into_int_type();
@@ -73,7 +76,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .into(),
             ),
             MastExprKind::StringLiteral(s) => {
-                Some(self.context.const_string(s.as_bytes(), false).into())
+                Some(self.context.const_string(s.as_bytes(), true).into())
             }
             MastExprKind::ArrayInit(elems) => {
                 let array_ty = self.get_llvm_type(expr.ty).into_array_type();
@@ -214,7 +217,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         global_id: kernc_mast::MonoId,
         span: Span,
         name: &str,
-    ) -> Option<inkwell::values::GlobalValue<'ctx>> {
+    ) -> Option<GlobalValue<'ctx>> {
         match self.globals.get(&global_id).copied() {
             Some(global) => Some(global),
             None => {
@@ -235,7 +238,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         struct_id: kernc_mast::MonoId,
         span: Span,
         name: &str,
-    ) -> Option<inkwell::types::StructType<'ctx>> {
+    ) -> Option<StructType<'ctx>> {
         match self.structs.get(&struct_id).copied() {
             Some(st) => Some(st),
             None => {
@@ -354,7 +357,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             global_val.set_constant(!(is_binding_mut || is_memory_mut));
 
             if g.is_extern {
-                global_val.set_linkage(inkwell::module::Linkage::External);
+                global_val.set_linkage(Linkage::External);
             } else {
                 global_val.set_initializer(&llvm_ty.const_zero());
             }
@@ -442,14 +445,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let llvm_func = self.module.add_function(&llvm_symbol_name, fn_type, None);
 
             if is_cold {
-                let kind_id = inkwell::attributes::Attribute::get_named_enum_kind_id("cold");
+                let kind_id = Attribute::get_named_enum_kind_id("cold");
                 let cold_attr = self.context.create_enum_attribute(kind_id, 0);
-                llvm_func.add_attribute(inkwell::attributes::AttributeLoc::Function, cold_attr);
+                llvm_func.add_attribute(AttributeLoc::Function, cold_attr);
             }
             if is_naked {
-                let kind_id = inkwell::attributes::Attribute::get_named_enum_kind_id("naked");
+                let kind_id = Attribute::get_named_enum_kind_id("naked");
                 let naked_attr = self.context.create_enum_attribute(kind_id, 0);
-                llvm_func.add_attribute(inkwell::attributes::AttributeLoc::Function, naked_attr);
+                llvm_func.add_attribute(AttributeLoc::Function, naked_attr);
             }
             if let Some(sec) = link_section {
                 llvm_func.as_global_value().set_section(Some(&sec));

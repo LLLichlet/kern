@@ -1,5 +1,7 @@
-use crate::llvm::CodeGenerator;
-use inkwell::values::BasicValueEnum;
+use crate::codegen::CodeGenerator;
+use crate::types::BasicTypeEnum;
+use crate::values::{BasicValueEnum, FloatValue, IntValue};
+use crate::{FloatPredicate, IntPredicate};
 use kernc_ast::{self as ast, BinaryOperator};
 use kernc_mast::MastExpr;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
@@ -15,7 +17,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         ptr_ty: TypeId,
         span: Span,
         context: &str,
-    ) -> Option<inkwell::types::BasicTypeEnum<'ctx>> {
+    ) -> Option<BasicTypeEnum<'ctx>> {
         let Some(elem_sema_ty) = self.type_registry.get_elem_type(ptr_ty) else {
             self.sess.emit_ice(
                 span,
@@ -29,14 +31,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         Some(self.get_llvm_type(elem_sema_ty))
     }
 
-    fn pointer_compare_pred(op: BinaryOperator) -> Option<inkwell::IntPredicate> {
+    fn pointer_compare_pred(op: BinaryOperator) -> Option<IntPredicate> {
         match op {
-            BinaryOperator::Equal => Some(inkwell::IntPredicate::EQ),
-            BinaryOperator::NotEqual => Some(inkwell::IntPredicate::NE),
-            BinaryOperator::LessThan => Some(inkwell::IntPredicate::ULT),
-            BinaryOperator::LessOrEqual => Some(inkwell::IntPredicate::ULE),
-            BinaryOperator::GreaterThan => Some(inkwell::IntPredicate::UGT),
-            BinaryOperator::GreaterOrEqual => Some(inkwell::IntPredicate::UGE),
+            BinaryOperator::Equal => Some(IntPredicate::EQ),
+            BinaryOperator::NotEqual => Some(IntPredicate::NE),
+            BinaryOperator::LessThan => Some(IntPredicate::ULT),
+            BinaryOperator::LessOrEqual => Some(IntPredicate::ULE),
+            BinaryOperator::GreaterThan => Some(IntPredicate::UGT),
+            BinaryOperator::GreaterOrEqual => Some(IntPredicate::UGE),
             _ => None,
         }
     }
@@ -246,8 +248,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn compile_int_math(
         &mut self,
         op: ast::BinaryOperator,
-        l_int: inkwell::values::IntValue<'ctx>,
-        r_int: inkwell::values::IntValue<'ctx>,
+        l_int: IntValue<'ctx>,
+        r_int: IntValue<'ctx>,
         is_signed: bool,
         span: Span,
     ) -> BasicValueEnum<'ctx> {
@@ -309,19 +311,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .into(),
             Equal => self
                 .builder
-                .build_int_compare(inkwell::IntPredicate::EQ, l_int, r_int, "eq")
+                .build_int_compare(IntPredicate::EQ, l_int, r_int, "eq")
                 .unwrap()
                 .into(),
             NotEqual => self
                 .builder
-                .build_int_compare(inkwell::IntPredicate::NE, l_int, r_int, "ne")
+                .build_int_compare(IntPredicate::NE, l_int, r_int, "ne")
                 .unwrap()
                 .into(),
             LessThan => {
                 let pred = if is_signed {
-                    inkwell::IntPredicate::SLT
+                    IntPredicate::SLT
                 } else {
-                    inkwell::IntPredicate::ULT
+                    IntPredicate::ULT
                 };
                 self.builder
                     .build_int_compare(pred, l_int, r_int, "lt")
@@ -330,9 +332,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             LessOrEqual => {
                 let pred = if is_signed {
-                    inkwell::IntPredicate::SLE
+                    IntPredicate::SLE
                 } else {
-                    inkwell::IntPredicate::ULE
+                    IntPredicate::ULE
                 };
                 self.builder
                     .build_int_compare(pred, l_int, r_int, "le")
@@ -341,9 +343,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             GreaterThan => {
                 let pred = if is_signed {
-                    inkwell::IntPredicate::SGT
+                    IntPredicate::SGT
                 } else {
-                    inkwell::IntPredicate::UGT
+                    IntPredicate::UGT
                 };
                 self.builder
                     .build_int_compare(pred, l_int, r_int, "gt")
@@ -352,9 +354,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             GreaterOrEqual => {
                 let pred = if is_signed {
-                    inkwell::IntPredicate::SGE
+                    IntPredicate::SGE
                 } else {
-                    inkwell::IntPredicate::UGE
+                    IntPredicate::UGE
                 };
                 self.builder
                     .build_int_compare(pred, l_int, r_int, "ge")
@@ -375,8 +377,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn compile_float_math(
         &mut self,
         op: ast::BinaryOperator,
-        l_float: inkwell::values::FloatValue<'ctx>,
-        r_float: inkwell::values::FloatValue<'ctx>,
+        l_float: FloatValue<'ctx>,
+        r_float: FloatValue<'ctx>,
         span: Span,
     ) -> BasicValueEnum<'ctx> {
         use ast::BinaryOperator::*;
@@ -408,32 +410,32 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .into(),
             Equal => self
                 .builder
-                .build_float_compare(inkwell::FloatPredicate::OEQ, l_float, r_float, "feq")
+                .build_float_compare(FloatPredicate::OEQ, l_float, r_float, "feq")
                 .unwrap()
                 .into(),
             NotEqual => self
                 .builder
-                .build_float_compare(inkwell::FloatPredicate::ONE, l_float, r_float, "fne")
+                .build_float_compare(FloatPredicate::ONE, l_float, r_float, "fne")
                 .unwrap()
                 .into(),
             LessThan => self
                 .builder
-                .build_float_compare(inkwell::FloatPredicate::OLT, l_float, r_float, "flt")
+                .build_float_compare(FloatPredicate::OLT, l_float, r_float, "flt")
                 .unwrap()
                 .into(),
             LessOrEqual => self
                 .builder
-                .build_float_compare(inkwell::FloatPredicate::OLE, l_float, r_float, "fle")
+                .build_float_compare(FloatPredicate::OLE, l_float, r_float, "fle")
                 .unwrap()
                 .into(),
             GreaterThan => self
                 .builder
-                .build_float_compare(inkwell::FloatPredicate::OGT, l_float, r_float, "fgt")
+                .build_float_compare(FloatPredicate::OGT, l_float, r_float, "fgt")
                 .unwrap()
                 .into(),
             GreaterOrEqual => self
                 .builder
-                .build_float_compare(inkwell::FloatPredicate::OGE, l_float, r_float, "fge")
+                .build_float_compare(FloatPredicate::OGE, l_float, r_float, "fge")
                 .unwrap()
                 .into(),
             _ => {
@@ -543,7 +545,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .build_load(expected_lhs_ty, ptr, "assign_load")
                 .unwrap();
 
-            let new_val: inkwell::values::BasicValueEnum<'ctx> = if lhs_val.is_int_value() {
+            let new_val: BasicValueEnum<'ctx> = if lhs_val.is_int_value() {
                 let l_int = lhs_val.into_int_value();
                 let r_int = rhs_val.into_int_value();
                 let is_signed = self.is_signed_int(lhs.ty);

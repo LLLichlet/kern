@@ -1,8 +1,8 @@
-// compiler/kernc_codegen/src/llvm/expr/literal.rs
+// compiler/kernc_codegen/src/codegen/expr/literal.rs
 
-use crate::llvm::CodeGenerator;
-use inkwell::types::{BasicType, BasicTypeEnum};
-use inkwell::values::BasicValueEnum;
+use crate::codegen::CodeGenerator;
+use crate::types::BasicTypeEnum;
+use crate::values::BasicValueEnum;
 use kernc_mast::{MastExpr, MonoId};
 use kernc_sema::ty::TypeId;
 

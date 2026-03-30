@@ -1,5 +1,6 @@
 use super::CodeGenerator;
-use inkwell::values::BasicValueEnum;
+use crate::intrinsics::Intrinsic;
+use crate::values::BasicValueEnum;
 use kernc_mast::{MastExpr, MastExprKind};
 
 mod access;
@@ -189,14 +190,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 ordering,
             } => self.compile_atomic_rmw(expr.ty, *op, ptr, value, *ordering),
             MastExprKind::Trap => {
-                let intrinsic = inkwell::intrinsics::Intrinsic::find("llvm.trap").unwrap();
+                let intrinsic = Intrinsic::find("llvm.trap").unwrap();
                 let decl = intrinsic.get_declaration(&self.module, &[]).unwrap();
                 self.builder.build_call(decl, &[], "trap").unwrap();
                 self.builder.build_unreachable().unwrap(); // LLVM trap 之后也是不可达的
                 self.get_undef_val(expected_llvm_ty)
             }
             MastExprKind::Breakpoint => {
-                let intrinsic = inkwell::intrinsics::Intrinsic::find("llvm.debugtrap").unwrap();
+                let intrinsic = Intrinsic::find("llvm.debugtrap").unwrap();
                 let decl = intrinsic.get_declaration(&self.module, &[]).unwrap();
                 self.builder.build_call(decl, &[], "bkpt").unwrap();
                 self.context.i8_type().const_zero().into() // Void return

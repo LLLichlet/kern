@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-inkwell = { workspace = true }
+llvm-sys = { workspace = true }
 kernc_utils = { workspace = true }
 kernc_ast = { workspace = true }
 kernc_sema = { workspace = true }

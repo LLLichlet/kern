@@ -1,6 +1,6 @@
-use crate::llvm::CodeGenerator;
-use inkwell::types::BasicTypeEnum;
-use inkwell::values::{BasicValueEnum, PointerValue};
+use crate::codegen::CodeGenerator;
+use crate::types::{BasicTypeEnum, StructType};
+use crate::values::{BasicValueEnum, IntValue, PointerValue};
 use kernc_mast::{MastExpr, MastExprKind, MonoId};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
@@ -15,7 +15,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         struct_id: MonoId,
         span: Span,
         context: &str,
-    ) -> Option<inkwell::types::StructType<'ctx>> {
+    ) -> Option<StructType<'ctx>> {
         match self.structs.get(&struct_id).copied() {
             Some(ty) => Some(ty),
             None => {
@@ -37,7 +37,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         lhs_val: BasicValueEnum<'ctx>,
     ) -> Option<(
         PointerValue<'ctx>,
-        Option<inkwell::values::IntValue<'ctx>>,
+        Option<IntValue<'ctx>>,
         TypeId,
     )> {
         let norm_lhs = self.type_registry.normalize(lhs.ty);

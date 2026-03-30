@@ -25,12 +25,5 @@ kernc_codegen = { path = "compiler/kernc_codegen" }
 kernc_driver = { path = "compiler/kernc_driver" }
 
 # deps
-inkwell = { version = "0.8.0", default-features = false, features = [
-    "llvm21-1",
-    "target-x86",       
-    "target-aarch64",  
-    "target-riscv",     
-    "target-arm",
-    "target-webassembly"
-] }
+llvm-sys = "211.0.0"
 target-lexicon = "0.13.5"

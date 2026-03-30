@@ -1,6 +1,7 @@
-use crate::llvm::CodeGenerator;
-use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValueEnum;
+use crate::codegen::CodeGenerator;
+use crate::basic_block::BasicBlock;
+use crate::types::BasicTypeEnum;
+use crate::values::{BasicValue, BasicValueEnum, FunctionValue};
 use kernc_mast::{MastBlock, MastExpr, MastSwitchCase};
 use kernc_sema::ty::TypeId;
 
@@ -8,7 +9,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn current_function_for_control(
         &mut self,
         context: &str,
-    ) -> Option<inkwell::values::FunctionValue<'ctx>> {
+    ) -> Option<FunctionValue<'ctx>> {
         let Some(block) = self.builder.get_insert_block() else {
             self.sess.emit_ice(
                 kernc_utils::Span::default(),
@@ -35,10 +36,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn active_loop_target(
         &mut self,
         context: &str,
-    ) -> Option<(
-        inkwell::basic_block::BasicBlock<'ctx>,
-        inkwell::basic_block::BasicBlock<'ctx>,
-    )> {
+    ) -> Option<(BasicBlock<'ctx>, BasicBlock<'ctx>)> {
         match self.loop_targets.last().copied() {
             Some(targets) => Some(targets),
             None => {
@@ -117,7 +115,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let phi = self.builder.build_phi(expected_llvm_ty, "iftmp").unwrap();
             let mut incoming_refs = Vec::new();
             for (val, bb) in &incoming {
-                incoming_refs.push((val as &dyn inkwell::values::BasicValue<'ctx>, *bb));
+                incoming_refs.push((val as &dyn BasicValue<'ctx>, *bb));
             }
             phi.add_incoming(&incoming_refs);
             phi.as_basic_value()
@@ -269,7 +267,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
             let mut incoming_refs = Vec::new();
             for (val, bb) in &incoming {
-                incoming_refs.push((val as &dyn inkwell::values::BasicValue<'ctx>, *bb));
+                incoming_refs.push((val as &dyn BasicValue<'ctx>, *bb));
             }
             phi.add_incoming(&incoming_refs);
             phi.as_basic_value()

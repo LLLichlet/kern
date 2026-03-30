@@ -1,9 +1,8 @@
-use inkwell::context::Context;
 use std::env;
 use std::process::Command;
 
 use kernc_ast as ast;
-use kernc_codegen::CodeGenerator;
+use kernc_codegen::{CodeGenerator, Context, InlineAsmDialect};
 use kernc_lower::Lowerer;
 use kernc_sema::BuiltinInjector;
 use kernc_sema::SemaContext;
@@ -77,8 +76,8 @@ impl CompilerDriver {
         );
 
         codegen.set_asm_dialect(match self.options.asm_dialect {
-            AsmDialect::Intel => inkwell::InlineAsmDialect::Intel,
-            AsmDialect::Att => inkwell::InlineAsmDialect::ATT,
+            AsmDialect::Intel => InlineAsmDialect::Intel,
+            AsmDialect::Att => InlineAsmDialect::ATT,
         });
 
         codegen.compile(&mast_module);

@@ -8,7 +8,7 @@ use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    fn match_enum_def(
+    pub(crate) fn match_enum_def(
         &mut self,
         def_id: crate::def::DefId,
         span: Span,
@@ -157,11 +157,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.check_coercion(start, norm_target, s_ty);
                     self.check_coercion(end, norm_target, e_ty);
                 }
-                ast::MatchPatternKind::Variant {
-                    target_type,
-                    variant_name,
-                    binding,
-                } => {
+                ast::MatchPatternKind::Variant(variant) => {
                     if !is_adt {
                         self.ctx.emit_error(
                             pat.span,
@@ -170,7 +166,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         continue;
                     }
 
-                    if let Some(explicit_ty_ast) = target_type {
+                    if let Some(explicit_ty_ast) = &variant.target_type {
                         let mut resolver = TypeResolver::new(self.ctx);
                         let scope = resolver.current_scope_id().unwrap();
                         let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
@@ -192,12 +188,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 continue;
                             };
 
-                            if let Some(v) =
-                                adt_def.variants.iter().find(|v| v.name == *variant_name)
+                            if let Some(v) = adt_def
+                                .variants
+                                .iter()
+                                .find(|v| v.name == variant.variant_name)
                             {
-                                handled_variants.insert(*variant_name);
+                                handled_variants.insert(variant.variant_name);
 
-                                if let Some(bind_pattern) = binding {
+                                if let Some(bind_pattern) = &variant.binding {
                                     if let Some(payload_ast) = &v.payload_type {
                                         let mut payload_ty = self
                                             .ctx
@@ -233,7 +231,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                                 pat.span,
                                                 format!(
                                                     "variant `{}` has no payload",
-                                                    self.ctx.resolve(*variant_name)
+                                                    self.ctx.resolve(variant.variant_name)
                                                 ),
                                             )
                                             .emit();
@@ -244,7 +242,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                             pat.span,
                                             format!(
                                                 "variant `{}` requires a binding for its payload",
-                                                self.ctx.resolve(*variant_name)
+                                                self.ctx.resolve(variant.variant_name)
                                             ),
                                         )
                                         .emit();
@@ -256,12 +254,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             }
                         }
                         TypeKind::AnonymousEnum(enum_def) => {
-                            if let Some(v) =
-                                enum_def.variants.iter().find(|v| v.name == *variant_name)
+                            if let Some(v) = enum_def
+                                .variants
+                                .iter()
+                                .find(|v| v.name == variant.variant_name)
                             {
-                                handled_variants.insert(*variant_name);
+                                handled_variants.insert(variant.variant_name);
 
-                                if let Some(bind_pattern) = binding {
+                                if let Some(bind_pattern) = &variant.binding {
                                     if let Some(payload_ty) = v.payload_ty {
                                         let info = SymbolInfo {
                                             kind: SymbolKind::Var,
@@ -279,7 +279,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                                 pat.span,
                                                 format!(
                                                     "variant `{}` has no payload",
-                                                    self.ctx.resolve(*variant_name)
+                                                    self.ctx.resolve(variant.variant_name)
                                                 ),
                                             )
                                             .emit();
@@ -290,7 +290,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                             pat.span,
                                             format!(
                                                 "variant `{}` requires a binding for its payload",
-                                                self.ctx.resolve(*variant_name)
+                                                self.ctx.resolve(variant.variant_name)
                                             ),
                                         )
                                         .emit();

@@ -1,6 +1,6 @@
 use super::{
-    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, MatchPattern, Stmt, TypeNode,
-    UnaryOperator,
+    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, LetPattern, MatchPattern, Stmt,
+    TypeNode, UnaryOperator,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -28,8 +28,9 @@ impl Expr {
 pub enum ExprKind {
     /// `let mut x = v` 或 `let x = v`
     Let {
-        pattern: BindingPattern,
+        pattern: LetPattern,
         init: Box<Expr>,
+        else_branch: Option<Box<Expr>>,
     },
 
     /// `static x = v`

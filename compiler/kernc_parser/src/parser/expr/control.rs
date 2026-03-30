@@ -247,11 +247,11 @@ impl<'a> Parser<'a> {
             let ty = self.expr_to_type(expr)?;
             let (target_type, variant_name) = self.extract_variant_from_type(ty)?;
             return Ok(MatchPattern {
-                kind: MatchPatternKind::Variant {
+                kind: MatchPatternKind::Variant(VariantPattern {
                     target_type: Some(Box::new(target_type)),
                     variant_name,
                     binding,
-                },
+                }),
                 span: pat_start.to(self.stream.prev_span()),
             });
         }
@@ -263,6 +263,15 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_shorthand_variant_pattern(&mut self, pat_start: Span) -> ParseResult<MatchPattern> {
+        let variant = self.parse_variant_pattern_after_dot()?;
+
+        Ok(MatchPattern {
+            kind: MatchPatternKind::Variant(variant),
+            span: pat_start.to(self.stream.prev_span()),
+        })
+    }
+
+    fn parse_variant_pattern_after_dot(&mut self) -> ParseResult<VariantPattern> {
         let v_tok = self.expect(TokenType::Identifier)?;
         let variant_name = self.intern_token(v_tok);
 
@@ -271,45 +280,106 @@ impl<'a> Parser<'a> {
             binding = Some(self.parse_binding_pattern()?);
         }
 
-        Ok(MatchPattern {
-            kind: MatchPatternKind::Variant {
-                target_type: None,
+        Ok(VariantPattern {
+            target_type: None,
+            variant_name,
+            binding,
+        })
+    }
+
+    fn parse_typed_let_variant_pattern(&mut self, start_span: Span) -> ParseResult<LetPattern> {
+        let target_type = self.parse_type()?;
+        self.expect(TokenType::Dot)?;
+        let variant_tok = self.expect(TokenType::Identifier)?;
+        let variant_name = self.intern_token(variant_tok);
+
+        let mut binding = None;
+        if self.match_token(&[TokenType::Colon]) {
+            binding = Some(self.parse_binding_pattern()?);
+        }
+
+        Ok(LetPattern {
+            kind: LetPatternKind::Variant(VariantPattern {
+                target_type: Some(Box::new(target_type)),
                 variant_name,
                 binding,
-            },
-            span: pat_start.to(self.stream.prev_span()),
+            }),
+            span: start_span.to(self.stream.prev_span()),
+        })
+    }
+
+    fn parse_let_pattern(&mut self) -> ParseResult<LetPattern> {
+        let start_span = self.peek().span;
+
+        if self.match_token(&[TokenType::Dot]) {
+            let variant = self.parse_variant_pattern_after_dot()?;
+            return Ok(LetPattern {
+                kind: LetPatternKind::Variant(variant),
+                span: start_span.to(self.stream.prev_span()),
+            });
+        }
+
+        if self.check(TokenType::Identifier) {
+            let next = self.stream.peek_nth(1).tag;
+            if next == TokenType::Dot || next == TokenType::LBracket {
+                return self.parse_typed_let_variant_pattern(start_span);
+            }
+        }
+
+        let binding = self.parse_binding_pattern()?;
+        Ok(LetPattern {
+            span: binding.span,
+            kind: LetPatternKind::Binding(binding),
         })
     }
 
     pub(super) fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {
         let tag = start_token.tag;
-        let pattern = self.parse_binding_pattern()?;
+        let static_pattern = if tag == TokenType::Static {
+            let pattern = self.parse_binding_pattern()?;
 
-        if self.match_token(&[TokenType::Colon]) {
-            let err_span = self.stream.prev_span();
-            let _ = self.parse_type();
+            if self.match_token(&[TokenType::Colon]) {
+                let err_span = self.stream.prev_span();
+                let _ = self.parse_type();
 
-            self.session
-                .struct_error(
-                    err_span,
-                    "type annotations on the left side of declarations are strictly forbidden in Kern",
-                )
-                .with_hint("Kern uses explicit constructor syntax on the right side")
-                .with_hint("try rewriting this as: `let [mut] name = Type.{ ... };`")
-                .emit();
-            self.panic_mode = true;
-        }
+                self.session
+                    .struct_error(
+                        err_span,
+                        "type annotations on the left side of declarations are strictly forbidden in Kern",
+                    )
+                    .with_hint("Kern uses explicit constructor syntax on the right side")
+                    .with_hint("try rewriting this as: `let [mut] name = Type.{ ... };`")
+                    .emit();
+                self.panic_mode = true;
+            }
+
+            Some(pattern)
+        } else {
+            None
+        };
+        let let_pattern = if tag == TokenType::Static {
+            None
+        } else {
+            Some(self.parse_let_pattern()?)
+        };
 
         self.expect(TokenType::Assign)?;
         let init = self.parse_expression(Precedence::Lowest)?;
-        let span = start_token.span.to(init.span);
+        let mut span = start_token.span.to(init.span);
+        let mut else_branch = None;
+
+        if tag != TokenType::Static && self.match_token(&[TokenType::Else]) {
+            let else_expr = self.parse_expression(Precedence::Lowest)?;
+            span = start_token.span.to(else_expr.span);
+            else_branch = Some(Box::new(else_expr));
+        }
 
         match tag {
             TokenType::Static => Ok(Expr {
                 id: self.new_id(),
                 span,
                 kind: ExprKind::Static {
-                    pattern,
+                    pattern: static_pattern.unwrap(),
                     init: Box::new(init),
                 },
             }),
@@ -317,8 +387,9 @@ impl<'a> Parser<'a> {
                 id: self.new_id(),
                 span,
                 kind: ExprKind::Let {
-                    pattern,
+                    pattern: let_pattern.unwrap(),
                     init: Box::new(init),
+                    else_branch,
                 },
             }),
             _ => unreachable!(),

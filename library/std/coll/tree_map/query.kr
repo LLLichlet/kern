@@ -75,66 +75,42 @@ impl[K, V] *TreeMap[K, V]
     }
 
     pub fn first_key() Option[K] {
-        let hit = match (first_hit[K, V](self.root)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = first_hit[K, V](self.root) else return .{ None };
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     pub fn first() Option[V] {
-        let hit = match (first_hit[K, V](self.root)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = first_hit[K, V](self.root) else return .{ None };
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     pub fn last_key() Option[K] {
-        let hit = match (last_hit[K, V](self.root)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = last_hit[K, V](self.root) else return .{ None };
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     pub fn last() Option[V] {
-        let hit = match (last_hit[K, V](self.root)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = last_hit[K, V](self.root) else return .{ None };
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     pub fn ceil_key(key: K) Option[K] {
-        let hit = match (ceil_hit[K, V](self.root, key)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = ceil_hit[K, V](self.root, key) else return .{ None };
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     pub fn ceil(key: K) Option[V] {
-        let hit = match (ceil_hit[K, V](self.root, key)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = ceil_hit[K, V](self.root, key) else return .{ None };
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 
     pub fn floor_key(key: K) Option[K] {
-        let hit = match (floor_hit[K, V](self.root, key)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = floor_hit[K, V](self.root, key) else return .{ None };
         return .{ Some: key_at[K, V](hit.node, hit.index) };
     }
 
     pub fn floor(key: K) Option[V] {
-        let hit = match (floor_hit[K, V](self.root, key)) {
-            .Some: hit => hit,
-            .None => return .{ None },
-        };
+        let .Some: hit = floor_hit[K, V](self.root, key) else return .{ None };
         return .{ Some: value_at[K, V](hit.node, hit.index) };
     }
 

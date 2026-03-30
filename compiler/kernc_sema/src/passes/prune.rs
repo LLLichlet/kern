@@ -118,7 +118,15 @@ impl<'a> Pruner<'a> {
                 self.prune_expr(body);
             }
             ExprKind::Closure { body, .. } => self.prune_expr(body),
-            ExprKind::Let { init, .. } | ExprKind::Static { init, .. } => self.prune_expr(init),
+            ExprKind::Let {
+                init, else_branch, ..
+            } => {
+                self.prune_expr(init);
+                if let Some(else_branch) = else_branch {
+                    self.prune_expr(else_branch);
+                }
+            }
+            ExprKind::Static { init, .. } => self.prune_expr(init),
             ExprKind::Binary { lhs, rhs, .. } | ExprKind::Assign { lhs, rhs, .. } => {
                 self.prune_expr(lhs);
                 self.prune_expr(rhs);

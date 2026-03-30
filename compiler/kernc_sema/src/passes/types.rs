@@ -615,7 +615,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     // 递归查找并解析表达式内部的所有 TypeNode
     fn resolve_expr(&mut self, expr: &ast::Expr, scope: ScopeId) {
         match &expr.kind {
-            ast::ExprKind::Let { init, .. } | ast::ExprKind::Static { init, .. } => {
+            ast::ExprKind::Let {
+                init, else_branch, ..
+            } => {
+                self.resolve_expr(init, scope);
+                if let Some(else_branch) = else_branch {
+                    self.resolve_expr(else_branch, scope);
+                }
+            }
+            ast::ExprKind::Static { init, .. } => {
                 self.resolve_expr(init, scope);
             }
             ast::ExprKind::As { lhs, target } => {
@@ -656,11 +664,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                                 self.resolve_expr(end, scope);
                             }
                             // 捕获 Match 分支中可能携带的显式类型前缀 (e.g., Result[i32].Ok)
-                            ast::MatchPatternKind::Variant {
-                                target_type: Some(ty),
-                                ..
-                            } => {
-                                self.resolve_type(ty, scope);
+                            ast::MatchPatternKind::Variant(variant) => {
+                                if let Some(ty) = &variant.target_type {
+                                    self.resolve_type(ty, scope);
+                                }
                             }
                             _ => {}
                         }
@@ -1025,12 +1032,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    fn check_type_generic_bounds(
-        &mut self,
-        span: Span,
-        def_id: DefId,
-        arg_tys: &[TypeId],
-    ) -> bool {
+    fn check_type_generic_bounds(&mut self, span: Span, def_id: DefId, arg_tys: &[TypeId]) -> bool {
         let Some((item_name, generics, where_clauses, kind_name)) =
             self.generic_def_bounds_info(def_id)
         else {
@@ -1110,11 +1112,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 let bound_str = self.ctx.ty_to_string(sub_bound);
                 self.ctx
                     .struct_error(span, "type does not satisfy trait bounds")
-                    .with_hint(format!(
-                        "required bound: `{}: {}`",
-                        target_str,
-                        bound_str
-                    ))
+                    .with_hint(format!("required bound: `{}: {}`", target_str, bound_str))
                     .emit();
             }
         }
@@ -1125,7 +1123,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn generic_def_bounds_info(
         &self,
         def_id: DefId,
-    ) -> Option<(String, Vec<ast::GenericParam>, Vec<ast::WhereClause>, &'static str)> {
+    ) -> Option<(
+        String,
+        Vec<ast::GenericParam>,
+        Vec<ast::WhereClause>,
+        &'static str,
+    )> {
         match &self.ctx.defs[def_id.0 as usize] {
             Def::Struct(s) => Some((
                 self.ctx.resolve(s.name).to_string(),
@@ -1176,9 +1179,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::TraitObject(_, args)
-            | TypeKind::FnDef(_, args) => args.into_iter().any(|arg| self.type_contains_params(arg)),
+            | TypeKind::FnDef(_, args) => {
+                args.into_iter().any(|arg| self.type_contains_params(arg))
+            }
             TypeKind::Function { params, ret, .. } | TypeKind::ClosureInterface { params, ret } => {
-                params.into_iter().any(|param| self.type_contains_params(param))
+                params
+                    .into_iter()
+                    .any(|param| self.type_contains_params(param))
                     || self.type_contains_params(ret)
             }
             TypeKind::AnonymousState {
@@ -1190,7 +1197,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 captures
                     .into_iter()
                     .any(|capture| self.type_contains_params(capture))
-                    || params.into_iter().any(|param| self.type_contains_params(param))
+                    || params
+                        .into_iter()
+                        .any(|param| self.type_contains_params(param))
                     || self.type_contains_params(ret)
             }
             TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields

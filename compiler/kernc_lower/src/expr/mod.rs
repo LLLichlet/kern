@@ -78,8 +78,26 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
 
-            ExprKind::Let { init, .. } => {
-                return self.lower_expr(init, subst_map, Some(concrete_ty));
+            ExprKind::Let {
+                pattern,
+                init,
+                else_branch,
+            } => {
+                return MastExpr::new(
+                    concrete_ty,
+                    MastExprKind::Block(MastBlock {
+                        stmts: self.lower_let_stmts(
+                            expr,
+                            pattern,
+                            init,
+                            else_branch.as_deref(),
+                            subst_map,
+                        ),
+                        result: None,
+                        defers: vec![],
+                    }),
+                    expr.span,
+                );
             }
             ExprKind::Static { pattern, init } => {
                 self.lower_static_decl(pattern.name, init, subst_map, concrete_ty, pattern.is_mut)

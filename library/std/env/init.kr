@@ -62,10 +62,7 @@ fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
 
 #[if(libc and (os == "linux" or os == "darwin"))]
 fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
-    let c_name = match (cffi.cstr.alloc_z(alloc, name)) {
-        .Some: ptr => ptr,
-        .None => return .{ None },
-    };
+    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return .{ None };
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     let value_ptr = libc_getenv(c_name);
@@ -77,10 +74,7 @@ fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
 
 #[if(os == "windows")]
 fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
-    let c_name = match (cffi.cstr.alloc_z(alloc, name)) {
-        .Some: ptr => ptr,
-        .None => return .{ None },
-    };
+    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return .{ None };
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     let required = GetEnvironmentVariableA(c_name, 0, 0) as usize;
@@ -88,14 +82,8 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
         return .{ None };
     }
 
-    let layout = match (array_layout_of[u8](required)) {
-        .Some: layout => layout,
-        .None => return .{ None },
-    };
-    let buffer = match (alloc.alloc(layout)) {
-        .Some: ptr => ptr,
-        .None => return .{ None },
-    };
+    let .Some: layout = array_layout_of[u8](required) else return .{ None };
+    let .Some: buffer = alloc.alloc(layout) else return .{ None };
     defer alloc.free(buffer, layout);
 
     let written = GetEnvironmentVariableA(c_name, buffer, required as u32) as usize;
@@ -108,10 +96,7 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
 
 #[if(libc and (os == "linux" or os == "darwin"))]
 fn has_posix(alloc: *mut Allocator, name: []u8) bool {
-    let c_name = match (cffi.cstr.alloc_z(alloc, name)) {
-        .Some: ptr => ptr,
-        .None => return false,
-    };
+    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return false;
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     return (libc_getenv(c_name) as usize) != 0;
@@ -119,10 +104,7 @@ fn has_posix(alloc: *mut Allocator, name: []u8) bool {
 
 #[if(os == "windows")]
 fn has_windows(alloc: *mut Allocator, name: []u8) bool {
-    let c_name = match (cffi.cstr.alloc_z(alloc, name)) {
-        .Some: ptr => ptr,
-        .None => return false,
-    };
+    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return false;
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     return (GetEnvironmentVariableA(c_name, 0, 0) as usize) != 0;

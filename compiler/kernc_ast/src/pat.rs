@@ -10,6 +10,25 @@ pub struct BindingPattern {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct VariantPattern {
+    pub target_type: Option<Box<TypeNode>>,
+    pub variant_name: SymbolId,
+    pub binding: Option<BindingPattern>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LetPatternKind {
+    Binding(BindingPattern),
+    Variant(VariantPattern),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LetPattern {
+    pub kind: LetPatternKind,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum MatchPatternKind {
     Value(Box<Expr>),
     Range {
@@ -17,11 +36,7 @@ pub enum MatchPatternKind {
         end: Box<Expr>,
         inclusive: bool,
     },
-    Variant {
-        target_type: Option<Box<TypeNode>>,
-        variant_name: SymbolId,
-        binding: Option<BindingPattern>,
-    },
+    Variant(VariantPattern),
     CatchAll,
 }
 

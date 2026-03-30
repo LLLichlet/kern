@@ -734,11 +734,68 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::DataInit { literal, .. } => self.eval_data_init(expr, literal, depth),
 
             // === 7. 局部控制流 ===
-            ExprKind::Let { pattern, init } => {
+            ExprKind::Let {
+                pattern,
+                init,
+                else_branch,
+            } => {
                 let value = self.eval_inner(init, depth + 1)?;
                 let init_ty = self.expr_type(init);
-                self.define_local(pattern.name, value);
-                self.define_local_type(pattern.name, init_ty);
+
+                match &pattern.kind {
+                    ast::LetPatternKind::Binding(binding) => {
+                        self.define_local(binding.name, value);
+                        self.define_local_type(binding.name, init_ty);
+                        if else_branch.is_some() {
+                            self.ctx
+                                .struct_error(
+                                    expr.span,
+                                    "irrefutable `let` bindings cannot use `else`",
+                                )
+                                .emit();
+                            return Err(ConstEvalError);
+                        }
+                    }
+                    ast::LetPatternKind::Variant(variant) => {
+                        let Some(bindings) = self.match_variant_pattern(
+                            variant.variant_name,
+                            variant.binding.as_ref(),
+                            &value,
+                            init_ty,
+                            depth + 1,
+                            pattern.span,
+                        )?
+                        else {
+                            let Some(else_expr) = else_branch else {
+                                self.ctx
+                                    .struct_error(
+                                        expr.span,
+                                        "refutable `let` patterns require an `else` branch",
+                                    )
+                                    .emit();
+                                return Err(ConstEvalError);
+                            };
+                            let _ = self.eval_inner(else_expr, depth + 1)?;
+                            return Ok(ConstValue::Void);
+                        };
+
+                        for (name, value) in bindings {
+                            self.define_local(name, value);
+                        }
+
+                        if let Some(binding) = &variant.binding
+                            && let Some(payload_ty) = self.variant_payload_ty(
+                                init_ty,
+                                variant.variant_name,
+                                depth + 1,
+                                pattern.span,
+                            )?
+                        {
+                            self.define_local_type(binding.name, payload_ty);
+                        }
+                    }
+                }
+
                 Ok(ConstValue::Void)
             }
             ExprKind::Block { stmts, result } => self.eval_block(stmts, result.as_deref(), depth),
@@ -1503,13 +1560,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     Ok(None)
                 }
             }
-            ast::MatchPatternKind::Variant {
-                variant_name,
-                binding,
-                ..
-            } => self.match_variant_pattern(
-                *variant_name,
-                binding.as_ref(),
+            ast::MatchPatternKind::Variant(variant) => self.match_variant_pattern(
+                variant.variant_name,
+                variant.binding.as_ref(),
                 target_value,
                 target_ty,
                 depth,
@@ -1544,6 +1597,59 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Ok(Some(bindings))
             }
             ConstValue::Int(tag) if *tag == expected_tag => Ok(Some(bindings)),
+            _ => Ok(None),
+        }
+    }
+
+    fn variant_payload_ty(
+        &mut self,
+        target_ty: TypeId,
+        variant_name: SymbolId,
+        _depth: usize,
+        span: Span,
+    ) -> ConstEvalResult<Option<TypeId>> {
+        let norm = self.ctx.type_registry.normalize(target_ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Enum(def_id, generic_args) => {
+                let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned() else {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Kern ICE (ConstEval): expected enum definition for DefId {}.",
+                            def_id.0
+                        ),
+                    );
+                    return Err(ConstEvalError);
+                };
+
+                let Some(variant) = def.variants.iter().find(|v| v.name == variant_name) else {
+                    return Ok(None);
+                };
+                let Some(payload_ast) = &variant.payload_type else {
+                    return Ok(None);
+                };
+
+                let mut payload_ty = self
+                    .ctx
+                    .node_types
+                    .get(&payload_ast.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                if !def.generics.is_empty() && !generic_args.is_empty() {
+                    let mut map = HashMap::new();
+                    for (i, param) in def.generics.iter().enumerate() {
+                        map.insert(param.name, generic_args[i]);
+                    }
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    payload_ty = subst.substitute(payload_ty);
+                }
+                Ok(Some(payload_ty))
+            }
+            TypeKind::AnonymousEnum(def) => Ok(def
+                .variants
+                .iter()
+                .find(|v| v.name == variant_name)
+                .and_then(|variant| variant.payload_ty)),
             _ => Ok(None),
         }
     }

@@ -1,6 +1,7 @@
 use super::ExprChecker;
 use crate::checker::Substituter;
 use crate::def::{Def, DefId};
+use crate::passes::TypeResolver;
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr};
@@ -161,13 +162,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn check_let_or_static(
+    pub(crate) fn check_let(
         &mut self,
         node_id: NodeId,
-        pattern: &ast::BindingPattern,
+        pattern: &ast::LetPattern,
         init: &Expr,
+        else_branch: Option<&Expr>,
         expected_ty: Option<TypeId>,
-        is_static: bool,
         span: Span,
     ) -> TypeId {
         let init_ty = self.check_expr(init, expected_ty);
@@ -183,14 +184,212 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 )
                 .emit();
         }
-        let sym_kind = if is_static {
-            SymbolKind::Static
-        } else {
-            SymbolKind::Var
-        };
+
+        match &pattern.kind {
+            ast::LetPatternKind::Binding(binding) => {
+                if else_branch.is_some() {
+                    self.ctx
+                        .struct_error(span, "irrefutable `let` bindings cannot use `else`")
+                        .with_hint("remove the `else` block or use a refutable variant pattern like `.Ok: value`")
+                        .emit();
+                }
+
+                let info = SymbolInfo {
+                    kind: SymbolKind::Var,
+                    node_id,
+                    type_id: init_ty,
+                    def_id: None,
+                    span,
+                    is_pub: false,
+                    is_mut: binding.is_mut,
+                };
+                let _ = self.ctx.scopes.define(binding.name, info);
+            }
+            ast::LetPatternKind::Variant(variant) => {
+                let Some(else_expr) = else_branch else {
+                    self.ctx
+                        .struct_error(span, "refutable `let` patterns require an `else` branch")
+                        .with_hint(
+                            "write this as `let .Variant: value = expr else return ...;` or another diverging expression",
+                        )
+                        .emit();
+                    return TypeId::VOID;
+                };
+
+                if let Some(explicit_ty_ast) = &variant.target_type {
+                    let mut resolver = TypeResolver::new(self.ctx);
+                    let scope = resolver.current_scope_id().unwrap();
+                    let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
+
+                    let mut map = std::collections::HashMap::new();
+                    if !self.unify(norm_init, explicit_ty, &mut map) && norm_init != explicit_ty {
+                        self.emit_mismatch_error(span, norm_init, explicit_ty);
+                    }
+                }
+
+                let mut payload_binding_ty = None;
+                match self.ctx.type_registry.get(norm_init).clone() {
+                    TypeKind::Enum(def_id, generic_args) => {
+                        let Some(adt_def) =
+                            self.match_enum_def(def_id, span, "check a let-pattern binding")
+                        else {
+                            return TypeId::VOID;
+                        };
+
+                        if let Some(v) = adt_def
+                            .variants
+                            .iter()
+                            .find(|v| v.name == variant.variant_name)
+                        {
+                            if let Some(bind_pattern) = &variant.binding {
+                                if let Some(payload_ast) = &v.payload_type {
+                                    let mut payload_ty = self
+                                        .ctx
+                                        .node_types
+                                        .get(&payload_ast.id)
+                                        .copied()
+                                        .unwrap_or(TypeId::ERROR);
+
+                                    if !adt_def.generics.is_empty() && !generic_args.is_empty() {
+                                        let mut map = std::collections::HashMap::new();
+                                        for (i, param) in adt_def.generics.iter().enumerate() {
+                                            map.insert(param.name, generic_args[i]);
+                                        }
+                                        let mut subst =
+                                            Substituter::new(&mut self.ctx.type_registry, &map);
+                                        payload_ty = subst.substitute(payload_ty);
+                                    }
+
+                                    payload_binding_ty = Some((bind_pattern, payload_ty));
+                                } else {
+                                    self.ctx
+                                        .struct_error(
+                                            span,
+                                            format!(
+                                                "variant `{}` has no payload",
+                                                self.ctx.resolve(variant.variant_name)
+                                            ),
+                                        )
+                                        .emit();
+                                }
+                            } else if v.payload_type.is_some() {
+                                self.ctx
+                                    .struct_error(
+                                        span,
+                                        format!(
+                                            "variant `{}` requires a binding for its payload",
+                                            self.ctx.resolve(variant.variant_name)
+                                        ),
+                                    )
+                                    .emit();
+                            }
+                        } else {
+                            self.ctx
+                                .struct_error(span, "variant not found in ADT")
+                                .emit();
+                        }
+                    }
+                    TypeKind::AnonymousEnum(enum_def) => {
+                        if let Some(v) = enum_def
+                            .variants
+                            .iter()
+                            .find(|v| v.name == variant.variant_name)
+                        {
+                            if let Some(bind_pattern) = &variant.binding {
+                                if let Some(payload_ty) = v.payload_ty {
+                                    payload_binding_ty = Some((bind_pattern, payload_ty));
+                                } else {
+                                    self.ctx
+                                        .struct_error(
+                                            span,
+                                            format!(
+                                                "variant `{}` has no payload",
+                                                self.ctx.resolve(variant.variant_name)
+                                            ),
+                                        )
+                                        .emit();
+                                }
+                            } else if v.payload_ty.is_some() {
+                                self.ctx
+                                    .struct_error(
+                                        span,
+                                        format!(
+                                            "variant `{}` requires a binding for its payload",
+                                            self.ctx.resolve(variant.variant_name)
+                                        ),
+                                    )
+                                    .emit();
+                            }
+                        } else {
+                            self.ctx
+                                .struct_error(span, "variant not found in ADT")
+                                .emit();
+                        }
+                    }
+                    TypeKind::Error => {}
+                    _ => {
+                        self.ctx
+                            .struct_error(
+                                span,
+                                "variant `let` patterns are only allowed on ADT values",
+                            )
+                            .emit();
+                    }
+                }
+
+                let else_ty = self.check_expr(else_expr, None);
+                let norm_else = self.resolve_tv(else_ty);
+                if norm_else != TypeId::NEVER && norm_else != TypeId::ERROR {
+                    self.ctx
+                        .struct_error(
+                            else_expr.span,
+                            "`let ... else` failure branches must diverge",
+                        )
+                        .with_hint("end the `else` block with `return`, `break`, `continue`, or another diverging expression")
+                        .emit();
+                }
+
+                if let Some((bind_pattern, payload_ty)) = payload_binding_ty {
+                    let info = SymbolInfo {
+                        kind: SymbolKind::Var,
+                        node_id,
+                        type_id: payload_ty,
+                        def_id: None,
+                        span,
+                        is_pub: false,
+                        is_mut: bind_pattern.is_mut,
+                    };
+                    let _ = self.ctx.scopes.define(bind_pattern.name, info);
+                }
+            }
+        }
+        TypeId::VOID
+    }
+
+    pub(crate) fn check_static(
+        &mut self,
+        node_id: NodeId,
+        pattern: &ast::BindingPattern,
+        init: &Expr,
+        expected_ty: Option<TypeId>,
+        span: Span,
+    ) -> TypeId {
+        let init_ty = self.check_expr(init, expected_ty);
+        let norm_init = self.resolve_tv(init_ty);
+        if matches!(
+            self.ctx.type_registry.get(norm_init),
+            TypeKind::TraitObject(..)
+        ) {
+            self.ctx
+                .struct_error(span, "cannot store a naked trait object in a variable")
+                .with_hint(
+                    "trait objects are dynamically sized; store a pointer (`*mut Trait`) instead",
+                )
+                .emit();
+        }
 
         let info = SymbolInfo {
-            kind: sym_kind,
+            kind: SymbolKind::Static,
             node_id,
             type_id: init_ty,
             def_id: None,
@@ -199,6 +398,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             is_mut: pattern.is_mut,
         };
         let _ = self.ctx.scopes.define(pattern.name, info);
+
         TypeId::VOID
     }
 
@@ -623,21 +823,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let norm_lhs = self.resolve_tv(lhs_ty);
         let base_allows_mut_slice = match self.ctx.type_registry.get(norm_lhs).clone() {
-            TypeKind::Pointer {
-                is_mut: true, ..
-            }
-            | TypeKind::VolatilePtr {
-                is_mut: true, ..
-            }
-            | TypeKind::Slice {
-                is_mut: true, ..
-            }
-            | TypeKind::Array {
-                is_mut: true, ..
-            }
-            | TypeKind::ArrayInfer {
-                is_mut: true, ..
-            } => true,
+            TypeKind::Pointer { is_mut: true, .. }
+            | TypeKind::VolatilePtr { is_mut: true, .. }
+            | TypeKind::Slice { is_mut: true, .. }
+            | TypeKind::Array { is_mut: true, .. }
+            | TypeKind::ArrayInfer { is_mut: true, .. } => true,
             _ => false,
         } || self.is_lvalue_mutable(lhs);
 
@@ -817,7 +1007,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 // 将 Impl 块捕获的泛型参数提取出来
                 let mut candidate_impl_args = Vec::new();
                 for param in &impl_def.generics {
-                    candidate_impl_args.push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
+                    candidate_impl_args
+                        .push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
                 }
                 // 在匹配的 Impl 块内寻找目标函数
                 for &method_id in &impl_def.methods {

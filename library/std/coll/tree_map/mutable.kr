@@ -27,10 +27,7 @@ impl[K, V] *mut TreeMap[K, V]
     }
 
     fn alloc_node(alloc: *mut Allocator, is_leaf: bool) Option[*mut Node[K, V]] {
-        let node_raw = match (alloc.alloc(layout_of[Node[K, V]]())) {
-            .Some: ptr => ptr,
-            .None => return .{ None },
-        };
+        let .Some: node_raw = alloc.alloc(layout_of[Node[K, V]]()) else return .{ None };
 
         let node = node_raw as *mut Node[K, V];
         node.is_leaf = is_leaf;
@@ -60,10 +57,7 @@ impl[K, V] *mut TreeMap[K, V]
 
     fn split_child(alloc: *mut Allocator, parent: *mut Node[K, V], index: usize) bool {
         let child = child_at[K, V](parent, index);
-        let right = match (self.alloc_node(alloc, child.is_leaf)) {
-            .Some: node => node,
-            .None => return false,
-        };
+        let .Some: right = self.alloc_node(alloc, child.is_leaf) else return false;
 
         right.len = MIN_DEGREE - 1;
 
@@ -175,10 +169,7 @@ impl[K, V] *mut TreeMap[K, V]
 
     pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
         if ((self.root as usize) == 0) {
-            let root = match (self.alloc_node(alloc, true)) {
-                .Some: node => node,
-                .None => return false,
-            };
+            let .Some: root = self.alloc_node(alloc, true) else return false;
 
             set_key[K, V](root, 0, key);
             set_value[K, V](root, 0, value);
@@ -190,10 +181,7 @@ impl[K, V] *mut TreeMap[K, V]
 
         if (self.root.len == MAX_KEYS) {
             let old_root = self.root;
-            let new_root = match (self.alloc_node(alloc, false)) {
-                .Some: node => node,
-                .None => return false,
-            };
+            let .Some: new_root = self.alloc_node(alloc, false) else return false;
 
             set_child[K, V](new_root, 0, old_root);
             self.root = new_root;
@@ -244,28 +232,26 @@ impl[K, V] *mut TreeMap[K, V]
     }
 
     pub fn get_or_insert(alloc: *mut Allocator, key: K, value: V) Option[*mut V] {
-        match (self.get_ptr(key)) {
-            .Some: ptr => return .{ Some: ptr },
-            .None => {}
-        }
+        let .Some: ptr = self.get_ptr(key) else {
+            if (!self.insert(alloc, key, value)) {
+                return .{ None };
+            }
+            return self.get_ptr(key);
+        };
 
-        if (!self.insert(alloc, key, value)) {
-            return .{ None };
-        }
-        return self.get_ptr(key);
+        return .{ Some: ptr };
     }
 
     pub fn get_or_insert_with(alloc: *mut Allocator, key: K, make_value: *Fn() V) Option[*mut V] {
-        match (self.get_ptr(key)) {
-            .Some: ptr => return .{ Some: ptr },
-            .None => {}
-        }
+        let .Some: ptr = self.get_ptr(key) else {
+            let value = make_value();
+            if (!self.insert(alloc, key, value)) {
+                return .{ None };
+            }
+            return self.get_ptr(key);
+        };
 
-        let value = make_value();
-        if (!self.insert(alloc, key, value)) {
-            return .{ None };
-        }
-        return self.get_ptr(key);
+        return .{ Some: ptr };
     }
 
     pub fn for_each_mut(visitor: *Fn(K, *mut V) void) void {

@@ -47,11 +47,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::SelfValue => self.check_self_value(expr.span),
 
             // === 3. 声明与绑定 ===
-            ExprKind::Let { pattern, init, .. } => {
-                self.check_let_or_static(expr.id, pattern, init, expected_ty, false, expr.span)
-            }
+            ExprKind::Let {
+                pattern,
+                init,
+                else_branch,
+            } => self.check_let(
+                expr.id,
+                pattern,
+                init,
+                else_branch.as_deref(),
+                expected_ty,
+                expr.span,
+            ),
             ExprKind::Static { pattern, init, .. } => {
-                self.check_let_or_static(expr.id, pattern, init, expected_ty, true, expr.span)
+                self.check_static(expr.id, pattern, init, expected_ty, expr.span)
             }
 
             // === 4. 运算与赋值 ===

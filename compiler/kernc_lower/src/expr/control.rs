@@ -291,25 +291,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         field_idx: usize,
         payload_ty: TypeId,
     ) -> Option<MastStmt> {
-        let target_union_id = self.payload_union_id(mono_id, span)?;
-        let union_access = MastExpr::new(
-            TypeId::VOID,
-            MastExprKind::FieldAccess {
-                lhs: Box::new(target_expr.clone()),
-                struct_id: mono_id,
-                field_idx: 1,
-            },
-            span,
-        );
-        let payload_extract = MastExpr::new(
-            payload_ty,
-            MastExprKind::FieldAccess {
-                lhs: Box::new(union_access),
-                struct_id: target_union_id,
-                field_idx,
-            },
-            span,
-        );
+        let payload_extract =
+            self.build_payload_extract_expr(span, target_expr, mono_id, field_idx, payload_ty)?;
 
         self.bind_local_type(
             span,
@@ -325,6 +308,324 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_mut: binding.is_mut,
             init: payload_extract,
         })
+    }
+
+    fn build_payload_extract_expr(
+        &mut self,
+        span: Span,
+        target_expr: &MastExpr,
+        mono_id: MonoId,
+        field_idx: usize,
+        payload_ty: TypeId,
+    ) -> Option<MastExpr> {
+        let target_union_id = self.payload_union_id(mono_id, span)?;
+        let union_access = MastExpr::new(
+            TypeId::VOID,
+            MastExprKind::FieldAccess {
+                lhs: Box::new(target_expr.clone()),
+                struct_id: mono_id,
+                field_idx: 1,
+            },
+            span,
+        );
+
+        Some(MastExpr::new(
+            payload_ty,
+            MastExprKind::FieldAccess {
+                lhs: Box::new(union_access),
+                struct_id: target_union_id,
+                field_idx,
+            },
+            span,
+        ))
+    }
+
+    fn is_ignored_binding(&self, name: SymbolId) -> bool {
+        self.ctx.resolve(name) == "_"
+    }
+
+    pub(crate) fn lower_let_stmts(
+        &mut self,
+        expr: &Expr,
+        pattern: &ast::LetPattern,
+        init: &Expr,
+        else_branch: Option<&Expr>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> Vec<MastStmt> {
+        match &pattern.kind {
+            ast::LetPatternKind::Binding(binding) => {
+                let init_mast = self.lower_expr(init, subst_map, None);
+                if self.is_ignored_binding(binding.name) {
+                    vec![MastStmt::Expr(init_mast)]
+                } else {
+                    let var_ty = init_mast.ty;
+                    self.bind_local_type(
+                        expr.span,
+                        binding.name,
+                        var_ty,
+                        binding.is_mut,
+                        "block local binding",
+                    );
+                    vec![MastStmt::Let {
+                        name: binding.name,
+                        ty: var_ty,
+                        is_mut: binding.is_mut,
+                        init: init_mast,
+                    }]
+                }
+            }
+            ast::LetPatternKind::Variant(variant) => {
+                self.lower_variant_let_stmts(expr.span, variant, init, else_branch, subst_map)
+            }
+        }
+    }
+
+    fn lower_variant_let_stmts(
+        &mut self,
+        span: Span,
+        variant: &ast::VariantPattern,
+        init: &Expr,
+        else_branch: Option<&Expr>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> Vec<MastStmt> {
+        let lowered_init = self.lower_expr(init, subst_map, None);
+        let target_ty = lowered_init.ty;
+        let (target_let, target_var_expr) =
+            self.build_match_target_binding(target_ty, lowered_init, init.span);
+        let adt_info = self.resolve_match_adt(target_ty, init.span);
+        let tag_access = self.build_match_tag_expr(&target_var_expr, &adt_info, init.span);
+
+        let Some(else_expr) = else_branch else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): refutable `let` reached lowering without an `else` branch.",
+            );
+            return vec![MastStmt::Expr(MastExpr::new(
+                TypeId::VOID,
+                MastExprKind::Trap,
+                span,
+            ))];
+        };
+
+        let mut outer_stmts = Vec::new();
+        let mut success_stmts = Vec::new();
+
+        if let Some(binding) = &variant.binding
+            && !self.is_ignored_binding(binding.name)
+        {
+            match adt_info.as_ref() {
+                Some(MatchAdtInfo::Named {
+                    mono_id,
+                    gen_args,
+                    def,
+                    is_pure,
+                    ..
+                }) => {
+                    let Some((variant_idx, _)) = self.resolve_match_variant(
+                        adt_info.as_ref().unwrap(),
+                        variant.variant_name,
+                        span,
+                    ) else {
+                        return vec![MastStmt::Expr(MastExpr::new(
+                            TypeId::VOID,
+                            MastExprKind::Trap,
+                            span,
+                        ))];
+                    };
+
+                    if !is_pure {
+                        let variant_def = &def.variants[variant_idx];
+                        let Some(payload_ast) = &variant_def.payload_type else {
+                            self.ctx.emit_ice(
+                                span,
+                                format!(
+                                    "Kern ICE (Lowering): variant `{}` expected payload during `let ... else` lowering.",
+                                    self.ctx.resolve(variant.variant_name)
+                                ),
+                            );
+                            return vec![MastStmt::Expr(MastExpr::new(
+                                TypeId::VOID,
+                                MastExprKind::Trap,
+                                span,
+                            ))];
+                        };
+
+                        let mut payload_ty = self
+                            .ctx
+                            .node_types
+                            .get(&payload_ast.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+                        if !def.generics.is_empty() && !gen_args.is_empty() {
+                            let mut var_map = HashMap::new();
+                            for (i, param) in def.generics.iter().enumerate() {
+                                var_map.insert(param.name, gen_args[i]);
+                            }
+                            let mut subst = Substituter::new(&mut self.ctx.type_registry, &var_map);
+                            payload_ty = subst.substitute(payload_ty);
+                        }
+
+                        self.bind_local_type(
+                            span,
+                            binding.name,
+                            payload_ty,
+                            binding.is_mut,
+                            "let-else payload binding",
+                        );
+                        outer_stmts.push(MastStmt::Let {
+                            name: binding.name,
+                            ty: payload_ty,
+                            is_mut: binding.is_mut,
+                            init: MastExpr::new(payload_ty, MastExprKind::Undef, span),
+                        });
+
+                        if let Some(payload_expr) = self.build_payload_extract_expr(
+                            span,
+                            &target_var_expr,
+                            *mono_id,
+                            variant_idx,
+                            payload_ty,
+                        ) {
+                            success_stmts.push(MastStmt::Expr(MastExpr::new(
+                                TypeId::VOID,
+                                MastExprKind::Assign {
+                                    op: ast::AssignmentOperator::Assign,
+                                    lhs: Box::new(MastExpr::new(
+                                        payload_ty,
+                                        MastExprKind::Var(binding.name),
+                                        span,
+                                    )),
+                                    rhs: Box::new(payload_expr),
+                                },
+                                span,
+                            )));
+                        }
+                    }
+                }
+                Some(MatchAdtInfo::Anonymous {
+                    mono_id,
+                    def,
+                    is_pure,
+                    ..
+                }) => {
+                    let Some((variant_idx, _)) = self.resolve_match_variant(
+                        adt_info.as_ref().unwrap(),
+                        variant.variant_name,
+                        span,
+                    ) else {
+                        return vec![MastStmt::Expr(MastExpr::new(
+                            TypeId::VOID,
+                            MastExprKind::Trap,
+                            span,
+                        ))];
+                    };
+
+                    if !is_pure {
+                        let Some(payload_ty) = def.variants[variant_idx].payload_ty else {
+                            self.ctx.emit_ice(
+                                span,
+                                format!(
+                                    "Kern ICE (Lowering): anonymous variant `{}` expected payload during `let ... else` lowering.",
+                                    self.ctx.resolve(variant.variant_name)
+                                ),
+                            );
+                            return vec![MastStmt::Expr(MastExpr::new(
+                                TypeId::VOID,
+                                MastExprKind::Trap,
+                                span,
+                            ))];
+                        };
+
+                        self.bind_local_type(
+                            span,
+                            binding.name,
+                            payload_ty,
+                            binding.is_mut,
+                            "let-else payload binding",
+                        );
+                        outer_stmts.push(MastStmt::Let {
+                            name: binding.name,
+                            ty: payload_ty,
+                            is_mut: binding.is_mut,
+                            init: MastExpr::new(payload_ty, MastExprKind::Undef, span),
+                        });
+
+                        if let Some(payload_expr) = self.build_payload_extract_expr(
+                            span,
+                            &target_var_expr,
+                            *mono_id,
+                            variant_idx,
+                            payload_ty,
+                        ) {
+                            success_stmts.push(MastStmt::Expr(MastExpr::new(
+                                TypeId::VOID,
+                                MastExprKind::Assign {
+                                    op: ast::AssignmentOperator::Assign,
+                                    lhs: Box::new(MastExpr::new(
+                                        payload_ty,
+                                        MastExprKind::Var(binding.name),
+                                        span,
+                                    )),
+                                    rhs: Box::new(payload_expr),
+                                },
+                                span,
+                            )));
+                        }
+                    }
+                }
+                None => {
+                    self.ctx.emit_ice(
+                        span,
+                        "Kern ICE (Lowering): variant `let` lowered without enum metadata.",
+                    );
+                    return vec![MastStmt::Expr(MastExpr::new(
+                        TypeId::VOID,
+                        MastExprKind::Trap,
+                        span,
+                    ))];
+                }
+            }
+        }
+
+        let Some((_, tag_value)) = adt_info
+            .as_ref()
+            .and_then(|info| self.resolve_match_variant(info, variant.variant_name, span))
+        else {
+            return vec![MastStmt::Expr(MastExpr::new(
+                TypeId::VOID,
+                MastExprKind::Trap,
+                span,
+            ))];
+        };
+
+        let switch_expr = MastExpr::new(
+            TypeId::VOID,
+            MastExprKind::Switch {
+                target: Box::new(tag_access),
+                cases: vec![MastSwitchCase {
+                    values: vec![tag_value],
+                    body: MastBlock {
+                        stmts: success_stmts,
+                        result: None,
+                        defers: vec![],
+                    },
+                }],
+                default_case: Some(self.lower_block_as_body(else_expr, subst_map, TypeId::VOID)),
+            },
+            span,
+        );
+
+        outer_stmts.push(MastStmt::Expr(MastExpr::new(
+            TypeId::VOID,
+            MastExprKind::Block(MastBlock {
+                stmts: vec![target_let],
+                result: Some(Box::new(switch_expr)),
+                defers: vec![],
+            }),
+            span,
+        )));
+
+        outer_stmts
     }
 
     pub(crate) fn lower_block_as_body(
@@ -351,29 +652,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         if let ExprKind::Defer { expr: def_expr } = &e.kind {
                             let lowered = self.lower_expr(def_expr, subst_map, None);
                             self.push_defer_in_current_scope(e.span, lowered);
-                        } else if let ExprKind::Let { pattern, init } = &e.kind {
-                            let init_mast = self.lower_expr(init, subst_map, None);
-                            // 如果是忽略绑定，转换为单纯的 ExprStmt 执行副作用
-                            if self.ctx.resolve(pattern.name) == "_" {
-                                stmts.push(MastStmt::Expr(init_mast));
-                            } else {
-                                let var_ty = init_mast.ty;
-                                let is_mut = pattern.is_mut;
-
-                                self.bind_local_type(
-                                    e.span,
-                                    pattern.name,
-                                    var_ty,
-                                    is_mut,
-                                    "block local binding",
-                                );
-                                stmts.push(MastStmt::Let {
-                                    name: pattern.name,
-                                    ty: var_ty,
-                                    is_mut,
-                                    init: init_mast,
-                                });
-                            }
+                        } else if let ExprKind::Let {
+                            pattern,
+                            init,
+                            else_branch,
+                        } = &e.kind
+                        {
+                            stmts.extend(self.lower_let_stmts(
+                                e,
+                                pattern,
+                                init,
+                                else_branch.as_deref(),
+                                subst_map,
+                            ));
                         } else {
                             let lowered = self.lower_expr(e, subst_map, None);
                             if !matches!(e.kind, ExprKind::Static { .. }) {
@@ -417,7 +708,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // 0. ================= 嗅探 Decay (退化) 上下文 =================
         let is_decay = spec.captures.is_empty()
             && matches!(
-                self.ctx.type_registry.get(self.ctx.type_registry.normalize(spec.exp_ty)).clone(),
+                self.ctx
+                    .type_registry
+                    .get(self.ctx.type_registry.normalize(spec.exp_ty))
+                    .clone(),
                 TypeKind::Function { .. } | TypeKind::FnDef(..)
             );
 
@@ -574,6 +868,29 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExprKind {
+        let has_init_scope = init.is_some();
+        if has_init_scope {
+            self.local_types.push(HashMap::new());
+        }
+
+        let mut outer_stmts = Vec::new();
+        if let Some(i) = init {
+            match &i.kind {
+                ExprKind::Let {
+                    pattern,
+                    init,
+                    else_branch,
+                } => outer_stmts.extend(self.lower_let_stmts(
+                    i,
+                    pattern,
+                    init,
+                    else_branch.as_deref(),
+                    subst_map,
+                )),
+                _ => outer_stmts.push(MastStmt::Expr(self.lower_expr(i, subst_map, None))),
+            }
+        }
+
         let mut loop_stmts = Vec::new();
 
         if let Some(c) = cond {
@@ -637,29 +954,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             span,
         );
 
-        if let Some(i) = init {
-            let mut outer_stmts = Vec::new();
-            if let ExprKind::Let {
-                pattern,
-                init: let_init,
-            } = &i.kind
-            {
-                let lowered_init = self.lower_expr(let_init, subst_map, None);
-                outer_stmts.push(MastStmt::Let {
-                    name: pattern.name,
-                    ty: lowered_init.ty,
-                    init: lowered_init,
-                    is_mut: pattern.is_mut,
-                });
-            } else {
-                outer_stmts.push(MastStmt::Expr(self.lower_expr(i, subst_map, None)));
-            }
+        if has_init_scope {
             outer_stmts.push(MastStmt::Expr(loop_expr));
-            MastExprKind::Block(MastBlock {
+            let block = MastExprKind::Block(MastBlock {
                 stmts: outer_stmts,
                 result: None,
                 defers: vec![],
-            })
+            });
+            self.local_types.pop();
+            block
         } else {
             loop_expr.kind
         }
@@ -809,11 +1112,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         }
                     }
-                    ast::MatchPatternKind::Variant {
-                        variant_name,
-                        binding,
-                        ..
-                    } => {
+                    ast::MatchPatternKind::Variant(variant) => {
                         let Some(info) = adt_info.as_ref() else {
                             self.ctx.emit_ice(
                                 pat.span,
@@ -823,10 +1122,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         };
 
                         if let Some((variant_idx, tag_value)) =
-                            self.resolve_match_variant(info, *variant_name, pat.span)
+                            self.resolve_match_variant(info, variant.variant_name, pat.span)
                         {
                             case_vals.push(tag_value);
-                            bound_variant = Some((variant_idx, variant_name, binding));
+                            bound_variant =
+                                Some((variant_idx, &variant.variant_name, &variant.binding));
                         }
                     }
                     ast::MatchPatternKind::CatchAll => {

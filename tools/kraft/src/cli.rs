@@ -111,6 +111,11 @@ pub fn run() -> Result<()> {
                 if build_script.is_file() { "yes" } else { "no" }
             );
             println!(
+                "env inputs: workspace={} package={}",
+                loaded.elaboration.workspace_env_input_count(),
+                loaded.elaboration.package_env_input_count()
+            );
+            println!(
                 "lockfile: {}",
                 match lock_status {
                     lockfile::LockStatus::Missing => "missing",
@@ -175,6 +180,8 @@ fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
     let resolved_graph = resolver::resolve_graph(&package_graph);
     let elaboration = elaborate::plan(
         &manifest_path,
+        &manifest,
+        &workspace_members,
         manifest.workspace.is_some(),
         &resolved_graph,
     )?;

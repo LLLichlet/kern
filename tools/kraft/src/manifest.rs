@@ -6,6 +6,7 @@ use std::path::Path;
 #[derive(Debug, Default)]
 pub struct Manifest {
     pub package: Option<Package>,
+    pub kraft: Option<KraftConfig>,
     pub lib: Option<LibTarget>,
     pub bin: Vec<NamedTarget>,
     pub test: Vec<NamedTarget>,
@@ -25,6 +26,11 @@ pub struct Package {
     pub kern: String,
     pub edition: Option<String>,
     pub publish: Option<bool>,
+}
+
+#[derive(Debug, Default)]
+pub struct KraftConfig {
+    pub env: Vec<String>,
 }
 
 #[derive(Debug, Default)]
@@ -87,6 +93,7 @@ pub struct WorkspacePackage {
 enum Section {
     Root,
     Package,
+    Kraft,
     Lib,
     Bin(usize),
     Test(usize),
@@ -106,6 +113,13 @@ impl Manifest {
     pub fn load(path: &Path) -> Result<Self> {
         let source = fs::read_to_string(path).map_err(|err| Error::from_io(path, err))?;
         Self::parse(&source, path)
+    }
+
+    pub fn kraft_env_names(&self) -> &[String] {
+        self.kraft
+            .as_ref()
+            .map(|kraft| kraft.env.as_slice())
+            .unwrap_or(&[])
     }
 
     fn parse(source: &str, path: &Path) -> Result<Self> {
@@ -169,6 +183,12 @@ impl Manifest {
                 validate_non_empty(path, "[package].edition", edition)?;
             }
             let _ = package.publish;
+        }
+
+        if let Some(kraft) = &self.kraft {
+            for name in &kraft.env {
+                validate_env_name(path, "[kraft].env[]", name)?;
+            }
         }
 
         if let Some(lib) = &self.lib {
@@ -251,6 +271,10 @@ fn enter_table_section(
             manifest.package.get_or_insert_with(Package::default);
             Ok(Section::Package)
         }
+        "[kraft]" => {
+            manifest.kraft.get_or_insert_with(KraftConfig::default);
+            Ok(Section::Kraft)
+        }
         "[lib]" => {
             manifest.lib.get_or_insert_with(LibTarget::default);
             Ok(Section::Lib)
@@ -305,6 +329,14 @@ fn assign_key_value(
                 "edition" => package.edition = Some(parse_string(raw_value)?),
                 "publish" => package.publish = Some(parse_bool(raw_value)?),
                 _ => return Err(format!("unsupported [package] key `{key}`")),
+            }
+            Ok(())
+        }
+        Section::Kraft => {
+            let kraft = manifest.kraft.get_or_insert_with(KraftConfig::default);
+            match key {
+                "env" => kraft.env = parse_string_array(raw_value)?,
+                _ => return Err(format!("unsupported [kraft] key `{key}`")),
             }
             Ok(())
         }
@@ -838,6 +870,32 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_env_name(path: &Path, field: &str, value: &str) -> Result<()> {
+    validate_non_empty(path, field, value)?;
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{field} must not be empty"),
+        });
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{field} must start with an ASCII letter or `_`, found `{value}`"),
+        });
+    }
+    if chars.any(|ch| !(ch == '_' || ch.is_ascii_alphanumeric())) {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{field} must contain only ASCII letters, digits, or `_`, found `{value}`"
+            ),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{DependencySpec, Manifest};
@@ -984,5 +1042,46 @@ shared = { workspace = true }
         let path = std::path::Path::new("Kraft.toml");
         let err = manifest.validate(path).unwrap_err();
         assert!(err.to_string().contains("cannot use `workspace = true`"));
+    }
+
+    #[test]
+    fn parses_kraft_env_allowlist() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[kraft]
+env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
+"#,
+            std::path::Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        let kraft = manifest.kraft.unwrap();
+        assert_eq!(kraft.env, vec!["USE_SYSTEM_SSL", "KERN_SYSROOT"]);
+    }
+
+    #[test]
+    fn rejects_invalid_kraft_env_names() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[kraft]
+env = ["1BAD-NAME"]
+"#,
+            std::path::Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        let path = std::path::Path::new("Kraft.toml");
+        let err = manifest.validate(path).unwrap_err();
+        assert!(err.to_string().contains("[kraft].env[]"));
     }
 }

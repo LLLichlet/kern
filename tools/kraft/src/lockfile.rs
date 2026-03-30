@@ -13,8 +13,10 @@ pub struct Lockfile {
     pub manifest_digest: String,
     pub workspace_script: Option<String>,
     pub workspace_script_digest: Option<String>,
+    pub workspace_env: Vec<LockedEnvInput>,
     pub packages: Vec<LockedPackage>,
     pub external_packages: Vec<LockedExternalPackage>,
+    pub package_env: Vec<LockedPackageEnvInput>,
     pub dependencies: Vec<LockedDependency>,
 }
 
@@ -50,6 +52,19 @@ pub struct LockedExternalPackage {
     pub version: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedEnvInput {
+    pub name: String,
+    pub value: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedPackageEnvInput {
+    pub package_id: String,
+    pub name: String,
+    pub value: Option<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LockStatus {
     Missing,
@@ -69,6 +84,8 @@ enum Section {
     Root,
     Package(usize),
     ExternalPackage(usize),
+    WorkspaceEnv(usize),
+    PackageEnv(usize),
     Dependency(usize),
 }
 
@@ -127,6 +144,7 @@ impl Lockfile {
 
         let mut packages = Vec::new();
         let mut external_packages = Vec::new();
+        let mut package_env = Vec::new();
         let mut dependencies = Vec::new();
 
         for package in &resolved.packages {
@@ -147,6 +165,15 @@ impl Lockfile {
                 kraft_script: script.map(|script| script.relative_path.clone()),
                 kraft_script_digest: script.map(|script| script.digest.clone()),
             });
+            if let Some(script) = script {
+                for input in &script.env_inputs {
+                    package_env.push(LockedPackageEnvInput {
+                        package_id: package_id.clone(),
+                        name: input.name.clone(),
+                        value: input.value.clone(),
+                    });
+                }
+            }
 
             for dep in &package.dependencies {
                 let (target_kind, target_id) = match &dep.target {
@@ -191,8 +218,23 @@ impl Lockfile {
                 .workspace_script
                 .as_ref()
                 .map(|script| script.digest.clone()),
+            workspace_env: elaboration
+                .workspace_script
+                .as_ref()
+                .map(|script| {
+                    script
+                        .env_inputs
+                        .iter()
+                        .map(|input| LockedEnvInput {
+                            name: input.name.clone(),
+                            value: input.value.clone(),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
             packages,
             external_packages,
+            package_env,
             dependencies,
         })
     }
@@ -204,8 +246,10 @@ impl Lockfile {
             manifest_digest: String::new(),
             workspace_script: None,
             workspace_script_digest: None,
+            workspace_env: Vec::new(),
             packages: Vec::new(),
             external_packages: Vec::new(),
+            package_env: Vec::new(),
             dependencies: Vec::new(),
         };
         let mut section = Section::Root;
@@ -239,6 +283,21 @@ impl Lockfile {
                             version: None,
                         });
                         Section::ExternalPackage(lockfile.external_packages.len() - 1)
+                    }
+                    "[[workspace-env]]" => {
+                        lockfile.workspace_env.push(LockedEnvInput {
+                            name: String::new(),
+                            value: None,
+                        });
+                        Section::WorkspaceEnv(lockfile.workspace_env.len() - 1)
+                    }
+                    "[[package-env]]" => {
+                        lockfile.package_env.push(LockedPackageEnvInput {
+                            package_id: String::new(),
+                            name: String::new(),
+                            value: None,
+                        });
+                        Section::PackageEnv(lockfile.package_env.len() - 1)
                     }
                     "[[dependency]]" => {
                         lockfile.dependencies.push(LockedDependency {
@@ -293,6 +352,22 @@ impl Lockfile {
             self.workspace_script.as_deref(),
             self.workspace_script_digest.as_deref(),
         )?;
+        let mut workspace_env_names = BTreeSet::new();
+        if !self.workspace_env.is_empty() && self.workspace_script.is_none() {
+            return Err(Error::LockfileValidation {
+                path: path.to_path_buf(),
+                message: "[[workspace-env]] entries require `workspace-script`".to_string(),
+            });
+        }
+        for input in &self.workspace_env {
+            validate_env_input_name(path, "[[workspace-env]].name", &input.name)?;
+            if !workspace_env_names.insert(input.name.as_str()) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!("duplicate workspace env input `{}`", input.name),
+                });
+            }
+        }
 
         let mut package_ids = BTreeSet::new();
         for package in &self.packages {
@@ -329,6 +404,45 @@ impl Lockfile {
                 package.kraft_script.as_deref(),
                 package.kraft_script_digest.as_deref(),
             )?;
+        }
+
+        let mut package_env_keys = BTreeSet::new();
+        for input in &self.package_env {
+            validate_non_empty(path, "[[package-env]].package", &input.package_id)?;
+            if !package_ids.contains(input.package_id.as_str()) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "[[package-env]] references unknown package id `{}`",
+                        input.package_id
+                    ),
+                });
+            }
+            let has_script = self
+                .packages
+                .iter()
+                .find(|package| package.id == input.package_id)
+                .and_then(|package| package.kraft_script.as_ref())
+                .is_some();
+            if !has_script {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "[[package-env]] references package `{}` without `kraft-script`",
+                        input.package_id
+                    ),
+                });
+            }
+            validate_env_input_name(path, "[[package-env]].name", &input.name)?;
+            if !package_env_keys.insert((input.package_id.as_str(), input.name.as_str())) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "duplicate package env input `{}:{}`",
+                        input.package_id, input.name
+                    ),
+                });
+            }
         }
 
         let mut external_ids = BTreeSet::new();
@@ -415,6 +529,14 @@ impl Lockfile {
         if let Some(digest) = &self.workspace_script_digest {
             push_string_line(&mut out, "workspace-script-digest", digest);
         }
+        for input in &self.workspace_env {
+            out.push('\n');
+            out.push_str("[[workspace-env]]\n");
+            push_string_line(&mut out, "name", &input.name);
+            if let Some(value) = &input.value {
+                push_string_line(&mut out, "value", value);
+            }
+        }
 
         for package in &self.packages {
             out.push('\n');
@@ -447,6 +569,16 @@ impl Lockfile {
             }
             if let Some(version) = &package.version {
                 push_string_line(&mut out, "version", version);
+            }
+        }
+
+        for input in &self.package_env {
+            out.push('\n');
+            out.push_str("[[package-env]]\n");
+            push_string_line(&mut out, "package", &input.package_id);
+            push_string_line(&mut out, "name", &input.name);
+            if let Some(value) = &input.value {
+                push_string_line(&mut out, "value", value);
             }
         }
 
@@ -508,6 +640,23 @@ fn assign_key_value(
                 "source-value" => package.source_value = Some(parse_string(raw_value)?),
                 "version" => package.version = Some(parse_string(raw_value)?),
                 _ => return Err(format!("unsupported [[external-package]] key `{key}`")),
+            }
+        }
+        Section::WorkspaceEnv(index) => {
+            let input = &mut lockfile.workspace_env[index];
+            match key {
+                "name" => input.name = parse_string(raw_value)?,
+                "value" => input.value = Some(parse_string(raw_value)?),
+                _ => return Err(format!("unsupported [[workspace-env]] key `{key}`")),
+            }
+        }
+        Section::PackageEnv(index) => {
+            let input = &mut lockfile.package_env[index];
+            match key {
+                "package" => input.package_id = parse_string(raw_value)?,
+                "name" => input.name = parse_string(raw_value)?,
+                "value" => input.value = Some(parse_string(raw_value)?),
+                _ => return Err(format!("unsupported [[package-env]] key `{key}`")),
             }
         }
         Section::Dependency(index) => {
@@ -757,6 +906,32 @@ fn validate_optional_path_and_digest(
     }
 }
 
+fn validate_env_input_name(path: &Path, field: &str, value: &str) -> Result<()> {
+    validate_non_empty(path, field, value)?;
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return Err(Error::LockfileValidation {
+            path: path.to_path_buf(),
+            message: format!("{field} must not be empty"),
+        });
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return Err(Error::LockfileValidation {
+            path: path.to_path_buf(),
+            message: format!("{field} must start with an ASCII letter or `_`, found `{value}`"),
+        });
+    }
+    if chars.any(|ch| !(ch == '_' || ch.is_ascii_alphanumeric())) {
+        return Err(Error::LockfileValidation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{field} must contain only ASCII letters, digits, or `_`, found `{value}`"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn validate_digest(path: &Path, field: &str, value: &str) -> Result<()> {
     validate_non_empty(path, field, value)?;
     if !value.starts_with("fnv1a64:") || value.len() != "fnv1a64:".len() + 16 {
@@ -872,18 +1047,31 @@ shared = "2"
         )
         .unwrap();
         fs::write(root.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
+        let env_name = format!(
+            "KRAFT_LOCK_ENV_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        unsafe { std::env::set_var(&env_name, "enabled") };
         fs::write(
             app_dir.join("Kraft.toml"),
-            r#"
+            format!(
+                r#"
 [package]
 name = "app"
 version = "0.1.0"
 kern = "0.7"
 
+[kraft]
+env = ["{env_name}"]
+
 [dependencies]
-util = { path = "../util" }
-shared = { workspace = true, features = ["simd"] }
-"#,
+util = {{ path = "../util" }}
+shared = {{ workspace = true, features = ["simd"] }}
+"#
+            ),
         )
         .unwrap();
         fs::write(app_dir.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
@@ -903,22 +1091,26 @@ kern = "0.7"
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
         let lockfile = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
         let rendered = lockfile.render();
 
         assert!(rendered.contains("version = 1"));
         assert!(rendered.contains("[[package]]"));
         assert!(rendered.contains("[[external-package]]"));
+        assert!(rendered.contains("[[package-env]]"));
         assert!(rendered.contains("id = \"app 0.1.0 workspace-member:app\""));
         assert!(rendered.contains("workspace-script = \"kraft.kr\""));
         assert!(rendered.contains("kraft-script = \"app/kraft.kr\""));
+        assert!(rendered.contains(&format!("name = \"{env_name}\"")));
+        assert!(rendered.contains("value = \"enabled\""));
         assert!(rendered.contains("target-id = \"util 0.1.0 workspace-member:util\""));
         assert!(rendered.contains("name = \"shared\""));
         assert!(rendered.contains("target = \"external\""));
         assert!(rendered.contains("id = \"shared 2 registry\""));
         assert!(rendered.contains("manifest-digest = \"fnv1a64:"));
 
+        unsafe { std::env::remove_var(&env_name) };
         let _ = fs::remove_dir_all(root);
     }
 
@@ -958,7 +1150,7 @@ shared = { workspace = true }
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
         let expected = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
         let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let loaded = Lockfile::load(&lock_path).unwrap();
@@ -998,7 +1190,7 @@ kern = "0.7"
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
         let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
 
@@ -1038,7 +1230,7 @@ kern = "0.7"
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
 
         let (_, created) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(created, LockWriteResult::Created);
@@ -1061,7 +1253,7 @@ kern = "0.7"
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
         let (_, updated) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(updated, LockWriteResult::Updated);
 
@@ -1073,6 +1265,14 @@ kern = "0.7"
         let root = temp_dir("kraft-lockfile-status");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
+        let env_name = format!(
+            "KRAFT_STATUS_ENV_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        unsafe { std::env::set_var(&env_name, "v1") };
 
         fs::write(
             root.join("Kraft.toml"),
@@ -1084,21 +1284,27 @@ members = ["app"]
         .unwrap();
         fs::write(
             app_dir.join("Kraft.toml"),
-            r#"
+            format!(
+                r#"
 [package]
 name = "app"
 version = "0.1.0"
 kern = "0.7"
-"#,
+
+[kraft]
+env = ["{env_name}"]
+"#
+            ),
         )
         .unwrap();
+        fs::write(app_dir.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
 
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
 
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
@@ -1109,6 +1315,13 @@ kern = "0.7"
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Current
+        );
+
+        unsafe { std::env::set_var(&env_name, "v2") };
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        assert_eq!(
+            lock_status(&manifest_path, &elaboration).unwrap(),
+            LockStatus::Stale
         );
 
         fs::write(
@@ -1126,12 +1339,13 @@ kern = "0.7"
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Stale
         );
 
+        unsafe { std::env::remove_var(&env_name) };
         let _ = fs::remove_dir_all(root);
     }
 

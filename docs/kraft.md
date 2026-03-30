@@ -125,6 +125,21 @@ Allowed inputs should be narrowly defined:
 
 Environment access, if any, should be an explicit allowlist and should become part of the lock input digest.
 
+The intended model is:
+
+- `Kraft.toml` declares allowed elaboration environment inputs under `[kraft]`
+- `kraft.kr` may only read environment inputs that were explicitly declared
+- `Kraft.lock` records the declared input values that participated in elaboration
+
+For example:
+
+```toml
+[kraft]
+env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
+```
+
+This keeps environment dependence explicit rather than incidental. If an allowed input changes, the lockfile becomes stale and `kraft` must re-elaborate before reuse.
+
 ### Proposed API Shape
 
 The initial shape should be minimal:
@@ -222,6 +237,7 @@ It should remain readable and mostly sufficient for ordinary packages. Most pack
 The intended V1 sections are:
 
 - `[package]`
+- `[kraft]`
 - `[lib]`
 - `[[bin]]`
 - `[[test]]`

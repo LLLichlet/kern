@@ -1,5 +1,6 @@
 use crate::discover;
 use crate::error::{Error, Result};
+use crate::graph;
 use crate::manifest::Manifest;
 use crate::workspace;
 use std::env;
@@ -21,6 +22,7 @@ pub fn run() -> Result<()> {
             let manifest = Manifest::load(&manifest_path)?;
             manifest.validate(&manifest_path)?;
             let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+            let package_graph = graph::build_graph(&manifest_path, &manifest, &workspace_members)?;
 
             let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
             let kraft_script = package_root.join("kraft.kr");
@@ -61,6 +63,16 @@ pub fn run() -> Result<()> {
                         .join(", ")
                 );
             }
+            let edge_count = package_graph
+                .packages
+                .iter()
+                .map(|pkg| pkg.dependencies.len())
+                .sum::<usize>();
+            println!(
+                "graph: packages={} dependency_edges={}",
+                package_graph.packages.len(),
+                edge_count
+            );
             println!(
                 "targets: lib={} bin={} test={} example={}",
                 usize::from(manifest.lib.is_some()),

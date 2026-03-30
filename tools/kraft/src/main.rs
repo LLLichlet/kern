@@ -1,6 +1,7 @@
 mod cli;
 mod discover;
 mod error;
+mod graph;
 mod manifest;
 mod workspace;
 

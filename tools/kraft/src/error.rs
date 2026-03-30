@@ -19,7 +19,15 @@ pub enum Error {
         path: PathBuf,
         message: String,
     },
+    LockfileParse {
+        path: PathBuf,
+        message: String,
+    },
     Validation {
+        path: PathBuf,
+        message: String,
+    },
+    LockfileValidation {
         path: PathBuf,
         message: String,
     },
@@ -57,8 +65,19 @@ impl Display for Error {
             Self::ManifestParse { path, message } => {
                 write!(f, "failed to parse `{}`: {}", path.display(), message)
             }
+            Self::LockfileParse { path, message } => {
+                write!(
+                    f,
+                    "failed to parse lockfile `{}`: {}",
+                    path.display(),
+                    message
+                )
+            }
             Self::Validation { path, message } => {
                 write!(f, "invalid manifest `{}`: {message}", path.display())
+            }
+            Self::LockfileValidation { path, message } => {
+                write!(f, "invalid lockfile `{}`: {message}", path.display())
             }
         }
     }

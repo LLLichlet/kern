@@ -21,6 +21,7 @@ pub fn run() -> Result<()> {
         }
         Command::Check { path } => {
             let loaded = load_package_graph(path.as_deref())?;
+            let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.package_graph)?;
 
             let package_root = loaded
                 .manifest_path
@@ -97,6 +98,14 @@ pub fn run() -> Result<()> {
                 "scripts: kraft.kr={} build.kr={}",
                 if kraft_script.is_file() { "yes" } else { "no" },
                 if build_script.is_file() { "yes" } else { "no" }
+            );
+            println!(
+                "lockfile: {}",
+                match lock_status {
+                    lockfile::LockStatus::Missing => "missing",
+                    lockfile::LockStatus::Current => "current",
+                    lockfile::LockStatus::Stale => "stale",
+                }
             );
 
             Ok(())

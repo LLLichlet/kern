@@ -17,5 +17,6 @@ The current implementation now covers the first graph and lockfile milestones:
 - local package graph construction
 - `workspace = true` dependency inheritance
 - deterministic `Kraft.lock` writing via `kraft lock`
+- `Kraft.lock` loading, validation, and stale/current status reporting via `kraft check`
 
 See [docs/kraft.md](../../docs/kraft.md) for the V1 design draft.

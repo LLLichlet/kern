@@ -2,8 +2,7 @@ use std.Option;
 
 impl []u8 {
     pub fn find_byte(byte: u8) Option[usize] {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             if (self.[i] == byte) {
                 return .{ Some: i };
             }
@@ -12,8 +11,7 @@ impl []u8 {
     }
 
     pub fn rfind_byte(byte: u8) Option[usize] {
-        let mut i = #self;
-        for (; i > 0; ) {
+        for (let mut i = #self; i > 0; ) {
             i -= 1;
             if (self.[i] == byte) {
                 return .{ Some: i };
@@ -27,8 +25,7 @@ impl []u8 {
     }
 
     pub fn trim_ascii_start() []u8 {
-        let mut start = 0;
-        for (; start < #self; start += 1) {
+        for (let mut start = 0; start < #self; start += 1) {
             let b = self.[start];
             if (
                 b != b' ' and
@@ -45,8 +42,7 @@ impl []u8 {
     }
 
     pub fn trim_ascii_end() []u8 {
-        let mut end = #self;
-        for (; end > 0; ) {
+        for (let mut end = #self; end > 0; ) {
             let b = self.[end - 1];
             if (
                 b != b' ' and

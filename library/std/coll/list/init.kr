@@ -299,8 +299,7 @@ impl[T] *mut List[T] {
         }
 
         let start = self.len;
-        let mut i = 0;
-        for (; i < count; i += 1) {
+        for (let mut i = 0; i < count; i += 1) {
             (self.ptr + start + i).* = item;
         }
         self.len = start + count;
@@ -374,8 +373,7 @@ impl[T] *mut List[T] {
 
         if (self.is_zst()) {
             let mut kept = 0;
-            let mut i = 0;
-            for (; i < self.len; i += 1) {
+            for (let mut i = 0; i < self.len; i += 1) {
                 if (pred(self.zst_ptr().*)) {
                     kept += 1;
                 }
@@ -385,8 +383,7 @@ impl[T] *mut List[T] {
         }
 
         let mut write = 0;
-        let mut read = 0;
-        for (; read < self.len; read += 1) {
+        for (let mut read = 0; read < self.len; read += 1) {
             let item = (self.ptr + read).*;
             if (!pred(item)) {
                 continue;
@@ -407,8 +404,7 @@ impl[T] *mut List[T] {
 
         if (self.is_zst()) {
             let mut kept = 0;
-            let mut i = 0;
-            for (; i < self.len; i += 1) {
+            for (let mut i = 0; i < self.len; i += 1) {
                 if (pred(self.zst_ptr())) {
                     kept += 1;
                 }
@@ -418,8 +414,7 @@ impl[T] *mut List[T] {
         }
 
         let mut write = 0;
-        let mut read = 0;
-        for (; read < self.len; read += 1) {
+        for (let mut read = 0; read < self.len; read += 1) {
             let item_ptr = self.ptr + read;
             if (!pred(item_ptr)) {
                 continue;

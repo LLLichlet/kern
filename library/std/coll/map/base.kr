@@ -33,8 +33,7 @@ pub fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, V]
 
 pub fn visit_full[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, visitor: *Fn(*mut Entry[K, V]) bool) usize {
     let mut total = 0;
-    let mut i = 0;
-    for (; i < capacity; i += 1) {
+    for (let mut i = 0; i < capacity; i += 1) {
         if (ctrl_at(ctrl, i) != FULL) {
             continue;
         }

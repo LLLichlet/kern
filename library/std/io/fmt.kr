@@ -9,9 +9,7 @@ pub fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
     let fmt_len = #fmt;
     let mut arg_idx = 0;
     let mut last_pos = 0;
-    let mut i = 0;
-
-    for (; i < fmt_len; ) {
+    for (let mut i = 0; i < fmt_len; ) {
         if (fmt.[i] == b'{') {
             if (i + 1 < fmt_len) {
                 // 1. 处理转义的左大括号 `{{`

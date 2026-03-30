@@ -22,8 +22,7 @@ impl[T] []T {
     }
 
     pub fn position(pred: *Fn(T) bool) Option[usize] {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             if (pred(self.[i])) {
                 return .{ Some: i };
             }
@@ -32,8 +31,7 @@ impl[T] []T {
     }
 
     pub fn rposition(pred: *Fn(T) bool) Option[usize] {
-        let mut i = #self;
-        for (; i > 0; ) {
+        for (let mut i = #self; i > 0; ) {
             i -= 1;
             if (pred(self.[i])) {
                 return .{ Some: i };
@@ -47,8 +45,7 @@ impl[T] []T {
     }
 
     pub fn all(pred: *Fn(T) bool) bool {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             if (!pred(self.[i])) {
                 return false;
             }
@@ -58,8 +55,7 @@ impl[T] []T {
 
     pub fn count(pred: *Fn(T) bool) usize {
         let mut total = 0;
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             if (pred(self.[i])) {
                 total += 1;
             }
@@ -68,24 +64,21 @@ impl[T] []T {
     }
 
     pub fn for_each(visitor: *Fn(T) void) void {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             visitor(self.[i]);
         }
     }
 
     pub fn fold[U](init: U, step: *Fn(U, T) U) U {
         let mut accum = init;
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             accum = step(accum, self.[i]);
         }
         return accum;
     }
 
     pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             match (call_back(self.[i])) {
                 .Some: value => return .{ Some: value },
                 .None => {}
@@ -119,8 +112,7 @@ impl[T] []T
     }
 
     fn matches_at(index: usize, needle: []T) bool {
-        let mut j = 0;
-        for (; j < #needle; j += 1) {
+        for (let mut j = 0; j < #needle; j += 1) {
             if (!self.elem_eq(self.[index + j], needle.[j])) {
                 return false;
             }
@@ -153,8 +145,7 @@ impl[T] []T
         }
 
         let last_start = #self - needle_len;
-        let mut i = 0;
-        for (; i <= last_start; i += 1) {
+        for (let mut i = 0; i <= last_start; i += 1) {
             if (self.matches_at(i, needle)) {
                 return .{ Some: i };
             }
@@ -187,8 +178,7 @@ impl[T] []T
 {
     pub fn lex_cmp(other: []T) Ordering {
         let shared = if (#self < #other) #self else #other;
-        let mut i = 0;
-        for (; i < shared; i += 1) {
+        for (let mut i = 0; i < shared; i += 1) {
             let ord = self.[i].&.cmp(other.[i]);
             if (ord != EQUAL) {
                 return ord;

@@ -1,7 +1,6 @@
 #[export_name("memcpy")]
 pub extern fn memcpy(dest: *mut u8, src: *u8, len: usize) *mut u8 {
-    let mut i = 0;
-    for (; i < len; i += 1) {
+    for (let mut i = 0; i < len; i += 1) {
         let d = dest + i;
         let s = src + i;
         d.* = s.*;
@@ -11,11 +10,10 @@ pub extern fn memcpy(dest: *mut u8, src: *u8, len: usize) *mut u8 {
 
 #[export_name("memset")]
 pub extern fn memset(dest: *mut u8, val: i32, len: usize) *mut u8 {
-    let mut i = usize.{0};
     // memset 标准签名的 val 是 i32，但在内存中是按 u8 填充的
     let v = val as u8; 
     
-    for (; i < len; i += 1) {
+    for (let mut i = usize.{0}; i < len; i += 1) {
         let d = dest + i;
         d.* = v;
     }
@@ -31,8 +29,7 @@ pub extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
     // 如果 dest 在 src 的内部，正向拷贝会覆盖 src 尚未读取的数据
     if (d_addr > s_addr and d_addr < (s_addr + len)) {
         // 倒序拷贝
-        let mut i = len;
-        for (; i > 0; ) {
+        for (let mut i = len; i > 0; ) {
             i -= 1;
             let d = dest + i;
             let s = src + i;
@@ -40,8 +37,7 @@ pub extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
         }
     } else {
         // 没有重叠风险，直接正向拷贝
-        let mut i = 0;
-        for (; i < len; i += 1) {
+        for (let mut i = 0; i < len; i += 1) {
             let d = dest + i;
             let s = src + i;
             d.* = s.*;

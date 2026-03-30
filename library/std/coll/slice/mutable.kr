@@ -21,8 +21,7 @@ impl[T] []mut T {
             return false;
         }
 
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             let tmp = self.[i];
             self.[i] = other.[i];
             other.[i] = tmp;
@@ -31,15 +30,13 @@ impl[T] []mut T {
     }
 
     pub fn fill(value: T) void {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             self.[i] = value;
         }
     }
 
     pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
-        let mut i = 0;
-        for (; i < #self; i += 1) {
+        for (let mut i = 0; i < #self; i += 1) {
             visitor(self.[i]..&);
         }
     }

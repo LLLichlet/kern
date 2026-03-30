@@ -129,8 +129,7 @@ impl[K, V] *mut Map[K, V]
             .None => return false,
         };
 
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
+        for (let mut i = 0; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) continue;
 
             let entry = entry_ptr[K, V](self.entries, i);
@@ -333,8 +332,7 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn retain_mut(pred: *Fn(K, *mut V) bool) void {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
+        for (let mut i = 0; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
                 continue;
             }
@@ -365,8 +363,7 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn remove_where(pred: *Fn(K, V) bool) Option[V] {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
+        for (let mut i = 0; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
                 continue;
             }
@@ -384,8 +381,7 @@ impl[K, V] *mut Map[K, V]
     }
 
     pub fn retain(pred: *Fn(K, V) bool) void {
-        let mut i = 0;
-        for (; i < self.capacity; i += 1) {
+        for (let mut i = 0; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
                 continue;
             }

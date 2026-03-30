@@ -25,8 +25,7 @@ pub fn path_separator_byte() u8 {
 fn preferred_separator_byte(path: []u8) u8 {
     #[if(os == "windows")]
     {
-        let mut i = 0;
-        for (; i < #path; i += 1) {
+        for (let mut i = 0; i < #path; i += 1) {
             if (path.[i] == b'\\') {
                 return b'\\';
             }
@@ -141,8 +140,7 @@ fn append_path_segment(
 
 fn last_separator(path: []u8) Option[usize] {
     let prefix_len = root_prefix_len(path);
-    let mut index = #path;
-    for (; index > prefix_len; ) {
+    for (let mut index = #path; index > prefix_len; ) {
         index -= 1;
         if (is_path_separator(path.[index])) {
             return .{ Some: index };
@@ -188,8 +186,7 @@ pub fn extension(path: []u8) Option[[]u8] {
         .None => return .{ None },
     };
 
-    let mut index = #name;
-    for (; index > 0; ) {
+    for (let mut index = #name; index > 0; ) {
         index -= 1;
         if (name.[index] != b'.') {
             continue;
@@ -209,8 +206,7 @@ pub fn file_stem(path: []u8) Option[[]u8] {
         .None => return .{ None },
     };
 
-    let mut index = #name;
-    for (; index > 0; ) {
+    for (let mut index = #name; index > 0; ) {
         index -= 1;
         if (name.[index] != b'.') {
             continue;
@@ -309,8 +305,7 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
         return .{ Ok: out };
     }
 
-    let mut seg_index = 0;
-    for (; seg_index < segments.len; seg_index += 1) {
+    for (let mut seg_index = 0; seg_index < segments.len; seg_index += 1) {
         let segment = match (segments.get(seg_index)) {
             .Some: segment => segment,
             .None => continue,

@@ -35,8 +35,7 @@ fn split_var(entry: []u8) Option[Var] {
         start = 1;
     }
 
-    let mut i = start;
-    for (; i < #entry; i += 1) {
+    for (let mut i = start; i < #entry; i += 1) {
         if (entry.[i] != b'=') {
             continue;
         }

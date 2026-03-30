@@ -563,6 +563,72 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn compiles_const_fn_mutating_local_through_pointer() {
+    let output = compile_source(
+        r#"
+const fn bump(ptr: *mut i32) void {
+    ptr.* += 1;
+}
+
+const fn run() i32 {
+    let mut value = i32.{1};
+    bump(value..&);
+    return value;
+}
+
+const RESULT = run();
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return RESULT;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_const_fn_mutating_struct_field_through_pointer_auto_deref() {
+    let output = compile_source(
+        r#"
+type Counter = struct {
+    value: i32,
+};
+
+const fn bump(counter: *mut Counter) void {
+    counter.value += 3;
+}
+
+const fn run() i32 {
+    let mut counter = Counter.{ value: 4 };
+    bump(counter..&);
+    return counter.value;
+}
+
+const RESULT = run();
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return RESULT;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_assignment_through_non_mut_array_elements() {
     let output = compile_source(
         r#"

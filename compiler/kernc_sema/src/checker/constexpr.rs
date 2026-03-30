@@ -23,6 +23,12 @@ pub enum ConstValue {
         tag: i128,
         payload: Option<Box<ConstValue>>,
     },
+    Pointer {
+        root_scope: usize,
+        root_name: SymbolId,
+        path: Vec<PlaceSegment>,
+        is_mut: bool,
+    },
     Void,
     Undef,
 }
@@ -38,10 +44,19 @@ enum LoopControl {
     Continue,
 }
 
+#[doc(hidden)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PlaceSegment {
+pub enum PlaceSegment {
     Field(SymbolId),
     Index(usize),
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedPlace {
+    root_scope: usize,
+    root_name: SymbolId,
+    path: Vec<PlaceSegment>,
+    require_root_mutability: bool,
 }
 
 pub struct ConstEvaluator<'a, 'ctx> {
@@ -280,11 +295,24 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             .find_map(|scope| scope.get(&name).cloned())
     }
 
-    fn lookup_local_mutability(&self, name: SymbolId) -> Option<bool> {
-        self.local_mut_scopes
+    fn lookup_local_slot(&self, name: SymbolId) -> Option<usize> {
+        self.local_scopes
             .iter()
+            .enumerate()
             .rev()
-            .find_map(|scope| scope.get(&name).copied())
+            .find_map(|(scope_idx, scope)| scope.contains_key(&name).then_some(scope_idx))
+    }
+
+    fn lookup_local_at(&self, scope_idx: usize, name: SymbolId) -> Option<ConstValue> {
+        self.local_scopes
+            .get(scope_idx)
+            .and_then(|scope| scope.get(&name).cloned())
+    }
+
+    fn lookup_local_mutability_at(&self, scope_idx: usize, name: SymbolId) -> Option<bool> {
+        self.local_mut_scopes
+            .get(scope_idx)
+            .and_then(|scope| scope.get(&name).copied())
     }
 
     fn lookup_local_type(&self, name: SymbolId) -> Option<TypeId> {
@@ -294,14 +322,198 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             .find_map(|scope| scope.get(&name).copied())
     }
 
-    fn assign_local(&mut self, name: SymbolId, value: ConstValue) -> bool {
-        for scope in self.local_scopes.iter_mut().rev() {
-            if let Some(slot) = scope.get_mut(&name) {
-                *slot = value;
-                return true;
-            }
+    fn assign_local_at(&mut self, scope_idx: usize, name: SymbolId, value: ConstValue) -> bool {
+        if let Some(scope) = self.local_scopes.get_mut(scope_idx)
+            && let Some(slot) = scope.get_mut(&name)
+        {
+            *slot = value;
+            return true;
         }
         false
+    }
+
+    fn resolve_local_place(
+        &mut self,
+        name: SymbolId,
+        span: Span,
+    ) -> ConstEvalResult<ResolvedPlace> {
+        if let Some(scope_idx) = self.lookup_local_slot(name) {
+            Ok(ResolvedPlace {
+                root_scope: scope_idx,
+                root_name: name,
+                path: Vec::new(),
+                require_root_mutability: true,
+            })
+        } else {
+            self.ctx
+                .struct_error(
+                    span,
+                    "constant evaluation can only take references to local bindings in the current const context",
+                )
+                .emit();
+            Err(ConstEvalError)
+        }
+    }
+
+    fn project_const_value(
+        &mut self,
+        value: &ConstValue,
+        path: &[PlaceSegment],
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        if path.is_empty() {
+            return Ok(value.clone());
+        }
+
+        match path[0] {
+            PlaceSegment::Field(field) => match value {
+                ConstValue::Struct(map) => {
+                    let Some(next) = map.get(&field) else {
+                        let field_str = self.ctx.resolve(field);
+                        self.ctx
+                            .struct_error(
+                                span,
+                                format!("field `{}` not found in constant struct", field_str),
+                            )
+                            .emit();
+                        return Err(ConstEvalError);
+                    };
+                    self.project_const_value(next, &path[1..], span)
+                }
+                _ => {
+                    self.ctx
+                        .struct_error(span, "attempted field access on a non-struct constant")
+                        .emit();
+                    Err(ConstEvalError)
+                }
+            },
+            PlaceSegment::Index(index) => match value {
+                ConstValue::Array(items) => {
+                    let Some(next) = items.get(index) else {
+                        self.ctx
+                            .struct_error(span, "constant array index out of bounds")
+                            .emit();
+                        return Err(ConstEvalError);
+                    };
+                    self.project_const_value(next, &path[1..], span)
+                }
+                _ => {
+                    self.ctx
+                        .struct_error(span, "attempted indexing into a non-array constant")
+                        .emit();
+                    Err(ConstEvalError)
+                }
+            },
+        }
+    }
+
+    fn read_place_value(
+        &mut self,
+        root_scope: usize,
+        root_name: SymbolId,
+        path: &[PlaceSegment],
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        let Some(root_value) = self.lookup_local_at(root_scope, root_name) else {
+            self.ctx
+                .struct_error(
+                    span,
+                    "constant pointer target is no longer available in the current local scope",
+                )
+                .emit();
+            return Err(ConstEvalError);
+        };
+
+        self.project_const_value(&root_value, path, span)
+    }
+
+    fn resolve_pointer_target(
+        &mut self,
+        value: &ConstValue,
+        require_mut: bool,
+        span: Span,
+    ) -> ConstEvalResult<ResolvedPlace> {
+        match value {
+            ConstValue::Pointer {
+                root_scope,
+                root_name,
+                path,
+                is_mut,
+            } => {
+                if require_mut && !*is_mut {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "constant evaluation cannot mutate through an immutable pointer",
+                        )
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+
+                Ok(ResolvedPlace {
+                    root_scope: *root_scope,
+                    root_name: *root_name,
+                    path: path.clone(),
+                    require_root_mutability: false,
+                })
+            }
+            _ => {
+                self.ctx
+                    .struct_error(span, "expected a local pointer in constant evaluation")
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
+    }
+
+    fn resolve_reference_place(
+        &mut self,
+        expr: &Expr,
+        depth: usize,
+        require_mut: bool,
+    ) -> ConstEvalResult<ResolvedPlace> {
+        match &expr.kind {
+            ExprKind::Identifier(name) => self.resolve_local_place(*name, expr.span),
+            ExprKind::SelfValue => {
+                let self_name = self.ctx.intern("self");
+                self.resolve_local_place(self_name, expr.span)
+            }
+            ExprKind::Unary {
+                op: UnaryOperator::PointerDeRef,
+                operand,
+            } => {
+                let pointer = self.eval_inner(operand, depth + 1)?;
+                self.resolve_pointer_target(&pointer, require_mut, expr.span)
+            }
+            ExprKind::FieldAccess { lhs, field } => {
+                let lhs_norm = self.expr_type(lhs);
+
+                let mut place = match self.ctx.type_registry.get(lhs_norm).clone() {
+                    TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } => {
+                        let pointer = self.eval_inner(lhs, depth + 1)?;
+                        self.resolve_pointer_target(&pointer, require_mut, lhs.span)?
+                    }
+                    _ => self.resolve_reference_place(lhs, depth + 1, require_mut)?,
+                };
+                place.path.push(PlaceSegment::Field(*field));
+                Ok(place)
+            }
+            ExprKind::IndexAccess { lhs, index, .. } => {
+                let mut place = self.resolve_reference_place(lhs, depth + 1, require_mut)?;
+                let idx = self.eval_usize(index)? as usize;
+                place.path.push(PlaceSegment::Index(idx));
+                Ok(place)
+            }
+            _ => {
+                self.ctx
+                    .struct_error(
+                        expr.span,
+                        "constant evaluation currently supports references only to local bindings, explicit pointer dereferences, struct fields, or array elements",
+                    )
+                    .emit();
+                Err(ConstEvalError)
+            }
+        }
     }
 
     fn resolve_symbol_info(&self, name: SymbolId) -> Option<crate::scope::SymbolInfo> {
@@ -875,7 +1087,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
             // === 7. 常量聚合访问 (提取结构体字段和数组索引) ===
             ExprKind::FieldAccess { lhs, field } => {
-                let norm_lhs = self.node_type(lhs.id);
+                let norm_lhs = self.expr_type(lhs);
 
                 if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_lhs).clone() {
                     let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
@@ -923,27 +1135,21 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                 } else {
                     let base = self.eval_inner(lhs, depth + 1)?;
-                    if let ConstValue::Struct(map) = base {
-                        if let Some(val) = map.get(field) {
-                            Ok(val.clone())
-                        } else {
-                            let field_str = self.ctx.resolve(*field);
-                            self.ctx
-                                .struct_error(
-                                    expr.span,
-                                    format!("field `{}` not found in constant struct", field_str),
-                                )
-                                .emit();
-                            Err(ConstEvalError)
+                    match base {
+                        ConstValue::Pointer {
+                            root_scope,
+                            root_name,
+                            mut path,
+                            ..
+                        } => {
+                            path.push(PlaceSegment::Field(*field));
+                            self.read_place_value(root_scope, root_name, &path, expr.span)
                         }
-                    } else {
-                        self.ctx
-                            .struct_error(
-                                expr.span,
-                                "attempted field access on a non-struct constant",
-                            )
-                            .emit();
-                        Err(ConstEvalError)
+                        other => self.project_const_value(
+                            &other,
+                            &[PlaceSegment::Field(*field)],
+                            expr.span,
+                        ),
                     }
                 }
             }
@@ -951,20 +1157,21 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::IndexAccess { lhs, index, .. } => {
                 let base = self.eval_inner(lhs, depth + 1)?;
                 let idx = self.eval_usize(index)?;
-                if let ConstValue::Array(arr) = base {
-                    if idx < arr.len() as u64 {
-                        Ok(arr[idx as usize].clone())
-                    } else {
-                        self.ctx
-                            .struct_error(expr.span, "constant array index out of bounds")
-                            .emit();
-                        Err(ConstEvalError)
+                match base {
+                    ConstValue::Pointer {
+                        root_scope,
+                        root_name,
+                        mut path,
+                        ..
+                    } => {
+                        path.push(PlaceSegment::Index(idx as usize));
+                        self.read_place_value(root_scope, root_name, &path, expr.span)
                     }
-                } else {
-                    self.ctx
-                        .struct_error(expr.span, "attempted indexing into a non-array constant")
-                        .emit();
-                    Err(ConstEvalError)
+                    other => self.project_const_value(
+                        &other,
+                        &[PlaceSegment::Index(idx as usize)],
+                        expr.span,
+                    ),
                 }
             }
 
@@ -1195,6 +1402,26 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
+        if matches!(op, UnaryOperator::AddressOf | UnaryOperator::MutAddressOf) {
+            let place = self.resolve_reference_place(
+                operand,
+                depth + 1,
+                op == UnaryOperator::MutAddressOf,
+            )?;
+            return Ok(ConstValue::Pointer {
+                root_scope: place.root_scope,
+                root_name: place.root_name,
+                path: place.path,
+                is_mut: op == UnaryOperator::MutAddressOf,
+            });
+        }
+
+        if op == UnaryOperator::PointerDeRef {
+            let pointer = self.eval_inner(operand, depth + 1)?;
+            let place = self.resolve_pointer_target(&pointer, false, span)?;
+            return self.read_place_value(place.root_scope, place.root_name, &place.path, span);
+        }
+
         let val = self.eval_inner(operand, depth + 1)?;
 
         let norm_ty = self.node_type(operand.id);
@@ -1515,28 +1742,31 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        let (name, path) = self.resolve_assignment_place(lhs, depth)?;
+        let place = self.resolve_assignment_place(lhs, depth)?;
 
-        let Some(is_mut) = self.lookup_local_mutability(name) else {
-            self.ctx
-                .struct_error(
-                    span,
-                    "constant evaluation can only assign to local bindings declared in the current const context",
-                )
-                .emit();
-            return Err(ConstEvalError);
-        };
-        if !is_mut {
-            self.ctx
-                .struct_error(
-                    span,
-                    "cannot assign to an immutable local binding in constant evaluation",
-                )
-                .emit();
-            return Err(ConstEvalError);
+        if place.require_root_mutability {
+            let Some(is_mut) = self.lookup_local_mutability_at(place.root_scope, place.root_name)
+            else {
+                self.ctx
+                    .struct_error(
+                        span,
+                        "constant evaluation can only assign to local bindings declared in the current const context",
+                    )
+                    .emit();
+                return Err(ConstEvalError);
+            };
+            if !is_mut {
+                self.ctx
+                    .struct_error(
+                        span,
+                        "cannot assign to an immutable local binding in constant evaluation",
+                    )
+                    .emit();
+                return Err(ConstEvalError);
+            }
         }
 
-        let Some(mut root_value) = self.lookup_local(name) else {
+        let Some(mut root_value) = self.lookup_local_at(place.root_scope, place.root_name) else {
             self.ctx
                 .struct_error(
                     span,
@@ -1547,14 +1777,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         };
         let rhs_value = self.eval_inner(rhs, depth + 1)?;
 
-        if path.is_empty() {
+        if place.path.is_empty() {
             let next_value = if op == AssignmentOperator::Assign {
                 rhs_value
             } else {
                 self.apply_assignment_operator(root_value, op, rhs_value, span)?
             };
 
-            if !self.assign_local(name, next_value) {
+            if !self.assign_local_at(place.root_scope, place.root_name, next_value) {
                 self.ctx
                     .struct_error(
                         span,
@@ -1567,7 +1797,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Ok(ConstValue::Void);
         }
 
-        let target = self.place_value_mut(&mut root_value, &path, span)?;
+        let target = self.place_value_mut(&mut root_value, &place.path, span)?;
         let next_value = if op == AssignmentOperator::Assign {
             rhs_value
         } else {
@@ -1575,7 +1805,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         };
         *target = next_value;
 
-        if !self.assign_local(name, root_value) {
+        if !self.assign_local_at(place.root_scope, place.root_name, root_value) {
             self.ctx
                 .struct_error(
                     span,
@@ -1592,31 +1822,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         &mut self,
         expr: &Expr,
         depth: usize,
-    ) -> ConstEvalResult<(SymbolId, Vec<PlaceSegment>)> {
-        match &expr.kind {
-            ExprKind::Identifier(name) => Ok((*name, Vec::new())),
-            ExprKind::SelfValue => Ok((self.ctx.intern("self"), Vec::new())),
-            ExprKind::FieldAccess { lhs, field } => {
-                let (root, mut path) = self.resolve_assignment_place(lhs, depth + 1)?;
-                path.push(PlaceSegment::Field(*field));
-                Ok((root, path))
-            }
-            ExprKind::IndexAccess { lhs, index, .. } => {
-                let (root, mut path) = self.resolve_assignment_place(lhs, depth + 1)?;
-                let idx = self.eval_usize(index)? as usize;
-                path.push(PlaceSegment::Index(idx));
-                Ok((root, path))
-            }
-            _ => {
-                self.ctx
-                    .struct_error(
-                        expr.span,
-                        "constant evaluation currently supports assignment only to local bindings, struct fields, or array elements",
-                    )
-                    .emit();
-                Err(ConstEvalError)
-            }
-        }
+    ) -> ConstEvalResult<ResolvedPlace> {
+        self.resolve_reference_place(expr, depth + 1, true)
     }
 
     fn place_value_mut<'b>(

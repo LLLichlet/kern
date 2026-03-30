@@ -2,6 +2,7 @@ mod cli;
 mod discover;
 mod error;
 mod graph;
+mod lockfile;
 mod manifest;
 mod workspace;
 

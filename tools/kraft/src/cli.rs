@@ -1,6 +1,7 @@
 use crate::discover;
 use crate::error::{Error, Result};
 use crate::graph;
+use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::workspace;
 use std::env;
@@ -9,6 +10,7 @@ use std::path::{Path, PathBuf};
 pub enum Command {
     Help,
     Check { path: Option<PathBuf> },
+    Lock { path: Option<PathBuf> },
 }
 
 pub fn run() -> Result<()> {
@@ -18,30 +20,33 @@ pub fn run() -> Result<()> {
             Ok(())
         }
         Command::Check { path } => {
-            let manifest_path = discover::resolve_manifest_path(path.as_deref())?;
-            let manifest = Manifest::load(&manifest_path)?;
-            manifest.validate(&manifest_path)?;
-            let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
-            let package_graph = graph::build_graph(&manifest_path, &manifest, &workspace_members)?;
+            let loaded = load_package_graph(path.as_deref())?;
 
-            let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+            let package_root = loaded
+                .manifest_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."));
             let kraft_script = package_root.join("kraft.kr");
             let build_script = package_root.join("build.kr");
 
-            println!("checked {}", manifest_path.display());
-            if let Some(package) = &manifest.package {
+            println!("checked {}", loaded.manifest_path.display());
+            if let Some(package) = &loaded.manifest.package {
                 println!("package: {} {}", package.name, package.version);
             } else {
                 println!("package: <none>");
             }
-            if let Some(workspace) = &manifest.workspace {
+            if let Some(workspace) = &loaded.manifest.workspace {
                 println!("workspace members: {}", workspace.members.len());
             } else {
                 println!("workspace members: 0");
             }
-            println!("validated workspace members: {}", workspace_members.len());
-            if !workspace_members.is_empty() {
-                let member_names = workspace_members
+            println!(
+                "validated workspace members: {}",
+                loaded.workspace_members.len()
+            );
+            if !loaded.workspace_members.is_empty() {
+                let member_names = loaded
+                    .workspace_members
                     .iter()
                     .map(|member| {
                         member
@@ -56,35 +61,37 @@ pub fn run() -> Result<()> {
                 println!("member packages: {member_names}");
                 println!(
                     "member manifests: {}",
-                    workspace_members
+                    loaded
+                        .workspace_members
                         .iter()
                         .map(|member| member.manifest_path.display().to_string())
                         .collect::<Vec<_>>()
                         .join(", ")
                 );
             }
-            let edge_count = package_graph
+            let edge_count = loaded
+                .package_graph
                 .packages
                 .iter()
                 .map(|pkg| pkg.dependencies.len())
                 .sum::<usize>();
             println!(
                 "graph: packages={} dependency_edges={}",
-                package_graph.packages.len(),
+                loaded.package_graph.packages.len(),
                 edge_count
             );
             println!(
                 "targets: lib={} bin={} test={} example={}",
-                usize::from(manifest.lib.is_some()),
-                manifest.bin.len(),
-                manifest.test.len(),
-                manifest.example.len()
+                usize::from(loaded.manifest.lib.is_some()),
+                loaded.manifest.bin.len(),
+                loaded.manifest.test.len(),
+                loaded.manifest.example.len()
             );
             println!(
                 "dependencies: normal={} dev={} build={}",
-                manifest.dependencies.len(),
-                manifest.dev_dependencies.len(),
-                manifest.build_dependencies.len()
+                loaded.manifest.dependencies.len(),
+                loaded.manifest.dev_dependencies.len(),
+                loaded.manifest.build_dependencies.len()
             );
             println!(
                 "scripts: kraft.kr={} build.kr={}",
@@ -94,7 +101,48 @@ pub fn run() -> Result<()> {
 
             Ok(())
         }
+        Command::Lock { path } => {
+            let loaded = load_package_graph(path.as_deref())?;
+            let lock_path = lockfile::write_lockfile(&loaded.manifest_path, &loaded.package_graph)?;
+            let edge_count = loaded
+                .package_graph
+                .packages
+                .iter()
+                .map(|pkg| pkg.dependencies.len())
+                .sum::<usize>();
+
+            println!("locked {}", lock_path.display());
+            println!(
+                "graph: packages={} dependency_edges={}",
+                loaded.package_graph.packages.len(),
+                edge_count
+            );
+
+            Ok(())
+        }
     }
+}
+
+struct LoadedPackageGraph {
+    manifest_path: PathBuf,
+    manifest: Manifest,
+    workspace_members: Vec<workspace::WorkspaceMember>,
+    package_graph: graph::PackageGraph,
+}
+
+fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
+    let manifest_path = discover::resolve_manifest_path(path)?;
+    let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
+    let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let package_graph = graph::build_graph(&manifest_path, &manifest, &workspace_members)?;
+
+    Ok(LoadedPackageGraph {
+        manifest_path,
+        manifest,
+        workspace_members,
+        package_graph,
+    })
 }
 
 fn parse_args<I>(args: I) -> Result<Command>
@@ -107,6 +155,10 @@ where
         [cmd] if cmd == "help" || cmd == "--help" || cmd == "-h" => Ok(Command::Help),
         [cmd] if cmd == "check" => Ok(Command::Check { path: None }),
         [cmd, path] if cmd == "check" => Ok(Command::Check {
+            path: Some(PathBuf::from(path)),
+        }),
+        [cmd] if cmd == "lock" => Ok(Command::Lock { path: None }),
+        [cmd, path] if cmd == "lock" => Ok(Command::Lock {
             path: Some(PathBuf::from(path)),
         }),
         _ => Err(Error::Usage(format!(
@@ -124,9 +176,11 @@ kraft - Kern package manager and builder
 USAGE:
     kraft help
     kraft check [PATH]
+    kraft lock [PATH]
 
 COMMANDS:
     help         Show this help text
     check        Discover, parse, and validate Kraft.toml
+    lock         Write a deterministic Kraft.lock from the current package graph
 "
 }

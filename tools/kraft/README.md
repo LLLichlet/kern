@@ -7,11 +7,15 @@ This directory intentionally lives under `tools/` rather than `compiler/`.
 - `kernc` is the compiler driver.
 - `kraft` is the package graph resolver, lockfile manager, and build planner.
 
-The current implementation now covers phase 1:
+The current implementation now covers the first graph and lockfile milestones:
 
 - `Kraft.toml` discovery
 - manifest parsing
-- basic validation
+- manifest validation
 - `kraft check`
+- workspace discovery and validation
+- local package graph construction
+- `workspace = true` dependency inheritance
+- deterministic `Kraft.lock` writing via `kraft lock`
 
 See [docs/kraft.md](../../docs/kraft.md) for the V1 design draft.

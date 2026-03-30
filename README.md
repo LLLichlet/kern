@@ -91,7 +91,7 @@ The compiler is currently in its **`v0.6.x`** series, focused on release enginee
   * **[Delivered] v0.4.x (Language Core & Modules):** Implementation of the explicit module tree system (`mod`), core language unifications (unified `enum` types, exhaustive `match` branching, explicit `as` conversions), and the initial cross-platform freestanding standard library (`std`).
   * **[Delivered] v0.5.x (Workspace, Cross-Platform & Stdlib Stabilization):** Complete decoupled compiler workspace (`kernc_*`), native Windows support, hosted/freestanding link profiles, stronger test coverage, and substantial `std` growth.
   * **[Current-Focus] v0.6.x (Release Engineering, Darwin & Library Maturation):** Hardened release automation, macOS distribution support, broader standard library ergonomics, and continued compiler/runtime polish.
-  * **[Future] v0.7.x (Ecosystem, Tooling & Self-Hosting):** Package management foundations, expanding the native Kern toolchain, comprehensive standard library maturation, and exploring initial steps toward compiler self-hosting (tentative).
+  * **[Future] v0.7.x (Ecosystem, Tooling & Self-Hosting):** `kraft` package management and build orchestration, expanding the native Kern toolchain, comprehensive standard library maturation, and exploring initial steps toward compiler self-hosting (tentative).
 
 ## Installation
 
@@ -130,6 +130,7 @@ cargo build --release
 
   * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
   * **[Kern Language Design Document](docs/design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
+  * **[The `kraft` Design Draft](docs/kraft.md)**: The proposed package manager, lockfile, manifest, and build-planning architecture.
   * *(Coming Soon)* **The Kern Type System**: A guide to understanding Kern's Contextual Top-Down Bidirectional Type Checking and ConstEval models.
 
 ## Contributing

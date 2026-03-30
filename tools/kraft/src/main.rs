@@ -4,6 +4,7 @@ mod error;
 mod graph;
 mod lockfile;
 mod manifest;
+mod resolver;
 mod workspace;
 
 fn main() {

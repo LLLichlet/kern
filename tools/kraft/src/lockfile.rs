@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
-use crate::graph::{DependencyKind, DependencyTarget, PackageGraph, PackageId, SourceId};
+use crate::graph::{DependencyKind, PackageId, SourceId};
+use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget, ResolvedGraph};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +11,7 @@ pub struct Lockfile {
     pub manifest: String,
     pub manifest_digest: String,
     pub packages: Vec<LockedPackage>,
+    pub external_packages: Vec<LockedExternalPackage>,
     pub dependencies: Vec<LockedDependency>,
 }
 
@@ -31,8 +33,15 @@ pub struct LockedDependency {
     pub name: String,
     pub package: String,
     pub target_kind: String,
-    pub target_value: Option<String>,
-    pub target_id: Option<String>,
+    pub target_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedExternalPackage {
+    pub id: String,
+    pub name: String,
+    pub source_kind: String,
+    pub source_value: Option<String>,
     pub version: Option<String>,
 }
 
@@ -54,15 +63,16 @@ pub enum LockWriteResult {
 enum Section {
     Root,
     Package(usize),
+    ExternalPackage(usize),
     Dependency(usize),
 }
 
 pub fn sync_lockfile(
     manifest_path: &Path,
-    graph: &PackageGraph,
+    resolved: &ResolvedGraph,
 ) -> Result<(PathBuf, LockWriteResult)> {
-    let lock_path = graph.workspace_root.join("Kraft.lock");
-    let expected = Lockfile::from_graph(manifest_path, graph)?;
+    let lock_path = resolved.workspace_root.join("Kraft.lock");
+    let expected = Lockfile::from_resolved(manifest_path, resolved)?;
 
     if lock_path.is_file() {
         let actual = Lockfile::load(&lock_path)?;
@@ -81,14 +91,14 @@ pub fn sync_lockfile(
     Ok((lock_path, result))
 }
 
-pub fn lock_status(manifest_path: &Path, graph: &PackageGraph) -> Result<LockStatus> {
-    let lock_path = graph.workspace_root.join("Kraft.lock");
+pub fn lock_status(manifest_path: &Path, resolved: &ResolvedGraph) -> Result<LockStatus> {
+    let lock_path = resolved.workspace_root.join("Kraft.lock");
     if !lock_path.is_file() {
         return Ok(LockStatus::Missing);
     }
 
     let actual = Lockfile::load(&lock_path)?;
-    let expected = Lockfile::from_graph(manifest_path, graph)?;
+    let expected = Lockfile::from_resolved(manifest_path, resolved)?;
     if actual == expected {
         Ok(LockStatus::Current)
     } else {
@@ -104,15 +114,16 @@ impl Lockfile {
         Ok(lockfile)
     }
 
-    pub fn from_graph(manifest_path: &Path, graph: &PackageGraph) -> Result<Self> {
-        let root = &graph.workspace_root;
+    pub fn from_resolved(manifest_path: &Path, resolved: &ResolvedGraph) -> Result<Self> {
+        let root = &resolved.workspace_root;
         let manifest = relative_display(root, manifest_path);
         let manifest_digest = digest_file(manifest_path)?;
 
         let mut packages = Vec::new();
+        let mut external_packages = Vec::new();
         let mut dependencies = Vec::new();
 
-        for package in &graph.packages {
+        for package in &resolved.packages {
             let package_id = package_lock_id(&package.id);
             packages.push(LockedPackage {
                 id: package_id.clone(),
@@ -125,19 +136,13 @@ impl Lockfile {
             });
 
             for dep in &package.dependencies {
-                let (target_kind, target_value, target_id, version) = match &dep.target {
-                    DependencyTarget::Local(target) => (
-                        "local",
-                        None,
-                        Some(package_lock_id(target)),
-                        Some(target.version.clone()),
-                    ),
-                    DependencyTarget::External(target) => (
-                        source_kind(&target.source),
-                        source_value(&target.source),
-                        None,
-                        target.version.clone(),
-                    ),
+                let (target_kind, target_id) = match &dep.target {
+                    ResolvedDependencyTarget::Local(target) => {
+                        ("local".to_string(), package_lock_id(target))
+                    }
+                    ResolvedDependencyTarget::External(target) => {
+                        ("external".to_string(), external_package_lock_id(target))
+                    }
                 };
 
                 dependencies.push(LockedDependency {
@@ -145,12 +150,20 @@ impl Lockfile {
                     kind: dependency_kind(dep.kind).to_string(),
                     name: dep.dependency_name.clone(),
                     package: dep.package_name.clone(),
-                    target_kind: target_kind.to_string(),
-                    target_value,
+                    target_kind,
                     target_id,
-                    version,
                 });
             }
+        }
+
+        for package in &resolved.external_packages {
+            external_packages.push(LockedExternalPackage {
+                id: external_package_lock_id(&package.id),
+                name: package.id.package_name.clone(),
+                source_kind: source_kind(&package.id.source).to_string(),
+                source_value: source_value(&package.id.source),
+                version: package.id.version.clone(),
+            });
         }
 
         Ok(Self {
@@ -158,6 +171,7 @@ impl Lockfile {
             manifest,
             manifest_digest,
             packages,
+            external_packages,
             dependencies,
         })
     }
@@ -168,6 +182,7 @@ impl Lockfile {
             manifest: String::new(),
             manifest_digest: String::new(),
             packages: Vec::new(),
+            external_packages: Vec::new(),
             dependencies: Vec::new(),
         };
         let mut section = Section::Root;
@@ -190,6 +205,16 @@ impl Lockfile {
                         });
                         Section::Package(lockfile.packages.len() - 1)
                     }
+                    "[[external-package]]" => {
+                        lockfile.external_packages.push(LockedExternalPackage {
+                            id: String::new(),
+                            name: String::new(),
+                            source_kind: String::new(),
+                            source_value: None,
+                            version: None,
+                        });
+                        Section::ExternalPackage(lockfile.external_packages.len() - 1)
+                    }
                     "[[dependency]]" => {
                         lockfile.dependencies.push(LockedDependency {
                             from: String::new(),
@@ -197,9 +222,7 @@ impl Lockfile {
                             name: String::new(),
                             package: String::new(),
                             target_kind: String::new(),
-                            target_value: None,
-                            target_id: None,
-                            version: None,
+                            target_id: String::new(),
                         });
                         Section::Dependency(lockfile.dependencies.len() - 1)
                     }
@@ -271,6 +294,30 @@ impl Lockfile {
             )?;
         }
 
+        let mut external_ids = BTreeSet::new();
+        for package in &self.external_packages {
+            validate_non_empty(path, "[[external-package]].id", &package.id)?;
+            validate_non_empty(path, "[[external-package]].name", &package.name)?;
+            validate_source_kind(path, "[[external-package]].source", &package.source_kind)?;
+            if matches!(package.source_kind.as_str(), "path" | "workspace-member")
+                && package.source_value.is_none()
+            {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "[[external-package]] `{}` requires `source-value` for source `{}`",
+                        package.id, package.source_kind
+                    ),
+                });
+            }
+            if !external_ids.insert(package.id.as_str()) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!("duplicate external package id `{}`", package.id),
+                });
+            }
+        }
+
         for dependency in &self.dependencies {
             validate_non_empty(path, "[[dependency]].from", &dependency.from)?;
             if !package_ids.contains(dependency.from.as_str()) {
@@ -286,30 +333,27 @@ impl Lockfile {
             validate_non_empty(path, "[[dependency]].name", &dependency.name)?;
             validate_non_empty(path, "[[dependency]].package", &dependency.package)?;
             validate_target_kind(path, "[[dependency]].target", &dependency.target_kind)?;
+            validate_non_empty(path, "[[dependency]].target-id", &dependency.target_id)?;
             match dependency.target_kind.as_str() {
                 "local" => {
-                    let Some(target_id) = &dependency.target_id else {
-                        return Err(Error::LockfileValidation {
-                            path: path.to_path_buf(),
-                            message: "[[dependency]] with target `local` requires `target-id`"
-                                .to_string(),
-                        });
-                    };
-                    if !package_ids.contains(target_id.as_str()) {
+                    if !package_ids.contains(dependency.target_id.as_str()) {
                         return Err(Error::LockfileValidation {
                             path: path.to_path_buf(),
                             message: format!(
-                                "[[dependency]] references unknown local target id `{target_id}`"
+                                "[[dependency]] references unknown local target id `{}`",
+                                dependency.target_id
                             ),
                         });
                     }
                 }
-                "path" => {
-                    if dependency.target_value.is_none() {
+                "external" => {
+                    if !external_ids.contains(dependency.target_id.as_str()) {
                         return Err(Error::LockfileValidation {
                             path: path.to_path_buf(),
-                            message: "[[dependency]] with target `path` requires `target-value`"
-                                .to_string(),
+                            message: format!(
+                                "[[dependency]] references unknown external target id `{}`",
+                                dependency.target_id
+                            ),
                         });
                     }
                 }
@@ -343,6 +387,20 @@ impl Lockfile {
             push_string_line(&mut out, "manifest-digest", &package.manifest_digest);
         }
 
+        for package in &self.external_packages {
+            out.push('\n');
+            out.push_str("[[external-package]]\n");
+            push_string_line(&mut out, "id", &package.id);
+            push_string_line(&mut out, "name", &package.name);
+            push_string_line(&mut out, "source", &package.source_kind);
+            if let Some(value) = &package.source_value {
+                push_string_line(&mut out, "source-value", value);
+            }
+            if let Some(version) = &package.version {
+                push_string_line(&mut out, "version", version);
+            }
+        }
+
         for dependency in &self.dependencies {
             out.push('\n');
             out.push_str("[[dependency]]\n");
@@ -351,15 +409,7 @@ impl Lockfile {
             push_string_line(&mut out, "name", &dependency.name);
             push_string_line(&mut out, "package", &dependency.package);
             push_string_line(&mut out, "target", &dependency.target_kind);
-            if let Some(value) = &dependency.target_value {
-                push_string_line(&mut out, "target-value", value);
-            }
-            if let Some(target_id) = &dependency.target_id {
-                push_string_line(&mut out, "target-id", target_id);
-            }
-            if let Some(version) = &dependency.version {
-                push_string_line(&mut out, "version", version);
-            }
+            push_string_line(&mut out, "target-id", &dependency.target_id);
         }
 
         out
@@ -392,6 +442,17 @@ fn assign_key_value(
                 _ => return Err(format!("unsupported [[package]] key `{key}`")),
             }
         }
+        Section::ExternalPackage(index) => {
+            let package = &mut lockfile.external_packages[index];
+            match key {
+                "id" => package.id = parse_string(raw_value)?,
+                "name" => package.name = parse_string(raw_value)?,
+                "source" => package.source_kind = parse_string(raw_value)?,
+                "source-value" => package.source_value = Some(parse_string(raw_value)?),
+                "version" => package.version = Some(parse_string(raw_value)?),
+                _ => return Err(format!("unsupported [[external-package]] key `{key}`")),
+            }
+        }
         Section::Dependency(index) => {
             let dependency = &mut lockfile.dependencies[index];
             match key {
@@ -400,9 +461,7 @@ fn assign_key_value(
                 "name" => dependency.name = parse_string(raw_value)?,
                 "package" => dependency.package = parse_string(raw_value)?,
                 "target" => dependency.target_kind = parse_string(raw_value)?,
-                "target-value" => dependency.target_value = Some(parse_string(raw_value)?),
-                "target-id" => dependency.target_id = Some(parse_string(raw_value)?),
-                "version" => dependency.version = Some(parse_string(raw_value)?),
+                "target-id" => dependency.target_id = parse_string(raw_value)?,
                 _ => return Err(format!("unsupported [[dependency]] key `{key}`")),
             }
         }
@@ -432,6 +491,31 @@ fn package_lock_id(id: &PackageId) -> String {
             format!("{} {} registry:{name}", id.name, id.version)
         }
         SourceId::Registry { name: None } => format!("{} {} registry", id.name, id.version),
+    }
+}
+
+fn external_package_lock_id(id: &ExternalPackageId) -> String {
+    match &id.source {
+        SourceId::PathDependency { path } => match &id.version {
+            Some(version) => format!("{} {} path:{path}", id.package_name, version),
+            None => format!("{} path:{path}", id.package_name),
+        },
+        SourceId::Registry { name: Some(name) } => match &id.version {
+            Some(version) => format!("{} {} registry:{name}", id.package_name, version),
+            None => format!("{} registry:{name}", id.package_name),
+        },
+        SourceId::Registry { name: None } => match &id.version {
+            Some(version) => format!("{} {} registry", id.package_name, version),
+            None => format!("{} registry", id.package_name),
+        },
+        SourceId::WorkspaceMember { path } => match &id.version {
+            Some(version) => format!("{} {} workspace-member:{path}", id.package_name, version),
+            None => format!("{} workspace-member:{path}", id.package_name),
+        },
+        SourceId::Root => match &id.version {
+            Some(version) => format!("{} {} root", id.package_name, version),
+            None => format!("{} root", id.package_name),
+        },
     }
 }
 
@@ -628,7 +712,7 @@ fn validate_kind(path: &Path, field: &str, value: &str) -> Result<()> {
 
 fn validate_target_kind(path: &Path, field: &str, value: &str) -> Result<()> {
     match value {
-        "local" | "path" | "registry" => Ok(()),
+        "local" | "external" => Ok(()),
         _ => Err(Error::LockfileValidation {
             path: path.to_path_buf(),
             message: format!("{field} has unsupported dependency target `{value}`"),
@@ -675,6 +759,7 @@ mod tests {
     use super::{LockStatus, LockWriteResult, Lockfile, lock_status, sync_lockfile};
     use crate::graph::build_graph;
     use crate::manifest::Manifest;
+    use crate::resolver::resolve_graph;
     use crate::workspace::load_members;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -737,16 +822,18 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let lockfile = Lockfile::from_graph(&manifest_path, &graph).unwrap();
+        let resolved = resolve_graph(&graph);
+        let lockfile = Lockfile::from_resolved(&manifest_path, &resolved).unwrap();
         let rendered = lockfile.render();
 
         assert!(rendered.contains("version = 1"));
         assert!(rendered.contains("[[package]]"));
+        assert!(rendered.contains("[[external-package]]"));
         assert!(rendered.contains("id = \"app 0.1.0 workspace-member:app\""));
         assert!(rendered.contains("target-id = \"util 0.1.0 workspace-member:util\""));
         assert!(rendered.contains("name = \"shared\""));
-        assert!(rendered.contains("target = \"registry\""));
-        assert!(rendered.contains("version = \"2\""));
+        assert!(rendered.contains("target = \"external\""));
+        assert!(rendered.contains("id = \"shared 2 registry\""));
         assert!(rendered.contains("manifest-digest = \"fnv1a64:"));
 
         let _ = fs::remove_dir_all(root);
@@ -787,8 +874,9 @@ shared = { workspace = true }
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let expected = Lockfile::from_graph(&manifest_path, &graph).unwrap();
-        let (lock_path, _) = sync_lockfile(&manifest_path, &graph).unwrap();
+        let resolved = resolve_graph(&graph);
+        let expected = Lockfile::from_resolved(&manifest_path, &resolved).unwrap();
+        let (lock_path, _) = sync_lockfile(&manifest_path, &resolved).unwrap();
         let loaded = Lockfile::load(&lock_path).unwrap();
 
         assert_eq!(loaded, expected);
@@ -825,7 +913,8 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let (lock_path, _) = sync_lockfile(&manifest_path, &graph).unwrap();
+        let resolved = resolve_graph(&graph);
+        let (lock_path, _) = sync_lockfile(&manifest_path, &resolved).unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
 
         assert_eq!(lock_path, root.join("Kraft.lock"));
@@ -863,11 +952,12 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
+        let resolved = resolve_graph(&graph);
 
-        let (_, created) = sync_lockfile(&manifest_path, &graph).unwrap();
+        let (_, created) = sync_lockfile(&manifest_path, &resolved).unwrap();
         assert_eq!(created, LockWriteResult::Created);
 
-        let (_, unchanged) = sync_lockfile(&manifest_path, &graph).unwrap();
+        let (_, unchanged) = sync_lockfile(&manifest_path, &resolved).unwrap();
         assert_eq!(unchanged, LockWriteResult::Unchanged);
 
         fs::write(
@@ -884,7 +974,8 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let (_, updated) = sync_lockfile(&manifest_path, &graph).unwrap();
+        let resolved = resolve_graph(&graph);
+        let (_, updated) = sync_lockfile(&manifest_path, &resolved).unwrap();
         assert_eq!(updated, LockWriteResult::Updated);
 
         let _ = fs::remove_dir_all(root);
@@ -919,15 +1010,16 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
+        let resolved = resolve_graph(&graph);
 
         assert_eq!(
-            lock_status(&manifest_path, &graph).unwrap(),
+            lock_status(&manifest_path, &resolved).unwrap(),
             LockStatus::Missing
         );
 
-        let _ = sync_lockfile(&manifest_path, &graph).unwrap();
+        let _ = sync_lockfile(&manifest_path, &resolved).unwrap();
         assert_eq!(
-            lock_status(&manifest_path, &graph).unwrap(),
+            lock_status(&manifest_path, &resolved).unwrap(),
             LockStatus::Current
         );
 
@@ -945,8 +1037,9 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
+        let resolved = resolve_graph(&graph);
         assert_eq!(
-            lock_status(&manifest_path, &graph).unwrap(),
+            lock_status(&manifest_path, &resolved).unwrap(),
             LockStatus::Stale
         );
 
@@ -973,20 +1066,25 @@ source-value = "app"
 manifest = "app/Kraft.toml"
 manifest-digest = "fnv1a64:1234567890abcdef"
 
+[[external-package]]
+id = "util 0.1.0 registry"
+name = "util"
+source = "registry"
+version = "0.1.0"
+
 [[dependency]]
 from = "app 0.1.0 workspace-member:app"
 kind = "normal"
 name = "util"
 package = "util"
-target = "local"
-target-id = "missing 0.1.0 workspace-member:missing"
-version = "0.1.0"
+target = "external"
+target-id = "missing 0.1.0 registry"
 "#,
         )
         .unwrap();
 
         let err = Lockfile::load(&lock_path).unwrap_err();
-        assert!(err.to_string().contains("unknown local target id"));
+        assert!(err.to_string().contains("unknown external target id"));
 
         let _ = fs::remove_dir_all(root);
     }

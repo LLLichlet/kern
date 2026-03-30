@@ -3,6 +3,7 @@ use crate::error::{Error, Result};
 use crate::graph;
 use crate::lockfile;
 use crate::manifest::Manifest;
+use crate::resolver;
 use crate::workspace;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -21,7 +22,7 @@ pub fn run() -> Result<()> {
         }
         Command::Check { path } => {
             let loaded = load_package_graph(path.as_deref())?;
-            let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.package_graph)?;
+            let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.resolved_graph)?;
 
             let package_root = loaded
                 .manifest_path
@@ -82,6 +83,11 @@ pub fn run() -> Result<()> {
                 edge_count
             );
             println!(
+                "resolved: local_packages={} external_packages={}",
+                loaded.resolved_graph.packages.len(),
+                loaded.resolved_graph.external_packages.len()
+            );
+            println!(
                 "targets: lib={} bin={} test={} example={}",
                 usize::from(loaded.manifest.lib.is_some()),
                 loaded.manifest.bin.len(),
@@ -113,7 +119,7 @@ pub fn run() -> Result<()> {
         Command::Lock { path } => {
             let loaded = load_package_graph(path.as_deref())?;
             let (lock_path, lock_result) =
-                lockfile::sync_lockfile(&loaded.manifest_path, &loaded.package_graph)?;
+                lockfile::sync_lockfile(&loaded.manifest_path, &loaded.resolved_graph)?;
             let edge_count = loaded
                 .package_graph
                 .packages
@@ -135,6 +141,11 @@ pub fn run() -> Result<()> {
                 loaded.package_graph.packages.len(),
                 edge_count
             );
+            println!(
+                "resolved: local_packages={} external_packages={}",
+                loaded.resolved_graph.packages.len(),
+                loaded.resolved_graph.external_packages.len()
+            );
 
             Ok(())
         }
@@ -146,6 +157,7 @@ struct LoadedPackageGraph {
     manifest: Manifest,
     workspace_members: Vec<workspace::WorkspaceMember>,
     package_graph: graph::PackageGraph,
+    resolved_graph: resolver::ResolvedGraph,
 }
 
 fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
@@ -154,12 +166,14 @@ fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
     manifest.validate(&manifest_path)?;
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
     let package_graph = graph::build_graph(&manifest_path, &manifest, &workspace_members)?;
+    let resolved_graph = resolver::resolve_graph(&package_graph);
 
     Ok(LoadedPackageGraph {
         manifest_path,
         manifest,
         workspace_members,
         package_graph,
+        resolved_graph,
     })
 }
 

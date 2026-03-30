@@ -15,6 +15,7 @@ The current implementation now covers the first graph and lockfile milestones:
 - `kraft check`
 - workspace discovery and validation
 - local package graph construction
+- resolved external package graph construction
 - `workspace = true` dependency inheritance
 - deterministic `Kraft.lock` writing via `kraft lock`
 - `Kraft.lock` loading, validation, and stale/current status reporting via `kraft check`

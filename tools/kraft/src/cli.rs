@@ -5,7 +5,6 @@ use crate::error::{Error, Result};
 use crate::graph;
 use crate::lockfile;
 use crate::manifest::Manifest;
-use crate::resolver;
 use crate::workspace;
 use std::env;
 use std::path::{Path, PathBuf};
@@ -86,8 +85,8 @@ pub fn run() -> Result<()> {
             );
             println!(
                 "resolved: local_packages={} external_packages={}",
-                loaded.resolved_graph.packages.len(),
-                loaded.resolved_graph.external_packages.len()
+                loaded.elaboration.resolved_graph.packages.len(),
+                loaded.elaboration.resolved_graph.external_packages.len()
             );
             println!(
                 "targets: lib={} bin={} test={} example={}",
@@ -102,9 +101,24 @@ pub fn run() -> Result<()> {
             );
             println!(
                 "dependencies: normal={} dev={} build={}",
-                loaded.manifest.dependencies.len(),
-                loaded.manifest.dev_dependencies.len(),
-                loaded.manifest.build_dependencies.len()
+                loaded
+                    .elaboration
+                    .packages
+                    .iter()
+                    .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Normal))
+                    .sum::<usize>(),
+                loaded
+                    .elaboration
+                    .packages
+                    .iter()
+                    .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Dev))
+                    .sum::<usize>(),
+                loaded
+                    .elaboration
+                    .packages
+                    .iter()
+                    .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Build))
+                    .sum::<usize>()
             );
             println!(
                 "scripts: workspace_kraft={} package_kraft={} build.kr={}",
@@ -165,8 +179,8 @@ pub fn run() -> Result<()> {
             );
             println!(
                 "resolved: local_packages={} external_packages={}",
-                loaded.resolved_graph.packages.len(),
-                loaded.resolved_graph.external_packages.len()
+                loaded.elaboration.resolved_graph.packages.len(),
+                loaded.elaboration.resolved_graph.external_packages.len()
             );
 
             Ok(())
@@ -179,7 +193,6 @@ struct LoadedPackageGraph {
     manifest: Manifest,
     workspace_members: Vec<workspace::WorkspaceMember>,
     package_graph: graph::PackageGraph,
-    resolved_graph: resolver::ResolvedGraph,
     elaboration: elaborate::ElaborationPlan,
 }
 
@@ -188,14 +201,16 @@ fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
-    let package_graph = graph::build_graph(&manifest_path, &manifest, &workspace_members)?;
-    let resolved_graph = resolver::resolve_graph(&package_graph);
     let elaboration = elaborate::plan(
         &manifest_path,
         &manifest,
         &workspace_members,
         manifest.workspace.is_some(),
-        &resolved_graph,
+    )?;
+    let package_graph = graph::build_graph_from_plans(
+        &manifest_path,
+        &manifest,
+        elaboration.packages.iter().map(|pkg| &pkg.plan),
     )?;
 
     Ok(LoadedPackageGraph {
@@ -203,7 +218,6 @@ fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
         manifest,
         workspace_members,
         package_graph,
-        resolved_graph,
         elaboration,
     })
 }

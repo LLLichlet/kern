@@ -132,10 +132,8 @@ fn artifact_name(package_id: &PackageId, kind: TargetKind, target_name: Option<&
 mod tests {
     use super::{ArtifactKind, derive};
     use crate::elaborate::plan;
-    use crate::graph::build_graph;
     use crate::manifest::Manifest;
     use crate::plan::TargetKind;
-    use crate::resolver::resolve_graph;
     use crate::workspace::load_members;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -189,9 +187,7 @@ root = "tests/smoke.kr"
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
-        let graph = build_graph(&manifest_path, &manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &manifest, &members, true).unwrap();
         let build_plan = derive(&elaboration).unwrap();
 
         assert_eq!(build_plan.unit_count(), 3);
@@ -265,9 +261,7 @@ root = "src/lib.kr"
         let manifest_path = root.join("Kraft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
-        let graph = build_graph(&manifest_path, &manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &manifest, &members, true).unwrap();
         let build_plan = derive(&elaboration).unwrap();
 
         let app_unit = build_plan

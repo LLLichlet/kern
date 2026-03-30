@@ -38,6 +38,30 @@ pub struct ConstEvalError;
 
 type ConstEvalResult<T> = Result<T, ConstEvalError>;
 
+pub trait ScriptHost {
+    fn call_extern(
+        &mut self,
+        name: &str,
+        args: &[ConstValue],
+        span: Span,
+    ) -> Result<ConstValue, String>;
+}
+
+#[derive(Clone, Copy)]
+struct ScriptHostHandle {
+    data: *mut (),
+    call_extern: unsafe fn(*mut (), &str, &[ConstValue], Span) -> Result<ConstValue, String>,
+}
+
+unsafe fn call_script_host<H: ScriptHost>(
+    data: *mut (),
+    name: &str,
+    args: &[ConstValue],
+    span: Span,
+) -> Result<ConstValue, String> {
+    unsafe { (&mut *(data as *mut H)).call_extern(name, args, span) }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum LoopControl {
     Break,
@@ -70,6 +94,8 @@ pub struct ConstEvaluator<'a, 'ctx> {
     function_depth: usize,
     loop_depth: usize,
     loop_control: Option<LoopControl>,
+    script_host: Option<ScriptHostHandle>,
+    allow_non_const_calls: bool,
 }
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
@@ -90,7 +116,19 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             function_depth: 0,
             loop_depth: 0,
             loop_control: None,
+            script_host: None,
+            allow_non_const_calls: false,
         }
+    }
+
+    pub fn with_script_host<H: ScriptHost>(ctx: &'a mut SemaContext<'ctx>, host: &mut H) -> Self {
+        let mut this = Self::new(ctx);
+        this.script_host = Some(ScriptHostHandle {
+            data: host as *mut H as *mut (),
+            call_extern: call_script_host::<H>,
+        });
+        this.allow_non_const_calls = true;
+        this
     }
 
     /// 提取数组长度等所需的无符号整数
@@ -1907,25 +1945,39 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return self.eval_intrinsic_call(callee, args, depth, span);
         }
 
-        if !func.is_const {
-            self.ctx
-                .struct_error(
-                    span,
-                    "only `const fn` can be called in constant expressions",
-                )
-                .emit();
-            return Err(ConstEvalError);
+        let mut arg_values = Vec::new();
+        if let Some(receiver) = self.method_receiver(callee) {
+            arg_values.push(self.eval_inner(receiver, depth + 1)?);
+        }
+        for arg in args {
+            arg_values.push(self.eval_inner(arg, depth + 1)?);
         }
 
-        if func.is_extern {
-            self.ctx
-                .struct_error(
-                    span,
-                    "`extern const fn` is not supported in constant evaluation",
-                )
-                .emit();
-            return Err(ConstEvalError);
-        }
+        self.invoke_function(def_id, &generic_args, arg_values, depth, span)
+    }
+
+    pub fn eval_function(
+        &mut self,
+        def_id: DefId,
+        generic_args: &[TypeId],
+        arg_values: Vec<ConstValue>,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        self.invoke_function(def_id, generic_args, arg_values, 0, span)
+    }
+
+    fn invoke_function(
+        &mut self,
+        def_id: DefId,
+        generic_args: &[TypeId],
+        arg_values: Vec<ConstValue>,
+        depth: usize,
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        let func = match self.ctx.defs.get(def_id.0 as usize).cloned() {
+            Some(Def::Function(func)) => func,
+            _ => return Err(ConstEvalError),
+        };
 
         if !func.generics.is_empty() && generic_args.len() != func.generics.len() {
             self.ctx
@@ -1940,14 +1992,6 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Err(ConstEvalError);
         }
 
-        let mut arg_values = Vec::new();
-        if let Some(receiver) = self.method_receiver(callee) {
-            arg_values.push(self.eval_inner(receiver, depth + 1)?);
-        }
-        for arg in args {
-            arg_values.push(self.eval_inner(arg, depth + 1)?);
-        }
-
         if arg_values.len() != func.params.len() {
             self.ctx
                 .struct_error(
@@ -1958,6 +2002,20 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         func.params.len(),
                         arg_values.len()
                     ),
+                )
+                .emit();
+            return Err(ConstEvalError);
+        }
+
+        if func.is_extern {
+            return self.eval_script_host_call(&func, &arg_values, span);
+        }
+
+        if !func.is_const && !self.allow_non_const_calls {
+            self.ctx
+                .struct_error(
+                    span,
+                    "only `const fn` can be called in constant expressions",
                 )
                 .emit();
             return Err(ConstEvalError);
@@ -1983,7 +2041,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         let saved_loop_control = self.loop_control.take();
         self.loop_depth = 0;
         self.push_local_scope();
-        let param_tys = match self.callable_return_and_params(def_id, &generic_args) {
+        let param_tys = match self.callable_return_and_params(def_id, generic_args) {
             Some((params, _)) => params,
             None => vec![TypeId::ERROR; func.params.len()],
         };
@@ -2027,6 +2085,33 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         let body_result = body_result?;
         Ok(fn_return.unwrap_or(body_result))
+    }
+
+    fn eval_script_host_call(
+        &mut self,
+        func: &crate::def::FunctionDef,
+        arg_values: &[ConstValue],
+        span: Span,
+    ) -> ConstEvalResult<ConstValue> {
+        let Some(host) = self.script_host else {
+            self.ctx
+                .struct_error(
+                    span,
+                    "`extern const fn` is not supported in constant evaluation",
+                )
+                .emit();
+            return Err(ConstEvalError);
+        };
+
+        let name = self.ctx.resolve(func.name).to_string();
+        let result = unsafe { (host.call_extern)(host.data, &name, arg_values, span) };
+        match result {
+            Ok(value) => Ok(value),
+            Err(message) => {
+                self.ctx.struct_error(span, message).emit();
+                Err(ConstEvalError)
+            }
+        }
     }
 
     fn apply_assignment_operator(

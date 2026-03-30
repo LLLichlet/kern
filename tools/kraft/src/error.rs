@@ -27,6 +27,10 @@ pub enum Error {
         path: PathBuf,
         message: String,
     },
+    ScriptValidation {
+        path: PathBuf,
+        message: String,
+    },
     LockfileValidation {
         path: PathBuf,
         message: String,
@@ -75,6 +79,9 @@ impl Display for Error {
             }
             Self::Validation { path, message } => {
                 write!(f, "invalid manifest `{}`: {message}", path.display())
+            }
+            Self::ScriptValidation { path, message } => {
+                write!(f, "invalid kraft script `{}`: {message}", path.display())
             }
             Self::LockfileValidation { path, message } => {
                 write!(f, "invalid lockfile `{}`: {message}", path.display())

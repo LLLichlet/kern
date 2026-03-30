@@ -1132,7 +1132,6 @@ fn escape_string(value: &str) -> String {
 mod tests {
     use super::{LockStatus, LockWriteResult, Lockfile, lock_status, sync_lockfile};
     use crate::elaborate::plan;
-    use crate::graph::build_graph;
     use crate::manifest::Manifest;
     use crate::workspace::load_members;
     use std::fs;
@@ -1167,7 +1166,11 @@ shared = "2"
 "#,
         )
         .unwrap();
-        fs::write(root.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
+        fs::write(
+            root.join("kraft.kr"),
+            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+        )
+        .unwrap();
         let env_name = format!(
             "KRAFT_LOCK_ENV_{}",
             SystemTime::now()
@@ -1199,7 +1202,11 @@ shared = {{ workspace = true, features = ["simd"] }}
             ),
         )
         .unwrap();
-        fs::write(app_dir.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
+        fs::write(
+            app_dir.join("kraft.kr"),
+            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+        )
+        .unwrap();
         fs::write(
             util_dir.join("Kraft.toml"),
             r#"
@@ -1214,9 +1221,7 @@ kern = "0.7"
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
         let lockfile = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
         let rendered = lockfile.render();
 
@@ -1278,9 +1283,7 @@ shared = { workspace = true }
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
         let expected = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
         let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let loaded = Lockfile::load(&lock_path).unwrap();
@@ -1318,9 +1321,7 @@ kern = "0.7"
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
         let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
 
@@ -1358,9 +1359,7 @@ kern = "0.7"
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
 
         let (_, created) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(created, LockWriteResult::Created);
@@ -1381,9 +1380,7 @@ kern = "0.7"
 
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
         let (_, updated) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(updated, LockWriteResult::Updated);
 
@@ -1427,14 +1424,16 @@ env = ["{env_name}"]
             ),
         )
         .unwrap();
-        fs::write(app_dir.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
+        fs::write(
+            app_dir.join("kraft.kr"),
+            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+        )
+        .unwrap();
 
         let manifest_path = root.join("Kraft.toml");
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
 
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
@@ -1448,7 +1447,7 @@ env = ["{env_name}"]
         );
 
         unsafe { std::env::set_var(&env_name, "v2") };
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Stale
@@ -1467,9 +1466,7 @@ kern = "0.7"
 
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
-        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = crate::resolver::resolve_graph(&graph);
-        let elaboration = plan(&manifest_path, &root_manifest, &members, true, &resolved).unwrap();
+        let elaboration = plan(&manifest_path, &root_manifest, &members, true).unwrap();
         assert_eq!(
             lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Stale

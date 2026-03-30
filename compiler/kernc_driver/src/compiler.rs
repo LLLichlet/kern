@@ -52,16 +52,9 @@ impl CompilerDriver {
         };
 
         let mut session = Session::new();
-        session.apply_options(&self.options);
-        let mut ctx = self.build_sema_context(&mut session);
-
-        let Some(asts) = self.load_asts(&mut ctx, input_file) else {
+        let Some(mut ctx) = self.analyze(&mut session, input_file) else {
             return false;
         };
-
-        if !self.run_sema_pipeline(&mut ctx, asts) {
-            return false;
-        }
 
         let Some(mast_module) = self.lower_module(&mut ctx) else {
             return false;
@@ -112,6 +105,22 @@ impl CompilerDriver {
         }
 
         self.run_link_command(Some(&link_input_path), &target, "Successfully compiled")
+    }
+
+    pub fn analyze<'a>(
+        &self,
+        session: &'a mut Session,
+        input_file: &str,
+    ) -> Option<SemaContext<'a>> {
+        session.apply_options(&self.options);
+
+        let mut ctx = self.build_sema_context(session);
+        let asts = self.load_asts(&mut ctx, input_file)?;
+        if !self.run_sema_pipeline(&mut ctx, asts) {
+            return None;
+        }
+
+        Some(ctx)
     }
 
     fn link_only(&self) -> bool {

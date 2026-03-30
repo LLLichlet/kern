@@ -2,7 +2,7 @@ mod constexpr;
 mod expr;
 mod subst;
 
-pub use constexpr::{ConstEvaluator, ConstValue};
+pub use constexpr::{ConstEvaluator, ConstValue, ScriptHost};
 pub(crate) use expr::ExprChecker;
 pub use subst::Substituter;
 

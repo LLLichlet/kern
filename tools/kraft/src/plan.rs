@@ -1,18 +1,22 @@
 #![allow(dead_code)]
 
 use crate::error::{Error, Result};
-use crate::graph::PackageId;
-use crate::manifest::Manifest;
+use crate::graph::{DependencyKind, PackageId};
+use crate::manifest::{DependencySpec, DetailedDependency, Manifest};
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackagePlan {
     pub package_id: PackageId,
+    pub manifest_path: PathBuf,
     pub kern: String,
     pub edition: Option<String>,
     pub publish: Option<bool>,
     pub targets: Vec<TargetPlan>,
+    pub dependencies: BTreeMap<String, DependencySpec>,
+    pub dev_dependencies: BTreeMap<String, DependencySpec>,
+    pub build_dependencies: BTreeMap<String, DependencySpec>,
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
 }
@@ -83,10 +87,14 @@ impl PackagePlan {
 
         Ok(Self {
             package_id: package_id.clone(),
+            manifest_path: manifest_path.to_path_buf(),
             kern: package.kern.clone(),
             edition: package.edition.clone(),
             publish: package.publish,
             targets,
+            dependencies: manifest.dependencies.clone(),
+            dev_dependencies: manifest.dev_dependencies.clone(),
+            build_dependencies: manifest.build_dependencies.clone(),
             cfg: BTreeMap::new(),
             define: BTreeMap::new(),
         })
@@ -94,6 +102,18 @@ impl PackagePlan {
 
     pub fn target_count(&self) -> usize {
         self.targets.len()
+    }
+
+    pub fn dependency_count(&self, kind: DependencyKind) -> usize {
+        self.dependencies(kind).len()
+    }
+
+    pub fn dependencies(&self, kind: DependencyKind) -> &BTreeMap<String, DependencySpec> {
+        match kind {
+            DependencyKind::Normal => &self.dependencies,
+            DependencyKind::Dev => &self.dev_dependencies,
+            DependencyKind::Build => &self.build_dependencies,
+        }
     }
 
     pub fn set_cfg_bool(&mut self, name: &str, value: bool) -> Result<()> {
@@ -177,6 +197,72 @@ impl PackagePlan {
         self.targets.len() != original_len
     }
 
+    pub fn set_dependency_version(
+        &mut self,
+        kind: DependencyKind,
+        name: &str,
+        version: impl Into<String>,
+    ) -> Result<()> {
+        let name = normalize_non_empty(name.to_string(), "dependency name")?;
+        let version = normalize_non_empty(version.into(), "dependency version")?;
+        match self.dependencies_mut(kind).entry(name) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(DependencySpec::Version(version));
+            }
+            std::collections::btree_map::Entry::Occupied(mut entry) => match entry.get_mut() {
+                DependencySpec::Version(current) => *current = version,
+                DependencySpec::Detailed(dep) => {
+                    dep.version = Some(version);
+                    dep.workspace = None;
+                }
+            },
+        }
+        Ok(())
+    }
+
+    pub fn set_dependency_path(
+        &mut self,
+        kind: DependencyKind,
+        name: &str,
+        path: impl Into<String>,
+    ) -> Result<()> {
+        let name = normalize_non_empty(name.to_string(), "dependency name")?;
+        let path = normalize_non_empty(path.into(), "dependency path")?;
+        let dep = self.promote_dependency(kind, name);
+        dep.path = Some(path);
+        dep.workspace = None;
+        Ok(())
+    }
+
+    pub fn set_dependency_registry(
+        &mut self,
+        kind: DependencyKind,
+        name: &str,
+        registry: impl Into<String>,
+    ) -> Result<()> {
+        let name = normalize_non_empty(name.to_string(), "dependency name")?;
+        let registry = normalize_non_empty(registry.into(), "dependency registry")?;
+        let dep = self.promote_dependency(kind, name);
+        dep.registry = Some(registry);
+        dep.workspace = None;
+        Ok(())
+    }
+
+    pub fn use_workspace_dependency(&mut self, kind: DependencyKind, name: &str) -> Result<()> {
+        let name = normalize_non_empty(name.to_string(), "dependency name")?;
+        let dep = self.promote_dependency(kind, name);
+        dep.version = None;
+        dep.path = None;
+        dep.registry = None;
+        dep.workspace = Some(true);
+        Ok(())
+    }
+
+    pub fn remove_dependency(&mut self, kind: DependencyKind, name: &str) -> Result<bool> {
+        let name = normalize_non_empty(name.to_string(), "dependency name")?;
+        Ok(self.dependencies_mut(kind).remove(&name).is_some())
+    }
+
     fn set_cfg(&mut self, name: &str, value: PlanValue) -> Result<()> {
         let name = normalize_non_empty(name.to_string(), "cfg name")?;
         self.cfg.insert(name, value);
@@ -187,6 +273,26 @@ impl PackagePlan {
         let name = normalize_non_empty(name.to_string(), "define name")?;
         self.define.insert(name, value);
         Ok(())
+    }
+
+    fn dependencies_mut(&mut self, kind: DependencyKind) -> &mut BTreeMap<String, DependencySpec> {
+        match kind {
+            DependencyKind::Normal => &mut self.dependencies,
+            DependencyKind::Dev => &mut self.dev_dependencies,
+            DependencyKind::Build => &mut self.build_dependencies,
+        }
+    }
+
+    fn promote_dependency(
+        &mut self,
+        kind: DependencyKind,
+        name: String,
+    ) -> &mut DetailedDependency {
+        let spec = self
+            .dependencies_mut(kind)
+            .entry(name)
+            .or_insert_with(|| DependencySpec::Detailed(DetailedDependency::default()));
+        promote_dependency_spec(spec)
     }
 }
 
@@ -208,11 +314,25 @@ fn normalize_non_empty(value: String, field: &str) -> Result<String> {
     Ok(value)
 }
 
+fn promote_dependency_spec(spec: &mut DependencySpec) -> &mut DetailedDependency {
+    if let DependencySpec::Version(version) = spec.clone() {
+        *spec = DependencySpec::Detailed(DetailedDependency {
+            version: Some(version),
+            ..DetailedDependency::default()
+        });
+    }
+
+    match spec {
+        DependencySpec::Detailed(dep) => dep,
+        DependencySpec::Version(_) => unreachable!("dependency spec promotion must succeed"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{PackagePlan, PlanValue, TargetKind};
-    use crate::graph::{PackageId, SourceId};
-    use crate::manifest::Manifest;
+    use crate::graph::{DependencyKind, PackageId, SourceId};
+    use crate::manifest::{DependencySpec, Manifest};
     use std::path::Path;
 
     fn package_id() -> PackageId {
@@ -257,6 +377,7 @@ root = "examples/hello.kr"
             PackagePlan::from_manifest(Path::new("Kraft.toml"), &package_id(), &manifest).unwrap();
 
         assert_eq!(plan.kern, "0.7");
+        assert_eq!(plan.manifest_path, Path::new("Kraft.toml"));
         assert_eq!(plan.edition.as_deref(), Some("2027"));
         assert_eq!(plan.publish, Some(false));
         assert_eq!(plan.targets.len(), 4);
@@ -312,5 +433,59 @@ kern = "0.7"
         assert!(plan.remove_target(TargetKind::Bin, Some("demo")));
         assert_eq!(plan.target_count(), 1);
         assert!(!plan.remove_target(TargetKind::Bin, Some("demo")));
+    }
+
+    #[test]
+    fn mutates_dependencies_across_dependency_kinds() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[dependencies]
+log = "1"
+"#,
+            Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        let mut plan =
+            PackagePlan::from_manifest(Path::new("Kraft.toml"), &package_id(), &manifest).unwrap();
+        plan.set_dependency_path(DependencyKind::Normal, "log", "../vendor/log")
+            .unwrap();
+        plan.set_dependency_registry(DependencyKind::Normal, "log", "corp")
+            .unwrap();
+        plan.set_dependency_version(DependencyKind::Dev, "insta", "2")
+            .unwrap();
+        plan.use_workspace_dependency(DependencyKind::Build, "cc")
+            .unwrap();
+
+        match plan.dependencies(DependencyKind::Normal).get("log") {
+            Some(DependencySpec::Detailed(dep)) => {
+                assert_eq!(dep.version.as_deref(), Some("1"));
+                assert_eq!(dep.path.as_deref(), Some("../vendor/log"));
+                assert_eq!(dep.registry.as_deref(), Some("corp"));
+                assert_eq!(dep.workspace, None);
+            }
+            other => panic!("expected detailed dependency, got {other:?}"),
+        }
+
+        assert_eq!(
+            plan.dependencies(DependencyKind::Dev).get("insta"),
+            Some(&DependencySpec::Version("2".to_string()))
+        );
+        assert_eq!(plan.dependency_count(DependencyKind::Build), 1);
+
+        match plan.dependencies(DependencyKind::Build).get("cc") {
+            Some(DependencySpec::Detailed(dep)) => {
+                assert_eq!(dep.workspace, Some(true));
+                assert_eq!(dep.version, None);
+                assert_eq!(dep.path, None);
+                assert_eq!(dep.registry, None);
+            }
+            other => panic!("expected workspace dependency, got {other:?}"),
+        }
     }
 }

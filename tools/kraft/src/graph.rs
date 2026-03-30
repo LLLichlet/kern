@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::manifest::{DependencySpec, DetailedDependency, Manifest};
+use crate::plan::PackagePlan;
 use crate::workspace::WorkspaceMember;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -65,6 +66,44 @@ pub fn build_graph(
     manifest: &Manifest,
     workspace_members: &[WorkspaceMember],
 ) -> Result<PackageGraph> {
+    let mut package_plans = Vec::new();
+    if manifest.package.is_some() {
+        package_plans.push(PackagePlan::from_manifest(
+            manifest_path,
+            &local_package_id_from_manifest(manifest_path, manifest, SourceId::Root)?,
+            manifest,
+        )?);
+    }
+    for member in workspace_members {
+        let relative = member
+            .manifest_path
+            .parent()
+            .and_then(|dir| {
+                dir.strip_prefix(manifest_path.parent().unwrap_or_else(|| Path::new(".")))
+                    .ok()
+            })
+            .map(|path| path.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_else(|| member.manifest_path.display().to_string());
+        package_plans.push(PackagePlan::from_manifest(
+            &member.manifest_path,
+            &local_package_id_from_manifest(
+                &member.manifest_path,
+                &member.manifest,
+                SourceId::WorkspaceMember { path: relative },
+            )?,
+            &member.manifest,
+        )?);
+    }
+
+    build_graph_from_plans(manifest_path, manifest, &package_plans)
+}
+
+pub fn build_graph_from_plans<'a>(
+    manifest_path: &Path,
+    manifest: &Manifest,
+    package_plans: impl IntoIterator<Item = &'a PackagePlan>,
+) -> Result<PackageGraph> {
+    let package_plans = package_plans.into_iter().collect::<Vec<_>>();
     let workspace_root = manifest_path
         .parent()
         .unwrap_or_else(|| Path::new("."))
@@ -75,65 +114,34 @@ pub fn build_graph(
         .as_ref()
         .map(|workspace| &workspace.dependencies);
 
-    let mut packages = Vec::new();
-    if manifest.package.is_some() {
-        packages.push(local_package_from_manifest(
-            manifest_path,
-            manifest,
-            SourceId::Root,
-        )?);
-    }
-    for member in workspace_members {
-        let relative = member
-            .manifest_path
-            .parent()
-            .and_then(|dir| dir.strip_prefix(&workspace_root).ok())
-            .map(|path| path.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_else(|| member.manifest_path.display().to_string());
-        packages.push(local_package_from_manifest(
-            &member.manifest_path,
-            &member.manifest,
-            SourceId::WorkspaceMember { path: relative },
-        )?);
-    }
-
     let mut local_index = BTreeMap::new();
-    for package in &packages {
+    for package in &package_plans {
         let package_root = package
             .manifest_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        local_index.insert(canonical_dir(&package_root)?, package.id.clone());
+        local_index.insert(canonical_dir(&package_root)?, package.package_id.clone());
     }
 
     let mut graph_nodes = Vec::new();
-    for package in packages {
+    for package in &package_plans {
         let package_root = package
             .manifest_path
             .parent()
             .unwrap_or_else(|| Path::new("."))
             .to_path_buf();
-        let manifest = if package.id.source == SourceId::Root {
-            manifest
-        } else {
-            &workspace_members
-                .iter()
-                .find(|member| member.manifest_path == package.manifest_path)
-                .expect("workspace member manifest must exist")
-                .manifest
-        };
         let dependencies = build_edges(
             &package.manifest_path,
             &package_root,
-            manifest,
+            package,
             workspace_dependencies,
             &root_dir,
             &local_index,
         )?;
         graph_nodes.push(PackageNode {
-            id: package.id,
-            manifest_path: package.manifest_path,
+            id: package.package_id.clone(),
+            manifest_path: package.manifest_path.clone(),
             dependencies,
         });
     }
@@ -149,7 +157,7 @@ pub fn build_graph(
 fn build_edges(
     manifest_path: &Path,
     package_root: &Path,
-    manifest: &Manifest,
+    package: &PackagePlan,
     workspace_dependencies: Option<&BTreeMap<String, DependencySpec>>,
     workspace_root: &Path,
     local_index: &BTreeMap<PathBuf, PackageId>,
@@ -162,7 +170,7 @@ fn build_edges(
         workspace_dependencies,
         workspace_root,
         local_index,
-        &manifest.dependencies,
+        package.dependencies(DependencyKind::Normal),
         DependencyKind::Normal,
     )?;
     collect_dep_edges(
@@ -172,7 +180,7 @@ fn build_edges(
         workspace_dependencies,
         workspace_root,
         local_index,
-        &manifest.dev_dependencies,
+        package.dependencies(DependencyKind::Dev),
         DependencyKind::Dev,
     )?;
     collect_dep_edges(
@@ -182,7 +190,7 @@ fn build_edges(
         workspace_dependencies,
         workspace_root,
         local_index,
-        &manifest.build_dependencies,
+        package.dependencies(DependencyKind::Build),
         DependencyKind::Build,
     )?;
     Ok(edges)
@@ -337,11 +345,11 @@ fn dependency_target(
     }
 }
 
-fn local_package_from_manifest(
+fn local_package_id_from_manifest(
     manifest_path: &Path,
     manifest: &Manifest,
     source: SourceId,
-) -> Result<PackageNode> {
+) -> Result<PackageId> {
     let Some(package) = &manifest.package else {
         return Err(Error::Validation {
             path: manifest_path.to_path_buf(),
@@ -349,14 +357,10 @@ fn local_package_from_manifest(
         });
     };
 
-    Ok(PackageNode {
-        id: PackageId {
-            name: package.name.clone(),
-            version: package.version.clone(),
-            source,
-        },
-        manifest_path: manifest_path.to_path_buf(),
-        dependencies: Vec::new(),
+    Ok(PackageId {
+        name: package.name.clone(),
+        version: package.version.clone(),
+        source,
     })
 }
 

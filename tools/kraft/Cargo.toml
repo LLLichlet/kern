@@ -6,3 +6,6 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
+kernc_driver = { workspace = true }
+kernc_sema = { workspace = true }
+kernc_utils = { workspace = true }

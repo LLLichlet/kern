@@ -1,6 +1,7 @@
 use crate::discover;
 use crate::error::{Error, Result};
 use crate::manifest::Manifest;
+use crate::workspace;
 use std::env;
 use std::path::{Path, PathBuf};
 
@@ -19,6 +20,7 @@ pub fn run() -> Result<()> {
             let manifest_path = discover::resolve_manifest_path(path.as_deref())?;
             let manifest = Manifest::load(&manifest_path)?;
             manifest.validate(&manifest_path)?;
+            let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
 
             let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
             let kraft_script = package_root.join("kraft.kr");
@@ -34,6 +36,30 @@ pub fn run() -> Result<()> {
                 println!("workspace members: {}", workspace.members.len());
             } else {
                 println!("workspace members: 0");
+            }
+            println!("validated workspace members: {}", workspace_members.len());
+            if !workspace_members.is_empty() {
+                let member_names = workspace_members
+                    .iter()
+                    .map(|member| {
+                        member
+                            .manifest
+                            .package
+                            .as_ref()
+                            .map(|package| package.name.as_str())
+                            .unwrap_or("<workspace>")
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                println!("member packages: {member_names}");
+                println!(
+                    "member manifests: {}",
+                    workspace_members
+                        .iter()
+                        .map(|member| member.manifest_path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
             }
             println!(
                 "targets: lib={} bin={} test={} example={}",

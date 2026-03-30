@@ -1,6 +1,7 @@
+use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
-use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget, ResolvedGraph};
+use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,6 +11,8 @@ pub struct Lockfile {
     pub version: u32,
     pub manifest: String,
     pub manifest_digest: String,
+    pub workspace_script: Option<String>,
+    pub workspace_script_digest: Option<String>,
     pub packages: Vec<LockedPackage>,
     pub external_packages: Vec<LockedExternalPackage>,
     pub dependencies: Vec<LockedDependency>,
@@ -24,6 +27,8 @@ pub struct LockedPackage {
     pub source_value: Option<String>,
     pub manifest: String,
     pub manifest_digest: String,
+    pub kraft_script: Option<String>,
+    pub kraft_script_digest: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,10 +74,10 @@ enum Section {
 
 pub fn sync_lockfile(
     manifest_path: &Path,
-    resolved: &ResolvedGraph,
+    elaboration: &ElaborationPlan,
 ) -> Result<(PathBuf, LockWriteResult)> {
-    let lock_path = resolved.workspace_root.join("Kraft.lock");
-    let expected = Lockfile::from_resolved(manifest_path, resolved)?;
+    let lock_path = elaboration.resolved_graph.workspace_root.join("Kraft.lock");
+    let expected = Lockfile::from_elaboration(manifest_path, elaboration)?;
 
     if lock_path.is_file() {
         let actual = Lockfile::load(&lock_path)?;
@@ -91,14 +96,14 @@ pub fn sync_lockfile(
     Ok((lock_path, result))
 }
 
-pub fn lock_status(manifest_path: &Path, resolved: &ResolvedGraph) -> Result<LockStatus> {
-    let lock_path = resolved.workspace_root.join("Kraft.lock");
+pub fn lock_status(manifest_path: &Path, elaboration: &ElaborationPlan) -> Result<LockStatus> {
+    let lock_path = elaboration.resolved_graph.workspace_root.join("Kraft.lock");
     if !lock_path.is_file() {
         return Ok(LockStatus::Missing);
     }
 
     let actual = Lockfile::load(&lock_path)?;
-    let expected = Lockfile::from_resolved(manifest_path, resolved)?;
+    let expected = Lockfile::from_elaboration(manifest_path, elaboration)?;
     if actual == expected {
         Ok(LockStatus::Current)
     } else {
@@ -114,7 +119,8 @@ impl Lockfile {
         Ok(lockfile)
     }
 
-    pub fn from_resolved(manifest_path: &Path, resolved: &ResolvedGraph) -> Result<Self> {
+    pub fn from_elaboration(manifest_path: &Path, elaboration: &ElaborationPlan) -> Result<Self> {
+        let resolved = &elaboration.resolved_graph;
         let root = &resolved.workspace_root;
         let manifest = relative_display(root, manifest_path);
         let manifest_digest = digest_file(manifest_path)?;
@@ -125,6 +131,11 @@ impl Lockfile {
 
         for package in &resolved.packages {
             let package_id = package_lock_id(&package.id);
+            let script = elaboration
+                .packages
+                .iter()
+                .find(|entry| entry.package_id == package.id)
+                .and_then(|entry| entry.script.as_ref());
             packages.push(LockedPackage {
                 id: package_id.clone(),
                 name: package.id.name.clone(),
@@ -133,6 +144,8 @@ impl Lockfile {
                 source_value: source_value(&package.id.source),
                 manifest: relative_display(root, &package.manifest_path),
                 manifest_digest: digest_file(&package.manifest_path)?,
+                kraft_script: script.map(|script| script.relative_path.clone()),
+                kraft_script_digest: script.map(|script| script.digest.clone()),
             });
 
             for dep in &package.dependencies {
@@ -170,6 +183,14 @@ impl Lockfile {
             version: 1,
             manifest,
             manifest_digest,
+            workspace_script: elaboration
+                .workspace_script
+                .as_ref()
+                .map(|script| script.relative_path.clone()),
+            workspace_script_digest: elaboration
+                .workspace_script
+                .as_ref()
+                .map(|script| script.digest.clone()),
             packages,
             external_packages,
             dependencies,
@@ -181,6 +202,8 @@ impl Lockfile {
             version: 0,
             manifest: String::new(),
             manifest_digest: String::new(),
+            workspace_script: None,
+            workspace_script_digest: None,
             packages: Vec::new(),
             external_packages: Vec::new(),
             dependencies: Vec::new(),
@@ -202,6 +225,8 @@ impl Lockfile {
                             source_value: None,
                             manifest: String::new(),
                             manifest_digest: String::new(),
+                            kraft_script: None,
+                            kraft_script_digest: None,
                         });
                         Section::Package(lockfile.packages.len() - 1)
                     }
@@ -262,6 +287,12 @@ impl Lockfile {
 
         validate_non_empty(path, "manifest", &self.manifest)?;
         validate_digest(path, "manifest-digest", &self.manifest_digest)?;
+        validate_optional_path_and_digest(
+            path,
+            "workspace-script",
+            self.workspace_script.as_deref(),
+            self.workspace_script_digest.as_deref(),
+        )?;
 
         let mut package_ids = BTreeSet::new();
         for package in &self.packages {
@@ -291,6 +322,12 @@ impl Lockfile {
                 path,
                 "[[package]].manifest-digest",
                 &package.manifest_digest,
+            )?;
+            validate_optional_path_and_digest(
+                path,
+                "[[package]].kraft-script",
+                package.kraft_script.as_deref(),
+                package.kraft_script_digest.as_deref(),
             )?;
         }
 
@@ -372,6 +409,12 @@ impl Lockfile {
         out.push('\n');
         push_string_line(&mut out, "manifest", &self.manifest);
         push_string_line(&mut out, "manifest-digest", &self.manifest_digest);
+        if let Some(path) = &self.workspace_script {
+            push_string_line(&mut out, "workspace-script", path);
+        }
+        if let Some(digest) = &self.workspace_script_digest {
+            push_string_line(&mut out, "workspace-script-digest", digest);
+        }
 
         for package in &self.packages {
             out.push('\n');
@@ -385,6 +428,12 @@ impl Lockfile {
             }
             push_string_line(&mut out, "manifest", &package.manifest);
             push_string_line(&mut out, "manifest-digest", &package.manifest_digest);
+            if let Some(path) = &package.kraft_script {
+                push_string_line(&mut out, "kraft-script", path);
+            }
+            if let Some(digest) = &package.kraft_script_digest {
+                push_string_line(&mut out, "kraft-script-digest", digest);
+            }
         }
 
         for package in &self.external_packages {
@@ -427,6 +476,10 @@ fn assign_key_value(
             "version" => lockfile.version = parse_u32(raw_value)?,
             "manifest" => lockfile.manifest = parse_string(raw_value)?,
             "manifest-digest" => lockfile.manifest_digest = parse_string(raw_value)?,
+            "workspace-script" => lockfile.workspace_script = Some(parse_string(raw_value)?),
+            "workspace-script-digest" => {
+                lockfile.workspace_script_digest = Some(parse_string(raw_value)?)
+            }
             _ => return Err(format!("unsupported root key `{key}`")),
         },
         Section::Package(index) => {
@@ -439,6 +492,10 @@ fn assign_key_value(
                 "source-value" => package.source_value = Some(parse_string(raw_value)?),
                 "manifest" => package.manifest = parse_string(raw_value)?,
                 "manifest-digest" => package.manifest_digest = parse_string(raw_value)?,
+                "kraft-script" => package.kraft_script = Some(parse_string(raw_value)?),
+                "kraft-script-digest" => {
+                    package.kraft_script_digest = Some(parse_string(raw_value)?)
+                }
                 _ => return Err(format!("unsupported [[package]] key `{key}`")),
             }
         }
@@ -679,6 +736,27 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_optional_path_and_digest(
+    path: &Path,
+    field: &str,
+    value: Option<&str>,
+    digest: Option<&str>,
+) -> Result<()> {
+    match (value, digest) {
+        (None, None) => Ok(()),
+        (Some(value), Some(digest)) => {
+            validate_non_empty(path, field, value)?;
+            validate_digest(path, &format!("{field}-digest"), digest)
+        }
+        _ => Err(Error::LockfileValidation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{field} and {field}-digest must either both be present or both be absent"
+            ),
+        }),
+    }
+}
+
 fn validate_digest(path: &Path, field: &str, value: &str) -> Result<()> {
     validate_non_empty(path, field, value)?;
     if !value.starts_with("fnv1a64:") || value.len() != "fnv1a64:".len() + 16 {
@@ -757,9 +835,9 @@ fn escape_string(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{LockStatus, LockWriteResult, Lockfile, lock_status, sync_lockfile};
+    use crate::elaborate::plan;
     use crate::graph::build_graph;
     use crate::manifest::Manifest;
-    use crate::resolver::resolve_graph;
     use crate::workspace::load_members;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -793,6 +871,7 @@ shared = "2"
 "#,
         )
         .unwrap();
+        fs::write(root.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
         fs::write(
             app_dir.join("Kraft.toml"),
             r#"
@@ -807,6 +886,7 @@ shared = { workspace = true, features = ["simd"] }
 "#,
         )
         .unwrap();
+        fs::write(app_dir.join("kraft.kr"), "pub fn kraft() void {}\n").unwrap();
         fs::write(
             util_dir.join("Kraft.toml"),
             r#"
@@ -822,14 +902,17 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
-        let lockfile = Lockfile::from_resolved(&manifest_path, &resolved).unwrap();
+        let resolved = crate::resolver::resolve_graph(&graph);
+        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let lockfile = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
         let rendered = lockfile.render();
 
         assert!(rendered.contains("version = 1"));
         assert!(rendered.contains("[[package]]"));
         assert!(rendered.contains("[[external-package]]"));
         assert!(rendered.contains("id = \"app 0.1.0 workspace-member:app\""));
+        assert!(rendered.contains("workspace-script = \"kraft.kr\""));
+        assert!(rendered.contains("kraft-script = \"app/kraft.kr\""));
         assert!(rendered.contains("target-id = \"util 0.1.0 workspace-member:util\""));
         assert!(rendered.contains("name = \"shared\""));
         assert!(rendered.contains("target = \"external\""));
@@ -874,9 +957,10 @@ shared = { workspace = true }
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
-        let expected = Lockfile::from_resolved(&manifest_path, &resolved).unwrap();
-        let (lock_path, _) = sync_lockfile(&manifest_path, &resolved).unwrap();
+        let resolved = crate::resolver::resolve_graph(&graph);
+        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let expected = Lockfile::from_elaboration(&manifest_path, &elaboration).unwrap();
+        let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let loaded = Lockfile::load(&lock_path).unwrap();
 
         assert_eq!(loaded, expected);
@@ -913,8 +997,9 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
-        let (lock_path, _) = sync_lockfile(&manifest_path, &resolved).unwrap();
+        let resolved = crate::resolver::resolve_graph(&graph);
+        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let (lock_path, _) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
 
         assert_eq!(lock_path, root.join("Kraft.lock"));
@@ -952,12 +1037,13 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
+        let resolved = crate::resolver::resolve_graph(&graph);
+        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
 
-        let (_, created) = sync_lockfile(&manifest_path, &resolved).unwrap();
+        let (_, created) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(created, LockWriteResult::Created);
 
-        let (_, unchanged) = sync_lockfile(&manifest_path, &resolved).unwrap();
+        let (_, unchanged) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(unchanged, LockWriteResult::Unchanged);
 
         fs::write(
@@ -974,8 +1060,9 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
-        let (_, updated) = sync_lockfile(&manifest_path, &resolved).unwrap();
+        let resolved = crate::resolver::resolve_graph(&graph);
+        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
+        let (_, updated) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(updated, LockWriteResult::Updated);
 
         let _ = fs::remove_dir_all(root);
@@ -1010,16 +1097,17 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
+        let resolved = crate::resolver::resolve_graph(&graph);
+        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
 
         assert_eq!(
-            lock_status(&manifest_path, &resolved).unwrap(),
+            lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Missing
         );
 
-        let _ = sync_lockfile(&manifest_path, &resolved).unwrap();
+        let _ = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(
-            lock_status(&manifest_path, &resolved).unwrap(),
+            lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Current
         );
 
@@ -1037,9 +1125,10 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let resolved = resolve_graph(&graph);
+        let resolved = crate::resolver::resolve_graph(&graph);
+        let elaboration = plan(&manifest_path, true, &resolved).unwrap();
         assert_eq!(
-            lock_status(&manifest_path, &resolved).unwrap(),
+            lock_status(&manifest_path, &elaboration).unwrap(),
             LockStatus::Stale
         );
 

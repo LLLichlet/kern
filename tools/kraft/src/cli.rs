@@ -1,4 +1,5 @@
 use crate::discover;
+use crate::elaborate;
 use crate::error::{Error, Result};
 use crate::graph;
 use crate::lockfile;
@@ -22,13 +23,12 @@ pub fn run() -> Result<()> {
         }
         Command::Check { path } => {
             let loaded = load_package_graph(path.as_deref())?;
-            let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.resolved_graph)?;
+            let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
 
             let package_root = loaded
                 .manifest_path
                 .parent()
                 .unwrap_or_else(|| Path::new("."));
-            let kraft_script = package_root.join("kraft.kr");
             let build_script = package_root.join("build.kr");
 
             println!("checked {}", loaded.manifest_path.display());
@@ -101,8 +101,13 @@ pub fn run() -> Result<()> {
                 loaded.manifest.build_dependencies.len()
             );
             println!(
-                "scripts: kraft.kr={} build.kr={}",
-                if kraft_script.is_file() { "yes" } else { "no" },
+                "scripts: workspace_kraft={} package_kraft={} build.kr={}",
+                if loaded.elaboration.workspace_script.is_some() {
+                    "yes"
+                } else {
+                    "no"
+                },
+                loaded.elaboration.package_script_count(),
                 if build_script.is_file() { "yes" } else { "no" }
             );
             println!(
@@ -119,7 +124,7 @@ pub fn run() -> Result<()> {
         Command::Lock { path } => {
             let loaded = load_package_graph(path.as_deref())?;
             let (lock_path, lock_result) =
-                lockfile::sync_lockfile(&loaded.manifest_path, &loaded.resolved_graph)?;
+                lockfile::sync_lockfile(&loaded.manifest_path, &loaded.elaboration)?;
             let edge_count = loaded
                 .package_graph
                 .packages
@@ -158,6 +163,7 @@ struct LoadedPackageGraph {
     workspace_members: Vec<workspace::WorkspaceMember>,
     package_graph: graph::PackageGraph,
     resolved_graph: resolver::ResolvedGraph,
+    elaboration: elaborate::ElaborationPlan,
 }
 
 fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
@@ -167,6 +173,11 @@ fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
     let package_graph = graph::build_graph(&manifest_path, &manifest, &workspace_members)?;
     let resolved_graph = resolver::resolve_graph(&package_graph);
+    let elaboration = elaborate::plan(
+        &manifest_path,
+        manifest.workspace.is_some(),
+        &resolved_graph,
+    )?;
 
     Ok(LoadedPackageGraph {
         manifest_path,
@@ -174,6 +185,7 @@ fn load_package_graph(path: Option<&Path>) -> Result<LoadedPackageGraph> {
         workspace_members,
         package_graph,
         resolved_graph,
+        elaboration,
     })
 }
 

@@ -1,5 +1,6 @@
 mod cli;
 mod discover;
+mod elaborate;
 mod error;
 mod graph;
 mod lockfile;

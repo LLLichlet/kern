@@ -25,7 +25,7 @@ use llvm_sys::core::{
     LLVMGetUndef, LLVMGlobalGetValueType, LLVMInt1TypeInContext,
     LLVMInt16TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext, LLVMInt8TypeInContext,
     LLVMIntTypeInContext, LLVMIsAInstruction, LLVMModuleCreateWithNameInContext,
-    LLVMPointerTypeInContext, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMPrintModuleToString,
+    LLVMPointerTypeInContext, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMPrintModuleToFile,
     LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
     LLVMSetSection, LLVMStructCreateNamed, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
     LLVMStructTypeInContext, LLVMTypeOf, LLVMVoidTypeInContext,
@@ -474,9 +474,33 @@ impl<'ctx> Module<'ctx> {
     }
 
     pub fn print_to_stderr(&self) {
-        let text = unsafe { LLVMPrintModuleToString(self.raw) };
-        eprintln!("{}", unsafe { CStr::from_ptr(text).to_string_lossy() });
-        unsafe { LLVMDisposeMessage(text) };
+        let unique = format!(
+            "kernc_llvm_ir_{}_{}.ll",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or_default()
+        );
+        let path = std::env::temp_dir().join(unique);
+        let path_cstr = to_c_string(&path.to_string_lossy());
+        let mut message = ptr::null_mut();
+
+        let failed =
+            unsafe { LLVMPrintModuleToFile(self.raw, path_cstr.as_ptr(), &mut message) } != 0;
+        if failed {
+            let text = unsafe { CStr::from_ptr(message).to_string_lossy().into_owned() };
+            unsafe { LLVMDisposeMessage(message) };
+            eprintln!("Failed to print LLVM IR: {}", text);
+            return;
+        }
+
+        match std::fs::read_to_string(&path) {
+            Ok(text) => eprintln!("{}", text),
+            Err(err) => eprintln!("Failed to read printed LLVM IR from `{}`: {}", path.display(), err),
+        }
+
+        let _ = std::fs::remove_file(path);
     }
 
     pub fn get_intrinsic_declaration(

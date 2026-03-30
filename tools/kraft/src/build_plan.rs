@@ -37,7 +37,10 @@ pub enum ArtifactKind {
 
 impl BuildPlan {
     pub fn unit_count(&self) -> usize {
-        self.packages.iter().map(|package| package.units.len()).sum()
+        self.packages
+            .iter()
+            .map(|package| package.units.len())
+            .sum()
     }
 
     pub fn local_dependency_edge_count(&self) -> usize {

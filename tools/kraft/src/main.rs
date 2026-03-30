@@ -3,6 +3,7 @@ mod cli;
 mod discover;
 mod elaborate;
 mod error;
+mod execute;
 mod graph;
 mod lockfile;
 mod manifest;

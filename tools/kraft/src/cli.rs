@@ -2,13 +2,14 @@ use crate::build_plan;
 use crate::discover;
 use crate::elaborate;
 use crate::error::{Error, Result};
+use crate::execute;
 use crate::graph;
 use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::plan::TargetKind;
 use crate::workspace;
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 #[derive(Debug)]
 pub enum Command {
@@ -269,6 +270,11 @@ pub fn run() -> Result<()> {
             );
             print_compile_actions(&action_plan);
             print_link_actions(&action_plan);
+            let execution = execute::build(&build_plan, &action_plan)?;
+            println!(
+                "executed build: compile_actions={} link_actions={}",
+                execution.compile_actions, execution.link_actions
+            );
 
             Ok(())
         }
@@ -326,6 +332,8 @@ pub fn run() -> Result<()> {
             );
             print_compile_actions_for_unit(&action_plan, run_unit);
             print_link_actions_for_unit(&action_plan, run_unit);
+            let execution = execute::run(&build_plan, &action_plan, run_unit)?;
+            println!("executed run: {}", execution.executable.display());
 
             Ok(())
         }
@@ -373,6 +381,8 @@ pub fn run() -> Result<()> {
                 print_compile_actions_for_unit(&action_plan, unit);
                 print_link_actions_for_unit(&action_plan, unit);
             }
+            let execution = execute::test(&build_plan, &action_plan, &tests)?;
+            println!("executed tests: {}", execution.executed);
 
             Ok(())
         }
@@ -388,7 +398,7 @@ struct LoadedPackageGraph {
 }
 
 fn load_package_graph(
-    path: Option<&Path>,
+    path: Option<&std::path::Path>,
     command: crate::script::ScriptCommand,
     feature_selection: &elaborate::FeatureSelection,
 ) -> Result<LoadedPackageGraph> {

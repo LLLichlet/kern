@@ -24,5 +24,10 @@ The current implementation now covers the first graph and lockfile milestones:
 - `Kraft.lock` loading, validation, and stale/current status reporting via `kraft check`
 - build-plan derivation from normalized package targets and resolved dependencies
 - package-level `build.kr` discovery, validation, and per-target link-plan orchestration
+- host `kraft build/run/test` execution through explicit `kernc` compile/link action graphs
+
+Current limitation:
+
+- external registry dependencies are still planned and locked, but not yet fetched/built for execution
 
 See [docs/kraft.md](../../docs/kraft.md) for the V1 design draft.

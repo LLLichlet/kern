@@ -459,6 +459,72 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_for_clauses_with_non_void_init_post_and_body() {
+    let output = build_and_run_source(
+        r#"
+extern fn main() i32 {
+    let mut phase = i32.{0};
+
+    for (
+        { phase += i32.{2}; i32.{99} };
+        phase < i32.{3};
+        { phase += i32.{10}; i32.{88} }
+    ) {
+        phase += i32.{1};
+        i32.{77}
+    }
+
+    return phase - i32.{13};
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_const_fn_loops_with_assignment_break_and_continue() {
+    let output = compile_source(
+        r#"
+const fn sum_skip(limit: i32) i32 {
+    let mut acc = i32.{0};
+
+    for (let mut i = i32.{0}; i < limit; i += i32.{1}) {
+        if (i == i32.{2}) {
+            continue;
+        }
+        if (i == i32.{5}) {
+            break;
+        }
+        acc += i;
+    }
+
+    return acc;
+}
+
+const TOTAL = sum_skip(i32.{7});
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return TOTAL;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_assignment_through_non_mut_array_elements() {
     let output = compile_source(
         r#"

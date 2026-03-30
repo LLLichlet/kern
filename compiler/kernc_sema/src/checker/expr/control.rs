@@ -351,16 +351,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> TypeId {
         self.ctx.scopes.enter_scope();
         if let Some(i) = init {
-            let _ = self.check_discarded_expr(i);
+            let _ = self.check_expr(i, None);
         }
         if let Some(c) = cond {
             let c_ty = self.check_expr(c, Some(TypeId::BOOL));
             self.check_coercion(c, TypeId::BOOL, c_ty);
         }
         if let Some(p) = post {
-            let _ = self.check_discarded_expr(p);
+            let _ = self.check_expr(p, None);
         }
-        let _ = self.check_discarded_expr(body);
+        let _ = self.check_expr(body, None);
         self.ctx.scopes.exit_scope();
         TypeId::VOID
     }

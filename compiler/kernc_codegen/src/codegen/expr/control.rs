@@ -148,8 +148,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.builder.build_unconditional_branch(latch_bb).unwrap();
         }
 
-        self.loop_targets.pop();
-
         self.builder.position_at_end(latch_bb);
         if let Some(latch_block) = latch {
             self.compile_block(latch_block);
@@ -158,6 +156,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         if latch_exit_bb.get_terminator().is_none() {
             self.builder.build_unconditional_branch(loop_bb).unwrap();
         }
+
+        self.loop_targets.pop();
 
         self.builder.position_at_end(merge_bb);
         if expr_ty != TypeId::VOID {

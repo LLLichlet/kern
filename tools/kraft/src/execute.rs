@@ -1,8 +1,14 @@
-use crate::build_plan::{ActionPlan, BuildPlan, BuildUnit, LinkAction};
+use crate::build_plan::{ActionPlan, BuildPlan, BuildUnit, CompileAction, LinkAction};
+use crate::elaborate::{self, FeatureSelection};
 use crate::error::{Error, Result};
+use crate::graph::PackageId;
+use crate::manifest::Manifest;
+use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
+use crate::source;
+use crate::workspace;
 use kernc_driver::CompilerDriver;
 use kernc_utils::config::{CompileOptions, DriverMode, LinkProfile};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -24,40 +30,53 @@ pub struct TestSummary {
 }
 
 pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<ExecutionSummary> {
-    let local_aliases = local_dependency_aliases(action_plan);
-    ensure_supported_external_dependencies(action_plan)?;
+    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Build)
+}
 
-    for action in &action_plan.compile_actions {
-        ensure_parent_dir(&action.object_path)?;
-        ensure_parent_dir(&action.artifact_path)?;
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BuiltExternalPackage {
+    lib_source_path: PathBuf,
+    link_objects: Vec<PathBuf>,
+    module_aliases: BTreeMap<String, PathBuf>,
+}
 
-        let mut options = CompileOptions {
-            input_file: Some(action.source_path.to_string_lossy().to_string()),
-            output_file: action.object_path.to_string_lossy().to_string(),
-            driver_mode: DriverMode::CompileOnly,
-            use_std: true,
-            link_profile: LinkProfile::Hosted,
-            ..CompileOptions::default()
-        };
-        apply_host_linker_env(&mut options);
-        inject_driver_condition_defines(&mut options);
-        inject_std_alias(&mut options);
-        options.module_aliases =
-            compile_module_aliases(action.package_id.name.as_str(), &local_aliases, build_plan);
-        options.custom_defines.extend(compile_time_defines(
-            &action.cfg,
-            &action.define,
-            action.source_path.as_path(),
-        )?);
+#[derive(Debug)]
+struct SourceConfigContext {
+    manifest_path: PathBuf,
+    manifest: Manifest,
+}
 
-        let driver = CompilerDriver::new(options);
-        if !driver.compile() {
-            return Err(Error::Execution(format!(
-                "compile failed for `{}`",
-                action.source_path.display()
-            )));
-        }
+fn build_with_command(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+    command: crate::script::ScriptCommand,
+) -> Result<ExecutionSummary> {
+    let source_config = load_source_config(build_plan)?;
+    let mut built_external_packages = BTreeMap::new();
+    let mut external_build_stack = BTreeSet::new();
+    let mut external_summary = ExecutionSummary {
+        compile_actions: 0,
+        link_actions: 0,
+    };
+
+    for dep in requested_external_dependencies(action_plan) {
+        build_external_package(
+            &source_config,
+            &build_plan.workspace_root,
+            &dep,
+            command,
+            &mut built_external_packages,
+            &mut external_build_stack,
+            &mut external_summary,
+        )?;
     }
+
+    let local_library_actions = local_library_actions(&action_plan.compile_actions);
+    execute_compile_actions(
+        &action_plan.compile_actions,
+        &local_library_actions,
+        &built_external_packages,
+    )?;
 
     for action in &action_plan.link_actions {
         ensure_parent_dir(&action.artifact_path)?;
@@ -70,15 +89,15 @@ pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<Executi
             ..CompileOptions::default()
         };
         apply_host_linker_env(&mut options);
-        options.linker_inputs =
-            std::iter::once(action.primary_object.to_string_lossy().to_string())
-                .chain(
-                    action
-                        .local_library_objects
-                        .iter()
-                        .map(|path| path.to_string_lossy().to_string()),
-                )
-                .collect();
+        options.linker_inputs = link_inputs_for_action(
+            action,
+            action_plan,
+            &local_library_actions,
+            &built_external_packages,
+        )?
+        .into_iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
         options.linker_libraries = action.link.system_libs.clone();
         options.linker_search_paths = action.link.search_paths.clone();
         options.linker_args = action.link.args.clone();
@@ -97,8 +116,8 @@ pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<Executi
     }
 
     Ok(ExecutionSummary {
-        compile_actions: action_plan.compile_count(),
-        link_actions: action_plan.link_count(),
+        compile_actions: external_summary.compile_actions + action_plan.compile_count(),
+        link_actions: external_summary.link_actions + action_plan.link_count(),
     })
 }
 
@@ -107,7 +126,7 @@ pub fn run(
     action_plan: &ActionPlan,
     unit: &BuildUnit,
 ) -> Result<RunSummary> {
-    build(build_plan, action_plan)?;
+    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Run)?;
     let action = find_link_action(action_plan, unit)?;
     let status = Command::new(&action.artifact_path)
         .current_dir(&build_plan.workspace_root)
@@ -131,7 +150,7 @@ pub fn test(
     action_plan: &ActionPlan,
     units: &[&BuildUnit],
 ) -> Result<TestSummary> {
-    build(build_plan, action_plan)?;
+    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Test)?;
 
     let mut executed = 0;
     for unit in units {
@@ -203,24 +222,6 @@ fn plan_value_string(value: &crate::plan::PlanValue) -> String {
     }
 }
 
-fn ensure_supported_external_dependencies(action_plan: &ActionPlan) -> Result<()> {
-    let unsupported = action_plan
-        .link_actions
-        .iter()
-        .flat_map(|action| &action.external_dependencies)
-        .map(|dep| dep.package_name.clone())
-        .collect::<std::collections::BTreeSet<_>>();
-
-    if unsupported.is_empty() {
-        Ok(())
-    } else {
-        Err(Error::Execution(format!(
-            "external package execution is not implemented yet; unresolved build inputs: {}",
-            unsupported.into_iter().collect::<Vec<_>>().join(", ")
-        )))
-    }
-}
-
 fn ensure_parent_dir(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
@@ -228,34 +229,389 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
-fn local_dependency_aliases(action_plan: &ActionPlan) -> HashMap<String, PathBuf> {
-    action_plan
-        .compile_actions
-        .iter()
-        .filter(|action| action.target_kind == crate::plan::TargetKind::Lib)
-        .map(|action| (action.package_id.name.clone(), action.source_path.clone()))
-        .collect()
+fn load_source_config(build_plan: &BuildPlan) -> Result<SourceConfigContext> {
+    let manifest_path = build_plan.workspace_root.join("Kraft.toml");
+    let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
+    Ok(SourceConfigContext {
+        manifest_path,
+        manifest,
+    })
+}
+
+fn execute_compile_actions(
+    actions: &[CompileAction],
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+) -> Result<()> {
+    for action in actions {
+        ensure_parent_dir(&action.object_path)?;
+        ensure_parent_dir(&action.artifact_path)?;
+
+        let mut options = CompileOptions {
+            input_file: Some(action.source_path.to_string_lossy().to_string()),
+            output_file: action.object_path.to_string_lossy().to_string(),
+            driver_mode: DriverMode::CompileOnly,
+            use_std: true,
+            link_profile: LinkProfile::Hosted,
+            ..CompileOptions::default()
+        };
+        apply_host_linker_env(&mut options);
+        inject_driver_condition_defines(&mut options);
+        inject_std_alias(&mut options);
+        options.module_aliases =
+            compile_module_aliases(action, local_library_actions, built_external_packages)?;
+        options.custom_defines.extend(compile_time_defines(
+            &action.cfg,
+            &action.define,
+            action.source_path.as_path(),
+        )?);
+
+        let driver = CompilerDriver::new(options);
+        if !driver.compile() {
+            return Err(Error::Execution(format!(
+                "compile failed for `{}`",
+                action.source_path.display()
+            )));
+        }
+    }
+
+    Ok(())
 }
 
 fn compile_module_aliases(
-    current_package: &str,
-    local_aliases: &HashMap<String, PathBuf>,
-    build_plan: &BuildPlan,
-) -> HashMap<String, String> {
-    let mut aliases = HashMap::new();
-    for package in &build_plan.packages {
-        for unit in &package.units {
-            if unit.package_id.name != current_package {
-                continue;
-            }
-            for dep in &unit.local_dependencies {
-                if let Some(path) = local_aliases.get(&dep.name) {
-                    aliases.insert(dep.name.clone(), path.to_string_lossy().to_string());
+    action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+) -> Result<HashMap<String, String>> {
+    let aliases = module_alias_paths(action, local_library_actions, built_external_packages)?;
+    Ok(aliases
+        .into_iter()
+        .map(|(name, path)| (name, path.to_string_lossy().to_string()))
+        .collect())
+}
+
+fn requested_external_dependencies(action_plan: &ActionPlan) -> Vec<ExternalPackageId> {
+    let mut requested = BTreeSet::new();
+    for action in &action_plan.compile_actions {
+        requested.extend(action.external_dependencies.iter().cloned());
+    }
+    for action in &action_plan.link_actions {
+        requested.extend(action.external_dependencies.iter().cloned());
+    }
+    requested.into_iter().collect()
+}
+
+fn build_external_package(
+    source_config: &SourceConfigContext,
+    dependency_workspace_root: &Path,
+    dep: &ExternalPackageId,
+    command: crate::script::ScriptCommand,
+    built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    external_build_stack: &mut BTreeSet<ExternalPackageId>,
+    external_summary: &mut ExecutionSummary,
+) -> Result<()> {
+    if built_external_packages.contains_key(dep) {
+        return Ok(());
+    }
+    if !external_build_stack.insert(dep.clone()) {
+        return Err(Error::Execution(format!(
+            "cyclic external package build detected for `{}`",
+            dep.package_name
+        )));
+    }
+
+    let fetched = fetch_external_package(source_config, dependency_workspace_root, dep)?;
+    let manifest_path = fetched.cache_path.join("Kraft.toml");
+    let manifest = Manifest::load(&manifest_path)?;
+    manifest.validate(&manifest_path)?;
+    let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let elaboration = elaborate::plan(
+        &manifest_path,
+        &manifest,
+        &workspace_members,
+        manifest.workspace.is_some(),
+        command,
+        &FeatureSelection::default(),
+    )?;
+    let build_plan = crate::build_plan::derive(&elaboration, command)?;
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let all_local_library_actions = local_library_actions(&action_plan.compile_actions);
+    let root_library_action = root_external_library_action(dep, &all_local_library_actions)?;
+    let required_local_packages =
+        required_local_packages(root_library_action, &all_local_library_actions);
+    let required_library_actions = action_plan
+        .compile_actions
+        .iter()
+        .filter(|action| {
+            action.target_kind == crate::plan::TargetKind::Lib
+                && required_local_packages.contains(&action.package_id)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let required_external_dependencies =
+        required_external_dependencies(root_library_action, &all_local_library_actions);
+    for child in required_external_dependencies {
+        build_external_package(
+            source_config,
+            &elaboration.resolved_graph.workspace_root,
+            &child,
+            command,
+            built_external_packages,
+            external_build_stack,
+            external_summary,
+        )?;
+    }
+
+    let required_local_library_actions = local_library_actions(&required_library_actions);
+    execute_compile_actions(
+        &required_library_actions,
+        &required_local_library_actions,
+        built_external_packages,
+    )?;
+
+    let root_library_action = root_external_library_action(dep, &required_local_library_actions)?;
+    let mut module_aliases = BTreeMap::new();
+    module_aliases.insert(
+        dep.package_name.clone(),
+        root_library_action.source_path.clone(),
+    );
+    module_aliases.extend(module_alias_paths(
+        root_library_action,
+        &required_local_library_actions,
+        built_external_packages,
+    )?);
+    let link_objects = link_objects_for_compile_action(
+        root_library_action,
+        &required_local_library_actions,
+        built_external_packages,
+    )?;
+    built_external_packages.insert(
+        dep.clone(),
+        BuiltExternalPackage {
+            lib_source_path: root_library_action.source_path.clone(),
+            link_objects,
+            module_aliases,
+        },
+    );
+    external_summary.compile_actions += required_library_actions.len();
+    external_build_stack.remove(dep);
+    Ok(())
+}
+
+fn fetch_external_package(
+    source_config: &SourceConfigContext,
+    dependency_workspace_root: &Path,
+    dep: &ExternalPackageId,
+) -> Result<source::FetchedPackage> {
+    let resolved = ResolvedGraph {
+        workspace_root: dependency_workspace_root.to_path_buf(),
+        packages: Vec::new(),
+        external_packages: vec![ResolvedExternalPackage { id: dep.clone() }],
+    };
+    let mut fetched = source::fetch_external_packages(
+        &source_config.manifest_path,
+        &source_config.manifest,
+        &resolved,
+    )?;
+    fetched.pop().ok_or_else(|| {
+        Error::Execution(format!(
+            "failed to fetch external package `{}`",
+            dep.package_name
+        ))
+    })
+}
+
+fn root_external_library_action<'a>(
+    dep: &ExternalPackageId,
+    local_library_actions: &'a BTreeMap<PackageId, CompileAction>,
+) -> Result<&'a CompileAction> {
+    local_library_actions
+        .values()
+        .find(|action| {
+            action.package_id.name == dep.package_name
+                && action.target_kind == crate::plan::TargetKind::Lib
+                && match &dep.version {
+                    Some(version) => action.package_id.version == *version,
+                    None => true,
                 }
-            }
+        })
+        .ok_or_else(|| {
+            Error::Execution(format!(
+                "external package `{}` does not expose a buildable lib target",
+                dep.package_name
+            ))
+        })
+}
+
+fn local_library_actions(actions: &[CompileAction]) -> BTreeMap<PackageId, CompileAction> {
+    actions
+        .iter()
+        .filter(|action| action.target_kind == crate::plan::TargetKind::Lib)
+        .map(|action| (action.package_id.clone(), action.clone()))
+        .collect()
+}
+
+fn required_local_packages(
+    root_action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+) -> BTreeSet<PackageId> {
+    let mut required = BTreeSet::new();
+    collect_local_packages(root_action, local_library_actions, &mut required);
+    required
+}
+
+fn collect_local_packages(
+    action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    required: &mut BTreeSet<PackageId>,
+) {
+    if !required.insert(action.package_id.clone()) {
+        return;
+    }
+    for dep in &action.local_dependencies {
+        if let Some(dep_action) = local_library_actions.get(dep) {
+            collect_local_packages(dep_action, local_library_actions, required);
         }
     }
-    aliases
+}
+
+fn required_external_dependencies(
+    root_action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+) -> BTreeSet<ExternalPackageId> {
+    let mut required = BTreeSet::new();
+    collect_external_dependencies(root_action, local_library_actions, &mut required);
+    required
+}
+
+fn module_alias_paths(
+    root_action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+) -> Result<BTreeMap<String, PathBuf>> {
+    let mut aliases = BTreeMap::new();
+    let mut visited_local = BTreeSet::new();
+    let mut visited_external = BTreeSet::new();
+    collect_module_alias_paths(
+        root_action,
+        local_library_actions,
+        built_external_packages,
+        &mut visited_local,
+        &mut visited_external,
+        &mut aliases,
+    )?;
+    Ok(aliases)
+}
+
+fn collect_module_alias_paths(
+    action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    visited_local: &mut BTreeSet<PackageId>,
+    visited_external: &mut BTreeSet<ExternalPackageId>,
+    aliases: &mut BTreeMap<String, PathBuf>,
+) -> Result<()> {
+    for dep in &action.local_dependencies {
+        let Some(dep_action) = local_library_actions.get(dep) else {
+            continue;
+        };
+        if visited_local.insert(dep.clone()) {
+            aliases.insert(dep.name.clone(), dep_action.source_path.clone());
+            collect_module_alias_paths(
+                dep_action,
+                local_library_actions,
+                built_external_packages,
+                visited_local,
+                visited_external,
+                aliases,
+            )?;
+        }
+    }
+
+    for dep in &action.external_dependencies {
+        if !visited_external.insert(dep.clone()) {
+            continue;
+        }
+        let package = built_external_packages.get(dep).ok_or_else(|| {
+            Error::Execution(format!(
+                "missing built external package `{}`",
+                dep.package_name
+            ))
+        })?;
+        aliases.extend(
+            package
+                .module_aliases
+                .iter()
+                .map(|(name, path)| (name.clone(), path.clone())),
+        );
+    }
+
+    Ok(())
+}
+
+fn collect_external_dependencies(
+    action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    required: &mut BTreeSet<ExternalPackageId>,
+) {
+    for dep in &action.external_dependencies {
+        required.insert(dep.clone());
+    }
+    for dep in &action.local_dependencies {
+        if let Some(dep_action) = local_library_actions.get(dep) {
+            collect_external_dependencies(dep_action, local_library_actions, required);
+        }
+    }
+}
+
+fn link_inputs_for_action(
+    link_action: &LinkAction,
+    _action_plan: &ActionPlan,
+    _local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    _built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+) -> Result<Vec<PathBuf>> {
+    // Module aliases resolve dependencies as source inputs during compilation, so
+    // executable/test/example link steps only need their primary object file.
+    Ok(vec![link_action.primary_object.clone()])
+}
+
+fn link_objects_for_compile_action(
+    root_action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageId, CompileAction>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+) -> Result<Vec<PathBuf>> {
+    let mut objects = Vec::new();
+    let mut seen = BTreeSet::new();
+    push_link_object(&mut objects, &mut seen, &root_action.object_path);
+
+    for package_id in required_local_packages(root_action, local_library_actions) {
+        if package_id == root_action.package_id {
+            continue;
+        }
+        if let Some(action) = local_library_actions.get(&package_id) {
+            push_link_object(&mut objects, &mut seen, &action.object_path);
+        }
+    }
+    for dep in required_external_dependencies(root_action, local_library_actions) {
+        let package = built_external_packages.get(&dep).ok_or_else(|| {
+            Error::Execution(format!(
+                "missing built external package `{}`",
+                dep.package_name
+            ))
+        })?;
+        for object in &package.link_objects {
+            push_link_object(&mut objects, &mut seen, object);
+        }
+    }
+
+    Ok(objects)
+}
+
+fn push_link_object(objects: &mut Vec<PathBuf>, seen: &mut BTreeSet<PathBuf>, path: &Path) {
+    if seen.insert(path.to_path_buf()) {
+        objects.push(path.to_path_buf());
+    }
 }
 
 fn apply_host_linker_env(options: &mut CompileOptions) {
@@ -536,6 +892,209 @@ extern fn main(args: [][]u8) i32 {
         let summary = build(&build_plan, &action_plan).unwrap();
         assert_eq!(summary.compile_actions, 1);
         assert_eq!(summary.link_actions, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn builds_package_with_direct_external_registry_dependency() {
+        let root = temp_dir("kraft-exec-external-direct");
+        let registry_root = root.join("vendor-registry");
+        let log_root = registry_root.join("log").join("1");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(log_root.join("src")).unwrap();
+
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "app"
+root = "src/main.kr"
+
+[dependencies]
+log = "1"
+
+[source.default]
+directory = "vendor-registry"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.kr"),
+            r#"
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    if (log.answer() == 42) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            log_root.join("Kraft.toml"),
+            r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.7"
+
+[lib]
+root = "src/lib.kr"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            log_root.join("src/lib.kr"),
+            r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Kraft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+        let summary = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(summary.compile_actions, 2);
+        assert_eq!(summary.link_actions, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn builds_and_runs_hosted_package_with_transitive_external_registry_dependency() {
+        let root = temp_dir("kraft-exec-external-transitive");
+        let registry_root = root.join("vendor-registry");
+        let log_root = registry_root.join("log").join("1");
+        let corelog_root = registry_root.join("corelog").join("1");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(log_root.join("src")).unwrap();
+        fs::create_dir_all(corelog_root.join("src")).unwrap();
+
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "app"
+root = "src/main.kr"
+
+[dependencies]
+log = "1"
+
+[source.default]
+directory = "vendor-registry"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.kr"),
+            r#"
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    if (log.answer() == 42) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            log_root.join("Kraft.toml"),
+            r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.7"
+
+[lib]
+root = "src/lib.kr"
+
+[dependencies]
+corelog = "1"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            log_root.join("src/lib.kr"),
+            r#"
+pub fn answer() i32 {
+    return corelog.base() + 1;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            corelog_root.join("Kraft.toml"),
+            r#"
+[package]
+name = "corelog"
+version = "1"
+kern = "0.7"
+
+[lib]
+root = "src/lib.kr"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            corelog_root.join("src/lib.kr"),
+            r#"
+pub fn base() i32 {
+    return 41;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Kraft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Run,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Run).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+        let unit = build_plan.packages[0]
+            .units
+            .iter()
+            .find(|unit| unit.target_kind == crate::plan::TargetKind::Bin)
+            .unwrap();
+
+        let summary = run(&build_plan, &action_plan, unit).unwrap();
+        assert!(summary.executable.is_file());
 
         let _ = fs::remove_dir_all(root);
     }

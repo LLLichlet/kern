@@ -75,6 +75,8 @@ pub struct CompileAction {
     pub profile: script::ScriptProfile,
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
+    pub local_dependencies: Vec<PackageId>,
+    pub external_dependencies: Vec<ExternalPackageId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -196,6 +198,8 @@ impl BuildPlan {
                     profile: unit.profile.clone(),
                     cfg: unit.cfg.clone(),
                     define: unit.define.clone(),
+                    local_dependencies: unit.local_dependencies.clone(),
+                    external_dependencies: unit.external_dependencies.clone(),
                 });
             }
         }

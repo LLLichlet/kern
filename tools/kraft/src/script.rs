@@ -82,6 +82,7 @@ pub struct ScriptProfile {
 pub enum ScriptCommand {
     Check,
     Lock,
+    Fetch,
     Build,
     Run,
     Test,
@@ -845,9 +846,10 @@ impl ScriptCommand {
         match self {
             Self::Check => 0,
             Self::Lock => 1,
-            Self::Build => 2,
-            Self::Run => 3,
-            Self::Test => 4,
+            Self::Fetch => 2,
+            Self::Build => 3,
+            Self::Run => 4,
+            Self::Test => 5,
         }
     }
 }

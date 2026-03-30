@@ -7,6 +7,7 @@ use std::path::Path;
 pub struct Manifest {
     pub package: Option<Package>,
     pub kraft: Option<KraftConfig>,
+    pub sources: BTreeMap<String, SourceConfig>,
     pub lib: Option<LibTarget>,
     pub bin: Vec<NamedTarget>,
     pub test: Vec<NamedTarget>,
@@ -31,6 +32,11 @@ pub struct Package {
 #[derive(Debug, Default)]
 pub struct KraftConfig {
     pub env: Vec<String>,
+}
+
+#[derive(Debug, Default)]
+pub struct SourceConfig {
+    pub directory: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -89,11 +95,12 @@ pub struct WorkspacePackage {
     pub authors: Vec<String>,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 enum Section {
     Root,
     Package,
     Kraft,
+    Source(String),
     Lib,
     Bin(usize),
     Test(usize),
@@ -155,7 +162,7 @@ impl Manifest {
                     path: path.to_path_buf(),
                     message,
                 })?;
-            assign_key_value(&mut manifest, section, key, raw_value).map_err(|message| {
+            assign_key_value(&mut manifest, &section, key, raw_value).map_err(|message| {
                 Error::ManifestParse {
                     path: path.to_path_buf(),
                     message,
@@ -189,6 +196,17 @@ impl Manifest {
             for name in &kraft.env {
                 validate_env_name(path, "[kraft].env[]", name)?;
             }
+        }
+
+        for (name, source) in &self.sources {
+            validate_source_name(path, "[source]", name)?;
+            let Some(directory) = &source.directory else {
+                return Err(Error::Validation {
+                    path: path.to_path_buf(),
+                    message: format!("[source.{name}] must declare `directory`"),
+                });
+            };
+            validate_non_empty(path, &format!("[source.{name}].directory"), directory)?;
         }
 
         if let Some(lib) = &self.lib {
@@ -266,6 +284,14 @@ fn enter_table_section(
     manifest: &mut Manifest,
     line: &str,
 ) -> std::result::Result<Section, String> {
+    if let Some(name) = line
+        .strip_prefix("[source.")
+        .and_then(|tail| tail.strip_suffix(']'))
+    {
+        manifest.sources.entry(name.to_string()).or_default();
+        return Ok(Section::Source(name.to_string()));
+    }
+
     match line {
         "[package]" => {
             manifest.package.get_or_insert_with(Package::default);
@@ -314,7 +340,7 @@ fn enter_table_section(
 
 fn assign_key_value(
     manifest: &mut Manifest,
-    section: Section,
+    section: &Section,
     key: &str,
     raw_value: &str,
 ) -> std::result::Result<(), String> {
@@ -340,6 +366,14 @@ fn assign_key_value(
             }
             Ok(())
         }
+        Section::Source(name) => {
+            let source = manifest.sources.entry(name.clone()).or_default();
+            match key {
+                "directory" => source.directory = Some(parse_string(raw_value)?),
+                _ => return Err(format!("unsupported [source] key `{key}`")),
+            }
+            Ok(())
+        }
         Section::Lib => {
             let lib = manifest.lib.get_or_insert_with(LibTarget::default);
             match key {
@@ -349,13 +383,13 @@ fn assign_key_value(
             Ok(())
         }
         Section::Bin(index) => {
-            assign_named_target(&mut manifest.bin[index], "[[bin]]", key, raw_value)
+            assign_named_target(&mut manifest.bin[*index], "[[bin]]", key, raw_value)
         }
         Section::Test(index) => {
-            assign_named_target(&mut manifest.test[index], "[[test]]", key, raw_value)
+            assign_named_target(&mut manifest.test[*index], "[[test]]", key, raw_value)
         }
         Section::Example(index) => {
-            assign_named_target(&mut manifest.example[index], "[[example]]", key, raw_value)
+            assign_named_target(&mut manifest.example[*index], "[[example]]", key, raw_value)
         }
         Section::Dependencies => {
             manifest
@@ -896,6 +930,31 @@ fn validate_env_name(path: &Path, field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_source_name(path: &Path, field: &str, value: &str) -> Result<()> {
+    validate_non_empty(path, field, value)?;
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        unreachable!("non-empty source names are required");
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{field} names must start with an ASCII letter or `_`, found `{value}`"
+            ),
+        });
+    }
+    if chars.any(|ch| !(ch == '_' || ch == '-' || ch.is_ascii_alphanumeric())) {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{field} names must contain only ASCII letters, digits, `_`, or `-`, found `{value}`"
+            ),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{DependencySpec, Manifest};
@@ -1062,6 +1121,61 @@ env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
 
         let kraft = manifest.kraft.unwrap();
         assert_eq!(kraft.env, vec!["USE_SYSTEM_SSL", "KERN_SYSROOT"]);
+    }
+
+    #[test]
+    fn parses_named_source_tables() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[source.default]
+directory = "vendor/default"
+
+[source.corp]
+directory = "vendor/corp"
+"#,
+            std::path::Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            manifest
+                .sources
+                .get("default")
+                .and_then(|source| source.directory.as_deref()),
+            Some("vendor/default")
+        );
+        assert_eq!(
+            manifest
+                .sources
+                .get("corp")
+                .and_then(|source| source.directory.as_deref()),
+            Some("vendor/corp")
+        );
+    }
+
+    #[test]
+    fn rejects_source_without_directory() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[source.default]
+"#,
+            std::path::Path::new("Kraft.toml"),
+        )
+        .unwrap();
+
+        let path = std::path::Path::new("Kraft.toml");
+        let err = manifest.validate(path).unwrap_err();
+        assert!(err.to_string().contains("must declare `directory`"));
     }
 
     #[test]

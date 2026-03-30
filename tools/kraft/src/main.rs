@@ -10,6 +10,7 @@ mod manifest;
 mod plan;
 mod resolver;
 mod script;
+mod source;
 mod workspace;
 
 fn main() {

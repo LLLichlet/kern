@@ -25,9 +25,11 @@ The current implementation now covers the first graph and lockfile milestones:
 - build-plan derivation from normalized package targets and resolved dependencies
 - package-level `build.kr` discovery, validation, and per-target link-plan orchestration
 - host `kraft build/run/test` execution through explicit `kernc` compile/link action graphs
+- explicit `[source.<name>]` manifest configuration for directory-backed registries
+- `kraft fetch` materialization of external sources into `.kraft/sources`
 
 Current limitation:
 
-- external registry dependencies are still planned and locked, but not yet fetched/built for execution
+- external registry dependencies can now be fetched, but are not yet recursively compiled into the execution graph
 
 See [docs/kraft.md](../../docs/kraft.md) for the V1 design draft.

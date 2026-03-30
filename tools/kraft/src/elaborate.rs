@@ -916,6 +916,7 @@ pub fn kraft(p: *mut plan.Plan) void {
     match (p.command) {
         .check => p.define_bool("is_check", true),
         .lock => {},
+        .fetch => {},
         .build => {},
         .run => {},
         .test => {},

@@ -7,6 +7,7 @@ use crate::graph;
 use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::plan::TargetKind;
+use crate::source;
 use crate::workspace;
 use std::env;
 use std::path::PathBuf;
@@ -19,6 +20,10 @@ pub enum Command {
         feature_selection: elaborate::FeatureSelection,
     },
     Lock {
+        path: Option<PathBuf>,
+        feature_selection: elaborate::FeatureSelection,
+    },
+    Fetch {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
     },
@@ -223,6 +228,45 @@ pub fn run() -> Result<()> {
                 loaded.elaboration.resolved_graph.packages.len(),
                 loaded.elaboration.resolved_graph.external_packages.len()
             );
+
+            Ok(())
+        }
+        Command::Fetch {
+            path,
+            feature_selection,
+        } => {
+            let loaded = load_package_graph(
+                path.as_deref(),
+                crate::script::ScriptCommand::Fetch,
+                &feature_selection,
+            )?;
+            let fetched = source::fetch_external_packages(
+                &loaded.manifest_path,
+                &loaded.manifest,
+                &loaded.elaboration.resolved_graph,
+            )?;
+            let summary = source::summarize_fetch(&fetched);
+
+            println!("fetched {}", loaded.manifest_path.display());
+            println!(
+                "feature inputs: {}",
+                format_feature_inputs(&feature_selection)
+            );
+            println!(
+                "external packages: {} created={} updated={} unchanged={}",
+                fetched.len(),
+                summary.created,
+                summary.updated,
+                summary.unchanged
+            );
+            for package in &fetched {
+                println!(
+                    "source: {} from={} cache={}",
+                    format_external_package_label(&package.id),
+                    package.source_path.display(),
+                    package.cache_path.display()
+                );
+            }
 
             Ok(())
         }
@@ -479,6 +523,13 @@ fn format_unit_label(unit: &build_plan::BuildUnit) -> String {
     )
 }
 
+fn format_external_package_label(package: &crate::resolver::ExternalPackageId) -> String {
+    match &package.version {
+        Some(version) => format!("{} {}", package.package_name, version),
+        None => package.package_name.clone(),
+    }
+}
+
 fn format_action_label(
     package_id: &crate::graph::PackageId,
     target_kind: TargetKind,
@@ -645,6 +696,10 @@ where
             path,
             feature_selection,
         }),
+        "fetch" => Ok(Command::Fetch {
+            path,
+            feature_selection,
+        }),
         "build" => Ok(Command::Build {
             path,
             feature_selection,
@@ -734,6 +789,7 @@ USAGE:
     kraft help
     kraft check [PATH] [--no-default-features] [--features <FEATURES>]
     kraft lock [PATH] [--no-default-features] [--features <FEATURES>]
+    kraft fetch [PATH] [--no-default-features] [--features <FEATURES>]
     kraft build [PATH] [--no-default-features] [--features <FEATURES>]
     kraft run [PATH] [--no-default-features] [--features <FEATURES>]
     kraft test [PATH] [--no-default-features] [--features <FEATURES>]
@@ -742,6 +798,7 @@ COMMANDS:
     help         Show this help text
     check        Discover, parse, and validate Kraft.toml
     lock         Write a deterministic Kraft.lock from the current package graph
+    fetch        Materialize external package sources into the local kraft cache
     build        Derive the build plan for the selected package graph
     run          Select the runnable bin target from the current build plan
     test         Derive the test build plan for the selected package graph
@@ -813,6 +870,23 @@ mod tests {
                 assert!(feature_selection.explicit.is_empty());
             }
             other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_fetch_with_path() {
+        let cmd = parse_args(["fetch".to_string(), "demo".to_string()]).unwrap();
+
+        match cmd {
+            Command::Fetch {
+                path,
+                feature_selection,
+            } => {
+                assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+                assert!(feature_selection.enable_default);
+                assert!(feature_selection.explicit.is_empty());
+            }
+            other => panic!("expected fetch command, got {other:?}"),
         }
     }
 

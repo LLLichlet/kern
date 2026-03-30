@@ -237,6 +237,7 @@ The intended V1 sections are:
 
 - `[package]`
 - `[kraft]`
+- `[source.<name>]`
 - `[lib]`
 - `[[bin]]`
 - `[[test]]`

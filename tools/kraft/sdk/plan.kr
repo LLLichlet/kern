@@ -39,6 +39,7 @@ pub type DependencyKind = enum {
 pub type Command = enum {
     check,
     lock,
+    fetch,
     build,
     run,
     test,

@@ -318,6 +318,8 @@ The lockfile should capture digests for:
 - `kraft.kr`, if present
 - normalized package metadata after elaboration
 
+The current implementation direction should also persist a readable snapshot of normalized package targets, not only their digests, so lockfiles remain auditable.
+
 It should not capture build-only details from `build.kr`.
 
 ### Lockfile Responsibilities

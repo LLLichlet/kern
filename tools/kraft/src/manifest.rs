@@ -122,7 +122,7 @@ impl Manifest {
             .unwrap_or(&[])
     }
 
-    fn parse(source: &str, path: &Path) -> Result<Self> {
+    pub(crate) fn parse(source: &str, path: &Path) -> Result<Self> {
         let mut manifest = Self::default();
         let mut section = Section::Root;
 

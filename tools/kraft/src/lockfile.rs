@@ -1,6 +1,7 @@
 use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
+use crate::plan::TargetKind;
 use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
 use std::collections::BTreeSet;
 use std::fs;
@@ -15,6 +16,7 @@ pub struct Lockfile {
     pub workspace_script_digest: Option<String>,
     pub workspace_env: Vec<LockedEnvInput>,
     pub packages: Vec<LockedPackage>,
+    pub package_targets: Vec<LockedPackageTarget>,
     pub external_packages: Vec<LockedExternalPackage>,
     pub package_env: Vec<LockedPackageEnvInput>,
     pub dependencies: Vec<LockedDependency>,
@@ -53,6 +55,14 @@ pub struct LockedExternalPackage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LockedPackageTarget {
+    pub package_id: String,
+    pub kind: String,
+    pub name: Option<String>,
+    pub root: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LockedEnvInput {
     pub name: String,
     pub value: Option<String>,
@@ -83,6 +93,7 @@ pub enum LockWriteResult {
 enum Section {
     Root,
     Package(usize),
+    PackageTarget(usize),
     ExternalPackage(usize),
     WorkspaceEnv(usize),
     PackageEnv(usize),
@@ -143,6 +154,7 @@ impl Lockfile {
         let manifest_digest = digest_file(manifest_path)?;
 
         let mut packages = Vec::new();
+        let mut package_targets = Vec::new();
         let mut external_packages = Vec::new();
         let mut package_env = Vec::new();
         let mut dependencies = Vec::new();
@@ -165,6 +177,20 @@ impl Lockfile {
                 kraft_script: script.map(|script| script.relative_path.clone()),
                 kraft_script_digest: script.map(|script| script.digest.clone()),
             });
+            let package_plan = &elaboration
+                .packages
+                .iter()
+                .find(|entry| entry.package_id == package.id)
+                .expect("elaboration must contain package plan")
+                .plan;
+            for target in &package_plan.targets {
+                package_targets.push(LockedPackageTarget {
+                    package_id: package_id.clone(),
+                    kind: target_kind(target.kind).to_string(),
+                    name: target.name.clone(),
+                    root: target.root.clone(),
+                });
+            }
             if let Some(script) = script {
                 for input in &script.env_inputs {
                     package_env.push(LockedPackageEnvInput {
@@ -233,6 +259,7 @@ impl Lockfile {
                 })
                 .unwrap_or_default(),
             packages,
+            package_targets,
             external_packages,
             package_env,
             dependencies,
@@ -248,6 +275,7 @@ impl Lockfile {
             workspace_script_digest: None,
             workspace_env: Vec::new(),
             packages: Vec::new(),
+            package_targets: Vec::new(),
             external_packages: Vec::new(),
             package_env: Vec::new(),
             dependencies: Vec::new(),
@@ -283,6 +311,15 @@ impl Lockfile {
                             version: None,
                         });
                         Section::ExternalPackage(lockfile.external_packages.len() - 1)
+                    }
+                    "[[package-target]]" => {
+                        lockfile.package_targets.push(LockedPackageTarget {
+                            package_id: String::new(),
+                            kind: String::new(),
+                            name: None,
+                            root: String::new(),
+                        });
+                        Section::PackageTarget(lockfile.package_targets.len() - 1)
                     }
                     "[[workspace-env]]" => {
                         lockfile.workspace_env.push(LockedEnvInput {
@@ -404,6 +441,55 @@ impl Lockfile {
                 package.kraft_script.as_deref(),
                 package.kraft_script_digest.as_deref(),
             )?;
+        }
+
+        let mut package_target_keys = BTreeSet::new();
+        for target in &self.package_targets {
+            validate_non_empty(path, "[[package-target]].package", &target.package_id)?;
+            if !package_ids.contains(target.package_id.as_str()) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "[[package-target]] references unknown package id `{}`",
+                        target.package_id
+                    ),
+                });
+            }
+            validate_target_kind_name(path, "[[package-target]].kind", &target.kind)?;
+            match target.kind.as_str() {
+                "lib" => {
+                    if target.name.is_some() {
+                        return Err(Error::LockfileValidation {
+                            path: path.to_path_buf(),
+                            message: "[[package-target]] kind `lib` must not set `name`"
+                                .to_string(),
+                        });
+                    }
+                }
+                _ => {
+                    validate_non_empty(
+                        path,
+                        "[[package-target]].name",
+                        target.name.as_deref().unwrap_or(""),
+                    )?;
+                }
+            }
+            validate_non_empty(path, "[[package-target]].root", &target.root)?;
+            if !package_target_keys.insert((
+                target.package_id.as_str(),
+                target.kind.as_str(),
+                target.name.as_deref().unwrap_or(""),
+            )) {
+                return Err(Error::LockfileValidation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "duplicate package target `{}:{}:{}`",
+                        target.package_id,
+                        target.kind,
+                        target.name.as_deref().unwrap_or("<lib>")
+                    ),
+                });
+            }
         }
 
         let mut package_env_keys = BTreeSet::new();
@@ -558,6 +644,17 @@ impl Lockfile {
             }
         }
 
+        for target in &self.package_targets {
+            out.push('\n');
+            out.push_str("[[package-target]]\n");
+            push_string_line(&mut out, "package", &target.package_id);
+            push_string_line(&mut out, "kind", &target.kind);
+            if let Some(name) = &target.name {
+                push_string_line(&mut out, "name", name);
+            }
+            push_string_line(&mut out, "root", &target.root);
+        }
+
         for package in &self.external_packages {
             out.push('\n');
             out.push_str("[[external-package]]\n");
@@ -642,6 +739,16 @@ fn assign_key_value(
                 _ => return Err(format!("unsupported [[external-package]] key `{key}`")),
             }
         }
+        Section::PackageTarget(index) => {
+            let target = &mut lockfile.package_targets[index];
+            match key {
+                "package" => target.package_id = parse_string(raw_value)?,
+                "kind" => target.kind = parse_string(raw_value)?,
+                "name" => target.name = Some(parse_string(raw_value)?),
+                "root" => target.root = parse_string(raw_value)?,
+                _ => return Err(format!("unsupported [[package-target]] key `{key}`")),
+            }
+        }
         Section::WorkspaceEnv(index) => {
             let input = &mut lockfile.workspace_env[index];
             match key {
@@ -682,6 +789,10 @@ fn dependency_kind(kind: DependencyKind) -> &'static str {
         DependencyKind::Dev => "dev",
         DependencyKind::Build => "build",
     }
+}
+
+fn target_kind(kind: TargetKind) -> &'static str {
+    kind.as_str()
 }
 
 fn package_lock_id(id: &PackageId) -> String {
@@ -973,6 +1084,16 @@ fn validate_target_kind(path: &Path, field: &str, value: &str) -> Result<()> {
     }
 }
 
+fn validate_target_kind_name(path: &Path, field: &str, value: &str) -> Result<()> {
+    match value {
+        "lib" | "bin" | "test" | "example" => Ok(()),
+        _ => Err(Error::LockfileValidation {
+            path: path.to_path_buf(),
+            message: format!("{field} has unsupported package target kind `{value}`"),
+        }),
+    }
+}
+
 fn fnv1a64(bytes: &[u8]) -> u64 {
     const OFFSET_BASIS: u64 = 0xcbf29ce484222325;
     const PRIME: u64 = 0x100000001b3;
@@ -1067,6 +1188,10 @@ kern = "0.7"
 [kraft]
 env = ["{env_name}"]
 
+[[bin]]
+name = "app"
+root = "src/main.kr"
+
 [dependencies]
 util = {{ path = "../util" }}
 shared = {{ workspace = true, features = ["simd"] }}
@@ -1097,9 +1222,14 @@ kern = "0.7"
 
         assert!(rendered.contains("version = 1"));
         assert!(rendered.contains("[[package]]"));
+        assert!(rendered.contains("[[package-target]]"));
         assert!(rendered.contains("[[external-package]]"));
         assert!(rendered.contains("[[package-env]]"));
         assert!(rendered.contains("id = \"app 0.1.0 workspace-member:app\""));
+        assert!(
+            rendered.contains("package = \"app 0.1.0 workspace-member:app\"")
+                && rendered.contains("kind = \"bin\"")
+        );
         assert!(rendered.contains("workspace-script = \"kraft.kr\""));
         assert!(rendered.contains("kraft-script = \"app/kraft.kr\""));
         assert!(rendered.contains(&format!("name = \"{env_name}\"")));

@@ -17,6 +17,7 @@ The current implementation now covers the first graph and lockfile milestones:
 - local package graph construction
 - resolved external package graph construction
 - `kraft.kr` discovery and elaboration-input scaffolding
+- normalized package-plan snapshots for declared targets
 - explicit `[kraft].env` allowlists recorded into `Kraft.lock`
 - `workspace = true` dependency inheritance
 - deterministic `Kraft.lock` writing via `kraft lock`

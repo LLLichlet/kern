@@ -5,6 +5,7 @@ mod error;
 mod graph;
 mod lockfile;
 mod manifest;
+mod plan;
 mod resolver;
 mod workspace;
 

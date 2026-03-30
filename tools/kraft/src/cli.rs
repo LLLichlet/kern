@@ -95,6 +95,10 @@ pub fn run() -> Result<()> {
                 loaded.manifest.example.len()
             );
             println!(
+                "normalized package targets: {}",
+                loaded.elaboration.package_target_count()
+            );
+            println!(
                 "dependencies: normal={} dev={} build={}",
                 loaded.manifest.dependencies.len(),
                 loaded.manifest.dev_dependencies.len(),

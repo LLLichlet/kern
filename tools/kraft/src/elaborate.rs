@@ -1,6 +1,7 @@
 use crate::error::{Error, Result};
 use crate::graph::{PackageId, SourceId};
 use crate::manifest::Manifest;
+use crate::plan::PackagePlan;
 use crate::resolver::ResolvedGraph;
 use crate::workspace::WorkspaceMember;
 use std::fs;
@@ -23,6 +24,7 @@ pub struct ScriptInput {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageElaboration {
     pub package_id: PackageId,
+    pub plan: PackagePlan,
     pub script: Option<ScriptInput>,
 }
 
@@ -59,6 +61,13 @@ impl ElaborationPlan {
             })
             .sum()
     }
+
+    pub fn package_target_count(&self) -> usize {
+        self.packages
+            .iter()
+            .map(|pkg| pkg.plan.target_count())
+            .sum()
+    }
 }
 
 pub fn plan(
@@ -86,18 +95,20 @@ pub fn plan(
             .manifest_path
             .parent()
             .unwrap_or_else(|| Path::new("."));
+        let package_manifest = if package.id.source == SourceId::Root {
+            manifest
+        } else {
+            &workspace_members
+                .iter()
+                .find(|member| member.manifest_path == package.manifest_path)
+                .expect("workspace member manifest must exist")
+                .manifest
+        };
+        let plan =
+            PackagePlan::from_manifest(&package.manifest_path, &package.id, package_manifest)?;
         let script = if package.id.source == SourceId::Root && has_workspace {
             None
         } else {
-            let package_manifest = if package.id.source == SourceId::Root {
-                manifest
-            } else {
-                &workspace_members
-                    .iter()
-                    .find(|member| member.manifest_path == package.manifest_path)
-                    .expect("workspace member manifest must exist")
-                    .manifest
-            };
             discover_script(
                 workspace_root,
                 package_root,
@@ -107,6 +118,7 @@ pub fn plan(
         };
         packages.push(PackageElaboration {
             package_id: package.id.clone(),
+            plan,
             script,
         });
     }

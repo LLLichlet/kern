@@ -1,287 +1,108 @@
-# The `craft` Package Manager and Builder (v1 Draft)
+# The `craft` Package Manager and Builder
 
-This document defines the first formal design direction for `craft`, the dedicated Kern package manager and build orchestrator.
+This document describes the current architecture and design rules for `craft`, the dedicated Kern package manager and build orchestrator.
 
 `craft` is intentionally separate from `kernc`.
 
 - `kernc` compiles and links explicit inputs.
-- `craft` resolves packages, evaluates package configuration, constructs build plans, manages lockfiles, and invokes `kernc` with explicit actions.
+- `craft` discovers packages, evaluates package configuration, resolves dependencies, manages lockfiles, derives build plans, and executes those plans.
 
-The design goal is not to copy Cargo or Zig mechanically. The goal is to preserve Kern's core values:
+The goal is not to imitate Cargo or Zig mechanically. The goal is to preserve Kern's core values:
 
-- high abstraction, low policy
-- strong orthogonality
+- orthogonality
 - explicit phase boundaries
-- deterministic and reproducible builds
+- deterministic behavior
+- auditability
+- low policy, high clarity
 
-## Scope and Responsibilities
+## Responsibilities
 
 `craft` is responsible for:
 
-- reading `Craft.toml`
+- loading `Craft.toml`
+- discovering workspace structure
 - evaluating optional `craft.rn`
 - normalizing package metadata into a deterministic package graph
-- resolving dependencies and writing `Craft.lock`
-- constructing a build plan for targets, profiles, and workspaces
-- optionally evaluating `build.rn` for low-level build orchestration
-- invoking `kernc` and the system linker with explicit derived arguments
-- managing local caches, registries, installs, and workspace builds
+- resolving dependencies
+- reading and writing `Craft.lock`
+- deriving explicit compile and link actions
+- evaluating optional `build.rn`
+- executing the derived build graph
+- managing local package/source caches
 
 `craft` is not responsible for:
 
 - replacing the Kern language module system
-- hiding `kernc` behind opaque compilation behavior
-- inventing implicit dependency versions or hidden policy
-- allowing arbitrary pre-lock scripts to destroy reproducibility
+- hiding `kernc` behind opaque behavior
+- introducing implicit dependency or target policy
+- allowing pre-lock scripts to smuggle in hidden machine state
 
-## Core Artifact Model
+## Phase Model
 
-The build pipeline is split into four explicit artifacts:
+The package pipeline is split into four explicit artifacts:
 
 1. `Craft.toml`
 2. `craft.rn`
 3. `Craft.lock`
 4. `build.rn`
 
-The phase order is:
+The order is:
 
 ```text
 Craft.toml
   -> craft.rn
   -> normalized package graph
-  -> dependency resolver
+  -> dependency resolution
   -> Craft.lock
   -> build.rn
   -> explicit compile/link actions
+  -> execution
 ```
 
-This split is intentional.
+This split is the core of the design.
 
-- `Craft.toml` describes static facts.
-- `craft.rn` performs pure elaboration and adaptation.
-- `Craft.lock` records the resolved dependency graph and the normalized package inputs.
-- `build.rn` performs post-resolution build orchestration.
+- `Craft.toml` carries static declarations.
+- `craft.rn` elaborates those declarations before resolution.
+- `Craft.lock` records the resolved graph and the normalized inputs that produced it.
+- `build.rn` performs post-lock build orchestration.
 
-The most important design rule is:
+The critical rule is:
 
-- `craft.rn` may affect package normalization and dependency resolution.
-- `build.rn` may affect build execution.
+- `craft.rn` may affect dependency resolution and therefore lockfile contents.
+- `build.rn` may affect execution, staging, and linkage.
 - `build.rn` must not affect dependency resolution or lockfile contents.
 
-## Why `craft.rn` Exists
+## Package And Workspace Model
 
-Pure TOML is excellent for declarations, but packages often need conditional structure:
+`craft` treats workspaces as first-class.
 
-- target-specific dependencies
-- feature-driven target composition
-- conditional module roots
-- generated target lists
-- workspace-local policy adaptation
+- one workspace root owns the shared `Craft.lock`
+- workspace members resolve together
+- local members participate as explicit packages in the resolved graph
+- package-level elaboration happens within explicit workspace context
 
-Instead of pushing too much policy into the TOML schema, `craft` uses an optional Kern file, `craft.rn`, as a pure elaboration phase.
+The repository layout keeps `craft` outside `compiler/`:
 
-This keeps the system orthogonal:
-
-- TOML remains a static manifest format.
-- Kern remains the place for structured logic.
-- The elaboration phase is explicit and bounded.
-
-This is cleaner than a monolithic build script because it separates "what package graph exists" from "how the build executes".
-
-## `craft.rn` Semantics
-
-`craft.rn` is evaluated before dependency resolution and before lockfile generation.
-
-Conceptually, it receives a mutable planning object that contains:
-
-- the package metadata from `Craft.toml`
-- the active target triple
-- the active build profile
-- the selected feature set
-- workspace-local metadata
-- command mode such as `build`, `test`, or `check`
-
-Its job is to elaborate the manifest into a normalized package description.
-
-### Purity Requirements
-
-Because `craft.rn` runs before `Craft.lock`, it is part of the lock input. Therefore it must be deterministic.
-
-`craft.rn` must be treated as a pure elaboration phase:
-
-- no network access
-- no wall clock access
-- no randomness
-- no probing transient machine state
-- no implicit host-environment dependence
-
-Allowed inputs should be narrowly defined:
-
-- `Craft.toml`
-- the current package tree
-- the workspace graph
-- explicit command-line inputs
-- explicit target/profile/feature selection
-
-Environment access, if any, should be an explicit allowlist and should become part of the lock input digest.
-
-The intended model is:
-
-- `Craft.toml` declares allowed elaboration environment inputs under `[craft]`
-- `craft.rn` may only read environment inputs that were explicitly declared
-- `Craft.lock` records the declared input values that participated in elaboration
-
-For example:
-
-```toml
-[craft]
-env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
+```text
+compiler/
+library/
+tools/
+  craft/
+docs/
 ```
 
-This keeps environment dependence explicit rather than incidental. If an allowed input changes, the lockfile becomes stale and `craft` must re-elaborate before reuse.
-
-### Proposed API Shape
-
-The initial shape should be minimal:
-
-```kern
-use craft.plan;
-
-pub fn craft(p: *mut plan.Plan) void {
-    if (p.target.os == .windows) {
-        p.dep("win32", "1");
-    }
-
-    if (p.feature_enabled("simd")) {
-        p.cfg("simd", true);
-    }
-
-    if (p.profile.name == "release") {
-        p.define("aggressive_checks", false);
-    }
-}
-```
-
-The important point is not the exact method names. The important point is that this API manipulates a package plan, not a build executor.
-
-### What `craft.rn` May Do
-
-- add or remove target-specific dependencies
-- elaborate feature-driven configuration
-- add package-local cfg values
-- add or modify build targets already owned by the current package
-- choose source roots or generated source groups
-- apply workspace-local policy
-
-### What `craft.rn` Must Not Do
-
-- perform I/O with external systems
-- trigger actual compilation
-- mutate dependencies after lock resolution
-- inspect incidental host state in a hidden way
-- behave differently across repeated identical invocations
-
-## `build.rn` Semantics
-
-`build.rn` is optional and runs after `Craft.lock` has already been derived.
-
-Its role is not package elaboration. Its role is execution-phase build orchestration.
-
-This includes:
-
-- code generation
-- resource processing
-- system library linkage
-- linker script setup
-- custom packaging steps
-- explicit extra build edges
-
-### Proposed API Shape
-
-```kern
-use craft.builder;
-
-pub fn build(b: *mut builder.Builder) void {
-    match (b.target.os) {
-        .windows => b.link_system_lib("ws2_32"),
-        .darwin => b.link_framework("Security"),
-        .linux => {},
-        .unknown => {},
-    }
-}
-```
-
-Current V1 `Builder` support now includes:
-
-- inspection of package, workspace, target, profile, command, and current unit
-- inspection of derived build paths:
-  - build root
-  - generated root
-  - object path
-  - artifact path
-  - optional metadata path
-- per-unit compile-time mutation:
-  - cfg bool/string
-  - define bool/string
-  - source-root override
-- generated-file emission inside the designated generated directory
-- package-local file copying into the designated generated directory
-- link directives:
-  - system libraries
-  - frameworks
-  - search paths
-  - raw linker arguments
-
-Generated files are now also recorded in the derived build plan, so `build.rn` effects remain auditable rather than being pure side effects.
-
-Example:
-
-```kern
-use craft.builder;
-
-pub fn build(b: *mut builder.Builder) void {
-    let generated = b.copy_package_file("templates/main.rn", "src/main.rn");
-
-    b.set_source_root(generated);
-    b.cfg_bool("generated", true);
-    b.define_string("entry", "generated");
-
-    match (b.target.os) {
-        .windows => b.link_system_lib("ws2_32"),
-        .darwin => b.link_framework("Security"),
-        .linux => {},
-        .unknown => {},
-    }
-}
-```
-
-### `build.rn` May Do
-
-- generate files inside designated build directories
-- add link flags, libraries, frameworks, scripts
-- define explicit pre-build and post-build actions
-- register generated sources for current-package targets
-
-### `build.rn` Must Not Do
-
-- alter package resolution
-- alter lockfile contents
-- silently add versioned dependencies
-- mutate workspace dependency topology
-
-This separation is the central architectural difference between `craft.rn` and `build.rn`.
+This is intentional. `craft` is not a compiler pass. It is a top-level toolchain manager that drives the compiler.
 
 ## `Craft.toml`
 
 `Craft.toml` is the static declaration source.
 
-It should remain readable and mostly sufficient for ordinary packages. Most packages should not need either script file.
+It should remain readable and sufficient for ordinary packages. Most packages should not need either script file.
 
-The intended V1 sections are:
+The current schema direction includes:
 
 - `[package]`
 - `[craft]`
-- `[source.<name>]`
 - `[lib]`
 - `[[bin]]`
 - `[[test]]`
@@ -295,9 +116,9 @@ The intended V1 sections are:
 - `[workspace]`
 - `[workspace.package]`
 - `[workspace.dependencies]`
-- `[source]` or source-specific inline declarations
+- `[source.<name>]`
 
-### Example
+Example:
 
 ```toml
 [package]
@@ -335,201 +156,433 @@ opt = 3
 debug = false
 ```
 
-### Manifest Design Rules
+Manifest rules:
 
-- source structure should be explicit
-- target declarations should be explicit
-- dependency sources should be explicit
-- features should be additive
-- profile inheritance should be simple and deterministic
-- target-specific specialization belongs in either explicit manifest tables or `craft.rn`
+- targets are explicit
+- source roots are explicit
+- dependency sources are explicit
+- `build-dependencies` belong to the host build domain rather than the final target domain
+- features are additive
+- profile behavior is deterministic
+- target-specific or feature-specific elaboration belongs in either explicit manifest tables or `craft.rn`
 
-## `Craft.lock`
+## Feature, Profile, And Command Inputs
 
-`Craft.lock` records the fully resolved external package graph and the normalized inputs that affect that graph.
+Feature selection is part of elaboration and build planning, not an afterthought.
 
-The lockfile must be sufficient to answer:
+The current command surface accepts:
 
-- which package version was selected
-- from which source it came
-- with which checksum or immutable identity
-- with which normalized dependency edges
-- under which elaborated package configuration it was selected
+- `--no-default-features`
+- `--features <a,b,c>`
 
-The lockfile should capture digests for:
+These inputs affect:
 
-- `Craft.toml`
-- `craft.rn`, if present
-- normalized package metadata after elaboration
+- `craft.rn` evaluation
+- normalized package targets and dependencies
+- lockfile freshness
+- build plan derivation
 
-The current implementation direction should also persist a readable snapshot of normalized package targets, not only their digests, so lockfiles remain auditable.
+Profiles and command mode are also explicit inputs. `craft.rn` and `build.rn` both receive:
 
-It should not capture build-only details from `build.rn`.
+- host information
+- target information
+- profile information
+- command mode such as `check`, `build`, `run`, or `test`
 
-### Lockfile Responsibilities
+This keeps the system orthogonal: command selection, feature selection, profile selection, host context, and target context are all ordinary inputs to explicit phases.
 
-- reproducible dependency resolution
-- deterministic workspace builds
-- auditability of selected package sources
-- support for offline rebuilds
+## `craft.rn`
 
-### Lockfile Non-Responsibilities
+`craft.rn` is an optional pre-resolution elaboration script.
 
-- caching every compiler action
-- recording every object file or artifact hash
-- replacing a dedicated build cache index
+It exists because pure TOML is good at declaration but weak at structured conditional adaptation. Rather than inflate the manifest format, `craft` allows a bounded Kern phase that elaborates package structure before resolution.
 
-## Dependency Sources
+Conceptually, `craft.rn` works on package planning state:
 
-V1 should support a minimal but clean source model:
+- package metadata from `Craft.toml`
+- workspace metadata
+- host target
+- final target
+- profile
+- command mode
+- selected features
 
-- path dependencies
-- registry dependencies
+Its job is to elaborate the package graph, not to execute a build.
 
-Git dependencies can be added later, but only if they map cleanly onto lockfile identities.
+Example:
 
-Every resolved dependency should have a stable source identity:
+```kern
+use craft.plan;
 
-- path source id
-- registry package id plus checksum
-- future git revision id
+pub fn craft(p: *mut plan.Plan) void {
+    if (p.target.os == .windows) {
+        p.dep("win32", "1");
+    }
 
-## Workspace Model
+    p.define_string("host_arch", p.host.arch);
 
-Workspaces should be first-class from the beginning.
+    if (p.feature_enabled("simd")) {
+        p.cfg_bool("simd", true);
+    }
+
+    if (p.profile.name == "release") {
+        p.define_bool("aggressive_checks", false);
+    }
+}
+```
+
+### What `craft.rn` May Do
+
+- add or remove target-specific dependencies
+- elaborate feature-driven configuration
+- add package-local cfg/define values
+- adjust or add targets owned by the current package
+- choose source roots
+- apply workspace policy explicitly
+
+### What `craft.rn` Must Not Do
+
+- perform network access
+- depend on wall-clock time
+- use randomness
+- inspect incidental host state implicitly
+- trigger compilation or linking
+- mutate the dependency graph after lock resolution
+
+`craft.rn` is part of the lock input. It is therefore required to be deterministic.
+
+## Explicit Environment Inputs
+
+Some real projects need environment-based adaptation. `craft` supports that only through explicit declaration.
+
+The model is:
+
+- `Craft.toml` declares allowed environment inputs under `[craft]`
+- `craft.rn` may read only those named inputs
+- the values that participated in elaboration are recorded into `Craft.lock`
 
 Example:
 
 ```toml
-[workspace]
-members = [
-    "compiler/*",
-    "library/*",
-    "tools/*",
-]
-
-[workspace.package]
-license = "MIT"
-
-[workspace.dependencies]
-alloc = { path = "library/std/mem/alloc" }
+[craft]
+env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
 ```
 
-### Workspace Rules
+This avoids hidden host dependence. If an allowed input changes, the lockfile becomes stale and `craft` must re-elaborate before reuse.
 
-- one lockfile per workspace root by default
-- workspace members share resolution
-- local path members override registry lookups for the same member package id
-- profiles may be overridden at the workspace root
-- `craft.rn` may exist at package level and optionally at workspace root
+## `Craft.lock`
 
-If both root and package `craft.rn` exist, the root phase should elaborate workspace-level policy first, then each package elaborates within that explicit workspace context.
+`Craft.lock` records the resolved graph and the normalized inputs that affect that graph.
+
+It exists to answer:
+
+- which packages were selected
+- where they came from
+- which dependency edges were chosen
+- which normalized targets existed
+- which elaboration inputs produced that graph
+
+The current lockfile model records:
+
+- manifest path and digest
+- workspace `craft.rn` path and digest, when present
+- package manifests and digests
+- package `craft.rn` paths and digests, when present
+- normalized package targets
+- resolved external packages
+- dependency edges
+- declared environment inputs used by workspace or package elaboration
+
+It intentionally does not record post-lock build execution details from `build.rn`.
+
+Lockfile responsibilities:
+
+- reproducible dependency resolution
+- workspace-wide graph stability
+- offline rebuild support
+- auditability of elaboration inputs
+
+Lockfile non-responsibilities:
+
+- recording every object or artifact hash
+- acting as a generic build cache index
+- encoding post-link packaging behavior
+
+## Dependency Sources
+
+The source model is deliberately simple.
+
+Current direction:
+
+- path dependencies
+- registry dependencies
+
+Build-domain rule:
+
+- `dependencies` and `dev-dependencies` are target-domain edges
+- `build-dependencies` are host-domain edges
+- build-domain edges must not be silently merged into target compile inputs
+
+Every resolved dependency must have a stable source identity that can be recorded in the lockfile.
+
+Git-style sources can be added later if their identity model is clean enough to remain deterministic and auditable.
+
+## `build.rn`
+
+`build.rn` is an optional post-lock build script.
+
+Its role is build orchestration, not package elaboration.
+
+It runs after resolution and after lock derivation, and it is allowed to affect:
+
+- generated sources
+- staged resource handling
+- link directives
+- target-local compile configuration
+- artifact layout
+
+It is not allowed to affect:
+
+- dependency resolution
+- package identity
+- lockfile contents
+- workspace topology
+
+Example:
+
+```kern
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    b.define_string("host_arch", b.host.arch);
+
+    let generated = b.copy_package_file("templates/main.rn", "src/main.rn");
+    let generated_from_tool =
+        b.emit_generated_from_tool("codegen", "codegen", "src/generated.rn", .{});
+    let _ = b.copy_package_file_to_artifact("assets/config.json", "config/config.json");
+    let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
+    let _ = b.emit_artifact_file("notes/build.txt", "built by craft\n");
+
+    b.set_source_root(generated);
+    b.cfg_bool("generated", true);
+    b.define_string("entry", "generated");
+
+    match (b.target.os) {
+        .windows => b.link_system_lib("ws2_32"),
+        .darwin => b.link_framework("Security"),
+        .linux => {},
+        .unknown => {},
+    }
+}
+```
+
+## Generated Files And Staged Actions
+
+`build.rn` does not work by mutating the filesystem invisibly during planning.
+
+Instead, it records explicit plan data:
+
+- `generated_files`
+- `staged_actions`
+
+These are different concepts.
+
+Generated files:
+
+- belong to the designated generated source area
+- exist to participate in compilation
+- can replace the source root for a unit
+
+Staged actions:
+
+- are explicit execution-phase file operations
+- target either the generated area or the final artifact area
+- remain visible in the derived build plan and CLI output
+
+The staged action model currently has two explicit phases:
+
+- `pre_compile`
+- `post_link`
+
+This phase split matters:
+
+- `pre_compile` actions materialize inputs required before compiling the unit
+- `post_link` actions materialize files or directories that belong next to the final artifact
+
+The current staged action kinds are:
+
+- `WriteFile`
+- `RunTool`
+- `CopyFile`
+- `CopyDirectory`
+
+This keeps build behavior explicit and inspectable instead of hiding it behind arbitrary script side effects.
+
+## Current `build.rn` Capability Surface
+
+The current `Builder` API includes:
+
+- package, workspace, target, profile, command, and unit inspection
+- explicit host/target inspection for cross compilation aware logic
+- access to derived paths:
+  - build root
+  - generated root
+  - artifact root
+  - object path
+  - artifact path
+  - optional metadata path
+- feature queries
+- unit-domain inspection
+- compile-time mutation:
+  - cfg bool/string
+  - define bool/string
+  - source-root override
+- generated source production:
+  - `emit_generated(...)`
+  - `copy_package_file(...)`
+  - `tool_path(dependency, tool)`
+  - `emit_generated_from_tool(dependency, tool, ...)`
+- post-link artifact staging:
+  - `emit_artifact_file(...)`
+  - `emit_artifact_file_from_tool(dependency, tool, ...)`
+  - `copy_package_file_to_artifact(...)`
+  - `copy_package_dir_to_artifact(...)`
+- link directives:
+  - `link_system_lib(...)`
+  - `link_framework(...)`
+  - `link_search(...)`
+  - `link_arg(...)`
+
+The important property is not API breadth by itself. The important property is that these effects are represented in the build plan rather than being hidden behavior.
+
+Current domain behavior:
+
+- ordinary package units are target-domain units
+- `build.rn` executes with both host and target context available
+- `build-dependencies` are tracked separately from target unit dependencies so build-time tools do not pollute the final target graph
+- local and external `build-dependencies` that expose binaries can be resolved as explicit tools inside `build.rn`
+- tool-driven file generation is represented as explicit staged actions rather than opaque script-side process execution
+
+## Build Plan And Execution
+
+`craft` derives an explicit build plan before doing execution work.
+
+The plan contains:
+
+- packages
+- build units
+- compile actions
+- link actions
+- local and external dependency edges
+- generated files
+- staged actions
+- link directives
+
+Execution then consumes that plan in order.
+
+- pre-compile staged actions are materialized before compilation
+- compile actions invoke `kernc`
+- link actions invoke the linker path through `kernc_driver`
+- post-link staged actions are materialized after the final artifact exists
+
+This is why `craft check` remains meaningful: it can inspect, validate, and print the derived graph without collapsing the system into an opaque build script.
+
+## Interaction With `kernc`
+
+`craft` treats `kernc` as a compiler driver, not as a package manager.
+
+For each derived unit, `craft` supplies explicit inputs such as:
+
+- source root
+- target kind
+- profile
+- cfg/define values
+- metadata output path
+- link inputs
+- linker libraries
+- linker search paths
+- raw linker arguments
+
+This keeps package management, graph resolution, and code generation cleanly separated.
 
 ## Command Surface
 
-The initial command surface should be narrow and composable:
+The current command surface is intentionally narrow:
 
-- `craft init`
-- `craft new`
+- `craft help`
 - `craft check`
+- `craft lock`
+- `craft fetch`
 - `craft build`
 - `craft run`
 - `craft test`
-- `craft fmt-manifest`
-- `craft fetch`
-- `craft update`
-- `craft tree`
-- `craft lock`
-- `craft clean`
 
-Later:
+Current behavior:
 
-- `craft add`
-- `craft remove`
-- `craft publish`
-- `craft install`
-- `craft vendor`
+- `check` loads the package graph, evaluates scripts, derives the build plan, and prints audit data
+- `lock` writes a deterministic `Craft.lock`
+- `fetch` materializes external package sources into the local cache
+- `build` executes the selected build plan
+- `run` builds and runs the selected runnable binary
+- `test` builds and runs test targets
 
-### Behavioral Principles
+`check` also reports:
 
-- commands should be explicit about workspace root selection
-- commands should expose target/profile/feature inputs directly
-- commands should be replayable by CI without hidden machine state
-- `craft` should print the derived `kernc` action graph in a debug mode
+- feature inputs
+- workspace/package script presence
+- environment input counts
+- normalized target counts
+- dependency counts
+- build-unit and action counts
+- generated files
+- staged actions with their phase labels
+- link directives
+- lockfile freshness
 
-## Interaction with `kernc`
+That audit output is part of the design, not decoration.
 
-`craft` should treat `kernc` as an explicit compiler driver, not as a package manager.
+## Design Rules
 
-For each planned build node, `craft` derives:
+The system should continue to follow these rules:
 
-- source entry root
-- module mappings
-- target triple
-- profile flags
-- cfg values
-- link profile
-- artifact output path
-- link inputs
+- no implicit host-environment dependence
+- no hidden pre-lock side effects
+- no `build.rn` influence on resolution
+- no silent mutation of dependency topology after locking
+- explicit build edges over ad hoc script behavior
+- readable lockfiles over opaque hashes alone
 
-Then it invokes `kernc` with explicit arguments.
+Where behavior must vary, it should vary through explicit inputs and explicit phases.
 
-This preserves the clean split already established by `docs/kernc.md`.
+## Implementation Status
 
-## Repository Layout
+The current implementation already includes:
 
-The package manager should live outside `compiler/`.
+- manifest parsing and validation
+- workspace discovery
+- package graph normalization
+- `craft.rn` evaluation
+- feature-aware elaboration
+- explicit environment input tracking for elaboration
+- deterministic lockfile generation and freshness checks
+- source fetching for external packages
+- explicit build-plan derivation
+- `build.rn` execution through generated files and staged actions
+- compile/link execution through `kernc_driver`
+- build/test/run command flow through the same planning model
 
-The recommended repository layout is:
+This means `craft` is already structured around the intended architecture rather than being a temporary script runner.
 
-```text
-compiler/
-library/
-tools/
-  craft/
-docs/
-```
+## Expansion Areas
 
-This is preferable to placing `craft` under `compiler/` because `craft` is not a compiler pass. It is a top-level toolchain manager that happens to drive the compiler.
+The remaining work should extend this model, not bypass it.
 
-## V1 Implementation Phases
+Natural next steps include:
 
-The most stable development order is:
+- richer source and registry flows
+- more complete workspace ergonomics
+- additional explicit build-graph nodes where justified
+- improved packaging and install flows
+- stronger cache/index modeling around the same deterministic plan structure
 
-1. manifest data model and parser
-2. package ids, source ids, and workspace discovery
-3. `craft.rn` elaboration engine
-4. normalized package graph
-5. dependency resolver
-6. `Craft.lock` read/write
-7. build plan model
-8. `craft check/build/run/test`
-9. `build.rn`
-10. registry and publishing flows
-
-The build-plan layer should exist as its own explicit model before actual command execution is implemented. `craft check` and future debug modes should be able to print this derived plan directly.
-
-This order matters. A package manager becomes fragile when build execution is implemented before the package graph and lock model are well defined.
-
-## V1 Non-Goals
-
-The first version should explicitly avoid:
-
-- hidden global caches with opaque invalidation
-- pre-lock arbitrary scripts
-- multiple competing manifest formats
-- implicit dependency injection by build scripts
-- complex plugin systems before the package graph is stable
-
-## Summary
-
-The defining architecture of `craft` is:
-
-- `Craft.toml` for declarations
-- `craft.rn` for pure elaboration
-- `Craft.lock` for reproducible resolution
-- `build.rn` for post-lock build orchestration
-
-This keeps the system expressive without collapsing package definition, dependency resolution, and build execution into one opaque scripting phase.
-
-That is the cleanest path to a package manager that fits Kern rather than imitating another language's historical compromises.
+The standard for future additions is simple: if a capability cannot be expressed cleanly with explicit inputs, explicit phases, and explicit graph effects, it should not be added.

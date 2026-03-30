@@ -1,5 +1,6 @@
 use crate::graph::{
-    DependencyKind, DependencyTarget, ExternalDependency, PackageGraph, PackageId, SourceId,
+    BuildDomain, DependencyKind, DependencyTarget, ExternalDependency, PackageGraph, PackageId,
+    SourceId,
 };
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -21,6 +22,7 @@ pub struct ResolvedPackageNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolvedDependencyEdge {
     pub kind: DependencyKind,
+    pub domain: BuildDomain,
     pub dependency_name: String,
     pub package_name: String,
     pub target: ResolvedDependencyTarget,
@@ -64,6 +66,7 @@ pub fn resolve_graph(graph: &PackageGraph) -> ResolvedGraph {
 
             dependencies.push(ResolvedDependencyEdge {
                 kind: dep.kind,
+                domain: dep.domain,
                 dependency_name: dep.dependency_name.clone(),
                 package_name: dep.package_name.clone(),
                 target,

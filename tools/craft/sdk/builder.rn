@@ -7,12 +7,18 @@ pub type TargetKind = enum {
     example,
 };
 
+pub type BuildDomain = enum {
+    host,
+    target,
+};
+
 pub type Text = enum {
     Some: []u8,
     None,
 };
 
 pub type Unit = struct {
+    pub domain: BuildDomain,
     pub kind: TargetKind,
     pub name: Text,
     pub source_root: []u8,
@@ -22,6 +28,7 @@ pub type Unit = struct {
 pub type Paths = struct {
     pub build_root: []u8,
     pub generated_root: []u8,
+    pub artifact_root: []u8,
     pub object: []u8,
     pub artifact: []u8,
     pub metadata: Text,
@@ -30,6 +37,7 @@ pub type Paths = struct {
 pub type Builder = extern struct {
     pub package: plan.Package,
     pub workspace: plan.Workspace,
+    pub host: plan.Target,
     pub target: plan.Target,
     pub profile: plan.Profile,
     pub command: plan.Command,
@@ -49,10 +57,20 @@ extern fn __craft_build_define_string(builder: *mut Builder, name: []u8, value: 
 extern fn __craft_build_set_source_root(builder: *mut Builder, path: []u8) void;
 extern fn __craft_build_emit_generated(builder: *mut Builder, relative_path: []u8, contents: []u8) []u8;
 extern fn __craft_build_copy_package_file(builder: *mut Builder, source_relative: []u8, generated_relative: []u8) []u8;
+extern fn __craft_build_tool_path(builder: *Builder, dependency_name: []u8, tool_name: []u8) []u8;
+extern fn __craft_build_emit_generated_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) []u8;
+extern fn __craft_build_emit_artifact_file(builder: *mut Builder, relative_path: []u8, contents: []u8) []u8;
+extern fn __craft_build_emit_artifact_file_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, artifact_relative: []u8, args: [][]u8) []u8;
+extern fn __craft_build_copy_package_file_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) []u8;
+extern fn __craft_build_copy_package_dir_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) []u8;
 
 impl *Builder {
     pub fn feature_enabled(name: []u8) bool {
         return __craft_build_feature_enabled(self, name);
+    }
+
+    pub fn tool_path(dependency_name: []u8, tool_name: []u8) []u8 {
+        return __craft_build_tool_path(self, dependency_name, tool_name);
     }
 }
 
@@ -99,5 +117,25 @@ impl *mut Builder {
 
     pub fn copy_package_file(source_relative: []u8, generated_relative: []u8) []u8 {
         return __craft_build_copy_package_file(self, source_relative, generated_relative);
+    }
+
+    pub fn emit_generated_from_tool(dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) []u8 {
+        return __craft_build_emit_generated_from_tool(self, dependency_name, tool_name, generated_relative, args);
+    }
+
+    pub fn emit_artifact_file(relative_path: []u8, contents: []u8) []u8 {
+        return __craft_build_emit_artifact_file(self, relative_path, contents);
+    }
+
+    pub fn emit_artifact_file_from_tool(dependency_name: []u8, tool_name: []u8, artifact_relative: []u8, args: [][]u8) []u8 {
+        return __craft_build_emit_artifact_file_from_tool(self, dependency_name, tool_name, artifact_relative, args);
+    }
+
+    pub fn copy_package_file_to_artifact(source_relative: []u8, artifact_relative: []u8) []u8 {
+        return __craft_build_copy_package_file_to_artifact(self, source_relative, artifact_relative);
+    }
+
+    pub fn copy_package_dir_to_artifact(source_relative: []u8, artifact_relative: []u8) []u8 {
+        return __craft_build_copy_package_dir_to_artifact(self, source_relative, artifact_relative);
     }
 }

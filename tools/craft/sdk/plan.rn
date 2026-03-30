@@ -53,6 +53,7 @@ pub type EnvValue = enum {
 pub type Plan = extern struct {
     pub package: Package,
     pub workspace: Workspace,
+    pub host: Target,
     pub target: Target,
     pub profile: Profile,
     pub command: Command,

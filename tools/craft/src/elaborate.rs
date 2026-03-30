@@ -111,7 +111,8 @@ pub fn plan(
         None
     };
     let workspace_env = declared_env_map(manifest_path, manifest.craft_env_names())?;
-    let target = script::host_target();
+    let host = script::host_target();
+    let target = host.clone();
 
     let mut packages = Vec::new();
     if manifest.package.is_some() {
@@ -126,6 +127,7 @@ pub fn plan(
             workspace_root,
             has_workspace,
             command,
+            &host,
             &target,
             &script::manifest_profile(manifest),
             features,
@@ -182,6 +184,7 @@ pub fn plan(
             workspace_root,
             has_workspace,
             command,
+            &host,
             &target,
             &script::manifest_profile(&member.manifest),
             features,
@@ -357,6 +360,7 @@ fn script_context(
     workspace_root: &Path,
     has_workspace: bool,
     command: ScriptCommand,
+    host: &ScriptTarget,
     target: &ScriptTarget,
     profile: &ScriptProfile,
     features: BTreeSet<String>,
@@ -377,6 +381,7 @@ fn script_context(
             root: relative_display(workspace_root, workspace_root),
             has_workspace,
         },
+        host: host.clone(),
         target: target.clone(),
         profile: profile.clone(),
         command,
@@ -649,6 +654,60 @@ kern = "0.7"
                 .as_ref()
                 .map(|script| script.relative_path.as_str()),
             Some("craft.rn")
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn craft_script_receives_host_and_target_context() {
+        let root = temp_dir("craft-elaborate-host-target");
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("craft.rn"),
+            r#"
+use craft.plan;
+
+pub fn craft(p: *mut plan.Plan) void {
+    p.cfg_string("host_arch", p.host.arch);
+    p.define_string("target_arch", p.target.arch);
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            elaboration.packages[0].plan.cfg.get("host_arch"),
+            Some(&crate::plan::PlanValue::String(
+                crate::script::host_target().arch.to_string()
+            ))
+        );
+        assert_eq!(
+            elaboration.packages[0].plan.define.get("target_arch"),
+            Some(&crate::plan::PlanValue::String(
+                crate::script::host_target().arch.to_string()
+            ))
         );
 
         let _ = fs::remove_dir_all(root);

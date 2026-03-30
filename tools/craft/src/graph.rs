@@ -27,6 +27,12 @@ pub enum DependencyKind {
     Build,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BuildDomain {
+    Host,
+    Target,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageGraph {
     pub workspace_root: PathBuf,
@@ -43,6 +49,7 @@ pub struct PackageNode {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DependencyEdge {
     pub kind: DependencyKind,
+    pub domain: BuildDomain,
     pub dependency_name: String,
     pub package_name: String,
     pub target: DependencyTarget,
@@ -215,6 +222,7 @@ fn collect_dep_edges(
         )?;
         edges.push(DependencyEdge {
             kind,
+            domain: dependency_domain(kind),
             dependency_name: dependency_name.clone(),
             package_name: requested_package_name(dependency_name, &spec),
             target: dependency_target(
@@ -227,6 +235,13 @@ fn collect_dep_edges(
         });
     }
     Ok(())
+}
+
+fn dependency_domain(kind: DependencyKind) -> BuildDomain {
+    match kind {
+        DependencyKind::Build => BuildDomain::Host,
+        DependencyKind::Normal | DependencyKind::Dev => BuildDomain::Target,
+    }
 }
 
 fn normalize_dependency_spec(

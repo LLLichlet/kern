@@ -169,13 +169,16 @@ pub fn run() -> Result<()> {
                 loaded.elaboration.package_env_input_count()
             );
             println!(
-                "build plan: units={} compile_actions={} link_actions={} local_edges={} external_edges={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build plan: units={} compile_actions={} link_actions={} target_local_edges={} target_external_edges={} build_local_edges={} build_external_edges={} generated_files={} staged_actions={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 action_plan.compile_count(),
                 action_plan.link_count(),
                 build_plan.local_dependency_edge_count(),
                 build_plan.external_dependency_edge_count(),
+                build_plan.build_local_dependency_edge_count(),
+                build_plan.build_external_dependency_edge_count(),
                 build_plan.generated_file_count(),
+                build_plan.staged_action_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
@@ -300,16 +303,19 @@ pub fn run() -> Result<()> {
                 count_units_of_kind(&build_plan, TargetKind::Example),
             );
             println!(
-                "dependencies: local_edges={} external_edges={}",
+                "dependencies: target_local_edges={} target_external_edges={} build_local_edges={} build_external_edges={}",
                 build_plan.local_dependency_edge_count(),
-                build_plan.external_dependency_edge_count()
+                build_plan.external_dependency_edge_count(),
+                build_plan.build_local_dependency_edge_count(),
+                build_plan.build_external_dependency_edge_count()
             );
             println!(
-                "build scripts: {} compile_actions={} link_actions={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build scripts: {} compile_actions={} link_actions={} generated_files={} staged_actions={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.build_script_count(),
                 action_plan.compile_count(),
                 action_plan.link_count(),
                 build_plan.generated_file_count(),
+                build_plan.staged_action_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
@@ -369,11 +375,14 @@ pub fn run() -> Result<()> {
             );
             println!("run target: {}", format_unit_label(run_unit));
             println!(
-                "build plan: units={} local_edges={} external_edges={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build plan: units={} target_local_edges={} target_external_edges={} build_local_edges={} build_external_edges={} generated_files={} staged_actions={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 build_plan.local_dependency_edge_count(),
                 build_plan.external_dependency_edge_count(),
+                build_plan.build_local_dependency_edge_count(),
+                build_plan.build_external_dependency_edge_count(),
                 build_plan.generated_file_count(),
+                build_plan.staged_action_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
@@ -418,11 +427,14 @@ pub fn run() -> Result<()> {
                 );
             }
             println!(
-                "build plan: units={} local_edges={} external_edges={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build plan: units={} target_local_edges={} target_external_edges={} build_local_edges={} build_external_edges={} generated_files={} staged_actions={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 build_plan.local_dependency_edge_count(),
                 build_plan.external_dependency_edge_count(),
+                build_plan.build_local_dependency_edge_count(),
+                build_plan.build_external_dependency_edge_count(),
                 build_plan.generated_file_count(),
+                build_plan.staged_action_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
@@ -524,10 +536,11 @@ fn units_of_kind(plan: &build_plan::BuildPlan, kind: TargetKind) -> Vec<&build_p
 
 fn format_unit_label(unit: &build_plan::BuildUnit) -> String {
     format!(
-        "{}:{} ({})",
+        "{}:{} ({},{})",
         unit.package_id.name,
         unit.artifact_name,
-        unit.target_kind.as_str()
+        unit.target_kind.as_str(),
+        unit.domain.as_str()
     )
 }
 
@@ -540,14 +553,16 @@ fn format_external_package_label(package: &crate::resolver::ExternalPackageId) -
 
 fn format_action_label(
     package_id: &crate::graph::PackageId,
+    domain: crate::graph::BuildDomain,
     target_kind: TargetKind,
     artifact_name: &str,
 ) -> String {
     format!(
-        "{}:{} ({})",
+        "{}:{} ({},{})",
         package_id.name,
         artifact_name,
-        target_kind.as_str()
+        target_kind.as_str(),
+        domain.as_str()
     )
 }
 
@@ -576,6 +591,7 @@ fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
             "compile: {} src={} obj={} out={} cfg={} define={}",
             format_action_label(
                 &action.package_id,
+                action.domain,
                 action.target_kind,
                 &action.artifact_name
             ),
@@ -613,6 +629,55 @@ fn print_generated_files_for_unit(unit: &build_plan::BuildUnit) {
         .collect::<Vec<_>>()
         .join(",");
     println!("generated: {} files={}", format_unit_label(unit), files);
+    if !unit.staged_actions.is_empty() {
+        let staged = unit
+            .staged_actions
+            .iter()
+            .map(|action| match &action.kind {
+                build_plan::StagedActionKind::WriteFile { .. } => {
+                    format!(
+                        "{}:write:{}",
+                        format_stage_phase(action.phase),
+                        action.output
+                    )
+                }
+                build_plan::StagedActionKind::RunTool { tool, args } => {
+                    format!(
+                        "{}:run_tool:{}<= {}({})",
+                        format_stage_phase(action.phase),
+                        action.output,
+                        tool.executable_path,
+                        args.join(" ")
+                    )
+                }
+                build_plan::StagedActionKind::CopyFile { source } => {
+                    format!(
+                        "{}:copy:{}<= {}",
+                        format_stage_phase(action.phase),
+                        action.output,
+                        source
+                    )
+                }
+                build_plan::StagedActionKind::CopyDirectory { source } => {
+                    format!(
+                        "{}:copy_dir:{}<= {}",
+                        format_stage_phase(action.phase),
+                        action.output,
+                        source
+                    )
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        println!("staged: {} actions={}", format_unit_label(unit), staged);
+    }
+}
+
+fn format_stage_phase(phase: build_plan::StagedActionPhase) -> &'static str {
+    match phase {
+        build_plan::StagedActionPhase::PreCompile => "pre_compile",
+        build_plan::StagedActionPhase::PostLink => "post_link",
+    }
 }
 
 fn print_link_actions(action_plan: &build_plan::ActionPlan) {
@@ -626,13 +691,19 @@ fn print_compile_actions_for_unit(
     unit: &build_plan::BuildUnit,
 ) {
     for action in action_plan.compile_actions.iter().filter(|action| {
-        action.package_id == unit.package_id
+        action.domain == unit.domain
+            && action.package_id == unit.package_id
             && action.target_kind == unit.target_kind
             && action.target_name == unit.target_name
     }) {
         println!(
             "compile: {} src={} obj={} out={} cfg={} define={}",
-            format_action_label(&action.package_id, action.target_kind, &unit.artifact_name),
+            format_action_label(
+                &action.package_id,
+                action.domain,
+                action.target_kind,
+                &unit.artifact_name
+            ),
             action.source_path.display(),
             action.object_path.display(),
             action.artifact_path.display(),
@@ -644,7 +715,8 @@ fn print_compile_actions_for_unit(
 
 fn print_link_actions_for_unit(action_plan: &build_plan::ActionPlan, unit: &build_plan::BuildUnit) {
     for action in action_plan.link_actions.iter().filter(|action| {
-        action.package_id == unit.package_id
+        action.domain == unit.domain
+            && action.package_id == unit.package_id
             && action.target_kind == unit.target_kind
             && action.target_name == unit.target_name
     }) {
@@ -657,6 +729,7 @@ fn print_link_action(action: &build_plan::LinkAction) {
         "link: {} obj={} locals={} externals={} out={} system_libs={} frameworks={} search_paths={} args={}",
         format_action_label(
             &action.package_id,
+            action.domain,
             action.target_kind,
             &action.artifact_name
         ),

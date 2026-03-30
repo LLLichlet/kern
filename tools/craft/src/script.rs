@@ -1,8 +1,14 @@
-use crate::build_plan::{BuildUnit, GeneratedFile, GeneratedFileOrigin};
+use crate::build_plan::{
+    BuildUnit, GeneratedFile, GeneratedFileOrigin, StagedAction, StagedActionKind,
+    StagedActionPhase,
+};
 use crate::error::{Error, Result};
+use crate::graph::BuildDomain;
 use crate::graph::DependencyKind;
+use crate::graph::PackageId;
 use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
+use crate::resolver::ExternalPackageId;
 use kernc_driver::CompilerDriver;
 use kernc_sema::checker::{ConstEvaluator, ConstValue, ScriptHost};
 use kernc_sema::def::{Def, Visibility};
@@ -11,7 +17,6 @@ use kernc_utils::Session;
 use kernc_utils::config::CompileOptions;
 use kernc_utils::{Span, SymbolId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,6 +34,7 @@ pub struct ScriptEnvInput {
 pub struct ScriptContext {
     pub package: ScriptPackage,
     pub workspace: ScriptWorkspace,
+    pub host: ScriptTarget,
     pub target: ScriptTarget,
     pub profile: ScriptProfile,
     pub command: ScriptCommand,
@@ -41,12 +47,32 @@ pub struct BuildScriptContext {
     pub script: ScriptContext,
     pub unit: BuildScriptUnit,
     pub paths: BuildScriptPaths,
+    pub tools: BTreeMap<String, Vec<BuildScriptTool>>,
     pub package_root_path: PathBuf,
     pub workspace_root_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BuildScriptToolOrigin {
+    LocalPackage {
+        package_id: PackageId,
+    },
+    ExternalPackage {
+        dependency_id: ExternalPackageId,
+        package_id: PackageId,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildScriptTool {
+    pub target_name: String,
+    pub executable_path: String,
+    pub origin: BuildScriptToolOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildScriptUnit {
+    pub domain: BuildDomain,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
     pub source_root: String,
@@ -57,6 +83,7 @@ pub struct BuildScriptUnit {
 pub struct BuildScriptPaths {
     pub build_root: String,
     pub generated_root: String,
+    pub artifact_root: String,
     pub object_path: String,
     pub artifact_path: String,
     pub metadata_path: Option<String>,
@@ -635,6 +662,13 @@ impl ScriptHost for BuildUnitHost<'_> {
                         .contains(feature.as_str()),
                 ))
             }
+            "__craft_build_tool_path" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let dependency_name = expect_string(args, 1, "tool dependency name")?;
+                let tool_name = expect_string(args, 2, "tool target name")?;
+                let tool = resolve_build_tool(self.script_context, &dependency_name, &tool_name)?;
+                Ok(ConstValue::String(tool.executable_path.clone()))
+            }
             "__craft_build_link_system_lib" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let name = expect_string(args, 1, "system library name")?;
@@ -712,25 +746,18 @@ impl ScriptHost for BuildUnitHost<'_> {
                     Path::new(&self.script_context.paths.generated_root),
                     &relative_path,
                 )?;
-                if let Some(parent) = dest_path.parent() {
-                    fs::create_dir_all(parent).map_err(|err| {
-                        format!(
-                            "failed to create generated directory `{}`: {err}",
-                            parent.display()
-                        )
-                    })?;
-                }
-                fs::write(&dest_path, contents).map_err(|err| {
-                    format!(
-                        "failed to write generated file `{}`: {err}",
-                        dest_path.display()
-                    )
-                })?;
                 record_generated_file(
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
                     GeneratedFileOrigin::Emitted,
+                );
+                record_staged_action(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PreCompile,
+                    StagedActionKind::WriteFile { contents },
                 );
                 Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
             }
@@ -750,31 +777,145 @@ impl ScriptHost for BuildUnitHost<'_> {
                     Path::new(&self.script_context.paths.generated_root),
                     &generated_relative,
                 )?;
-                if let Some(parent) = dest_path.parent() {
-                    fs::create_dir_all(parent).map_err(|err| {
-                        format!(
-                            "failed to create generated directory `{}`: {err}",
-                            parent.display()
-                        )
-                    })?;
-                }
-                fs::copy(&source_path, &dest_path).map_err(|err| {
-                    format!(
-                        "failed to copy package file `{}` to `{}`: {err}",
-                        source_path.display(),
-                        dest_path.display()
-                    )
-                })?;
+                let source =
+                    relative_display(&self.script_context.workspace_root_path, &source_path);
                 record_generated_file(
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
                     GeneratedFileOrigin::Copied {
-                        source: relative_display(
-                            &self.script_context.workspace_root_path,
-                            &source_path,
-                        ),
+                        source: source.clone(),
                     },
+                );
+                record_staged_action(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PreCompile,
+                    StagedActionKind::CopyFile { source },
+                );
+                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+            }
+            "__craft_build_emit_generated_from_tool" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let dependency_name = expect_string(args, 1, "tool dependency name")?;
+                let tool_name = expect_string(args, 2, "tool target name")?;
+                let generated_relative = expect_string(args, 3, "generated relative path")?;
+                let args = expect_string_list(args, 4, "tool arguments")?;
+                let tool = resolve_build_tool(self.script_context, &dependency_name, &tool_name)?;
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.generated_root),
+                    &generated_relative,
+                )?;
+                record_generated_file(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    GeneratedFileOrigin::Emitted,
+                );
+                record_staged_action(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PreCompile,
+                    StagedActionKind::RunTool {
+                        tool: tool.clone(),
+                        args,
+                    },
+                );
+                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+            }
+            "__craft_build_emit_artifact_file" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let relative_path = expect_string(args, 1, "artifact relative path")?;
+                let contents = expect_string(args, 2, "artifact file contents")?;
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.artifact_root),
+                    &relative_path,
+                )?;
+                record_staged_action(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PostLink,
+                    StagedActionKind::WriteFile { contents },
+                );
+                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+            }
+            "__craft_build_emit_artifact_file_from_tool" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let dependency_name = expect_string(args, 1, "tool dependency name")?;
+                let tool_name = expect_string(args, 2, "tool target name")?;
+                let artifact_relative = expect_string(args, 3, "artifact relative path")?;
+                let args = expect_string_list(args, 4, "tool arguments")?;
+                let tool = resolve_build_tool(self.script_context, &dependency_name, &tool_name)?;
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.artifact_root),
+                    &artifact_relative,
+                )?;
+                record_staged_action(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PostLink,
+                    StagedActionKind::RunTool {
+                        tool: tool.clone(),
+                        args,
+                    },
+                );
+                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+            }
+            "__craft_build_copy_package_file_to_artifact" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let source_relative = expect_string(args, 1, "package relative source path")?;
+                let artifact_relative = expect_string(args, 2, "artifact relative path")?;
+                let source_path =
+                    package_input_path(&self.script_context.package_root_path, &source_relative)?;
+                if !source_path.is_file() {
+                    return Err(format!(
+                        "package source file `{}` does not exist",
+                        source_path.display()
+                    ));
+                }
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.artifact_root),
+                    &artifact_relative,
+                )?;
+                let source =
+                    relative_display(&self.script_context.workspace_root_path, &source_path);
+                record_staged_action(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PostLink,
+                    StagedActionKind::CopyFile { source },
+                );
+                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+            }
+            "__craft_build_copy_package_dir_to_artifact" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let source_relative = expect_string(args, 1, "package relative source dir")?;
+                let artifact_relative = expect_string(args, 2, "artifact relative dir")?;
+                let source_path =
+                    package_input_path(&self.script_context.package_root_path, &source_relative)?;
+                if !source_path.is_dir() {
+                    return Err(format!(
+                        "package source directory `{}` does not exist",
+                        source_path.display()
+                    ));
+                }
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.artifact_root),
+                    &artifact_relative,
+                )?;
+                let source =
+                    relative_display(&self.script_context.workspace_root_path, &source_path);
+                record_staged_action(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PostLink,
+                    StagedActionKind::CopyDirectory { source },
                 );
                 Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
             }
@@ -855,6 +996,52 @@ fn record_generated_file(
     unit.generated_files.push(GeneratedFile { path, origin });
 }
 
+fn record_staged_action(
+    unit: &mut BuildUnit,
+    workspace_root: &Path,
+    path: &Path,
+    phase: StagedActionPhase,
+    kind: StagedActionKind,
+) {
+    let output = relative_display(workspace_root, path);
+    if let Some(existing) = unit
+        .staged_actions
+        .iter_mut()
+        .find(|action| action.phase == phase && action.output == output)
+    {
+        existing.kind = kind;
+        return;
+    }
+    unit.staged_actions.push(StagedAction {
+        phase,
+        output,
+        kind,
+    });
+}
+
+fn resolve_build_tool<'a>(
+    script_context: &'a BuildScriptContext,
+    dependency_name: &str,
+    tool_name: &str,
+) -> std::result::Result<&'a BuildScriptTool, String> {
+    let Some(tools) = script_context.tools.get(dependency_name) else {
+        return Err(format!(
+            "build dependency `{dependency_name}` does not expose a host tool"
+        ));
+    };
+    tools.iter()
+        .find(|tool| tool.target_name == tool_name)
+        .ok_or_else(|| {
+            format!(
+                "build dependency `{dependency_name}` does not expose host tool `{tool_name}` (available: {})",
+                tools.iter()
+                    .map(|tool| tool.target_name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        })
+}
+
 fn expect_arg<'a>(
     args: &'a [ConstValue],
     index: usize,
@@ -883,6 +1070,23 @@ fn expect_bool(
     match expect_arg(args, index, label)? {
         ConstValue::Bool(value) => Ok(*value),
         _ => Err(format!("expected `{label}` to be a bool")),
+    }
+}
+
+fn expect_string_list(
+    args: &[ConstValue],
+    index: usize,
+    label: &str,
+) -> std::result::Result<Vec<String>, String> {
+    match expect_arg(args, index, label)? {
+        ConstValue::Array(values) => values
+            .iter()
+            .map(|value| match value {
+                ConstValue::String(value) => Ok(value.clone()),
+                _ => Err(format!("expected every `{label}` entry to be a string")),
+            })
+            .collect(),
+        _ => Err(format!("expected `{label}` to be an array of strings")),
     }
 }
 
@@ -947,27 +1151,6 @@ fn plan_argument_value(
         ConstValue::Bool(script_context.workspace.has_workspace),
     );
 
-    let mut target = HashMap::new();
-    target.insert(
-        field("os", ctx),
-        ConstValue::Enum {
-            tag: script_context.target.os.tag(),
-            payload: None,
-        },
-    );
-    target.insert(
-        field("arch", ctx),
-        ConstValue::String(script_context.target.arch.clone()),
-    );
-    target.insert(
-        field("vendor", ctx),
-        ConstValue::String(script_context.target.vendor.clone()),
-    );
-    target.insert(
-        field("env", ctx),
-        ConstValue::String(script_context.target.env.clone()),
-    );
-
     let mut profile = HashMap::new();
     profile.insert(
         field("name", ctx),
@@ -985,7 +1168,14 @@ fn plan_argument_value(
     let mut plan = HashMap::new();
     plan.insert(field("package", ctx), ConstValue::Struct(package));
     plan.insert(field("workspace", ctx), ConstValue::Struct(workspace));
-    plan.insert(field("target", ctx), ConstValue::Struct(target));
+    plan.insert(
+        field("host", ctx),
+        ConstValue::Struct(target_value(ctx, &script_context.host)),
+    );
+    plan.insert(
+        field("target", ctx),
+        ConstValue::Struct(target_value(ctx, &script_context.target)),
+    );
     plan.insert(field("profile", ctx), ConstValue::Struct(profile));
     plan.insert(
         field("command", ctx),
@@ -1007,6 +1197,13 @@ fn build_argument_value(
     }
 
     let mut unit = HashMap::new();
+    unit.insert(
+        field("domain", ctx),
+        ConstValue::Enum {
+            tag: build_domain_tag(script_context.unit.domain),
+            payload: None,
+        },
+    );
     unit.insert(
         field("kind", ctx),
         ConstValue::Enum {
@@ -1049,6 +1246,10 @@ fn build_argument_value(
     paths.insert(
         field("generated_root", ctx),
         ConstValue::String(script_context.paths.generated_root.clone()),
+    );
+    paths.insert(
+        field("artifact_root", ctx),
+        ConstValue::String(script_context.paths.artifact_root.clone()),
     );
     paths.insert(
         field("object", ctx),
@@ -1096,6 +1297,38 @@ fn target_kind_tag(kind: TargetKind) -> i128 {
         TargetKind::Test => 2,
         TargetKind::Example => 3,
     }
+}
+
+fn build_domain_tag(domain: BuildDomain) -> i128 {
+    match domain {
+        BuildDomain::Host => 0,
+        BuildDomain::Target => 1,
+    }
+}
+
+fn target_value(
+    ctx: &mut kernc_sema::SemaContext<'_>,
+    target: &ScriptTarget,
+) -> HashMap<SymbolId, ConstValue> {
+    fn field(name: &str, ctx: &mut kernc_sema::SemaContext<'_>) -> SymbolId {
+        ctx.intern(name)
+    }
+
+    let mut value = HashMap::new();
+    value.insert(
+        field("os", ctx),
+        ConstValue::Enum {
+            tag: target.os.tag(),
+            payload: None,
+        },
+    );
+    value.insert(field("arch", ctx), ConstValue::String(target.arch.clone()));
+    value.insert(
+        field("vendor", ctx),
+        ConstValue::String(target.vendor.clone()),
+    );
+    value.insert(field("env", ctx), ConstValue::String(target.env.clone()));
+    value
 }
 
 impl ScriptOs {

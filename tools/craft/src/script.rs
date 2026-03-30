@@ -1,4 +1,4 @@
-use crate::build_plan::BuildUnit;
+use crate::build_plan::{BuildUnit, GeneratedFile, GeneratedFileOrigin};
 use crate::error::{Error, Result};
 use crate::graph::DependencyKind;
 use crate::manifest::Manifest;
@@ -11,7 +11,8 @@ use kernc_utils::Session;
 use kernc_utils::config::CompileOptions;
 use kernc_utils::{Span, SymbolId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
-use std::path::Path;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptExecution {
@@ -39,6 +40,9 @@ pub struct ScriptContext {
 pub struct BuildScriptContext {
     pub script: ScriptContext,
     pub unit: BuildScriptUnit,
+    pub paths: BuildScriptPaths,
+    pub package_root_path: PathBuf,
+    pub workspace_root_path: PathBuf,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,6 +51,15 @@ pub struct BuildScriptUnit {
     pub target_name: Option<String>,
     pub source_root: String,
     pub artifact_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildScriptPaths {
+    pub build_root: String,
+    pub generated_root: String,
+    pub object_path: String,
+    pub artifact_path: String,
+    pub metadata_path: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,18 +138,18 @@ pub fn manifest_profile(manifest: &Manifest) -> ScriptProfile {
     }
 }
 
-pub fn validate_kraft_script(path: &Path) -> Result<()> {
+pub fn validate_craft_script(path: &Path) -> Result<()> {
     let script_path = canonical_script_path(path)?;
     let script_input = script_path.to_string_lossy().to_string();
     let mut session = Session::new();
-    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "kraft")?;
-    let entry_def = find_script_entry(&mut ctx, &script_path, "kraft", "kraft.kr")?;
+    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "craft")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "craft", "craft.rn")?;
     validate_script_entry(
         &mut ctx,
         entry_def,
         &script_path,
-        "kraft.kr",
-        "kraft",
+        "craft.rn",
+        "craft",
         "*mut plan.Plan",
     )?;
 
@@ -148,12 +161,12 @@ pub fn validate_build_script(path: &Path) -> Result<()> {
     let script_input = script_path.to_string_lossy().to_string();
     let mut session = Session::new();
     let mut ctx = analyze_script(&script_path, &script_input, &mut session, "build")?;
-    let entry_def = find_script_entry(&mut ctx, &script_path, "build", "build.kr")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "build", "build.rn")?;
     validate_script_entry(
         &mut ctx,
         entry_def,
         &script_path,
-        "build.kr",
+        "build.rn",
         "build",
         "*mut builder.Builder",
     )?;
@@ -161,7 +174,7 @@ pub fn validate_build_script(path: &Path) -> Result<()> {
     Ok(())
 }
 
-pub fn apply_kraft_script(
+pub fn apply_craft_script(
     path: &Path,
     package_plan: &mut PackagePlan,
     script_context: &ScriptContext,
@@ -169,14 +182,14 @@ pub fn apply_kraft_script(
     let script_path = canonical_script_path(path)?;
     let script_input = script_path.to_string_lossy().to_string();
     let mut session = Session::new();
-    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "kraft")?;
-    let entry_def = find_script_entry(&mut ctx, &script_path, "kraft", "kraft.kr")?;
+    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "craft")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "craft", "craft.rn")?;
     validate_script_entry(
         &mut ctx,
         entry_def,
         &script_path,
-        "kraft.kr",
-        "kraft",
+        "craft.rn",
+        "craft",
         "*mut plan.Plan",
     )?;
 
@@ -195,8 +208,8 @@ pub fn apply_kraft_script(
                 .sess
                 .diagnostics
                 .last()
-                .map(|diag| format!("kraft script execution failed: {}", diag.message))
-                .unwrap_or_else(|| "kraft script execution failed".to_string()),
+                .map(|diag| format!("craft script execution failed: {}", diag.message))
+                .unwrap_or_else(|| "craft script execution failed".to_string()),
         })?;
 
     Ok(ScriptExecution {
@@ -225,12 +238,12 @@ pub fn apply_build_script(
     let script_input = script_path.to_string_lossy().to_string();
     let mut session = Session::new();
     let mut ctx = analyze_script(&script_path, &script_input, &mut session, "build")?;
-    let entry_def = find_script_entry(&mut ctx, &script_path, "build", "build.kr")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "build", "build.rn")?;
     validate_script_entry(
         &mut ctx,
         entry_def,
         &script_path,
-        "build.kr",
+        "build.rn",
         "build",
         "*mut builder.Builder",
     )?;
@@ -275,7 +288,7 @@ fn analyze_script<'a>(
         ..CompileOptions::default()
     };
     options.module_aliases.insert(
-        "kraft".to_string(),
+        "craft".to_string(),
         sdk_root().to_string_lossy().to_string(),
     );
     let driver = CompilerDriver::new(options);
@@ -321,7 +334,7 @@ fn find_script_entry(
             path: script_path.to_path_buf(),
             message: format!(
                 "missing required entry `pub fn {}`(...) ... at script root",
-                script_name.trim_end_matches(".kr")
+                script_name.trim_end_matches(".rn")
             ),
         })
 }
@@ -427,19 +440,19 @@ impl ScriptHost for PackagePlanHost<'_> {
         _span: Span,
     ) -> std::result::Result<ConstValue, String> {
         match name {
-            "__kraft_plan_feature_enabled" => {
+            "__craft_plan_feature_enabled" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let feature = expect_string(args, 1, "feature name")?;
                 Ok(ConstValue::Bool(
                     self.script_context.features.contains(feature.as_str()),
                 ))
             }
-            "__kraft_plan_env" => {
+            "__craft_plan_env" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let name = expect_string(args, 1, "environment name")?;
                 let Some(value) = self.script_context.env.get(&name).cloned() else {
                     return Err(format!(
-                        "environment `{name}` was not declared under `[kraft].env` (declared: {})",
+                        "environment `{name}` was not declared under `[craft].env` (declared: {})",
                         self.script_context
                             .env
                             .keys()
@@ -460,7 +473,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     },
                 })
             }
-            "__kraft_plan_cfg_bool" => {
+            "__craft_plan_cfg_bool" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let key = expect_string(args, 1, "cfg name")?;
                 let value = expect_bool(args, 2, "cfg value")?;
@@ -469,7 +482,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_cfg_string" => {
+            "__craft_plan_cfg_string" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let key = expect_string(args, 1, "cfg name")?;
                 let value = expect_string(args, 2, "cfg value")?;
@@ -478,7 +491,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_define_bool" => {
+            "__craft_plan_define_bool" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let key = expect_string(args, 1, "define name")?;
                 let value = expect_bool(args, 2, "define value")?;
@@ -487,7 +500,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_define_string" => {
+            "__craft_plan_define_string" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let key = expect_string(args, 1, "define name")?;
                 let value = expect_string(args, 2, "define value")?;
@@ -496,7 +509,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_set_lib_root" => {
+            "__craft_plan_set_lib_root" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let root = expect_string(args, 1, "lib root")?;
                 self.package_plan
@@ -504,23 +517,23 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_add_bin" => self.add_named_target(args, TargetKind::Bin, "bin"),
-            "__kraft_plan_add_test" => self.add_named_target(args, TargetKind::Test, "test"),
-            "__kraft_plan_add_example" => {
+            "__craft_plan_add_bin" => self.add_named_target(args, TargetKind::Bin, "bin"),
+            "__craft_plan_add_test" => self.add_named_target(args, TargetKind::Test, "test"),
+            "__craft_plan_add_example" => {
                 self.add_named_target(args, TargetKind::Example, "example")
             }
-            "__kraft_plan_remove_lib" => {
+            "__craft_plan_remove_lib" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 Ok(ConstValue::Bool(
                     self.package_plan.remove_target(TargetKind::Lib, None),
                 ))
             }
-            "__kraft_plan_remove_bin" => self.remove_named_target(args, TargetKind::Bin, "bin"),
-            "__kraft_plan_remove_test" => self.remove_named_target(args, TargetKind::Test, "test"),
-            "__kraft_plan_remove_example" => {
+            "__craft_plan_remove_bin" => self.remove_named_target(args, TargetKind::Bin, "bin"),
+            "__craft_plan_remove_test" => self.remove_named_target(args, TargetKind::Test, "test"),
+            "__craft_plan_remove_example" => {
                 self.remove_named_target(args, TargetKind::Example, "example")
             }
-            "__kraft_plan_dep_version" => {
+            "__craft_plan_dep_version" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let kind = expect_dependency_kind(args, 1, "dependency kind")?;
                 let name = expect_string(args, 2, "dependency name")?;
@@ -530,7 +543,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_dep_path" => {
+            "__craft_plan_dep_path" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let kind = expect_dependency_kind(args, 1, "dependency kind")?;
                 let name = expect_string(args, 2, "dependency name")?;
@@ -540,7 +553,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_dep_registry" => {
+            "__craft_plan_dep_registry" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let kind = expect_dependency_kind(args, 1, "dependency kind")?;
                 let name = expect_string(args, 2, "dependency name")?;
@@ -550,7 +563,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_dep_workspace" => {
+            "__craft_plan_dep_workspace" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let kind = expect_dependency_kind(args, 1, "dependency kind")?;
                 let name = expect_string(args, 2, "dependency name")?;
@@ -559,7 +572,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__kraft_plan_remove_dep" => {
+            "__craft_plan_remove_dep" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let kind = expect_dependency_kind(args, 1, "dependency kind")?;
                 let name = expect_string(args, 2, "dependency name")?;
@@ -569,7 +582,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                         .map_err(|err| err.to_string())?,
                 ))
             }
-            _ => Err(format!("unsupported kraft host function `{name}`")),
+            _ => Err(format!("unsupported craft host function `{name}`")),
         }
     }
 }
@@ -612,7 +625,7 @@ impl ScriptHost for BuildUnitHost<'_> {
         _span: Span,
     ) -> std::result::Result<ConstValue, String> {
         match name {
-            "__kraft_build_feature_enabled" => {
+            "__craft_build_feature_enabled" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let feature = expect_string(args, 1, "feature name")?;
                 Ok(ConstValue::Bool(
@@ -622,33 +635,224 @@ impl ScriptHost for BuildUnitHost<'_> {
                         .contains(feature.as_str()),
                 ))
             }
-            "__kraft_build_link_system_lib" => {
+            "__craft_build_link_system_lib" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let name = expect_string(args, 1, "system library name")?;
                 push_unique(&mut self.unit.link.system_libs, name);
                 Ok(ConstValue::Void)
             }
-            "__kraft_build_link_framework" => {
+            "__craft_build_link_framework" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let name = expect_string(args, 1, "framework name")?;
                 push_unique(&mut self.unit.link.frameworks, name);
                 Ok(ConstValue::Void)
             }
-            "__kraft_build_link_search" => {
+            "__craft_build_link_search" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let path = expect_string(args, 1, "link search path")?;
                 push_unique(&mut self.unit.link.search_paths, path);
                 Ok(ConstValue::Void)
             }
-            "__kraft_build_link_arg" => {
+            "__craft_build_link_arg" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let arg = expect_string(args, 1, "link argument")?;
                 self.unit.link.args.push(arg);
                 Ok(ConstValue::Void)
             }
+            "__craft_build_cfg_bool" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let key = expect_string(args, 1, "cfg name")?;
+                let value = expect_bool(args, 2, "cfg value")?;
+                self.unit
+                    .cfg
+                    .insert(key, crate::plan::PlanValue::Bool(value));
+                Ok(ConstValue::Void)
+            }
+            "__craft_build_cfg_string" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let key = expect_string(args, 1, "cfg name")?;
+                let value = expect_string(args, 2, "cfg value")?;
+                self.unit
+                    .cfg
+                    .insert(key, crate::plan::PlanValue::String(value));
+                Ok(ConstValue::Void)
+            }
+            "__craft_build_define_bool" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let key = expect_string(args, 1, "define name")?;
+                let value = expect_bool(args, 2, "define value")?;
+                self.unit
+                    .define
+                    .insert(key, crate::plan::PlanValue::Bool(value));
+                Ok(ConstValue::Void)
+            }
+            "__craft_build_define_string" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let key = expect_string(args, 1, "define name")?;
+                let value = expect_string(args, 2, "define value")?;
+                self.unit
+                    .define
+                    .insert(key, crate::plan::PlanValue::String(value));
+                Ok(ConstValue::Void)
+            }
+            "__craft_build_set_source_root" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let path = expect_string(args, 1, "source root")?;
+                if path.trim().is_empty() {
+                    return Err("source root must not be empty".to_string());
+                }
+                self.unit.source_root = path;
+                Ok(ConstValue::Void)
+            }
+            "__craft_build_emit_generated" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let relative_path = expect_string(args, 1, "generated relative path")?;
+                let contents = expect_string(args, 2, "generated file contents")?;
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.generated_root),
+                    &relative_path,
+                )?;
+                if let Some(parent) = dest_path.parent() {
+                    fs::create_dir_all(parent).map_err(|err| {
+                        format!(
+                            "failed to create generated directory `{}`: {err}",
+                            parent.display()
+                        )
+                    })?;
+                }
+                fs::write(&dest_path, contents).map_err(|err| {
+                    format!(
+                        "failed to write generated file `{}`: {err}",
+                        dest_path.display()
+                    )
+                })?;
+                record_generated_file(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    GeneratedFileOrigin::Emitted,
+                );
+                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+            }
+            "__craft_build_copy_package_file" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let source_relative = expect_string(args, 1, "package relative source path")?;
+                let generated_relative = expect_string(args, 2, "generated relative path")?;
+                let source_path =
+                    package_input_path(&self.script_context.package_root_path, &source_relative)?;
+                if !source_path.is_file() {
+                    return Err(format!(
+                        "package source file `{}` does not exist",
+                        source_path.display()
+                    ));
+                }
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.generated_root),
+                    &generated_relative,
+                )?;
+                if let Some(parent) = dest_path.parent() {
+                    fs::create_dir_all(parent).map_err(|err| {
+                        format!(
+                            "failed to create generated directory `{}`: {err}",
+                            parent.display()
+                        )
+                    })?;
+                }
+                fs::copy(&source_path, &dest_path).map_err(|err| {
+                    format!(
+                        "failed to copy package file `{}` to `{}`: {err}",
+                        source_path.display(),
+                        dest_path.display()
+                    )
+                })?;
+                record_generated_file(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    GeneratedFileOrigin::Copied {
+                        source: relative_display(
+                            &self.script_context.workspace_root_path,
+                            &source_path,
+                        ),
+                    },
+                );
+                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+            }
             _ => Err(format!("unsupported build host function `{name}`")),
         }
     }
+}
+
+fn generated_output_path(root: &Path, relative_path: &str) -> std::result::Result<PathBuf, String> {
+    Ok(root.join(normalize_relative_path(
+        relative_path,
+        "generated relative path",
+    )?))
+}
+
+fn package_input_path(root: &Path, relative_path: &str) -> std::result::Result<PathBuf, String> {
+    Ok(root.join(normalize_relative_path(
+        relative_path,
+        "package relative source path",
+    )?))
+}
+
+fn normalize_relative_path(
+    relative_path: &str,
+    label: &str,
+) -> std::result::Result<PathBuf, String> {
+    if relative_path.trim().is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+
+    let path = Path::new(relative_path);
+    if path.is_absolute() {
+        return Err(format!("{label} must not be absolute"));
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in path.components() {
+        match component {
+            Component::Normal(segment) => normalized.push(segment),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                return Err(format!("{label} must not contain `..`"));
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                return Err(format!("{label} must stay within its declared root"));
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Err(format!("{label} must not be empty"));
+    }
+
+    Ok(normalized)
+}
+
+fn relative_display(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| path.to_string_lossy().replace('\\', "/"))
+}
+
+fn record_generated_file(
+    unit: &mut BuildUnit,
+    workspace_root: &Path,
+    path: &Path,
+    origin: GeneratedFileOrigin,
+) {
+    let path = relative_display(workspace_root, path);
+    if let Some(existing) = unit
+        .generated_files
+        .iter_mut()
+        .find(|entry| entry.path == path)
+    {
+        existing.origin = origin;
+        return;
+    }
+    unit.generated_files.push(GeneratedFile { path, origin });
 }
 
 fn expect_arg<'a>(
@@ -657,7 +861,7 @@ fn expect_arg<'a>(
     label: &str,
 ) -> std::result::Result<&'a ConstValue, String> {
     args.get(index)
-        .ok_or_else(|| format!("missing kraft host argument `{label}`"))
+        .ok_or_else(|| format!("missing craft host argument `{label}`"))
 }
 
 fn expect_string(
@@ -837,6 +1041,37 @@ fn build_argument_value(
         _ => unreachable!("plan_argument_value must return a struct"),
     };
     builder.insert(field("unit", ctx), ConstValue::Struct(unit));
+    let mut paths = HashMap::new();
+    paths.insert(
+        field("build_root", ctx),
+        ConstValue::String(script_context.paths.build_root.clone()),
+    );
+    paths.insert(
+        field("generated_root", ctx),
+        ConstValue::String(script_context.paths.generated_root.clone()),
+    );
+    paths.insert(
+        field("object", ctx),
+        ConstValue::String(script_context.paths.object_path.clone()),
+    );
+    paths.insert(
+        field("artifact", ctx),
+        ConstValue::String(script_context.paths.artifact_path.clone()),
+    );
+    paths.insert(
+        field("metadata", ctx),
+        match &script_context.paths.metadata_path {
+            Some(path) => ConstValue::Enum {
+                tag: 0,
+                payload: Some(Box::new(ConstValue::String(path.clone()))),
+            },
+            None => ConstValue::Enum {
+                tag: 1,
+                payload: None,
+            },
+        },
+    );
+    builder.insert(field("paths", ctx), ConstValue::Struct(paths));
 
     ConstValue::Struct(builder)
 }
@@ -876,7 +1111,7 @@ impl ScriptOs {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_build_script, validate_kraft_script};
+    use super::{validate_build_script, validate_craft_script};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -892,28 +1127,28 @@ mod tests {
     }
 
     #[test]
-    fn accepts_public_kraft_entry() {
-        let root = temp_dir("kraft-script-valid");
-        let path = root.join("kraft.kr");
+    fn accepts_public_craft_entry() {
+        let root = temp_dir("craft-script-valid");
+        let path = root.join("craft.rn");
         fs::write(
             &path,
-            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
 
-        let result = validate_kraft_script(&path);
+        let result = validate_craft_script(&path);
         assert!(result.is_ok(), "unexpected result: {result:?}");
 
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn rejects_missing_public_kraft_entry() {
-        let root = temp_dir("kraft-script-missing-entry");
-        let path = root.join("kraft.kr");
+    fn rejects_missing_public_craft_entry() {
+        let root = temp_dir("craft-script-missing-entry");
+        let path = root.join("craft.rn");
         fs::write(&path, "fn helper() void {}\n").unwrap();
 
-        let err = validate_kraft_script(&path).unwrap_err();
+        let err = validate_craft_script(&path).unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("missing required entry"),
@@ -925,11 +1160,11 @@ mod tests {
 
     #[test]
     fn rejects_entry_without_plan_parameter() {
-        let root = temp_dir("kraft-script-missing-plan-param");
-        let path = root.join("kraft.kr");
-        fs::write(&path, "pub fn kraft() void {}\n").unwrap();
+        let root = temp_dir("craft-script-missing-plan-param");
+        let path = root.join("craft.rn");
+        fs::write(&path, "pub fn craft() void {}\n").unwrap();
 
-        let err = validate_kraft_script(&path).unwrap_err();
+        let err = validate_craft_script(&path).unwrap_err();
         let message = err.to_string();
         assert!(
             message.contains("exactly one parameter"),
@@ -942,10 +1177,10 @@ mod tests {
     #[test]
     fn accepts_public_build_entry() {
         let root = temp_dir("build-script-valid");
-        let path = root.join("build.kr");
+        let path = root.join("build.rn");
         fs::write(
             &path,
-            "use kraft.builder;\npub fn build(b: *mut builder.Builder) void { let _ = b; }\n",
+            "use craft.builder;\npub fn build(b: *mut builder.Builder) void { let _ = b; }\n",
         )
         .unwrap();
 

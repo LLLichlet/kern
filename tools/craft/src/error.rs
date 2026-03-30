@@ -64,7 +64,7 @@ impl Display for Error {
             }
             Self::ManifestNotFound { start } => write!(
                 f,
-                "could not find `Kraft.toml` starting from `{}` or any parent directory",
+                "could not find `Craft.toml` starting from `{}` or any parent directory",
                 start.display()
             ),
             Self::ManifestParse { path, message } => {
@@ -82,7 +82,7 @@ impl Display for Error {
                 write!(f, "invalid manifest `{}`: {message}", path.display())
             }
             Self::ScriptValidation { path, message } => {
-                write!(f, "invalid kraft script `{}`: {message}", path.display())
+                write!(f, "invalid craft script `{}`: {message}", path.display())
             }
             Self::Execution(message) => write!(f, "execution failed: {message}"),
             Self::LockfileValidation { path, message } => {

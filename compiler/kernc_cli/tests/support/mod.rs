@@ -79,7 +79,7 @@ pub fn assert_not_textual_llvm_ir(path: &Path) {
 }
 
 pub fn compile_source_with_args(prefix: &str, source: &str, extra_args: &[&str]) -> Output {
-    let source_path = unique_temp_path(prefix, "kr");
+    let source_path = unique_temp_path(prefix, "rn");
     let object_path = unique_temp_path(prefix, "o");
     fs::write(&source_path, source).unwrap();
 
@@ -100,7 +100,7 @@ pub fn compile_source_with_args(prefix: &str, source: &str, extra_args: &[&str])
 }
 
 pub fn emit_llvm_ir_with_args(prefix: &str, source: &str, extra_args: &[&str]) -> Output {
-    let source_path = unique_temp_path(prefix, "kr");
+    let source_path = unique_temp_path(prefix, "rn");
     fs::write(&source_path, source).unwrap();
 
     let source_arg = source_path.to_string_lossy().into_owned();
@@ -150,7 +150,7 @@ pub fn compile_source_tree_with_args(
 }
 
 pub fn build_temp_program(prefix: &str, source: &str, base_args: &[&str]) -> (PathBuf, PathBuf) {
-    let source_path = unique_temp_path(prefix, "kr");
+    let source_path = unique_temp_path(prefix, "rn");
     let executable_path = unique_temp_path(prefix, executable_extension());
 
     fs::write(&source_path, source).unwrap();
@@ -170,7 +170,7 @@ pub fn build_temp_program(prefix: &str, source: &str, base_args: &[&str]) -> (Pa
 }
 
 pub fn build_and_run(prefix: &str, source: &str, compile_args: &[&str]) -> Output {
-    let source_path = unique_temp_path(prefix, "kr");
+    let source_path = unique_temp_path(prefix, "rn");
     let executable_path = unique_temp_path(prefix, executable_extension());
 
     fs::write(&source_path, source).unwrap();

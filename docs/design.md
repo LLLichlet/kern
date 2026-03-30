@@ -466,8 +466,8 @@ Kern's module system is designed to be explicit, highly predictable, and strictl
 
 Files and directories do not implicitly become part of the compilation unit just by existing on the filesystem. A module must be explicitly declared using the `mod` keyword.
 
-  * **File Modules**: `mod utils;` instructs the compiler to look for `utils.kr`.
-  * **Directory Modules**: If `utils` is a directory, the compiler looks for `utils/init.kr`.
+  * **File Modules**: `mod utils;` instructs the compiler to look for `utils.rn`.
+  * **Directory Modules**: If `utils` is a directory, the compiler looks for `utils/init.rn`.
   * **Visibility**: By default, modules are private. Use `pub mod utils;` to expose the module and its public contents to outer scopes.
 
 <!-- end list -->
@@ -477,7 +477,7 @@ Files and directories do not implicitly become part of the compilation unit just
 mod memory;
 pub mod process;
 
-// Conditional module compilation (e.g., in std/os/init.kr)
+// Conditional module compilation (e.g., in std/os/init.rn)
 #[if(os == "linux")]
 mod linux;
 
@@ -504,7 +504,7 @@ Paths are navigated strictly:
 Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled.
 
 ```kern
-// std/os/init.kr
+// std/os/init.rn
 #[if(os == "linux")]
 mod linux;
 
@@ -704,7 +704,7 @@ Kern completely rejects traditional C-style preprocessor macros, substituting th
 ### 13.1 Scope: Outer vs. Inner Attributes
 
   * **Outer Attributes (`#[...]`)**: Attached to the immediately following AST node (e.g., a function, struct, or variable declaration).
-  * **Inner Attributes (`#![...]`)**: Applies to the entire enclosing lexical scope (usually the file). If placed at the top of an `init.kr` file, the attribute applies to the entire module.
+  * **Inner Attributes (`#![...]`)**: Applies to the entire enclosing lexical scope (usually the file). If placed at the top of an `init.rn` file, the attribute applies to the entire module.
 
 ### 13.2 Mutually Exclusive Content
 

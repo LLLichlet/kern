@@ -110,7 +110,7 @@ pub fn plan(
     } else {
         None
     };
-    let workspace_env = declared_env_map(manifest_path, manifest.kraft_env_names())?;
+    let workspace_env = declared_env_map(manifest_path, manifest.craft_env_names())?;
     let target = script::host_target();
 
     let mut packages = Vec::new();
@@ -129,10 +129,10 @@ pub fn plan(
             &target,
             &script::manifest_profile(manifest),
             features,
-            declared_env_map(manifest_path, manifest.kraft_env_names())?,
+            declared_env_map(manifest_path, manifest.craft_env_names())?,
         );
         if let Some(workspace_script) = &mut workspace_script {
-            let execution = script::apply_kraft_script(
+            let execution = script::apply_craft_script(
                 &workspace_script.path,
                 &mut plan,
                 &ScriptContext {
@@ -149,7 +149,7 @@ pub fn plan(
         };
         let mut script = script;
         if let Some(script) = &mut script {
-            let execution = script::apply_kraft_script(&script.path, &mut plan, &package_ctx)?;
+            let execution = script::apply_craft_script(&script.path, &mut plan, &package_ctx)?;
             script.env_inputs = execution
                 .env_inputs
                 .into_iter()
@@ -185,10 +185,10 @@ pub fn plan(
             &target,
             &script::manifest_profile(&member.manifest),
             features,
-            declared_env_map(&member.manifest_path, member.manifest.kraft_env_names())?,
+            declared_env_map(&member.manifest_path, member.manifest.craft_env_names())?,
         );
         if let Some(workspace_script) = &mut workspace_script {
-            let execution = script::apply_kraft_script(
+            let execution = script::apply_craft_script(
                 &workspace_script.path,
                 &mut plan,
                 &ScriptContext {
@@ -200,7 +200,7 @@ pub fn plan(
         }
         let mut script = discover_script(workspace_root, package_root)?;
         if let Some(script) = &mut script {
-            let execution = script::apply_kraft_script(&script.path, &mut plan, &package_ctx)?;
+            let execution = script::apply_craft_script(&script.path, &mut plan, &package_ctx)?;
             script.env_inputs = execution
                 .env_inputs
                 .into_iter()
@@ -269,12 +269,12 @@ fn member_package_id(member: &WorkspaceMember, workspace_root: &Path) -> Result<
 }
 
 fn discover_script(workspace_root: &Path, package_root: &Path) -> Result<Option<ScriptInput>> {
-    let path = package_root.join("kraft.kr");
+    let path = package_root.join("craft.rn");
     if !path.is_file() {
         return Ok(None);
     }
 
-    script::validate_kraft_script(&path)?;
+    script::validate_craft_script(&path)?;
 
     Ok(Some(ScriptInput {
         relative_path: relative_display(workspace_root, &path),
@@ -297,7 +297,7 @@ fn declared_env_map(
                 return Err(Error::Validation {
                     path: env_names_path.to_path_buf(),
                     message: format!(
-                        "[kraft].env `{name}` produced a non-UTF-8 value, which `kraft.kr` does not accept"
+                        "[craft].env `{name}` produced a non-UTF-8 value, which `craft.rn` does not accept"
                     ),
                 });
             }
@@ -444,15 +444,15 @@ mod tests {
     }
 
     #[test]
-    fn discovers_workspace_and_member_kraft_scripts() {
-        let root = temp_dir("kraft-elaborate-workspace");
+    fn discovers_workspace_and_member_craft_scripts() {
+        let root = temp_dir("craft-elaborate-workspace");
         let app_dir = root.join("app");
         let tool_dir = root.join("tool");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&tool_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app", "tool"]
@@ -460,12 +460,12 @@ members = ["app", "tool"]
         )
         .unwrap();
         fs::write(
-            root.join("kraft.kr"),
-            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+            root.join("craft.rn"),
+            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -475,12 +475,12 @@ kern = "0.7"
         )
         .unwrap();
         fs::write(
-            app_dir.join("kraft.kr"),
-            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+            app_dir.join("craft.rn"),
+            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
         fs::write(
-            tool_dir.join("Kraft.toml"),
+            tool_dir.join("Craft.toml"),
             r#"
 [package]
 name = "tool"
@@ -490,7 +490,7 @@ kern = "0.7"
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
         let elaboration = plan(
@@ -508,7 +508,7 @@ kern = "0.7"
                 .workspace_script
                 .as_ref()
                 .map(|script| script.relative_path.as_str()),
-            Some("kraft.kr")
+            Some("craft.rn")
         );
         assert_eq!(elaboration.package_script_count(), 1);
         assert!(elaboration.packages.iter().any(|pkg| {
@@ -517,7 +517,7 @@ kern = "0.7"
                     .script
                     .as_ref()
                     .map(|script| script.relative_path.as_str())
-                    == Some("app/kraft.kr")
+                    == Some("app/craft.rn")
         }));
 
         let _ = fs::remove_dir_all(root);
@@ -525,12 +525,12 @@ kern = "0.7"
 
     #[test]
     fn applies_workspace_script_before_package_script() {
-        let root = temp_dir("kraft-elaborate-workspace-policy");
+        let root = temp_dir("craft-elaborate-workspace-policy");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app"]
@@ -538,11 +538,11 @@ members = ["app"]
         )
         .unwrap();
         fs::write(
-            root.join("kraft.kr"),
+            root.join("craft.rn"),
             r#"
-use kraft.plan;
+use craft.plan;
 
-pub fn kraft(p: *mut plan.Plan) void {
+pub fn craft(p: *mut plan.Plan) void {
     p.cfg_bool("workspace_policy", true);
     p.dep_registry(plan.DependencyKind.{ normal }, "log", "workspace");
 }
@@ -550,7 +550,7 @@ pub fn kraft(p: *mut plan.Plan) void {
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -563,18 +563,18 @@ log = "1"
         )
         .unwrap();
         fs::write(
-            app_dir.join("kraft.kr"),
+            app_dir.join("craft.rn"),
             r#"
-use kraft.plan;
+use craft.plan;
 
-pub fn kraft(p: *mut plan.Plan) void {
+pub fn craft(p: *mut plan.Plan) void {
     p.dep_registry(plan.DependencyKind.{ normal }, "log", "package");
 }
 "#,
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
         let elaboration = plan(
@@ -611,10 +611,10 @@ pub fn kraft(p: *mut plan.Plan) void {
     }
 
     #[test]
-    fn treats_root_kraft_script_as_package_script_without_workspace() {
-        let root = temp_dir("kraft-elaborate-single");
+    fn treats_root_craft_script_as_package_script_without_workspace() {
+        let root = temp_dir("craft-elaborate-single");
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [package]
 name = "demo"
@@ -624,12 +624,12 @@ kern = "0.7"
         )
         .unwrap();
         fs::write(
-            root.join("kraft.kr"),
-            "use kraft.plan;\npub fn kraft(p: *mut plan.Plan) void { let _ = p; }\n",
+            root.join("craft.rn"),
+            "use craft.plan;\npub fn craft(p: *mut plan.Plan) void { let _ = p; }\n",
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(
             &manifest_path,
@@ -648,15 +648,15 @@ kern = "0.7"
                 .script
                 .as_ref()
                 .map(|script| script.relative_path.as_str()),
-            Some("kraft.kr")
+            Some("craft.rn")
         );
 
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn records_only_env_inputs_read_by_kraft_script() {
-        let root = temp_dir("kraft-elaborate-env");
+    fn records_only_env_inputs_read_by_craft_script() {
+        let root = temp_dir("craft-elaborate-env");
         let env_name = format!(
             "KRAFT_TEST_ENV_{}",
             SystemTime::now()
@@ -667,7 +667,7 @@ kern = "0.7"
         unsafe { std::env::set_var(&env_name, "enabled") };
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             format!(
                 r#"
 [package]
@@ -675,19 +675,19 @@ name = "demo"
 version = "0.1.0"
 kern = "0.7"
 
-[kraft]
+[craft]
 env = ["{env_name}"]
 "#
             ),
         )
         .unwrap();
         fs::write(
-            root.join("kraft.kr"),
+            root.join("craft.rn"),
             format!(
                 r#"
-use kraft.plan;
+use craft.plan;
 
-pub fn kraft(p: *mut plan.Plan) void {{
+pub fn craft(p: *mut plan.Plan) void {{
     match (p.env("{env_name}")) {{
         .Some: value => p.define_string("env_value", value),
         .None => {{}},
@@ -698,7 +698,7 @@ pub fn kraft(p: *mut plan.Plan) void {{
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(
             &manifest_path,
@@ -728,7 +728,7 @@ pub fn kraft(p: *mut plan.Plan) void {{
 
     #[test]
     fn rejects_env_reads_outside_declared_allowlist() {
-        let root = temp_dir("kraft-elaborate-env-undeclared");
+        let root = temp_dir("craft-elaborate-env-undeclared");
         let env_name = format!(
             "KRAFT_UNDECLARED_ENV_{}",
             SystemTime::now()
@@ -739,7 +739,7 @@ pub fn kraft(p: *mut plan.Plan) void {{
         unsafe { std::env::set_var(&env_name, "enabled") };
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [package]
 name = "demo"
@@ -749,12 +749,12 @@ kern = "0.7"
         )
         .unwrap();
         fs::write(
-            root.join("kraft.kr"),
+            root.join("craft.rn"),
             format!(
                 r#"
-use kraft.plan;
+use craft.plan;
 
-pub fn kraft(p: *mut plan.Plan) void {{
+pub fn craft(p: *mut plan.Plan) void {{
     match (p.env("{env_name}")) {{
         .Some: value => p.define_string("env_value", value),
         .None => {{}},
@@ -765,7 +765,7 @@ pub fn kraft(p: *mut plan.Plan) void {{
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let err = plan(
             &manifest_path,
@@ -778,7 +778,7 @@ pub fn kraft(p: *mut plan.Plan) void {{
         .unwrap_err();
         assert!(
             err.to_string()
-                .contains("was not declared under `[kraft].env`"),
+                .contains("was not declared under `[craft].env`"),
             "unexpected error: {err}"
         );
 
@@ -787,10 +787,10 @@ pub fn kraft(p: *mut plan.Plan) void {{
     }
 
     #[test]
-    fn enables_transitive_default_features_for_kraft_scripts() {
-        let root = temp_dir("kraft-elaborate-features");
+    fn enables_transitive_default_features_for_craft_scripts() {
+        let root = temp_dir("craft-elaborate-features");
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [package]
 name = "demo"
@@ -805,11 +805,11 @@ simd = []
         )
         .unwrap();
         fs::write(
-            root.join("kraft.kr"),
+            root.join("craft.rn"),
             r#"
-use kraft.plan;
+use craft.plan;
 
-pub fn kraft(p: *mut plan.Plan) void {
+pub fn craft(p: *mut plan.Plan) void {
     if (p.feature_enabled("simd")) {
         p.cfg_bool("simd", true);
     }
@@ -821,7 +821,7 @@ pub fn kraft(p: *mut plan.Plan) void {
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(
             &manifest_path,
@@ -847,9 +847,9 @@ pub fn kraft(p: *mut plan.Plan) void {
 
     #[test]
     fn rejects_unknown_feature_members() {
-        let root = temp_dir("kraft-elaborate-bad-features");
+        let root = temp_dir("craft-elaborate-bad-features");
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [package]
 name = "demo"
@@ -862,7 +862,7 @@ default = ["missing"]
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let err = plan(
             &manifest_path,
@@ -884,11 +884,11 @@ default = ["missing"]
 
     #[test]
     fn applies_package_script_mutations_to_plan() {
-        let root = temp_dir("kraft-elaborate-mutations");
+        let root = temp_dir("craft-elaborate-mutations");
         let vendor_trace = root.join("vendor").join("trace");
         fs::create_dir_all(&vendor_trace).unwrap();
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [package]
 name = "demo"
@@ -896,7 +896,7 @@ version = "0.1.0"
 kern = "0.7"
 
 [lib]
-root = "src/lib.kr"
+root = "src/lib.rn"
 
 [dependencies]
 log = "1"
@@ -905,11 +905,11 @@ trace = "1"
         )
         .unwrap();
         fs::write(
-            root.join("kraft.kr"),
+            root.join("craft.rn"),
             r#"
-use kraft.plan;
+use craft.plan;
 
-pub fn kraft(p: *mut plan.Plan) void {
+pub fn craft(p: *mut plan.Plan) void {
     p.cfg_bool("simd", true);
     p.define_string("abi", "sysv");
     p.define_string("pkg", p.package.name);
@@ -921,8 +921,8 @@ pub fn kraft(p: *mut plan.Plan) void {
         .run => {},
         .test => {},
     }
-    p.set_lib_root("src/alt_lib.kr");
-    p.add_bin("demo", "src/main.kr");
+    p.set_lib_root("src/alt_lib.rn");
+    p.add_bin("demo", "src/main.rn");
     p.dep_registry(plan.DependencyKind.{ normal }, "log", "corp");
     p.dep_path(plan.DependencyKind.{ normal }, "trace", "vendor/trace");
     p.dep_version(plan.DependencyKind.{ dev }, "insta", "2");
@@ -931,7 +931,7 @@ pub fn kraft(p: *mut plan.Plan) void {
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(
             &manifest_path,
@@ -961,12 +961,12 @@ pub fn kraft(p: *mut plan.Plan) void {
             Some(&crate::plan::PlanValue::Bool(true))
         );
         assert!(package.targets.iter().any(|target| {
-            target.kind == crate::plan::TargetKind::Lib && target.root == "src/alt_lib.kr"
+            target.kind == crate::plan::TargetKind::Lib && target.root == "src/alt_lib.rn"
         }));
         assert!(package.targets.iter().any(|target| {
             target.kind == crate::plan::TargetKind::Bin
                 && target.name.as_deref() == Some("demo")
-                && target.root == "src/main.kr"
+                && target.root == "src/main.rn"
         }));
         let resolved = &elaboration.resolved_graph.packages[0];
         assert!(resolved.dependencies.iter().any(|dep| {

@@ -66,8 +66,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         // 优先检查是否是顶层全局变量 (静态数组、全局字符串等)
-        if let Some(&mono_id) = self.global_symbol_map.get(&name) {
-            return MastExprKind::GlobalRef(mono_id);
+        if let Some(info) = self.ctx.scopes.resolve(name).cloned()
+            && matches!(info.kind, SymbolKind::Const | SymbolKind::Static)
+            && let Some(def_id) = info.def_id
+        {
+            self.ensure_global_lowered(def_id);
+            if let Some(&mono_id) = self.global_map.get(&def_id) {
+                return MastExprKind::GlobalRef(mono_id);
+            }
         }
 
         // 其次检查是否是局部作用域内的 static 变量
@@ -135,8 +141,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_base).clone() {
-            let mod_def = match &self.ctx.defs[mod_def_id.0 as usize] {
-                Def::Module(m) => m,
+            let mod_scope = match &self.ctx.defs[mod_def_id.0 as usize] {
+                Def::Module(m) => m.scope_id,
                 _ => {
                     return self.lower_access_ice(
                         span,
@@ -145,7 +151,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             };
 
-            let target_info = match self.ctx.scopes.resolve_in(mod_def.scope_id, field) {
+            let target_info = match self.ctx.scopes.resolve_in(mod_scope, field).cloned() {
                 Some(info) => info,
                 None => {
                     return self.lower_access_ice(
@@ -211,8 +217,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
 
                     // 如果无法内联（比如是个数组常量），从全局映射表获取
-                    if let Some(&mono_id) = self.global_symbol_map.get(&field) {
-                        return MastExprKind::GlobalRef(mono_id);
+                    if let Some(def_id) = target_info.def_id {
+                        self.ensure_global_lowered(def_id);
+                        if let Some(&mono_id) = self.global_map.get(&def_id) {
+                            return MastExprKind::GlobalRef(mono_id);
+                        }
                     } else {
                         let field_name = self.ctx.resolve(field);
                         return self.lower_access_ice(
@@ -222,9 +231,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                 }
                 SymbolKind::Static | SymbolKind::Function => {
-                    if let Some(&mono_id) = self.global_symbol_map.get(&field) {
-                        return MastExprKind::GlobalRef(mono_id);
-                    } else if target_info.def_id.is_some() {
+                    if let Some(def_id) = target_info.def_id {
+                        self.ensure_global_lowered(def_id);
+                        if let Some(&mono_id) = self.global_map.get(&def_id) {
+                            return MastExprKind::GlobalRef(mono_id);
+                        }
                         return self.lower_access_ice(
                             span,
                             format!(

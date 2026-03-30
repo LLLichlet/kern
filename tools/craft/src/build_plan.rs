@@ -29,11 +29,12 @@ pub struct BuildUnit {
     pub source_root: String,
     pub artifact_kind: ArtifactKind,
     pub artifact_name: String,
-    pub local_dependencies: Vec<PackageId>,
-    pub external_dependencies: Vec<ExternalPackageId>,
+    pub local_dependencies: Vec<LocalDependencyBinding>,
+    pub external_dependencies: Vec<ExternalDependencyBinding>,
     pub profile: script::ScriptProfile,
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
+    pub generated_files: Vec<GeneratedFile>,
     pub link: LinkPlan,
 }
 
@@ -47,6 +48,18 @@ pub enum ArtifactKind {
 pub struct BuildScriptInput {
     pub path: PathBuf,
     pub relative_path: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GeneratedFile {
+    pub path: String,
+    pub origin: GeneratedFileOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GeneratedFileOrigin {
+    Emitted,
+    Copied { source: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -70,13 +83,14 @@ pub struct CompileAction {
     pub target_name: Option<String>,
     pub artifact_name: String,
     pub source_path: PathBuf,
+    pub metadata_path: Option<PathBuf>,
     pub object_path: PathBuf,
     pub artifact_path: PathBuf,
     pub profile: script::ScriptProfile,
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
-    pub local_dependencies: Vec<PackageId>,
-    pub external_dependencies: Vec<ExternalPackageId>,
+    pub local_dependencies: Vec<LocalDependencyBinding>,
+    pub external_dependencies: Vec<ExternalDependencyBinding>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,8 +102,20 @@ pub struct LinkAction {
     pub artifact_path: PathBuf,
     pub primary_object: PathBuf,
     pub local_library_objects: Vec<PathBuf>,
-    pub external_dependencies: Vec<ExternalPackageId>,
+    pub external_dependencies: Vec<ExternalDependencyBinding>,
     pub link: LinkPlan,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct LocalDependencyBinding {
+    pub dependency_name: String,
+    pub package_id: PackageId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ExternalDependencyBinding {
+    pub dependency_name: String,
+    pub package_id: ExternalPackageId,
 }
 
 impl ActionPlan {
@@ -131,6 +157,14 @@ impl BuildPlan {
             .iter()
             .filter(|package| package.build_script.is_some())
             .count()
+    }
+
+    pub fn generated_file_count(&self) -> usize {
+        self.packages
+            .iter()
+            .flat_map(|package| &package.units)
+            .map(|unit| unit.generated_files.len())
+            .sum()
     }
 
     pub fn link_system_lib_count(&self) -> usize {
@@ -180,6 +214,9 @@ impl BuildPlan {
                     target_name: unit.target_name.clone(),
                     artifact_name: unit.artifact_name.clone(),
                     source_path: package_root.join(&unit.source_root),
+                    metadata_path: (unit.target_kind == TargetKind::Lib).then(|| {
+                        metadata_path(&self.workspace_root, &unit.package_id, &unit.profile.name)
+                    }),
                     object_path: object_path(
                         &self.workspace_root,
                         &unit.package_id,
@@ -241,7 +278,7 @@ impl BuildPlan {
                     local_library_objects: unit
                         .local_dependencies
                         .iter()
-                        .filter_map(|package_id| package_lib_objects.get(package_id).cloned())
+                        .filter_map(|binding| package_lib_objects.get(&binding.package_id).cloned())
                         .collect(),
                     external_dependencies: unit.external_dependencies.clone(),
                     link: unit.link.clone(),
@@ -281,13 +318,21 @@ pub fn derive(
         for dependency in &package.dependencies {
             match &dependency.target {
                 ResolvedDependencyTarget::Local(target) => {
-                    if !local_dependencies.contains(target) {
-                        local_dependencies.push(target.clone());
+                    let binding = LocalDependencyBinding {
+                        dependency_name: dependency.dependency_name.clone(),
+                        package_id: target.clone(),
+                    };
+                    if !local_dependencies.contains(&binding) {
+                        local_dependencies.push(binding);
                     }
                 }
                 ResolvedDependencyTarget::External(target) => {
-                    if !external_dependencies.contains(target) {
-                        external_dependencies.push(target.clone());
+                    let binding = ExternalDependencyBinding {
+                        dependency_name: dependency.dependency_name.clone(),
+                        package_id: target.clone(),
+                    };
+                    if !external_dependencies.contains(&binding) {
+                        external_dependencies.push(binding);
                     }
                 }
             }
@@ -307,6 +352,7 @@ pub fn derive(
                 profile: package_elaboration.profile.clone(),
                 cfg: package_elaboration.plan.cfg.clone(),
                 define: package_elaboration.plan.define.clone(),
+                generated_files: Vec::new(),
                 link: LinkPlan::default(),
             });
         }
@@ -343,6 +389,53 @@ pub fn derive(
                         source_root: unit.source_root.clone(),
                         artifact_name: unit.artifact_name.clone(),
                     },
+                    paths: script::BuildScriptPaths {
+                        build_root: workspace_build_root(
+                            &elaboration.resolved_graph.workspace_root,
+                            &package_elaboration.profile.name,
+                        )
+                        .to_string_lossy()
+                        .to_string(),
+                        generated_root: generated_root_path(
+                            &elaboration.resolved_graph.workspace_root,
+                            &package.id,
+                            &package_elaboration.profile.name,
+                            unit.target_kind,
+                            &unit.artifact_name,
+                        )
+                        .to_string_lossy()
+                        .to_string(),
+                        object_path: object_path(
+                            &elaboration.resolved_graph.workspace_root,
+                            &package.id,
+                            &package_elaboration.profile.name,
+                            unit.target_kind,
+                            &unit.artifact_name,
+                        )
+                        .to_string_lossy()
+                        .to_string(),
+                        artifact_path: artifact_path(
+                            &elaboration.resolved_graph.workspace_root,
+                            &host_target,
+                            &package.id,
+                            &package_elaboration.profile.name,
+                            unit.target_kind,
+                            &unit.artifact_name,
+                        )
+                        .to_string_lossy()
+                        .to_string(),
+                        metadata_path: (unit.target_kind == TargetKind::Lib).then(|| {
+                            metadata_path(
+                                &elaboration.resolved_graph.workspace_root,
+                                &package.id,
+                                &package_elaboration.profile.name,
+                            )
+                            .to_string_lossy()
+                            .to_string()
+                        }),
+                    },
+                    package_root_path: package_root.to_path_buf(),
+                    workspace_root_path: elaboration.resolved_graph.workspace_root.clone(),
                 };
                 script::apply_build_script(&build_script.path, unit, &build_context)?;
             }
@@ -366,7 +459,7 @@ fn discover_build_script(
     workspace_root: &Path,
     package_root: &Path,
 ) -> Result<Option<BuildScriptInput>> {
-    let path = package_root.join("build.kr");
+    let path = package_root.join("build.rn");
     if !path.is_file() {
         return Ok(None);
     }
@@ -394,13 +487,31 @@ fn object_path(
     artifact_name: &str,
 ) -> PathBuf {
     workspace_root
-        .join(".kraft")
+        .join(".craft")
         .join("build")
         .join(profile)
         .join("obj")
         .join(package_dir_name(package_id))
         .join(kind.as_str())
         .join(format!("{artifact_name}.o"))
+}
+
+fn workspace_build_root(workspace_root: &Path, profile: &str) -> PathBuf {
+    workspace_root.join(".craft").join("build").join(profile)
+}
+
+fn generated_root_path(
+    workspace_root: &Path,
+    package_id: &PackageId,
+    profile: &str,
+    kind: TargetKind,
+    artifact_name: &str,
+) -> PathBuf {
+    workspace_build_root(workspace_root, profile)
+        .join("gen")
+        .join(package_dir_name(package_id))
+        .join(kind.as_str())
+        .join(artifact_name)
 }
 
 fn artifact_path(
@@ -423,13 +534,22 @@ fn artifact_path(
     };
 
     workspace_root
-        .join(".kraft")
+        .join(".craft")
         .join("build")
         .join(profile)
         .join("out")
         .join(package_dir_name(package_id))
         .join(kind.as_str())
         .join(file_name)
+}
+
+fn metadata_path(workspace_root: &Path, package_id: &PackageId, profile: &str) -> PathBuf {
+    workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("meta")
+        .join(package_dir_name(package_id))
 }
 
 fn package_dir_name(package_id: &PackageId) -> String {
@@ -453,12 +573,13 @@ fn artifact_name(package_id: &PackageId, kind: TargetKind, target_name: Option<&
 
 #[cfg(test)]
 mod tests {
-    use super::{ArtifactKind, derive};
+    use super::{ArtifactKind, GeneratedFileOrigin, derive};
     use crate::elaborate::plan;
     use crate::manifest::Manifest;
     use crate::plan::TargetKind;
     use crate::workspace::load_members;
     use std::fs;
+    use std::path::Path;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(prefix: &str) -> std::path::PathBuf {
@@ -473,12 +594,12 @@ mod tests {
 
     #[test]
     fn derives_workspace_build_units_from_package_targets() {
-        let root = temp_dir("kraft-build-plan-targets");
+        let root = temp_dir("craft-build-plan-targets");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app"]
@@ -486,7 +607,7 @@ members = ["app"]
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -494,20 +615,20 @@ version = "0.1.0"
 kern = "0.7"
 
 [lib]
-root = "src/lib.kr"
+root = "src/lib.rn"
 
 [[bin]]
 name = "app"
-root = "src/main.kr"
+root = "src/main.rn"
 
 [[test]]
 name = "smoke"
-root = "tests/smoke.kr"
+root = "tests/smoke.rn"
 "#,
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
         let elaboration = plan(
@@ -546,14 +667,14 @@ root = "tests/smoke.kr"
 
     #[test]
     fn carries_local_and_external_dependencies_into_build_units() {
-        let root = temp_dir("kraft-build-plan-deps");
+        let root = temp_dir("craft-build-plan-deps");
         let app_dir = root.join("app");
         let util_dir = root.join("util");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&util_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app", "util"]
@@ -561,7 +682,7 @@ members = ["app", "util"]
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -570,7 +691,7 @@ kern = "0.7"
 
 [[bin]]
 name = "app"
-root = "src/main.kr"
+root = "src/main.rn"
 
 [dependencies]
 util = { path = "../util" }
@@ -579,7 +700,7 @@ log = "1"
         )
         .unwrap();
         fs::write(
-            util_dir.join("Kraft.toml"),
+            util_dir.join("Craft.toml"),
             r#"
 [package]
 name = "util"
@@ -587,12 +708,12 @@ version = "0.1.0"
 kern = "0.7"
 
 [lib]
-root = "src/lib.kr"
+root = "src/lib.rn"
 "#,
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
         let elaboration = plan(
@@ -617,9 +738,14 @@ root = "src/lib.kr"
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
         assert_eq!(app_unit.local_dependencies.len(), 1);
-        assert_eq!(app_unit.local_dependencies[0].name, "util");
+        assert_eq!(app_unit.local_dependencies[0].dependency_name, "util");
+        assert_eq!(app_unit.local_dependencies[0].package_id.name, "util");
         assert_eq!(app_unit.external_dependencies.len(), 1);
-        assert_eq!(app_unit.external_dependencies[0].package_name, "log");
+        assert_eq!(app_unit.external_dependencies[0].dependency_name, "log");
+        assert_eq!(
+            app_unit.external_dependencies[0].package_id.package_name,
+            "log"
+        );
         assert_eq!(build_plan.local_dependency_edge_count(), 1);
         assert_eq!(build_plan.external_dependency_edge_count(), 1);
         let link = actions
@@ -633,10 +759,88 @@ root = "src/lib.kr"
     }
 
     #[test]
-    fn applies_build_script_link_directives_per_unit() {
-        let root = temp_dir("kraft-build-plan-script");
+    fn preserves_dependency_aliases_in_build_units() {
+        let root = temp_dir("craft-build-plan-alias");
+        let app_dir = root.join("app");
+        let util_dir = root.join("util");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::create_dir_all(&util_dir).unwrap();
+
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app", "util"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+foo = { path = "../util", package = "util" }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            util_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "util"
+version = "0.1.0"
+kern = "0.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Check,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan = derive(&elaboration, crate::script::ScriptCommand::Check).unwrap();
+
+        let app_unit = build_plan
+            .packages
+            .iter()
+            .find(|package| package.package_id.name == "app")
+            .unwrap()
+            .units
+            .iter()
+            .find(|unit| unit.target_kind == TargetKind::Bin)
+            .unwrap();
+
+        assert_eq!(app_unit.local_dependencies.len(), 1);
+        assert_eq!(app_unit.local_dependencies[0].dependency_name, "foo");
+        assert_eq!(app_unit.local_dependencies[0].package_id.name, "util");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn applies_build_script_link_directives_per_unit() {
+        let root = temp_dir("craft-build-plan-script");
+        fs::write(
+            root.join("Craft.toml"),
             r#"
 [package]
 name = "demo"
@@ -649,18 +853,18 @@ simd = []
 
 [[bin]]
 name = "demo"
-root = "src/main.kr"
+root = "src/main.rn"
 
 [[test]]
 name = "smoke"
-root = "tests/smoke.kr"
+root = "tests/smoke.rn"
 "#,
         )
         .unwrap();
         fs::write(
-            root.join("build.kr"),
+            root.join("build.rn"),
             r#"
-use kraft.builder;
+use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
     if (b.feature_enabled("simd")) {
@@ -685,7 +889,7 @@ pub fn build(b: *mut builder.Builder) void {
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(
             &manifest_path,
@@ -708,7 +912,7 @@ pub fn build(b: *mut builder.Builder) void {
                 .build_script
                 .as_ref()
                 .map(|script| script.relative_path.as_str()),
-            Some("build.kr")
+            Some("build.rn")
         );
 
         let bin = package
@@ -760,6 +964,145 @@ pub fn build(b: *mut builder.Builder) void {
                 .iter()
                 .any(|path| path == "native/test")
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_script_can_generate_sources_and_mutate_unit_cfg_define() {
+        let root = temp_dir("craft-build-plan-generated");
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("build.rn"),
+            r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let root = b.emit_generated(
+        "src/main.rn",
+        "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n"
+    );
+    b.set_source_root(root);
+    b.cfg_bool("generated", true);
+    b.define_string("entry", "generated");
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let unit = build_plan.packages[0]
+            .units
+            .iter()
+            .find(|unit| unit.target_kind == TargetKind::Bin)
+            .unwrap();
+
+        assert!(
+            Path::new(&unit.source_root).is_absolute(),
+            "expected generated source root to be absolute: {}",
+            unit.source_root
+        );
+        assert!(Path::new(&unit.source_root).is_file());
+        assert_eq!(
+            unit.cfg.get("generated"),
+            Some(&crate::plan::PlanValue::Bool(true))
+        );
+        assert_eq!(
+            unit.define.get("entry"),
+            Some(&crate::plan::PlanValue::String("generated".to_string()))
+        );
+        assert_eq!(unit.generated_files.len(), 1);
+        assert_eq!(unit.generated_files[0].origin, GeneratedFileOrigin::Emitted);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_script_can_copy_package_files_into_generated_root() {
+        let root = temp_dir("craft-build-plan-copy");
+        fs::create_dir_all(root.join("templates")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("templates").join("main.rn"),
+            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+        )
+        .unwrap();
+        fs::write(
+            root.join("build.rn"),
+            r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let root = b.copy_package_file("templates/main.rn", "src/main.rn");
+    b.set_source_root(root);
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let unit = build_plan.packages[0]
+            .units
+            .iter()
+            .find(|unit| unit.target_kind == TargetKind::Bin)
+            .unwrap();
+
+        assert_eq!(unit.generated_files.len(), 1);
+        assert_eq!(
+            unit.generated_files[0].origin,
+            GeneratedFileOrigin::Copied {
+                source: "templates/main.rn".to_string()
+            }
+        );
+        assert!(Path::new(&unit.source_root).is_file());
 
         let _ = fs::remove_dir_all(root);
     }

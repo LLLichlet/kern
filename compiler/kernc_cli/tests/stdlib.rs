@@ -10,7 +10,7 @@ use support::{
 
 #[test]
 fn compiles_std_hello_world_in_compile_only_mode() {
-    let source = repo_root().join("examples/hello_world.kr");
+    let source = repo_root().join("examples/hello_world.rn");
     let object = unique_temp_path("kernc_std_hello_world", "o");
 
     let source_arg = source.to_string_lossy().into_owned();
@@ -43,7 +43,7 @@ fn compiles_std_hello_world_in_compile_only_mode() {
 #[cfg(windows)]
 #[test]
 fn compiles_std_hello_world_to_unicode_object_path() {
-    let source = repo_root().join("examples/hello_world.kr");
+    let source = repo_root().join("examples/hello_world.rn");
     let object = unique_temp_path("kernc_std_hello_world_对象", "o");
 
     let source_arg = source.to_string_lossy().into_owned();
@@ -70,7 +70,7 @@ fn compiles_std_hello_world_to_unicode_object_path() {
 
 #[test]
 fn links_compile_only_object_via_link_only_mode() {
-    let source_path = unique_temp_path("kernc_std_link_only", "kr");
+    let source_path = unique_temp_path("kernc_std_link_only", "rn");
     let object_path = unique_temp_path("kernc_std_link_only", "o");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_link_only", exe_ext);
@@ -140,7 +140,7 @@ extern fn main() i32 {
 
 #[test]
 fn links_hosted_program_with_std_without_kern_entry_shims() {
-    let source_path = unique_temp_path("kernc_std_hosted", "kr");
+    let source_path = unique_temp_path("kernc_std_hosted", "rn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_hosted", exe_ext);
 
@@ -199,7 +199,7 @@ fn links_windows_kern_program_with_std_by_default() {
         return;
     }
 
-    let source = repo_root().join("examples/hello_world.kr");
+    let source = repo_root().join("examples/hello_world.rn");
     let executable_path = unique_temp_path("kernc_std_windows_kern", "exe");
 
     let source_arg = source.to_string_lossy().into_owned();
@@ -361,7 +361,7 @@ extern fn start() void {
 
 #[test]
 fn runs_hosted_program_using_std_env_get() {
-    let source_path = unique_temp_path("kernc_std_env", "kr");
+    let source_path = unique_temp_path("kernc_std_env", "rn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_env", exe_ext);
 

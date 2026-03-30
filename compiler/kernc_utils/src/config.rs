@@ -101,6 +101,10 @@ pub enum AsmDialect {
 pub struct CompileOptions {
     pub input_file: Option<String>,
     pub output_file: String,
+    pub metadata_output: Option<String>,
+    pub metadata_package_name: Option<String>,
+    pub metadata_package_version: Option<String>,
+    pub root_module_name: Option<String>,
     pub target: TargetMachine,
     pub opt_level: OptLevel,
     pub driver_mode: DriverMode,
@@ -108,6 +112,8 @@ pub struct CompileOptions {
     pub custom_defines: HashMap<String, String>,
     // 模块别名映射表
     pub module_aliases: HashMap<String, String>,
+    // 模块接口别名映射表（指向 kmeta 根目录）
+    pub module_interface_aliases: HashMap<String, String>,
     pub asm_dialect: AsmDialect,
     pub link_profile: LinkProfile,
     pub linker_cmd: String,
@@ -125,11 +131,16 @@ impl Default for CompileOptions {
         Self {
             input_file: None,
             output_file: "a.out".to_string(),
+            metadata_output: None,
+            metadata_package_name: None,
+            metadata_package_version: None,
+            root_module_name: None,
             target: TargetMachine::default(),
             opt_level: OptLevel::O0,
             driver_mode: DriverMode::CompileAndLink,
             custom_defines: HashMap::new(),
             module_aliases: HashMap::new(),
+            module_interface_aliases: HashMap::new(),
             asm_dialect: AsmDialect::default(),
             link_profile: LinkProfile::Kern,
             linker_cmd: "cc".to_string(),

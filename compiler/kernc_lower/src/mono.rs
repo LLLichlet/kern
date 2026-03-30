@@ -172,10 +172,25 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        let body = def
-            .body
-            .as_ref()
-            .map(|body_expr| self.lower_block_as_body(body_expr, &subst_map, conc_ret));
+        let body = if self.function_requires_runtime_body(&def) {
+            let prev_scope = self.ctx.scopes.current_scope_id();
+            if let Some(owner_scope) = self.function_owner_scope(&def) {
+                self.ctx.scopes.set_current_scope(owner_scope);
+            }
+
+            let body = def
+                .body
+                .as_ref()
+                .map(|body_expr| self.lower_block_as_body(body_expr, &subst_map, conc_ret));
+
+            if let Some(prev_scope) = prev_scope {
+                self.ctx.scopes.set_current_scope(prev_scope);
+            }
+
+            body
+        } else {
+            None
+        };
 
         self.local_types.pop();
 
@@ -770,5 +785,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: g.is_extern,
             attributes: self.extract_meta_items(&g.attributes),
         });
+    }
+
+    pub(crate) fn ensure_global_lowered(&mut self, def_id: DefId) {
+        if self.module.globals.iter().any(|global| {
+            self.global_map
+                .get(&def_id)
+                .is_some_and(|mono_id| *mono_id == global.id)
+        }) {
+            return;
+        }
+
+        let Some(Def::Global(global)) = self.ctx.defs.get(def_id.0 as usize).cloned() else {
+            return;
+        };
+        self.lower_global(&global);
     }
 }

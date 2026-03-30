@@ -26,12 +26,12 @@ pub fn load_members(manifest_path: &Path, manifest: &Manifest) -> Result<Vec<Wor
 
     let mut members = Vec::new();
     for member_dir in member_dirs {
-        let member_manifest_path = member_dir.join("Kraft.toml");
+        let member_manifest_path = member_dir.join("Craft.toml");
         if !member_manifest_path.is_file() {
             return Err(Error::Validation {
                 path: manifest_path.to_path_buf(),
                 message: format!(
-                    "workspace member `{}` does not contain `Kraft.toml`",
+                    "workspace member `{}` does not contain `Craft.toml`",
                     member_dir.display()
                 ),
             });
@@ -47,7 +47,7 @@ pub fn load_members(manifest_path: &Path, manifest: &Manifest) -> Result<Vec<Wor
         }
 
         members.push(WorkspaceMember {
-            manifest_path: member_dir.join("Kraft.toml"),
+            manifest_path: member_dir.join("Craft.toml"),
             manifest: member_manifest,
         });
     }
@@ -118,14 +118,14 @@ mod tests {
 
     #[test]
     fn loads_workspace_members_from_direct_and_glob_entries() {
-        let root = temp_dir("kraft-workspace");
+        let root = temp_dir("craft-workspace");
         let compiler_dir = root.join("compiler").join("demo");
         let tools_dir = root.join("tools").join("demo");
         fs::create_dir_all(&compiler_dir).unwrap();
         fs::create_dir_all(&tools_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["compiler/*", "tools/demo"]
@@ -133,7 +133,7 @@ members = ["compiler/*", "tools/demo"]
         )
         .unwrap();
         fs::write(
-            compiler_dir.join("Kraft.toml"),
+            compiler_dir.join("Craft.toml"),
             r#"
 [package]
 name = "compiler-demo"
@@ -143,7 +143,7 @@ kern = "0.7"
         )
         .unwrap();
         fs::write(
-            tools_dir.join("Kraft.toml"),
+            tools_dir.join("Craft.toml"),
             r#"
 [package]
 name = "tools-demo"
@@ -153,8 +153,8 @@ kern = "0.7"
         )
         .unwrap();
 
-        let root_manifest = Manifest::load(&root.join("Kraft.toml")).unwrap();
-        let members = load_members(&root.join("Kraft.toml"), &root_manifest).unwrap();
+        let root_manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let members = load_members(&root.join("Craft.toml"), &root_manifest).unwrap();
 
         assert_eq!(members.len(), 2);
         assert!(
@@ -173,22 +173,22 @@ kern = "0.7"
 
     #[test]
     fn rejects_workspace_member_without_package() {
-        let root = temp_dir("kraft-bad-workspace");
+        let root = temp_dir("craft-bad-workspace");
         let member_dir = root.join("compiler").join("demo");
         fs::create_dir_all(&member_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["compiler/*"]
 "#,
         )
         .unwrap();
-        fs::write(member_dir.join("Kraft.toml"), "[workspace]\nmembers = []\n").unwrap();
+        fs::write(member_dir.join("Craft.toml"), "[workspace]\nmembers = []\n").unwrap();
 
-        let root_manifest = Manifest::load(&root.join("Kraft.toml")).unwrap();
-        let err = load_members(&root.join("Kraft.toml"), &root_manifest).unwrap_err();
+        let root_manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let err = load_members(&root.join("Craft.toml"), &root_manifest).unwrap_err();
         assert!(
             err.to_string()
                 .contains("workspace members must declare `[package]`")

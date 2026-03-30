@@ -21,7 +21,7 @@ fn print_usage(program_name: &str) {
     let version = env!("CARGO_PKG_VERSION");
 
     println!("Kern Compiler v{}", version);
-    println!("Usage: {} [OPTIONS] [input.kr]\n", program_name);
+    println!("Usage: {} [OPTIONS] [input.rn]\n", program_name);
 
     println!("Build Options:");
     println!("  -o <file>            Write output to <file>");
@@ -31,6 +31,9 @@ fn print_usage(program_name: &str) {
     println!(
         "  -M <name=path>       Map a module name to a physical directory (e.g., -M std=./library/std)"
     );
+    println!("  -I <name=path>       Map a module name to an imported kmeta root");
+    println!("  --emit-kmeta <dir>   Emit a kmeta module snapshot directory");
+    println!("  --root-module <name> Override the compiled root module name");
     println!("  -O<0-3>              Set optimization level (default: O0)");
 
     println!("\nTargeting & Codegen:");
@@ -255,6 +258,14 @@ fn parse_args() -> CompileOptions {
             "-O2" => options.opt_level = OptLevel::O2,
             "-O3" => options.opt_level = OptLevel::O3,
             "--emit-llvm" => set_driver_mode(&mut options, DriverMode::EmitLlvmIr, "--emit-llvm"),
+            "--emit-kmeta" => {
+                options.metadata_output =
+                    Some(next_option_value(&mut args, "--emit-kmeta", "directory"));
+            }
+            "--root-module" => {
+                options.root_module_name =
+                    Some(next_option_value(&mut args, "--root-module", "module name"));
+            }
             "--link-libc" => options.link_profile = LinkProfile::Hosted,
             "--use-std" => options.use_std = true,
             "--target" => {
@@ -296,6 +307,11 @@ fn parse_args() -> CompileOptions {
                 let mapping = next_option_value(&mut args, "-M", "`name=path`");
                 let (name, path) = parse_key_value(mapping, "-M", "name=path");
                 options.module_aliases.insert(name, path);
+            }
+            "-I" => {
+                let mapping = next_option_value(&mut args, "-I", "`name=path`");
+                let (name, path) = parse_key_value(mapping, "-I", "name=path");
+                options.module_interface_aliases.insert(name, path);
             }
             _ => {
                 if let Some(path) = consume_short_or_attached_value(&arg, "-L", &mut args, "path") {

@@ -2,7 +2,7 @@ use crate::error::{Error, Result};
 use std::env;
 use std::path::{Path, PathBuf};
 
-const MANIFEST_FILE: &str = "Kraft.toml";
+const MANIFEST_FILE: &str = "Craft.toml";
 
 pub fn resolve_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
     match input {

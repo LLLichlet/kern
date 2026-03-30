@@ -188,7 +188,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         // 1. 验证 Extern 规则
-        if !f.is_extern && f.body.is_none() {
+        if !f.is_extern && !f.is_imported && f.body.is_none() {
             self.ctx
                 .emit_error(f.span, "Non-extern functions must have a body");
             return;

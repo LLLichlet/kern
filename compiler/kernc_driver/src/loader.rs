@@ -1,12 +1,18 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::metadata;
 use kernc_ast as ast;
 use kernc_parser::Parser;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
 use kernc_sema::passes::Pruner;
 use kernc_utils::SymbolId;
+
+struct ResolvedRootModule {
+    entry_path: PathBuf,
+    declared_root_name: Option<SymbolId>,
+}
 
 pub struct ModuleLoader<'a, 'ctx> {
     pub ctx: &'a mut SemaContext<'ctx>,
@@ -25,42 +31,105 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         }
     }
 
-    pub fn load_root(&mut self, root_file: &str) -> Option<DefId> {
+    pub fn load_root(&mut self, root_file: &str, root_name: SymbolId) -> Option<DefId> {
         let path = PathBuf::from(root_file);
-        let name = self.ctx.intern("root");
-        let root_id = self.load_module(path, None, name);
-        self.load_alias_roots();
+        let root_id = self.load_module(path, None, root_name, false);
+        self.ctx.root_module = root_id;
+        self.load_alias_roots(false);
+        self.load_alias_roots(true);
         root_id
     }
 
-    fn load_alias_roots(&mut self) {
-        let aliases = self.ctx.module_aliases.clone();
+    fn load_alias_roots(&mut self, imported: bool) {
+        let aliases = if imported {
+            self.ctx.module_interface_aliases.clone()
+        } else {
+            self.ctx.module_aliases.clone()
+        };
         for (alias_name, alias_path) in aliases {
-            let sym = self.ctx.intern(&alias_name);
-            let Some(path) = self.resolve_root_module_path(&PathBuf::from(&alias_path)) else {
-                eprintln!(
-                    "Error: Cannot find module path for alias `{}` at `{}`",
-                    alias_name, alias_path
-                );
+            let alias_sym = self.ctx.intern(&alias_name);
+            let Some(root) = self.resolve_root_module(&PathBuf::from(&alias_path), imported) else {
                 continue;
             };
 
-            if let Some(mod_id) = self.load_module(path, None, sym) {
-                self.ctx.alias_roots.insert(sym, mod_id);
+            let module_name = root.declared_root_name.unwrap_or(alias_sym);
+            if let Some(mod_id) = self.load_module(root.entry_path, None, module_name, imported) {
+                self.ctx.alias_roots.insert(alias_sym, mod_id);
             }
         }
     }
 
-    fn resolve_root_module_path(&self, base_path: &Path) -> Option<PathBuf> {
-        let dir_init = base_path.join("init.kr");
-        let file_kn = PathBuf::from(format!("{}.kr", base_path.display()));
+    fn resolve_root_module(
+        &mut self,
+        base_path: &Path,
+        require_manifest: bool,
+    ) -> Option<ResolvedRootModule> {
+        if base_path.is_dir() {
+            match metadata::load_manifest(base_path) {
+                Ok(Some(manifest)) => {
+                    let entry_path = base_path.join(&manifest.entry_module_path);
+                    if !entry_path.is_file() {
+                        eprintln!(
+                            "Error: kmeta package at `{}` points to missing entry module `{}`",
+                            base_path.display(),
+                            entry_path.display()
+                        );
+                        return None;
+                    }
+
+                    let declared_root_name = Some(self.ctx.intern(&manifest.root_module_name));
+                    return Some(ResolvedRootModule {
+                        entry_path,
+                        declared_root_name,
+                    });
+                }
+                Ok(None) => {
+                    if require_manifest {
+                        eprintln!(
+                            "Error: Imported package path `{}` is missing `{}`",
+                            base_path.display(),
+                            metadata::KMETA_MANIFEST_FILE
+                        );
+                        return None;
+                    }
+                }
+                Err(err) => {
+                    eprintln!(
+                        "Error: Failed to read kmeta manifest from `{}`: {}",
+                        base_path.display(),
+                        err
+                    );
+                    return None;
+                }
+            }
+        }
+
+        if require_manifest {
+            eprintln!(
+                "Error: Imported package alias expects a kmeta package root at `{}`",
+                base_path.display()
+            );
+            return None;
+        }
+
+        let dir_init = base_path.join("init.rn");
+        let file_kn = PathBuf::from(format!("{}.rn", base_path.display()));
 
         if dir_init.exists() {
-            Some(dir_init)
+            Some(ResolvedRootModule {
+                entry_path: dir_init,
+                declared_root_name: None,
+            })
         } else if file_kn.exists() {
-            Some(file_kn)
+            Some(ResolvedRootModule {
+                entry_path: file_kn,
+                declared_root_name: None,
+            })
         } else if base_path.exists() && base_path.is_file() {
-            Some(base_path.to_path_buf())
+            Some(ResolvedRootModule {
+                entry_path: base_path.to_path_buf(),
+                declared_root_name: None,
+            })
         } else {
             None
         }
@@ -68,8 +137,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn resolve_submodule_path(&mut self, dir_path: &Path, decl: &ast::Decl) -> Option<PathBuf> {
         let mod_name_str = self.ctx.resolve(decl.name);
-        let dir_init = dir_path.join(mod_name_str).join("init.kr");
-        let file_kn = dir_path.join(format!("{}.kr", mod_name_str));
+        let dir_init = dir_path.join(mod_name_str).join("init.rn");
+        let file_kn = dir_path.join(format!("{}.rn", mod_name_str));
 
         if dir_init.exists() {
             Some(dir_init)
@@ -111,6 +180,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         path: PathBuf,
         parent: Option<DefId>,
         name: SymbolId,
+        is_imported: bool,
     ) -> Option<DefId> {
         let abs_path = std::fs::canonicalize(&path).unwrap_or(path.clone());
 
@@ -139,12 +209,13 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         let scope_id = self.ctx.scopes.enter_scope();
         self.ctx.scopes.exit_scope();
 
-        let is_init = abs_path.file_name().and_then(|n| n.to_str()) == Some("init.kr");
+        let is_init = abs_path.file_name().and_then(|n| n.to_str()) == Some("init.rn");
 
         let dummy_def = ModuleDef {
             id: mod_id,
             name,
             parent,
+            is_imported,
             scope_id,
             dir_path: dir_path.clone(),
             file_id,
@@ -171,7 +242,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         for decl in &ast.decls {
             if let ast::DeclKind::ModDecl { .. } = &decl.kind
                 && let Some(p) = self.resolve_submodule_path(&dir_path, decl)
-                && let Some(sub_id) = self.load_module(p, Some(mod_id), decl.name)
+                && let Some(sub_id) = self.load_module(p, Some(mod_id), decl.name, is_imported)
             {
                 submodules.insert(decl.name, sub_id);
             }

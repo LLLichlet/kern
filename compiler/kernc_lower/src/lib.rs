@@ -4,7 +4,7 @@ use kernc_ast as ast;
 use kernc_mast::*;
 use kernc_sema::SemaContext;
 use kernc_sema::checker::Substituter;
-use kernc_sema::def::{Def, DefId, EnumDef};
+use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef};
 use kernc_sema::scope::ScopeId;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
@@ -78,6 +78,36 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         MonoId(id)
     }
 
+    fn function_requires_runtime_body(&self, f: &kernc_sema::def::FunctionDef) -> bool {
+        if !f.is_imported {
+            return true;
+        }
+        if !f.generics.is_empty() {
+            return true;
+        }
+        if let Some(parent_id) = f.parent
+            && let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize]
+        {
+            return !impl_def.generics.is_empty();
+        }
+        false
+    }
+
+    pub(crate) fn function_owner_scope(&self, f: &FunctionDef) -> Option<ScopeId> {
+        let parent_id = f.parent?;
+        match &self.ctx.defs[parent_id.0 as usize] {
+            Def::Module(module) => Some(module.scope_id),
+            Def::Impl(impl_def) => {
+                let module_id = impl_def.parent_module?;
+                match &self.ctx.defs[module_id.0 as usize] {
+                    Def::Module(module) => Some(module.scope_id),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// 降级入口：寻找所有非泛型的根节点向下递归单态化
     pub fn lower_all(&mut self) -> MastModule {
         let def_ids: Vec<_> = (0..self.ctx.defs.len()).map(|i| DefId(i as u32)).collect();
@@ -103,6 +133,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let def = self.ctx.defs[id.0 as usize].clone();
             match def {
                 Def::Function(f) => {
+                    if f.is_imported {
+                        continue;
+                    }
                     // 内置函数没有物理实体，直接跳过，不进入 MAST
                     if f.is_intrinsic {
                         continue;
@@ -121,7 +154,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         self.instantiate_function(id, &[]);
                     }
                 }
-                Def::Global(g) => self.lower_global(&g),
+                Def::Global(g) => {
+                    if !g.is_imported {
+                        self.lower_global(&g);
+                    }
+                }
                 _ => {}
             }
         }

@@ -6,7 +6,7 @@ use std::path::Path;
 #[derive(Debug, Default)]
 pub struct Manifest {
     pub package: Option<Package>,
-    pub kraft: Option<KraftConfig>,
+    pub craft: Option<CraftConfig>,
     pub sources: BTreeMap<String, SourceConfig>,
     pub lib: Option<LibTarget>,
     pub bin: Vec<NamedTarget>,
@@ -30,7 +30,7 @@ pub struct Package {
 }
 
 #[derive(Debug, Default)]
-pub struct KraftConfig {
+pub struct CraftConfig {
     pub env: Vec<String>,
 }
 
@@ -99,7 +99,7 @@ pub struct WorkspacePackage {
 enum Section {
     Root,
     Package,
-    Kraft,
+    Craft,
     Source(String),
     Lib,
     Bin(usize),
@@ -122,10 +122,10 @@ impl Manifest {
         Self::parse(&source, path)
     }
 
-    pub fn kraft_env_names(&self) -> &[String] {
-        self.kraft
+    pub fn craft_env_names(&self) -> &[String] {
+        self.craft
             .as_ref()
-            .map(|kraft| kraft.env.as_slice())
+            .map(|craft| craft.env.as_slice())
             .unwrap_or(&[])
     }
 
@@ -192,9 +192,9 @@ impl Manifest {
             let _ = package.publish;
         }
 
-        if let Some(kraft) = &self.kraft {
-            for name in &kraft.env {
-                validate_env_name(path, "[kraft].env[]", name)?;
+        if let Some(craft) = &self.craft {
+            for name in &craft.env {
+                validate_env_name(path, "[craft].env[]", name)?;
             }
         }
 
@@ -297,9 +297,9 @@ fn enter_table_section(
             manifest.package.get_or_insert_with(Package::default);
             Ok(Section::Package)
         }
-        "[kraft]" => {
-            manifest.kraft.get_or_insert_with(KraftConfig::default);
-            Ok(Section::Kraft)
+        "[craft]" => {
+            manifest.craft.get_or_insert_with(CraftConfig::default);
+            Ok(Section::Craft)
         }
         "[lib]" => {
             manifest.lib.get_or_insert_with(LibTarget::default);
@@ -358,11 +358,11 @@ fn assign_key_value(
             }
             Ok(())
         }
-        Section::Kraft => {
-            let kraft = manifest.kraft.get_or_insert_with(KraftConfig::default);
+        Section::Craft => {
+            let craft = manifest.craft.get_or_insert_with(CraftConfig::default);
             match key {
-                "env" => kraft.env = parse_string_array(raw_value)?,
-                _ => return Err(format!("unsupported [kraft] key `{key}`")),
+                "env" => craft.env = parse_string_array(raw_value)?,
+                _ => return Err(format!("unsupported [craft] key `{key}`")),
             }
             Ok(())
         }
@@ -969,11 +969,11 @@ version = "0.1.0"
 kern = "0.7"
 
 [lib]
-root = "src/lib.kr"
+root = "src/lib.rn"
 
 [[bin]]
 name = "demo"
-root = "src/main.kr"
+root = "src/main.rn"
 
 [dependencies]
 log = "1"
@@ -982,7 +982,7 @@ alloc = { path = "../alloc", features = ["arena"] }
 [features]
 default = []
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
@@ -1005,7 +1005,7 @@ members = [
 [workspace.package]
 license = "MIT"
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
@@ -1026,11 +1026,11 @@ kern = "0.7"
 [profile.dev]
 opt = 7
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
-        let path = std::path::Path::new("Kraft.toml");
+        let path = std::path::Path::new("Craft.toml");
         let err = manifest.validate(path).unwrap_err();
         assert!(err.to_string().contains("0..=3"));
     }
@@ -1047,7 +1047,7 @@ kern = "0.7"
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
@@ -1072,11 +1072,11 @@ kern = "0.7"
 [dependencies]
 shared = { workspace = true, version = "2" }
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
-        let path = std::path::Path::new("Kraft.toml");
+        let path = std::path::Path::new("Craft.toml");
         let err = manifest.validate(path).unwrap_err();
         assert!(
             err.to_string()
@@ -1094,17 +1094,17 @@ members = ["app"]
 [workspace.dependencies]
 shared = { workspace = true }
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
-        let path = std::path::Path::new("Kraft.toml");
+        let path = std::path::Path::new("Craft.toml");
         let err = manifest.validate(path).unwrap_err();
         assert!(err.to_string().contains("cannot use `workspace = true`"));
     }
 
     #[test]
-    fn parses_kraft_env_allowlist() {
+    fn parses_craft_env_allowlist() {
         let manifest = Manifest::parse(
             r#"
 [package]
@@ -1112,15 +1112,15 @@ name = "demo"
 version = "0.1.0"
 kern = "0.7"
 
-[kraft]
+[craft]
 env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
-        let kraft = manifest.kraft.unwrap();
-        assert_eq!(kraft.env, vec!["USE_SYSTEM_SSL", "KERN_SYSROOT"]);
+        let craft = manifest.craft.unwrap();
+        assert_eq!(craft.env, vec!["USE_SYSTEM_SSL", "KERN_SYSROOT"]);
     }
 
     #[test]
@@ -1138,7 +1138,7 @@ directory = "vendor/default"
 [source.corp]
 directory = "vendor/corp"
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
@@ -1169,17 +1169,17 @@ kern = "0.7"
 
 [source.default]
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
-        let path = std::path::Path::new("Kraft.toml");
+        let path = std::path::Path::new("Craft.toml");
         let err = manifest.validate(path).unwrap_err();
         assert!(err.to_string().contains("must declare `directory`"));
     }
 
     #[test]
-    fn rejects_invalid_kraft_env_names() {
+    fn rejects_invalid_craft_env_names() {
         let manifest = Manifest::parse(
             r#"
 [package]
@@ -1187,15 +1187,15 @@ name = "demo"
 version = "0.1.0"
 kern = "0.7"
 
-[kraft]
+[craft]
 env = ["1BAD-NAME"]
 "#,
-            std::path::Path::new("Kraft.toml"),
+            std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
-        let path = std::path::Path::new("Kraft.toml");
+        let path = std::path::Path::new("Craft.toml");
         let err = manifest.validate(path).unwrap_err();
-        assert!(err.to_string().contains("[kraft].env[]"));
+        assert!(err.to_string().contains("[craft].env[]"));
     }
 }

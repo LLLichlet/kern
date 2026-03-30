@@ -1,11 +1,11 @@
-# The `kraft` Package Manager and Builder (v1 Draft)
+# The `craft` Package Manager and Builder (v1 Draft)
 
-This document defines the first formal design direction for `kraft`, the dedicated Kern package manager and build orchestrator.
+This document defines the first formal design direction for `craft`, the dedicated Kern package manager and build orchestrator.
 
-`kraft` is intentionally separate from `kernc`.
+`craft` is intentionally separate from `kernc`.
 
 - `kernc` compiles and links explicit inputs.
-- `kraft` resolves packages, evaluates package configuration, constructs build plans, manages lockfiles, and invokes `kernc` with explicit actions.
+- `craft` resolves packages, evaluates package configuration, constructs build plans, manages lockfiles, and invokes `kernc` with explicit actions.
 
 The design goal is not to copy Cargo or Zig mechanically. The goal is to preserve Kern's core values:
 
@@ -16,18 +16,18 @@ The design goal is not to copy Cargo or Zig mechanically. The goal is to preserv
 
 ## Scope and Responsibilities
 
-`kraft` is responsible for:
+`craft` is responsible for:
 
-- reading `Kraft.toml`
-- evaluating optional `kraft.kr`
+- reading `Craft.toml`
+- evaluating optional `craft.rn`
 - normalizing package metadata into a deterministic package graph
-- resolving dependencies and writing `Kraft.lock`
+- resolving dependencies and writing `Craft.lock`
 - constructing a build plan for targets, profiles, and workspaces
-- optionally evaluating `build.kr` for low-level build orchestration
+- optionally evaluating `build.rn` for low-level build orchestration
 - invoking `kernc` and the system linker with explicit derived arguments
 - managing local caches, registries, installs, and workspace builds
 
-`kraft` is not responsible for:
+`craft` is not responsible for:
 
 - replacing the Kern language module system
 - hiding `kernc` behind opaque compilation behavior
@@ -38,37 +38,37 @@ The design goal is not to copy Cargo or Zig mechanically. The goal is to preserv
 
 The build pipeline is split into four explicit artifacts:
 
-1. `Kraft.toml`
-2. `kraft.kr`
-3. `Kraft.lock`
-4. `build.kr`
+1. `Craft.toml`
+2. `craft.rn`
+3. `Craft.lock`
+4. `build.rn`
 
 The phase order is:
 
 ```text
-Kraft.toml
-  -> kraft.kr
+Craft.toml
+  -> craft.rn
   -> normalized package graph
   -> dependency resolver
-  -> Kraft.lock
-  -> build.kr
+  -> Craft.lock
+  -> build.rn
   -> explicit compile/link actions
 ```
 
 This split is intentional.
 
-- `Kraft.toml` describes static facts.
-- `kraft.kr` performs pure elaboration and adaptation.
-- `Kraft.lock` records the resolved dependency graph and the normalized package inputs.
-- `build.kr` performs post-resolution build orchestration.
+- `Craft.toml` describes static facts.
+- `craft.rn` performs pure elaboration and adaptation.
+- `Craft.lock` records the resolved dependency graph and the normalized package inputs.
+- `build.rn` performs post-resolution build orchestration.
 
 The most important design rule is:
 
-- `kraft.kr` may affect package normalization and dependency resolution.
-- `build.kr` may affect build execution.
-- `build.kr` must not affect dependency resolution or lockfile contents.
+- `craft.rn` may affect package normalization and dependency resolution.
+- `build.rn` may affect build execution.
+- `build.rn` must not affect dependency resolution or lockfile contents.
 
-## Why `kraft.kr` Exists
+## Why `craft.rn` Exists
 
 Pure TOML is excellent for declarations, but packages often need conditional structure:
 
@@ -78,7 +78,7 @@ Pure TOML is excellent for declarations, but packages often need conditional str
 - generated target lists
 - workspace-local policy adaptation
 
-Instead of pushing too much policy into the TOML schema, `kraft` uses an optional Kern file, `kraft.kr`, as a pure elaboration phase.
+Instead of pushing too much policy into the TOML schema, `craft` uses an optional Kern file, `craft.rn`, as a pure elaboration phase.
 
 This keeps the system orthogonal:
 
@@ -88,13 +88,13 @@ This keeps the system orthogonal:
 
 This is cleaner than a monolithic build script because it separates "what package graph exists" from "how the build executes".
 
-## `kraft.kr` Semantics
+## `craft.rn` Semantics
 
-`kraft.kr` is evaluated before dependency resolution and before lockfile generation.
+`craft.rn` is evaluated before dependency resolution and before lockfile generation.
 
 Conceptually, it receives a mutable planning object that contains:
 
-- the package metadata from `Kraft.toml`
+- the package metadata from `Craft.toml`
 - the active target triple
 - the active build profile
 - the selected feature set
@@ -105,9 +105,9 @@ Its job is to elaborate the manifest into a normalized package description.
 
 ### Purity Requirements
 
-Because `kraft.kr` runs before `Kraft.lock`, it is part of the lock input. Therefore it must be deterministic.
+Because `craft.rn` runs before `Craft.lock`, it is part of the lock input. Therefore it must be deterministic.
 
-`kraft.kr` must be treated as a pure elaboration phase:
+`craft.rn` must be treated as a pure elaboration phase:
 
 - no network access
 - no wall clock access
@@ -117,7 +117,7 @@ Because `kraft.kr` runs before `Kraft.lock`, it is part of the lock input. There
 
 Allowed inputs should be narrowly defined:
 
-- `Kraft.toml`
+- `Craft.toml`
 - the current package tree
 - the workspace graph
 - explicit command-line inputs
@@ -127,27 +127,27 @@ Environment access, if any, should be an explicit allowlist and should become pa
 
 The intended model is:
 
-- `Kraft.toml` declares allowed elaboration environment inputs under `[kraft]`
-- `kraft.kr` may only read environment inputs that were explicitly declared
-- `Kraft.lock` records the declared input values that participated in elaboration
+- `Craft.toml` declares allowed elaboration environment inputs under `[craft]`
+- `craft.rn` may only read environment inputs that were explicitly declared
+- `Craft.lock` records the declared input values that participated in elaboration
 
 For example:
 
 ```toml
-[kraft]
+[craft]
 env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
 ```
 
-This keeps environment dependence explicit rather than incidental. If an allowed input changes, the lockfile becomes stale and `kraft` must re-elaborate before reuse.
+This keeps environment dependence explicit rather than incidental. If an allowed input changes, the lockfile becomes stale and `craft` must re-elaborate before reuse.
 
 ### Proposed API Shape
 
 The initial shape should be minimal:
 
 ```kern
-use kraft.plan;
+use craft.plan;
 
-pub fn kraft(p: *mut plan.Plan) void {
+pub fn craft(p: *mut plan.Plan) void {
     if (p.target.os == .windows) {
         p.dep("win32", "1");
     }
@@ -164,7 +164,7 @@ pub fn kraft(p: *mut plan.Plan) void {
 
 The important point is not the exact method names. The important point is that this API manipulates a package plan, not a build executor.
 
-### What `kraft.kr` May Do
+### What `craft.rn` May Do
 
 - add or remove target-specific dependencies
 - elaborate feature-driven configuration
@@ -173,7 +173,7 @@ The important point is not the exact method names. The important point is that t
 - choose source roots or generated source groups
 - apply workspace-local policy
 
-### What `kraft.kr` Must Not Do
+### What `craft.rn` Must Not Do
 
 - perform I/O with external systems
 - trigger actual compilation
@@ -181,9 +181,9 @@ The important point is not the exact method names. The important point is that t
 - inspect incidental host state in a hidden way
 - behave differently across repeated identical invocations
 
-## `build.kr` Semantics
+## `build.rn` Semantics
 
-`build.kr` is optional and runs after `Kraft.lock` has already been derived.
+`build.rn` is optional and runs after `Craft.lock` has already been derived.
 
 Its role is not package elaboration. Its role is execution-phase build orchestration.
 
@@ -199,7 +199,7 @@ This includes:
 ### Proposed API Shape
 
 ```kern
-use kraft.builder;
+use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
     match (b.target.os) {
@@ -211,32 +211,76 @@ pub fn build(b: *mut builder.Builder) void {
 }
 ```
 
-### `build.kr` May Do
+Current V1 `Builder` support now includes:
+
+- inspection of package, workspace, target, profile, command, and current unit
+- inspection of derived build paths:
+  - build root
+  - generated root
+  - object path
+  - artifact path
+  - optional metadata path
+- per-unit compile-time mutation:
+  - cfg bool/string
+  - define bool/string
+  - source-root override
+- generated-file emission inside the designated generated directory
+- package-local file copying into the designated generated directory
+- link directives:
+  - system libraries
+  - frameworks
+  - search paths
+  - raw linker arguments
+
+Generated files are now also recorded in the derived build plan, so `build.rn` effects remain auditable rather than being pure side effects.
+
+Example:
+
+```kern
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let generated = b.copy_package_file("templates/main.rn", "src/main.rn");
+
+    b.set_source_root(generated);
+    b.cfg_bool("generated", true);
+    b.define_string("entry", "generated");
+
+    match (b.target.os) {
+        .windows => b.link_system_lib("ws2_32"),
+        .darwin => b.link_framework("Security"),
+        .linux => {},
+        .unknown => {},
+    }
+}
+```
+
+### `build.rn` May Do
 
 - generate files inside designated build directories
 - add link flags, libraries, frameworks, scripts
 - define explicit pre-build and post-build actions
 - register generated sources for current-package targets
 
-### `build.kr` Must Not Do
+### `build.rn` Must Not Do
 
 - alter package resolution
 - alter lockfile contents
 - silently add versioned dependencies
 - mutate workspace dependency topology
 
-This separation is the central architectural difference between `kraft.kr` and `build.kr`.
+This separation is the central architectural difference between `craft.rn` and `build.rn`.
 
-## `Kraft.toml`
+## `Craft.toml`
 
-`Kraft.toml` is the static declaration source.
+`Craft.toml` is the static declaration source.
 
 It should remain readable and mostly sufficient for ordinary packages. Most packages should not need either script file.
 
 The intended V1 sections are:
 
 - `[package]`
-- `[kraft]`
+- `[craft]`
 - `[source.<name>]`
 - `[lib]`
 - `[[bin]]`
@@ -264,11 +308,11 @@ edition = "2027"
 publish = false
 
 [lib]
-root = "src/lib.kr"
+root = "src/lib.rn"
 
 [[bin]]
 name = "http-cli"
-root = "src/main.kr"
+root = "src/main.rn"
 
 [dependencies]
 net = "1"
@@ -298,11 +342,11 @@ debug = false
 - dependency sources should be explicit
 - features should be additive
 - profile inheritance should be simple and deterministic
-- target-specific specialization belongs in either explicit manifest tables or `kraft.kr`
+- target-specific specialization belongs in either explicit manifest tables or `craft.rn`
 
-## `Kraft.lock`
+## `Craft.lock`
 
-`Kraft.lock` records the fully resolved external package graph and the normalized inputs that affect that graph.
+`Craft.lock` records the fully resolved external package graph and the normalized inputs that affect that graph.
 
 The lockfile must be sufficient to answer:
 
@@ -314,13 +358,13 @@ The lockfile must be sufficient to answer:
 
 The lockfile should capture digests for:
 
-- `Kraft.toml`
-- `kraft.kr`, if present
+- `Craft.toml`
+- `craft.rn`, if present
 - normalized package metadata after elaboration
 
 The current implementation direction should also persist a readable snapshot of normalized package targets, not only their digests, so lockfiles remain auditable.
 
-It should not capture build-only details from `build.kr`.
+It should not capture build-only details from `build.rn`.
 
 ### Lockfile Responsibilities
 
@@ -377,47 +421,47 @@ alloc = { path = "library/std/mem/alloc" }
 - workspace members share resolution
 - local path members override registry lookups for the same member package id
 - profiles may be overridden at the workspace root
-- `kraft.kr` may exist at package level and optionally at workspace root
+- `craft.rn` may exist at package level and optionally at workspace root
 
-If both root and package `kraft.kr` exist, the root phase should elaborate workspace-level policy first, then each package elaborates within that explicit workspace context.
+If both root and package `craft.rn` exist, the root phase should elaborate workspace-level policy first, then each package elaborates within that explicit workspace context.
 
 ## Command Surface
 
 The initial command surface should be narrow and composable:
 
-- `kraft init`
-- `kraft new`
-- `kraft check`
-- `kraft build`
-- `kraft run`
-- `kraft test`
-- `kraft fmt-manifest`
-- `kraft fetch`
-- `kraft update`
-- `kraft tree`
-- `kraft lock`
-- `kraft clean`
+- `craft init`
+- `craft new`
+- `craft check`
+- `craft build`
+- `craft run`
+- `craft test`
+- `craft fmt-manifest`
+- `craft fetch`
+- `craft update`
+- `craft tree`
+- `craft lock`
+- `craft clean`
 
 Later:
 
-- `kraft add`
-- `kraft remove`
-- `kraft publish`
-- `kraft install`
-- `kraft vendor`
+- `craft add`
+- `craft remove`
+- `craft publish`
+- `craft install`
+- `craft vendor`
 
 ### Behavioral Principles
 
 - commands should be explicit about workspace root selection
 - commands should expose target/profile/feature inputs directly
 - commands should be replayable by CI without hidden machine state
-- `kraft` should print the derived `kernc` action graph in a debug mode
+- `craft` should print the derived `kernc` action graph in a debug mode
 
 ## Interaction with `kernc`
 
-`kraft` should treat `kernc` as an explicit compiler driver, not as a package manager.
+`craft` should treat `kernc` as an explicit compiler driver, not as a package manager.
 
-For each planned build node, `kraft` derives:
+For each planned build node, `craft` derives:
 
 - source entry root
 - module mappings
@@ -442,11 +486,11 @@ The recommended repository layout is:
 compiler/
 library/
 tools/
-  kraft/
+  craft/
 docs/
 ```
 
-This is preferable to placing `kraft` under `compiler/` because `kraft` is not a compiler pass. It is a top-level toolchain manager that happens to drive the compiler.
+This is preferable to placing `craft` under `compiler/` because `craft` is not a compiler pass. It is a top-level toolchain manager that happens to drive the compiler.
 
 ## V1 Implementation Phases
 
@@ -454,16 +498,16 @@ The most stable development order is:
 
 1. manifest data model and parser
 2. package ids, source ids, and workspace discovery
-3. `kraft.kr` elaboration engine
+3. `craft.rn` elaboration engine
 4. normalized package graph
 5. dependency resolver
-6. `Kraft.lock` read/write
+6. `Craft.lock` read/write
 7. build plan model
-8. `kraft check/build/run/test`
-9. `build.kr`
+8. `craft check/build/run/test`
+9. `build.rn`
 10. registry and publishing flows
 
-The build-plan layer should exist as its own explicit model before actual command execution is implemented. `kraft check` and future debug modes should be able to print this derived plan directly.
+The build-plan layer should exist as its own explicit model before actual command execution is implemented. `craft check` and future debug modes should be able to print this derived plan directly.
 
 This order matters. A package manager becomes fragile when build execution is implemented before the package graph and lock model are well defined.
 
@@ -479,12 +523,12 @@ The first version should explicitly avoid:
 
 ## Summary
 
-The defining architecture of `kraft` is:
+The defining architecture of `craft` is:
 
-- `Kraft.toml` for declarations
-- `kraft.kr` for pure elaboration
-- `Kraft.lock` for reproducible resolution
-- `build.kr` for post-lock build orchestration
+- `Craft.toml` for declarations
+- `craft.rn` for pure elaboration
+- `Craft.lock` for reproducible resolution
+- `build.rn` for post-lock build orchestration
 
 This keeps the system expressive without collapsing package definition, dependency resolution, and build execution into one opaque scripting phase.
 

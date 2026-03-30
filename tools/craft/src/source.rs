@@ -33,7 +33,7 @@ pub fn fetch_external_packages(
     resolved: &ResolvedGraph,
 ) -> Result<Vec<FetchedPackage>> {
     let config_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let cache_root = resolved.workspace_root.join(".kraft").join("sources");
+    let cache_root = resolved.workspace_root.join(".craft").join("sources");
     let mut packages = Vec::new();
 
     for package in &resolved.external_packages {
@@ -87,7 +87,7 @@ fn source_path_for_external(
                 .sources
                 .get(source_name)
                 .ok_or_else(|| Error::Validation {
-                    path: config_root.join("Kraft.toml"),
+                    path: config_root.join("Craft.toml"),
                     message: format!(
                         "external package `{}` requires `[source.{source_name}]`",
                         package.package_name
@@ -96,7 +96,7 @@ fn source_path_for_external(
             registry_source_path(config_root, source_name, source, package)
         }
         SourceId::Root | SourceId::WorkspaceMember { .. } => Err(Error::Validation {
-            path: config_root.join("Kraft.toml"),
+            path: config_root.join("Craft.toml"),
             message: format!(
                 "unsupported external source kind for `{}`",
                 package.package_name
@@ -113,13 +113,13 @@ fn registry_source_path(
 ) -> Result<PathBuf> {
     let Some(directory) = &source.directory else {
         return Err(Error::Validation {
-            path: config_root.join("Kraft.toml"),
+            path: config_root.join("Craft.toml"),
             message: format!("[source.{source_name}] must declare `directory`"),
         });
     };
     let Some(version) = &package.version else {
         return Err(Error::Validation {
-            path: config_root.join("Kraft.toml"),
+            path: config_root.join("Craft.toml"),
             message: format!(
                 "registry package `{}` must resolve to an explicit version before fetch",
                 package.package_name
@@ -192,11 +192,11 @@ fn copy_dir_all(source: &Path, dest: &Path) -> Result<()> {
 }
 
 fn validate_fetched_manifest(root: &Path) -> Result<()> {
-    let manifest_path = root.join("Kraft.toml");
+    let manifest_path = root.join("Craft.toml");
     if !manifest_path.is_file() {
         return Err(Error::Validation {
             path: root.to_path_buf(),
-            message: "fetched package is missing `Kraft.toml`".to_string(),
+            message: "fetched package is missing `Craft.toml`".to_string(),
         });
     }
 
@@ -281,12 +281,12 @@ mod tests {
 
     #[test]
     fn fetches_registry_packages_from_directory_sources() {
-        let root = temp_dir("kraft-fetch-registry");
+        let root = temp_dir("craft-fetch-registry");
         let registry_root = root.join("vendor-registry");
         let package_root = registry_root.join("log").join("1");
         fs::create_dir_all(package_root.join("src")).unwrap();
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -302,7 +302,7 @@ directory = "vendor-registry"
         )
         .unwrap();
         fs::write(
-            package_root.join("Kraft.toml"),
+            package_root.join("Craft.toml"),
             r#"
 [package]
 name = "log"
@@ -310,17 +310,17 @@ version = "1"
 kern = "0.7"
 
 [lib]
-root = "src/lib.kr"
+root = "src/lib.rn"
 "#,
         )
         .unwrap();
         fs::write(
-            package_root.join("src/lib.kr"),
+            package_root.join("src/lib.rn"),
             "pub fn x() i32 { return 0; }\n",
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let elaboration = plan(
             &manifest_path,
@@ -337,7 +337,7 @@ root = "src/lib.kr"
                 .unwrap();
         assert_eq!(fetched.len(), 1);
         assert_eq!(fetched[0].status, FetchStatus::Created);
-        assert!(fetched[0].cache_path.join("Kraft.toml").is_file());
+        assert!(fetched[0].cache_path.join("Craft.toml").is_file());
         let summary = summarize_fetch(&fetched);
         assert_eq!(summary.created, 1);
 

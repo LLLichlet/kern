@@ -115,14 +115,14 @@ mod tests {
 
     #[test]
     fn deduplicates_shared_external_dependencies() {
-        let root = temp_dir("kraft-resolver-dedupe");
+        let root = temp_dir("craft-resolver-dedupe");
         let app_dir = root.join("app");
         let tool_dir = root.join("tool");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&tool_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app", "tool"]
@@ -130,7 +130,7 @@ members = ["app", "tool"]
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -143,7 +143,7 @@ log = "1"
         )
         .unwrap();
         fs::write(
-            tool_dir.join("Kraft.toml"),
+            tool_dir.join("Craft.toml"),
             r#"
 [package]
 name = "tool"
@@ -156,7 +156,7 @@ log = "1"
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
         let graph = build_graph(&manifest_path, &manifest, &members).unwrap();
@@ -179,14 +179,14 @@ log = "1"
 
     #[test]
     fn preserves_local_and_external_resolution_targets() {
-        let root = temp_dir("kraft-resolver-targets");
+        let root = temp_dir("craft-resolver-targets");
         let app_dir = root.join("app");
         let util_dir = root.join("util");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&util_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app", "util"]
@@ -194,7 +194,7 @@ members = ["app", "util"]
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -208,7 +208,7 @@ log = "1"
         )
         .unwrap();
         fs::write(
-            util_dir.join("Kraft.toml"),
+            util_dir.join("Craft.toml"),
             r#"
 [package]
 name = "util"
@@ -218,7 +218,7 @@ kern = "0.7"
         )
         .unwrap();
 
-        let manifest_path = root.join("Kraft.toml");
+        let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &manifest).unwrap();
         let graph = build_graph(&manifest_path, &manifest, &members).unwrap();

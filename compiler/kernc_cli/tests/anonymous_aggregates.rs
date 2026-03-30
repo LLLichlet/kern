@@ -10,7 +10,7 @@ fn compile_source(source: &str) -> std::process::Output {
 
 #[test]
 fn compiles_anonymous_aggregates_example() {
-    let source = repo_root().join("examples/anonymous_aggregates.kr");
+    let source = repo_root().join("examples/anonymous_aggregates.rn");
     let object = unique_temp_path("anonymous_aggregates", "o");
 
     let source_arg = source.to_string_lossy().into_owned();

@@ -1,6 +1,12 @@
 mod support;
 
-use support::{build_and_run, compile_source_tree_with_args, compile_source_with_args};
+use std::fs;
+use std::process::Command;
+
+use support::{
+    assert_success, build_and_run, compile_source_tree_with_args, compile_source_with_args,
+    run_kernc, unique_temp_path,
+};
 
 fn compile_source(source: &str) -> std::process::Output {
     compile_source_with_args("kernc_regression_test", source, &[])
@@ -20,6 +26,150 @@ fn build_and_run_source(source: &str) -> std::process::Output {
         source,
         &["--link-profile", "hosted"],
     )
+}
+
+#[test]
+fn imports_kmeta_package_with_alias_and_links_against_real_package_name() {
+    let root = unique_temp_path("kernc_kmeta_pkg", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let lib_object = root.join("util.o");
+    let main_source = root.join("main.rn");
+    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
+    let executable = root.join(format!("app.{}", exe_ext));
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_entry_arg = lib_entry.to_string_lossy().into_owned();
+    let lib_object_arg = lib_object.to_string_lossy().into_owned();
+    let metadata_arg = metadata_dir.to_string_lossy().into_owned();
+    let lib_output = run_kernc(&[
+        "-c",
+        "--root-module",
+        "util",
+        "--emit-kmeta",
+        metadata_arg.as_str(),
+        lib_entry_arg.as_str(),
+        "-o",
+        lib_object_arg.as_str(),
+    ]);
+    assert_success(&lib_output, "kernc library compile");
+
+    let manifest = fs::read_to_string(metadata_dir.join("Kmeta.toml")).unwrap();
+    assert!(
+        manifest.contains("package_name = \"util\""),
+        "unexpected kmeta manifest:\n{}",
+        manifest
+    );
+    assert!(
+        manifest.contains("root_module_name = \"util\""),
+        "unexpected kmeta manifest:\n{}",
+        manifest
+    );
+
+    fs::write(
+        &main_source,
+        r#"
+extern fn main() i32 {
+    return if (dep.answer() == 42) { 0 } else { 1 };
+}
+"#,
+    )
+    .unwrap();
+
+    let main_source_arg = main_source.to_string_lossy().into_owned();
+    let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
+    let exe_arg = executable.to_string_lossy().into_owned();
+    let app_output = run_kernc(&[
+        "--link-profile",
+        "hosted",
+        "-I",
+        dep_mapping.as_str(),
+        "--link-input",
+        lib_object_arg.as_str(),
+        main_source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ]);
+    assert_success(&app_output, "kernc app compile");
+
+    let run_output = Command::new(&executable).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "compiled program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn rejects_raw_source_tree_passed_via_imported_interface_alias() {
+    let root = unique_temp_path("kernc_kmeta_reject_raw", "dir");
+    let dep_dir = root.join("dep");
+    let dep_entry = dep_dir.join("init.rn");
+    let main_source = root.join("main.rn");
+    let object_path = root.join("app.o");
+
+    fs::create_dir_all(&dep_dir).unwrap();
+    fs::write(
+        &dep_entry,
+        r#"
+pub fn answer() i32 {
+    return 7;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &main_source,
+        r#"
+extern fn main() i32 {
+    return dep.answer();
+}
+"#,
+    )
+    .unwrap();
+
+    let dep_mapping = format!("dep={}", dep_dir.to_string_lossy());
+    let main_source_arg = main_source.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let output = run_kernc(&[
+        "-c",
+        "-I",
+        dep_mapping.as_str(),
+        main_source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted a raw source tree for -I:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("missing `Kmeta.toml`") || stderr.contains("expects a kmeta package root"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]
@@ -735,10 +885,10 @@ extern fn main(args: [][]u8) i32 {
 #[test]
 fn allows_private_named_struct_fields_within_defining_module() {
     let output = compile_source_tree(
-        "main.kr",
+        "main.rn",
         &[
             (
-                "main.kr",
+                "main.rn",
                 r#"
 mod data;
 
@@ -748,7 +898,7 @@ extern fn main(args: [][]u8) i32 {
 "#,
             ),
             (
-                "data.kr",
+                "data.rn",
                 r#"
 pub type Bag = struct {
     secret: i32,
@@ -775,10 +925,10 @@ pub fn read_secret() i32 {
 #[test]
 fn rejects_private_named_struct_fields_across_modules() {
     let output = compile_source_tree(
-        "main.kr",
+        "main.rn",
         &[
             (
-                "main.kr",
+                "main.rn",
                 r#"
 mod data;
 
@@ -789,7 +939,7 @@ extern fn main(args: [][]u8) i32 {
 "#,
             ),
             (
-                "data.kr",
+                "data.rn",
                 r#"
 pub type Bag = struct {
     secret: i32,

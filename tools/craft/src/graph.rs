@@ -388,14 +388,14 @@ mod tests {
 
     #[test]
     fn builds_graph_for_workspace_and_local_path_dependencies() {
-        let root = temp_dir("kraft-graph");
+        let root = temp_dir("craft-graph");
         let app_dir = root.join("app");
         let util_dir = root.join("util");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&util_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app", "util"]
@@ -403,7 +403,7 @@ members = ["app", "util"]
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -417,7 +417,7 @@ log = "1"
         )
         .unwrap();
         fs::write(
-            util_dir.join("Kraft.toml"),
+            util_dir.join("Craft.toml"),
             r#"
 [package]
 name = "util"
@@ -427,9 +427,9 @@ kern = "0.7"
         )
         .unwrap();
 
-        let root_manifest = Manifest::load(&root.join("Kraft.toml")).unwrap();
-        let members = load_members(&root.join("Kraft.toml"), &root_manifest).unwrap();
-        let graph = build_graph(&root.join("Kraft.toml"), &root_manifest, &members).unwrap();
+        let root_manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let members = load_members(&root.join("Craft.toml"), &root_manifest).unwrap();
+        let graph = build_graph(&root.join("Craft.toml"), &root_manifest, &members).unwrap();
 
         assert_eq!(graph.packages.len(), 2);
         let app = graph
@@ -457,12 +457,12 @@ kern = "0.7"
 
     #[test]
     fn inherits_workspace_dependencies_into_member_graph_edges() {
-        let root = temp_dir("kraft-workspace-inherit");
+        let root = temp_dir("craft-workspace-inherit");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app"]
@@ -473,7 +473,7 @@ shared = "2"
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -486,9 +486,9 @@ shared = { workspace = true, features = ["simd"] }
         )
         .unwrap();
 
-        let root_manifest = Manifest::load(&root.join("Kraft.toml")).unwrap();
-        let members = load_members(&root.join("Kraft.toml"), &root_manifest).unwrap();
-        let graph = build_graph(&root.join("Kraft.toml"), &root_manifest, &members).unwrap();
+        let root_manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let members = load_members(&root.join("Craft.toml"), &root_manifest).unwrap();
+        let graph = build_graph(&root.join("Craft.toml"), &root_manifest, &members).unwrap();
 
         let app = graph
             .packages
@@ -516,12 +516,12 @@ shared = { workspace = true, features = ["simd"] }
 
     #[test]
     fn rejects_missing_workspace_dependency_inheritance_entry() {
-        let root = temp_dir("kraft-workspace-missing-inherit");
+        let root = temp_dir("craft-workspace-missing-inherit");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
 
         fs::write(
-            root.join("Kraft.toml"),
+            root.join("Craft.toml"),
             r#"
 [workspace]
 members = ["app"]
@@ -529,7 +529,7 @@ members = ["app"]
         )
         .unwrap();
         fs::write(
-            app_dir.join("Kraft.toml"),
+            app_dir.join("Craft.toml"),
             r#"
 [package]
 name = "app"
@@ -542,9 +542,9 @@ shared = { workspace = true }
         )
         .unwrap();
 
-        let root_manifest = Manifest::load(&root.join("Kraft.toml")).unwrap();
-        let members = load_members(&root.join("Kraft.toml"), &root_manifest).unwrap();
-        let err = build_graph(&root.join("Kraft.toml"), &root_manifest, &members).unwrap_err();
+        let root_manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let members = load_members(&root.join("Craft.toml"), &root_manifest).unwrap();
+        let err = build_graph(&root.join("Craft.toml"), &root_manifest, &members).unwrap_err();
 
         assert!(
             err.to_string()

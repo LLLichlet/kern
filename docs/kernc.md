@@ -26,7 +26,7 @@ In practice, this means a future package manager should decide what to build and
 ## Command Synopsis
 
 ```text
-kernc [OPTIONS] [input.kr]
+kernc [OPTIONS] [input.rn]
 ```
 
 The positional source input is required for compile modes and forbidden in link-only mode.
@@ -47,19 +47,19 @@ These modes are mutually exclusive.
 Build a Kern program with the Kern standard library:
 
 ```bash
-kernc --use-std examples/hello_world.kr -o hello
+kernc --use-std examples/hello_world.rn -o hello
 ```
 
 Compile only and keep the object file:
 
 ```bash
-kernc -c --use-std examples/hello_world.kr -o hello.o
+kernc -c --use-std examples/hello_world.rn -o hello.o
 ```
 
 Inspect generated LLVM IR:
 
 ```bash
-kernc --emit-llvm --use-std examples/hello_world.kr
+kernc --emit-llvm --use-std examples/hello_world.rn
 ```
 
 Link an existing object file:
@@ -71,7 +71,7 @@ kernc --link-only --link-input hello.o -o hello
 Split compile and link explicitly:
 
 ```bash
-kernc -c --use-std app.kr -o app.o
+kernc -c --use-std app.rn -o app.o
 kernc --link-only --link-profile kern --link-input app.o -o app
 ```
 
@@ -79,10 +79,10 @@ kernc --link-only --link-profile kern --link-input app.o -o app
 
 ### Source Input
 
-Compile modes accept one positional `.kr` input file:
+Compile modes accept one positional `.rn` input file:
 
 ```bash
-kernc --use-std src/main.kr -o app
+kernc --use-std src/main.rn -o app
 ```
 
 `--link-only` does not accept a source input. Use `--link-input` instead.
@@ -92,7 +92,7 @@ kernc --use-std src/main.kr -o app
 Use `-M <name=path>` to map a module root name to a physical path:
 
 ```bash
-kernc -M std=./library/std app.kr
+kernc -M std=./library/std app.rn
 ```
 
 This is the core mechanism for wiring module roots into the compiler. It is intentionally explicit and package-manager-friendly.
@@ -136,7 +136,7 @@ Use one of:
 Use `--target <triple>` to select a target triple:
 
 ```bash
-kernc --target x86_64-unknown-linux-gnu --use-std app.kr -o app
+kernc --target x86_64-unknown-linux-gnu --use-std app.rn -o app
 ```
 
 The target triple affects:
@@ -155,7 +155,7 @@ Use `--asm-dialect intel` or `--asm-dialect att` to configure inline assembly fo
 Use `-D <key=value>` to feed custom values into compile-time attribute pruning:
 
 ```bash
-kernc -D debug_mode=true -D board=qemu app.kr
+kernc -D debug_mode=true -D board=qemu app.rn
 ```
 
 These values are available to `#[if(...)]` and `#![if(...)]` conditions handled by the frontend pruning pass.
@@ -196,7 +196,7 @@ Use `--link-profile <profile>` to select the default link policy:
 Examples:
 
 ```bash
-kernc --link-profile hosted app.kr -o app
+kernc --link-profile hosted app.rn -o app
 ```
 
 ```bash
@@ -215,7 +215,7 @@ Compatibility aliases:
 Use `--cc <cmd>` or `--linker <cmd>` to select the linker driver command:
 
 ```bash
-kernc --linker clang --use-std app.kr -o app
+kernc --linker clang --use-std app.rn -o app
 ```
 
 ### Additional Link Inputs
@@ -292,7 +292,7 @@ This is especially useful for build scripts and future package-manager integrati
 Use compile-and-link directly:
 
 ```bash
-kernc --use-std app.kr -o app
+kernc --use-std app.rn -o app
 ```
 
 ### Build-System Integration
@@ -300,7 +300,7 @@ kernc --use-std app.kr -o app
 Split the pipeline explicitly:
 
 ```bash
-kernc -c --target x86_64-unknown-linux-gnu app.kr -o app.o
+kernc -c --target x86_64-unknown-linux-gnu app.rn -o app.o
 kernc --link-only --link-profile none --link-input app.o --link-arg ... -o app
 ```
 

@@ -123,7 +123,7 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(Module {
-            path: "test.kr".to_string(),
+            path: "test.rn".to_string(),
             attributes,
             decls,
         })

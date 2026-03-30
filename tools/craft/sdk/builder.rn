@@ -1,0 +1,103 @@
+use craft.plan;
+
+pub type TargetKind = enum {
+    lib,
+    bin,
+    test,
+    example,
+};
+
+pub type Text = enum {
+    Some: []u8,
+    None,
+};
+
+pub type Unit = struct {
+    pub kind: TargetKind,
+    pub name: Text,
+    pub source_root: []u8,
+    pub artifact_name: []u8,
+};
+
+pub type Paths = struct {
+    pub build_root: []u8,
+    pub generated_root: []u8,
+    pub object: []u8,
+    pub artifact: []u8,
+    pub metadata: Text,
+};
+
+pub type Builder = extern struct {
+    pub package: plan.Package,
+    pub workspace: plan.Workspace,
+    pub target: plan.Target,
+    pub profile: plan.Profile,
+    pub command: plan.Command,
+    pub unit: Unit,
+    pub paths: Paths,
+};
+
+extern fn __craft_build_feature_enabled(builder: *Builder, name: []u8) bool;
+extern fn __craft_build_link_system_lib(builder: *mut Builder, name: []u8) void;
+extern fn __craft_build_link_framework(builder: *mut Builder, name: []u8) void;
+extern fn __craft_build_link_search(builder: *mut Builder, path: []u8) void;
+extern fn __craft_build_link_arg(builder: *mut Builder, arg: []u8) void;
+extern fn __craft_build_cfg_bool(builder: *mut Builder, name: []u8, value: bool) void;
+extern fn __craft_build_cfg_string(builder: *mut Builder, name: []u8, value: []u8) void;
+extern fn __craft_build_define_bool(builder: *mut Builder, name: []u8, value: bool) void;
+extern fn __craft_build_define_string(builder: *mut Builder, name: []u8, value: []u8) void;
+extern fn __craft_build_set_source_root(builder: *mut Builder, path: []u8) void;
+extern fn __craft_build_emit_generated(builder: *mut Builder, relative_path: []u8, contents: []u8) []u8;
+extern fn __craft_build_copy_package_file(builder: *mut Builder, source_relative: []u8, generated_relative: []u8) []u8;
+
+impl *Builder {
+    pub fn feature_enabled(name: []u8) bool {
+        return __craft_build_feature_enabled(self, name);
+    }
+}
+
+impl *mut Builder {
+    pub fn link_system_lib(name: []u8) void {
+        __craft_build_link_system_lib(self, name);
+    }
+
+    pub fn link_framework(name: []u8) void {
+        __craft_build_link_framework(self, name);
+    }
+
+    pub fn link_search(path: []u8) void {
+        __craft_build_link_search(self, path);
+    }
+
+    pub fn link_arg(arg: []u8) void {
+        __craft_build_link_arg(self, arg);
+    }
+
+    pub fn cfg_bool(name: []u8, value: bool) void {
+        __craft_build_cfg_bool(self, name, value);
+    }
+
+    pub fn cfg_string(name: []u8, value: []u8) void {
+        __craft_build_cfg_string(self, name, value);
+    }
+
+    pub fn define_bool(name: []u8, value: bool) void {
+        __craft_build_define_bool(self, name, value);
+    }
+
+    pub fn define_string(name: []u8, value: []u8) void {
+        __craft_build_define_string(self, name, value);
+    }
+
+    pub fn set_source_root(path: []u8) void {
+        __craft_build_set_source_root(self, path);
+    }
+
+    pub fn emit_generated(relative_path: []u8, contents: []u8) []u8 {
+        return __craft_build_emit_generated(self, relative_path, contents);
+    }
+
+    pub fn copy_package_file(source_relative: []u8, generated_relative: []u8) []u8 {
+        return __craft_build_copy_package_file(self, source_relative, generated_relative);
+    }
+}

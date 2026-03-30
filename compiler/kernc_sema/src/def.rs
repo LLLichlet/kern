@@ -66,11 +66,12 @@ pub struct ModuleDef {
     pub id: DefId,
     pub name: SymbolId,
     pub parent: Option<DefId>, // 记录父模块 (例如 std.io 的父模块是 std)
+    pub is_imported: bool,
     pub scope_id: ScopeId,
     // 物理路径信息。
     // 用于处理相对导入 `use .xxx` 时，作为基准路径
-    // 如果该模块是 a/b.kr，dir_path 就是 a/
-    // 如果该模块是 a/b/init.kr，dir_path 就是 a/b/
+    // 如果该模块是 a/b.rn，dir_path 就是 a/
+    // 如果该模块是 a/b/init.rn，dir_path 就是 a/b/
     pub dir_path: PathBuf,
     pub file_id: FileId,
     // 子模块注册表
@@ -96,6 +97,7 @@ pub struct FunctionDef {
     pub name: SymbolId,
     pub vis: Visibility,
     pub parent: Option<DefId>, // 所属的 Module 或 Impl 块
+    pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub params: Vec<ast::FuncParam>,
@@ -115,6 +117,7 @@ pub struct StructDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub fields: Vec<ast::StructFieldDef>,
@@ -128,6 +131,7 @@ pub struct UnionDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub fields: Vec<ast::StructFieldDef>,
@@ -140,6 +144,7 @@ pub struct EnumDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub backing_type: Option<Box<ast::TypeNode>>,
@@ -152,6 +157,7 @@ pub struct TraitDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub supertraits: Vec<ast::TypeNode>,
@@ -168,6 +174,7 @@ pub struct TypeAliasDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub target: ast::TypeNode,
@@ -178,6 +185,7 @@ pub struct TypeAliasDef {
 pub struct ImplDef {
     pub id: DefId,
     pub parent_module: Option<DefId>,
+    pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub target_type: ast::TypeNode,
@@ -192,6 +200,7 @@ pub struct GlobalDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub is_imported: bool,
     pub value: ast::Expr,
     pub is_static: bool,
     pub is_extern: bool,

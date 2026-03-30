@@ -19,6 +19,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "craft"
+version = "0.6.0"
+dependencies = [
+ "kernc_driver",
+ "kernc_sema",
+ "kernc_utils",
+]
+
+[[package]]
 name = "find-msvc-tools"
 version = "0.1.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -112,15 +121,6 @@ name = "kernc_utils"
 version = "0.6.0"
 dependencies = [
  "target-lexicon",
-]
-
-[[package]]
-name = "kraft"
-version = "0.6.0"
-dependencies = [
- "kernc_driver",
- "kernc_sema",
- "kernc_utils",
 ]
 
 [[package]]

@@ -355,41 +355,41 @@ edition = "2027"
 publish = false
 
 [lib]
-root = "src/lib.kr"
+root = "src/lib.rn"
 
 [[bin]]
 name = "demo"
-root = "src/main.kr"
+root = "src/main.rn"
 
 [[test]]
 name = "smoke"
-root = "tests/smoke.kr"
+root = "tests/smoke.rn"
 
 [[example]]
 name = "hello"
-root = "examples/hello.kr"
+root = "examples/hello.rn"
 "#,
-            Path::new("Kraft.toml"),
+            Path::new("Craft.toml"),
         )
         .unwrap();
 
         let plan =
-            PackagePlan::from_manifest(Path::new("Kraft.toml"), &package_id(), &manifest).unwrap();
+            PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
 
         assert_eq!(plan.kern, "0.7");
-        assert_eq!(plan.manifest_path, Path::new("Kraft.toml"));
+        assert_eq!(plan.manifest_path, Path::new("Craft.toml"));
         assert_eq!(plan.edition.as_deref(), Some("2027"));
         assert_eq!(plan.publish, Some(false));
         assert_eq!(plan.targets.len(), 4);
         assert!(
             plan.targets
                 .iter()
-                .any(|target| target.kind == TargetKind::Lib && target.root == "src/lib.kr")
+                .any(|target| target.kind == TargetKind::Lib && target.root == "src/lib.rn")
         );
         assert!(plan.targets.iter().any(|target| {
             target.kind == TargetKind::Bin
                 && target.name.as_deref() == Some("demo")
-                && target.root == "src/main.kr"
+                && target.root == "src/main.rn"
         }));
     }
 
@@ -402,18 +402,18 @@ name = "demo"
 version = "0.1.0"
 kern = "0.7"
 "#,
-            Path::new("Kraft.toml"),
+            Path::new("Craft.toml"),
         )
         .unwrap();
 
         let mut plan =
-            PackagePlan::from_manifest(Path::new("Kraft.toml"), &package_id(), &manifest).unwrap();
+            PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
         plan.set_cfg_bool("simd", true).unwrap();
         plan.set_cfg_string("abi", "sysv").unwrap();
         plan.set_define_bool("aggressive_checks", false).unwrap();
         plan.set_define_string("mode", "strict").unwrap();
-        plan.set_lib_root("src/lib.kr").unwrap();
-        plan.add_named_target(TargetKind::Bin, "demo", "src/main.kr")
+        plan.set_lib_root("src/lib.rn").unwrap();
+        plan.add_named_target(TargetKind::Bin, "demo", "src/main.rn")
             .unwrap();
 
         assert_eq!(plan.cfg.get("simd"), Some(&PlanValue::Bool(true)));
@@ -447,12 +447,12 @@ kern = "0.7"
 [dependencies]
 log = "1"
 "#,
-            Path::new("Kraft.toml"),
+            Path::new("Craft.toml"),
         )
         .unwrap();
 
         let mut plan =
-            PackagePlan::from_manifest(Path::new("Kraft.toml"), &package_id(), &manifest).unwrap();
+            PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
         plan.set_dependency_path(DependencyKind::Normal, "log", "../vendor/log")
             .unwrap();
         plan.set_dependency_registry(DependencyKind::Normal, "log", "corp")

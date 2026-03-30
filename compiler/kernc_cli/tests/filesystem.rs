@@ -897,12 +897,12 @@ extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
 
-    let mut joined = match (fs.join(gpa, "/tmp/kern", "src/main.kr")) {
+    let mut joined = match (fs.join(gpa, "/tmp/kern", "src/main.rn")) {
         .Ok: path => path,
         .Err: _ => return 1,
     };
     defer joined..&.deinit(gpa);
-    if (!joined.&.eq("/tmp/kern/src/main.kr")) {
+    if (!joined.&.eq("/tmp/kern/src/main.rn")) {
         return 2;
     }
 
@@ -993,16 +993,16 @@ extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
 
-    let mut renamed = match (fs.with_file_name(gpa, "/tmp/kern/main.kr", "lib.kr")) {
+    let mut renamed = match (fs.with_file_name(gpa, "/tmp/kern/main.rn", "lib.rn")) {
         .Ok: path => path,
         .Err: _ => return 1,
     };
     defer renamed..&.deinit(gpa);
-    if (!renamed.&.eq("/tmp/kern/lib.kr")) {
+    if (!renamed.&.eq("/tmp/kern/lib.rn")) {
         return 2;
     }
 
-    let mut reext = match (fs.with_extension(gpa, "/tmp/kern/main.kr", "ll")) {
+    let mut reext = match (fs.with_extension(gpa, "/tmp/kern/main.rn", "ll")) {
         .Ok: path => path,
         .Err: _ => return 3,
     };
@@ -1071,7 +1071,7 @@ extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
 
-    if (!fs.parent("C:\\kern\\src\\main.kr").is_some_and(.[](dir: []u8) bool {
+    if (!fs.parent("C:\\kern\\src\\main.rn").is_some_and(.[](dir: []u8) bool {
         return dir.eq("C:\\kern\\src");
     })) {
         return 1;
@@ -1079,36 +1079,36 @@ extern fn main() i32 {
     if (fs.parent("C:\\").is_some()) {
         return 2;
     }
-    if (!fs.file_name("C:\\kern\\main.kr").is_some_and(.[](name: []u8) bool {
-        return name.eq("main.kr");
+    if (!fs.file_name("C:\\kern\\main.rn").is_some_and(.[](name: []u8) bool {
+        return name.eq("main.rn");
     })) {
         return 3;
     }
 
-    let mut joined = match (fs.join(gpa, "C:\\kern", "src\\main.kr")) {
+    let mut joined = match (fs.join(gpa, "C:\\kern", "src\\main.rn")) {
         .Ok: path => path,
         .Err: _ => return 4,
     };
     defer joined..&.deinit(gpa);
-    if (!joined.&.eq("C:\\kern\\src\\main.kr")) {
+    if (!joined.&.eq("C:\\kern\\src\\main.rn")) {
         return 5;
     }
 
-    let mut forward = match (fs.join(gpa, "C:/kern", "src/main.kr")) {
+    let mut forward = match (fs.join(gpa, "C:/kern", "src/main.rn")) {
         .Ok: path => path,
         .Err: _ => return 6,
     };
     defer forward..&.deinit(gpa);
-    if (!forward.&.eq("C:/kern/src/main.kr")) {
+    if (!forward.&.eq("C:/kern/src/main.rn")) {
         return 7;
     }
 
-    let mut rooted = match (fs.join(gpa, "C:\\kern", "D:\\other\\out.kr")) {
+    let mut rooted = match (fs.join(gpa, "C:\\kern", "D:\\other\\out.rn")) {
         .Ok: path => path,
         .Err: _ => return 8,
     };
     defer rooted..&.deinit(gpa);
-    if (!rooted.&.eq("D:\\other\\out.kr")) {
+    if (!rooted.&.eq("D:\\other\\out.rn")) {
         return 9;
     }
 
@@ -1130,12 +1130,12 @@ extern fn main() i32 {
         return 13;
     }
 
-    let mut unc_joined = match (fs.join(gpa, "\\\\server\\share", "dir\\main.kr")) {
+    let mut unc_joined = match (fs.join(gpa, "\\\\server\\share", "dir\\main.rn")) {
         .Ok: path => path,
         .Err: _ => return 14,
     };
     defer unc_joined..&.deinit(gpa);
-    if (!unc_joined.&.eq("\\\\server\\share\\dir\\main.kr")) {
+    if (!unc_joined.&.eq("\\\\server\\share\\dir\\main.rn")) {
         return 15;
     }
 

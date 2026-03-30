@@ -27,7 +27,9 @@ pub struct SemaContext<'a> {
 
     // 4. 模块与包管理
     pub module_aliases: HashMap<String, String>,
+    pub module_interface_aliases: HashMap<String, String>,
     pub alias_roots: HashMap<SymbolId, DefId>,
+    pub root_module: Option<DefId>,
 }
 
 impl<'a> SemaContext<'a> {
@@ -43,7 +45,9 @@ impl<'a> SemaContext<'a> {
             defs: Vec::new(),
             scopes: SymbolTable::new(),
             module_aliases: HashMap::new(),
+            module_interface_aliases: HashMap::new(),
             alias_roots: HashMap::new(),
+            root_module: None,
             global_impls: Vec::new(),
         }
     }

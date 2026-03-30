@@ -13,6 +13,7 @@ use kernc_utils::Session;
 use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode, LinkProfile};
 
 use crate::loader::ModuleLoader;
+use crate::metadata;
 
 pub struct CompilerDriver {
     pub options: CompileOptions,
@@ -59,6 +60,22 @@ impl CompilerDriver {
         let Some(mast_module) = self.lower_module(&mut ctx) else {
             return false;
         };
+
+        if let Some(metadata_output) = self.options.metadata_output.as_deref()
+            && let Err(err) = metadata::emit_package_metadata(
+                &ctx,
+                std::path::Path::new(metadata_output),
+                self.options
+                    .metadata_package_name
+                    .as_deref()
+                    .or(self.options.root_module_name.as_deref())
+                    .unwrap_or("root"),
+                self.options.metadata_package_version.as_deref(),
+            )
+        {
+            eprintln!("Error: Failed to emit kmeta snapshot: {}", err);
+            return false;
+        }
 
         let codegen_ctx = Context::create();
         let mut codegen = CodeGenerator::new(
@@ -136,6 +153,7 @@ impl CompilerDriver {
     fn build_sema_context<'a>(&self, session: &'a mut Session) -> SemaContext<'a> {
         let mut ctx = SemaContext::new(session);
         ctx.module_aliases = self.options.module_aliases.clone();
+        ctx.module_interface_aliases = self.options.module_interface_aliases.clone();
 
         let mut builtin = BuiltinInjector::new(&mut ctx);
         builtin.inject();
@@ -148,7 +166,10 @@ impl CompilerDriver {
         input_file: &str,
     ) -> Option<Vec<(DefId, ast::Module)>> {
         let mut loader = ModuleLoader::new(ctx);
-        if loader.load_root(input_file).is_none() {
+        let root_name = loader
+            .ctx
+            .intern(self.options.root_module_name.as_deref().unwrap_or("root"));
+        if loader.load_root(input_file, root_name).is_none() {
             loader.ctx.sess.print_diagnostics();
             return None;
         }

@@ -40,6 +40,7 @@ struct SymbolDefSpec {
 pub struct Collector<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     current_module: Option<DefId>,
+    current_module_imported: bool,
 }
 
 impl<'a, 'ctx> Collector<'a, 'ctx> {
@@ -47,6 +48,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Self {
             ctx,
             current_module: None,
+            current_module_imported: false,
         }
     }
 
@@ -75,7 +77,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             };
 
         let parent_module = self.current_module;
+        let parent_module_imported = self.current_module_imported;
         self.current_module = Some(mod_id);
+        self.current_module_imported = matches!(
+            self.ctx.defs.get(mod_id.0 as usize),
+            Some(Def::Module(ModuleDef {
+                is_imported: true,
+                ..
+            }))
+        );
 
         let prev_scope = self.ctx.scopes.current_scope_id();
         self.ctx.scopes.set_current_scope(scope_id);
@@ -137,6 +147,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             self.ctx.scopes.set_current_scope(prev);
         }
         self.current_module = parent_module;
+        self.current_module_imported = parent_module_imported;
     }
 
     /// 收集单个声明
@@ -273,6 +284,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             name: decl.name,
             vis: spec.vis,
             parent: spec.parent_impl.or(self.current_module),
+            is_imported: self.current_module_imported,
             generics: spec.generics.to_vec(),
             where_clauses: spec.where_clauses.to_vec(),
             params: actual_params,
@@ -320,6 +332,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             id: def_id,
             name: decl.name,
             vis,
+            is_imported: self.current_module_imported,
             value: value.clone(),
             is_static,
             is_extern,
@@ -370,6 +383,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     id: def_id,
                     name: decl.name,
                     vis: spec.vis,
+                    is_imported: self.current_module_imported,
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     fields: fields.clone(),
@@ -387,6 +401,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     id: def_id,
                     name: decl.name,
                     vis: spec.vis,
+                    is_imported: self.current_module_imported,
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     fields: fields.clone(),
@@ -409,6 +424,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     id: def_id,
                     name: decl.name,
                     vis: spec.vis,
+                    is_imported: self.current_module_imported,
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     backing_type: backing_type.clone(),
@@ -422,6 +438,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     id: def_id,
                     name: decl.name,
                     vis: spec.vis,
+                    is_imported: self.current_module_imported,
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     supertraits: spec.bounds.to_vec(),
@@ -439,6 +456,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     id: def_id,
                     name: decl.name,
                     vis: spec.vis,
+                    is_imported: self.current_module_imported,
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     target: spec.target.clone(),
@@ -476,6 +494,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx.add_def(Def::Impl(ImplDef {
             id: impl_id,
             parent_module: self.current_module,
+            is_imported: self.current_module_imported,
             generics: generics.to_vec(),
             where_clauses: where_clauses.to_vec(),
             target_type: target_type.clone(),

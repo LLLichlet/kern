@@ -154,7 +154,7 @@ pub fn run() -> Result<()> {
                     .sum::<usize>()
             );
             println!(
-                "scripts: workspace_kraft={} package_kraft={} build_kr={}",
+                "scripts: workspace_craft={} package_craft={} build_rn={}",
                 if loaded.elaboration.workspace_script.is_some() {
                     "yes"
                 } else {
@@ -169,12 +169,13 @@ pub fn run() -> Result<()> {
                 loaded.elaboration.package_env_input_count()
             );
             println!(
-                "build plan: units={} compile_actions={} link_actions={} local_edges={} external_edges={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build plan: units={} compile_actions={} link_actions={} local_edges={} external_edges={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 action_plan.compile_count(),
                 action_plan.link_count(),
                 build_plan.local_dependency_edge_count(),
                 build_plan.external_dependency_edge_count(),
+                build_plan.generated_file_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
@@ -188,6 +189,7 @@ pub fn run() -> Result<()> {
                     lockfile::LockStatus::Stale => "stale",
                 }
             );
+            print_generated_files(&build_plan);
 
             Ok(())
         }
@@ -303,15 +305,17 @@ pub fn run() -> Result<()> {
                 build_plan.external_dependency_edge_count()
             );
             println!(
-                "build scripts: {} compile_actions={} link_actions={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build scripts: {} compile_actions={} link_actions={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.build_script_count(),
                 action_plan.compile_count(),
                 action_plan.link_count(),
+                build_plan.generated_file_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
                 build_plan.link_arg_count()
             );
+            print_generated_files(&build_plan);
             print_compile_actions(&action_plan);
             print_link_actions(&action_plan);
             let execution = execute::build(&build_plan, &action_plan)?;
@@ -339,7 +343,7 @@ pub fn run() -> Result<()> {
             let run_unit = match runnable.as_slice() {
                 [] => {
                     return Err(Error::Usage(
-                        "`kraft run` requires exactly one runnable `bin` target, but none were found"
+                        "`craft run` requires exactly one runnable `bin` target, but none were found"
                             .to_string(),
                     ));
                 }
@@ -351,7 +355,7 @@ pub fn run() -> Result<()> {
                         .collect::<Vec<_>>()
                         .join(", ");
                     return Err(Error::Usage(format!(
-                        "`kraft run` requires exactly one runnable `bin` target, but found {}: {}",
+                        "`craft run` requires exactly one runnable `bin` target, but found {}: {}",
                         units.len(),
                         candidates
                     )));
@@ -365,15 +369,17 @@ pub fn run() -> Result<()> {
             );
             println!("run target: {}", format_unit_label(run_unit));
             println!(
-                "build plan: units={} local_edges={} external_edges={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build plan: units={} local_edges={} external_edges={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 build_plan.local_dependency_edge_count(),
                 build_plan.external_dependency_edge_count(),
+                build_plan.generated_file_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
                 build_plan.link_arg_count()
             );
+            print_generated_files_for_unit(run_unit);
             print_compile_actions_for_unit(&action_plan, run_unit);
             print_link_actions_for_unit(&action_plan, run_unit);
             let execution = execute::run(&build_plan, &action_plan, run_unit)?;
@@ -412,16 +418,18 @@ pub fn run() -> Result<()> {
                 );
             }
             println!(
-                "build plan: units={} local_edges={} external_edges={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                "build plan: units={} local_edges={} external_edges={} generated_files={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 build_plan.local_dependency_edge_count(),
                 build_plan.external_dependency_edge_count(),
+                build_plan.generated_file_count(),
                 build_plan.link_system_lib_count(),
                 build_plan.link_framework_count(),
                 build_plan.link_search_path_count(),
                 build_plan.link_arg_count()
             );
             for unit in &tests {
+                print_generated_files_for_unit(unit);
                 print_compile_actions_for_unit(&action_plan, unit);
                 print_link_actions_for_unit(&action_plan, unit);
             }
@@ -580,6 +588,33 @@ fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
     }
 }
 
+fn print_generated_files(build_plan: &build_plan::BuildPlan) {
+    for package in &build_plan.packages {
+        for unit in &package.units {
+            print_generated_files_for_unit(unit);
+        }
+    }
+}
+
+fn print_generated_files_for_unit(unit: &build_plan::BuildUnit) {
+    if unit.generated_files.is_empty() {
+        return;
+    }
+
+    let files = unit
+        .generated_files
+        .iter()
+        .map(|file| match &file.origin {
+            build_plan::GeneratedFileOrigin::Emitted => file.path.clone(),
+            build_plan::GeneratedFileOrigin::Copied { source } => {
+                format!("{}<=copy:{}", file.path, source)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    println!("generated: {} files={}", format_unit_label(unit), files);
+}
+
 fn print_link_actions(action_plan: &build_plan::ActionPlan) {
     for action in &action_plan.link_actions {
         print_link_action(action);
@@ -642,7 +677,7 @@ fn print_link_action(action: &build_plan::LinkAction) {
             action
                 .external_dependencies
                 .iter()
-                .map(|dep| dep.package_name.as_str())
+                .map(|dep| dep.package_id.package_name.as_str())
                 .collect::<Vec<_>>()
                 .join(",")
         },
@@ -783,22 +818,22 @@ fn extend_feature_selection(selection: &mut elaborate::FeatureSelection, raw: &s
 
 fn usage() -> &'static str {
     "\
-kraft - Kern package manager and builder
+craft - Kern package manager and builder
 
 USAGE:
-    kraft help
-    kraft check [PATH] [--no-default-features] [--features <FEATURES>]
-    kraft lock [PATH] [--no-default-features] [--features <FEATURES>]
-    kraft fetch [PATH] [--no-default-features] [--features <FEATURES>]
-    kraft build [PATH] [--no-default-features] [--features <FEATURES>]
-    kraft run [PATH] [--no-default-features] [--features <FEATURES>]
-    kraft test [PATH] [--no-default-features] [--features <FEATURES>]
+    craft help
+    craft check [PATH] [--no-default-features] [--features <FEATURES>]
+    craft lock [PATH] [--no-default-features] [--features <FEATURES>]
+    craft fetch [PATH] [--no-default-features] [--features <FEATURES>]
+    craft build [PATH] [--no-default-features] [--features <FEATURES>]
+    craft run [PATH] [--no-default-features] [--features <FEATURES>]
+    craft test [PATH] [--no-default-features] [--features <FEATURES>]
 
 COMMANDS:
     help         Show this help text
-    check        Discover, parse, and validate Kraft.toml
-    lock         Write a deterministic Kraft.lock from the current package graph
-    fetch        Materialize external package sources into the local kraft cache
+    check        Discover, parse, and validate Craft.toml
+    lock         Write a deterministic Craft.lock from the current package graph
+    fetch        Materialize external package sources into the local craft cache
     build        Derive the build plan for the selected package graph
     run          Select the runnable bin target from the current build plan
     test         Derive the test build plan for the selected package graph

@@ -43,6 +43,13 @@ pub enum LockStatus {
     Stale,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LockWriteResult {
+    Created,
+    Updated,
+    Unchanged,
+}
+
 #[derive(Clone, Copy, Debug)]
 enum Section {
     Root,
@@ -50,11 +57,28 @@ enum Section {
     Dependency(usize),
 }
 
-pub fn write_lockfile(manifest_path: &Path, graph: &PackageGraph) -> Result<PathBuf> {
-    let lockfile = Lockfile::from_graph(manifest_path, graph)?;
+pub fn sync_lockfile(
+    manifest_path: &Path,
+    graph: &PackageGraph,
+) -> Result<(PathBuf, LockWriteResult)> {
     let lock_path = graph.workspace_root.join("Kraft.lock");
-    fs::write(&lock_path, lockfile.render()).map_err(|err| Error::from_io(&lock_path, err))?;
-    Ok(lock_path)
+    let expected = Lockfile::from_graph(manifest_path, graph)?;
+
+    if lock_path.is_file() {
+        let actual = Lockfile::load(&lock_path)?;
+        if actual == expected {
+            return Ok((lock_path, LockWriteResult::Unchanged));
+        }
+    }
+
+    let result = if lock_path.is_file() {
+        LockWriteResult::Updated
+    } else {
+        LockWriteResult::Created
+    };
+
+    fs::write(&lock_path, expected.render()).map_err(|err| Error::from_io(&lock_path, err))?;
+    Ok((lock_path, result))
 }
 
 pub fn lock_status(manifest_path: &Path, graph: &PackageGraph) -> Result<LockStatus> {
@@ -648,7 +672,7 @@ fn escape_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LockStatus, Lockfile, lock_status, write_lockfile};
+    use super::{LockStatus, LockWriteResult, Lockfile, lock_status, sync_lockfile};
     use crate::graph::build_graph;
     use crate::manifest::Manifest;
     use crate::workspace::load_members;
@@ -764,7 +788,7 @@ shared = { workspace = true }
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
         let expected = Lockfile::from_graph(&manifest_path, &graph).unwrap();
-        let lock_path = write_lockfile(&manifest_path, &graph).unwrap();
+        let (lock_path, _) = sync_lockfile(&manifest_path, &graph).unwrap();
         let loaded = Lockfile::load(&lock_path).unwrap();
 
         assert_eq!(loaded, expected);
@@ -801,11 +825,67 @@ kern = "0.7"
         let root_manifest = Manifest::load(&manifest_path).unwrap();
         let members = load_members(&manifest_path, &root_manifest).unwrap();
         let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
-        let lock_path = write_lockfile(&manifest_path, &graph).unwrap();
+        let (lock_path, _) = sync_lockfile(&manifest_path, &graph).unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
 
         assert_eq!(lock_path, root.join("Kraft.lock"));
         assert!(contents.contains("manifest = \"Kraft.toml\""));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn sync_lockfile_reports_created_updated_and_unchanged() {
+        let root = temp_dir("kraft-lockfile-sync");
+        let app_dir = root.join("app");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        fs::write(
+            root.join("Kraft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Kraft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Kraft.toml");
+        let root_manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &root_manifest).unwrap();
+        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
+
+        let (_, created) = sync_lockfile(&manifest_path, &graph).unwrap();
+        assert_eq!(created, LockWriteResult::Created);
+
+        let (_, unchanged) = sync_lockfile(&manifest_path, &graph).unwrap();
+        assert_eq!(unchanged, LockWriteResult::Unchanged);
+
+        fs::write(
+            app_dir.join("Kraft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.2.0"
+kern = "0.7"
+"#,
+        )
+        .unwrap();
+
+        let root_manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &root_manifest).unwrap();
+        let graph = build_graph(&manifest_path, &root_manifest, &members).unwrap();
+        let (_, updated) = sync_lockfile(&manifest_path, &graph).unwrap();
+        assert_eq!(updated, LockWriteResult::Updated);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -845,7 +925,7 @@ kern = "0.7"
             LockStatus::Missing
         );
 
-        let _ = write_lockfile(&manifest_path, &graph).unwrap();
+        let _ = sync_lockfile(&manifest_path, &graph).unwrap();
         assert_eq!(
             lock_status(&manifest_path, &graph).unwrap(),
             LockStatus::Current

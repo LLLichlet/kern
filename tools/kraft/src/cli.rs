@@ -112,7 +112,8 @@ pub fn run() -> Result<()> {
         }
         Command::Lock { path } => {
             let loaded = load_package_graph(path.as_deref())?;
-            let lock_path = lockfile::write_lockfile(&loaded.manifest_path, &loaded.package_graph)?;
+            let (lock_path, lock_result) =
+                lockfile::sync_lockfile(&loaded.manifest_path, &loaded.package_graph)?;
             let edge_count = loaded
                 .package_graph
                 .packages
@@ -120,7 +121,15 @@ pub fn run() -> Result<()> {
                 .map(|pkg| pkg.dependencies.len())
                 .sum::<usize>();
 
-            println!("locked {}", lock_path.display());
+            println!(
+                "{} {}",
+                match lock_result {
+                    lockfile::LockWriteResult::Created => "created",
+                    lockfile::LockWriteResult::Updated => "updated",
+                    lockfile::LockWriteResult::Unchanged => "unchanged",
+                },
+                lock_path.display()
+            );
             println!(
                 "graph: packages={} dependency_edges={}",
                 loaded.package_graph.packages.len(),

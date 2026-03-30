@@ -53,7 +53,9 @@ pub mod intrinsics {
         pub fn find(name: &str) -> Option<Self> {
             match name {
                 "llvm.trap" => Some(Self { name: "llvm.trap" }),
-                "llvm.debugtrap" => Some(Self { name: "llvm.debugtrap" }),
+                "llvm.debugtrap" => Some(Self {
+                    name: "llvm.debugtrap",
+                }),
                 "llvm.ctpop" => Some(Self { name: "llvm.ctpop" }),
                 "llvm.ctlz" => Some(Self { name: "llvm.ctlz" }),
                 "llvm.cttz" => Some(Self { name: "llvm.cttz" }),

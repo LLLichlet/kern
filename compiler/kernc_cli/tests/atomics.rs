@@ -1,6 +1,8 @@
 mod support;
 
-use support::{compile_source_with_args as compile_with_args, emit_llvm_ir_with_args as emit_ir_with_args};
+use support::{
+    compile_source_with_args as compile_with_args, emit_llvm_ir_with_args as emit_ir_with_args,
+};
 
 fn compile_source_with_args(source: &str, extra_args: &[&str]) -> std::process::Output {
     compile_with_args("kernc_atomic_test", source, extra_args)

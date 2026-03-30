@@ -5,10 +5,7 @@ use crate::values::{BasicValueEnum, FunctionValue, PointerValue};
 use kernc_mast::{MastBlock, MastFunction, MastStmt};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    fn current_insert_block(
-        &mut self,
-        context: &str,
-    ) -> Option<BasicBlock<'ctx>> {
+    fn current_insert_block(&mut self, context: &str) -> Option<BasicBlock<'ctx>> {
         match self.builder.get_insert_block() {
             Some(block) => Some(block),
             None => {

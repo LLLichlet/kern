@@ -15,7 +15,11 @@ fn compile_source_tree(entry: &str, files: &[(&str, &str)]) -> std::process::Out
 }
 
 fn build_and_run_source(source: &str) -> std::process::Output {
-    build_and_run("kernc_regression_run", source, &["--link-profile", "hosted"])
+    build_and_run(
+        "kernc_regression_run",
+        source,
+        &["--link-profile", "hosted"],
+    )
 }
 
 #[test]

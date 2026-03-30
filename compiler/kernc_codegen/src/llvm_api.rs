@@ -4,45 +4,47 @@ use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddCase, LLVMAddFunction, LLVMAddGlobal, LLVMAddIncoming,
     LLVMAppendBasicBlockInContext, LLVMArrayType2, LLVMBuildAShr, LLVMBuildAdd, LLVMBuildAlloca,
     LLVMBuildAnd, LLVMBuildAtomicCmpXchg, LLVMBuildAtomicRMW, LLVMBuildBitCast, LLVMBuildBr,
-    LLVMBuildCall2, LLVMBuildCondBr, LLVMBuildExtractValue, LLVMBuildFCmp, LLVMBuildFAdd,
-    LLVMBuildFDiv, LLVMBuildFence, LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPToSI,
-    LLVMBuildFPToUI, LLVMBuildFPCast, LLVMBuildFRem, LLVMBuildFSub, LLVMBuildGEP2,
-    LLVMBuildICmp, LLVMBuildInsertValue, LLVMBuildIntToPtr, LLVMBuildLoad2,
-    LLVMBuildLShr, LLVMBuildMemCpy, LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot,
-    LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast, LLVMBuildPtrDiff2, LLVMBuildPtrToInt,
-    LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP,
-    LLVMBuildSRem, LLVMBuildShl, LLVMBuildStore, LLVMBuildStructGEP2, LLVMBuildSub, LLVMBuildSwitch,
-    LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable,
-    LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition, LLVMConstArray2, LLVMConstInt,
-    LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal,
-    LLVMConstStringInContext2, LLVMContextCreate, LLVMContextDispose, LLVMCountParams,
-    LLVMCountStructElementTypes, LLVMCreateBuilderInContext, LLVMCreateEnumAttribute,
-    LLVMDisposeBuilder, LLVMDisposeMessage, LLVMDisposeModule, LLVMDoubleTypeInContext,
-    LLVMFloatTypeInContext, LLVMFunctionType, LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator,
-    LLVMGetElementType, LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock,
-    LLVMGetFirstInstruction, LLVMGetInlineAsm, LLVMGetInsertBlock, LLVMGetIntrinsicDeclaration,
-    LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind,
-    LLVMGetUndef, LLVMGlobalGetValueType, LLVMInt1TypeInContext,
-    LLVMInt16TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext, LLVMInt8TypeInContext,
-    LLVMIntTypeInContext, LLVMIsAInstruction, LLVMModuleCreateWithNameInContext,
-    LLVMPointerTypeInContext, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore, LLVMPrintModuleToFile,
-    LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering,
-    LLVMSetSection, LLVMStructCreateNamed, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
-    LLVMStructTypeInContext, LLVMTypeOf, LLVMVoidTypeInContext,
+    LLVMBuildCall2, LLVMBuildCondBr, LLVMBuildExtractValue, LLVMBuildFAdd, LLVMBuildFCmp,
+    LLVMBuildFDiv, LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPCast, LLVMBuildFPToSI, LLVMBuildFPToUI,
+    LLVMBuildFRem, LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp,
+    LLVMBuildInsertValue, LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2, LLVMBuildMemCpy,
+    LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot, LLVMBuildOr, LLVMBuildPhi,
+    LLVMBuildPointerCast, LLVMBuildPtrDiff2, LLVMBuildPtrToInt, LLVMBuildRet, LLVMBuildRetVoid,
+    LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem, LLVMBuildShl, LLVMBuildStore,
+    LLVMBuildStructGEP2, LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv,
+    LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt,
+    LLVMClearInsertionPosition, LLVMConstArray2, LLVMConstInt, LLVMConstNamedStruct, LLVMConstNull,
+    LLVMConstPointerNull, LLVMConstReal, LLVMConstStringInContext2, LLVMContextCreate,
+    LLVMContextDispose, LLVMCountParams, LLVMCountStructElementTypes, LLVMCreateBuilderInContext,
+    LLVMCreateEnumAttribute, LLVMDisposeBuilder, LLVMDisposeMessage, LLVMDisposeModule,
+    LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMFunctionType, LLVMGetBasicBlockParent,
+    LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInlineAsm, LLVMGetInsertBlock,
+    LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetParam,
+    LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGlobalGetValueType,
+    LLVMInt1TypeInContext, LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext,
+    LLVMInt64TypeInContext, LLVMIntTypeInContext, LLVMIsAInstruction,
+    LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext, LLVMPositionBuilderAtEnd,
+    LLVMPositionBuilderBefore, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMStructCreateNamed,
+    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMStructTypeInContext, LLVMTypeOf,
+    LLVMVoidTypeInContext,
 };
 use llvm_sys::prelude::{
-    LLVMAttributeRef, LLVMBasicBlockRef, LLVMBuilderRef, LLVMContextRef, LLVMModuleRef, LLVMTypeRef,
-    LLVMValueRef,
+    LLVMAttributeRef, LLVMBasicBlockRef, LLVMBuilderRef, LLVMContextRef, LLVMModuleRef,
+    LLVMTypeRef, LLVMValueRef,
 };
 use llvm_sys::target::LLVMSetModuleDataLayout;
 use llvm_sys::{
-    LLVMAtomicOrdering, LLVMAtomicRMWBinOp, LLVMInlineAsmDialect, LLVMIntPredicate,
-    LLVMRealPredicate, LLVMTypeKind, LLVMLinkage,
+    LLVMAtomicOrdering, LLVMAtomicRMWBinOp, LLVMInlineAsmDialect, LLVMIntPredicate, LLVMLinkage,
+    LLVMRealPredicate, LLVMTypeKind,
 };
 use std::ffi::{CStr, CString};
 use std::marker::PhantomData;
 use std::ptr;
 
+#[cfg(windows)]
+use llvm_sys::core::LLVMPrintModuleToFile;
 #[cfg(not(windows))]
 use llvm_sys::core::LLVMPrintModuleToString;
 
@@ -347,7 +349,10 @@ impl Context {
         fields: &[BasicTypeEnum<'ctx>],
         packed: bool,
     ) -> StructType<'ctx> {
-        let mut fields = fields.iter().map(|field| field.as_type_ref()).collect::<Vec<_>>();
+        let mut fields = fields
+            .iter()
+            .map(|field| field.as_type_ref())
+            .collect::<Vec<_>>();
         StructType::new(unsafe {
             LLVMStructTypeInContext(
                 self.raw,
@@ -374,7 +379,11 @@ impl Context {
         })
     }
 
-    pub fn const_string<'ctx>(&'ctx self, bytes: &[u8], dont_null_terminate: bool) -> ArrayValue<'ctx> {
+    pub fn const_string<'ctx>(
+        &'ctx self,
+        bytes: &[u8],
+        dont_null_terminate: bool,
+    ) -> ArrayValue<'ctx> {
         ArrayValue::new(unsafe {
             LLVMConstStringInContext2(
                 self.raw,
@@ -515,8 +524,13 @@ impl<'ctx> Module<'ctx> {
             return Err(text);
         }
 
-        let read_result = std::fs::read_to_string(&path)
-            .map_err(|err| format!("Failed to read printed LLVM IR from `{}`: {}", path.display(), err));
+        let read_result = std::fs::read_to_string(&path).map_err(|err| {
+            format!(
+                "Failed to read printed LLVM IR from `{}`: {}",
+                path.display(),
+                err
+            )
+        });
         let _ = std::fs::remove_file(path);
         read_result
     }
@@ -539,7 +553,8 @@ impl<'ctx> Module<'ctx> {
         types: &[BasicTypeEnum<'ctx>],
     ) -> Option<FunctionValue<'ctx>> {
         let name = name.as_bytes();
-        let intrinsic_id = unsafe { llvm_sys::core::LLVMLookupIntrinsicID(name.as_ptr() as *const _, name.len()) };
+        let intrinsic_id =
+            unsafe { llvm_sys::core::LLVMLookupIntrinsicID(name.as_ptr() as *const _, name.len()) };
         if intrinsic_id == 0 {
             return None;
         }
@@ -596,7 +611,9 @@ impl<'ctx> Builder<'ctx> {
 
     pub fn build_alloca<T: AsTypeRef>(&self, ty: T, name: &str) -> Result<PointerValue<'ctx>, ()> {
         let name = to_c_string(name);
-        Ok(PointerValue::new(unsafe { LLVMBuildAlloca(self.raw, ty.as_type_ref(), name.as_ptr()) }))
+        Ok(PointerValue::new(unsafe {
+            LLVMBuildAlloca(self.raw, ty.as_type_ref(), name.as_ptr())
+        }))
     }
 
     pub fn build_store<V: BasicValue<'ctx>>(
@@ -617,7 +634,12 @@ impl<'ctx> Builder<'ctx> {
     ) -> Result<BasicValueEnum<'ctx>, ()> {
         let name = to_c_string(name);
         Ok(BasicValueEnum::new(unsafe {
-            LLVMBuildLoad2(self.raw, ty.as_type_ref(), ptr.as_value_ref(), name.as_ptr())
+            LLVMBuildLoad2(
+                self.raw,
+                ty.as_type_ref(),
+                ptr.as_value_ref(),
+                name.as_ptr(),
+            )
         }))
     }
 
@@ -629,7 +651,10 @@ impl<'ctx> Builder<'ctx> {
         name: &str,
     ) -> Result<PointerValue<'ctx>, ()> {
         let name = to_c_string(name);
-        let mut indexes = indexes.iter().map(|idx| idx.as_value_ref()).collect::<Vec<_>>();
+        let mut indexes = indexes
+            .iter()
+            .map(|idx| idx.as_value_ref())
+            .collect::<Vec<_>>();
         Ok(PointerValue::new(unsafe {
             LLVMBuildGEP2(
                 self.raw,
@@ -682,7 +707,9 @@ impl<'ctx> Builder<'ctx> {
 
     pub fn build_phi<T: AsTypeRef>(&self, ty: T, name: &str) -> Result<PhiValue<'ctx>, ()> {
         let name = to_c_string(name);
-        Ok(PhiValue::new(unsafe { LLVMBuildPhi(self.raw, ty.as_type_ref(), name.as_ptr()) }))
+        Ok(PhiValue::new(unsafe {
+            LLVMBuildPhi(self.raw, ty.as_type_ref(), name.as_ptr())
+        }))
     }
 
     pub fn build_call(
@@ -711,9 +738,16 @@ impl<'ctx> Builder<'ctx> {
         args: &[BasicMetadataValueEnum<'ctx>],
         name: &str,
     ) -> Result<CallSiteValue<'ctx>, ()> {
-        let name = if function_type.get_return_type().is_none() { "" } else { name };
+        let name = if function_type.get_return_type().is_none() {
+            ""
+        } else {
+            name
+        };
         let name = to_c_string(name);
-        let mut args = args.iter().map(|arg| arg.as_value_ref()).collect::<Vec<_>>();
+        let mut args = args
+            .iter()
+            .map(|arg| arg.as_value_ref())
+            .collect::<Vec<_>>();
         Ok(CallSiteValue::new(unsafe {
             LLVMBuildCall2(
                 self.raw,
@@ -739,14 +773,18 @@ impl<'ctx> Builder<'ctx> {
     }
 
     pub fn build_unreachable(&self) -> Result<InstructionValue<'ctx>, ()> {
-        Ok(InstructionValue::new(unsafe { LLVMBuildUnreachable(self.raw) }))
+        Ok(InstructionValue::new(unsafe {
+            LLVMBuildUnreachable(self.raw)
+        }))
     }
 
     pub fn build_unconditional_branch(
         &self,
         destination: BasicBlock<'ctx>,
     ) -> Result<InstructionValue<'ctx>, ()> {
-        Ok(InstructionValue::new(unsafe { LLVMBuildBr(self.raw, destination.raw) }))
+        Ok(InstructionValue::new(unsafe {
+            LLVMBuildBr(self.raw, destination.raw)
+        }))
     }
 
     pub fn build_conditional_branch(
@@ -915,11 +953,21 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildAdd, lhs, rhs, name)
     }
 
-    pub fn build_int_sub(&self, lhs: IntValue<'ctx>, rhs: IntValue<'ctx>, name: &str) -> Result<IntValue<'ctx>, ()> {
+    pub fn build_int_sub(
+        &self,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> Result<IntValue<'ctx>, ()> {
         build_int_bin(self.raw, LLVMBuildSub, lhs, rhs, name)
     }
 
-    pub fn build_int_mul(&self, lhs: IntValue<'ctx>, rhs: IntValue<'ctx>, name: &str) -> Result<IntValue<'ctx>, ()> {
+    pub fn build_int_mul(
+        &self,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> Result<IntValue<'ctx>, ()> {
         build_int_bin(self.raw, LLVMBuildMul, lhs, rhs, name)
     }
 
@@ -959,15 +1007,30 @@ impl<'ctx> Builder<'ctx> {
         build_int_bin(self.raw, LLVMBuildURem, lhs, rhs, name)
     }
 
-    pub fn build_and(&self, lhs: IntValue<'ctx>, rhs: IntValue<'ctx>, name: &str) -> Result<IntValue<'ctx>, ()> {
+    pub fn build_and(
+        &self,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> Result<IntValue<'ctx>, ()> {
         build_int_bin(self.raw, LLVMBuildAnd, lhs, rhs, name)
     }
 
-    pub fn build_or(&self, lhs: IntValue<'ctx>, rhs: IntValue<'ctx>, name: &str) -> Result<IntValue<'ctx>, ()> {
+    pub fn build_or(
+        &self,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> Result<IntValue<'ctx>, ()> {
         build_int_bin(self.raw, LLVMBuildOr, lhs, rhs, name)
     }
 
-    pub fn build_xor(&self, lhs: IntValue<'ctx>, rhs: IntValue<'ctx>, name: &str) -> Result<IntValue<'ctx>, ()> {
+    pub fn build_xor(
+        &self,
+        lhs: IntValue<'ctx>,
+        rhs: IntValue<'ctx>,
+        name: &str,
+    ) -> Result<IntValue<'ctx>, ()> {
         build_int_bin(self.raw, LLVMBuildXor, lhs, rhs, name)
     }
 
@@ -1079,7 +1142,9 @@ impl<'ctx> Builder<'ctx> {
 
     pub fn build_int_neg(&self, value: IntValue<'ctx>, name: &str) -> Result<IntValue<'ctx>, ()> {
         let name = to_c_string(name);
-        Ok(IntValue::new(unsafe { LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr()) }))
+        Ok(IntValue::new(unsafe {
+            LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr())
+        }))
     }
 
     pub fn build_float_neg(
@@ -1095,7 +1160,9 @@ impl<'ctx> Builder<'ctx> {
 
     pub fn build_not(&self, value: IntValue<'ctx>, name: &str) -> Result<IntValue<'ctx>, ()> {
         let name = to_c_string(name);
-        Ok(IntValue::new(unsafe { LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr()) }))
+        Ok(IntValue::new(unsafe {
+            LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr())
+        }))
     }
 
     pub fn build_bit_cast<V: BasicValue<'ctx>, T: AsTypeRef>(
@@ -1106,7 +1173,12 @@ impl<'ctx> Builder<'ctx> {
     ) -> Result<BasicValueEnum<'ctx>, ()> {
         let name = to_c_string(name);
         Ok(BasicValueEnum::new(unsafe {
-            LLVMBuildBitCast(self.raw, value.as_value_ref(), target.as_type_ref(), name.as_ptr())
+            LLVMBuildBitCast(
+                self.raw,
+                value.as_value_ref(),
+                target.as_type_ref(),
+                name.as_ptr(),
+            )
         }))
     }
 
@@ -1249,7 +1321,12 @@ fn build_int_bin<'ctx>(
 ) -> Result<IntValue<'ctx>, ()> {
     let name = to_c_string(name);
     Ok(IntValue::new(unsafe {
-        f(builder, lhs.as_value_ref(), rhs.as_value_ref(), name.as_ptr())
+        f(
+            builder,
+            lhs.as_value_ref(),
+            rhs.as_value_ref(),
+            name.as_ptr(),
+        )
     }))
 }
 
@@ -1262,7 +1339,12 @@ fn build_float_bin<'ctx>(
 ) -> Result<FloatValue<'ctx>, ()> {
     let name = to_c_string(name);
     Ok(FloatValue::new(unsafe {
-        f(builder, lhs.as_value_ref(), rhs.as_value_ref(), name.as_ptr())
+        f(
+            builder,
+            lhs.as_value_ref(),
+            rhs.as_value_ref(),
+            name.as_ptr(),
+        )
     }))
 }
 
@@ -1275,7 +1357,12 @@ fn cast_int<'ctx>(
 ) -> Result<IntValue<'ctx>, ()> {
     let name = to_c_string(name);
     Ok(IntValue::new(unsafe {
-        f(builder, value.as_value_ref(), target.as_type_ref(), name.as_ptr())
+        f(
+            builder,
+            value.as_value_ref(),
+            target.as_type_ref(),
+            name.as_ptr(),
+        )
     }))
 }
 
@@ -1288,7 +1375,12 @@ fn cast_float<'ctx, V: AsValueRef>(
 ) -> Result<FloatValue<'ctx>, ()> {
     let name = to_c_string(name);
     Ok(FloatValue::new(unsafe {
-        f(builder, value.as_value_ref(), target.as_type_ref(), name.as_ptr())
+        f(
+            builder,
+            value.as_value_ref(),
+            target.as_type_ref(),
+            name.as_ptr(),
+        )
     }))
 }
 
@@ -1301,7 +1393,12 @@ fn cast_int_from_float<'ctx>(
 ) -> Result<IntValue<'ctx>, ()> {
     let name = to_c_string(name);
     Ok(IntValue::new(unsafe {
-        f(builder, value.as_value_ref(), target.as_type_ref(), name.as_ptr())
+        f(
+            builder,
+            value.as_value_ref(),
+            target.as_type_ref(),
+            name.as_ptr(),
+        )
     }))
 }
 
@@ -1347,7 +1444,10 @@ impl<'ctx> VoidType<'ctx> {
         params: &[BasicMetadataTypeEnum<'ctx>],
         variadic: bool,
     ) -> FunctionType<'ctx> {
-        let mut params = params.iter().map(|param| param.as_type_ref()).collect::<Vec<_>>();
+        let mut params = params
+            .iter()
+            .map(|param| param.as_type_ref())
+            .collect::<Vec<_>>();
         FunctionType::new(unsafe {
             LLVMFunctionType(
                 self.as_type_ref(),
@@ -1367,8 +1467,10 @@ macro_rules! impl_basic_type_methods {
                 params: &[BasicMetadataTypeEnum<'ctx>],
                 variadic: bool,
             ) -> FunctionType<'ctx> {
-                let mut params =
-                    params.iter().map(|param| param.as_type_ref()).collect::<Vec<_>>();
+                let mut params = params
+                    .iter()
+                    .map(|param| param.as_type_ref())
+                    .collect::<Vec<_>>();
                 FunctionType::new(unsafe {
                     LLVMFunctionType(
                         self.as_type_ref(),
@@ -1378,7 +1480,7 @@ macro_rules! impl_basic_type_methods {
                     )
                 })
             }
-            
+
             pub fn array_type(self, len: u32) -> ArrayType<'ctx> {
                 ArrayType::new(unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) })
             }
@@ -1400,7 +1502,10 @@ impl<'ctx> IntType<'ctx> {
     }
 
     pub fn const_array(self, values: &[IntValue<'ctx>]) -> ArrayValue<'ctx> {
-        let mut values = values.iter().map(|value| value.as_value_ref()).collect::<Vec<_>>();
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
         ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
         })
@@ -1421,7 +1526,10 @@ impl<'ctx> FloatType<'ctx> {
     }
 
     pub fn const_array(self, values: &[FloatValue<'ctx>]) -> ArrayValue<'ctx> {
-        let mut values = values.iter().map(|value| value.as_value_ref()).collect::<Vec<_>>();
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
         ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
         })
@@ -1450,7 +1558,10 @@ impl<'ctx> PointerType<'ctx> {
     }
 
     pub fn const_array(self, values: &[PointerValue<'ctx>]) -> ArrayValue<'ctx> {
-        let mut values = values.iter().map(|value| value.as_value_ref()).collect::<Vec<_>>();
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
         ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
         })
@@ -1463,7 +1574,10 @@ impl<'ctx> StructType<'ctx> {
     }
 
     pub fn set_body(self, fields: &[BasicTypeEnum<'ctx>], packed: bool) {
-        let mut fields = fields.iter().map(|field| field.as_type_ref()).collect::<Vec<_>>();
+        let mut fields = fields
+            .iter()
+            .map(|field| field.as_type_ref())
+            .collect::<Vec<_>>();
         unsafe {
             LLVMStructSetBody(
                 self.as_type_ref(),
@@ -1489,7 +1603,10 @@ impl<'ctx> StructType<'ctx> {
     }
 
     pub fn const_named_struct(self, values: &[BasicValueEnum<'ctx>]) -> StructValue<'ctx> {
-        let mut values = values.iter().map(|value| value.as_value_ref()).collect::<Vec<_>>();
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
         StructValue::new(unsafe {
             LLVMConstNamedStruct(self.as_type_ref(), values.as_mut_ptr(), values.len() as u32)
         })
@@ -1504,7 +1621,10 @@ impl<'ctx> StructType<'ctx> {
     }
 
     pub fn const_array(self, values: &[StructValue<'ctx>]) -> ArrayValue<'ctx> {
-        let mut values = values.iter().map(|value| value.as_value_ref()).collect::<Vec<_>>();
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
         ArrayValue::new(unsafe {
             LLVMConstArray2(self.as_type_ref(), values.as_mut_ptr(), values.len() as u64)
         })
@@ -1526,8 +1646,13 @@ impl<'ctx> ArrayType<'ctx> {
 
     pub fn const_array(self, values: &[ArrayValue<'ctx>]) -> ArrayValue<'ctx> {
         let elem_ty = unsafe { LLVMGetElementType(self.as_type_ref()) };
-        let mut values = values.iter().map(|value| value.as_value_ref()).collect::<Vec<_>>();
-        ArrayValue::new(unsafe { LLVMConstArray2(elem_ty, values.as_mut_ptr(), values.len() as u64) })
+        let mut values = values
+            .iter()
+            .map(|value| value.as_value_ref())
+            .collect::<Vec<_>>();
+        ArrayValue::new(unsafe {
+            LLVMConstArray2(elem_ty, values.as_mut_ptr(), values.len() as u64)
+        })
     }
 }
 
@@ -1940,7 +2065,9 @@ impl<'ctx> FunctionValue<'ctx> {
         if index >= count {
             None
         } else {
-            Some(BasicValueEnum::new(unsafe { LLVMGetParam(self.raw, index) }))
+            Some(BasicValueEnum::new(unsafe {
+                LLVMGetParam(self.raw, index)
+            }))
         }
     }
 
@@ -2109,9 +2236,22 @@ impl<'ctx> PhiValue<'ctx> {
     }
 
     pub fn add_incoming(self, incoming: &[(&dyn BasicValue<'ctx>, BasicBlock<'ctx>)]) {
-        let mut values = incoming.iter().map(|(value, _)| value.as_value_ref()).collect::<Vec<_>>();
-        let mut blocks = incoming.iter().map(|(_, block)| block.raw).collect::<Vec<_>>();
-        unsafe { LLVMAddIncoming(self.raw, values.as_mut_ptr(), blocks.as_mut_ptr(), incoming.len() as u32) };
+        let mut values = incoming
+            .iter()
+            .map(|(value, _)| value.as_value_ref())
+            .collect::<Vec<_>>();
+        let mut blocks = incoming
+            .iter()
+            .map(|(_, block)| block.raw)
+            .collect::<Vec<_>>();
+        unsafe {
+            LLVMAddIncoming(
+                self.raw,
+                values.as_mut_ptr(),
+                blocks.as_mut_ptr(),
+                incoming.len() as u32,
+            )
+        };
     }
 
     pub fn as_basic_value(self) -> BasicValueEnum<'ctx> {

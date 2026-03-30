@@ -209,8 +209,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.instantiate_struct(def_id, &args);
             }
             TypeKind::Enum(def_id, args) => {
-                if let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned()
-                {
+                if let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned() {
                     if self.is_pure_enum(&def) {
                         self.record_pure_enum_tag_ty(def_id, &args);
                     } else {

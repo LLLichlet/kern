@@ -827,22 +827,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     elem: c_e,
                 },
             ) => g_m == c_m && self.unify(g_e, c_e, map),
-            (
-                TypeKind::Pointer {
-                    elem: g_e, ..
-                },
-                concrete_kind,
-            ) => {
+            (TypeKind::Pointer { elem: g_e, .. }, concrete_kind) => {
                 let g_inner = self.resolve_tv(g_e);
                 if let TypeKind::ClosureInterface { params, ret } =
                     self.ctx.type_registry.get(g_inner).clone()
                 {
-                    self.unify_closure_interface_with_concrete(
-                        &params,
-                        ret,
-                        &concrete_kind,
-                        map,
-                    )
+                    self.unify_closure_interface_with_concrete(&params, ret, &concrete_kind, map)
                 } else {
                     false
                 }

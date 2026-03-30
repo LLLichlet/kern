@@ -35,11 +35,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         &mut self,
         lhs: &MastExpr,
         lhs_val: BasicValueEnum<'ctx>,
-    ) -> Option<(
-        PointerValue<'ctx>,
-        Option<IntValue<'ctx>>,
-        TypeId,
-    )> {
+    ) -> Option<(PointerValue<'ctx>, Option<IntValue<'ctx>>, TypeId)> {
         let norm_lhs = self.type_registry.normalize(lhs.ty);
         match self.type_registry.get(norm_lhs) {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {

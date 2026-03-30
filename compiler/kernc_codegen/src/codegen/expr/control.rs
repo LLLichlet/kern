@@ -1,15 +1,12 @@
-use crate::codegen::CodeGenerator;
 use crate::basic_block::BasicBlock;
+use crate::codegen::CodeGenerator;
 use crate::types::BasicTypeEnum;
 use crate::values::{BasicValue, BasicValueEnum, FunctionValue};
 use kernc_mast::{MastBlock, MastExpr, MastSwitchCase};
 use kernc_sema::ty::TypeId;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    fn current_function_for_control(
-        &mut self,
-        context: &str,
-    ) -> Option<FunctionValue<'ctx>> {
+    fn current_function_for_control(&mut self, context: &str) -> Option<FunctionValue<'ctx>> {
         let Some(block) = self.builder.get_insert_block() else {
             self.sess.emit_ice(
                 kernc_utils::Span::default(),

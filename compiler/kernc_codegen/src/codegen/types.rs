@@ -1,7 +1,7 @@
 use super::CodeGenerator;
+use crate::AddressSpace;
 use crate::types::BasicTypeEnum;
 use crate::values::BasicValueEnum;
-use crate::AddressSpace;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 

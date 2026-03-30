@@ -56,10 +56,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         chunk_ty.array_type((size / chunk_size) as u32).into()
     }
 
-    fn compile_const_expr(
-        &mut self,
-        expr: &MastExpr,
-    ) -> Option<BasicValueEnum<'ctx>> {
+    fn compile_const_expr(&mut self, expr: &MastExpr) -> Option<BasicValueEnum<'ctx>> {
         match &expr.kind {
             MastExprKind::Integer(val) => {
                 let int_type = self.get_llvm_type(expr.ty).into_int_type();
@@ -299,12 +296,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             });
 
             if s.is_union {
-                let storage_ty = self.union_storage_type(
-                    s.union_size,
-                    s.union_align,
-                    Span::default(),
-                    &s.name,
-                );
+                let storage_ty =
+                    self.union_storage_type(s.union_size, s.union_align, Span::default(), &s.name);
                 llvm_struct.set_body(&[storage_ty], is_packed);
             } else {
                 let mut field_types = Vec::new();

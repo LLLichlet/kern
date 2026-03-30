@@ -1924,7 +1924,9 @@ extern fn main(args: [][]u8) i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Eq[Key]") || stderr.contains("Hash[Key]") || stderr.contains("Map[Key, i32]"),
+        stderr.contains("Eq[Key]")
+            || stderr.contains("Hash[Key]")
+            || stderr.contains("Map[Key, i32]"),
         "unexpected stderr:\n{}",
         stderr
     );

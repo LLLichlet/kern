@@ -6,13 +6,15 @@ use llvm_sys::core::{
     LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
     LLVMSetTarget,
 };
-use llvm_sys::target::{LLVMDisposeTargetData, LLVMSetModuleDataLayout, LLVM_InitializeAllAsmParsers,
-    LLVM_InitializeAllAsmPrinters, LLVM_InitializeAllTargetInfos, LLVM_InitializeAllTargetMCs,
-    LLVM_InitializeAllTargets, LLVM_InitializeNativeAsmParser, LLVM_InitializeNativeAsmPrinter,
-    LLVM_InitializeNativeTarget};
+use llvm_sys::target::{
+    LLVM_InitializeAllAsmParsers, LLVM_InitializeAllAsmPrinters, LLVM_InitializeAllTargetInfos,
+    LLVM_InitializeAllTargetMCs, LLVM_InitializeAllTargets, LLVM_InitializeNativeAsmParser,
+    LLVM_InitializeNativeAsmPrinter, LLVM_InitializeNativeTarget, LLVMDisposeTargetData,
+    LLVMSetModuleDataLayout,
+};
 use llvm_sys::target_machine::{
-    LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetMachine,
-    LLVMCreateTargetDataLayout, LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
+    LLVMCodeGenFileType, LLVMCodeGenOptLevel, LLVMCodeModel, LLVMCreateTargetDataLayout,
+    LLVMCreateTargetMachine, LLVMDisposeTargetMachine, LLVMGetTargetFromTriple, LLVMRelocMode,
     LLVMTargetMachineEmitToFile, LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
     LLVMTargetRef,
 };
@@ -200,7 +202,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         }
 
-        let target_machine = create_target_machine_from_parts(target, &triple, &cpu, &features, opt_level)?;
+        let target_machine =
+            create_target_machine_from_parts(target, &triple, &cpu, &features, opt_level)?;
         let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
 
         // Keep the Windows module target explicit and set the triple through

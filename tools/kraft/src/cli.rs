@@ -1,3 +1,4 @@
+use crate::build_plan;
 use crate::discover;
 use crate::elaborate;
 use crate::error::{Error, Result};
@@ -24,6 +25,7 @@ pub fn run() -> Result<()> {
         Command::Check { path } => {
             let loaded = load_package_graph(path.as_deref())?;
             let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
+            let build_plan = build_plan::derive(&loaded.elaboration)?;
 
             let package_root = loaded
                 .manifest_path
@@ -118,6 +120,12 @@ pub fn run() -> Result<()> {
                 "env inputs: workspace={} package={}",
                 loaded.elaboration.workspace_env_input_count(),
                 loaded.elaboration.package_env_input_count()
+            );
+            println!(
+                "build plan: units={} local_edges={} external_edges={}",
+                build_plan.unit_count(),
+                build_plan.local_dependency_edge_count(),
+                build_plan.external_dependency_edge_count()
             );
             println!(
                 "lockfile: {}",

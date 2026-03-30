@@ -1,3 +1,4 @@
+mod build_plan;
 mod cli;
 mod discover;
 mod elaborate;

@@ -463,6 +463,8 @@ The most stable development order is:
 9. `build.kr`
 10. registry and publishing flows
 
+The build-plan layer should exist as its own explicit model before actual command execution is implemented. `kraft check` and future debug modes should be able to print this derived plan directly.
+
 This order matters. A package manager becomes fragile when build execution is implemented before the package graph and lock model are well defined.
 
 ## V1 Non-Goals

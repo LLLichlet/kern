@@ -7,11 +7,10 @@ use crate::resolver;
 use crate::resolver::ResolvedGraph;
 use crate::script;
 use crate::script::{
-    ScriptCommand, ScriptContext, ScriptExecution, ScriptOs, ScriptPackage, ScriptProfile,
-    ScriptTarget, ScriptWorkspace,
+    ScriptCommand, ScriptContext, ScriptExecution, ScriptPackage, ScriptProfile, ScriptTarget,
+    ScriptWorkspace,
 };
 use crate::workspace::WorkspaceMember;
-use kernc_utils::config::CompileOptions;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,10 +34,13 @@ pub struct PackageElaboration {
     pub package_id: PackageId,
     pub plan: PackagePlan,
     pub script: Option<ScriptInput>,
+    pub selected_features: BTreeSet<String>,
+    pub profile: ScriptProfile,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElaborationPlan {
+    pub has_workspace: bool,
     pub resolved_graph: ResolvedGraph,
     pub workspace_script: Option<ScriptInput>,
     pub packages: Vec<PackageElaboration>,
@@ -109,7 +111,7 @@ pub fn plan(
         None
     };
     let workspace_env = declared_env_map(manifest_path, manifest.kraft_env_names())?;
-    let target = host_target();
+    let target = script::host_target();
 
     let mut packages = Vec::new();
     if manifest.package.is_some() {
@@ -125,7 +127,7 @@ pub fn plan(
             has_workspace,
             command,
             &target,
-            &manifest_profile(manifest),
+            &script::manifest_profile(manifest),
             features,
             declared_env_map(manifest_path, manifest.kraft_env_names())?,
         );
@@ -158,6 +160,8 @@ pub fn plan(
             package_id: plan.package_id.clone(),
             plan,
             script,
+            selected_features: package_ctx.features.clone(),
+            profile: package_ctx.profile.clone(),
         });
     }
 
@@ -179,7 +183,7 @@ pub fn plan(
             has_workspace,
             command,
             &target,
-            &manifest_profile(&member.manifest),
+            &script::manifest_profile(&member.manifest),
             features,
             declared_env_map(&member.manifest_path, member.manifest.kraft_env_names())?,
         );
@@ -207,6 +211,8 @@ pub fn plan(
             package_id: plan.package_id.clone(),
             plan,
             script,
+            selected_features: package_ctx.features.clone(),
+            profile: package_ctx.profile.clone(),
         });
     }
 
@@ -218,6 +224,7 @@ pub fn plan(
     let resolved_graph = resolver::resolve_graph(&package_graph);
 
     Ok(ElaborationPlan {
+        has_workspace,
         resolved_graph,
         workspace_script,
         packages,
@@ -375,35 +382,6 @@ fn script_context(
         command,
         features,
         env,
-    }
-}
-
-fn host_target() -> ScriptTarget {
-    let triple = CompileOptions::default().target.triple;
-    let os = match triple.operating_system.to_string().as_str() {
-        "linux" => ScriptOs::Linux,
-        "windows" => ScriptOs::Windows,
-        "darwin" | "macosx" => ScriptOs::Darwin,
-        _ => ScriptOs::Unknown,
-    };
-
-    ScriptTarget {
-        os,
-        arch: triple.architecture.to_string(),
-        vendor: triple.vendor.to_string(),
-        env: triple.environment.to_string(),
-    }
-}
-
-fn manifest_profile(manifest: &Manifest) -> ScriptProfile {
-    let dev = manifest
-        .profile
-        .as_ref()
-        .and_then(|profiles| profiles.dev.as_ref());
-    ScriptProfile {
-        name: "dev".to_string(),
-        opt: dev.and_then(|profile| profile.opt).unwrap_or(0),
-        debug: dev.and_then(|profile| profile.debug).unwrap_or(true),
     }
 }
 

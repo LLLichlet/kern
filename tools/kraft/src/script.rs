@@ -1,5 +1,7 @@
+use crate::build_plan::BuildUnit;
 use crate::error::{Error, Result};
 use crate::graph::DependencyKind;
+use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use kernc_driver::CompilerDriver;
 use kernc_sema::checker::{ConstEvaluator, ConstValue, ScriptHost};
@@ -31,6 +33,20 @@ pub struct ScriptContext {
     pub command: ScriptCommand,
     pub features: BTreeSet<String>,
     pub env: BTreeMap<String, Option<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildScriptContext {
+    pub script: ScriptContext,
+    pub unit: BuildScriptUnit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BuildScriptUnit {
+    pub target_kind: TargetKind,
+    pub target_name: Option<String>,
+    pub source_root: String,
+    pub artifact_name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,13 +95,67 @@ pub enum ScriptOs {
     Darwin,
 }
 
+pub fn host_target() -> ScriptTarget {
+    let triple = CompileOptions::default().target.triple;
+    let os = match triple.operating_system.to_string().as_str() {
+        "linux" => ScriptOs::Linux,
+        "windows" => ScriptOs::Windows,
+        "darwin" | "macosx" => ScriptOs::Darwin,
+        _ => ScriptOs::Unknown,
+    };
+
+    ScriptTarget {
+        os,
+        arch: triple.architecture.to_string(),
+        vendor: triple.vendor.to_string(),
+        env: triple.environment.to_string(),
+    }
+}
+
+pub fn manifest_profile(manifest: &Manifest) -> ScriptProfile {
+    let dev = manifest
+        .profile
+        .as_ref()
+        .and_then(|profiles| profiles.dev.as_ref());
+    ScriptProfile {
+        name: "dev".to_string(),
+        opt: dev.and_then(|profile| profile.opt).unwrap_or(0),
+        debug: dev.and_then(|profile| profile.debug).unwrap_or(true),
+    }
+}
+
 pub fn validate_kraft_script(path: &Path) -> Result<()> {
     let script_path = canonical_script_path(path)?;
     let script_input = script_path.to_string_lossy().to_string();
     let mut session = Session::new();
-    let mut ctx = analyze_script(&script_path, &script_input, &mut session)?;
-    let entry_def = find_kraft_entry(&mut ctx, &script_path)?;
-    validate_kraft_entry(&mut ctx, entry_def, &script_path)?;
+    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "kraft")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "kraft", "kraft.kr")?;
+    validate_script_entry(
+        &mut ctx,
+        entry_def,
+        &script_path,
+        "kraft.kr",
+        "kraft",
+        "*mut plan.Plan",
+    )?;
+
+    Ok(())
+}
+
+pub fn validate_build_script(path: &Path) -> Result<()> {
+    let script_path = canonical_script_path(path)?;
+    let script_input = script_path.to_string_lossy().to_string();
+    let mut session = Session::new();
+    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "build")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "build", "build.kr")?;
+    validate_script_entry(
+        &mut ctx,
+        entry_def,
+        &script_path,
+        "build.kr",
+        "build",
+        "*mut builder.Builder",
+    )?;
 
     Ok(())
 }
@@ -98,9 +168,16 @@ pub fn apply_kraft_script(
     let script_path = canonical_script_path(path)?;
     let script_input = script_path.to_string_lossy().to_string();
     let mut session = Session::new();
-    let mut ctx = analyze_script(&script_path, &script_input, &mut session)?;
-    let entry_def = find_kraft_entry(&mut ctx, &script_path)?;
-    validate_kraft_entry(&mut ctx, entry_def, &script_path)?;
+    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "kraft")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "kraft", "kraft.kr")?;
+    validate_script_entry(
+        &mut ctx,
+        entry_def,
+        &script_path,
+        "kraft.kr",
+        "kraft",
+        "*mut plan.Plan",
+    )?;
 
     let mut host = PackagePlanHost {
         package_plan,
@@ -138,6 +215,46 @@ pub fn apply_kraft_script(
     })
 }
 
+pub fn apply_build_script(
+    path: &Path,
+    unit: &mut BuildUnit,
+    script_context: &BuildScriptContext,
+) -> Result<()> {
+    let script_path = canonical_script_path(path)?;
+    let script_input = script_path.to_string_lossy().to_string();
+    let mut session = Session::new();
+    let mut ctx = analyze_script(&script_path, &script_input, &mut session, "build")?;
+    let entry_def = find_script_entry(&mut ctx, &script_path, "build", "build.kr")?;
+    validate_script_entry(
+        &mut ctx,
+        entry_def,
+        &script_path,
+        "build.kr",
+        "build",
+        "*mut builder.Builder",
+    )?;
+
+    let mut host = BuildUnitHost {
+        unit,
+        script_context,
+    };
+    let arg_values = vec![build_argument_value(&mut ctx, script_context)];
+    let mut evaluator = ConstEvaluator::with_script_host(&mut ctx, &mut host);
+    evaluator
+        .eval_function(entry_def, &[], arg_values, Span::default())
+        .map_err(|_| Error::ScriptValidation {
+            path: script_path.clone(),
+            message: ctx
+                .sess
+                .diagnostics
+                .last()
+                .map(|diag| format!("build script execution failed: {}", diag.message))
+                .unwrap_or_else(|| "build script execution failed".to_string()),
+        })?;
+
+    Ok(())
+}
+
 fn sdk_root() -> std::path::PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("sdk")
 }
@@ -150,6 +267,7 @@ fn analyze_script<'a>(
     script_path: &Path,
     script_input: &str,
     session: &'a mut Session,
+    script_kind: &str,
 ) -> Result<kernc_sema::SemaContext<'a>> {
     let mut options = CompileOptions {
         input_file: Some(script_input.to_string()),
@@ -164,16 +282,18 @@ fn analyze_script<'a>(
         .analyze(session, script_input)
         .ok_or_else(|| Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "script did not pass Kern parsing or semantic analysis".to_string(),
+            message: format!("{script_kind} script did not pass Kern parsing or semantic analysis"),
         })
 }
 
-fn find_kraft_entry(
+fn find_script_entry(
     ctx: &mut kernc_sema::SemaContext<'_>,
     script_path: &Path,
+    entry_name: &str,
+    script_name: &str,
 ) -> Result<kernc_sema::def::DefId> {
     let root_name = ctx.intern("root");
-    let entry_name = ctx.intern("kraft");
+    let entry_name = ctx.intern(entry_name);
     let Some(root_module_id) = ctx.defs.iter().find_map(|def| match def {
         Def::Module(module) if module.parent.is_none() && module.name == root_name => {
             Some(module.id)
@@ -198,69 +318,76 @@ fn find_kraft_entry(
         })
         .ok_or_else(|| Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "missing required entry `pub fn kraft(...) ...` at script root".to_string(),
+            message: format!(
+                "missing required entry `pub fn {}`(...) ... at script root",
+                script_name.trim_end_matches(".kr")
+            ),
         })
 }
 
-fn validate_kraft_entry(
+fn validate_script_entry(
     ctx: &mut kernc_sema::SemaContext<'_>,
     entry_def: kernc_sema::def::DefId,
     script_path: &Path,
+    script_name: &str,
+    entry_name: &str,
+    param_display: &str,
 ) -> Result<()> {
     let Def::Function(entry) = &ctx.defs[entry_def.0 as usize] else {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "kraft entry does not reference a function definition".to_string(),
+            message: format!("{entry_name} entry does not reference a function definition"),
         });
     };
 
     if entry.vis != Visibility::Public {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry function must be declared `pub`".to_string(),
+            message: format!("`{script_name}` entry function must be declared `pub`"),
         });
     }
 
     if entry.body.is_none() {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry function must provide a body".to_string(),
+            message: format!("`{script_name}` entry function must provide a body"),
         });
     }
 
     if entry.is_extern {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry function cannot be `extern`".to_string(),
+            message: format!("`{script_name}` entry function cannot be `extern`"),
         });
     }
 
     let Some(sig_ty) = entry.resolved_sig else {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry function signature was not resolved".to_string(),
+            message: format!("`{script_name}` entry function signature was not resolved"),
         });
     };
 
     let TypeKind::Function { params, ret, .. } = ctx.type_registry.get(sig_ty).clone() else {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry does not resolve to a function type".to_string(),
+            message: format!("`{script_name}` entry does not resolve to a function type"),
         });
     };
 
     if params.len() != 1 {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry must have exactly one parameter: `*mut plan.Plan`"
-                .to_string(),
+            message: format!(
+                "`{script_name}` entry must have exactly one parameter: `{param_display}`"
+            ),
         });
     }
 
     if ret != TypeId::VOID {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry must return `void`".to_string(),
+            message: format!("`{script_name}` entry must return `void`"),
         });
     }
 
@@ -271,8 +398,9 @@ fn validate_kraft_entry(
     ) {
         return Err(Error::ScriptValidation {
             path: script_path.to_path_buf(),
-            message: "`kraft.kr` entry parameter must be a mutable pointer like `*mut plan.Plan`"
-                .to_string(),
+            message: format!(
+                "`{script_name}` entry parameter must be a mutable pointer like `{param_display}`"
+            ),
         });
     }
 
@@ -283,6 +411,11 @@ struct PackagePlanHost<'a> {
     package_plan: &'a mut PackagePlan,
     script_context: &'a ScriptContext,
     env_reads: BTreeSet<String>,
+}
+
+struct BuildUnitHost<'a> {
+    unit: &'a mut BuildUnit,
+    script_context: &'a BuildScriptContext,
 }
 
 impl ScriptHost for PackagePlanHost<'_> {
@@ -470,6 +603,53 @@ impl PackagePlanHost<'_> {
     }
 }
 
+impl ScriptHost for BuildUnitHost<'_> {
+    fn call_extern(
+        &mut self,
+        name: &str,
+        args: &[ConstValue],
+        _span: Span,
+    ) -> std::result::Result<ConstValue, String> {
+        match name {
+            "__kraft_build_feature_enabled" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let feature = expect_string(args, 1, "feature name")?;
+                Ok(ConstValue::Bool(
+                    self.script_context
+                        .script
+                        .features
+                        .contains(feature.as_str()),
+                ))
+            }
+            "__kraft_build_link_system_lib" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let name = expect_string(args, 1, "system library name")?;
+                push_unique(&mut self.unit.link.system_libs, name);
+                Ok(ConstValue::Void)
+            }
+            "__kraft_build_link_framework" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let name = expect_string(args, 1, "framework name")?;
+                push_unique(&mut self.unit.link.frameworks, name);
+                Ok(ConstValue::Void)
+            }
+            "__kraft_build_link_search" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let path = expect_string(args, 1, "link search path")?;
+                push_unique(&mut self.unit.link.search_paths, path);
+                Ok(ConstValue::Void)
+            }
+            "__kraft_build_link_arg" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let arg = expect_string(args, 1, "link argument")?;
+                self.unit.link.args.push(arg);
+                Ok(ConstValue::Void)
+            }
+            _ => Err(format!("unsupported build host function `{name}`")),
+        }
+    }
+}
+
 fn expect_arg<'a>(
     args: &'a [ConstValue],
     index: usize,
@@ -517,6 +697,12 @@ fn expect_dependency_kind(
         1 => Ok(DependencyKind::Dev),
         2 => Ok(DependencyKind::Build),
         _ => Err(format!("invalid `{label}` value `{tag}`")),
+    }
+}
+
+fn push_unique(values: &mut Vec<String>, value: String) {
+    if !values.contains(&value) {
+        values.push(value);
     }
 }
 
@@ -607,6 +793,53 @@ fn plan_argument_value(
     ConstValue::Struct(plan)
 }
 
+fn build_argument_value(
+    ctx: &mut kernc_sema::SemaContext<'_>,
+    script_context: &BuildScriptContext,
+) -> ConstValue {
+    fn field(name: &str, ctx: &mut kernc_sema::SemaContext<'_>) -> SymbolId {
+        ctx.intern(name)
+    }
+
+    let mut unit = HashMap::new();
+    unit.insert(
+        field("kind", ctx),
+        ConstValue::Enum {
+            tag: target_kind_tag(script_context.unit.target_kind),
+            payload: None,
+        },
+    );
+    unit.insert(
+        field("name", ctx),
+        match &script_context.unit.target_name {
+            Some(name) => ConstValue::Enum {
+                tag: 0,
+                payload: Some(Box::new(ConstValue::String(name.clone()))),
+            },
+            None => ConstValue::Enum {
+                tag: 1,
+                payload: None,
+            },
+        },
+    );
+    unit.insert(
+        field("source_root", ctx),
+        ConstValue::String(script_context.unit.source_root.clone()),
+    );
+    unit.insert(
+        field("artifact_name", ctx),
+        ConstValue::String(script_context.unit.artifact_name.clone()),
+    );
+
+    let mut builder = match plan_argument_value(ctx, &script_context.script) {
+        ConstValue::Struct(value) => value,
+        _ => unreachable!("plan_argument_value must return a struct"),
+    };
+    builder.insert(field("unit", ctx), ConstValue::Struct(unit));
+
+    ConstValue::Struct(builder)
+}
+
 impl ScriptCommand {
     fn tag(self) -> i128 {
         match self {
@@ -616,6 +849,15 @@ impl ScriptCommand {
             Self::Run => 3,
             Self::Test => 4,
         }
+    }
+}
+
+fn target_kind_tag(kind: TargetKind) -> i128 {
+    match kind {
+        TargetKind::Lib => 0,
+        TargetKind::Bin => 1,
+        TargetKind::Test => 2,
+        TargetKind::Example => 3,
     }
 }
 
@@ -632,7 +874,7 @@ impl ScriptOs {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_kraft_script;
+    use super::{validate_build_script, validate_kraft_script};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -691,6 +933,22 @@ mod tests {
             message.contains("exactly one parameter"),
             "unexpected error: {message}"
         );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn accepts_public_build_entry() {
+        let root = temp_dir("build-script-valid");
+        let path = root.join("build.kr");
+        fs::write(
+            &path,
+            "use kraft.builder;\npub fn build(b: *mut builder.Builder) void { let _ = b; }\n",
+        )
+        .unwrap();
+
+        let result = validate_build_script(&path);
+        assert!(result.is_ok(), "unexpected result: {result:?}");
 
         let _ = fs::remove_dir_all(root);
     }

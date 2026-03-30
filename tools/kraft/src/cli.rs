@@ -51,13 +51,9 @@ pub fn run() -> Result<()> {
                 &feature_selection,
             )?;
             let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
-            let build_plan = build_plan::derive(&loaded.elaboration)?;
-
-            let package_root = loaded
-                .manifest_path
-                .parent()
-                .unwrap_or_else(|| Path::new("."));
-            let build_script = package_root.join("build.kr");
+            let build_plan =
+                build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
+            let action_plan = build_plan.derive_actions(&crate::script::host_target());
 
             println!("checked {}", loaded.manifest_path.display());
             if let Some(package) = &loaded.manifest.package {
@@ -152,14 +148,14 @@ pub fn run() -> Result<()> {
                     .sum::<usize>()
             );
             println!(
-                "scripts: workspace_kraft={} package_kraft={} build.kr={}",
+                "scripts: workspace_kraft={} package_kraft={} build_kr={}",
                 if loaded.elaboration.workspace_script.is_some() {
                     "yes"
                 } else {
                     "no"
                 },
                 loaded.elaboration.package_script_count(),
-                if build_script.is_file() { "yes" } else { "no" }
+                build_plan.build_script_count()
             );
             println!(
                 "env inputs: workspace={} package={}",
@@ -167,10 +163,16 @@ pub fn run() -> Result<()> {
                 loaded.elaboration.package_env_input_count()
             );
             println!(
-                "build plan: units={} local_edges={} external_edges={}",
+                "build plan: units={} compile_actions={} link_actions={} local_edges={} external_edges={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
+                action_plan.compile_count(),
+                action_plan.link_count(),
                 build_plan.local_dependency_edge_count(),
-                build_plan.external_dependency_edge_count()
+                build_plan.external_dependency_edge_count(),
+                build_plan.link_system_lib_count(),
+                build_plan.link_framework_count(),
+                build_plan.link_search_path_count(),
+                build_plan.link_arg_count()
             );
             println!(
                 "lockfile: {}",
@@ -232,7 +234,10 @@ pub fn run() -> Result<()> {
                 crate::script::ScriptCommand::Build,
                 &feature_selection,
             )?;
-            let build_plan = build_plan::derive(&loaded.elaboration)?;
+            let build_plan =
+                build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+            let target = crate::script::host_target();
+            let action_plan = build_plan.derive_actions(&target);
 
             println!("planned build {}", loaded.manifest_path.display());
             println!(
@@ -252,6 +257,18 @@ pub fn run() -> Result<()> {
                 build_plan.local_dependency_edge_count(),
                 build_plan.external_dependency_edge_count()
             );
+            println!(
+                "build scripts: {} compile_actions={} link_actions={} link_libs={} link_frameworks={} link_searches={} link_args={}",
+                build_plan.build_script_count(),
+                action_plan.compile_count(),
+                action_plan.link_count(),
+                build_plan.link_system_lib_count(),
+                build_plan.link_framework_count(),
+                build_plan.link_search_path_count(),
+                build_plan.link_arg_count()
+            );
+            print_compile_actions(&action_plan);
+            print_link_actions(&action_plan);
 
             Ok(())
         }
@@ -264,7 +281,9 @@ pub fn run() -> Result<()> {
                 crate::script::ScriptCommand::Run,
                 &feature_selection,
             )?;
-            let build_plan = build_plan::derive(&loaded.elaboration)?;
+            let build_plan =
+                build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Run)?;
+            let action_plan = build_plan.derive_actions(&crate::script::host_target());
             let runnable = units_of_kind(&build_plan, TargetKind::Bin);
 
             let run_unit = match runnable.as_slice() {
@@ -296,11 +315,17 @@ pub fn run() -> Result<()> {
             );
             println!("run target: {}", format_unit_label(run_unit));
             println!(
-                "build plan: units={} local_edges={} external_edges={}",
+                "build plan: units={} local_edges={} external_edges={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 build_plan.local_dependency_edge_count(),
-                build_plan.external_dependency_edge_count()
+                build_plan.external_dependency_edge_count(),
+                build_plan.link_system_lib_count(),
+                build_plan.link_framework_count(),
+                build_plan.link_search_path_count(),
+                build_plan.link_arg_count()
             );
+            print_compile_actions_for_unit(&action_plan, run_unit);
+            print_link_actions_for_unit(&action_plan, run_unit);
 
             Ok(())
         }
@@ -313,7 +338,9 @@ pub fn run() -> Result<()> {
                 crate::script::ScriptCommand::Test,
                 &feature_selection,
             )?;
-            let build_plan = build_plan::derive(&loaded.elaboration)?;
+            let build_plan =
+                build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Test)?;
+            let action_plan = build_plan.derive_actions(&crate::script::host_target());
             let tests = units_of_kind(&build_plan, TargetKind::Test);
 
             println!("planned test {}", loaded.manifest_path.display());
@@ -333,11 +360,19 @@ pub fn run() -> Result<()> {
                 );
             }
             println!(
-                "build plan: units={} local_edges={} external_edges={}",
+                "build plan: units={} local_edges={} external_edges={} link_libs={} link_frameworks={} link_searches={} link_args={}",
                 build_plan.unit_count(),
                 build_plan.local_dependency_edge_count(),
-                build_plan.external_dependency_edge_count()
+                build_plan.external_dependency_edge_count(),
+                build_plan.link_system_lib_count(),
+                build_plan.link_framework_count(),
+                build_plan.link_search_path_count(),
+                build_plan.link_arg_count()
             );
+            for unit in &tests {
+                print_compile_actions_for_unit(&action_plan, unit);
+                print_link_actions_for_unit(&action_plan, unit);
+            }
 
             Ok(())
         }
@@ -432,6 +467,146 @@ fn format_unit_label(unit: &build_plan::BuildUnit) -> String {
         unit.artifact_name,
         unit.target_kind.as_str()
     )
+}
+
+fn format_action_label(
+    package_id: &crate::graph::PackageId,
+    target_kind: TargetKind,
+    artifact_name: &str,
+) -> String {
+    format!(
+        "{}:{} ({})",
+        package_id.name,
+        artifact_name,
+        target_kind.as_str()
+    )
+}
+
+fn format_plan_value(value: &crate::plan::PlanValue) -> String {
+    match value {
+        crate::plan::PlanValue::Bool(value) => value.to_string(),
+        crate::plan::PlanValue::String(value) => value.clone(),
+    }
+}
+
+fn format_plan_map(values: &std::collections::BTreeMap<String, crate::plan::PlanValue>) -> String {
+    if values.is_empty() {
+        "<none>".to_string()
+    } else {
+        values
+            .iter()
+            .map(|(key, value)| format!("{key}={}", format_plan_value(value)))
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
+fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
+    for action in &action_plan.compile_actions {
+        println!(
+            "compile: {} src={} obj={} out={} cfg={} define={}",
+            format_action_label(
+                &action.package_id,
+                action.target_kind,
+                &action.artifact_name
+            ),
+            action.source_path.display(),
+            action.object_path.display(),
+            action.artifact_path.display(),
+            format_plan_map(&action.cfg),
+            format_plan_map(&action.define)
+        );
+    }
+}
+
+fn print_link_actions(action_plan: &build_plan::ActionPlan) {
+    for action in &action_plan.link_actions {
+        print_link_action(action);
+    }
+}
+
+fn print_compile_actions_for_unit(
+    action_plan: &build_plan::ActionPlan,
+    unit: &build_plan::BuildUnit,
+) {
+    for action in action_plan.compile_actions.iter().filter(|action| {
+        action.package_id == unit.package_id
+            && action.target_kind == unit.target_kind
+            && action.target_name == unit.target_name
+    }) {
+        println!(
+            "compile: {} src={} obj={} out={} cfg={} define={}",
+            format_action_label(&action.package_id, action.target_kind, &unit.artifact_name),
+            action.source_path.display(),
+            action.object_path.display(),
+            action.artifact_path.display(),
+            format_plan_map(&action.cfg),
+            format_plan_map(&action.define)
+        );
+    }
+}
+
+fn print_link_actions_for_unit(action_plan: &build_plan::ActionPlan, unit: &build_plan::BuildUnit) {
+    for action in action_plan.link_actions.iter().filter(|action| {
+        action.package_id == unit.package_id
+            && action.target_kind == unit.target_kind
+            && action.target_name == unit.target_name
+    }) {
+        print_link_action(action);
+    }
+}
+
+fn print_link_action(action: &build_plan::LinkAction) {
+    println!(
+        "link: {} obj={} locals={} externals={} out={} system_libs={} frameworks={} search_paths={} args={}",
+        format_action_label(
+            &action.package_id,
+            action.target_kind,
+            &action.artifact_name
+        ),
+        action.primary_object.display(),
+        if action.local_library_objects.is_empty() {
+            "<none>".to_string()
+        } else {
+            action
+                .local_library_objects
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+        if action.external_dependencies.is_empty() {
+            "<none>".to_string()
+        } else {
+            action
+                .external_dependencies
+                .iter()
+                .map(|dep| dep.package_name.as_str())
+                .collect::<Vec<_>>()
+                .join(",")
+        },
+        action.artifact_path.display(),
+        if action.link.system_libs.is_empty() {
+            "<none>".to_string()
+        } else {
+            action.link.system_libs.join(",")
+        },
+        if action.link.frameworks.is_empty() {
+            "<none>".to_string()
+        } else {
+            action.link.frameworks.join(",")
+        },
+        if action.link.search_paths.is_empty() {
+            "<none>".to_string()
+        } else {
+            action.link.search_paths.join(",")
+        },
+        if action.link.args.is_empty() {
+            "<none>".to_string()
+        } else {
+            action.link.args.join(",")
+        }
+    );
 }
 
 fn parse_args<I>(args: I) -> Result<Command>

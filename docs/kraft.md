@@ -199,15 +199,14 @@ This includes:
 ### Proposed API Shape
 
 ```kern
-use kraft.build;
+use kraft.builder;
 
-pub fn build(b: *mut build.Builder) void {
-    if (b.target.os == .windows) {
-        b.link.system_lib("ws2_32");
-    }
-
-    if (b.target.os == .darwin) {
-        b.link.framework("Security");
+pub fn build(b: *mut builder.Builder) void {
+    match (b.target.os) {
+        .windows => b.link_system_lib("ws2_32"),
+        .darwin => b.link_framework("Security"),
+        .linux => {},
+        .unknown => {},
     }
 }
 ```

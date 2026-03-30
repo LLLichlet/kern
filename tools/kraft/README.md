@@ -23,5 +23,6 @@ The current implementation now covers the first graph and lockfile milestones:
 - deterministic `Kraft.lock` writing via `kraft lock`
 - `Kraft.lock` loading, validation, and stale/current status reporting via `kraft check`
 - build-plan derivation from normalized package targets and resolved dependencies
+- package-level `build.kr` discovery, validation, and per-target link-plan orchestration
 
 See [docs/kraft.md](../../docs/kraft.md) for the V1 design draft.

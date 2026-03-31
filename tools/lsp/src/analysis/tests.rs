@@ -1139,11 +1139,35 @@ fn completion_filters_and_sorts_items_by_typed_prefix() {
     });
 
     let items = analysis
-        .completion(&uri, position_of_nth(source, "hel", 0, 3))
+        .completion(&uri, position_of_nth(source, "hel", 1, 3))
         .unwrap();
     let labels = completion_labels(&items);
 
     assert_eq!(labels, vec!["help".to_string(), "helper".to_string()]);
+}
+
+#[test]
+fn completion_avoids_duplicate_call_parentheses_when_already_present() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 {\n    return hel();\n}\n";
+    let uri = temp_file_uri("completion_existing_paren", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "hel", 1, 3))
+        .unwrap();
+    let helper = items.iter().find(|item| item.label == "helper").unwrap();
+
+    assert_eq!(helper.insert_text.as_deref(), Some("helper"));
+    assert_eq!(helper.insert_text_format, Some(2));
 }
 
 #[test]

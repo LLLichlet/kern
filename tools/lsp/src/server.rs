@@ -1359,6 +1359,37 @@ mod tests {
     }
 
     #[test]
+    fn completion_request_avoids_duplicate_call_parentheses() {
+        let mut state = initialized_state();
+        let source = "fn helper() i32 { return 1; }\nfn main() i32 {\n    return hel();\n}\n";
+        let uri = temp_file_uri("server_completion_existing_paren", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(31)),
+                method: Some("textDocument/completion".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 2, "character": 14 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(31));
+        let helper = response["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["label"] == json!("helper"))
+            .unwrap();
+        assert_eq!(helper["insertText"], json!("helper"));
+        assert_eq!(helper["insertTextFormat"], json!(2));
+    }
+
+    #[test]
     fn semantic_tokens_request_returns_encoded_token_data() {
         let mut state = initialized_state();
         let source = concat!(

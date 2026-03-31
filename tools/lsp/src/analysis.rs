@@ -15,9 +15,9 @@ use self::navigation::{
 };
 use self::text::{
     apply_content_change, byte_offset_to_position, completion_prefix, file_path_to_uri,
-    is_valid_identifier, match_position_in_file, normalize_path, position_to_byte_offset,
-    single_server_diagnostic, span_contains_offset, span_to_range, trim_line_ending,
-    uri_to_file_path,
+    has_following_call_paren, is_valid_identifier, match_position_in_file, normalize_path,
+    position_to_byte_offset, single_server_diagnostic, span_contains_offset, span_to_range,
+    trim_line_ending, uri_to_file_path,
 };
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -262,10 +262,18 @@ impl AnalysisEngine {
             return Ok(Vec::new());
         };
         let prefix = completion_prefix(&target_doc.text, offset);
+        let has_call_paren = has_following_call_paren(&target_doc.text, offset);
 
         let mut items = artifact.completion_items(&target_path, offset);
         if !prefix.is_empty() {
             items.retain(|item| item.label.starts_with(prefix));
+        }
+        if has_call_paren {
+            for item in &mut items {
+                if item.insert_text.is_some() {
+                    item.insert_text = Some(item.label.clone());
+                }
+            }
         }
         items.sort_by(|left, right| {
             completion_sort_key(left, prefix).cmp(&completion_sort_key(right, prefix))

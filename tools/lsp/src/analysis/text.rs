@@ -288,6 +288,22 @@ pub(super) fn completion_prefix(text: &str, offset: usize) -> &str {
     &text[start..clamped]
 }
 
+pub(super) fn has_following_call_paren(text: &str, offset: usize) -> bool {
+    let bytes = text.as_bytes();
+    let mut index = offset.min(bytes.len());
+
+    while let Some(byte) = bytes.get(index).copied() {
+        match byte {
+            b' ' | b'\t' => index += 1,
+            b'(' => return true,
+            b'\r' | b'\n' => return false,
+            _ => return false,
+        }
+    }
+
+    false
+}
+
 fn is_identifier_start(byte: u8) -> bool {
     byte.is_ascii_alphabetic() || byte == b'_'
 }

@@ -25,6 +25,12 @@
       "include": "#declarations"
     },
     {
+      "include": "#genericArguments"
+    },
+    {
+      "include": "#impls"
+    },
+    {
       "include": "#closures"
     },
     {
@@ -32,6 +38,9 @@
     },
     {
       "include": "#variants"
+    },
+    {
+      "include": "#traitMembers"
     },
     {
       "include": "#fields"
@@ -222,13 +231,19 @@
         },
         {
           "name": "meta.type.definition.kern",
-          "match": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "match": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)(?:(\\s*:)\\s*([A-Za-z_][A-Za-z0-9_]*))?",
           "captures": {
             "1": {
               "name": "storage.type.definition.kern"
             },
             "2": {
               "name": "entity.name.type.kern"
+            },
+            "3": {
+              "name": "punctuation.separator.type-constraint.kern"
+            },
+            "4": {
+              "name": "support.type.primitive.kern"
             }
           }
         },
@@ -241,6 +256,69 @@
             },
             "2": {
               "name": "entity.name.namespace.kern"
+            }
+          }
+        }
+      ]
+    },
+    "genericArguments": {
+      "patterns": [
+        {
+          "name": "meta.generic.arguments.kern",
+          "begin": "\\b([A-Za-z_][A-Za-z0-9_]*|@(?:typeOf|sizeOf|alignOf))\\s*(\\[)",
+          "beginCaptures": {
+            "1": {
+              "name": "entity.name.type.parameter.kern"
+            },
+            "2": {
+              "name": "punctuation.definition.generic.begin.kern"
+            }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.generic.end.kern"
+            }
+          },
+          "patterns": [
+            {
+              "name": "entity.name.type.parameter.kern",
+              "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+            },
+            {
+              "include": "#types"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "name": "punctuation.separator.comma.kern",
+              "match": ","
+            }
+          ]
+        }
+      ]
+    },
+    "impls": {
+      "patterns": [
+        {
+          "name": "meta.impl.kern",
+          "match": "\\b(impl)(\\s*\\[[^\\]]+\\])?(?:\\s+([^:{=\\n]+?))?(?:\\s*(:)\\s*([^\\{\\n]+))?",
+          "captures": {
+            "1": {
+              "name": "keyword.control.implementation.kern"
+            },
+            "2": {
+              "name": "meta.generic.parameters.kern"
+            },
+            "3": {
+              "name": "entity.name.type.impl-target.kern"
+            },
+            "4": {
+              "name": "punctuation.separator.trait-impl.kern"
+            },
+            "5": {
+              "name": "support.type.trait.kern"
             }
           }
         }
@@ -324,6 +402,18 @@
         {
           "name": "constant.other.enum-variant.kern",
           "match": "\\.[A-Z][A-Za-z0-9_]*\\b"
+        },
+        {
+          "name": "entity.name.enum-variant.kern",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*(?:=|,|\\}))"
+        }
+      ]
+    },
+    "traitMembers": {
+      "patterns": [
+        {
+          "name": "entity.name.function.member.kern",
+          "match": "\\b[a-zA-Z_][A-Za-z0-9_]*\\b(?=\\s*:\\s*fn\\b)"
         }
       ]
     },
@@ -360,6 +450,10 @@
         {
           "name": "support.type.fn-trait.kern",
           "match": "\\bFn\\b"
+        },
+        {
+          "name": "support.type.trait.kern",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*\\{)"
         },
         {
           "name": "support.type.self.kern",

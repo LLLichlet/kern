@@ -36,7 +36,25 @@ type Writer = trait {
     write: fn(bytes: []u8) i32,
 };
 
+pub type Option[T] = enum {
+    Some: T,
+    None,
+};
+
 type SerialPort = struct {
     port: u16 = 0x3F8,
     buffer: [16]mut u8 = [16]mut u8.{ undef },
 };
+
+type Printable = trait {
+    render: fn() void,
+};
+
+impl[T] *Option[T] : Printable {
+    pub fn render() void {
+        let _ = match (self.*) {
+            .Some: value => value,
+            .None => 0,
+        };
+    }
+}

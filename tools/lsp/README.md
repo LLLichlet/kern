@@ -108,6 +108,10 @@ cargo run -p kern-lsp
 The common integration path is a manual LSP client configuration that launches
 the compiled `kern-lsp` binary over stdio.
 
+As of the `0.6.4` release cycle, the repository also carries a first-party
+preview VS Code extension under `editors/vscode/` that launches `kern-lsp`
+directly.
+
 ## Dependency Policy
 
 `kern-lsp` should stay close to zero dependencies, but not at the expense of

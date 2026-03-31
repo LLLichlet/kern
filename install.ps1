@@ -8,8 +8,8 @@ try {
     $ReleaseInfo = Invoke-RestMethod -Uri $ApiUrl
     $Version = $ReleaseInfo.tag_name
 } catch {
-    Write-Host "Warning: Failed to fetch latest version. Falling back to v0.6.3" -ForegroundColor Yellow
-    $Version = "v0.6.3"
+    Write-Host "Warning: Failed to fetch latest version. Falling back to v0.6.4" -ForegroundColor Yellow
+    $Version = "v0.6.4"
 }
 
 $Target = "x86_64-windows-msvc"
@@ -51,4 +51,4 @@ if ($UserPath -notmatch [regex]::Escape($KernBin)) {
 }
 
 Write-Host "`nKern $Version toolchain installed successfully!" -ForegroundColor Green
-Write-Host "Run 'kernc --version' and 'craft help' to verify."
+Write-Host "Run 'kernc --version', 'craft help', and 'kern-lsp --help' (or launch it via your editor) to verify."

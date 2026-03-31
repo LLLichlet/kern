@@ -53,5 +53,6 @@ separately installed toolchain.
 
 ## Status
 
-The extension is intentionally early and is currently aimed at preview use
-while the `0.6.5` LSP milestone is still being hardened.
+The extension is intentionally early and is currently aimed at preview use for
+the `0.6.4` release while the broader `0.6.5` LSP maturity milestone is still
+being hardened.

@@ -18,6 +18,11 @@ if (-not $SkipBuild) {
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
+
+    cargo build --release -p kern-lsp
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
 }
 
 Write-Host "Packaging $DistName..."
@@ -34,6 +39,7 @@ New-Item -ItemType Directory -Force -Path "$DistName\lib\kern" | Out-Null
 
 Copy-Item "target\release\kernc.exe" -Destination "$DistName\bin\"
 Copy-Item "target\release\craft.exe" -Destination "$DistName\bin\"
+Copy-Item "target\release\kern-lsp.exe" -Destination "$DistName\bin\"
 Copy-Item -Recurse "library\std" -Destination "$DistName\lib\kern\"
 Copy-Item "README.md", "LICENSE" -Destination "$DistName\"
 

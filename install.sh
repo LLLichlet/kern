@@ -10,7 +10,7 @@ LATEST_VERSION=$(curl -s https://api.github.com/repos/softfault/kern/releases/la
 if [ -z "$LATEST_VERSION" ]; then
     echo "Warning: Failed to fetch latest version from GitHub."
     echo "Falling back to default fallback version."
-    VERSION="v0.6.3"
+    VERSION="v0.6.4"
 else
     VERSION="$LATEST_VERSION"
 fi
@@ -83,4 +83,4 @@ fi
 
 echo ""
 echo "Kern ${VERSION} toolchain installed successfully!"
-echo "Run 'kernc --version' and 'craft help' to verify."
+echo "Run 'kernc --version', 'craft help', and 'kern-lsp --help' (or launch it via your editor) to verify."

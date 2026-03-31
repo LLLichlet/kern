@@ -1,4 +1,4 @@
-# Kern Language Design (v0.6.3)
+# Kern Language Design (v0.6.4)
 
 ## Table of Contents
 

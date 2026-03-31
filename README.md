@@ -1,6 +1,6 @@
 # Kern Programming Language
 
-> **Status:** v0.6.3 (Experimental)
+> **Status:** v0.6.4 (Experimental)
 > *High Abstraction, Low Policy.*
 
 Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.
@@ -27,7 +27,7 @@ The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. 
 * `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
 * `kernc_utils`: Handles rigorous internal diagnostics, span tracking, and ICE (Internal Compiler Error) reporting.
 
-## A Taste of Kern (v0.6.3)
+## A Taste of Kern (v0.6.4)
 
 Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 
@@ -90,12 +90,12 @@ The compiler is currently in its **`v0.6.x`** series, focused on release enginee
   * **[Delivered] v0.1.x - v0.3.x:** Core stabilization, basic generics, initial LLVM backend, inline assembly (`@asm`), and basic AST attributes.
   * **[Delivered] v0.4.x (Language Core & Modules):** Implementation of the explicit module tree system (`mod`), core language unifications (unified `enum` types, exhaustive `match` branching, explicit `as` conversions), and the initial cross-platform freestanding standard library (`std`).
   * **[Delivered] v0.5.x (Workspace, Cross-Platform & Stdlib Stabilization):** Complete decoupled compiler workspace (`kernc_*`), native Windows support, hosted/freestanding link profiles, stronger test coverage, and substantial `std` growth.
-  * **[Current-Focus] v0.6.x (Release Engineering, Darwin & Library Maturation):** Hardened release automation, macOS distribution support, broader standard library ergonomics, and continued compiler/runtime polish.
+  * **[Current-Focus] v0.6.x (Release Engineering, LSP & Editor Preview):** Hardened release automation, macOS distribution support, broader standard library ergonomics, continued compiler/runtime polish, and first-party editor integration via `kern-lsp` plus an early VS Code extension preview.
   * **[Future] v0.7.x (Ecosystem, Tooling & Self-Hosting):** `craft` package management and build orchestration, expanding the native Kern toolchain, comprehensive standard library maturation, and exploring initial steps toward compiler self-hosting (tentative).
 
 ## Installation
 
-The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled toolchain (`kernc`, `craft`, and the standard library) to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
+The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled toolchain (`kernc`, `craft`, `kern-lsp`, and the standard library) to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
 
 Official release artifacts are published for Linux `x86_64`, Windows `x86_64`, macOS `x86_64`, and macOS `aarch64`.
 
@@ -126,7 +126,7 @@ cd kern
 cargo build --release
 ```
 
-This produces both `kernc` and `craft` in `target/release/`.
+This produces `kernc`, `craft`, and `kern-lsp` in `target/release/`.
 
 ## Documentation
 

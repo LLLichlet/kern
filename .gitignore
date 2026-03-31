@@ -1,1 +1,6 @@
 target/
+kern-v*/
+kern-v*.tar.gz
+*.vsix
+editors/vscode/node_modules/
+editors/vscode/out/

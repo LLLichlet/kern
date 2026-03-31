@@ -101,6 +101,7 @@ jobs:
         run: |
           cargo build --release -p kernc_cli --bin kernc
           cargo build --release -p craft
+          cargo build --release -p kern-lsp
           VERSION=${KERN_RELEASE_VERSION}
           ./scripts/package_release.sh "$VERSION" "${{ matrix.target }}" --skip-build
           echo "ARTIFACT_FILE=kern-${VERSION}-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $GITHUB_ENV
@@ -111,6 +112,7 @@ jobs:
         run: |
           cargo build --release -p kernc_cli --bin kernc
           cargo build --release -p craft
+          cargo build --release -p kern-lsp
           $VERSION = $env:KERN_RELEASE_VERSION
           .\scripts\package_release.ps1 -Version $VERSION -Target ${{ matrix.target }} -SkipBuild
           echo "ARTIFACT_FILE=kern-$VERSION-${{ matrix.target }}.${{ matrix.artifact_ext }}" >> $env:GITHUB_ENV

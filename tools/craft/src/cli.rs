@@ -388,7 +388,7 @@ pub fn run() -> Result<()> {
                 build_plan.link_search_path_count(),
                 build_plan.link_arg_count()
             );
-            print_generated_files_for_unit(run_unit);
+            print_generated_files_for_unit(&build_plan, run_unit);
             print_compile_actions_for_unit(&action_plan, run_unit);
             print_link_actions_for_unit(&action_plan, run_unit);
             let execution = execute::run(&build_plan, &action_plan, run_unit)?;
@@ -441,7 +441,7 @@ pub fn run() -> Result<()> {
                 build_plan.link_arg_count()
             );
             for unit in &tests {
-                print_generated_files_for_unit(unit);
+                print_generated_files_for_unit(&build_plan, unit);
                 print_compile_actions_for_unit(&action_plan, unit);
                 print_link_actions_for_unit(&action_plan, unit);
             }
@@ -585,6 +585,20 @@ fn format_plan_map(values: &std::collections::BTreeMap<String, crate::plan::Plan
     }
 }
 
+fn format_source_input(input: &build_plan::CompileSourceInput) -> String {
+    match input {
+        build_plan::CompileSourceInput::PackagePath(path) => {
+            format!("package:{}", path.display())
+        }
+        build_plan::CompileSourceInput::AbsolutePath(path) => {
+            format!("absolute:{}", path.display())
+        }
+        build_plan::CompileSourceInput::BuildOutput { id, path } => {
+            format!("build_output#{id}:{}", path.display())
+        }
+    }
+}
+
 fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
     for action in &action_plan.compile_actions {
         println!(
@@ -595,7 +609,7 @@ fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
                 action.target_kind,
                 &action.artifact_name
             ),
-            action.source_path.display(),
+            format_source_input(&action.source_input),
             action.object_path.display(),
             action.artifact_path.display(),
             format_plan_map(&action.cfg),
@@ -607,12 +621,15 @@ fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
 fn print_generated_files(build_plan: &build_plan::BuildPlan) {
     for package in &build_plan.packages {
         for unit in &package.units {
-            print_generated_files_for_unit(unit);
+            print_generated_files_for_unit(build_plan, unit);
         }
     }
 }
 
-fn print_generated_files_for_unit(unit: &build_plan::BuildUnit) {
+fn print_generated_files_for_unit(
+    build_plan: &build_plan::BuildPlan,
+    unit: &build_plan::BuildUnit,
+) {
     if unit.generated_files.is_empty() {
         return;
     }
@@ -629,41 +646,49 @@ fn print_generated_files_for_unit(unit: &build_plan::BuildUnit) {
         .collect::<Vec<_>>()
         .join(",");
     println!("generated: {} files={}", format_unit_label(unit), files);
-    if !unit.staged_actions.is_empty() {
-        let staged = unit
-            .staged_actions
+    let unit_build_nodes = build_plan.build_nodes_for_unit(unit);
+    if !unit_build_nodes.is_empty() {
+        let staged = unit_build_nodes
             .iter()
             .map(|action| match &action.kind {
                 build_plan::StagedActionKind::WriteFile { .. } => {
                     format!(
-                        "{}:write:{}",
+                        "{}:node#{}:write:{}{}",
                         format_stage_phase(action.phase),
-                        action.output
+                        action.id,
+                        action.output,
+                        format_stage_dependencies(action.depends_on.as_slice())
                     )
                 }
                 build_plan::StagedActionKind::RunTool { tool, args } => {
                     format!(
-                        "{}:run_tool:{}<= {}({})",
+                        "{}:node#{}:run_tool:{}<= {}({}){}",
                         format_stage_phase(action.phase),
+                        action.id,
                         action.output,
                         tool.executable_path,
-                        args.join(" ")
+                        args.join(" "),
+                        format_stage_dependencies(action.depends_on.as_slice())
                     )
                 }
                 build_plan::StagedActionKind::CopyFile { source } => {
                     format!(
-                        "{}:copy:{}<= {}",
+                        "{}:node#{}:copy:{}<= {}{}",
                         format_stage_phase(action.phase),
+                        action.id,
                         action.output,
-                        source
+                        source,
+                        format_stage_dependencies(action.depends_on.as_slice())
                     )
                 }
                 build_plan::StagedActionKind::CopyDirectory { source } => {
                     format!(
-                        "{}:copy_dir:{}<= {}",
+                        "{}:node#{}:copy_dir:{}<= {}{}",
                         format_stage_phase(action.phase),
+                        action.id,
                         action.output,
-                        source
+                        source,
+                        format_stage_dependencies(action.depends_on.as_slice())
                     )
                 }
             })
@@ -677,6 +702,21 @@ fn format_stage_phase(phase: build_plan::StagedActionPhase) -> &'static str {
     match phase {
         build_plan::StagedActionPhase::PreCompile => "pre_compile",
         build_plan::StagedActionPhase::PostLink => "post_link",
+    }
+}
+
+fn format_stage_dependencies(depends_on: &[usize]) -> String {
+    if depends_on.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " deps={}",
+            depends_on
+                .iter()
+                .map(|id| id.to_string())
+                .collect::<Vec<_>>()
+                .join("+")
+        )
     }
 }
 
@@ -704,7 +744,7 @@ fn print_compile_actions_for_unit(
                 action.target_kind,
                 &unit.artifact_name
             ),
-            action.source_path.display(),
+            format_source_input(&action.source_input),
             action.object_path.display(),
             action.artifact_path.display(),
             format_plan_map(&action.cfg),

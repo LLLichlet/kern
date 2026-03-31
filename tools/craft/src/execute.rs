@@ -1,6 +1,5 @@
 use crate::build_plan::{
     ActionPlan, BuildPlan, BuildUnit, CompileAction, LinkAction, StagedAction, StagedActionKind,
-    StagedActionPhase,
 };
 use crate::elaborate::{self, FeatureSelection};
 use crate::error::{Error, Result};
@@ -346,16 +345,11 @@ fn ensure_compile_action_built(
         }
     }
 
-    let pre_compile_actions = action
-        .staged_actions
-        .iter()
-        .filter(|action| action.phase == StagedActionPhase::PreCompile)
-        .cloned()
-        .collect::<Vec<_>>();
     execute_staged_actions(
-        &pre_compile_actions,
+        action.pre_compile_nodes.as_slice(),
+        action_plan.build_nodes.as_slice(),
         staged_outputs,
-        Some(&action.source_path),
+        action.required_source_path(),
         action_plan,
         compile_action_index,
         local_library_actions,
@@ -375,7 +369,7 @@ fn ensure_compile_action_built(
     ensure_parent_dir(&action.artifact_path)?;
 
     let mut options = CompileOptions {
-        input_file: Some(action.source_path.to_string_lossy().to_string()),
+        input_file: Some(action.source_path().to_string_lossy().to_string()),
         output_file: action.object_path.to_string_lossy().to_string(),
         metadata_output: action
             .metadata_path
@@ -403,14 +397,14 @@ fn ensure_compile_action_built(
     options.custom_defines.extend(compile_time_defines(
         &action.cfg,
         &action.define,
-        action.source_path.as_path(),
+        action.source_path(),
     )?);
 
     let driver = CompilerDriver::new(options);
     if !driver.compile() {
         return Err(Error::Execution(format!(
             "compile failed for `{}`",
-            action.source_path.display()
+            action.source_path().display()
         )));
     }
 
@@ -419,7 +413,8 @@ fn ensure_compile_action_built(
 }
 
 fn execute_staged_actions(
-    actions: &[StagedAction],
+    root_ids: &[usize],
+    build_nodes: &[StagedAction],
     staged_outputs: &mut BTreeSet<PathBuf>,
     required_path: Option<&Path>,
     action_plan: &ActionPlan,
@@ -437,49 +432,130 @@ fn execute_staged_actions(
     compiled: &mut BTreeSet<PathBuf>,
     linked: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
-    for action in actions {
-        let output_path = PathBuf::from(&action.output);
-        if !staged_outputs.insert(output_path.clone()) {
-            continue;
-        }
+    let action_index = build_nodes
+        .iter()
+        .map(|action| (action.id, action))
+        .collect::<BTreeMap<_, _>>();
+    let mut active = BTreeSet::new();
+    for root_id in root_ids {
+        let action = action_index
+            .get(root_id)
+            .ok_or_else(|| Error::Execution(format!("missing build node `{root_id}`")))?;
+        execute_staged_action(
+            action,
+            &action_index,
+            &mut active,
+            staged_outputs,
+            action_plan,
+            compile_action_index,
+            local_library_actions,
+            link_action_index,
+            source_config,
+            dependency_workspace_root,
+            command,
+            std_workspace_root,
+            built_std_packages,
+            built_external_packages,
+            built_external_tools,
+            external_build_stack,
+            compiled,
+            linked,
+        )?;
+    }
+    if let Some(required_path) = required_path
+        && !root_ids.is_empty()
+        && !required_path.is_file()
+    {
+        return Err(Error::Execution(format!(
+            "staged actions did not materialize source `{}`",
+            required_path.display()
+        )));
+    }
+    Ok(())
+}
 
-        if let Some(parent) = output_path.parent() {
-            fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
-        }
+fn execute_staged_action(
+    action: &StagedAction,
+    action_index: &BTreeMap<usize, &StagedAction>,
+    active: &mut BTreeSet<usize>,
+    staged_outputs: &mut BTreeSet<PathBuf>,
+    action_plan: &ActionPlan,
+    compile_action_index: &BTreeMap<ActionKey, CompileAction>,
+    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
+    link_action_index: &BTreeMap<PathBuf, LinkAction>,
+    source_config: &SourceConfigContext,
+    dependency_workspace_root: &Path,
+    command: crate::script::ScriptCommand,
+    std_workspace_root: &Path,
+    built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    built_external_tools: &mut BTreeMap<ExternalToolKey, PathBuf>,
+    external_build_stack: &mut BTreeSet<ExternalPackageId>,
+    compiled: &mut BTreeSet<PathBuf>,
+    linked: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    let output_path = PathBuf::from(&action.output);
+    if staged_outputs.contains(&output_path) {
+        return Ok(());
+    }
+    if !active.insert(action.id) {
+        return Err(Error::Execution(format!(
+            "cyclic staged action dependency detected at `{}`",
+            action.output
+        )));
+    }
+    for dependency_id in &action.depends_on {
+        let dependency = action_index.get(dependency_id).ok_or_else(|| {
+            Error::Execution(format!(
+                "missing staged action dependency `{dependency_id}` for `{}`",
+                action.output
+            ))
+        })?;
+        execute_staged_action(
+            dependency,
+            action_index,
+            active,
+            staged_outputs,
+            action_plan,
+            compile_action_index,
+            local_library_actions,
+            link_action_index,
+            source_config,
+            dependency_workspace_root,
+            command,
+            std_workspace_root,
+            built_std_packages,
+            built_external_packages,
+            built_external_tools,
+            external_build_stack,
+            compiled,
+            linked,
+        )?;
+    }
+    active.remove(&action.id);
+    if !staged_outputs.insert(output_path.clone()) {
+        return Ok(());
+    }
 
-        match &action.kind {
-            StagedActionKind::WriteFile { contents } => {
-                fs::write(&output_path, contents)
-                    .map_err(|err| Error::from_io(&output_path, err))?;
-            }
-            StagedActionKind::RunTool { tool, args } => {
-                let tool_path = PathBuf::from(&tool.executable_path);
-                match &tool.origin {
-                    crate::script::BuildScriptToolOrigin::LocalPackage { .. } => {
-                        if let Some(link_action) = link_action_index.get(&tool_path) {
-                            ensure_link_action_built(
-                                link_action,
-                                action_plan,
-                                compile_action_index,
-                                local_library_actions,
-                                link_action_index,
-                                source_config,
-                                dependency_workspace_root,
-                                command,
-                                std_workspace_root,
-                                built_std_packages,
-                                built_external_packages,
-                                built_external_tools,
-                                external_build_stack,
-                                compiled,
-                                linked,
-                                staged_outputs,
-                            )?;
-                        }
-                    }
-                    crate::script::BuildScriptToolOrigin::ExternalPackage { .. } => {
-                        ensure_external_tool_built(
-                            tool,
+    if let Some(parent) = output_path.parent() {
+        fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
+    }
+
+    match &action.kind {
+        StagedActionKind::WriteFile { contents } => {
+            fs::write(&output_path, contents).map_err(|err| Error::from_io(&output_path, err))?;
+        }
+        StagedActionKind::RunTool { tool, args } => {
+            let tool_path = PathBuf::from(&tool.executable_path);
+            match &tool.origin {
+                crate::script::BuildScriptToolOrigin::LocalPackage { .. } => {
+                    if let Some(link_action) = link_action_index.get(&tool_path) {
+                        ensure_link_action_built(
+                            link_action,
+                            action_plan,
+                            compile_action_index,
+                            local_library_actions,
+                            link_action_index,
                             source_config,
                             dependency_workspace_root,
                             command,
@@ -488,54 +564,62 @@ fn execute_staged_actions(
                             built_external_packages,
                             built_external_tools,
                             external_build_stack,
+                            compiled,
+                            linked,
+                            staged_outputs,
                         )?;
                     }
                 }
-                let output = Command::new(&tool_path)
-                    .args(args)
-                    .output()
-                    .map_err(Error::from_io_plain)?;
-                if !output.status.success() {
-                    return Err(Error::Execution(format!(
-                        "tool `{}` exited with status {}",
-                        tool_path.display(),
-                        output.status
-                    )));
+                crate::script::BuildScriptToolOrigin::ExternalPackage { .. } => {
+                    ensure_external_tool_built(
+                        tool,
+                        source_config,
+                        dependency_workspace_root,
+                        command,
+                        std_workspace_root,
+                        built_std_packages,
+                        built_external_packages,
+                        built_external_tools,
+                        external_build_stack,
+                    )?;
                 }
-                fs::write(&output_path, output.stdout)
-                    .map_err(|err| Error::from_io(&output_path, err))?;
             }
-            StagedActionKind::CopyFile { source } => {
-                let input_path = PathBuf::from(source);
-                fs::copy(&input_path, &output_path).map_err(|err| {
-                    Error::Execution(format!(
-                        "failed to copy staged input `{}` to `{}`: {err}",
-                        input_path.display(),
-                        output_path.display(),
-                    ))
-                })?;
+            let output = Command::new(&tool_path)
+                .args(args)
+                .output()
+                .map_err(Error::from_io_plain)?;
+            if !output.status.success() {
+                return Err(Error::Execution(format!(
+                    "tool `{}` exited with status {}",
+                    tool_path.display(),
+                    output.status
+                )));
             }
-            StagedActionKind::CopyDirectory { source } => {
-                let input_path = PathBuf::from(source);
-                copy_dir_all(&input_path, &output_path).map_err(|err| {
-                    Error::Execution(format!(
-                        "failed to copy staged directory `{}` to `{}`: {err}",
-                        input_path.display(),
-                        output_path.display(),
-                    ))
-                })?;
-            }
+            fs::write(&output_path, output.stdout)
+                .map_err(|err| Error::from_io(&output_path, err))?;
+        }
+        StagedActionKind::CopyFile { source } => {
+            let input_path = PathBuf::from(source);
+            fs::copy(&input_path, &output_path).map_err(|err| {
+                Error::Execution(format!(
+                    "failed to copy staged input `{}` to `{}`: {err}",
+                    input_path.display(),
+                    output_path.display(),
+                ))
+            })?;
+        }
+        StagedActionKind::CopyDirectory { source } => {
+            let input_path = PathBuf::from(source);
+            copy_dir_all(&input_path, &output_path).map_err(|err| {
+                Error::Execution(format!(
+                    "failed to copy staged directory `{}` to `{}`: {err}",
+                    input_path.display(),
+                    output_path.display(),
+                ))
+            })?;
         }
     }
-    if let Some(required_path) = required_path
-        && !actions.is_empty()
-        && !required_path.is_file()
-    {
-        return Err(Error::Execution(format!(
-            "staged actions did not materialize source `{}`",
-            required_path.display()
-        )));
-    }
+
     Ok(())
 }
 
@@ -629,7 +713,8 @@ fn ensure_link_action_built(
     }
 
     execute_staged_actions(
-        &action.staged_actions,
+        action.post_link_nodes.as_slice(),
+        action_plan.build_nodes.as_slice(),
         staged_outputs,
         None,
         action_plan,
@@ -2267,11 +2352,12 @@ pub fn build(b: *mut builder.Builder) void {
                     && action.target_kind == crate::plan::TargetKind::Bin
             })
             .unwrap();
+        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
 
         let summary = run(&build_plan, &action_plan, unit).unwrap();
         assert!(summary.executable.is_file());
-        assert!(Path::new(&link_action.staged_actions[0].output).exists());
-        assert!(Path::new(&link_action.staged_actions[1].output).exists());
+        assert!(Path::new(&link_nodes[0].output).exists());
+        assert!(Path::new(&link_nodes[1].output).exists());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -2349,16 +2435,17 @@ pub fn build(b: *mut builder.Builder) void {
                     && action.target_kind == crate::plan::TargetKind::Bin
             })
             .unwrap();
+        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
 
         let summary = run(&build_plan, &action_plan, unit).unwrap();
         assert!(summary.executable.is_file());
         assert!(
-            Path::new(&link_action.staged_actions[0].output)
+            Path::new(&link_nodes[0].output)
                 .join("config.json")
                 .exists()
         );
         assert!(
-            Path::new(&link_action.staged_actions[0].output)
+            Path::new(&link_nodes[0].output)
                 .join("images")
                 .join("logo.txt")
                 .exists()
@@ -2473,9 +2560,76 @@ extern fn main(args: [][]u8) i32 {
 
         let summary = run(&build_plan, &action_plan, unit).unwrap();
         assert!(summary.executable.is_file());
-        assert!(Path::new(&unit.source_root).is_file());
-        let generated = fs::read_to_string(&unit.source_root).unwrap();
+        let crate::build_plan::SourceRootBinding::AbsolutePath(source_root) = &unit.source_root
+        else {
+            panic!("expected generated source root to be an absolute path binding");
+        };
+        assert!(Path::new(source_root).is_file());
+        let generated = fs::read_to_string(source_root).unwrap();
         assert!(generated.contains("extern fn main"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn builds_and_runs_hosted_package_with_explicit_staged_dependencies() {
+        let root = temp_dir("craft-exec-staged-dependencies");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "app"
+root = "src/placeholder.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("build.rn"),
+            r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let helper = b.stage_generated("tmp/main.template.rn", "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n");
+    let source = b.stage_copy_output(helper, "src/main.rn");
+    b.set_source_root_from(source);
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Run,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            crate::build_plan::derive(&elaboration, crate::script::ScriptCommand::Run).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+        let unit = build_plan.packages[0]
+            .units
+            .iter()
+            .find(|unit| unit.target_kind == crate::plan::TargetKind::Bin)
+            .unwrap();
+
+        let summary = run(&build_plan, &action_plan, unit).unwrap();
+        assert!(summary.executable.is_file());
+        let crate::build_plan::SourceRootBinding::BuildOutput { path, .. } = &unit.source_root
+        else {
+            panic!("expected staged generated source root to bind to a build output");
+        };
+        assert!(Path::new(path).is_file());
 
         let _ = fs::remove_dir_all(root);
     }
@@ -2572,8 +2726,12 @@ extern fn main(args: [][]u8) i32 {
 
         let summary = run(&build_plan, &action_plan, unit).unwrap();
         assert!(summary.executable.is_file());
-        assert!(Path::new(&unit.source_root).is_file());
-        let generated = fs::read_to_string(&unit.source_root).unwrap();
+        let crate::build_plan::SourceRootBinding::AbsolutePath(source_root) = &unit.source_root
+        else {
+            panic!("expected generated source root to be an absolute path binding");
+        };
+        assert!(Path::new(source_root).is_file());
+        let generated = fs::read_to_string(source_root).unwrap();
         assert!(generated.contains("extern fn main"));
 
         let _ = fs::remove_dir_all(root);

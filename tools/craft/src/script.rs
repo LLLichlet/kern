@@ -1,6 +1,6 @@
 use crate::build_plan::{
-    BuildUnit, GeneratedFile, GeneratedFileOrigin, StagedAction, StagedActionKind,
-    StagedActionPhase,
+    BuildUnit, GeneratedFile, GeneratedFileOrigin, SourceRootBinding, StagedAction,
+    StagedActionKind, StagedActionPhase,
 };
 use crate::error::{Error, Result};
 use crate::graph::BuildDomain;
@@ -258,6 +258,7 @@ pub fn apply_craft_script(
 
 pub fn apply_build_script(
     path: &Path,
+    build_nodes: &mut Vec<StagedAction>,
     unit: &mut BuildUnit,
     script_context: &BuildScriptContext,
 ) -> Result<()> {
@@ -276,6 +277,7 @@ pub fn apply_build_script(
     )?;
 
     let mut host = BuildUnitHost {
+        build_nodes,
         unit,
         script_context,
     };
@@ -455,6 +457,7 @@ struct PackagePlanHost<'a> {
 }
 
 struct BuildUnitHost<'a> {
+    build_nodes: &'a mut Vec<StagedAction>,
     unit: &'a mut BuildUnit,
     script_context: &'a BuildScriptContext,
 }
@@ -669,6 +672,11 @@ impl ScriptHost for BuildUnitHost<'_> {
                 let tool = resolve_build_tool(self.script_context, &dependency_name, &tool_name)?;
                 Ok(ConstValue::String(tool.executable_path.clone()))
             }
+            "__craft_build_output_path" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let output = expect_output(args, 1, "output")?;
+                Ok(ConstValue::String(output.path))
+            }
             "__craft_build_link_system_lib" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let name = expect_string(args, 1, "system library name")?;
@@ -732,13 +740,19 @@ impl ScriptHost for BuildUnitHost<'_> {
             "__craft_build_set_source_root" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let path = expect_string(args, 1, "source root")?;
-                if path.trim().is_empty() {
-                    return Err("source root must not be empty".to_string());
-                }
-                self.unit.source_root = path;
+                self.unit.source_root = source_root_binding_from_script_path(&path)?;
                 Ok(ConstValue::Void)
             }
-            "__craft_build_emit_generated" => {
+            "__craft_build_set_source_root_from" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let output = expect_output(args, 1, "output")?;
+                self.unit.source_root = SourceRootBinding::BuildOutput {
+                    id: output.id,
+                    path: output.path,
+                };
+                Ok(ConstValue::Void)
+            }
+            "__craft_build_stage_generated" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let relative_path = expect_string(args, 1, "generated relative path")?;
                 let contents = expect_string(args, 2, "generated file contents")?;
@@ -752,16 +766,17 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     GeneratedFileOrigin::Emitted,
                 );
-                record_staged_action(
+                let output = record_staged_action(
+                    self.build_nodes,
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
                     StagedActionPhase::PreCompile,
                     StagedActionKind::WriteFile { contents },
                 );
-                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+                Ok(output_value(&output))
             }
-            "__craft_build_copy_package_file" => {
+            "__craft_build_stage_copy_package_file" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let source_relative = expect_string(args, 1, "package relative source path")?;
                 let generated_relative = expect_string(args, 2, "generated relative path")?;
@@ -787,16 +802,50 @@ impl ScriptHost for BuildUnitHost<'_> {
                         source: source.clone(),
                     },
                 );
-                record_staged_action(
+                let output = record_staged_action(
+                    self.build_nodes,
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
                     StagedActionPhase::PreCompile,
                     StagedActionKind::CopyFile { source },
                 );
-                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+                Ok(output_value(&output))
             }
-            "__craft_build_emit_generated_from_tool" => {
+            "__craft_build_stage_copy_output" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let source_output = expect_output(args, 1, "source output")?;
+                let generated_relative = expect_string(args, 2, "generated relative path")?;
+                let dest_path = generated_output_path(
+                    Path::new(&self.script_context.paths.generated_root),
+                    &generated_relative,
+                )?;
+                let source_display = relative_display(
+                    &self.script_context.workspace_root_path,
+                    Path::new(&source_output.path),
+                );
+                record_generated_file(
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    GeneratedFileOrigin::Copied {
+                        source: source_display,
+                    },
+                );
+                let output = record_staged_action(
+                    self.build_nodes,
+                    self.unit,
+                    &self.script_context.workspace_root_path,
+                    &dest_path,
+                    StagedActionPhase::PreCompile,
+                    StagedActionKind::CopyFile {
+                        source: source_output.path,
+                    },
+                );
+                add_staged_dependency(self.build_nodes, output.id, source_output.id)?;
+                Ok(output_value(&output))
+            }
+            "__craft_build_stage_generated_from_tool" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let dependency_name = expect_string(args, 1, "tool dependency name")?;
                 let tool_name = expect_string(args, 2, "tool target name")?;
@@ -813,7 +862,8 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     GeneratedFileOrigin::Emitted,
                 );
-                record_staged_action(
+                let output = record_staged_action(
+                    self.build_nodes,
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
@@ -823,9 +873,9 @@ impl ScriptHost for BuildUnitHost<'_> {
                         args,
                     },
                 );
-                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+                Ok(output_value(&output))
             }
-            "__craft_build_emit_artifact_file" => {
+            "__craft_build_stage_artifact_file" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let relative_path = expect_string(args, 1, "artifact relative path")?;
                 let contents = expect_string(args, 2, "artifact file contents")?;
@@ -833,16 +883,17 @@ impl ScriptHost for BuildUnitHost<'_> {
                     Path::new(&self.script_context.paths.artifact_root),
                     &relative_path,
                 )?;
-                record_staged_action(
+                let output = record_staged_action(
+                    self.build_nodes,
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::WriteFile { contents },
                 );
-                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+                Ok(output_value(&output))
             }
-            "__craft_build_emit_artifact_file_from_tool" => {
+            "__craft_build_stage_artifact_file_from_tool" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let dependency_name = expect_string(args, 1, "tool dependency name")?;
                 let tool_name = expect_string(args, 2, "tool target name")?;
@@ -853,7 +904,8 @@ impl ScriptHost for BuildUnitHost<'_> {
                     Path::new(&self.script_context.paths.artifact_root),
                     &artifact_relative,
                 )?;
-                record_staged_action(
+                let output = record_staged_action(
+                    self.build_nodes,
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
@@ -863,9 +915,9 @@ impl ScriptHost for BuildUnitHost<'_> {
                         args,
                     },
                 );
-                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+                Ok(output_value(&output))
             }
-            "__craft_build_copy_package_file_to_artifact" => {
+            "__craft_build_stage_copy_package_file_to_artifact" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let source_relative = expect_string(args, 1, "package relative source path")?;
                 let artifact_relative = expect_string(args, 2, "artifact relative path")?;
@@ -883,16 +935,17 @@ impl ScriptHost for BuildUnitHost<'_> {
                 )?;
                 let source =
                     relative_display(&self.script_context.workspace_root_path, &source_path);
-                record_staged_action(
+                let output = record_staged_action(
+                    self.build_nodes,
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::CopyFile { source },
                 );
-                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+                Ok(output_value(&output))
             }
-            "__craft_build_copy_package_dir_to_artifact" => {
+            "__craft_build_stage_copy_package_dir_to_artifact" => {
                 let _ = expect_arg(args, 0, "builder receiver")?;
                 let source_relative = expect_string(args, 1, "package relative source dir")?;
                 let artifact_relative = expect_string(args, 2, "artifact relative dir")?;
@@ -910,14 +963,22 @@ impl ScriptHost for BuildUnitHost<'_> {
                 )?;
                 let source =
                     relative_display(&self.script_context.workspace_root_path, &source_path);
-                record_staged_action(
+                let output = record_staged_action(
+                    self.build_nodes,
                     self.unit,
                     &self.script_context.workspace_root_path,
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::CopyDirectory { source },
                 );
-                Ok(ConstValue::String(dest_path.to_string_lossy().to_string()))
+                Ok(output_value(&output))
+            }
+            "__craft_build_depend" => {
+                let _ = expect_arg(args, 0, "builder receiver")?;
+                let output = expect_output(args, 1, "output")?;
+                let dependency = expect_output(args, 2, "dependency")?;
+                add_staged_dependency(self.build_nodes, output.id, dependency.id)?;
+                Ok(ConstValue::Void)
             }
             _ => Err(format!("unsupported build host function `{name}`")),
         }
@@ -928,6 +989,21 @@ fn generated_output_path(root: &Path, relative_path: &str) -> std::result::Resul
     Ok(root.join(normalize_relative_path(
         relative_path,
         "generated relative path",
+    )?))
+}
+
+fn source_root_binding_from_script_path(
+    path: &str,
+) -> std::result::Result<SourceRootBinding, String> {
+    if path.trim().is_empty() {
+        return Err("source root must not be empty".to_string());
+    }
+    if Path::new(path).is_absolute() {
+        return Ok(SourceRootBinding::AbsolutePath(path.to_string()));
+    }
+    Ok(SourceRootBinding::PackagePath(normalize_relative_display(
+        path,
+        "source root",
     )?))
 }
 
@@ -972,6 +1048,15 @@ fn normalize_relative_path(
     Ok(normalized)
 }
 
+fn normalize_relative_display(
+    relative_path: &str,
+    label: &str,
+) -> std::result::Result<String, String> {
+    Ok(normalize_relative_path(relative_path, label)?
+        .to_string_lossy()
+        .replace('\\', "/"))
+}
+
 fn relative_display(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
@@ -997,26 +1082,109 @@ fn record_generated_file(
 }
 
 fn record_staged_action(
+    build_nodes: &mut Vec<StagedAction>,
     unit: &mut BuildUnit,
     workspace_root: &Path,
     path: &Path,
     phase: StagedActionPhase,
     kind: StagedActionKind,
-) {
+) -> BuildOutput {
     let output = relative_display(workspace_root, path);
-    if let Some(existing) = unit
-        .staged_actions
-        .iter_mut()
-        .find(|action| action.phase == phase && action.output == output)
-    {
+    let node_ids = unit_node_ids_for_phase(unit, phase);
+    if let Some(existing_id) = node_ids.iter().copied().find(|id| {
+        build_nodes
+            .iter()
+            .any(|action| action.id == *id && action.phase == phase && action.output == output)
+    }) {
+        let existing = build_nodes
+            .iter_mut()
+            .find(|action| action.id == existing_id)
+            .expect("build node id must exist");
         existing.kind = kind;
-        return;
+        return BuildOutput {
+            id: existing_id,
+            path: path.to_string_lossy().to_string(),
+        };
     }
-    unit.staged_actions.push(StagedAction {
+    let id = next_staged_action_id(build_nodes);
+    build_nodes.push(StagedAction {
+        id,
         phase,
         output,
+        depends_on: Vec::new(),
         kind,
     });
+    unit_node_ids_for_phase_mut(unit, phase).push(id);
+    BuildOutput {
+        id,
+        path: path.to_string_lossy().to_string(),
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BuildOutput {
+    id: usize,
+    path: String,
+}
+
+fn next_staged_action_id(build_nodes: &[StagedAction]) -> usize {
+    build_nodes
+        .iter()
+        .map(|action| action.id)
+        .max()
+        .unwrap_or(0)
+        + 1
+}
+
+fn add_staged_dependency(
+    build_nodes: &mut [StagedAction],
+    output_id: usize,
+    dependency_id: usize,
+) -> std::result::Result<(), String> {
+    if output_id == dependency_id {
+        return Err("build outputs cannot depend on themselves".to_string());
+    }
+
+    let output_phase = build_nodes
+        .iter()
+        .find(|action| action.id == output_id)
+        .map(|action| action.phase)
+        .ok_or_else(|| format!("unknown build output id `{output_id}`"))?;
+    let dependency_phase = build_nodes
+        .iter()
+        .find(|action| action.id == dependency_id)
+        .map(|action| action.phase)
+        .ok_or_else(|| format!("unknown build output id `{dependency_id}`"))?;
+    if output_phase != dependency_phase {
+        return Err("build output dependencies must stay within a single stage phase".to_string());
+    }
+
+    let action = build_nodes
+        .iter_mut()
+        .find(|action| action.id == output_id)
+        .expect("staged action must exist after phase lookup");
+    if !action.depends_on.contains(&dependency_id) {
+        action.depends_on.push(dependency_id);
+    }
+    Ok(())
+}
+
+fn unit_node_ids_for_phase(unit: &BuildUnit, phase: StagedActionPhase) -> &[usize] {
+    match phase {
+        StagedActionPhase::PreCompile => &unit.pre_compile_nodes,
+        StagedActionPhase::PostLink => &unit.post_link_nodes,
+    }
+}
+
+fn unit_node_ids_for_phase_mut(unit: &mut BuildUnit, phase: StagedActionPhase) -> &mut Vec<usize> {
+    match phase {
+        StagedActionPhase::PreCompile => &mut unit.pre_compile_nodes,
+        StagedActionPhase::PostLink => &mut unit.post_link_nodes,
+    }
+}
+
+fn output_value(output: &BuildOutput) -> ConstValue {
+    ConstValue::String(format!("{}|{}", output.id, output.path))
 }
 
 fn resolve_build_tool<'a>(
@@ -1088,6 +1256,27 @@ fn expect_string_list(
             .collect(),
         _ => Err(format!("expected `{label}` to be an array of strings")),
     }
+}
+
+fn expect_output(
+    args: &[ConstValue],
+    index: usize,
+    label: &str,
+) -> std::result::Result<BuildOutput, String> {
+    let value = expect_string(args, index, label)?;
+    let Some((id, path)) = value.split_once('|') else {
+        return Err(format!("expected `{label}` to be a build output handle"));
+    };
+    let id = id
+        .parse::<usize>()
+        .map_err(|_| format!("expected `{label}` to carry a numeric build output id"))?;
+    if path.is_empty() {
+        return Err(format!("expected `{label}` to carry a build output path"));
+    }
+    Ok(BuildOutput {
+        id,
+        path: path.to_string(),
+    })
 }
 
 fn expect_dependency_kind(

@@ -437,16 +437,22 @@ The current `Builder` API includes:
   - cfg bool/string
   - define bool/string
   - source-root override
+  - source-root binding from explicit outputs
 - generated source production:
-  - `emit_generated(...)`
-  - `copy_package_file(...)`
+  - `stage_generated(...)`
+  - `stage_copy_package_file(...)`
+  - `stage_copy_output(...)`
   - `tool_path(dependency, tool)`
-  - `emit_generated_from_tool(dependency, tool, ...)`
+  - `stage_generated_from_tool(dependency, tool, ...)`
 - post-link artifact staging:
-  - `emit_artifact_file(...)`
-  - `emit_artifact_file_from_tool(dependency, tool, ...)`
-  - `copy_package_file_to_artifact(...)`
-  - `copy_package_dir_to_artifact(...)`
+  - `stage_artifact_file(...)`
+  - `stage_artifact_file_from_tool(dependency, tool, ...)`
+  - `stage_copy_package_file_to_artifact(...)`
+  - `stage_copy_package_dir_to_artifact(...)`
+- graph composition:
+  - `output_path(output)`
+  - `set_source_root_from(output)`
+  - `depend(output, dependency)`
 - link directives:
   - `link_system_lib(...)`
   - `link_framework(...)`
@@ -461,7 +467,7 @@ Current domain behavior:
 - `build.rn` executes with both host and target context available
 - `build-dependencies` are tracked separately from target unit dependencies so build-time tools do not pollute the final target graph
 - local and external `build-dependencies` that expose binaries can be resolved as explicit tools inside `build.rn`
-- tool-driven file generation is represented as explicit staged actions rather than opaque script-side process execution
+- tool-driven file generation is represented as explicit staged nodes with declared dependencies rather than opaque script-side process execution
 
 ## Build Plan And Execution
 
@@ -493,7 +499,7 @@ This is why `craft check` remains meaningful: it can inspect, validate, and prin
 
 For each derived unit, `craft` supplies explicit inputs such as:
 
-- source root
+- source binding
 - target kind
 - profile
 - cfg/define values
@@ -535,6 +541,7 @@ Current behavior:
 - dependency counts
 - build-unit and action counts
 - generated files
+- resolved source bindings (`package`, `absolute`, or `build_output`)
 - staged actions with their phase labels
 - link directives
 - lockfile freshness

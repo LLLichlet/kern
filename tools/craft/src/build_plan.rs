@@ -16,6 +16,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BuildPlan {
     pub workspace_root: PathBuf,
+    pub build_nodes: Vec<StagedAction>,
     pub packages: Vec<PackageBuildPlan>,
 }
 
@@ -36,7 +37,7 @@ pub struct BuildUnit {
     pub package_id: PackageId,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
-    pub source_root: String,
+    pub source_root: SourceRootBinding,
     pub artifact_kind: ArtifactKind,
     pub artifact_name: String,
     pub local_dependencies: Vec<LocalDependencyBinding>,
@@ -45,7 +46,8 @@ pub struct BuildUnit {
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
     pub generated_files: Vec<GeneratedFile>,
-    pub staged_actions: Vec<StagedAction>,
+    pub pre_compile_nodes: Vec<usize>,
+    pub post_link_nodes: Vec<usize>,
     pub link: LinkPlan,
 }
 
@@ -68,6 +70,13 @@ pub struct GeneratedFile {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SourceRootBinding {
+    PackagePath(String),
+    AbsolutePath(String),
+    BuildOutput { id: usize, path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum GeneratedFileOrigin {
     Emitted,
     Copied { source: String },
@@ -75,8 +84,10 @@ pub enum GeneratedFileOrigin {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StagedAction {
+    pub id: usize,
     pub phase: StagedActionPhase,
     pub output: String,
+    pub depends_on: Vec<usize>,
     pub kind: StagedActionKind,
 }
 
@@ -113,6 +124,7 @@ pub struct LinkPlan {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionPlan {
+    pub build_nodes: Vec<StagedAction>,
     pub compile_actions: Vec<CompileAction>,
     pub link_actions: Vec<LinkAction>,
 }
@@ -124,16 +136,23 @@ pub struct CompileAction {
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
     pub artifact_name: String,
-    pub source_path: PathBuf,
+    pub source_input: CompileSourceInput,
     pub metadata_path: Option<PathBuf>,
     pub object_path: PathBuf,
     pub artifact_path: PathBuf,
     pub profile: script::ScriptProfile,
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
-    pub staged_actions: Vec<StagedAction>,
+    pub pre_compile_nodes: Vec<usize>,
     pub local_dependencies: Vec<LocalDependencyBinding>,
     pub external_dependencies: Vec<ExternalDependencyBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CompileSourceInput {
+    PackagePath(PathBuf),
+    AbsolutePath(PathBuf),
+    BuildOutput { id: usize, path: PathBuf },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -146,7 +165,7 @@ pub struct LinkAction {
     pub artifact_path: PathBuf,
     pub primary_object: PathBuf,
     pub local_library_objects: Vec<PathBuf>,
-    pub staged_actions: Vec<StagedAction>,
+    pub post_link_nodes: Vec<usize>,
     pub external_dependencies: Vec<ExternalDependencyBinding>,
     pub link: LinkPlan,
 }
@@ -172,6 +191,44 @@ impl ActionPlan {
 
     pub fn link_count(&self) -> usize {
         self.link_actions.len()
+    }
+
+    pub fn build_nodes_for_link_action<'a>(&'a self, action: &LinkAction) -> Vec<&'a StagedAction> {
+        collect_build_nodes(
+            self.build_nodes.as_slice(),
+            action.post_link_nodes.as_slice(),
+        )
+    }
+}
+
+impl SourceRootBinding {
+    pub fn display_path(&self) -> &str {
+        match self {
+            Self::PackagePath(path) | Self::AbsolutePath(path) => path.as_str(),
+            Self::BuildOutput { path, .. } => path.as_str(),
+        }
+    }
+}
+
+impl CompileSourceInput {
+    pub fn path(&self) -> &Path {
+        match self {
+            Self::PackagePath(path) | Self::AbsolutePath(path) => path.as_path(),
+            Self::BuildOutput { path, .. } => path.as_path(),
+        }
+    }
+}
+
+impl CompileAction {
+    pub fn source_path(&self) -> &Path {
+        self.source_input.path()
+    }
+
+    pub fn required_source_path(&self) -> Option<&Path> {
+        match &self.source_input {
+            CompileSourceInput::BuildOutput { path, .. } => Some(path.as_path()),
+            CompileSourceInput::PackagePath(_) | CompileSourceInput::AbsolutePath(_) => None,
+        }
     }
 }
 
@@ -229,11 +286,13 @@ impl BuildPlan {
     }
 
     pub fn staged_action_count(&self) -> usize {
-        self.packages
-            .iter()
-            .flat_map(|package| &package.units)
-            .map(|unit| unit.staged_actions.len())
-            .sum()
+        self.build_nodes.len()
+    }
+
+    pub fn build_nodes_for_unit<'a>(&'a self, unit: &BuildUnit) -> Vec<&'a StagedAction> {
+        let mut ids = unit.pre_compile_nodes.clone();
+        ids.extend(unit.post_link_nodes.iter().copied());
+        collect_build_nodes(self.build_nodes.as_slice(), ids.as_slice())
     }
 
     pub fn link_system_lib_count(&self) -> usize {
@@ -278,6 +337,11 @@ impl BuildPlan {
         host: &script::ScriptTarget,
         target: &script::ScriptTarget,
     ) -> ActionPlan {
+        let build_nodes = self
+            .build_nodes
+            .iter()
+            .map(|action| resolve_staged_action(&self.workspace_root, action))
+            .collect();
         let mut compile_actions = Vec::new();
 
         for package in &self.packages {
@@ -292,7 +356,7 @@ impl BuildPlan {
                     target_kind: unit.target_kind,
                     target_name: unit.target_name.clone(),
                     artifact_name: unit.artifact_name.clone(),
-                    source_path: package_root.join(&unit.source_root),
+                    source_input: resolve_compile_source_input(package_root, &unit.source_root),
                     metadata_path: (unit.target_kind == TargetKind::Lib).then(|| {
                         metadata_path(
                             &self.workspace_root,
@@ -321,11 +385,7 @@ impl BuildPlan {
                     profile: unit.profile.clone(),
                     cfg: unit.cfg.clone(),
                     define: unit.define.clone(),
-                    staged_actions: unit
-                        .staged_actions
-                        .iter()
-                        .map(|action| resolve_staged_action(&self.workspace_root, action))
-                        .collect(),
+                    pre_compile_nodes: unit.pre_compile_nodes.clone(),
                     local_dependencies: unit.local_dependencies.clone(),
                     external_dependencies: unit.external_dependencies.clone(),
                 });
@@ -381,12 +441,7 @@ impl BuildPlan {
                                 .cloned()
                         })
                         .collect(),
-                    staged_actions: unit
-                        .staged_actions
-                        .iter()
-                        .filter(|action| action.phase == StagedActionPhase::PostLink)
-                        .map(|action| resolve_staged_action(&self.workspace_root, action))
-                        .collect(),
+                    post_link_nodes: unit.post_link_nodes.clone(),
                     external_dependencies: unit.external_dependencies.clone(),
                     link: unit.link.clone(),
                 });
@@ -394,10 +449,20 @@ impl BuildPlan {
         }
 
         ActionPlan {
+            build_nodes,
             compile_actions,
             link_actions,
         }
     }
+}
+
+fn collect_build_nodes<'a>(
+    build_nodes: &'a [StagedAction],
+    ids: &[usize],
+) -> Vec<&'a StagedAction> {
+    ids.iter()
+        .filter_map(|id| build_nodes.iter().find(|action| action.id == *id))
+        .collect()
 }
 
 pub fn derive(
@@ -406,6 +471,7 @@ pub fn derive(
 ) -> Result<BuildPlan> {
     let host_target = script::host_target();
     let target_target = host_target.clone();
+    let mut build_nodes = Vec::new();
     let mut sources = BTreeMap::new();
     for package in &elaboration.resolved_graph.packages {
         let package_elaboration = elaboration
@@ -509,7 +575,7 @@ pub fn derive(
                         domain: unit.domain,
                         target_kind: unit.target_kind,
                         target_name: unit.target_name.clone(),
-                        source_root: unit.source_root.clone(),
+                        source_root: unit.source_root.display_path().to_string(),
                         artifact_name: unit.artifact_name.clone(),
                     },
                     paths: script::BuildScriptPaths {
@@ -576,13 +642,19 @@ pub fn derive(
                     package_root_path: package_root.clone(),
                     workspace_root_path: elaboration.resolved_graph.workspace_root.clone(),
                 };
-                script::apply_build_script(&build_script.path, unit, &build_context)?;
+                script::apply_build_script(
+                    &build_script.path,
+                    &mut build_nodes,
+                    unit,
+                    &build_context,
+                )?;
             }
         }
     }
 
     Ok(BuildPlan {
         workspace_root: elaboration.resolved_graph.workspace_root.clone(),
+        build_nodes,
         packages,
     })
 }
@@ -633,7 +705,7 @@ fn build_package_for_domain(
             package_id: source.resolved.id.clone(),
             target_kind: target.kind,
             target_name: target.name.clone(),
-            source_root: target.root.clone(),
+            source_root: SourceRootBinding::PackagePath(target.root.clone()),
             artifact_kind: artifact_kind(target.kind),
             artifact_name: artifact_name(&source.resolved.id, target.kind, target.name.as_deref()),
             local_dependencies: unit_local_dependencies.clone(),
@@ -642,7 +714,8 @@ fn build_package_for_domain(
             cfg: source.elaboration.plan.cfg.clone(),
             define: source.elaboration.plan.define.clone(),
             generated_files: Vec::new(),
-            staged_actions: Vec::new(),
+            pre_compile_nodes: Vec::new(),
+            post_link_nodes: Vec::new(),
             link: LinkPlan::default(),
         })
         .collect();
@@ -656,6 +729,24 @@ fn build_package_for_domain(
         build_local_dependencies,
         build_external_dependencies,
         units,
+    }
+}
+
+fn resolve_compile_source_input(
+    package_root: &Path,
+    source_root: &SourceRootBinding,
+) -> CompileSourceInput {
+    match source_root {
+        SourceRootBinding::PackagePath(path) => {
+            CompileSourceInput::PackagePath(package_root.join(path))
+        }
+        SourceRootBinding::AbsolutePath(path) => {
+            CompileSourceInput::AbsolutePath(PathBuf::from(path))
+        }
+        SourceRootBinding::BuildOutput { id, path } => CompileSourceInput::BuildOutput {
+            id: *id,
+            path: PathBuf::from(path),
+        },
     }
 }
 
@@ -1052,11 +1143,13 @@ fn relative_display(root: &Path, path: &Path) -> String {
 
 fn resolve_staged_action(workspace_root: &Path, action: &StagedAction) -> StagedAction {
     StagedAction {
+        id: action.id,
         phase: action.phase,
         output: workspace_root
             .join(&action.output)
             .to_string_lossy()
             .to_string(),
+        depends_on: action.depends_on.clone(),
         kind: match &action.kind {
             StagedActionKind::WriteFile { contents } => StagedActionKind::WriteFile {
                 contents: contents.clone(),
@@ -1094,8 +1187,8 @@ fn artifact_name(package_id: &PackageId, kind: TargetKind, target_name: Option<&
 #[cfg(test)]
 mod tests {
     use super::{
-        ArtifactKind, GeneratedFileOrigin, StagedActionKind, StagedActionPhase, artifact_path,
-        derive,
+        ArtifactKind, GeneratedFileOrigin, SourceRootBinding, StagedActionKind, StagedActionPhase,
+        artifact_path, derive,
     };
     use crate::elaborate::plan;
     use crate::manifest::Manifest;
@@ -1974,13 +2067,17 @@ pub fn build(b: *mut builder.Builder) void {
             .iter()
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
+        let unit_nodes = build_plan.build_nodes_for_unit(unit);
 
+        let SourceRootBinding::AbsolutePath(source_root) = &unit.source_root else {
+            panic!("expected generated source root to be an absolute path binding");
+        };
         assert!(
-            Path::new(&unit.source_root).is_absolute(),
+            Path::new(source_root).is_absolute(),
             "expected generated source root to be absolute: {}",
-            unit.source_root
+            source_root
         );
-        assert!(!Path::new(&unit.source_root).exists());
+        assert!(!Path::new(source_root).exists());
         assert_eq!(
             unit.cfg.get("generated"),
             Some(&crate::plan::PlanValue::Bool(true))
@@ -1991,12 +2088,12 @@ pub fn build(b: *mut builder.Builder) void {
         );
         assert_eq!(unit.generated_files.len(), 1);
         assert_eq!(unit.generated_files[0].origin, GeneratedFileOrigin::Emitted);
-        assert_eq!(unit.staged_actions.len(), 1);
+        assert_eq!(unit_nodes.len(), 1);
         assert!(matches!(
-            &unit.staged_actions[0].kind,
+            &unit_nodes[0].kind,
             StagedActionKind::WriteFile { .. }
         ));
-        assert_eq!(unit.staged_actions[0].phase, StagedActionPhase::PreCompile);
+        assert_eq!(unit_nodes[0].phase, StagedActionPhase::PreCompile);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -2054,6 +2151,7 @@ pub fn build(b: *mut builder.Builder) void {
             .iter()
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
+        let unit_nodes = build_plan.build_nodes_for_unit(unit);
 
         assert_eq!(unit.generated_files.len(), 1);
         assert_eq!(
@@ -2062,13 +2160,87 @@ pub fn build(b: *mut builder.Builder) void {
                 source: "templates/main.rn".to_string()
             }
         );
-        assert_eq!(unit.staged_actions.len(), 1);
+        assert_eq!(unit_nodes.len(), 1);
         assert!(matches!(
-            &unit.staged_actions[0].kind,
+            &unit_nodes[0].kind,
             StagedActionKind::CopyFile { source } if source == "templates/main.rn"
         ));
-        assert_eq!(unit.staged_actions[0].phase, StagedActionPhase::PreCompile);
-        assert!(!Path::new(&unit.source_root).exists());
+        assert_eq!(unit_nodes[0].phase, StagedActionPhase::PreCompile);
+        let SourceRootBinding::AbsolutePath(source_root) = &unit.source_root else {
+            panic!("expected copied generated source root to be an absolute path binding");
+        };
+        assert!(!Path::new(source_root).exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_script_can_model_explicit_staged_dependencies() {
+        let root = temp_dir("craft-build-plan-staged-deps");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "demo"
+root = "src/placeholder.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("build.rn"),
+            r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+    let helper = b.stage_generated("tmp/value.txt", "41\n");
+    let source = b.stage_generated("src/main.rn", "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n");
+    b.depend(source, helper);
+    b.set_source_root_from(source);
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan = derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let unit = build_plan.packages[0]
+            .units
+            .iter()
+            .find(|unit| unit.target_kind == TargetKind::Bin)
+            .unwrap();
+        let unit_nodes = build_plan.build_nodes_for_unit(unit);
+
+        assert_eq!(unit_nodes.len(), 2);
+        let helper = unit_nodes
+            .iter()
+            .find(|action| action.output.ends_with("tmp/value.txt"))
+            .unwrap();
+        let source = unit_nodes
+            .iter()
+            .find(|action| action.output.ends_with("src/main.rn"))
+            .unwrap();
+        assert_eq!(source.depends_on, vec![helper.id]);
+        assert!(matches!(
+            &unit.source_root,
+            SourceRootBinding::BuildOutput { id, path }
+                if *id == source.id && path.ends_with("src/main.rn")
+        ));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -2134,14 +2306,16 @@ pub fn build(b: *mut builder.Builder) void {
                 action.package_id.name == "demo" && action.target_kind == TargetKind::Bin
             })
             .unwrap();
+        let unit_nodes = build_plan.build_nodes_for_unit(unit);
+        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
 
-        assert_eq!(unit.staged_actions.len(), 2);
+        assert_eq!(unit_nodes.len(), 2);
         assert!(
-            unit.staged_actions
+            unit_nodes
                 .iter()
                 .all(|action| action.phase == StagedActionPhase::PostLink)
         );
-        assert_eq!(link_action.staged_actions.len(), 2);
+        assert_eq!(link_nodes.len(), 2);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -2211,14 +2385,16 @@ pub fn build(b: *mut builder.Builder) void {
                 action.package_id.name == "demo" && action.target_kind == TargetKind::Bin
             })
             .unwrap();
+        let unit_nodes = build_plan.build_nodes_for_unit(unit);
+        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
 
-        assert_eq!(unit.staged_actions.len(), 1);
+        assert_eq!(unit_nodes.len(), 1);
         assert!(matches!(
-            &unit.staged_actions[0].kind,
+            &unit_nodes[0].kind,
             StagedActionKind::CopyDirectory { source } if source == "assets"
         ));
-        assert_eq!(unit.staged_actions[0].phase, StagedActionPhase::PostLink);
-        assert_eq!(link_action.staged_actions.len(), 1);
+        assert_eq!(unit_nodes[0].phase, StagedActionPhase::PostLink);
+        assert_eq!(link_nodes.len(), 1);
 
         let _ = fs::remove_dir_all(root);
     }

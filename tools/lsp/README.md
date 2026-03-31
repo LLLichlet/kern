@@ -26,6 +26,7 @@ The current server implements:
 - `textDocument/publishDiagnostics`
 - `textDocument/documentSymbol`
 - `textDocument/definition`
+- `textDocument/documentHighlight`
 - `textDocument/references`
 - `textDocument/hover`
 - `textDocument/completion`
@@ -41,8 +42,12 @@ incremental range updates. Semantic tokens currently combine lexer-driven token
 classes with compiler analysis for declarations and identifier references, then
 fill common syntax contexts such as parameters, field access, and type
 positions.
-Code actions currently focus on safe parser quick fixes such as inserting a
-missing semicolon or closing delimiter.
+Diagnostics now surface compiler hints inline and forward related spans through
+LSP `relatedInformation`, which improves cross-location error navigation in
+clients that support it. Document highlights resolve same-file definition and
+reference spans for the symbol under the cursor. Code actions currently focus
+on safe quick fixes such as inserting a missing semicolon or closing delimiter,
+plus a small set of compiler-guided semantic repairs.
 
 Current limitations:
 
@@ -50,8 +55,27 @@ Current limitations:
 - the temporary analysis policy currently enables `--use-std` by default to
   match common Kern project editing flows
 - semantic tokens do not yet cover every semantic reference class
-- code actions are currently limited to a small set of safe quick fixes
+- code actions are intentionally limited to safe, local edits
 - formatting and workspace-wide indexing are not implemented yet
+
+## Client Interoperability
+
+`kern-lsp` currently expects a client that can:
+
+- speak stdio JSON-RPC
+- use UTF-16 position encoding
+- send incremental document updates
+
+The server also negotiates several optional capabilities:
+
+- code actions are disabled when the client does not support code action
+  literals
+- `prepareRename` falls back to plain `rename` when prepare support is absent
+- semantic tokens are only advertised when the client declares semantic token
+  support
+
+This makes it practical to integrate with lightweight clients first, then add
+editor-specific polish on top without changing core analysis behavior.
 
 ## Planned Architecture
 

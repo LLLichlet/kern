@@ -759,6 +759,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     /// 辅助：构建动态方法调用 (从 VTable 提取函数指针)
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn lower_dynamic_method_dispatch(
         &mut self,
         recv: MastExpr,

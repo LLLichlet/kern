@@ -92,7 +92,7 @@ extern fn main() i32 {
     let object_arg = object_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
 
-    let compile_output = run_kernc(&[
+    let compile_output = run_kernc([
         "-c",
         "--use-std",
         "--link-profile",
@@ -109,7 +109,7 @@ extern fn main() i32 {
     );
     assert_not_textual_llvm_ir(&object_path);
 
-    let link_output = run_kernc(&[
+    let link_output = run_kernc([
         "--link-only",
         "--link-profile",
         "hosted",
@@ -204,7 +204,7 @@ fn links_windows_kern_program_with_std_by_default() {
 
     let source_arg = source.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
-    let output = run_kernc(&["--use-std", source_arg.as_str(), "-o", exe_arg.as_str()]);
+    let output = run_kernc(["--use-std", source_arg.as_str(), "-o", exe_arg.as_str()]);
 
     assert_success(&output, "kernc");
     assert!(

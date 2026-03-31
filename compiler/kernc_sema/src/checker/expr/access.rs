@@ -822,14 +822,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let norm_lhs = self.resolve_tv(lhs_ty);
-        let base_allows_mut_slice = match self.ctx.type_registry.get(norm_lhs).clone() {
+        let base_allows_mut_slice = matches!(
+            self.ctx.type_registry.get(norm_lhs).clone(),
             TypeKind::Pointer { is_mut: true, .. }
-            | TypeKind::VolatilePtr { is_mut: true, .. }
-            | TypeKind::Slice { is_mut: true, .. }
-            | TypeKind::Array { is_mut: true, .. }
-            | TypeKind::ArrayInfer { is_mut: true, .. } => true,
-            _ => false,
-        } || self.is_lvalue_mutable(lhs);
+                | TypeKind::VolatilePtr { is_mut: true, .. }
+                | TypeKind::Slice { is_mut: true, .. }
+                | TypeKind::Array { is_mut: true, .. }
+                | TypeKind::ArrayInfer { is_mut: true, .. }
+        ) || self.is_lvalue_mutable(lhs);
 
         // 如果是 `..[`，必须确保目标内存具有可变权限
         if is_mut && !base_allows_mut_slice && lhs_ty != TypeId::ERROR {

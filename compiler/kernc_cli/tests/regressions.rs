@@ -55,7 +55,7 @@ pub fn answer() i32 {
     let lib_entry_arg = lib_entry.to_string_lossy().into_owned();
     let lib_object_arg = lib_object.to_string_lossy().into_owned();
     let metadata_arg = metadata_dir.to_string_lossy().into_owned();
-    let lib_output = run_kernc(&[
+    let lib_output = run_kernc([
         "-c",
         "--root-module",
         "util",
@@ -92,7 +92,7 @@ extern fn main() i32 {
     let main_source_arg = main_source.to_string_lossy().into_owned();
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let exe_arg = executable.to_string_lossy().into_owned();
-    let app_output = run_kernc(&[
+    let app_output = run_kernc([
         "--link-profile",
         "hosted",
         "-I",
@@ -147,7 +147,7 @@ extern fn main() i32 {
     let dep_mapping = format!("dep={}", dep_dir.to_string_lossy());
     let main_source_arg = main_source.to_string_lossy().into_owned();
     let object_arg = object_path.to_string_lossy().into_owned();
-    let output = run_kernc(&[
+    let output = run_kernc([
         "-c",
         "-I",
         dep_mapping.as_str(),

@@ -1000,6 +1000,116 @@ mod tests {
         );
     }
 
+    #[test]
+    fn code_action_request_returns_quick_fix_edits() {
+        let mut state = initialized_state();
+        let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+        let uri = temp_file_uri("server_code_action", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(22)),
+                method: Some("textDocument/codeAction".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "range": {
+                        "start": { "line": 2, "character": 0 },
+                        "end": { "line": 2, "character": 20 }
+                    },
+                    "context": {
+                        "diagnostics": [],
+                        "only": ["quickfix"]
+                    }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(22));
+        let actions = response["result"].as_array().unwrap();
+        assert_eq!(actions.len(), 1);
+        assert_eq!(actions[0]["title"], "Insert `;`");
+        assert_eq!(actions[0]["kind"], "quickfix");
+        assert_eq!(
+            actions[0]["edit"]["changes"][&uri][0]["range"]["start"],
+            json!({ "line": 2, "character": 4 })
+        );
+        assert_eq!(actions[0]["edit"]["changes"][&uri][0]["newText"], ";");
+    }
+
+    #[test]
+    fn code_action_request_skips_analysis_for_non_quickfix_filters() {
+        let mut state = initialized_state();
+        let source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+        let uri = temp_file_uri("server_code_action_filter", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(23)),
+                method: Some("textDocument/codeAction".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "range": {
+                        "start": { "line": 0, "character": 0 },
+                        "end": { "line": 3, "character": 1 }
+                    },
+                    "context": {
+                        "diagnostics": [],
+                        "only": ["refactor"]
+                    }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(23));
+        assert_eq!(response["result"], json!([]));
+    }
+
+    #[test]
+    fn rename_request_returns_workspace_edit() {
+        let mut state = initialized_state();
+        let source =
+            "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
+        let uri = temp_file_uri("server_rename", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(24)),
+                method: Some("textDocument/rename".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 24 },
+                    "newName": "assist"
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(24));
+        let edits = response["result"]["changes"][&uri].as_array().unwrap();
+        assert_eq!(edits.len(), 3);
+        assert!(edits.iter().all(|edit| edit["newText"] == json!("assist")));
+        assert_eq!(
+            edits[0]["range"]["start"],
+            json!({ "line": 0, "character": 3 })
+        );
+        assert_eq!(
+            edits[1]["range"]["start"],
+            json!({ "line": 1, "character": 23 })
+        );
+        assert_eq!(
+            edits[2]["range"]["start"],
+            json!({ "line": 1, "character": 34 })
+        );
+    }
+
     fn initialized_state() -> ServerState {
         let mut state = ServerState::new();
         state.initialized = true;

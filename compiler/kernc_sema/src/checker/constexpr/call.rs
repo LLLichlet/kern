@@ -387,7 +387,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         let name_str = self.ctx.resolve(fn_name_id).to_string();
 
-        // 鍦?const 闃舵锛屽己鍒惰姹傛硾鍨嬪弬鏁拌鏄惧紡濉弧
+        // Constant-evaluated intrinsics require explicit generic arguments.
         if generic_args.len() != generics_len {
             self.ctx
                 .struct_error(
@@ -402,7 +402,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Err(ConstEvalError);
         }
 
-        // --- 鏍稿績璺敱 ---
+        // --- Core intrinsic dispatch ---
         match name_str.as_str() {
             "@sizeOf" => self.eval_size_of(&generic_args, span),
             "@alignOf" => self.eval_align_of(&generic_args, span),
@@ -439,7 +439,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     }
 
     // ==========================================
-    // 鍏蜂綋鐨勫畯瀹炵幇閫昏緫 (鎷嗗垎鍚庢瀬鏄撶淮鎶?
+    // Concrete intrinsic evaluators
     // ==========================================
 
     pub(super) fn eval_size_of(
@@ -452,7 +452,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             let size = layout.compute_type_size(target_ty);
             Ok(ConstValue::Int(size as i128))
         } else {
-            Err(ConstEvalError) // 杩欎釜閿欒鐞嗚涓婂湪鍓嶉潰妫€鏌ユ硾鍨嬫暟閲忔椂宸茶鎷︽埅
+            Err(ConstEvalError) // Already guarded by the generic-arity check above.
         }
     }
 
@@ -481,7 +481,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             let target_ty = generic_args[0];
             let mut layout = LayoutEngine::new(self.ctx);
-            let bit_width = layout.compute_type_size(target_ty) * 8; // 浣跨敤 LayoutEngine
+            let bit_width = layout.compute_type_size(target_ty) * 8;
 
             let mask = if bit_width == 128 {
                 u128::MAX
@@ -526,7 +526,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             let target_ty = generic_args[1];
 
-            // 浣跨敤 LayoutEngine 鑾峰彇鐩爣绫诲瀷鐨勪綅瀹?
+            // Use the layout engine so pointer-sized integers are handled correctly.
             let mut layout = LayoutEngine::new(self.ctx);
             let bit_width = layout.compute_type_size(target_ty) * 8;
 
@@ -567,7 +567,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         if let Ok(ConstValue::Int(val)) = self.eval_inner(&args[0], depth + 1) {
             let target_ty = generic_args[0];
 
-            // 浣跨敤 LayoutEngine
+            // Use the layout engine so the operation respects target bit width.
             let mut layout = LayoutEngine::new(self.ctx);
             let bit_width = layout.compute_type_size(target_ty) * 8;
 

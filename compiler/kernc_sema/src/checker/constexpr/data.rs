@@ -501,7 +501,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Err(ConstEvalError);
         };
 
-        // 绂佹瀵瑰甫鏈?Payload 鐨?ADT 鍙樹綋杩涜甯搁噺鏁存暟姹傚€?
+        // Payload-carrying ADT variants cannot be treated as plain integer constants.
         for v in &data_def.variants {
             if v.payload_type.is_some() {
                 self.ctx

@@ -137,7 +137,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         this
     }
 
-    /// 鎻愬彇鏁扮粍闀垮害绛夋墍闇€鐨勬棤绗﹀彿鏁存暟
+    /// Evaluate a constant expression that must yield a non-negative usize-like value.
     pub fn eval_usize(&mut self, expr: &Expr) -> ConstEvalResult<u64> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => {
@@ -164,7 +164,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
     }
 
-    /// 鎻愬彇鏅€氱殑鏈夌鍙锋暣鏁板父閲?
+    /// Evaluate a constant integer expression without applying usize restrictions.
     pub fn eval_math(&mut self, expr: &Expr) -> ConstEvalResult<i128> {
         match self.eval_inner(expr, 0) {
             Ok(ConstValue::Int(val)) => Ok(val),

@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub fn eval_inner(&mut self, expr: &Expr, depth: usize) -> ConstEvalResult<ConstValue> {
@@ -14,7 +14,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         }
 
         let eval_result = match &expr.kind {
-            // === 1. 鍩虹瀛楅潰閲?===
+            // === 1. Basic literals ===
             ExprKind::Integer(val) => Ok(ConstValue::Int(*val as i128)),
             ExprKind::Float(val) => Ok(ConstValue::Float(*val)),
             ExprKind::Bool(b) => Ok(ConstValue::Bool(*b)),
@@ -23,11 +23,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::String(s) => Ok(ConstValue::String(s.clone())),
             ExprKind::Undef => Ok(ConstValue::Undef),
 
-            // === 2. 绠楁湳涓庨€昏緫杩愮畻 ===
+            // === 2. Arithmetic and logical operators ===
             ExprKind::Binary { lhs, op, rhs } => self.eval_binary(lhs, *op, rhs, depth, expr.span),
             ExprKind::Unary { op, operand } => {
-                // 鎻愬墠鎶樺彔璐熸暟瀛楅潰閲?
-                // 鎷︽埅 `-` 鍚庨潰绱ц窡鏁板瓧鐨勬儏鍐碉紝璺宠繃瀵瑰唴閮ㄦ鏁?(濡?128) 鐨勭嫭绔嬫眰鍊煎拰瓒婄晫妫€鏌ワ紝鐩存帴杩斿洖鏁翠綋璐熸暟銆?
+                // Fold `-123` directly so it is treated as a signed literal.
                 if *op == UnaryOperator::Negate {
                     if let ExprKind::Integer(val) = &operand.kind {
                         Ok(ConstValue::Int(-(*val as i128)))
@@ -67,25 +66,25 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
             }
 
-            // === 3. 鏌ヨ〃浠ｅ叆鍏ㄥ眬 Const 鍙橀噺 ===
+            // === 3. Resolve constant identifiers ===
             ExprKind::Identifier(name) => self.eval_identifier(*name, depth, expr.span),
             ExprKind::SelfValue => {
                 let self_name = self.ctx.intern("self");
                 self.eval_identifier(self_name, depth, expr.span)
             }
 
-            // === 4. 甯搁噺鍑芥暟璋冪敤 ===
+            // === 4. Constant function calls ===
             ExprKind::Call { callee, args } => self.eval_call(callee, args, depth, expr.span),
 
-            // === 5. 鏋氫妇瀛楅潰閲忔眰鍊?===
+            // === 5. Enum literals ===
             ExprKind::EnumLiteral(variant_name) => {
                 self.eval_enum_literal(expr.id, *variant_name, depth, expr.span)
             }
 
-            // === 6. 鏁版嵁鍒濆鍖?(鏀寔宓屽 Array 鍜?Struct) ===
+            // === 6. Aggregate initialization ===
             ExprKind::DataInit { literal, .. } => self.eval_data_init(expr, literal, depth),
 
-            // === 7. 灞€閮ㄦ帶鍒舵祦 ===
+            // === 7. Local control flow ===
             ExprKind::Let {
                 pattern,
                 init,
@@ -177,7 +176,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Continue => self.eval_continue(expr.span),
             ExprKind::Return(value) => self.eval_return(value.as_deref(), depth, expr.span),
 
-            // === 7. 甯搁噺鑱氬悎璁块棶 (鎻愬彇缁撴瀯浣撳瓧娈靛拰鏁扮粍绱㈠紩) ===
+            // === 8. Constant aggregate projection ===
             ExprKind::FieldAccess { lhs, field } => {
                 let norm_lhs = self.expr_type(lhs);
 
@@ -293,10 +292,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
         };
 
-        // 鑾峰彇鍒氬垰姹傚嚭鐨勭粨鏋?
+        // Start from the freshly evaluated value.
         let mut val = eval_result?;
 
-        // 瓒婄晫涓庣鍙锋柇瑷€
+        // Apply integer range and signedness checks based on the expression type.
         if let ConstValue::Int(mut v) = val {
             let ty = self.node_type(expr.id);
             let norm = self.ctx.type_registry.normalize(ty);
@@ -321,7 +320,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         | PrimitiveType::USize
                 );
 
-                // 娲楃櫧 i128 绠楀嚭鏉ョ殑浼礋鏁帮紙姣斿 !0 -> -1锛?
+                // Reinterpret wrapped unsigned bit-patterns such as `!0`.
                 if is_unsigned {
                     let mut layout = crate::LayoutEngine::new(self.ctx);
                     let bit_width = layout.compute_type_size(norm) * 8;
@@ -331,7 +330,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                 }
 
-                // 1. 鏃犵鍙风被鍨嬩笉鎺ュ彈璐熸暟(缁忚繃娲楃櫧鍜?Unary 鎷︽埅鍚庯紝璧板埌杩欓噷鐨勯兘鏄潪娉曡秺鐣岀殑纭紪鐮佸€?
+                // Unsigned integer targets reject negative values.
                 if is_unsigned && v < 0 {
                     self.ctx.struct_error(expr.span, format!("cannot assign a negative value ({}) to an unsigned type `{}`", v, self.ctx.ty_to_string(ty)))
                         .with_hint("if you need a bit-pattern of all 1s, use explicit bitwise negation (e.g., `~0`) or `as` cast")
@@ -339,7 +338,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     return Err(ConstEvalError);
                 }
 
-                // 2. 妫€鏌ユ暟鍊兼槸鍚︽孩鍑虹浉搴旂殑浣嶅瀹归噺
+                // Check that the value fits within the destination bit width.
                 if (is_signed || is_unsigned)
                     && p != PrimitiveType::I128
                     && p != PrimitiveType::U128

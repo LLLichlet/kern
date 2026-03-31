@@ -53,7 +53,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .type_registry
                     .intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
             }
-            // 濡傛灉鏄ā鍧楋紝鏄惧紡鍖呰骞惰繑鍥?TypeKind::Module
+            // Module names resolve to the semantic namespace wrapper.
             if info.kind == SymbolKind::Module {
                 return self
                     .ctx
@@ -61,7 +61,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .intern(TypeKind::Module(info.def_id.unwrap()));
             }
 
-            // 澶勭悊 `use` 瀵煎叆鎴栦贡搴忓０鏄庣殑甯搁噺/闈欐€佸彉閲忕殑鎸夐渶鎺ㄥ
+            // Lazily infer imported or forward-declared globals when their type is still unknown.
             if info.type_id == TypeId::ERROR
                 && let Some(def_id) = info.def_id
             {
@@ -409,11 +409,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        // 1. 鑾峰彇瑙ｅ紩鐢ㄥ悗鐨勫熀纭€绫诲瀷锛圫truct/Union/Enum/Module锛夛紝浠呯敤浜庢ā鍧楀垽瀹氬拰鏈€鍚庡厹搴曠殑瀛楁鏌ユ壘
+        // Peel pointers before checking aggregate or module members.
         let base_norm = self.get_base_type(lhs_ty);
 
-        // 2. 鍩轰簬绫诲瀷绯荤粺澶勭悊澶氱骇妯″潡璁块棶
-        // 妯″潡涓嶄細鍖呰９鍦ㄦ寚閽堥噷锛屾墍浠ョ敤 base_norm 鏌ユ槸瀹夊叏鐨?
+        // Modules are namespaces, so member lookup uses the peeled base type directly.
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(base_norm).clone() {
             let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                 m.scope_id
@@ -492,7 +491,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return ty;
         }
 
-        // 鍏ㄩ儴澶辫触锛屾姏鍑鸿缁嗚瘖鏂?
+        // No field or method matched. Emit the detailed fallback diagnostic.
         let field_str = self.ctx.resolve(field);
         let lhs_str = self.ctx.ty_to_string(lhs_ty);
 
@@ -513,7 +512,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         TypeId::ERROR
     }
 
-    /// 鍔╂墜 2.5锛氶潤榛樻煡鎵惧瓧娈垫垨鏂规硶 (涓嶆姤閿欙紝鏌ヤ笉鍒拌繑鍥?None)
+    /// Resolve a field or method without emitting diagnostics on failure.
     fn try_find_field_or_method_silent(
         &mut self,
         lhs_ty: TypeId,
@@ -568,7 +567,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 | TypeKind::ArrayInfer { is_mut: true, .. }
         ) || self.is_lvalue_mutable(lhs);
 
-        // 濡傛灉鏄?`..[`锛屽繀椤荤‘淇濈洰鏍囧唴瀛樺叿鏈夊彲鍙樻潈闄?
+        // `..[` requires write access to the underlying storage.
         if is_mut && !base_allows_mut_slice && lhs_ty != TypeId::ERROR {
             self.ctx
                 .struct_error(
@@ -597,21 +596,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 杈呭姪鏂规硶 1锛氳嚜鍔ㄨВ寮曠敤 Pointer/VolatilePtr锛岃幏鍙栧簳灞傜殑 Struct/Union/Enum 绫诲瀷
+    /// Auto-deref pointers until the underlying aggregate or module type is reached.
     fn get_base_type(&mut self, mut base_ty: TypeId) -> TypeId {
         loop {
             let norm = self.resolve_tv(base_ty);
             match self.ctx.type_registry.get(norm).clone() {
-                // 閬囧埌鎸囬拡锛岃嚜鍔ㄦ墥鎺夊琛ｇ户缁線涓嬫壘
+                // Keep peeling pointer layers.
                 TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                     base_ty = elem;
                 }
-                // 鎵惧埌搴曚簡锛岃繑鍥?
+                // Stop at the first non-pointer type.
                 _ => return norm,
             }
         }
     }
 
 }
-
-

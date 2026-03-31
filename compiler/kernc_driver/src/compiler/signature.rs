@@ -15,6 +15,7 @@ use std::path::{Path, PathBuf};
 struct SignatureCallSite {
     file_id: FileId,
     span: Span,
+    callee_span: Span,
     arg_spans: Vec<Span>,
     signatures: Vec<AnalysisSignatureInformation>,
 }
@@ -67,14 +68,24 @@ impl SignatureModel {
             })
             .min_by_key(|site| site.span.end.saturating_sub(site.span.start))?;
 
-        let active_parameter = active_parameter_index(
-            &site.arg_spans,
-            offset,
-            site.signatures
-                .first()
-                .map(|signature| signature.parameters.len())
-                .unwrap_or(0),
-        );
+        let parameter_count = site
+            .signatures
+            .first()
+            .map(|signature| signature.parameters.len())
+            .unwrap_or(0);
+        let active_parameter = session
+            .source_manager
+            .get_file(site.file_id)
+            .and_then(|file| {
+                active_parameter_from_source(
+                    &file.src,
+                    site.span,
+                    site.callee_span,
+                    offset,
+                    parameter_count,
+                )
+            })
+            .unwrap_or_else(|| active_parameter_index(&site.arg_spans, offset, parameter_count));
 
         Some(AnalysisSignatureHelp {
             signatures: site.signatures.clone(),
@@ -151,6 +162,7 @@ fn collect_call_sites_in_expr(
                 call_sites.push(SignatureCallSite {
                     file_id,
                     span: expr.span,
+                    callee_span: callee.span,
                     arg_spans: args.iter().map(|arg| arg.span).collect(),
                     signatures,
                 });
@@ -418,10 +430,170 @@ fn active_parameter_index(arg_spans: &[Span], offset: usize, parameter_count: us
     raw_index.min(parameter_count.saturating_sub(1))
 }
 
+fn active_parameter_from_source(
+    source: &str,
+    call_span: Span,
+    callee_span: Span,
+    offset: usize,
+    parameter_count: usize,
+) -> Option<usize> {
+    if parameter_count == 0 {
+        return Some(0);
+    }
+
+    let scan_start = callee_span.end.min(source.len());
+    let scan_end = offset.min(call_span.end).min(source.len());
+    if scan_start >= scan_end {
+        return None;
+    }
+
+    let bytes = &source.as_bytes()[scan_start..scan_end];
+    let mut index = 0usize;
+    let mut found_call_opener = false;
+    let mut nested_depth = 0usize;
+    let mut comma_count = 0usize;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'/' if bytes.get(index + 1) == Some(&b'/') => {
+                index += 2;
+                while index < bytes.len() && bytes[index] != b'\n' {
+                    index += 1;
+                }
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                index = skip_block_comment(bytes, index + 2);
+            }
+            b'"' | b'\'' => {
+                index = skip_quoted_literal(bytes, index);
+            }
+            b'(' if !found_call_opener => {
+                found_call_opener = true;
+                index += 1;
+            }
+            b'(' | b'[' | b'{' if found_call_opener => {
+                nested_depth += 1;
+                index += 1;
+            }
+            b')' | b']' | b'}' if found_call_opener => {
+                if nested_depth == 0 {
+                    break;
+                }
+                nested_depth -= 1;
+                index += 1;
+            }
+            b',' if found_call_opener && nested_depth == 0 => {
+                comma_count += 1;
+                index += 1;
+            }
+            _ => {
+                index += 1;
+            }
+        }
+    }
+
+    found_call_opener.then_some(comma_count.min(parameter_count.saturating_sub(1)))
+}
+
+fn skip_block_comment(bytes: &[u8], mut index: usize) -> usize {
+    let mut depth = 1usize;
+
+    while index < bytes.len() && depth > 0 {
+        match (bytes[index], bytes.get(index + 1).copied()) {
+            (b'/', Some(b'*')) => {
+                depth += 1;
+                index += 2;
+            }
+            (b'*', Some(b'/')) => {
+                depth -= 1;
+                index += 2;
+            }
+            _ => {
+                index += 1;
+            }
+        }
+    }
+
+    index
+}
+
+fn skip_quoted_literal(bytes: &[u8], start: usize) -> usize {
+    let quote = bytes[start];
+    let mut index = start + 1;
+
+    while index < bytes.len() {
+        match bytes[index] {
+            b'\\' => {
+                index = (index + 2).min(bytes.len());
+            }
+            byte if byte == quote => {
+                return index + 1;
+            }
+            _ => {
+                index += 1;
+            }
+        }
+    }
+
+    index
+}
+
 fn call_span_contains_offset(span: Span, offset: usize) -> bool {
     offset >= span.start && offset <= span.end
 }
 
 fn normalize_analysis_path(path: &Path) -> PathBuf {
     std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::active_parameter_from_source;
+    use kernc_utils::{FileId, Span};
+
+    #[test]
+    fn source_tracking_advances_after_trailing_comma_without_next_argument() {
+        let source = "helper(1, )";
+        let file_id = FileId(0);
+        let active_parameter = active_parameter_from_source(
+            source,
+            Span {
+                file: file_id,
+                start: 0,
+                end: source.len(),
+            },
+            Span {
+                file: file_id,
+                start: 0,
+                end: "helper".len(),
+            },
+            "helper(1, ".len(),
+            2,
+        );
+
+        assert_eq!(active_parameter, Some(1));
+    }
+
+    #[test]
+    fn source_tracking_ignores_nested_commas_inside_arguments() {
+        let source = "helper(nested(1, 2), )";
+        let file_id = FileId(0);
+        let active_parameter = active_parameter_from_source(
+            source,
+            Span {
+                file: file_id,
+                start: 0,
+                end: source.len(),
+            },
+            Span {
+                file: file_id,
+                start: 0,
+                end: "helper".len(),
+            },
+            "helper(nested(1, 2), ".len(),
+            2,
+        );
+
+        assert_eq!(active_parameter, Some(1));
+    }
 }

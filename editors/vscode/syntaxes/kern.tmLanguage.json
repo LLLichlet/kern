@@ -25,6 +25,9 @@
       "include": "#declarations"
     },
     {
+      "include": "#closures"
+    },
+    {
       "include": "#constructors"
     },
     {
@@ -243,11 +246,68 @@
         }
       ]
     },
+    "closures": {
+      "patterns": [
+        {
+          "name": "meta.closure.kern",
+          "begin": "\\.\\[",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.closure.begin.kern"
+            }
+          },
+          "end": "\\]",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.closure.end.kern"
+            }
+          },
+          "patterns": [
+            {
+              "name": "variable.parameter.capture.kern",
+              "match": "\\b[a-zA-Z_][A-Za-z0-9_]*\\b(?=\\s*=)"
+            },
+            {
+              "name": "variable.other.capture.kern",
+              "match": "\\b[a-zA-Z_][A-Za-z0-9_]*\\b"
+            },
+            {
+              "name": "keyword.operator.assignment.kern",
+              "match": "="
+            },
+            {
+              "name": "punctuation.separator.comma.kern",
+              "match": ","
+            },
+            {
+              "include": "#intrinsics"
+            },
+            {
+              "include": "#numbers"
+            },
+            {
+              "include": "#strings"
+            },
+            {
+              "include": "#operators"
+            }
+          ]
+        }
+      ]
+    },
     "constructors": {
       "patterns": [
         {
           "name": "entity.name.type.constructor.kern",
           "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*\\.\\{)"
+        },
+        {
+          "name": "entity.name.type.constructor.kern",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*\\[[^\\]]*\\]\\s*\\.\\{)"
+        },
+        {
+          "name": "storage.type.aggregate.kern",
+          "match": "\\b(?:extern\\s+)?(?:struct|union|enum|trait)\\b(?=\\s*(?::\\s*[A-Za-z_][A-Za-z0-9_]*\\s*)?\\{)"
         },
         {
           "name": "support.type.primitive.constructor.kern",
@@ -286,6 +346,22 @@
           "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str|void)\\b"
         },
         {
+          "name": "storage.modifier.pointer.kern",
+          "match": "\\*mut\\b|\\^mut\\b|\\*\\b|\\^\\b"
+        },
+        {
+          "name": "support.type.slice.kern",
+          "match": "\\[\\](?:mut\\b)?"
+        },
+        {
+          "name": "support.type.array.kern",
+          "match": "\\[(?:_|\\d+(?:_\\d+)*)\\]"
+        },
+        {
+          "name": "support.type.fn-trait.kern",
+          "match": "\\bFn\\b"
+        },
+        {
           "name": "support.type.self.kern",
           "match": "\\bSelf\\b"
         },
@@ -299,7 +375,7 @@
       "patterns": [
         {
           "name": "entity.name.function.call.kern",
-          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
+          "match": "\\b(?!if\\b|else\\b|for\\b|match\\b|return\\b|defer\\b|while\\b|switch\\b)[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
         },
         {
           "name": "entity.name.function.method.kern",

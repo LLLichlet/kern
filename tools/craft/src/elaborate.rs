@@ -355,6 +355,7 @@ fn selected_features(
     Ok(enabled)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn script_context(
     plan: &PackagePlan,
     workspace_root: &Path,

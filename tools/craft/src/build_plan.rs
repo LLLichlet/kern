@@ -96,6 +96,7 @@ pub struct StagedAction {
     pub kind: StagedActionKind,
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StagedActionKind {
     WriteFile {
@@ -198,6 +199,7 @@ impl ActionPlan {
         self.link_actions.len()
     }
 
+    #[cfg(test)]
     pub fn artifact_output_nodes_for_link_action<'a>(
         &'a self,
         action: &LinkAction,
@@ -1206,6 +1208,7 @@ mod tests {
         artifact_path, derive,
     };
     use crate::elaborate::plan;
+    use crate::graph::PackageId;
     use crate::manifest::Manifest;
     use crate::plan::TargetKind;
     use crate::workspace::load_members;
@@ -1794,23 +1797,27 @@ root = "src/main.rn"
             .iter()
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
-        let expected_tool_path = root
-            .join(".craft")
-            .join("sources")
-            .join("registry")
-            .join("default")
-            .join("codegen")
-            .join("1")
-            .join(".craft")
-            .join("build")
-            .join("dev")
-            .join("target")
-            .join("out")
-            .join("codegen-1")
-            .join("bin")
-            .join("codegen")
-            .to_string_lossy()
-            .to_string();
+        let expected_tool_path = artifact_path(
+            &root
+                .join(".craft")
+                .join("sources")
+                .join("registry")
+                .join("default")
+                .join("codegen")
+                .join("1"),
+            &crate::script::host_target(),
+            crate::graph::BuildDomain::Target,
+            &PackageId {
+                name: "codegen".to_string(),
+                version: "1".to_string(),
+                source: crate::graph::SourceId::Registry { name: None },
+            },
+            "dev",
+            TargetKind::Bin,
+            "codegen",
+        )
+        .to_string_lossy()
+        .to_string();
 
         assert_eq!(
             unit.define.get("selected_tool"),
@@ -2254,7 +2261,7 @@ pub fn build(b: *mut builder.Builder) void {
         assert!(matches!(
             &unit.source_root,
             SourceRootBinding::BuildOutput { id, path }
-                if *id == source.id && path.ends_with("src/main.rn")
+                if *id == source.id && path.replace('\\', "/").ends_with("src/main.rn")
         ));
 
         let _ = fs::remove_dir_all(root);

@@ -907,10 +907,10 @@ fn parse_command_options(
                 usage()
             )));
         }
-        if path.is_some() {
+        if let Some(existing_path) = &path {
             return Err(Error::Usage(format!(
                 "multiple package paths provided: `{}` and `{arg}`",
-                path.as_ref().unwrap().display()
+                existing_path.display()
             )));
         }
         path = Some(PathBuf::from(arg));

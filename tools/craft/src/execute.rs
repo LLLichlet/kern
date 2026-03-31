@@ -259,13 +259,13 @@ fn compile_time_defines(
     }
     for (name, value) in define {
         let value = plan_value_string(value);
-        if let Some(existing) = values.get(name) {
-            if existing != &value {
-                return Err(Error::Execution(format!(
-                    "compile-time key `{name}` has conflicting cfg/define values for `{}`",
-                    source_path.display()
-                )));
-            }
+        if let Some(existing) = values.get(name)
+            && existing != &value
+        {
+            return Err(Error::Execution(format!(
+                "compile-time key `{name}` has conflicting cfg/define values for `{}`",
+                source_path.display()
+            )));
         }
         values.insert(name.clone(), value);
     }
@@ -297,6 +297,7 @@ fn load_source_config(build_plan: &BuildPlan) -> Result<SourceConfigContext> {
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_compile_action_built(
     action: &CompileAction,
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
@@ -412,6 +413,7 @@ fn ensure_compile_action_built(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_staged_actions(
     root_ids: &[usize],
     build_nodes: &[StagedAction],
@@ -474,6 +476,7 @@ fn execute_staged_actions(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_staged_action(
     action: &StagedAction,
     action_index: &BTreeMap<usize, &StagedAction>,
@@ -623,6 +626,7 @@ fn execute_staged_action(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_link_action_built(
     action: &LinkAction,
     action_plan: &ActionPlan,
@@ -825,6 +829,7 @@ fn load_external_package_actions(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_external_package(
     source_config: &SourceConfigContext,
     dependency_workspace_root: &Path,
@@ -954,6 +959,7 @@ fn fetch_external_package(
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn ensure_external_tool_built(
     tool: &crate::script::BuildScriptTool,
     source_config: &SourceConfigContext,
@@ -1315,6 +1321,7 @@ fn collect_module_alias_paths(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execute_compile_actions(
     actions: &[CompileAction],
     action_plan: &ActionPlan,

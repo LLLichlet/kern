@@ -306,6 +306,10 @@ fn canonical_script_path(path: &Path) -> Result<std::path::PathBuf> {
     path.canonicalize().map_err(|err| Error::from_io(path, err))
 }
 
+fn normalized_path_string(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
 fn analyze_script<'a>(
     script_path: &Path,
     script_input: &str,
@@ -748,7 +752,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                 let output = expect_output(args, 1, "output")?;
                 self.unit.source_root = SourceRootBinding::BuildOutput {
                     id: output.id,
-                    path: output.path,
+                    path: normalize_path_display(&output.path),
                 };
                 Ok(ConstValue::Void)
             }
@@ -999,7 +1003,9 @@ fn source_root_binding_from_script_path(
         return Err("source root must not be empty".to_string());
     }
     if Path::new(path).is_absolute() {
-        return Ok(SourceRootBinding::AbsolutePath(path.to_string()));
+        return Ok(SourceRootBinding::AbsolutePath(normalize_path_display(
+            path,
+        )));
     }
     Ok(SourceRootBinding::PackagePath(normalize_relative_display(
         path,
@@ -1057,6 +1063,10 @@ fn normalize_relative_display(
         .replace('\\', "/"))
 }
 
+fn normalize_path_display(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 fn relative_display(root: &Path, path: &Path) -> String {
     path.strip_prefix(root)
         .map(|relative| relative.to_string_lossy().replace('\\', "/"))
@@ -1103,7 +1113,7 @@ fn record_staged_action(
         existing.kind = kind;
         return BuildOutput {
             id: existing_id,
-            path: path.to_string_lossy().to_string(),
+            path: normalized_path_string(path),
         };
     }
     let id = next_staged_action_id(build_nodes);
@@ -1117,7 +1127,7 @@ fn record_staged_action(
     unit_bound_node_ids_mut(unit, phase).push(id);
     BuildOutput {
         id,
-        path: path.to_string_lossy().to_string(),
+        path: normalized_path_string(path),
     }
 }
 

@@ -1,0 +1,100 @@
+{
+  "name": "kern-vscode",
+  "displayName": "Kern",
+  "description": "VS Code support for the Kern programming language.",
+  "version": "0.6.3",
+  "publisher": "softfault",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/softfault/kern.git"
+  },
+  "homepage": "https://github.com/softfault/kern",
+  "bugs": {
+    "url": "https://github.com/softfault/kern/issues"
+  },
+  "engines": {
+    "vscode": "^1.86.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "kern",
+    "systems",
+    "compiler",
+    "language-server"
+  ],
+  "activationEvents": [
+    "onLanguage:kern",
+    "onCommand:kern.restartLanguageServer",
+    "workspaceContains:**/*.rn"
+  ],
+  "main": "./out/extension.js",
+  "files": [
+    "out/**/*",
+    "syntaxes/**/*",
+    "language-configuration.json",
+    "README.md",
+    "package.json"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "kern",
+        "aliases": [
+          "Kern",
+          "kern"
+        ],
+        "extensions": [
+          ".rn"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "kern",
+        "scopeName": "source.kern",
+        "path": "./syntaxes/kern.tmLanguage.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "kern.restartLanguageServer",
+        "title": "Kern: Restart Language Server"
+      }
+    ],
+    "configuration": {
+      "title": "Kern",
+      "properties": {
+        "kern.server.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the kern-lsp executable. Leave empty to auto-detect from the workspace or PATH."
+        },
+        "kern.server.args": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Additional command-line arguments passed to kern-lsp."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "check": "tsc -p ./ --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.12",
+    "@types/vscode": "^1.86.0",
+    "typescript": "^5.5.4"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}

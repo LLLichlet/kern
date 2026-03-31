@@ -14,10 +14,10 @@ use self::navigation::{
     find_document_highlights, find_hover, find_reference_locations, find_rename_target,
 };
 use self::text::{
-    apply_content_change, byte_offset_to_position, completion_prefix, file_path_to_uri,
-    has_following_call_paren, is_valid_identifier, match_position_in_file, normalize_path,
-    position_to_byte_offset, single_server_diagnostic, span_contains_offset, span_to_range,
-    trim_line_ending, uri_to_file_path,
+    CompletionContext, apply_content_change, byte_offset_to_position, completion_context,
+    completion_prefix, file_path_to_uri, has_following_call_paren, is_valid_identifier,
+    match_position_in_file, normalize_path, position_to_byte_offset, single_server_diagnostic,
+    span_contains_offset, span_to_range, trim_line_ending, uri_to_file_path,
 };
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -263,6 +263,7 @@ impl AnalysisEngine {
         };
         let prefix = completion_prefix(&target_doc.text, offset);
         let has_call_paren = has_following_call_paren(&target_doc.text, offset);
+        let context = completion_context(&target_doc.text, offset);
 
         let mut items = artifact.completion_items(&target_path, offset);
         if !prefix.is_empty() {
@@ -276,7 +277,8 @@ impl AnalysisEngine {
             }
         }
         items.sort_by(|left, right| {
-            completion_sort_key(left, prefix).cmp(&completion_sort_key(right, prefix))
+            completion_sort_key(left, prefix, context)
+                .cmp(&completion_sort_key(right, prefix, context))
         });
 
         Ok(items
@@ -455,13 +457,43 @@ impl AnalysisEngine {
 fn completion_sort_key(
     item: &kernc_driver::AnalysisCompletionItem,
     prefix: &str,
-) -> (u8, usize, String) {
+    context: CompletionContext,
+) -> (u8, u8, usize, String) {
     let exact = (!prefix.is_empty() && item.label == prefix) as u8;
     (
+        completion_context_rank(item.kind, context),
         1_u8.saturating_sub(exact),
         item.label.len(),
         item.label.to_ascii_lowercase(),
     )
+}
+
+fn completion_context_rank(
+    kind: kernc_driver::AnalysisCompletionKind,
+    context: CompletionContext,
+) -> u8 {
+    match context {
+        CompletionContext::Type => {
+            (!matches!(
+                kind,
+                kernc_driver::AnalysisCompletionKind::Struct
+                    | kernc_driver::AnalysisCompletionKind::Union
+                    | kernc_driver::AnalysisCompletionKind::Enum
+                    | kernc_driver::AnalysisCompletionKind::Trait
+                    | kernc_driver::AnalysisCompletionKind::TypeAlias
+                    | kernc_driver::AnalysisCompletionKind::TypeParameter
+            )) as u8
+        }
+        CompletionContext::Value => {
+            (!matches!(
+                kind,
+                kernc_driver::AnalysisCompletionKind::Variable
+                    | kernc_driver::AnalysisCompletionKind::Function
+                    | kernc_driver::AnalysisCompletionKind::Constant
+                    | kernc_driver::AnalysisCompletionKind::Static
+            )) as u8
+        }
+    }
 }
 
 pub fn cleared_uris(previous: &BTreeSet<String>, current: &[DiagnosticBundle]) -> Vec<String> {

@@ -1390,6 +1390,42 @@ mod tests {
     }
 
     #[test]
+    fn completion_request_prefers_types_in_type_positions() {
+        let mut state = initialized_state();
+        let source = concat!(
+            "type MarkerType = struct {};\n",
+            "fn Mark() MarkerType { return MarkerType.{}; }\n",
+            "fn main() void {\n",
+            "    let value = Mark() as Mar;\n",
+            "}\n",
+        );
+        let uri = temp_file_uri("server_completion_type_context", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(33)),
+                method: Some("textDocument/completion".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 3, "character": 29 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(33));
+        let labels = response["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|item| item["label"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(labels.starts_with(&["MarkerType", "Mark"]));
+    }
+
+    #[test]
     fn semantic_tokens_request_returns_encoded_token_data() {
         let mut state = initialized_state();
         let source = concat!(

@@ -1,8 +1,16 @@
 use super::{AnalysisOutcome, TextDocumentContentChangeEvent};
 use crate::protocol::{Position, Range};
+use kernc_lexer::{Token, TokenType, Tokenizer};
+use kernc_utils::FileId;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum CompletionContext {
+    Value,
+    Type,
+}
 
 pub(super) fn apply_content_change(
     path: &Path,
@@ -302,6 +310,88 @@ pub(super) fn has_following_call_paren(text: &str, offset: usize) -> bool {
     }
 
     false
+}
+
+pub(super) fn completion_context(text: &str, offset: usize) -> CompletionContext {
+    let prefix_start = completion_prefix_start(text, offset);
+    let mut tokenizer = Tokenizer::new(&text[..prefix_start], FileId(0));
+    let mut tokens = Vec::new();
+
+    loop {
+        let token = tokenizer.next_token();
+        if token.tag == TokenType::Eof {
+            break;
+        }
+        tokens.push(token);
+    }
+
+    classify_completion_context(&tokens)
+}
+
+fn classify_completion_context(tokens: &[Token]) -> CompletionContext {
+    let Some(last) = tokens.last() else {
+        return CompletionContext::Value;
+    };
+
+    match last.tag {
+        TokenType::As => CompletionContext::Type,
+        TokenType::Colon if colon_prefers_type_context(tokens) => CompletionContext::Type,
+        TokenType::Assign if assign_prefers_type_context(tokens) => CompletionContext::Type,
+        _ => CompletionContext::Value,
+    }
+}
+
+fn colon_prefers_type_context(tokens: &[Token]) -> bool {
+    for token in tokens.iter().rev().skip(1) {
+        match token.tag {
+            TokenType::DotLBrace => return false,
+            TokenType::Where
+            | TokenType::Let
+            | TokenType::Const
+            | TokenType::Static
+            | TokenType::Fn
+            | TokenType::CapitalFn
+            | TokenType::Struct
+            | TokenType::Union
+            | TokenType::Trait => return true,
+            TokenType::Semicolon | TokenType::Assign | TokenType::Return => return false,
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn assign_prefers_type_context(tokens: &[Token]) -> bool {
+    for token in tokens.iter().rev().skip(1) {
+        match token.tag {
+            TokenType::Type => return true,
+            TokenType::Semicolon
+            | TokenType::LBrace
+            | TokenType::RBrace
+            | TokenType::Return
+            | TokenType::Let
+            | TokenType::Const
+            | TokenType::Static
+            | TokenType::Fn
+            | TokenType::CapitalFn => return false,
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn completion_prefix_start(text: &str, offset: usize) -> usize {
+    let clamped = offset.min(text.len());
+    let bytes = text.as_bytes();
+    let mut start = clamped;
+
+    while start > 0 && is_identifier_continue(bytes[start - 1]) {
+        start -= 1;
+    }
+
+    start
 }
 
 fn is_identifier_start(byte: u8) -> bool {

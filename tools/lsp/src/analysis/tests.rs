@@ -1171,6 +1171,35 @@ fn completion_avoids_duplicate_call_parentheses_when_already_present() {
 }
 
 #[test]
+fn completion_prefers_types_in_type_annotations() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type MarkerType = struct {};\n",
+        "fn Mark() MarkerType { return MarkerType.{}; }\n",
+        "fn main() void {\n",
+        "    let value = Mark() as Mar;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_type_context", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, " as Mar", 0, 7))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.starts_with(&["MarkerType".to_string(), "Mark".to_string()]));
+}
+
+#[test]
 fn completion_in_method_body_includes_self() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

@@ -346,7 +346,7 @@ fn ensure_compile_action_built(
     }
 
     execute_staged_actions(
-        action.pre_compile_nodes.as_slice(),
+        action.compile_inputs.as_slice(),
         action_plan.build_nodes.as_slice(),
         staged_outputs,
         action.required_source_path(),
@@ -713,7 +713,7 @@ fn ensure_link_action_built(
     }
 
     execute_staged_actions(
-        action.post_link_nodes.as_slice(),
+        action.artifact_outputs.as_slice(),
         action_plan.build_nodes.as_slice(),
         staged_outputs,
         None,
@@ -2352,7 +2352,7 @@ pub fn build(b: *mut builder.Builder) void {
                     && action.target_kind == crate::plan::TargetKind::Bin
             })
             .unwrap();
-        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
+        let link_nodes = action_plan.artifact_output_nodes_for_link_action(link_action);
 
         let summary = run(&build_plan, &action_plan, unit).unwrap();
         assert!(summary.executable.is_file());
@@ -2435,7 +2435,7 @@ pub fn build(b: *mut builder.Builder) void {
                     && action.target_kind == crate::plan::TargetKind::Bin
             })
             .unwrap();
-        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
+        let link_nodes = action_plan.artifact_output_nodes_for_link_action(link_action);
 
         let summary = run(&build_plan, &action_plan, unit).unwrap();
         assert!(summary.executable.is_file());

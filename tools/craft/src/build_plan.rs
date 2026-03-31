@@ -46,8 +46,7 @@ pub struct BuildUnit {
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
     pub generated_files: Vec<GeneratedFile>,
-    pub pre_compile_nodes: Vec<usize>,
-    pub post_link_nodes: Vec<usize>,
+    pub build: BuildNodeBindings,
     pub link: LinkPlan,
 }
 
@@ -67,6 +66,12 @@ pub struct BuildScriptInput {
 pub struct GeneratedFile {
     pub path: String,
     pub origin: GeneratedFileOrigin,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BuildNodeBindings {
+    pub compile_inputs: Vec<usize>,
+    pub artifact_outputs: Vec<usize>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -143,7 +148,7 @@ pub struct CompileAction {
     pub profile: script::ScriptProfile,
     pub cfg: BTreeMap<String, PlanValue>,
     pub define: BTreeMap<String, PlanValue>,
-    pub pre_compile_nodes: Vec<usize>,
+    pub compile_inputs: Vec<usize>,
     pub local_dependencies: Vec<LocalDependencyBinding>,
     pub external_dependencies: Vec<ExternalDependencyBinding>,
 }
@@ -165,7 +170,7 @@ pub struct LinkAction {
     pub artifact_path: PathBuf,
     pub primary_object: PathBuf,
     pub local_library_objects: Vec<PathBuf>,
-    pub post_link_nodes: Vec<usize>,
+    pub artifact_outputs: Vec<usize>,
     pub external_dependencies: Vec<ExternalDependencyBinding>,
     pub link: LinkPlan,
 }
@@ -193,10 +198,13 @@ impl ActionPlan {
         self.link_actions.len()
     }
 
-    pub fn build_nodes_for_link_action<'a>(&'a self, action: &LinkAction) -> Vec<&'a StagedAction> {
+    pub fn artifact_output_nodes_for_link_action<'a>(
+        &'a self,
+        action: &LinkAction,
+    ) -> Vec<&'a StagedAction> {
         collect_build_nodes(
             self.build_nodes.as_slice(),
-            action.post_link_nodes.as_slice(),
+            action.artifact_outputs.as_slice(),
         )
     }
 }
@@ -289,10 +297,18 @@ impl BuildPlan {
         self.build_nodes.len()
     }
 
-    pub fn build_nodes_for_unit<'a>(&'a self, unit: &BuildUnit) -> Vec<&'a StagedAction> {
-        let mut ids = unit.pre_compile_nodes.clone();
-        ids.extend(unit.post_link_nodes.iter().copied());
-        collect_build_nodes(self.build_nodes.as_slice(), ids.as_slice())
+    pub fn compile_input_nodes_for_unit<'a>(&'a self, unit: &BuildUnit) -> Vec<&'a StagedAction> {
+        collect_build_nodes(
+            self.build_nodes.as_slice(),
+            unit.build.compile_inputs.as_slice(),
+        )
+    }
+
+    pub fn artifact_output_nodes_for_unit<'a>(&'a self, unit: &BuildUnit) -> Vec<&'a StagedAction> {
+        collect_build_nodes(
+            self.build_nodes.as_slice(),
+            unit.build.artifact_outputs.as_slice(),
+        )
     }
 
     pub fn link_system_lib_count(&self) -> usize {
@@ -385,7 +401,7 @@ impl BuildPlan {
                     profile: unit.profile.clone(),
                     cfg: unit.cfg.clone(),
                     define: unit.define.clone(),
-                    pre_compile_nodes: unit.pre_compile_nodes.clone(),
+                    compile_inputs: unit.build.compile_inputs.clone(),
                     local_dependencies: unit.local_dependencies.clone(),
                     external_dependencies: unit.external_dependencies.clone(),
                 });
@@ -441,7 +457,7 @@ impl BuildPlan {
                                 .cloned()
                         })
                         .collect(),
-                    post_link_nodes: unit.post_link_nodes.clone(),
+                    artifact_outputs: unit.build.artifact_outputs.clone(),
                     external_dependencies: unit.external_dependencies.clone(),
                     link: unit.link.clone(),
                 });
@@ -714,8 +730,7 @@ fn build_package_for_domain(
             cfg: source.elaboration.plan.cfg.clone(),
             define: source.elaboration.plan.define.clone(),
             generated_files: Vec::new(),
-            pre_compile_nodes: Vec::new(),
-            post_link_nodes: Vec::new(),
+            build: BuildNodeBindings::default(),
             link: LinkPlan::default(),
         })
         .collect();
@@ -2067,7 +2082,7 @@ pub fn build(b: *mut builder.Builder) void {
             .iter()
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
-        let unit_nodes = build_plan.build_nodes_for_unit(unit);
+        let unit_nodes = build_plan.compile_input_nodes_for_unit(unit);
 
         let SourceRootBinding::AbsolutePath(source_root) = &unit.source_root else {
             panic!("expected generated source root to be an absolute path binding");
@@ -2151,7 +2166,7 @@ pub fn build(b: *mut builder.Builder) void {
             .iter()
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
-        let unit_nodes = build_plan.build_nodes_for_unit(unit);
+        let unit_nodes = build_plan.compile_input_nodes_for_unit(unit);
 
         assert_eq!(unit.generated_files.len(), 1);
         assert_eq!(
@@ -2224,7 +2239,7 @@ pub fn build(b: *mut builder.Builder) void {
             .iter()
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
-        let unit_nodes = build_plan.build_nodes_for_unit(unit);
+        let unit_nodes = build_plan.compile_input_nodes_for_unit(unit);
 
         assert_eq!(unit_nodes.len(), 2);
         let helper = unit_nodes
@@ -2306,8 +2321,8 @@ pub fn build(b: *mut builder.Builder) void {
                 action.package_id.name == "demo" && action.target_kind == TargetKind::Bin
             })
             .unwrap();
-        let unit_nodes = build_plan.build_nodes_for_unit(unit);
-        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
+        let unit_nodes = build_plan.artifact_output_nodes_for_unit(unit);
+        let link_nodes = action_plan.artifact_output_nodes_for_link_action(link_action);
 
         assert_eq!(unit_nodes.len(), 2);
         assert!(
@@ -2385,8 +2400,8 @@ pub fn build(b: *mut builder.Builder) void {
                 action.package_id.name == "demo" && action.target_kind == TargetKind::Bin
             })
             .unwrap();
-        let unit_nodes = build_plan.build_nodes_for_unit(unit);
-        let link_nodes = action_plan.build_nodes_for_link_action(link_action);
+        let unit_nodes = build_plan.artifact_output_nodes_for_unit(unit);
+        let link_nodes = action_plan.artifact_output_nodes_for_link_action(link_action);
 
         assert_eq!(unit_nodes.len(), 1);
         assert!(matches!(

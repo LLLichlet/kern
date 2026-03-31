@@ -646,63 +646,67 @@ fn print_generated_files_for_unit(
         .collect::<Vec<_>>()
         .join(",");
     println!("generated: {} files={}", format_unit_label(unit), files);
-    let unit_build_nodes = build_plan.build_nodes_for_unit(unit);
-    if !unit_build_nodes.is_empty() {
-        let staged = unit_build_nodes
-            .iter()
-            .map(|action| match &action.kind {
-                build_plan::StagedActionKind::WriteFile { .. } => {
-                    format!(
-                        "{}:node#{}:write:{}{}",
-                        format_stage_phase(action.phase),
-                        action.id,
-                        action.output,
-                        format_stage_dependencies(action.depends_on.as_slice())
-                    )
-                }
-                build_plan::StagedActionKind::RunTool { tool, args } => {
-                    format!(
-                        "{}:node#{}:run_tool:{}<= {}({}){}",
-                        format_stage_phase(action.phase),
-                        action.id,
-                        action.output,
-                        tool.executable_path,
-                        args.join(" "),
-                        format_stage_dependencies(action.depends_on.as_slice())
-                    )
-                }
-                build_plan::StagedActionKind::CopyFile { source } => {
-                    format!(
-                        "{}:node#{}:copy:{}<= {}{}",
-                        format_stage_phase(action.phase),
-                        action.id,
-                        action.output,
-                        source,
-                        format_stage_dependencies(action.depends_on.as_slice())
-                    )
-                }
-                build_plan::StagedActionKind::CopyDirectory { source } => {
-                    format!(
-                        "{}:node#{}:copy_dir:{}<= {}{}",
-                        format_stage_phase(action.phase),
-                        action.id,
-                        action.output,
-                        source,
-                        format_stage_dependencies(action.depends_on.as_slice())
-                    )
-                }
-            })
-            .collect::<Vec<_>>()
-            .join(",");
-        println!("staged: {} actions={}", format_unit_label(unit), staged);
+    let compile_inputs = build_plan.compile_input_nodes_for_unit(unit);
+    if !compile_inputs.is_empty() {
+        println!(
+            "compile_inputs: {} nodes={}",
+            format_unit_label(unit),
+            format_bound_nodes(&compile_inputs)
+        );
+    }
+    let artifact_outputs = build_plan.artifact_output_nodes_for_unit(unit);
+    if !artifact_outputs.is_empty() {
+        println!(
+            "artifact_outputs: {} nodes={}",
+            format_unit_label(unit),
+            format_bound_nodes(&artifact_outputs)
+        );
     }
 }
 
-fn format_stage_phase(phase: build_plan::StagedActionPhase) -> &'static str {
-    match phase {
-        build_plan::StagedActionPhase::PreCompile => "pre_compile",
-        build_plan::StagedActionPhase::PostLink => "post_link",
-    }
+fn format_bound_nodes(actions: &[&build_plan::StagedAction]) -> String {
+    actions
+        .iter()
+        .map(|action| match &action.kind {
+            build_plan::StagedActionKind::WriteFile { .. } => {
+                format!(
+                    "node#{}:write:{}{}",
+                    action.id,
+                    action.output,
+                    format_stage_dependencies(action.depends_on.as_slice())
+                )
+            }
+            build_plan::StagedActionKind::RunTool { tool, args } => {
+                format!(
+                    "node#{}:run_tool:{}<= {}({}){}",
+                    action.id,
+                    action.output,
+                    tool.executable_path,
+                    args.join(" "),
+                    format_stage_dependencies(action.depends_on.as_slice())
+                )
+            }
+            build_plan::StagedActionKind::CopyFile { source } => {
+                format!(
+                    "node#{}:copy:{}<= {}{}",
+                    action.id,
+                    action.output,
+                    source,
+                    format_stage_dependencies(action.depends_on.as_slice())
+                )
+            }
+            build_plan::StagedActionKind::CopyDirectory { source } => {
+                format!(
+                    "node#{}:copy_dir:{}<= {}{}",
+                    action.id,
+                    action.output,
+                    source,
+                    format_stage_dependencies(action.depends_on.as_slice())
+                )
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 fn format_stage_dependencies(depends_on: &[usize]) -> String {

@@ -398,6 +398,7 @@ Staged actions:
 - are explicit execution-phase file operations
 - target either the generated area or the final artifact area
 - remain visible in the derived build plan and CLI output
+- are bound to units as either `compile_inputs` or `artifact_outputs`
 
 The staged action model currently has two explicit phases:
 
@@ -542,7 +543,7 @@ Current behavior:
 - build-unit and action counts
 - generated files
 - resolved source bindings (`package`, `absolute`, or `build_output`)
-- staged actions with their phase labels
+- unit-bound `compile_inputs` and `artifact_outputs`
 - link directives
 - lockfile freshness
 

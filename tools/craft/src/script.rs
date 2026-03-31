@@ -1090,7 +1090,7 @@ fn record_staged_action(
     kind: StagedActionKind,
 ) -> BuildOutput {
     let output = relative_display(workspace_root, path);
-    let node_ids = unit_node_ids_for_phase(unit, phase);
+    let node_ids = unit_bound_node_ids(unit, phase);
     if let Some(existing_id) = node_ids.iter().copied().find(|id| {
         build_nodes
             .iter()
@@ -1114,7 +1114,7 @@ fn record_staged_action(
         depends_on: Vec::new(),
         kind,
     });
-    unit_node_ids_for_phase_mut(unit, phase).push(id);
+    unit_bound_node_ids_mut(unit, phase).push(id);
     BuildOutput {
         id,
         path: path.to_string_lossy().to_string(),
@@ -1169,17 +1169,17 @@ fn add_staged_dependency(
     Ok(())
 }
 
-fn unit_node_ids_for_phase(unit: &BuildUnit, phase: StagedActionPhase) -> &[usize] {
+fn unit_bound_node_ids(unit: &BuildUnit, phase: StagedActionPhase) -> &[usize] {
     match phase {
-        StagedActionPhase::PreCompile => &unit.pre_compile_nodes,
-        StagedActionPhase::PostLink => &unit.post_link_nodes,
+        StagedActionPhase::PreCompile => &unit.build.compile_inputs,
+        StagedActionPhase::PostLink => &unit.build.artifact_outputs,
     }
 }
 
-fn unit_node_ids_for_phase_mut(unit: &mut BuildUnit, phase: StagedActionPhase) -> &mut Vec<usize> {
+fn unit_bound_node_ids_mut(unit: &mut BuildUnit, phase: StagedActionPhase) -> &mut Vec<usize> {
     match phase {
-        StagedActionPhase::PreCompile => &mut unit.pre_compile_nodes,
-        StagedActionPhase::PostLink => &mut unit.post_link_nodes,
+        StagedActionPhase::PreCompile => &mut unit.build.compile_inputs,
+        StagedActionPhase::PostLink => &mut unit.build.artifact_outputs,
     }
 }
 

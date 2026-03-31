@@ -1110,6 +1110,125 @@ mod tests {
         );
     }
 
+    #[test]
+    fn definition_request_returns_definition_location() {
+        let mut state = initialized_state();
+        let source =
+            "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
+        let uri = temp_file_uri("server_definition", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(25)),
+                method: Some("textDocument/definition".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 24 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(25));
+        assert_eq!(response["result"]["uri"], uri);
+        assert_eq!(
+            response["result"]["range"]["start"],
+            json!({ "line": 0, "character": 3 })
+        );
+    }
+
+    #[test]
+    fn references_request_returns_sorted_locations() {
+        let mut state = initialized_state();
+        let source =
+            "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
+        let uri = temp_file_uri("server_references", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(26)),
+                method: Some("textDocument/references".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 24 },
+                    "context": { "includeDeclaration": false }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(26));
+        let locations = response["result"].as_array().unwrap();
+        assert_eq!(locations.len(), 2);
+        assert_eq!(locations[0]["uri"], uri);
+        assert_eq!(
+            locations[0]["range"]["start"],
+            json!({ "line": 1, "character": 23 })
+        );
+        assert_eq!(
+            locations[1]["range"]["start"],
+            json!({ "line": 1, "character": 34 })
+        );
+    }
+
+    #[test]
+    fn hover_request_returns_signature_markup() {
+        let mut state = initialized_state();
+        let source = "fn helper(x: i32) i32 { return x; }\nfn main() i32 { return helper(1); }\n";
+        let uri = temp_file_uri("server_hover", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(27)),
+                method: Some("textDocument/hover".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 24 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(27));
+        assert_eq!(response["result"]["contents"]["kind"], "markdown");
+        let contents = response["result"]["contents"]["value"].as_str().unwrap();
+        assert!(contents.contains("fn helper: fn(i32) i32"));
+    }
+
+    #[test]
+    fn prepare_rename_request_returns_placeholder_and_range() {
+        let mut state = initialized_state();
+        let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
+        let uri = temp_file_uri("server_prepare_rename", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(28)),
+                method: Some("textDocument/prepareRename".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 24 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(28));
+        assert_eq!(response["result"]["placeholder"], "helper");
+        assert_eq!(
+            response["result"]["range"]["start"],
+            json!({ "line": 1, "character": 23 })
+        );
+    }
+
     fn initialized_state() -> ServerState {
         let mut state = ServerState::new();
         state.initialized = true;

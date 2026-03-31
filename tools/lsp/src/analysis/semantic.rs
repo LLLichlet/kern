@@ -42,12 +42,12 @@ impl SemanticTokenTypes {
     pub(super) const OPERATOR: u32 = 14;
 }
 
-struct SemanticModifiers;
+pub(super) struct SemanticModifiers;
 
 impl SemanticModifiers {
-    const DECLARATION: u32 = 1 << 0;
-    const READONLY: u32 = 1 << 1;
-    const STATIC: u32 = 1 << 2;
+    pub(super) const DECLARATION: u32 = 1 << 0;
+    pub(super) const READONLY: u32 = 1 << 1;
+    pub(super) const STATIC: u32 = 1 << 2;
 }
 
 pub(super) fn semantic_tokens(
@@ -248,8 +248,9 @@ fn collect_semantic_token_entries(
     let mut entries = Vec::new();
     for (index, token) in tokens.iter().copied().enumerate() {
         let class = match token.tag {
-            TokenType::Identifier => heuristic_identifier_class(&tokens, index)
-                .or_else(|| span_classes.get(&span_key(token.span)).copied()),
+            TokenType::Identifier => parameter_declaration_class(&tokens, index)
+                .or_else(|| span_classes.get(&span_key(token.span)).copied())
+                .or_else(|| heuristic_identifier_class(&tokens, index)),
             TokenType::Fn
             | TokenType::Let
             | TokenType::Mut
@@ -356,13 +357,6 @@ fn collect_semantic_token_entries(
 }
 
 fn heuristic_identifier_class(tokens: &[Token], index: usize) -> Option<SemanticClass> {
-    if is_parameter_declaration(tokens, index) {
-        return Some(SemanticClass {
-            token_type: SemanticTokenTypes::PARAMETER,
-            modifiers: SemanticModifiers::DECLARATION,
-        });
-    }
-
     if is_type_context_identifier(tokens, index) {
         return Some(SemanticClass {
             token_type: SemanticTokenTypes::TYPE,
@@ -372,6 +366,12 @@ fn heuristic_identifier_class(tokens: &[Token], index: usize) -> Option<Semantic
 
     let previous = previous_significant_token(tokens, index)?;
     if previous.tag == TokenType::Dot {
+        if next_significant_token(tokens, index).map(|token| token.tag) == Some(TokenType::LParen) {
+            return Some(SemanticClass {
+                token_type: SemanticTokenTypes::METHOD,
+                modifiers: 0,
+            });
+        }
         return Some(SemanticClass {
             token_type: SemanticTokenTypes::PROPERTY,
             modifiers: 0,
@@ -379,6 +379,13 @@ fn heuristic_identifier_class(tokens: &[Token], index: usize) -> Option<Semantic
     }
 
     None
+}
+
+fn parameter_declaration_class(tokens: &[Token], index: usize) -> Option<SemanticClass> {
+    is_parameter_declaration(tokens, index).then_some(SemanticClass {
+        token_type: SemanticTokenTypes::PARAMETER,
+        modifiers: SemanticModifiers::DECLARATION,
+    })
 }
 
 fn is_parameter_declaration(tokens: &[Token], index: usize) -> bool {

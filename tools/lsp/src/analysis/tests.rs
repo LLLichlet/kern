@@ -1,4 +1,4 @@
-use super::semantic::SemanticTokenTypes;
+use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
     AnalysisEngine, byte_offset_to_position, cleared_uris, file_path_to_uri,
     position_to_byte_offset, uri_to_file_path,
@@ -319,6 +319,62 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
         &decoded,
         position_of_nth(source, "return", 0, 0),
         SemanticTokenTypes::KEYWORD,
+    );
+}
+
+#[test]
+fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "const LIMIT = i32.{5};\n",
+        "static mut TOTAL = i32.{0};\n",
+        "type Counter = struct { value: i32 };\n",
+        "impl Counter {\n",
+        "    fn get() i32 {\n",
+        "        return self.value;\n",
+        "    }\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: LIMIT };\n",
+        "    return counter.get() + LIMIT + TOTAL;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_symbols", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token(
+        &decoded,
+        position_of_nth(source, "get", 1, 0),
+        SemanticTokenTypes::METHOD,
+        0,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "LIMIT", 1, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::READONLY,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "TOTAL", 1, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::STATIC,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "value", 1, 0),
+        SemanticTokenTypes::PROPERTY,
+        0,
     );
 }
 
@@ -1229,7 +1285,7 @@ fn completion_labels(items: &[crate::protocol::CompletionItem]) -> Vec<String> {
     items.iter().map(|item| item.label.clone()).collect()
 }
 
-fn decode_semantic_tokens(tokens: &SemanticTokens) -> Vec<(Position, u32, u32)> {
+fn decode_semantic_tokens(tokens: &SemanticTokens) -> Vec<(Position, u32, u32, u32)> {
     let mut decoded = Vec::new();
     let mut line = 0;
     let mut start = 0;
@@ -1249,20 +1305,40 @@ fn decode_semantic_tokens(tokens: &SemanticTokens) -> Vec<(Position, u32, u32)> 
             },
             chunk[2],
             chunk[3],
+            chunk[4],
         ));
     }
 
     decoded
 }
 
-fn assert_token_type(tokens: &[(Position, u32, u32)], position: Position, expected_type: u32) {
+fn assert_token_type(tokens: &[(Position, u32, u32, u32)], position: Position, expected_type: u32) {
     assert!(
         tokens.iter().any(
-            |(token_position, _, token_type)| *token_position == position
+            |(token_position, _, token_type, _)| *token_position == position
                 && *token_type == expected_type
         ),
         "missing semantic token {:?} at {:?}",
         expected_type,
+        position
+    );
+}
+
+fn assert_token(
+    tokens: &[(Position, u32, u32, u32)],
+    position: Position,
+    expected_type: u32,
+    expected_modifiers: u32,
+) {
+    assert!(
+        tokens.iter().any(
+            |(token_position, _, token_type, modifiers)| *token_position == position
+                && *token_type == expected_type
+                && *modifiers == expected_modifiers
+        ),
+        "missing semantic token {:?} with modifiers {:?} at {:?}",
+        expected_type,
+        expected_modifiers,
         position
     );
 }

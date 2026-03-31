@@ -1,0 +1,427 @@
+use super::{
+    AnalysisParameterInformation, AnalysisSignatureHelp, AnalysisSignatureInformation,
+    CompilerDriver,
+};
+use kernc_ast as ast;
+use kernc_sema::SemaContext;
+use kernc_sema::checker::Substituter;
+use kernc_sema::def::{Def, DefId};
+use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_utils::{FileId, Session, Span};
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone)]
+struct SignatureCallSite {
+    file_id: FileId,
+    span: Span,
+    arg_spans: Vec<Span>,
+    signatures: Vec<AnalysisSignatureInformation>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub(super) struct SignatureModel {
+    call_sites: Vec<SignatureCallSite>,
+}
+
+impl CompilerDriver {
+    pub(super) fn collect_signature_model(
+        &self,
+        ctx: &mut SemaContext<'_>,
+        asts: &[(DefId, ast::Module)],
+    ) -> SignatureModel {
+        let mut call_sites = Vec::new();
+
+        for (mod_id, module) in asts {
+            let Def::Module(module_def) = &ctx.defs[mod_id.0 as usize] else {
+                continue;
+            };
+            let file_id = module_def.file_id;
+
+            for decl in &module.decls {
+                collect_call_sites_in_decl(ctx, file_id, decl, &mut call_sites);
+            }
+        }
+
+        SignatureModel { call_sites }
+    }
+}
+
+impl SignatureModel {
+    pub(super) fn signature_help(
+        &self,
+        session: &Session,
+        target_path: &Path,
+        offset: usize,
+    ) -> Option<AnalysisSignatureHelp> {
+        let site = self
+            .call_sites
+            .iter()
+            .filter(|site| {
+                session
+                    .source_manager
+                    .get_file_path(site.file_id)
+                    .map(|path| normalize_analysis_path(path) == target_path)
+                    .unwrap_or(false)
+                    && call_span_contains_offset(site.span, offset)
+            })
+            .min_by_key(|site| site.span.end.saturating_sub(site.span.start))?;
+
+        let active_parameter = active_parameter_index(
+            &site.arg_spans,
+            offset,
+            site.signatures
+                .first()
+                .map(|signature| signature.parameters.len())
+                .unwrap_or(0),
+        );
+
+        Some(AnalysisSignatureHelp {
+            signatures: site.signatures.clone(),
+            active_signature: 0,
+            active_parameter,
+        })
+    }
+}
+
+fn collect_call_sites_in_decl(
+    ctx: &mut SemaContext<'_>,
+    file_id: FileId,
+    decl: &ast::Decl,
+    call_sites: &mut Vec<SignatureCallSite>,
+) {
+    match &decl.kind {
+        ast::DeclKind::Function { body, .. } => {
+            if let Some(body) = body {
+                collect_call_sites_in_expr(ctx, file_id, body, call_sites);
+            }
+        }
+        ast::DeclKind::Var { value, .. } => {
+            collect_call_sites_in_expr(ctx, file_id, value, call_sites);
+        }
+        ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => {
+            for child in decls {
+                collect_call_sites_in_decl(ctx, file_id, child, call_sites);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_call_sites_in_expr(
+    ctx: &mut SemaContext<'_>,
+    file_id: FileId,
+    expr: &ast::Expr,
+    call_sites: &mut Vec<SignatureCallSite>,
+) {
+    match &expr.kind {
+        ast::ExprKind::Let {
+            init, else_branch, ..
+        } => {
+            collect_call_sites_in_expr(ctx, file_id, init, call_sites);
+            if let Some(else_branch) = else_branch {
+                collect_call_sites_in_expr(ctx, file_id, else_branch, call_sites);
+            }
+        }
+        ast::ExprKind::Static { init, .. }
+        | ast::ExprKind::Unary { operand: init, .. }
+        | ast::ExprKind::Defer { expr: init } => {
+            collect_call_sites_in_expr(ctx, file_id, init, call_sites);
+        }
+        ast::ExprKind::Binary { lhs, rhs, .. }
+        | ast::ExprKind::Assign { lhs, rhs, .. }
+        | ast::ExprKind::IndexAccess {
+            lhs, index: rhs, ..
+        } => {
+            collect_call_sites_in_expr(ctx, file_id, lhs, call_sites);
+            collect_call_sites_in_expr(ctx, file_id, rhs, call_sites);
+        }
+        ast::ExprKind::FieldAccess { lhs, .. }
+        | ast::ExprKind::As { lhs, .. }
+        | ast::ExprKind::GenericInstantiation { target: lhs, .. } => {
+            collect_call_sites_in_expr(ctx, file_id, lhs, call_sites);
+        }
+        ast::ExprKind::Call { callee, args } => {
+            collect_call_sites_in_expr(ctx, file_id, callee, call_sites);
+            for arg in args {
+                collect_call_sites_in_expr(ctx, file_id, arg, call_sites);
+            }
+
+            if let Some(signatures) = signatures_for_call(ctx, callee) {
+                call_sites.push(SignatureCallSite {
+                    file_id,
+                    span: expr.span,
+                    arg_spans: args.iter().map(|arg| arg.span).collect(),
+                    signatures,
+                });
+            }
+        }
+        ast::ExprKind::DataInit { literal, .. } => match literal {
+            ast::DataLiteralKind::Struct(fields) => {
+                for field in fields {
+                    collect_call_sites_in_expr(ctx, file_id, &field.value, call_sites);
+                }
+            }
+            ast::DataLiteralKind::Array(items) => {
+                for item in items {
+                    collect_call_sites_in_expr(ctx, file_id, item, call_sites);
+                }
+            }
+            ast::DataLiteralKind::Repeat { value, count } => {
+                collect_call_sites_in_expr(ctx, file_id, value, call_sites);
+                collect_call_sites_in_expr(ctx, file_id, count, call_sites);
+            }
+            ast::DataLiteralKind::Scalar(value) => {
+                collect_call_sites_in_expr(ctx, file_id, value, call_sites);
+            }
+        },
+        ast::ExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            collect_call_sites_in_expr(ctx, file_id, cond, call_sites);
+            collect_call_sites_in_expr(ctx, file_id, then_branch, call_sites);
+            if let Some(else_branch) = else_branch {
+                collect_call_sites_in_expr(ctx, file_id, else_branch, call_sites);
+            }
+        }
+        ast::ExprKind::Match { target, arms } => {
+            collect_call_sites_in_expr(ctx, file_id, target, call_sites);
+            for arm in arms {
+                for pattern in &arm.patterns {
+                    collect_call_sites_in_pattern_exprs(ctx, file_id, pattern, call_sites);
+                }
+                collect_call_sites_in_expr(ctx, file_id, &arm.body, call_sites);
+            }
+        }
+        ast::ExprKind::Block { stmts, result } => {
+            for stmt in stmts {
+                match &stmt.kind {
+                    ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
+                        collect_call_sites_in_expr(ctx, file_id, expr, call_sites);
+                    }
+                }
+            }
+            if let Some(result) = result {
+                collect_call_sites_in_expr(ctx, file_id, result, call_sites);
+            }
+        }
+        ast::ExprKind::For {
+            init,
+            cond,
+            post,
+            body,
+        } => {
+            if let Some(init) = init {
+                collect_call_sites_in_expr(ctx, file_id, init, call_sites);
+            }
+            if let Some(cond) = cond {
+                collect_call_sites_in_expr(ctx, file_id, cond, call_sites);
+            }
+            if let Some(post) = post {
+                collect_call_sites_in_expr(ctx, file_id, post, call_sites);
+            }
+            collect_call_sites_in_expr(ctx, file_id, body, call_sites);
+        }
+        ast::ExprKind::SliceOp {
+            lhs, start, end, ..
+        } => {
+            collect_call_sites_in_expr(ctx, file_id, lhs, call_sites);
+            if let Some(start) = start {
+                collect_call_sites_in_expr(ctx, file_id, start, call_sites);
+            }
+            if let Some(end) = end {
+                collect_call_sites_in_expr(ctx, file_id, end, call_sites);
+            }
+        }
+        ast::ExprKind::Return(value) => {
+            if let Some(value) = value {
+                collect_call_sites_in_expr(ctx, file_id, value, call_sites);
+            }
+        }
+        ast::ExprKind::Closure { captures, body, .. } => {
+            for capture in captures {
+                collect_call_sites_in_expr(ctx, file_id, &capture.value, call_sites);
+            }
+            collect_call_sites_in_expr(ctx, file_id, body, call_sites);
+        }
+        _ => {}
+    }
+}
+
+fn collect_call_sites_in_pattern_exprs(
+    ctx: &mut SemaContext<'_>,
+    file_id: FileId,
+    pattern: &ast::MatchPattern,
+    call_sites: &mut Vec<SignatureCallSite>,
+) {
+    match &pattern.kind {
+        ast::MatchPatternKind::Value(value) => {
+            collect_call_sites_in_expr(ctx, file_id, value, call_sites);
+        }
+        ast::MatchPatternKind::Range { start, end, .. } => {
+            collect_call_sites_in_expr(ctx, file_id, start, call_sites);
+            collect_call_sites_in_expr(ctx, file_id, end, call_sites);
+        }
+        _ => {}
+    }
+}
+
+fn signatures_for_call(
+    ctx: &mut SemaContext<'_>,
+    callee: &ast::Expr,
+) -> Option<Vec<AnalysisSignatureInformation>> {
+    let callee_ty = ctx.node_types.get(&callee.id).copied()?;
+    let normalized = ctx.type_registry.normalize(callee_ty);
+    let signature = match ctx.type_registry.get(normalized).clone() {
+        TypeKind::FnDef(def_id, args) => function_signature_information(ctx, def_id, &args)?,
+        TypeKind::Function {
+            params,
+            ret,
+            is_variadic,
+        } => callable_signature_information(ctx, None, &params, ret, is_variadic),
+        TypeKind::ClosureInterface { params, ret } => {
+            callable_signature_information(ctx, None, &params, ret, false)
+        }
+        TypeKind::Pointer { elem, .. } => {
+            let pointee = ctx.type_registry.normalize(elem);
+            match ctx.type_registry.get(pointee).clone() {
+                TypeKind::Function {
+                    params,
+                    ret,
+                    is_variadic,
+                } => callable_signature_information(ctx, None, &params, ret, is_variadic),
+                TypeKind::ClosureInterface { params, ret } => {
+                    callable_signature_information(ctx, None, &params, ret, false)
+                }
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
+
+    Some(vec![signature])
+}
+
+fn function_signature_information(
+    ctx: &mut SemaContext<'_>,
+    def_id: DefId,
+    args: &[TypeId],
+) -> Option<AnalysisSignatureInformation> {
+    let Def::Function(function) = ctx.defs[def_id.0 as usize].clone() else {
+        return None;
+    };
+    let sig_ty = function.resolved_sig?;
+    let normalized_sig = ctx.type_registry.normalize(sig_ty);
+    let TypeKind::Function {
+        mut params,
+        mut ret,
+        is_variadic,
+    } = ctx.type_registry.get(normalized_sig).clone()
+    else {
+        return None;
+    };
+
+    if !function.generics.is_empty() && !args.is_empty() {
+        let mut map = HashMap::new();
+        for (index, generic) in function.generics.iter().enumerate() {
+            if let Some(&arg) = args.get(index) {
+                map.insert(generic.name, arg);
+            }
+        }
+        if !map.is_empty() {
+            let mut substituter = Substituter::new(&mut ctx.type_registry, &map);
+            params = params
+                .into_iter()
+                .map(|param| substituter.substitute(param))
+                .collect();
+            ret = substituter.substitute(ret);
+        }
+    }
+
+    let parameter_labels = function
+        .params
+        .iter()
+        .enumerate()
+        .map(|(index, param)| {
+            let ty = params.get(index).copied().unwrap_or(TypeId::ERROR);
+            let ty_label = ctx.ty_to_string(ty);
+            let name = ctx.resolve(param.pattern.name);
+            if name == "_" {
+                ty_label
+            } else {
+                format!("{name}: {ty_label}")
+            }
+        })
+        .collect::<Vec<_>>();
+
+    let mut display_parameters = parameter_labels.clone();
+    if is_variadic {
+        display_parameters.push("...".to_string());
+    }
+
+    Some(AnalysisSignatureInformation {
+        label: format!(
+            "{}({}) {}",
+            ctx.resolve(function.name),
+            display_parameters.join(", "),
+            ctx.ty_to_string(ret)
+        ),
+        parameters: display_parameters
+            .into_iter()
+            .map(|label| AnalysisParameterInformation { label })
+            .collect(),
+    })
+}
+
+fn callable_signature_information(
+    ctx: &SemaContext<'_>,
+    name: Option<&str>,
+    params: &[TypeId],
+    ret: TypeId,
+    is_variadic: bool,
+) -> AnalysisSignatureInformation {
+    let mut parameter_labels = params
+        .iter()
+        .enumerate()
+        .map(|(index, ty)| format!("arg{}: {}", index + 1, ctx.ty_to_string(*ty)))
+        .collect::<Vec<_>>();
+    if is_variadic {
+        parameter_labels.push("...".to_string());
+    }
+
+    let callee = name.unwrap_or("fn");
+    AnalysisSignatureInformation {
+        label: format!(
+            "{}({}) {}",
+            callee,
+            parameter_labels.join(", "),
+            ctx.ty_to_string(ret)
+        ),
+        parameters: parameter_labels
+            .into_iter()
+            .map(|label| AnalysisParameterInformation { label })
+            .collect(),
+    }
+}
+
+fn active_parameter_index(arg_spans: &[Span], offset: usize, parameter_count: usize) -> usize {
+    if parameter_count == 0 || arg_spans.is_empty() {
+        return 0;
+    }
+
+    let raw_index = arg_spans
+        .iter()
+        .position(|span| offset <= span.end)
+        .unwrap_or(arg_spans.len().saturating_sub(1));
+    raw_index.min(parameter_count.saturating_sub(1))
+}
+
+fn call_span_contains_offset(span: Span, offset: usize) -> bool {
+    offset >= span.start && offset <= span.end
+}
+
+fn normalize_analysis_path(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}

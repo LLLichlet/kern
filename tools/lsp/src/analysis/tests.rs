@@ -859,6 +859,46 @@ fn hover_resolves_function_signature_from_reference() {
 }
 
 #[test]
+fn signature_help_resolves_function_parameters_and_active_argument() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(first: i32, second: i32) i32 {\n",
+        "    return first + second;\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let value = i32.{2};\n",
+        "    return helper(1, value);\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("signature_help", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let help = analysis
+        .signature_help(&uri, position_of_nth(source, "value", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(help.active_signature, 0);
+    assert_eq!(help.active_parameter, 1);
+    assert_eq!(help.signatures.len(), 1);
+    assert_eq!(
+        help.signatures[0].label,
+        "helper(first: i32, second: i32) i32"
+    );
+    assert_eq!(help.signatures[0].parameters.len(), 2);
+    assert_eq!(help.signatures[0].parameters[0].label, "first: i32");
+    assert_eq!(help.signatures[0].parameters[1].label, "second: i32");
+}
+
+#[test]
 fn hover_resolves_local_definition_without_references() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn main() i32 {\n    let value = i32.{1};\n    return 0;\n}\n";

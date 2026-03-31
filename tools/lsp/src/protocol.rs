@@ -192,6 +192,13 @@ pub struct DocumentHighlightParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct SignatureHelpParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompletionParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
@@ -258,6 +265,28 @@ pub struct Hover {
     pub contents: MarkupContent,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub range: Option<Range>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureHelp {
+    pub signatures: Vec<SignatureInformation>,
+    pub active_signature: u32,
+    pub active_parameter: u32,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SignatureInformation {
+    pub label: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<ParameterInformation>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParameterInformation {
+    pub label: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -453,6 +482,13 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     capabilities.insert("documentHighlightProvider".to_string(), Value::Bool(true));
     capabilities.insert("referencesProvider".to_string(), Value::Bool(true));
     capabilities.insert("hoverProvider".to_string(), Value::Bool(true));
+    capabilities.insert(
+        "signatureHelpProvider".to_string(),
+        json!({
+            "triggerCharacters": ["(", ","],
+            "retriggerCharacters": [","]
+        }),
+    );
     capabilities.insert(
         "completionProvider".to_string(),
         json!({

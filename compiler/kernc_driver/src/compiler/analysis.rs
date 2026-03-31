@@ -1,4 +1,5 @@
 use super::completion::CompletionModel;
+use super::signature::SignatureModel;
 use super::{
     AnalysisArtifact, AnalysisHover, AnalysisReference, AnalysisReport, AnalysisSymbol,
     AnalysisSymbolKind, CompilerDriver, SourceOverrides,
@@ -43,6 +44,7 @@ impl CompilerDriver {
                 references: Vec::new(),
                 hovers: Vec::new(),
                 completion_model: CompletionModel::default(),
+                signature_model: SignatureModel::default(),
             };
         };
 
@@ -59,6 +61,7 @@ impl CompilerDriver {
             .collect();
         let hovers = self.collect_analysis_hovers(&ctx);
         let completion_model = self.collect_completion_model(&mut ctx, &analysis_asts);
+        let signature_model = self.collect_signature_model(&mut ctx, &analysis_asts);
         drop(ctx);
 
         AnalysisArtifact {
@@ -68,6 +71,7 @@ impl CompilerDriver {
             references,
             hovers,
             completion_model,
+            signature_model,
         }
     }
 

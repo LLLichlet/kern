@@ -1,11 +1,11 @@
 use super::RenameTarget;
 use crate::protocol::{
-    CompletionItem, DocumentHighlight, DocumentSymbol, Hover, Location, MarkupContent, Position,
-    TextEdit,
+    CompletionItem, DocumentHighlight, DocumentSymbol, Hover, Location, MarkupContent,
+    ParameterInformation, Position, SignatureHelp, SignatureInformation, TextEdit,
 };
 use kernc_driver::{
     AnalysisCompletionItem, AnalysisCompletionKind, AnalysisHover, AnalysisReference,
-    AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind,
 };
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -25,6 +25,27 @@ pub(super) fn analysis_symbol_to_document_symbol(
             .iter()
             .map(|child| analysis_symbol_to_document_symbol(session, child))
             .collect(),
+    }
+}
+
+pub(super) fn analysis_signature_help_to_lsp_help(help: AnalysisSignatureHelp) -> SignatureHelp {
+    SignatureHelp {
+        signatures: help
+            .signatures
+            .into_iter()
+            .map(|signature| SignatureInformation {
+                label: signature.label,
+                parameters: signature
+                    .parameters
+                    .into_iter()
+                    .map(|parameter| ParameterInformation {
+                        label: parameter.label,
+                    })
+                    .collect(),
+            })
+            .collect(),
+        active_signature: help.active_signature as u32,
+        active_parameter: help.active_parameter as u32,
     }
 }
 

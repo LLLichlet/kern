@@ -4,8 +4,8 @@ use crate::protocol::{
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlightParams, DocumentSymbolParams, IncomingMessage,
     InitializeParams, InitializeResultOptions, ReferenceParams, RenameParams, SemanticTokensParams,
-    SetTraceParams, error_response, initialize_result, log_message, log_trace, null_response,
-    publish_diagnostics, success_response,
+    SetTraceParams, SignatureHelpParams, error_response, initialize_result, log_message, log_trace,
+    null_response, publish_diagnostics, success_response,
 };
 use crate::transport::{MessageReader, MessageWriter};
 use serde_json::Value;
@@ -296,6 +296,29 @@ fn handle_message(
             {
                 Ok(Some(hover)) => {
                     let result = serde_json::to_value(hover)?;
+                    writer.write_json(&success_response(id, result))?;
+                }
+                Ok(None) => {
+                    writer.write_json(&null_response(id))?;
+                }
+                Err(message) => {
+                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
+                }
+            }
+        }
+        "textDocument/signatureHelp" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/signatureHelp must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<SignatureHelpParams>(message.params)?;
+            match state
+                .analysis
+                .signature_help(&params.text_document.uri, params.position)
+            {
+                Ok(Some(help)) => {
+                    let result = serde_json::to_value(help)?;
                     writer.write_json(&success_response(id, result))?;
                 }
                 Ok(None) => {
@@ -646,6 +669,10 @@ mod tests {
             false
         );
         assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
+        assert_eq!(
+            result["capabilities"]["signatureHelpProvider"]["triggerCharacters"],
+            json!(["(", ","])
+        );
         assert_eq!(
             result["capabilities"]["codeActionProvider"]["codeActionKinds"],
             json!(["quickfix"])
@@ -1199,6 +1226,43 @@ mod tests {
         assert_eq!(response["result"]["contents"]["kind"], "markdown");
         let contents = response["result"]["contents"]["value"].as_str().unwrap();
         assert!(contents.contains("fn helper: fn(i32) i32"));
+    }
+
+    #[test]
+    fn signature_help_request_returns_active_parameter_information() {
+        let mut state = initialized_state();
+        let source = concat!(
+            "fn helper(first: i32, second: i32) i32 {\n",
+            "    return first + second;\n",
+            "}\n",
+            "fn main() i32 {\n",
+            "    let value = i32.{2};\n",
+            "    return helper(1, value);\n",
+            "}\n",
+        );
+        let uri = temp_file_uri("server_signature_help", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(32)),
+                method: Some("textDocument/signatureHelp".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 5, "character": 22 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(32));
+        assert_eq!(response["result"]["activeSignature"], 0);
+        assert_eq!(response["result"]["activeParameter"], 1);
+        assert_eq!(
+            response["result"]["signatures"][0]["label"],
+            "helper(first: i32, second: i32) i32"
+        );
     }
 
     #[test]

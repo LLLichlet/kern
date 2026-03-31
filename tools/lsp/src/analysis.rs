@@ -9,9 +9,9 @@ mod text;
 use self::code_actions::{quick_fix_for_diagnostic, ranges_overlap, workspace_edit_key};
 use self::diagnostics::{convert_diagnostic, diagnostics_from_session};
 use self::navigation::{
-    analysis_completion_to_lsp_item, analysis_symbol_to_document_symbol, build_rename_changes,
-    find_definition_location, find_document_highlights, find_hover, find_reference_locations,
-    find_rename_target,
+    analysis_completion_to_lsp_item, analysis_signature_help_to_lsp_help,
+    analysis_symbol_to_document_symbol, build_rename_changes, find_definition_location,
+    find_document_highlights, find_hover, find_reference_locations, find_rename_target,
 };
 use self::text::{
     apply_content_change, byte_offset_to_position, file_path_to_uri, is_valid_identifier,
@@ -21,7 +21,8 @@ use self::text::{
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentHighlight, DocumentSymbol, Hover, Location, Position,
-    PrepareRenameResult, Range, SemanticTokens, TextDocumentContentChangeEvent, WorkspaceEdit,
+    PrepareRenameResult, Range, SemanticTokens, SignatureHelp, TextDocumentContentChangeEvent,
+    WorkspaceEdit,
 };
 use kernc_driver::{AnalysisArtifact, CompilerDriver, SourceOverrides};
 use kernc_utils::config::CompileOptions;
@@ -223,6 +224,28 @@ impl AnalysisEngine {
             &target_path,
             &position,
         ))
+    }
+
+    pub fn signature_help(
+        &self,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<SignatureHelp>, String> {
+        let artifact = self
+            .analyze_artifact(uri)
+            .map_err(|message| format!("signature help analysis failed: {message}"))?;
+        let Some(target_doc) = self.documents.get(uri) else {
+            return Err("requested signature help for a document that is not open".to_string());
+        };
+        let target_path = normalize_path(&target_doc.path);
+        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        let Some(offset) = position_to_byte_offset(&file, &position) else {
+            return Ok(None);
+        };
+
+        Ok(artifact
+            .signature_help(&target_path, offset)
+            .map(analysis_signature_help_to_lsp_help))
     }
 
     pub fn completion(&self, uri: &str, position: Position) -> Result<Vec<CompletionItem>, String> {

@@ -29,6 +29,7 @@ The current server implements:
 - `textDocument/documentHighlight`
 - `textDocument/references`
 - `textDocument/hover`
+- `textDocument/signatureHelp`
 - `textDocument/completion`
 - `textDocument/semanticTokens/full`
 - `textDocument/codeAction`
@@ -45,8 +46,10 @@ positions.
 Diagnostics now surface compiler hints inline and forward related spans through
 LSP `relatedInformation`, which improves cross-location error navigation in
 clients that support it. Document highlights resolve same-file definition and
-reference spans for the symbol under the cursor. Code actions currently focus
-on safe quick fixes such as inserting a missing semicolon or closing delimiter,
+reference spans for the symbol under the cursor. Signature help resolves
+function parameter labels and tracks the active argument for callable
+expressions with compiler-known signatures. Code actions currently focus on
+safe quick fixes such as inserting a missing semicolon or closing delimiter,
 plus a small set of compiler-guided semantic repairs.
 
 Current limitations:

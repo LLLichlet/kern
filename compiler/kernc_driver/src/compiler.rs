@@ -1,6 +1,7 @@
 mod analysis;
 mod completion;
 mod link;
+mod signature;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -54,6 +55,24 @@ pub struct AnalysisCompletionItem {
     pub detail: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct AnalysisParameterInformation {
+    pub label: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalysisSignatureInformation {
+    pub label: String,
+    pub parameters: Vec<AnalysisParameterInformation>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalysisSignatureHelp {
+    pub signatures: Vec<AnalysisSignatureInformation>,
+    pub active_signature: usize,
+    pub active_parameter: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnalysisSymbolKind {
     Module,
@@ -86,6 +105,7 @@ pub struct AnalysisArtifact {
     pub references: Vec<AnalysisReference>,
     pub hovers: Vec<AnalysisHover>,
     completion_model: completion::CompletionModel,
+    signature_model: signature::SignatureModel,
 }
 
 pub struct CompilerDriver {
@@ -116,6 +136,15 @@ impl AnalysisArtifact {
     ) -> Vec<AnalysisCompletionItem> {
         self.completion_model
             .completion_items(&self.session, target_path, offset)
+    }
+
+    pub fn signature_help(
+        &self,
+        target_path: &Path,
+        offset: usize,
+    ) -> Option<AnalysisSignatureHelp> {
+        self.signature_model
+            .signature_help(&self.session, target_path, offset)
     }
 }
 

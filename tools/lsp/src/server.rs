@@ -1,9 +1,11 @@
 use crate::analysis::{AnalysisEngine, AnalysisOutcome, cleared_uris};
 use crate::protocol::{
-    CodeActionParams, CompletionParams, DefinitionParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
-    DocumentSymbolParams, IncomingMessage, ReferenceParams, RenameParams, SemanticTokensParams,
-    error_response, initialize_result, null_response, publish_diagnostics, success_response,
+    ClientCapabilities, CodeActionParams, CompletionParams, DefinitionParams,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
+    DidSaveTextDocumentParams, DocumentSymbolParams, IncomingMessage, InitializeParams,
+    InitializeResultOptions, ReferenceParams, RenameParams, SemanticTokensParams, SetTraceParams,
+    error_response, initialize_result, log_message, log_trace, null_response, publish_diagnostics,
+    success_response,
 };
 use crate::transport::{MessageReader, MessageWriter};
 use serde_json::Value;
@@ -47,6 +49,7 @@ impl From<serde_json::Error> for ServerError {
 struct ServerState {
     initialized: bool,
     shutdown_requested: bool,
+    trace: TraceValue,
     analysis: AnalysisEngine,
     published_by_target: BTreeMap<String, BTreeSet<String>>,
 }
@@ -56,6 +59,7 @@ impl ServerState {
         Self {
             initialized: false,
             shutdown_requested: false,
+            trace: TraceValue::Off,
             analysis: AnalysisEngine::default(),
             published_by_target: BTreeMap::new(),
         }
@@ -139,11 +143,30 @@ fn handle_message(
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol("initialize must be sent as a request".to_string())
             })?;
+            let params = required_params::<InitializeParams>(message.params)?;
+            ensure_utf16_position_encoding(&params.capabilities, id.clone(), writer)?;
+            let capabilities = negotiate_capabilities(&params.capabilities);
+            state.trace = TraceValue::from_raw(params.trace.as_deref());
             state.initialized = true;
-            writer.write_json(&success_response(id, initialize_result()))?;
+            writer.write_json(&success_response(id, initialize_result(capabilities)))?;
+            emit_initialize_followups(state, writer, &params, capabilities)?;
         }
         "initialized" => {}
-        "$/setTrace" | "$/cancelRequest" => {}
+        "$/setTrace" => {
+            let next_trace = message
+                .params
+                .and_then(|params| serde_json::from_value::<SetTraceParams>(params).ok())
+                .map(|params| params.value);
+            state.trace = TraceValue::from_raw(next_trace.as_deref());
+            emit_trace(
+                state,
+                writer,
+                format!("trace level set to `{}`", state.trace.as_str()),
+                None,
+                false,
+            )?;
+        }
+        "$/cancelRequest" => {}
         "workspace/didChangeConfiguration" | "workspace/didChangeWatchedFiles" => {}
         "shutdown" => {
             let id = message.id.ok_or_else(|| {
@@ -434,11 +457,149 @@ fn context_allows_quickfix(only: &Option<Vec<String>>) -> bool {
 }
 
 fn requires_initialization(method: &str) -> bool {
-    !matches!(method, "initialize" | "initialized" | "exit")
+    !matches!(
+        method,
+        "initialize" | "initialized" | "exit" | "$/setTrace" | "$/cancelRequest"
+    )
 }
 
 fn rejects_after_shutdown(method: &str) -> bool {
     !matches!(method, "exit" | "$/cancelRequest" | "$/setTrace")
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TraceValue {
+    Off,
+    Messages,
+    Verbose,
+}
+
+impl TraceValue {
+    fn from_raw(raw: Option<&str>) -> Self {
+        match raw.unwrap_or("off") {
+            "messages" => Self::Messages,
+            "verbose" => Self::Verbose,
+            _ => Self::Off,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Messages => "messages",
+            Self::Verbose => "verbose",
+        }
+    }
+}
+
+fn ensure_utf16_position_encoding(
+    capabilities: &ClientCapabilities,
+    id: Value,
+    writer: &mut MessageWriter<impl io::Write>,
+) -> Result<(), ServerError> {
+    let Some(encodings) = capabilities.general.position_encodings.as_ref() else {
+        return Ok(());
+    };
+    if encodings
+        .iter()
+        .any(|encoding| encoding.eq_ignore_ascii_case("utf-16"))
+    {
+        return Ok(());
+    }
+
+    writer.write_json(&error_response(
+        id,
+        INVALID_REQUEST,
+        "kern-lsp requires UTF-16 position encoding support from the client",
+    ))?;
+    Err(ServerError::Protocol(
+        "client does not advertise UTF-16 position encoding support".to_string(),
+    ))
+}
+
+fn negotiate_capabilities(capabilities: &ClientCapabilities) -> InitializeResultOptions {
+    let code_action_literals = capabilities
+        .text_document
+        .code_action
+        .as_ref()
+        .and_then(|capabilities| capabilities.code_action_literal_support.as_ref())
+        .is_some();
+    let rename_prepare_support = capabilities
+        .text_document
+        .rename
+        .as_ref()
+        .map(|capabilities| capabilities.prepare_support)
+        .unwrap_or(false);
+    let semantic_tokens = capabilities.text_document.semantic_tokens.is_some();
+
+    InitializeResultOptions {
+        code_action_literals,
+        rename_prepare_support,
+        semantic_tokens,
+    }
+}
+
+fn emit_initialize_followups(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    params: &InitializeParams,
+    capabilities: InitializeResultOptions,
+) -> Result<(), ServerError> {
+    if !capabilities.code_action_literals {
+        writer.write_json(&log_message(
+            2,
+            "Client does not advertise code action literal support; kern-lsp will disable quick-fix code actions.",
+        ))?;
+    }
+    if !capabilities.rename_prepare_support {
+        writer.write_json(&log_message(
+            3,
+            "Client does not advertise prepareRename support; kern-lsp will serve basic rename only.",
+        ))?;
+    }
+
+    let mut verbose = Vec::new();
+    if let Some(client_info) = &params.client_info {
+        verbose.push(match &client_info.version {
+            Some(version) => format!("client={} {}", client_info.name, version),
+            None => format!("client={}", client_info.name),
+        });
+    }
+    if let Some(encodings) = &params.capabilities.general.position_encodings {
+        verbose.push(format!("positionEncodings={}", encodings.join(",")));
+    }
+
+    emit_trace(
+        state,
+        writer,
+        "initialize completed",
+        (!verbose.is_empty()).then(|| verbose.join(" | ")),
+        false,
+    )
+}
+
+fn emit_trace(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    message: impl Into<String>,
+    verbose: Option<String>,
+    verbose_only: bool,
+) -> Result<(), ServerError> {
+    match state.trace {
+        TraceValue::Off => Ok(()),
+        TraceValue::Messages if verbose_only => Ok(()),
+        TraceValue::Messages | TraceValue::Verbose => {
+            writer.write_json(&log_trace(
+                message,
+                if state.trace == TraceValue::Verbose {
+                    verbose
+                } else {
+                    None
+                },
+            ))?;
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -451,7 +612,7 @@ mod tests {
 
     #[test]
     fn initialize_result_advertises_precise_capabilities() {
-        let result = initialize_result();
+        let result = initialize_result(InitializeResultOptions::default());
 
         assert_eq!(result["positionEncoding"], "utf-16");
         assert_eq!(
@@ -557,9 +718,171 @@ mod tests {
         assert_eq!(response["error"]["code"], json!(INVALID_REQUEST));
     }
 
+    #[test]
+    fn initialize_negotiates_capabilities_from_client_support() {
+        let mut state = ServerState::new();
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        handle_message(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(11)),
+                method: Some("initialize".to_string()),
+                params: Some(json!({
+                    "capabilities": {
+                        "general": {
+                            "positionEncodings": ["utf-16", "utf-8"]
+                        },
+                        "textDocument": {
+                            "semanticTokens": {
+                                "requests": {
+                                    "range": false,
+                                    "full": { "delta": false }
+                                }
+                            }
+                        }
+                    }
+                })),
+            },
+        )
+        .unwrap();
+
+        let messages = read_all_messages(&output);
+        assert_eq!(
+            messages[0]["result"]["capabilities"]["codeActionProvider"],
+            false
+        );
+        assert_eq!(
+            messages[0]["result"]["capabilities"]["renameProvider"],
+            true
+        );
+        assert!(
+            messages[0]["result"]["capabilities"]
+                .get("semanticTokensProvider")
+                .is_some()
+        );
+        assert_eq!(messages[1]["method"], "window/logMessage");
+        assert_eq!(messages[2]["method"], "window/logMessage");
+    }
+
+    #[test]
+    fn initialize_rejects_clients_without_utf16_support() {
+        let mut state = ServerState::new();
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        let err = handle_message(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(12)),
+                method: Some("initialize".to_string()),
+                params: Some(json!({
+                    "capabilities": {
+                        "general": {
+                            "positionEncodings": ["utf-8"]
+                        }
+                    }
+                })),
+            },
+        )
+        .unwrap_err();
+
+        assert!(matches!(err, ServerError::Protocol(_)));
+        let response = read_single_response(&output);
+        assert_eq!(response["error"]["code"], json!(INVALID_REQUEST));
+    }
+
+    #[test]
+    fn initialize_trace_emits_log_trace_notification() {
+        let mut state = ServerState::new();
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        handle_message(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(13)),
+                method: Some("initialize".to_string()),
+                params: Some(json!({
+                    "trace": "verbose",
+                    "clientInfo": { "name": "Example", "version": "1.0" },
+                    "capabilities": {
+                        "general": { "positionEncodings": ["utf-16"] },
+                        "textDocument": {
+                            "codeAction": {
+                                "codeActionLiteralSupport": {
+                                    "codeActionKind": { "valueSet": ["quickfix"] }
+                                }
+                            },
+                            "rename": { "prepareSupport": true },
+                            "semanticTokens": {
+                                "requests": { "full": true }
+                            }
+                        }
+                    }
+                })),
+            },
+        )
+        .unwrap();
+
+        let messages = read_all_messages(&output);
+        assert_eq!(messages[1]["method"], "$/logTrace");
+        assert_eq!(messages[1]["params"]["message"], "initialize completed");
+        assert_eq!(
+            messages[1]["params"]["verbose"],
+            "client=Example 1.0 | positionEncodings=utf-16"
+        );
+    }
+
+    #[test]
+    fn set_trace_updates_state_and_emits_trace_notification() {
+        let mut state = ServerState::new();
+        state.trace = TraceValue::Messages;
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        handle_message(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: None,
+                method: Some("$/setTrace".to_string()),
+                params: Some(json!({
+                    "value": "verbose"
+                })),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(state.trace, TraceValue::Verbose);
+        let response = read_single_response(&output);
+        assert_eq!(response["method"], "$/logTrace");
+        assert_eq!(
+            response["params"]["message"],
+            "trace level set to `verbose`"
+        );
+    }
+
     fn read_single_response(output: &[u8]) -> Value {
         let mut reader = MessageReader::new(Cursor::new(output));
         let payload = reader.read_message().unwrap().unwrap();
         serde_json::from_slice(&payload).unwrap()
+    }
+
+    fn read_all_messages(output: &[u8]) -> Vec<Value> {
+        let mut reader = MessageReader::new(Cursor::new(output));
+        let mut messages = Vec::new();
+        while let Some(payload) = reader.read_message().unwrap() {
+            messages.push(serde_json::from_slice(&payload).unwrap());
+        }
+        messages
     }
 }

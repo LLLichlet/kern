@@ -20,14 +20,22 @@ pub struct ModuleLoader<'a, 'ctx> {
     pub loaded_files: HashMap<PathBuf, DefId>,
     // 暂存所有解析好的 AST，等待下一阶段 Collector 提取符号
     pub asts: Vec<(DefId, ast::Module)>,
+    source_overrides: HashMap<PathBuf, String>,
 }
 
 impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
-    pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
+    pub fn new(
+        ctx: &'a mut SemaContext<'ctx>,
+        source_overrides: &crate::compiler::SourceOverrides,
+    ) -> Self {
         Self {
             ctx,
             loaded_files: HashMap::new(),
             asts: Vec::new(),
+            source_overrides: source_overrides
+                .iter()
+                .map(|(path, src)| (Self::normalize_path(path), src.clone()))
+                .collect(),
         }
     }
 
@@ -115,17 +123,17 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         let dir_init = base_path.join("init.rn");
         let file_kn = PathBuf::from(format!("{}.rn", base_path.display()));
 
-        if dir_init.exists() {
+        if self.path_exists(&dir_init) {
             Some(ResolvedRootModule {
                 entry_path: dir_init,
                 declared_root_name: None,
             })
-        } else if file_kn.exists() {
+        } else if self.path_exists(&file_kn) {
             Some(ResolvedRootModule {
                 entry_path: file_kn,
                 declared_root_name: None,
             })
-        } else if base_path.exists() && base_path.is_file() {
+        } else if self.path_exists(base_path) && !base_path.is_dir() {
             Some(ResolvedRootModule {
                 entry_path: base_path.to_path_buf(),
                 declared_root_name: None,
@@ -140,9 +148,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         let dir_init = dir_path.join(mod_name_str).join("init.rn");
         let file_kn = dir_path.join(format!("{}.rn", mod_name_str));
 
-        if dir_init.exists() {
+        if self.path_exists(&dir_init) {
             Some(dir_init)
-        } else if file_kn.exists() {
+        } else if self.path_exists(&file_kn) {
             Some(file_kn)
         } else {
             self.ctx
@@ -161,6 +169,10 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     }
 
     fn read_module_source(&mut self, abs_path: &PathBuf) -> Option<String> {
+        if let Some(src) = self.source_overrides.get(abs_path) {
+            return Some(src.clone());
+        }
+
         match std::fs::read_to_string(abs_path) {
             Ok(s) => Some(s),
             Err(e) => {
@@ -182,7 +194,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         name: SymbolId,
         is_imported: bool,
     ) -> Option<DefId> {
-        let abs_path = std::fs::canonicalize(&path).unwrap_or(path.clone());
+        let abs_path = Self::normalize_path(&path);
 
         if let Some(&mod_id) = self.loaded_files.get(&abs_path) {
             return Some(mod_id);
@@ -254,5 +266,14 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
         self.asts.push((mod_id, ast));
         Some(mod_id)
+    }
+
+    fn normalize_path(path: &Path) -> PathBuf {
+        std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    fn path_exists(&self, path: &Path) -> bool {
+        let normalized = Self::normalize_path(path);
+        self.source_overrides.contains_key(&normalized) || path.exists()
     }
 }

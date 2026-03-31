@@ -362,7 +362,13 @@ fn rename_edit_from_span(
 }
 
 pub(super) fn analysis_completion_to_lsp_item(item: AnalysisCompletionItem) -> CompletionItem {
-    let insert_text_format = item.insert_text.as_ref().map(|_| 2);
+    let insert_text_format = item.insert_text.as_ref().map(|text| {
+        if completion_insert_uses_snippet(text) {
+            2
+        } else {
+            1
+        }
+    });
     CompletionItem {
         label: item.label,
         kind: lsp_completion_kind(item.kind),
@@ -370,6 +376,10 @@ pub(super) fn analysis_completion_to_lsp_item(item: AnalysisCompletionItem) -> C
         insert_text: item.insert_text,
         insert_text_format,
     }
+}
+
+fn completion_insert_uses_snippet(text: &str) -> bool {
+    text.contains('$')
 }
 
 fn lsp_completion_kind(kind: AnalysisCompletionKind) -> u8 {

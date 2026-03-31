@@ -1166,8 +1166,8 @@ fn completion_avoids_duplicate_call_parentheses_when_already_present() {
         .unwrap();
     let helper = items.iter().find(|item| item.label == "helper").unwrap();
 
-    assert_eq!(helper.insert_text.as_deref(), Some("helper"));
-    assert_eq!(helper.insert_text_format, Some(2));
+    assert_eq!(helper.insert_text, None);
+    assert_eq!(helper.insert_text_format, None);
 }
 
 #[test]

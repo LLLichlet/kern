@@ -1385,8 +1385,8 @@ mod tests {
             .iter()
             .find(|item| item["label"] == json!("helper"))
             .unwrap();
-        assert_eq!(helper["insertText"], json!("helper"));
-        assert_eq!(helper["insertTextFormat"], json!(2));
+        assert_eq!(helper.get("insertText"), None);
+        assert_eq!(helper.get("insertTextFormat"), None);
     }
 
     #[test]

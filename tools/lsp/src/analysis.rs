@@ -271,7 +271,7 @@ impl AnalysisEngine {
         if has_call_paren {
             for item in &mut items {
                 if item.insert_text.is_some() {
-                    item.insert_text = Some(item.label.clone());
+                    item.insert_text = None;
                 }
             }
         }

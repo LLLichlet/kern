@@ -53,6 +53,16 @@ Add new integration coverage to the narrowest existing suite in `compiler/kernc_
 
 If a new area grows beyond a few related cases, split it into a new integration test file and document the new suite in [`compiler/kernc_cli/tests/README.md`](compiler/kernc_cli/tests/README.md).
 
+## Collection Types
+
+Use a small, consistent rule for map-like containers:
+
+- Default to `HashMap` for compiler internals, caches, symbol/type lookup tables, and other hot-path in-memory indexes.
+- Use `BTreeMap` when deterministic key order is part of the value of the code: user-visible output, lockfiles/manifests, protocol responses, stable snapshots, or tests that benefit from predictable ordering.
+- If either container would work and there is no clear ordering requirement, prefer `HashMap`.
+
+This keeps the core compiler biased toward fast lookup while making tooling and serialized outputs easier to diff, debug, and test.
+
 ## Commit Guidelines
 
 We use [Conventional Commits](https://www.conventionalcommits.org/). Please format your commit messages accordingly:

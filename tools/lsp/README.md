@@ -10,11 +10,11 @@ JSON-RPC over stdio and reuses the compiler workspace for language semantics.
 - Keep the implementation small, explicit, and easy to port into future Kern tooling.
 - Reuse `kernc_*` crates instead of rebuilding a second frontend in another language.
 - Avoid protocol/framework-heavy dependencies.
-- Start with diagnostics and document state management before richer editor features.
+- Prefer solid editor interoperability over a large but shallow feature surface.
 
-## Initial Scope
+## Current Scope
 
-The first milestone focuses on a stable server skeleton:
+The current server implements:
 
 - `initialize`
 - `initialized`
@@ -25,18 +25,25 @@ The first milestone focuses on a stable server skeleton:
 - `textDocument/didClose`
 - `textDocument/publishDiagnostics`
 - `textDocument/documentSymbol`
+- `textDocument/definition`
+- `textDocument/references`
+- `textDocument/hover`
+- `textDocument/completion`
+- `textDocument/prepareRename`
+- `textDocument/rename`
 
-The current scaffold already implements the protocol loop, full-text document
-sync, and compiler-backed diagnostic publication through in-memory document
-overrides.
+Document state is maintained in memory and reanalyzed through compiler source
+overrides, so diagnostics and editor queries stay aligned with unsaved buffers.
+`textDocument/didChange` accepts both whole-document replacements and
+incremental range updates.
 
 Current limitations:
 
 - only `file://` URIs are supported
-- only full-text sync is supported
-- only diagnostics and document symbols are implemented
 - the temporary analysis policy currently enables `--use-std` by default to
   match common Kern project editing flows
+- semantic tokens, code actions, formatting, and workspace-wide indexing are
+  not implemented yet
 
 ## Planned Architecture
 
@@ -63,8 +70,8 @@ Run it directly over stdio:
 cargo run -p kern-lsp
 ```
 
-At this stage the easiest editor integration path is a manual LSP client
-configuration that launches the compiled `kern-lsp` binary.
+The common integration path is a manual LSP client configuration that launches
+the compiled `kern-lsp` binary over stdio.
 
 ## Dependency Policy
 

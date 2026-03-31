@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 pub const JSONRPC_VERSION: &str = "2.0";
-pub const TEXT_DOCUMENT_SYNC_FULL: u8 = 1;
+pub const TEXT_DOCUMENT_SYNC_INCREMENTAL: u8 = 2;
 
 #[derive(Debug, Deserialize)]
 pub struct IncomingMessage {
@@ -49,7 +49,7 @@ pub struct VersionedTextDocumentIdentifier {
 #[serde(rename_all = "camelCase")]
 pub struct TextDocumentContentChangeEvent {
     #[serde(default)]
-    pub range: Option<Value>,
+    pub range: Option<Range>,
     pub text: String,
 }
 
@@ -192,7 +192,7 @@ pub struct Diagnostic {
     pub message: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Range {
     pub start: Position,
     pub end: Position,
@@ -228,7 +228,7 @@ pub fn initialize_result() -> Value {
         "capabilities": {
             "textDocumentSync": {
                 "openClose": true,
-                "change": TEXT_DOCUMENT_SYNC_FULL,
+                "change": TEXT_DOCUMENT_SYNC_INCREMENTAL,
                 "save": {
                     "includeText": false
                 }
@@ -237,7 +237,9 @@ pub fn initialize_result() -> Value {
             "definitionProvider": true,
             "referencesProvider": true,
             "hoverProvider": true,
-            "completionProvider": {},
+            "completionProvider": {
+                "triggerCharacters": ["."]
+            },
             "renameProvider": {
                 "prepareProvider": true
             }

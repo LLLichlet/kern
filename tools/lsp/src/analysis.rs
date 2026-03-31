@@ -1,14 +1,14 @@
 use crate::protocol::{
     CompletionItem, Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentSymbol, Hover, Location, MarkupContent, Position,
-    PrepareRenameResult, Range, TextEdit, WorkspaceEdit,
+    PrepareRenameResult, Range, TextDocumentContentChangeEvent, TextEdit, WorkspaceEdit,
 };
 use kernc_driver::{
     AnalysisArtifact, AnalysisCompletionItem, AnalysisCompletionKind, AnalysisHover,
     AnalysisReference, AnalysisSymbol, AnalysisSymbolKind, CompilerDriver, SourceOverrides,
 };
-use kernc_utils::{DiagnosticLevel, FileId, Session, Span};
 use kernc_utils::config::CompileOptions;
+use kernc_utils::{DiagnosticLevel, FileId, Session, Span};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::{fs, io};
@@ -70,15 +70,14 @@ impl AnalysisEngine {
             );
         };
 
+        let mut updated_text = doc.text.clone();
         for change in params.content_changes {
-            if change.range.is_some() {
-                return single_server_diagnostic(
-                    params.text_document.uri.clone(),
-                    "incremental range updates are not implemented yet; expected full sync",
-                );
+            if let Err(message) = apply_content_change(&doc.path, &mut updated_text, &change) {
+                return single_server_diagnostic(params.text_document.uri.clone(), message);
             }
-            doc.text = change.text;
         }
+
+        doc.text = updated_text;
         doc.version = params.text_document.version;
 
         self.analyze_document(&params.text_document.uri)
@@ -105,15 +104,18 @@ impl AnalysisEngine {
 
         let mut symbols = Vec::new();
         for module_symbol in &artifact.symbols {
-            let Some(path) = artifact.session.source_manager.get_file_path(module_symbol.span.file) else {
+            let Some(path) = artifact
+                .session
+                .source_manager
+                .get_file_path(module_symbol.span.file)
+            else {
                 continue;
             };
             if normalize_path(path) == target_path {
                 symbols.extend(
-                    module_symbol
-                        .children
-                        .iter()
-                        .map(|symbol| analysis_symbol_to_document_symbol(&artifact.session, symbol))
+                    module_symbol.children.iter().map(|symbol| {
+                        analysis_symbol_to_document_symbol(&artifact.session, symbol)
+                    }),
                 );
             }
         }
@@ -121,7 +123,11 @@ impl AnalysisEngine {
         Ok(symbols)
     }
 
-    pub fn goto_definition(&self, uri: &str, position: Position) -> Result<Option<Location>, String> {
+    pub fn goto_definition(
+        &self,
+        uri: &str,
+        position: Position,
+    ) -> Result<Option<Location>, String> {
         let artifact = self
             .analyze_artifact(uri)
             .map_err(|message| format!("definition analysis failed: {message}"))?;
@@ -234,10 +240,7 @@ impl AnalysisEngine {
         new_name: &str,
     ) -> Result<WorkspaceEdit, String> {
         if !is_valid_identifier(new_name) {
-            return Err(format!(
-                "`{}` is not a valid Kern identifier",
-                new_name
-            ));
+            return Err(format!("`{}` is not a valid Kern identifier", new_name));
         }
 
         let artifact = self
@@ -308,6 +311,38 @@ impl AnalysisEngine {
     }
 }
 
+fn apply_content_change(
+    path: &Path,
+    text: &mut String,
+    change: &TextDocumentContentChangeEvent,
+) -> Result<(), String> {
+    let Some(range) = &change.range else {
+        text.clear();
+        text.push_str(&change.text);
+        return Ok(());
+    };
+
+    let file = kernc_utils::SourceFile::new(path.to_path_buf(), text.clone());
+    let Some(start) = position_to_byte_offset(&file, &range.start) else {
+        return Err(format!(
+            "received incremental change with invalid start position {}:{}",
+            range.start.line, range.start.character
+        ));
+    };
+    let Some(end) = position_to_byte_offset(&file, &range.end) else {
+        return Err(format!(
+            "received incremental change with invalid end position {}:{}",
+            range.end.line, range.end.character
+        ));
+    };
+    if start > end {
+        return Err("received incremental change with a reversed range".to_string());
+    }
+
+    text.replace_range(start..end, &change.text);
+    Ok(())
+}
+
 pub fn cleared_uris(previous: &BTreeSet<String>, current: &[DiagnosticBundle]) -> Vec<String> {
     let current_uris: BTreeSet<_> = current.iter().map(|bundle| bundle.uri.clone()).collect();
     previous
@@ -329,11 +364,13 @@ fn diagnostics_from_session(
     let mut bundles = BTreeMap::<String, Vec<Diagnostic>>::new();
 
     for diag in &session.diagnostics {
-        let uri = diagnostic_uri(session, diag.primary_span.file, &uri_by_path).unwrap_or_else(|| {
-            "kern-lsp:/unknown".to_string()
-        });
+        let uri = diagnostic_uri(session, diag.primary_span.file, &uri_by_path)
+            .unwrap_or_else(|| "kern-lsp:/unknown".to_string());
 
-        bundles.entry(uri).or_default().push(convert_diagnostic(session, diag));
+        bundles
+            .entry(uri)
+            .or_default()
+            .push(convert_diagnostic(session, diag));
     }
 
     bundles
@@ -387,12 +424,17 @@ fn find_rename_target(
     target_path: &Path,
     position: &Position,
 ) -> Option<RenameTarget> {
-    if let Some(target) = rename_target_at_definition_position(session, hovers, target_path, position) {
+    if let Some(target) =
+        rename_target_at_definition_position(session, hovers, target_path, position)
+    {
         return Some(target);
     }
 
     for reference in references {
-        let Some(file) = session.source_manager.get_file(reference.reference_span.file) else {
+        let Some(file) = session
+            .source_manager
+            .get_file(reference.reference_span.file)
+        else {
             continue;
         };
         let Some(offset) = match_position_in_file(file, target_path, position) else {
@@ -464,9 +506,7 @@ fn find_reference_locations(
     };
 
     let mut locations = Vec::new();
-    if include_declaration
-        && let Some(location) = location_from_span(session, definition_span)
-    {
+    if include_declaration && let Some(location) = location_from_span(session, definition_span) {
         locations.push(location);
     }
 
@@ -503,7 +543,10 @@ fn find_target_definition_span(
     let mut best_match = None;
 
     for reference in references {
-        let Some(reference_file) = session.source_manager.get_file(reference.reference_span.file) else {
+        let Some(reference_file) = session
+            .source_manager
+            .get_file(reference.reference_span.file)
+        else {
             continue;
         };
         let reference_offset = match_position_in_file(reference_file, target_path, position);
@@ -514,7 +557,10 @@ fn find_target_definition_span(
             break;
         }
 
-        let Some(definition_file) = session.source_manager.get_file(reference.definition_span.file) else {
+        let Some(definition_file) = session
+            .source_manager
+            .get_file(reference.definition_span.file)
+        else {
             continue;
         };
         let definition_offset = match_position_in_file(definition_file, target_path, position);
@@ -933,8 +979,7 @@ fn is_identifier_continue(byte: u8) -> bool {
 fn is_keyword(name: &str) -> bool {
     matches!(
         name,
-        "fn"
-            | "let"
+        "fn" | "let"
             | "mut"
             | "const"
             | "static"
@@ -977,7 +1022,7 @@ mod tests {
         position_to_byte_offset, uri_to_file_path,
     };
     use crate::protocol::{
-        DidChangeTextDocumentParams, DidOpenTextDocumentParams, Position,
+        DidChangeTextDocumentParams, DidOpenTextDocumentParams, Position, Range,
         TextDocumentContentChangeEvent, TextDocumentItem, VersionedTextDocumentIdentifier,
     };
     use kernc_utils::SourceFile;
@@ -1023,6 +1068,215 @@ mod tests {
     }
 
     #[test]
+    fn incremental_sync_inserts_text() {
+        let mut analysis = AnalysisEngine::default();
+        let uri = temp_file_uri("incremental_insert", "let value = 1;");
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: "let value = 1;".to_string(),
+            },
+        });
+
+        let outcome = analysis.change_document(DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position {
+                        line: 0,
+                        character: 13,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 13,
+                    },
+                }),
+                text: " + 1".to_string(),
+            }],
+        });
+
+        assert!(outcome.bundles.iter().any(|bundle| bundle.uri == uri));
+        assert_eq!(
+            analysis.documents.get(&uri).unwrap().text,
+            "let value = 1 + 1;"
+        );
+    }
+
+    #[test]
+    fn incremental_sync_replaces_text() {
+        let mut analysis = AnalysisEngine::default();
+        let uri = temp_file_uri("incremental_replace", "let value = 1;");
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: "let value = 1;".to_string(),
+            },
+        });
+
+        let outcome = analysis.change_document(DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position {
+                        line: 0,
+                        character: 12,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 13,
+                    },
+                }),
+                text: "42".to_string(),
+            }],
+        });
+
+        assert!(outcome.bundles.iter().any(|bundle| bundle.uri == uri));
+        assert_eq!(
+            analysis.documents.get(&uri).unwrap().text,
+            "let value = 42;"
+        );
+    }
+
+    #[test]
+    fn incremental_sync_deletes_text() {
+        let mut analysis = AnalysisEngine::default();
+        let uri = temp_file_uri("incremental_delete", "let value = 123;");
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: "let value = 123;".to_string(),
+            },
+        });
+
+        let outcome = analysis.change_document(DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position {
+                        line: 0,
+                        character: 12,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 14,
+                    },
+                }),
+                text: String::new(),
+            }],
+        });
+
+        assert!(outcome.bundles.iter().any(|bundle| bundle.uri == uri));
+        assert_eq!(analysis.documents.get(&uri).unwrap().text, "let value = 3;");
+    }
+
+    #[test]
+    fn incremental_sync_respects_utf16_positions() {
+        let mut analysis = AnalysisEngine::default();
+        let uri = temp_file_uri("incremental_utf16", "let face = \"😀x\";");
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: "let face = \"😀x\";".to_string(),
+            },
+        });
+
+        let outcome = analysis.change_document(DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position {
+                        line: 0,
+                        character: 14,
+                    },
+                    end: Position {
+                        line: 0,
+                        character: 15,
+                    },
+                }),
+                text: "!".to_string(),
+            }],
+        });
+
+        assert!(outcome.bundles.iter().any(|bundle| bundle.uri == uri));
+        assert_eq!(
+            analysis.documents.get(&uri).unwrap().text,
+            "let face = \"😀!\";"
+        );
+    }
+
+    #[test]
+    fn invalid_incremental_sync_range_keeps_previous_text() {
+        let mut analysis = AnalysisEngine::default();
+        let uri = temp_file_uri("incremental_invalid", "let value = 1;");
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: "let value = 1;".to_string(),
+            },
+        });
+
+        let outcome = analysis.change_document(DidChangeTextDocumentParams {
+            text_document: VersionedTextDocumentIdentifier {
+                uri: uri.clone(),
+                version: 2,
+            },
+            content_changes: vec![TextDocumentContentChangeEvent {
+                range: Some(Range {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 1,
+                        character: 1,
+                    },
+                }),
+                text: "x".to_string(),
+            }],
+        });
+
+        let bundle = outcome
+            .bundles
+            .iter()
+            .find(|bundle| bundle.uri == uri)
+            .unwrap();
+        assert_eq!(analysis.documents.get(&uri).unwrap().text, "let value = 1;");
+        assert!(
+            bundle
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.message.contains("invalid start position"))
+        );
+    }
+
+    #[test]
     fn overlay_text_is_used_for_compiler_diagnostics() {
         let mut analysis = AnalysisEngine::default();
         let uri = temp_file_uri("overlay_diag", "extern fn main() i32 { 0 }");
@@ -1057,10 +1311,7 @@ mod tests {
 
     #[test]
     fn computes_cleared_uris() {
-        let previous = BTreeSet::from([
-            "file:///one.rn".to_string(),
-            "file:///two.rn".to_string(),
-        ]);
+        let previous = BTreeSet::from(["file:///one.rn".to_string(), "file:///two.rn".to_string()]);
         let current = vec![super::DiagnosticBundle {
             uri: "file:///one.rn".to_string(),
             diagnostics: Vec::new(),
@@ -1089,7 +1340,10 @@ mod tests {
         });
 
         let symbols = analysis.document_symbols(&uri).unwrap();
-        let names = symbols.iter().map(|symbol| symbol.name.as_str()).collect::<Vec<_>>();
+        let names = symbols
+            .iter()
+            .map(|symbol| symbol.name.as_str())
+            .collect::<Vec<_>>();
         assert!(names.contains(&"Point"));
         assert!(names.contains(&"helper"));
     }
@@ -1110,10 +1364,16 @@ mod tests {
         });
 
         let query_position = position_of_nth(source, "value", 1, 2);
-        let definition = analysis.goto_definition(&uri, query_position).unwrap().unwrap();
+        let definition = analysis
+            .goto_definition(&uri, query_position)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(definition.uri, uri);
-        assert_eq!(definition.range.start, position_of_nth(source, "value", 0, 0));
+        assert_eq!(
+            definition.range.start,
+            position_of_nth(source, "value", 0, 0)
+        );
     }
 
     #[test]
@@ -1132,16 +1392,23 @@ mod tests {
         });
 
         let query_position = position_of_nth(source, "helper", 1, 1);
-        let definition = analysis.goto_definition(&uri, query_position).unwrap().unwrap();
+        let definition = analysis
+            .goto_definition(&uri, query_position)
+            .unwrap()
+            .unwrap();
 
         assert_eq!(definition.uri, uri);
-        assert_eq!(definition.range.start, position_of_nth(source, "helper", 0, 0));
+        assert_eq!(
+            definition.range.start,
+            position_of_nth(source, "helper", 0, 0)
+        );
     }
 
     #[test]
     fn finds_references_from_identifier_reference_position() {
         let mut analysis = AnalysisEngine::default();
-        let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
+        let source =
+            "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
         let uri = temp_file_uri("references_from_ref", source);
 
         let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -1157,8 +1424,14 @@ mod tests {
         let locations = analysis.references(&uri, query_position, false).unwrap();
 
         assert_eq!(locations.len(), 2);
-        assert_eq!(locations[0].range.start, position_of_nth(source, "helper", 1, 0));
-        assert_eq!(locations[1].range.start, position_of_nth(source, "helper", 2, 0));
+        assert_eq!(
+            locations[0].range.start,
+            position_of_nth(source, "helper", 1, 0)
+        );
+        assert_eq!(
+            locations[1].range.start,
+            position_of_nth(source, "helper", 2, 0)
+        );
     }
 
     #[test]
@@ -1180,8 +1453,14 @@ mod tests {
         let locations = analysis.references(&uri, query_position, true).unwrap();
 
         assert_eq!(locations.len(), 2);
-        assert_eq!(locations[0].range.start, position_of_nth(source, "helper", 0, 0));
-        assert_eq!(locations[1].range.start, position_of_nth(source, "helper", 1, 0));
+        assert_eq!(
+            locations[0].range.start,
+            position_of_nth(source, "helper", 0, 0)
+        );
+        assert_eq!(
+            locations[1].range.start,
+            position_of_nth(source, "helper", 1, 0)
+        );
     }
 
     #[test]
@@ -1257,7 +1536,8 @@ mod tests {
     #[test]
     fn rename_updates_definition_and_references() {
         let mut analysis = AnalysisEngine::default();
-        let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
+        let source =
+            "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
         let uri = temp_file_uri("rename_function", source);
 
         let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -1276,9 +1556,18 @@ mod tests {
 
         assert_eq!(edits.len(), 3);
         assert!(edits.iter().all(|edit| edit.new_text == "assist"));
-        assert_eq!(edits[0].range.start, position_of_nth(source, "helper", 0, 0));
-        assert_eq!(edits[1].range.start, position_of_nth(source, "helper", 1, 0));
-        assert_eq!(edits[2].range.start, position_of_nth(source, "helper", 2, 0));
+        assert_eq!(
+            edits[0].range.start,
+            position_of_nth(source, "helper", 0, 0)
+        );
+        assert_eq!(
+            edits[1].range.start,
+            position_of_nth(source, "helper", 1, 0)
+        );
+        assert_eq!(
+            edits[2].range.start,
+            position_of_nth(source, "helper", 2, 0)
+        );
     }
 
     #[test]
@@ -1468,7 +1757,12 @@ mod tests {
         ))
     }
 
-    fn position_of_nth(source: &str, needle: &str, occurrence: usize, char_offset: u32) -> Position {
+    fn position_of_nth(
+        source: &str,
+        needle: &str,
+        occurrence: usize,
+        char_offset: u32,
+    ) -> Position {
         let byte_offset = nth_match_offset(source, needle, occurrence) + char_offset as usize;
         let prefix = &source[..byte_offset];
         let line = prefix.bytes().filter(|byte| *byte == b'\n').count() as u32;

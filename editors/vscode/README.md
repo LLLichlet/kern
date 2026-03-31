@@ -30,6 +30,10 @@ The extension also includes checked-in VS Code launch/tasks files under
 `editors/vscode/.vscode/` so repository-local extension debugging works
 without extra manual setup.
 
+For manual syntax-highlighting review, open:
+
+`editors/vscode/testdata/highlighting-showcase.rn`
+
 ## Language Server Resolution
 
 The extension resolves the language server in this order:

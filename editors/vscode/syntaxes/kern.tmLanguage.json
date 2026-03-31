@@ -16,13 +16,31 @@
       "include": "#numbers"
     },
     {
-      "include": "#keywords"
+      "include": "#intrinsics"
+    },
+    {
+      "include": "#imports"
     },
     {
       "include": "#declarations"
     },
     {
+      "include": "#constructors"
+    },
+    {
+      "include": "#variants"
+    },
+    {
+      "include": "#fields"
+    },
+    {
       "include": "#types"
+    },
+    {
+      "include": "#functions"
+    },
+    {
+      "include": "#keywords"
     },
     {
       "include": "#operators"
@@ -38,7 +56,12 @@
         {
           "name": "comment.block.kern",
           "begin": "/\\*",
-          "end": "\\*/"
+          "end": "\\*/",
+          "patterns": [
+            {
+              "include": "#comments"
+            }
+          ]
         }
       ]
     },
@@ -47,7 +70,17 @@
         {
           "name": "meta.attribute.kern",
           "begin": "#\\[",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.attribute.begin.kern"
+            }
+          },
           "end": "\\]",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.attribute.end.kern"
+            }
+          },
           "patterns": [
             {
               "name": "entity.other.attribute-name.kern",
@@ -68,22 +101,42 @@
         {
           "name": "string.quoted.double.kern",
           "begin": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.kern"
+            }
+          },
           "end": "\"",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.kern"
+            }
+          },
           "patterns": [
             {
               "name": "constant.character.escape.kern",
-              "match": "\\\\."
+              "match": "\\\\(?:x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f_]+\\}|.)"
             }
           ]
         },
         {
           "name": "string.quoted.single.kern",
-          "begin": "'",
+          "begin": "(?:b)?'",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.kern"
+            }
+          },
           "end": "'",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.kern"
+            }
+          },
           "patterns": [
             {
               "name": "constant.character.escape.kern",
-              "match": "\\\\."
+              "match": "\\\\(?:x[0-9A-Fa-f]{2}|u\\{[0-9A-Fa-f_]+\\}|.)"
             }
           ]
         }
@@ -93,7 +146,164 @@
       "patterns": [
         {
           "name": "constant.numeric.kern",
-          "match": "\\b(?:0x[0-9A-Fa-f_]+|0b[01_]+|0o[0-7_]+|\\d+(?:_\\d+)*(?:\\.\\d+(?:_\\d+)*)?)\\b"
+          "match": "\\b(?:0x[0-9A-Fa-f_]+|0b[01_]+|0o[0-7_]+|\\d+(?:_\\d+)*(?:\\.\\d+(?:_\\d+)*)?(?:[eE][+-]?\\d+(?:_\\d+)*)?)\\b"
+        }
+      ]
+    },
+    "intrinsics": {
+      "patterns": [
+        {
+          "name": "support.function.intrinsic.kern",
+          "match": "@[A-Za-z_][A-Za-z0-9_]*"
+        }
+      ]
+    },
+    "imports": {
+      "patterns": [
+        {
+          "name": "meta.import.kern",
+          "begin": "\\b(?:pub\\s+use|use)\\b",
+          "beginCaptures": {
+            "0": {
+              "name": "keyword.control.import.kern"
+            }
+          },
+          "end": ";",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.terminator.statement.kern"
+            }
+          },
+          "patterns": [
+            {
+              "name": "entity.name.namespace.kern",
+              "match": "\\b[a-z][A-Za-z0-9_]*\\b(?=\\s*(?:\\.\\{|\\.))"
+            },
+            {
+              "name": "support.type.imported.kern",
+              "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+            },
+            {
+              "name": "punctuation.separator.path.kern",
+              "match": "\\.(?=\\{|[A-Za-z_])"
+            },
+            {
+              "name": "punctuation.section.group.begin.kern",
+              "match": "\\{"
+            },
+            {
+              "name": "punctuation.section.group.end.kern",
+              "match": "\\}"
+            },
+            {
+              "name": "punctuation.separator.comma.kern",
+              "match": ","
+            }
+          ]
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "meta.function.definition.kern",
+          "match": "\\b(?:(?:pub|extern|const)\\s+)*(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.kern"
+            },
+            "2": {
+              "name": "entity.name.function.kern"
+            }
+          }
+        },
+        {
+          "name": "meta.type.definition.kern",
+          "match": "\\b(type)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.definition.kern"
+            },
+            "2": {
+              "name": "entity.name.type.kern"
+            }
+          }
+        },
+        {
+          "name": "meta.module.definition.kern",
+          "match": "\\b(mod)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": {
+              "name": "keyword.control.module.kern"
+            },
+            "2": {
+              "name": "entity.name.namespace.kern"
+            }
+          }
+        }
+      ]
+    },
+    "constructors": {
+      "patterns": [
+        {
+          "name": "entity.name.type.constructor.kern",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b(?=\\s*\\.\\{)"
+        },
+        {
+          "name": "support.type.primitive.constructor.kern",
+          "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str|void)\\b(?=\\s*\\.\\{)"
+        },
+        {
+          "name": "punctuation.definition.constructor.kern",
+          "match": "\\.\\{"
+        }
+      ]
+    },
+    "variants": {
+      "patterns": [
+        {
+          "name": "constant.other.enum-variant.kern",
+          "match": "\\.[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "fields": {
+      "patterns": [
+        {
+          "name": "variable.other.member.kern",
+          "match": "\\b[a-zA-Z_][A-Za-z0-9_]*\\b(?=\\s*:)"
+        },
+        {
+          "name": "variable.other.property.kern",
+          "match": "(?<=\\.)[a-zA-Z_][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "support.type.primitive.kern",
+          "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str|void)\\b"
+        },
+        {
+          "name": "support.type.self.kern",
+          "match": "\\bSelf\\b"
+        },
+        {
+          "name": "entity.name.type.parameter.kern",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+        }
+      ]
+    },
+    "functions": {
+      "patterns": [
+        {
+          "name": "entity.name.function.call.kern",
+          "match": "\\b[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
+        },
+        {
+          "name": "entity.name.function.method.kern",
+          "match": "(?<=\\.)[A-Za-z_][A-Za-z0-9_]*\\b(?=\\s*\\()"
         }
       ]
     },
@@ -101,7 +311,11 @@
       "patterns": [
         {
           "name": "keyword.control.kern",
-          "match": "\\b(?:if|else|for|match|break|continue|return|defer|where|use|mod|impl|extern|pub|as)\\b"
+          "match": "\\b(?:if|else|for|match|break|continue|return|defer|where|impl|as)\\b"
+        },
+        {
+          "name": "keyword.control.import-export.kern",
+          "match": "\\b(?:use|pub|mod|extern)\\b"
         },
         {
           "name": "storage.modifier.kern",
@@ -109,43 +323,43 @@
         },
         {
           "name": "storage.type.kern",
-          "match": "\\b(?:fn|type|struct|union|enum|trait|void)\\b"
+          "match": "\\b(?:fn|type|struct|union|enum|trait)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.kern",
+          "match": "\\b(?:and|or)\\b"
         },
         {
           "name": "constant.language.kern",
-          "match": "\\b(?:true|false|undef|Self|self)\\b"
-        }
-      ]
-    },
-    "declarations": {
-      "patterns": [
-        {
-          "name": "entity.name.function.kern",
-          "match": "(?<=\\bfn\\s)([A-Za-z_][A-Za-z0-9_]*)"
-        },
-        {
-          "name": "entity.name.type.kern",
-          "match": "(?<=\\btype\\s)([A-Za-z_][A-Za-z0-9_]*)"
-        }
-      ]
-    },
-    "types": {
-      "patterns": [
-        {
-          "name": "support.type.kern",
-          "match": "\\b(?:i8|i16|i32|i64|i128|isize|u8|u16|u32|u64|u128|usize|f32|f64|bool|str)\\b"
-        },
-        {
-          "name": "support.class.kern",
-          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+          "match": "\\b(?:true|false|undef|self)\\b"
         }
       ]
     },
     "operators": {
       "patterns": [
         {
-          "name": "keyword.operator.kern",
-          "match": "\\.\\.=|\\.\\.|\\.\\*|\\.\\{|\\.\\[|\\.\\&|\\.\\.\\&|\\.\\.\\[|==|!=|<=|>=|<<=|>>=|<<|>>|->|=>|[+\\-*/%&|^~!=<>]"
+          "name": "keyword.operator.pointer.kern",
+          "match": "\\.\\*|\\.\\&|\\.\\.\\&|\\.\\[|\\.\\.\\["
+        },
+        {
+          "name": "keyword.operator.range.kern",
+          "match": "\\.\\.=|\\.\\."
+        },
+        {
+          "name": "keyword.operator.assignment.kern",
+          "match": "<<=|>>=|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|="
+        },
+        {
+          "name": "keyword.operator.comparison.kern",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.arrow.kern",
+          "match": "->|=>"
+        },
+        {
+          "name": "keyword.operator.arithmetic.kern",
+          "match": "<<|>>|[+\\-*/%&|^~!]"
         }
       ]
     }

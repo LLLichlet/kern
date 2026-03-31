@@ -1,0 +1,38 @@
+use std.sync.{MemOrder, ACQUIRE, RELEASE};
+
+#[export_name("_start")]
+extern fn start() ! {
+    let mut counter = i32.{0};
+    let device = SerialPort.{ port: 0x3F8 };
+    let state = Option[i32].{ Some: 7 };
+    let callback = .[ptr = counter..&](value: i32) i32 {
+        ptr.* += value;
+        return ptr.*;
+    };
+
+    @asm(.{
+        asm: .{ "out dx, al", },
+        inputs: .{ dx: device.port, al: 0xFF },
+        volatile: true
+    });
+
+    let _ = match (state) {
+        .Some: value => callback(value),
+        .None => @trap(),
+    };
+
+    let byte = device.buffer.[0];
+    let view = device.buffer..[0 .. 4];
+    let io = *mut Writer.{ device..& };
+    let _ = io.write(view as []u8);
+    @unreachable();
+}
+
+type Writer = trait {
+    write: fn(bytes: []u8) i32,
+};
+
+type SerialPort = struct {
+    port: u16 = 0x3F8,
+    buffer: [16]mut u8 = [16]mut u8.{ undef },
+};

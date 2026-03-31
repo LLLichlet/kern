@@ -24,8 +24,24 @@
     ["\"", "\""],
     ["'", "'"]
   ],
+  "autoCloseBefore": ";:.,=}])>` \n\t",
   "indentationRules": {
     "increaseIndentPattern": "^.*(?:\\{|\\(|\\[)\\s*$",
     "decreaseIndentPattern": "^\\s*(?:\\}|\\)|\\])"
-  }
+  },
+  "folding": {
+    "markers": {
+      "start": "^\\s*//\\s*#?region\\b",
+      "end": "^\\s*//\\s*#?endregion\\b"
+    }
+  },
+  "onEnterRules": [
+    {
+      "beforeText": "^\\s*//.*$",
+      "action": {
+        "indent": "none",
+        "appendText": "// "
+      }
+    }
+  ]
 }

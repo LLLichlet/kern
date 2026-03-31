@@ -259,8 +259,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             BasicTypeEnum::IntType(t) => t.get_undef().into(),
             BasicTypeEnum::PointerType(t) => t.get_undef().into(),
             BasicTypeEnum::StructType(t) => t.get_undef().into(),
-            BasicTypeEnum::VectorType(t) => t.get_undef().into(),
-            BasicTypeEnum::ScalableVectorType(t) => t.get_undef().into(),
+            BasicTypeEnum::VectorType(t) => t.get_undef(),
+            BasicTypeEnum::ScalableVectorType(t) => t.get_undef(),
         }
     }
 

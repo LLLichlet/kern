@@ -42,7 +42,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         };
 
-        if size % chunk_size != 0 {
+        if !size.is_multiple_of(chunk_size) {
             self.sess.emit_ice(
                 span,
                 format!(
@@ -372,7 +372,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
             let mut param_types = Vec::new();
             for p in &f.params {
-                param_types.push(self.get_llvm_type(p.ty).into());
+                param_types.push(self.get_llvm_type(p.ty));
             }
 
             let fn_type = if f.ret_ty == TypeId::VOID {

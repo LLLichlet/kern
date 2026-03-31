@@ -1,4 +1,5 @@
 use super::CodeGenerator;
+use crate::codegen::expr::call::AtomicCasRequest;
 use crate::intrinsics::Intrinsic;
 use crate::values::BasicValueEnum;
 use kernc_mast::{MastExpr, MastExprKind};
@@ -180,9 +181,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 desired,
                 success,
                 failure,
-            } => {
-                self.compile_atomic_cas(expr.ty, *weak, ptr, expected, desired, *success, *failure)
-            }
+            } => self.compile_atomic_cas(AtomicCasRequest {
+                expr_ty: expr.ty,
+                weak: *weak,
+                ptr,
+                expected,
+                desired,
+                success: *success,
+                failure: *failure,
+            }),
             MastExprKind::AtomicRmw {
                 op,
                 ptr,

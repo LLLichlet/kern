@@ -8,6 +8,16 @@ use kernc_mast::{BitIntrinsicKind, MastAsmBlock, MastExpr, MastExprKind};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{AtomicOrdering, AtomicRmwOp};
 
+pub(crate) struct AtomicCasRequest<'a> {
+    pub expr_ty: TypeId,
+    pub weak: bool,
+    pub ptr: &'a MastExpr,
+    pub expected: &'a MastExpr,
+    pub desired: &'a MastExpr,
+    pub success: AtomicOrdering,
+    pub failure: AtomicOrdering,
+}
+
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn llvm_atomic_ordering(ordering: AtomicOrdering) -> LlvmAtomicOrdering {
         match ordering {
@@ -100,7 +110,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let mut param_types = Vec::new();
         for p in params {
-            param_types.push(self.get_llvm_type(*p).into());
+            param_types.push(self.get_llvm_type(*p));
         }
 
         let fn_ty = if *ret == TypeId::VOID {
@@ -156,7 +166,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     ) -> BasicValueEnum<'ctx> {
         let mut llvm_args = Vec::new();
         for arg in args {
-            llvm_args.push(self.compile_expr(arg).into());
+            llvm_args.push(self.compile_expr(arg));
         }
 
         let call_site = if let MastExprKind::FuncRef(mono_id) = callee.kind {
@@ -193,8 +203,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         for arg_expr in &asm_block.input_args {
             let llvm_val = self.compile_expr(arg_expr);
-            arg_values.push(llvm_val.into());
-            param_types.push(llvm_val.get_type().into());
+            arg_values.push(llvm_val);
+            param_types.push(llvm_val.get_type());
         }
 
         let asm_fn_type = self.inline_asm_fn_type(asm_block, &param_types);
@@ -205,10 +215,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             asm_fn_type,
             asm_block.asm_template.clone(),
             asm_block.constraints.clone(),
-            has_side_effects,
-            false,
-            Some(self.asm_dialect),
-            false,
+            crate::llvm_api::InlineAsmOptions {
+                sideeffects: has_side_effects,
+                alignstack: false,
+                dialect: Some(self.asm_dialect),
+                can_throw: false,
+            },
         );
 
         // 5. 调用汇编指令
@@ -263,13 +275,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap();
 
         let call_site = if kind == BitIntrinsicKind::PopCount || kind == BitIntrinsicKind::Bswap {
-            self.builder
-                .build_call(decl, &[val.into()], "bit_op")
-                .unwrap()
+            self.builder.build_call(decl, &[val], "bit_op").unwrap()
         } else {
             let is_zero_poison = self.context.bool_type().const_zero();
             self.builder
-                .build_call(decl, &[val.into(), is_zero_poison.into()], "lz_tz")
+                .build_call(decl, &[val, is_zero_poison.into()], "lz_tz")
                 .unwrap()
         };
 
@@ -289,8 +299,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap();
         load.as_instruction_value()
             .unwrap()
-            .set_atomic_ordering(Self::llvm_atomic_ordering(ordering))
-            .unwrap();
+            .set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
         load
     }
 
@@ -303,9 +312,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let ptr_val = self.compile_expr(ptr).into_pointer_value();
         let value_val = self.compile_expr(value);
         let store = self.builder.build_store(ptr_val, value_val).unwrap();
-        store
-            .set_atomic_ordering(Self::llvm_atomic_ordering(ordering))
-            .unwrap();
+        store.set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
         self.context.i8_type().const_zero().into()
     }
 
@@ -385,14 +392,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     pub(crate) fn compile_atomic_cas(
         &mut self,
-        expr_ty: TypeId,
-        weak: bool,
-        ptr: &MastExpr,
-        expected: &MastExpr,
-        desired: &MastExpr,
-        success: AtomicOrdering,
-        failure: AtomicOrdering,
+        request: AtomicCasRequest<'_>,
     ) -> BasicValueEnum<'ctx> {
+        let AtomicCasRequest {
+            expr_ty,
+            weak,
+            ptr,
+            expected,
+            desired,
+            success,
+            failure,
+        } = request;
+
         let ptr_val = self.compile_expr(ptr).into_pointer_value();
         let expected_val = self.compile_expr(expected);
         let desired_val = self.compile_expr(desired);

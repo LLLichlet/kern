@@ -97,6 +97,54 @@ extern type Bad = enum {
 }
 
 #[test]
+fn rejects_named_right_side_extern_struct_syntax() {
+    let output = compile_source(
+        r#"
+type Header = extern struct {
+    tag: u32,
+};
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("named struct declarations must use `extern type Name = struct { ... }`"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_top_level_extern_import_syntax() {
+    let output = compile_source(
+        r#"
+extern fn puts(msg: *u8) i32;
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("external imports must be declared inside `extern { ... }` blocks"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn rejects_extern_union_bnc_without_extern_on_the_anonymous_side() {
     let output = compile_source(
         r#"

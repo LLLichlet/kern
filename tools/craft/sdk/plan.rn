@@ -50,7 +50,7 @@ pub type EnvValue = enum {
     None,
 };
 
-pub type Plan = extern struct {
+pub extern type Plan = struct {
     pub package: Package,
     pub workspace: Workspace,
     pub host: Target,
@@ -59,25 +59,27 @@ pub type Plan = extern struct {
     pub command: Command,
 };
 
-extern fn __craft_plan_feature_enabled(plan: *Plan, name: []u8) bool;
-extern fn __craft_plan_env(plan: *Plan, name: []u8) EnvValue;
-extern fn __craft_plan_cfg_bool(plan: *mut Plan, name: []u8, value: bool) void;
-extern fn __craft_plan_cfg_string(plan: *mut Plan, name: []u8, value: []u8) void;
-extern fn __craft_plan_define_bool(plan: *mut Plan, name: []u8, value: bool) void;
-extern fn __craft_plan_define_string(plan: *mut Plan, name: []u8, value: []u8) void;
-extern fn __craft_plan_set_lib_root(plan: *mut Plan, root: []u8) void;
-extern fn __craft_plan_add_bin(plan: *mut Plan, name: []u8, root: []u8) void;
-extern fn __craft_plan_add_test(plan: *mut Plan, name: []u8, root: []u8) void;
-extern fn __craft_plan_add_example(plan: *mut Plan, name: []u8, root: []u8) void;
-extern fn __craft_plan_remove_lib(plan: *mut Plan) bool;
-extern fn __craft_plan_remove_bin(plan: *mut Plan, name: []u8) bool;
-extern fn __craft_plan_remove_test(plan: *mut Plan, name: []u8) bool;
-extern fn __craft_plan_remove_example(plan: *mut Plan, name: []u8) bool;
-extern fn __craft_plan_dep_version(plan: *mut Plan, kind: DependencyKind, name: []u8, version: []u8) void;
-extern fn __craft_plan_dep_path(plan: *mut Plan, kind: DependencyKind, name: []u8, path: []u8) void;
-extern fn __craft_plan_dep_registry(plan: *mut Plan, kind: DependencyKind, name: []u8, registry: []u8) void;
-extern fn __craft_plan_dep_workspace(plan: *mut Plan, kind: DependencyKind, name: []u8) void;
-extern fn __craft_plan_remove_dep(plan: *mut Plan, kind: DependencyKind, name: []u8) bool;
+extern {
+    fn __craft_plan_feature_enabled(plan: *Plan, name: []u8) bool;
+    fn __craft_plan_env(plan: *Plan, name: []u8) EnvValue;
+    fn __craft_plan_cfg_bool(plan: *mut Plan, name: []u8, value: bool) void;
+    fn __craft_plan_cfg_string(plan: *mut Plan, name: []u8, value: []u8) void;
+    fn __craft_plan_define_bool(plan: *mut Plan, name: []u8, value: bool) void;
+    fn __craft_plan_define_string(plan: *mut Plan, name: []u8, value: []u8) void;
+    fn __craft_plan_set_lib_root(plan: *mut Plan, root: []u8) void;
+    fn __craft_plan_add_bin(plan: *mut Plan, name: []u8, root: []u8) void;
+    fn __craft_plan_add_test(plan: *mut Plan, name: []u8, root: []u8) void;
+    fn __craft_plan_add_example(plan: *mut Plan, name: []u8, root: []u8) void;
+    fn __craft_plan_remove_lib(plan: *mut Plan) bool;
+    fn __craft_plan_remove_bin(plan: *mut Plan, name: []u8) bool;
+    fn __craft_plan_remove_test(plan: *mut Plan, name: []u8) bool;
+    fn __craft_plan_remove_example(plan: *mut Plan, name: []u8) bool;
+    fn __craft_plan_dep_version(plan: *mut Plan, kind: DependencyKind, name: []u8, version: []u8) void;
+    fn __craft_plan_dep_path(plan: *mut Plan, kind: DependencyKind, name: []u8, path: []u8) void;
+    fn __craft_plan_dep_registry(plan: *mut Plan, kind: DependencyKind, name: []u8, registry: []u8) void;
+    fn __craft_plan_dep_workspace(plan: *mut Plan, kind: DependencyKind, name: []u8) void;
+    fn __craft_plan_remove_dep(plan: *mut Plan, kind: DependencyKind, name: []u8) bool;
+}
 
 impl *Plan {
     pub fn feature_enabled(name: []u8) bool {

@@ -35,7 +35,7 @@ const S_IFREG = u32.{32768};
 const DT_DIR = u8.{4};
 const DT_REG = u8.{8};
 
-type Stat = extern struct {
+extern type Stat = struct {
     st_dev: u64,
     st_ino: u64,
     st_nlink: u64,
@@ -56,7 +56,7 @@ type Stat = extern struct {
     __unused: [3]i64,
 };
 
-type Dirent64 = extern struct {
+extern type Dirent64 = struct {
     d_ino: u64,
     d_off: i64,
     d_reclen: u16,

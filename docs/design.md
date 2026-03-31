@@ -529,6 +529,8 @@ Because of this, internal Kern functions are physically invisible to standard C 
 
 The `extern` keyword acts as an explicit ABI boundary contract: it forces the compiler to use the standard C calling convention and **completely disables name mangling** for that symbol.
 
+This top-level form is specifically for **exported ABI definitions** such as runtime entry points or functions intentionally exposed to C/Assembly. It is not the syntax for importing foreign symbols.
+
 **The `main` Function Contract:**
 When a program uses the Kern runtime entry path (for example `std.rt` providing `_start`, `start`, or `mainCRTStartup`), the runtime looks for a raw symbol named `main`, so the entry point must be explicitly marked as `extern` and must match the runtime's expected ABI.
 
@@ -548,6 +550,13 @@ When using a hosted C runtime instead, Kern does not force the `std.rt` entry sh
 ### 9.2 Importing External Functions and Statics
 
 External C functions can use the `...` syntax to support C-style variadic arguments. External statics must be declared using `T.{undef}`. Items inside an `extern` block can be marked `pub` to expose them through the Kern module system.
+
+Kern intentionally splits the two directions of ABI usage:
+
+* **Exporting** uses a top-level definition such as `extern fn main(args: [][]u8) i32 { ... }`.
+* **Importing** uses an `extern { ... }` block such as `extern { fn printf(format: *u8, ...) i32; }`.
+
+Single imported functions or statics must still use an `extern` block; they are not written as standalone `extern fn foo(...);` items.
 
 ```kern
 extern {

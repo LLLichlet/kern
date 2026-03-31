@@ -196,6 +196,35 @@ impl<'a> Parser<'a> {
         };
         match decl_res {
             Ok(Some(mut decl)) => {
+                if is_extern {
+                    match &decl.kind {
+                        DeclKind::Function { body: None, .. } => {
+                            self.session
+                                .struct_error(
+                                    decl.span,
+                                    "external imports must be declared inside `extern { ... }` blocks",
+                                )
+                                .with_hint(
+                                    "use top-level `extern fn name(...) { ... }` only for exported ABI definitions",
+                                )
+                                .emit();
+                            return Err(ParseError);
+                        }
+                        DeclKind::Var { .. } => {
+                            self.session
+                                .struct_error(
+                                    decl.span,
+                                    "external statics must be declared inside `extern { ... }` blocks",
+                                )
+                                .with_hint(
+                                    "wrap imported statics in `extern { ... }` and use `= Type.{undef};`",
+                                )
+                                .emit();
+                            return Err(ParseError);
+                        }
+                        _ => {}
+                    }
+                }
                 decl.attributes = attributes;
                 Ok(Some(decl))
             }
@@ -461,6 +490,41 @@ impl<'a> Parser<'a> {
         // 4. 解析目标类型 `= trait { ... }`
         self.expect(TokenType::Assign)?;
         let target = self.parse_type()?;
+        match &target.kind {
+            TypeKind::Struct {
+                is_extern: true, ..
+            }
+            | TypeKind::Union {
+                is_extern: true, ..
+            } => {
+                let kind_name = match &target.kind {
+                    TypeKind::Struct { .. } => "struct",
+                    TypeKind::Union { .. } => "union",
+                    _ => unreachable!(),
+                };
+                let name = self.session.resolve(name_id).to_string();
+                let message = if is_extern {
+                    format!(
+                        "named {} declarations must place `extern` before `type`, not on the right-hand side",
+                        kind_name
+                    )
+                } else {
+                    format!(
+                        "named {} declarations must use `extern type Name = {} {{ ... }}`",
+                        kind_name, kind_name
+                    )
+                };
+                self.session
+                    .struct_error(target.span, message)
+                    .with_hint(format!(
+                        "write `extern type {} = {} {{ ... }};` for named C-ABI declarations",
+                        name, kind_name
+                    ))
+                    .emit();
+                return Err(ParseError);
+            }
+            _ => {}
+        }
         self.expect(TokenType::Semicolon)?;
 
         let end = self.stream.prev_span();

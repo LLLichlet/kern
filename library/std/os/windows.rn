@@ -68,12 +68,12 @@ pub type Error = struct {
     code: isize,
 };
 
-type FileTime = extern struct {
+extern type FileTime = struct {
     dwLowDateTime: u32,
     dwHighDateTime: u32,
 };
 
-type Win32FileAttributeData = extern struct {
+extern type Win32FileAttributeData = struct {
     dwFileAttributes: u32,
     ftCreationTime: FileTime,
     ftLastAccessTime: FileTime,
@@ -82,7 +82,7 @@ type Win32FileAttributeData = extern struct {
     nFileSizeLow: u32,
 };
 
-type Win32FindDataW = extern struct {
+extern type Win32FindDataW = struct {
     dwFileAttributes: u32,
     ftCreationTime: FileTime,
     ftLastAccessTime: FileTime,

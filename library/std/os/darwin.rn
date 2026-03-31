@@ -74,12 +74,12 @@ pub type Error = struct {
     code: isize,
 };
 
-type Timespec = extern struct {
+extern type Timespec = struct {
     tv_sec: i64,
     tv_nsec: isize,
 };
 
-type Stat = extern struct {
+extern type Stat = struct {
     st_dev: i32,
     st_mode: u16,
     st_nlink: u16,
@@ -100,7 +100,7 @@ type Stat = extern struct {
     st_qspare: [2]i64,
 };
 
-type Dirent = extern struct {
+extern type Dirent = struct {
     d_ino: u64,
     d_seekoff: u64,
     d_reclen: u16,

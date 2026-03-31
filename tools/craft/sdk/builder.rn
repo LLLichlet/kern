@@ -36,7 +36,7 @@ pub type Paths = struct {
 
 pub type Output = []u8;
 
-pub type Builder = extern struct {
+pub extern type Builder = struct {
     pub package: plan.Package,
     pub workspace: plan.Workspace,
     pub host: plan.Target,
@@ -47,28 +47,30 @@ pub type Builder = extern struct {
     pub paths: Paths,
 };
 
-extern fn __craft_build_feature_enabled(builder: *Builder, name: []u8) bool;
-extern fn __craft_build_link_system_lib(builder: *mut Builder, name: []u8) void;
-extern fn __craft_build_link_framework(builder: *mut Builder, name: []u8) void;
-extern fn __craft_build_link_search(builder: *mut Builder, path: []u8) void;
-extern fn __craft_build_link_arg(builder: *mut Builder, arg: []u8) void;
-extern fn __craft_build_cfg_bool(builder: *mut Builder, name: []u8, value: bool) void;
-extern fn __craft_build_cfg_string(builder: *mut Builder, name: []u8, value: []u8) void;
-extern fn __craft_build_define_bool(builder: *mut Builder, name: []u8, value: bool) void;
-extern fn __craft_build_define_string(builder: *mut Builder, name: []u8, value: []u8) void;
-extern fn __craft_build_set_source_root(builder: *mut Builder, path: []u8) void;
-extern fn __craft_build_output_path(builder: *Builder, output: Output) []u8;
-extern fn __craft_build_set_source_root_from(builder: *mut Builder, output: Output) void;
-extern fn __craft_build_stage_generated(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
-extern fn __craft_build_stage_copy_package_file(builder: *mut Builder, source_relative: []u8, generated_relative: []u8) Output;
-extern fn __craft_build_stage_copy_output(builder: *mut Builder, source_output: Output, generated_relative: []u8) Output;
-extern fn __craft_build_tool_path(builder: *Builder, dependency_name: []u8, tool_name: []u8) []u8;
-extern fn __craft_build_stage_generated_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) Output;
-extern fn __craft_build_stage_artifact_file(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
-extern fn __craft_build_stage_artifact_file_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, artifact_relative: []u8, args: [][]u8) Output;
-extern fn __craft_build_stage_copy_package_file_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
-extern fn __craft_build_stage_copy_package_dir_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
-extern fn __craft_build_depend(builder: *mut Builder, output: Output, dependency: Output) void;
+extern {
+    fn __craft_build_feature_enabled(builder: *Builder, name: []u8) bool;
+    fn __craft_build_link_system_lib(builder: *mut Builder, name: []u8) void;
+    fn __craft_build_link_framework(builder: *mut Builder, name: []u8) void;
+    fn __craft_build_link_search(builder: *mut Builder, path: []u8) void;
+    fn __craft_build_link_arg(builder: *mut Builder, arg: []u8) void;
+    fn __craft_build_cfg_bool(builder: *mut Builder, name: []u8, value: bool) void;
+    fn __craft_build_cfg_string(builder: *mut Builder, name: []u8, value: []u8) void;
+    fn __craft_build_define_bool(builder: *mut Builder, name: []u8, value: bool) void;
+    fn __craft_build_define_string(builder: *mut Builder, name: []u8, value: []u8) void;
+    fn __craft_build_set_source_root(builder: *mut Builder, path: []u8) void;
+    fn __craft_build_output_path(builder: *Builder, output: Output) []u8;
+    fn __craft_build_set_source_root_from(builder: *mut Builder, output: Output) void;
+    fn __craft_build_stage_generated(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
+    fn __craft_build_stage_copy_package_file(builder: *mut Builder, source_relative: []u8, generated_relative: []u8) Output;
+    fn __craft_build_stage_copy_output(builder: *mut Builder, source_output: Output, generated_relative: []u8) Output;
+    fn __craft_build_tool_path(builder: *Builder, dependency_name: []u8, tool_name: []u8) []u8;
+    fn __craft_build_stage_generated_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, generated_relative: []u8, args: [][]u8) Output;
+    fn __craft_build_stage_artifact_file(builder: *mut Builder, relative_path: []u8, contents: []u8) Output;
+    fn __craft_build_stage_artifact_file_from_tool(builder: *mut Builder, dependency_name: []u8, tool_name: []u8, artifact_relative: []u8, args: [][]u8) Output;
+    fn __craft_build_stage_copy_package_file_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
+    fn __craft_build_stage_copy_package_dir_to_artifact(builder: *mut Builder, source_relative: []u8, artifact_relative: []u8) Output;
+    fn __craft_build_depend(builder: *mut Builder, output: Output, dependency: Output) void;
+}
 
 impl *Builder {
     pub fn feature_enabled(name: []u8) bool {

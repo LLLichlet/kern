@@ -8,8 +8,8 @@ try {
     $ReleaseInfo = Invoke-RestMethod -Uri $ApiUrl
     $Version = $ReleaseInfo.tag_name
 } catch {
-    Write-Host "Warning: Failed to fetch latest version. Falling back to v0.6.0" -ForegroundColor Yellow
-    $Version = "v0.6.0"
+    Write-Host "Warning: Failed to fetch latest version. Falling back to v0.6.3" -ForegroundColor Yellow
+    $Version = "v0.6.3"
 }
 
 $Target = "x86_64-windows-msvc"
@@ -23,7 +23,7 @@ $KernBin = "$KernHome\bin"
 Write-Host "=> Creating installation directory at $KernHome..."
 New-Item -ItemType Directory -Force -Path $KernHome | Out-Null
 
-Write-Host "=> Downloading Kern $Version for Windows..."
+Write-Host "=> Downloading Kern $Version toolchain for Windows..."
 $TempZip = "$env:TEMP\$ZipFile"
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $TempZip
 
@@ -50,5 +50,5 @@ if ($UserPath -notmatch [regex]::Escape($KernBin)) {
     Write-Host "$KernBin is already in your PATH."
 }
 
-Write-Host "`nKern $Version installed successfully!" -ForegroundColor Green
-Write-Host "Run 'kernc --version' to verify."
+Write-Host "`nKern $Version toolchain installed successfully!" -ForegroundColor Green
+Write-Host "Run 'kernc --version' and 'craft help' to verify."

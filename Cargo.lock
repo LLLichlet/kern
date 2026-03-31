@@ -20,7 +20,7 @@ dependencies = [
 
 [[package]]
 name = "craft"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_driver",
  "kernc_sema",
@@ -35,14 +35,14 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "kernc_ast"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_utils",
 ]
 
 [[package]]
 name = "kernc_cli"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_driver",
  "kernc_utils",
@@ -50,7 +50,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_codegen"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_ast",
  "kernc_mast",
@@ -61,7 +61,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_driver"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_ast",
  "kernc_codegen",
@@ -74,14 +74,14 @@ dependencies = [
 
 [[package]]
 name = "kernc_lexer"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_utils",
 ]
 
 [[package]]
 name = "kernc_lower"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_ast",
  "kernc_mast",
@@ -91,7 +91,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_mast"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_ast",
  "kernc_sema",
@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_parser"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_ast",
  "kernc_lexer",
@@ -109,7 +109,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_sema"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "kernc_ast",
  "kernc_parser",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "kernc_utils"
-version = "0.6.0"
+version = "0.6.3"
 dependencies = [
  "target-lexicon",
 ]

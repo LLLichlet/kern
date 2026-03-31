@@ -11,8 +11,9 @@ DIST_NAME="kern-${VERSION}-${TARGET}"
 TARBALL="${DIST_NAME}.tar.gz"
 
 if [ "${SKIP_BUILD}" != "--skip-build" ]; then
-    echo "Building release binary..."
-    cargo build --release
+    echo "Building release binaries..."
+    cargo build --release -p kernc_cli --bin kernc
+    cargo build --release -p craft
 fi
 
 echo "Packaging ${DIST_NAME}..."
@@ -20,6 +21,7 @@ rm -rf "${DIST_NAME}" "${TARBALL}"
 mkdir -p "${DIST_NAME}/bin" "${DIST_NAME}/lib/kern"
 
 cp target/release/kernc "${DIST_NAME}/bin/"
+cp target/release/craft "${DIST_NAME}/bin/"
 cp -r library/std "${DIST_NAME}/lib/kern/"
 cp README.md LICENSE "${DIST_NAME}/"
 tar -czf "${TARBALL}" "${DIST_NAME}"

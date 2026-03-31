@@ -1,6 +1,6 @@
 # Kern Programming Language
 
-> **Status:** v0.6.0 (Experimental)  
+> **Status:** v0.6.3 (Experimental)
 > *High Abstraction, Low Policy.*
 
 Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.
@@ -27,7 +27,7 @@ The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. 
 * `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
 * `kernc_utils`: Handles rigorous internal diagnostics, span tracking, and ICE (Internal Compiler Error) reporting.
 
-## A Taste of Kern (v0.6.0)
+## A Taste of Kern (v0.6.3)
 
 Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 
@@ -95,7 +95,7 @@ The compiler is currently in its **`v0.6.x`** series, focused on release enginee
 
 ## Installation
 
-The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled compiler and the standard library toolchain to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
+The easiest way to install Kern is via our official installation scripts. This will automatically download and install the pre-compiled toolchain (`kernc`, `craft`, and the standard library) to your local environment (`~/.kern` on Unix, `%USERPROFILE%\.kern` on Windows).
 
 Official release artifacts are published for Linux `x86_64`, Windows `x86_64`, macOS `x86_64`, and macOS `aarch64`.
 
@@ -125,6 +125,8 @@ cd kern
 # Build the modular workspace
 cargo build --release
 ```
+
+This produces both `kernc` and `craft` in `target/release/`.
 
 ## Documentation
 

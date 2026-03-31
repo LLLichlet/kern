@@ -8,8 +8,13 @@ $DistName = "kern-$Version-$Target"
 $ZipFile = "$DistName.zip"
 
 if (-not $SkipBuild) {
-    Write-Host "Building release binary..."
-    cargo build --release
+    Write-Host "Building release binaries..."
+    cargo build --release -p kernc_cli --bin kernc
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+
+    cargo build --release -p craft
     if ($LASTEXITCODE -ne 0) {
         exit $LASTEXITCODE
     }
@@ -28,6 +33,7 @@ New-Item -ItemType Directory -Force -Path "$DistName\bin" | Out-Null
 New-Item -ItemType Directory -Force -Path "$DistName\lib\kern" | Out-Null
 
 Copy-Item "target\release\kernc.exe" -Destination "$DistName\bin\"
+Copy-Item "target\release\craft.exe" -Destination "$DistName\bin\"
 Copy-Item -Recurse "library\std" -Destination "$DistName\lib\kern\"
 Copy-Item "README.md", "LICENSE" -Destination "$DistName\"
 

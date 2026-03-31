@@ -10,12 +10,12 @@ LATEST_VERSION=$(curl -s https://api.github.com/repos/softfault/kern/releases/la
 if [ -z "$LATEST_VERSION" ]; then
     echo "Warning: Failed to fetch latest version from GitHub."
     echo "Falling back to default fallback version."
-    VERSION="v0.6.0"
+    VERSION="v0.6.3"
 else
     VERSION="$LATEST_VERSION"
 fi
 
-echo "=> Preparing to install Kern ${VERSION}..."
+echo "=> Preparing to install Kern ${VERSION} toolchain..."
 
 # 动态探测操作系统
 OS_NAME=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -82,5 +82,5 @@ else
 fi
 
 echo ""
-echo "Kern ${VERSION} installed successfully!"
-echo "Run 'kernc --version' to verify."
+echo "Kern ${VERSION} toolchain installed successfully!"
+echo "Run 'kernc --version' and 'craft help' to verify."

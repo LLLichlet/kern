@@ -65,3 +65,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: powershell
         run: .\scripts\run_kernc_cli_tests.ps1 -Mode ${{ matrix.test_mode }}
+
+      - name: Build craft (Unix)
+        if: runner.os != 'Windows'
+        run: cargo build -p craft
+
+      - name: Build craft (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: cargo build -p craft

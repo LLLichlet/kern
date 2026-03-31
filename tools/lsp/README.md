@@ -38,7 +38,9 @@ Document state is maintained in memory and reanalyzed through compiler source
 overrides, so diagnostics and editor queries stay aligned with unsaved buffers.
 `textDocument/didChange` accepts both whole-document replacements and
 incremental range updates. Semantic tokens currently combine lexer-driven token
-classes with compiler analysis for declarations and identifier references.
+classes with compiler analysis for declarations and identifier references, then
+fill common syntax contexts such as parameters, field access, and type
+positions.
 Code actions currently focus on safe parser quick fixes such as inserting a
 missing semicolon or closing delimiter.
 

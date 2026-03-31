@@ -8,7 +8,7 @@ use kernc_driver::{
     AnalysisArtifact, AnalysisCompletionItem, AnalysisCompletionKind, AnalysisHover,
     AnalysisReference, AnalysisSymbol, AnalysisSymbolKind, CompilerDriver, SourceOverrides,
 };
-use kernc_lexer::{TokenType, Tokenizer};
+use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::config::CompileOptions;
 use kernc_utils::{DiagnosticLevel, FileId, Session, Span};
 use std::collections::{BTreeMap, BTreeSet};
@@ -622,16 +622,21 @@ fn collect_semantic_token_entries(
     span_classes: &BTreeMap<SpanKey, SemanticClass>,
 ) -> Vec<SemanticTokenEntry> {
     let mut tokenizer = Tokenizer::new(&file.src, FileId(0));
-    let mut entries = Vec::new();
+    let mut tokens = Vec::new();
 
     loop {
         let token = tokenizer.next_token();
         if token.tag == TokenType::Eof {
             break;
         }
+        tokens.push(token);
+    }
 
+    let mut entries = Vec::new();
+    for (index, token) in tokens.iter().copied().enumerate() {
         let class = match token.tag {
-            TokenType::Identifier => span_classes.get(&span_key(token.span)).copied(),
+            TokenType::Identifier => heuristic_identifier_class(&tokens, index)
+                .or_else(|| span_classes.get(&span_key(token.span)).copied()),
             TokenType::Fn
             | TokenType::Let
             | TokenType::Mut
@@ -735,6 +740,151 @@ fn collect_semantic_token_entries(
     }
 
     entries
+}
+
+fn heuristic_identifier_class(tokens: &[Token], index: usize) -> Option<SemanticClass> {
+    if is_parameter_declaration(tokens, index) {
+        return Some(SemanticClass {
+            token_type: _TOKEN_PARAMETER,
+            modifiers: MOD_DECLARATION,
+        });
+    }
+
+    if is_type_context_identifier(tokens, index) {
+        return Some(SemanticClass {
+            token_type: TOKEN_TYPE,
+            modifiers: 0,
+        });
+    }
+
+    let previous = previous_significant_token(tokens, index)?;
+    if previous.tag == TokenType::Dot {
+        return Some(SemanticClass {
+            token_type: _TOKEN_PROPERTY,
+            modifiers: 0,
+        });
+    }
+
+    None
+}
+
+fn is_parameter_declaration(tokens: &[Token], index: usize) -> bool {
+    let Some(token) = tokens.get(index) else {
+        return false;
+    };
+    if token.tag != TokenType::Identifier {
+        return false;
+    }
+    if next_significant_token(tokens, index).map(|token| token.tag) != Some(TokenType::Colon) {
+        return false;
+    }
+
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut idx = index;
+    while idx > 0 {
+        idx -= 1;
+        match tokens[idx].tag {
+            TokenType::RParen => paren_depth += 1,
+            TokenType::LParen => {
+                if paren_depth == 0 {
+                    let Some(previous) = previous_significant_token(tokens, idx) else {
+                        return false;
+                    };
+                    if previous.tag == TokenType::Identifier {
+                        return previous_significant_token(tokens, token_index(tokens, previous))
+                            .map(|token| token.tag == TokenType::Fn)
+                            .unwrap_or(false);
+                    }
+                    return previous.tag == TokenType::Fn || previous.tag == TokenType::CapitalFn;
+                }
+                paren_depth -= 1;
+            }
+            TokenType::RBracket => bracket_depth += 1,
+            TokenType::LBracket => bracket_depth = bracket_depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn is_type_context_identifier(tokens: &[Token], index: usize) -> bool {
+    let Some(token) = tokens.get(index) else {
+        return false;
+    };
+    if token.tag != TokenType::Identifier {
+        return false;
+    }
+
+    let Some(previous) = previous_significant_token(tokens, index) else {
+        return false;
+    };
+
+    match previous.tag {
+        TokenType::Colon | TokenType::Arrow | TokenType::As => return true,
+        TokenType::Dot => {
+            let Some(base_index) = token_index_by_end(tokens, previous.span.start) else {
+                return false;
+            };
+            return is_type_context_identifier(tokens, base_index);
+        }
+        TokenType::Star
+        | TokenType::Ampersand
+        | TokenType::DotAmpersand
+        | TokenType::DotDotAmpersand
+        | TokenType::LBracket
+        | TokenType::Comma => {
+            if is_nested_in_type_context(tokens, index) {
+                return true;
+            }
+        }
+        _ => {}
+    }
+
+    false
+}
+
+fn is_nested_in_type_context(tokens: &[Token], index: usize) -> bool {
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut idx = index;
+    while idx > 0 {
+        idx -= 1;
+        match tokens[idx].tag {
+            TokenType::RParen => paren_depth += 1,
+            TokenType::LParen => paren_depth = paren_depth.saturating_sub(1),
+            TokenType::RBracket => bracket_depth += 1,
+            TokenType::LBracket => bracket_depth = bracket_depth.saturating_sub(1),
+            TokenType::Colon | TokenType::Arrow | TokenType::As
+                if paren_depth == 0 && bracket_depth == 0 =>
+            {
+                return true;
+            }
+            _ => {}
+        }
+    }
+
+    false
+}
+
+fn previous_significant_token(tokens: &[Token], index: usize) -> Option<Token> {
+    tokens.get(..index)?.iter().rev().copied().next()
+}
+
+fn next_significant_token(tokens: &[Token], index: usize) -> Option<Token> {
+    tokens.get(index + 1..)?.iter().copied().next()
+}
+
+fn token_index(tokens: &[Token], target: Token) -> usize {
+    tokens
+        .iter()
+        .position(|token| *token == target)
+        .expect("token must exist in stream")
+}
+
+fn token_index_by_end(tokens: &[Token], end: usize) -> Option<usize> {
+    tokens.iter().position(|token| token.span.end == end)
 }
 
 fn push_semantic_token_entries(
@@ -1927,7 +2077,27 @@ mod tests {
         );
         assert_token_type(
             &decoded,
+            position_of_nth(source, "point", 0, 0),
+            super::_TOKEN_PARAMETER,
+        );
+        assert_token_type(
+            &decoded,
+            position_of_nth(source, "Point", 1, 0),
+            super::TOKEN_TYPE,
+        );
+        assert_token_type(
+            &decoded,
+            position_of_nth(source, "x", 1, 0),
+            super::_TOKEN_PROPERTY,
+        );
+        assert_token_type(
+            &decoded,
             position_of_nth(source, "struct", 0, 0),
+            super::TOKEN_KEYWORD,
+        );
+        assert_token_type(
+            &decoded,
+            position_of_nth(source, "return", 0, 0),
             super::TOKEN_KEYWORD,
         );
     }

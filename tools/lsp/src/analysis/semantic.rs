@@ -22,25 +22,33 @@ struct SemanticTokenEntry {
     modifiers: u32,
 }
 
-const TOKEN_NAMESPACE: u32 = 0;
-pub(super) const TOKEN_TYPE: u32 = 1;
-pub(super) const TOKEN_STRUCT: u32 = 2;
-const TOKEN_ENUM: u32 = 3;
-const TOKEN_INTERFACE: u32 = 4;
-const TOKEN_TYPE_PARAMETER: u32 = 5;
-pub(super) const TOKEN_PARAMETER: u32 = 6;
-pub(super) const TOKEN_PROPERTY: u32 = 8;
-const TOKEN_VARIABLE: u32 = 7;
-pub(super) const TOKEN_FUNCTION: u32 = 9;
-const TOKEN_METHOD: u32 = 10;
-pub(super) const TOKEN_KEYWORD: u32 = 11;
-const TOKEN_STRING: u32 = 12;
-const TOKEN_NUMBER: u32 = 13;
-const TOKEN_OPERATOR: u32 = 14;
+pub(super) struct SemanticTokenTypes;
 
-const MOD_DECLARATION: u32 = 1 << 0;
-const MOD_READONLY: u32 = 1 << 1;
-const MOD_STATIC: u32 = 1 << 2;
+impl SemanticTokenTypes {
+    pub(super) const NAMESPACE: u32 = 0;
+    pub(super) const TYPE: u32 = 1;
+    pub(super) const STRUCT: u32 = 2;
+    pub(super) const ENUM: u32 = 3;
+    pub(super) const INTERFACE: u32 = 4;
+    pub(super) const TYPE_PARAMETER: u32 = 5;
+    pub(super) const PARAMETER: u32 = 6;
+    pub(super) const VARIABLE: u32 = 7;
+    pub(super) const PROPERTY: u32 = 8;
+    pub(super) const FUNCTION: u32 = 9;
+    pub(super) const METHOD: u32 = 10;
+    pub(super) const KEYWORD: u32 = 11;
+    pub(super) const STRING: u32 = 12;
+    pub(super) const NUMBER: u32 = 13;
+    pub(super) const OPERATOR: u32 = 14;
+}
+
+struct SemanticModifiers;
+
+impl SemanticModifiers {
+    const DECLARATION: u32 = 1 << 0;
+    const READONLY: u32 = 1 << 1;
+    const STATIC: u32 = 1 << 2;
+}
 
 pub(super) fn semantic_tokens(
     artifact: &AnalysisArtifact,
@@ -109,22 +117,22 @@ fn collect_semantic_definition_classes(
 
 fn semantic_class_from_symbol_kind(kind: AnalysisSymbolKind) -> SemanticClass {
     let token_type = match kind {
-        AnalysisSymbolKind::Module | AnalysisSymbolKind::Namespace => TOKEN_NAMESPACE,
-        AnalysisSymbolKind::Struct | AnalysisSymbolKind::Union => TOKEN_STRUCT,
-        AnalysisSymbolKind::Enum => TOKEN_ENUM,
-        AnalysisSymbolKind::Trait => TOKEN_INTERFACE,
-        AnalysisSymbolKind::Method => TOKEN_METHOD,
-        AnalysisSymbolKind::Function => TOKEN_FUNCTION,
-        AnalysisSymbolKind::TypeAlias => TOKEN_TYPE,
-        AnalysisSymbolKind::Constant | AnalysisSymbolKind::Static => TOKEN_VARIABLE,
+        AnalysisSymbolKind::Module | AnalysisSymbolKind::Namespace => SemanticTokenTypes::NAMESPACE,
+        AnalysisSymbolKind::Struct | AnalysisSymbolKind::Union => SemanticTokenTypes::STRUCT,
+        AnalysisSymbolKind::Enum => SemanticTokenTypes::ENUM,
+        AnalysisSymbolKind::Trait => SemanticTokenTypes::INTERFACE,
+        AnalysisSymbolKind::Method => SemanticTokenTypes::METHOD,
+        AnalysisSymbolKind::Function => SemanticTokenTypes::FUNCTION,
+        AnalysisSymbolKind::TypeAlias => SemanticTokenTypes::TYPE,
+        AnalysisSymbolKind::Constant | AnalysisSymbolKind::Static => SemanticTokenTypes::VARIABLE,
     };
 
-    let mut modifiers = MOD_DECLARATION;
+    let mut modifiers = SemanticModifiers::DECLARATION;
     if matches!(kind, AnalysisSymbolKind::Constant) {
-        modifiers |= MOD_READONLY;
+        modifiers |= SemanticModifiers::READONLY;
     }
     if matches!(kind, AnalysisSymbolKind::Static) {
-        modifiers |= MOD_STATIC;
+        modifiers |= SemanticModifiers::STATIC;
     }
 
     SemanticClass {
@@ -138,71 +146,71 @@ fn semantic_class_from_hover(contents: &str) -> Option<SemanticClass> {
 
     if code.starts_with("fn ") {
         return Some(SemanticClass {
-            token_type: TOKEN_FUNCTION,
-            modifiers: MOD_DECLARATION,
+            token_type: SemanticTokenTypes::FUNCTION,
+            modifiers: SemanticModifiers::DECLARATION,
         });
     }
     if code.starts_with("const ") {
         return Some(SemanticClass {
-            token_type: TOKEN_VARIABLE,
-            modifiers: MOD_DECLARATION | MOD_READONLY,
+            token_type: SemanticTokenTypes::VARIABLE,
+            modifiers: SemanticModifiers::DECLARATION | SemanticModifiers::READONLY,
         });
     }
     if code.starts_with("static ") {
         return Some(SemanticClass {
-            token_type: TOKEN_VARIABLE,
-            modifiers: MOD_DECLARATION
-                | MOD_STATIC
+            token_type: SemanticTokenTypes::VARIABLE,
+            modifiers: SemanticModifiers::DECLARATION
+                | SemanticModifiers::STATIC
                 | if code.contains(" mut ") {
                     0
                 } else {
-                    MOD_READONLY
+                    SemanticModifiers::READONLY
                 },
         });
     }
     if code.starts_with("var ") {
         return Some(SemanticClass {
-            token_type: TOKEN_VARIABLE,
-            modifiers: MOD_DECLARATION
+            token_type: SemanticTokenTypes::VARIABLE,
+            modifiers: SemanticModifiers::DECLARATION
                 | if code.contains(" mut ") {
                     0
                 } else {
-                    MOD_READONLY
+                    SemanticModifiers::READONLY
                 },
         });
     }
     if code.starts_with("struct ") || code.starts_with("union ") {
         return Some(SemanticClass {
-            token_type: TOKEN_STRUCT,
-            modifiers: MOD_DECLARATION,
+            token_type: SemanticTokenTypes::STRUCT,
+            modifiers: SemanticModifiers::DECLARATION,
         });
     }
     if code.starts_with("enum ") {
         return Some(SemanticClass {
-            token_type: TOKEN_ENUM,
-            modifiers: MOD_DECLARATION,
+            token_type: SemanticTokenTypes::ENUM,
+            modifiers: SemanticModifiers::DECLARATION,
         });
     }
     if code.starts_with("trait ") {
         return Some(SemanticClass {
-            token_type: TOKEN_INTERFACE,
-            modifiers: MOD_DECLARATION,
+            token_type: SemanticTokenTypes::INTERFACE,
+            modifiers: SemanticModifiers::DECLARATION,
         });
     }
     if code.starts_with("module ") {
         return Some(SemanticClass {
-            token_type: TOKEN_NAMESPACE,
-            modifiers: MOD_DECLARATION,
+            token_type: SemanticTokenTypes::NAMESPACE,
+            modifiers: SemanticModifiers::DECLARATION,
         });
     }
     if code.starts_with("type ") {
         return Some(SemanticClass {
             token_type: if code.contains(" = ") {
-                TOKEN_TYPE
+                SemanticTokenTypes::TYPE
             } else {
-                TOKEN_TYPE_PARAMETER
+                SemanticTokenTypes::TYPE_PARAMETER
             },
-            modifiers: MOD_DECLARATION,
+            modifiers: SemanticModifiers::DECLARATION,
         });
     }
 
@@ -218,7 +226,7 @@ fn hover_code(contents: &str) -> Option<&str> {
 fn semantic_reference_class(class: SemanticClass) -> SemanticClass {
     SemanticClass {
         token_type: class.token_type,
-        modifiers: class.modifiers & !MOD_DECLARATION,
+        modifiers: class.modifiers & !SemanticModifiers::DECLARATION,
     }
 }
 
@@ -277,17 +285,17 @@ fn collect_semantic_token_entries(
             | TokenType::Where
             | TokenType::CapitalFn
             | TokenType::Void => Some(SemanticClass {
-                token_type: TOKEN_KEYWORD,
+                token_type: SemanticTokenTypes::KEYWORD,
                 modifiers: 0,
             }),
             TokenType::StringLiteral | TokenType::CharLiteral | TokenType::ByteCharLiteral => {
                 Some(SemanticClass {
-                    token_type: TOKEN_STRING,
+                    token_type: SemanticTokenTypes::STRING,
                     modifiers: 0,
                 })
             }
             TokenType::IntLiteral | TokenType::FloatLiteral => Some(SemanticClass {
-                token_type: TOKEN_NUMBER,
+                token_type: SemanticTokenTypes::NUMBER,
                 modifiers: 0,
             }),
             TokenType::Plus
@@ -332,7 +340,7 @@ fn collect_semantic_token_entries(
             | TokenType::DotDotLBracket
             | TokenType::Ellipsis
             | TokenType::Arrow => Some(SemanticClass {
-                token_type: TOKEN_OPERATOR,
+                token_type: SemanticTokenTypes::OPERATOR,
                 modifiers: 0,
             }),
             _ => None,
@@ -350,14 +358,14 @@ fn collect_semantic_token_entries(
 fn heuristic_identifier_class(tokens: &[Token], index: usize) -> Option<SemanticClass> {
     if is_parameter_declaration(tokens, index) {
         return Some(SemanticClass {
-            token_type: TOKEN_PARAMETER,
-            modifiers: MOD_DECLARATION,
+            token_type: SemanticTokenTypes::PARAMETER,
+            modifiers: SemanticModifiers::DECLARATION,
         });
     }
 
     if is_type_context_identifier(tokens, index) {
         return Some(SemanticClass {
-            token_type: TOKEN_TYPE,
+            token_type: SemanticTokenTypes::TYPE,
             modifiers: 0,
         });
     }
@@ -365,7 +373,7 @@ fn heuristic_identifier_class(tokens: &[Token], index: usize) -> Option<Semantic
     let previous = previous_significant_token(tokens, index)?;
     if previous.tag == TokenType::Dot {
         return Some(SemanticClass {
-            token_type: TOKEN_PROPERTY,
+            token_type: SemanticTokenTypes::PROPERTY,
             modifiers: 0,
         });
     }

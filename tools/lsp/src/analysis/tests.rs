@@ -1,6 +1,4 @@
-use super::semantic::{
-    TOKEN_FUNCTION, TOKEN_KEYWORD, TOKEN_PARAMETER, TOKEN_PROPERTY, TOKEN_STRUCT, TOKEN_TYPE,
-};
+use super::semantic::SemanticTokenTypes;
 use super::{
     AnalysisEngine, byte_offset_to_position, cleared_uris, file_path_to_uri,
     position_to_byte_offset, uri_to_file_path,
@@ -285,34 +283,42 @@ fn semantic_tokens_classify_keywords_types_and_functions() {
     assert_token_type(
         &decoded,
         position_of_nth(source, "type", 0, 0),
-        TOKEN_KEYWORD,
+        SemanticTokenTypes::KEYWORD,
     );
     assert_token_type(
         &decoded,
         position_of_nth(source, "Point", 0, 0),
-        TOKEN_STRUCT,
+        SemanticTokenTypes::STRUCT,
     );
     assert_token_type(
         &decoded,
         position_of_nth(source, "helper", 0, 0),
-        TOKEN_FUNCTION,
+        SemanticTokenTypes::FUNCTION,
     );
     assert_token_type(
         &decoded,
         position_of_nth(source, "point", 0, 0),
-        TOKEN_PARAMETER,
+        SemanticTokenTypes::PARAMETER,
     );
-    assert_token_type(&decoded, position_of_nth(source, "Point", 1, 0), TOKEN_TYPE);
-    assert_token_type(&decoded, position_of_nth(source, "x", 1, 0), TOKEN_PROPERTY);
+    assert_token_type(
+        &decoded,
+        position_of_nth(source, "Point", 1, 0),
+        SemanticTokenTypes::TYPE,
+    );
+    assert_token_type(
+        &decoded,
+        position_of_nth(source, "x", 1, 0),
+        SemanticTokenTypes::PROPERTY,
+    );
     assert_token_type(
         &decoded,
         position_of_nth(source, "struct", 0, 0),
-        TOKEN_KEYWORD,
+        SemanticTokenTypes::KEYWORD,
     );
     assert_token_type(
         &decoded,
         position_of_nth(source, "return", 0, 0),
-        TOKEN_KEYWORD,
+        SemanticTokenTypes::KEYWORD,
     );
 }
 

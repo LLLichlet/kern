@@ -10,7 +10,8 @@ use self::code_actions::{quick_fix_for_diagnostic, ranges_overlap, workspace_edi
 use self::diagnostics::{convert_diagnostic, diagnostics_from_session};
 use self::navigation::{
     analysis_completion_to_lsp_item, analysis_symbol_to_document_symbol, build_rename_changes,
-    find_definition_location, find_hover, find_reference_locations, find_rename_target,
+    find_definition_location, find_document_highlights, find_hover, find_reference_locations,
+    find_rename_target,
 };
 use self::text::{
     apply_content_change, byte_offset_to_position, file_path_to_uri, is_valid_identifier,
@@ -19,8 +20,8 @@ use self::text::{
 };
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentSymbol, Hover, Location, Position, PrepareRenameResult,
-    Range, SemanticTokens, TextDocumentContentChangeEvent, WorkspaceEdit,
+    DidOpenTextDocumentParams, DocumentHighlight, DocumentSymbol, Hover, Location, Position,
+    PrepareRenameResult, Range, SemanticTokens, TextDocumentContentChangeEvent, WorkspaceEdit,
 };
 use kernc_driver::{AnalysisArtifact, CompilerDriver, SourceOverrides};
 use kernc_utils::config::CompileOptions;
@@ -179,6 +180,30 @@ impl AnalysisEngine {
             &target_path,
             &position,
             include_declaration,
+        ))
+    }
+
+    pub fn document_highlights(
+        &self,
+        uri: &str,
+        position: Position,
+    ) -> Result<Vec<DocumentHighlight>, String> {
+        let artifact = self
+            .analyze_artifact(uri)
+            .map_err(|message| format!("document highlight analysis failed: {message}"))?;
+        let Some(target_doc) = self.documents.get(uri) else {
+            return Err(
+                "requested document highlights for a document that is not open".to_string(),
+            );
+        };
+        let target_path = normalize_path(&target_doc.path);
+
+        Ok(find_document_highlights(
+            &artifact.session,
+            &artifact.references,
+            &artifact.hovers,
+            &target_path,
+            &position,
         ))
     }
 

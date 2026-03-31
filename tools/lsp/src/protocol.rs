@@ -185,6 +185,13 @@ pub struct DefinitionParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DocumentHighlightParams {
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CompletionParams {
     pub text_document: TextDocumentIdentifier,
     pub position: Position,
@@ -357,6 +364,8 @@ pub struct Diagnostic {
     pub severity: u8,
     pub source: &'static str,
     pub message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub related_information: Option<Vec<DiagnosticRelatedInformation>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -380,6 +389,21 @@ pub struct Position {
 pub struct Location {
     pub uri: String,
     pub range: Range,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiagnosticRelatedInformation {
+    pub location: Location,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DocumentHighlight {
+    pub range: Range,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<u8>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -426,6 +450,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
     );
     capabilities.insert("documentSymbolProvider".to_string(), Value::Bool(true));
     capabilities.insert("definitionProvider".to_string(), Value::Bool(true));
+    capabilities.insert("documentHighlightProvider".to_string(), Value::Bool(true));
     capabilities.insert("referencesProvider".to_string(), Value::Bool(true));
     capabilities.insert("hoverProvider".to_string(), Value::Bool(true));
     capabilities.insert(

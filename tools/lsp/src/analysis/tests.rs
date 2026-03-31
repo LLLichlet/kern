@@ -801,6 +801,41 @@ fn finds_references_from_definition_position_including_declaration() {
 }
 
 #[test]
+fn document_highlights_include_definition_and_same_file_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
+    let uri = temp_file_uri("document_highlights", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let highlights = analysis
+        .document_highlights(&uri, position_of_nth(source, "helper", 1, 1))
+        .unwrap();
+
+    assert_eq!(highlights.len(), 3);
+    assert_eq!(
+        highlights[0].range.start,
+        position_of_nth(source, "helper", 0, 0)
+    );
+    assert_eq!(
+        highlights[1].range.start,
+        position_of_nth(source, "helper", 1, 0)
+    );
+    assert_eq!(
+        highlights[2].range.start,
+        position_of_nth(source, "helper", 2, 0)
+    );
+    assert!(highlights.iter().all(|highlight| highlight.kind == Some(1)));
+}
+
+#[test]
 fn hover_resolves_function_signature_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper(x: i32) i32 { return x; }\nfn main() i32 { return helper(1); }\n";

@@ -149,6 +149,7 @@ pub(super) fn single_server_diagnostic(uri: String, message: impl Into<String>) 
                 severity: 2,
                 source: "kern-lsp",
                 message: message.into(),
+                related_information: None,
             }],
         }],
     }

@@ -1,6 +1,7 @@
 use super::RenameTarget;
 use crate::protocol::{
-    CompletionItem, DocumentSymbol, Hover, Location, MarkupContent, Position, TextEdit,
+    CompletionItem, DocumentHighlight, DocumentSymbol, Hover, Location, MarkupContent, Position,
+    TextEdit,
 };
 use kernc_driver::{
     AnalysisCompletionItem, AnalysisCompletionKind, AnalysisHover, AnalysisReference,
@@ -142,6 +143,59 @@ pub(super) fn find_reference_locations(
     });
     locations.dedup();
     locations
+}
+
+pub(super) fn find_document_highlights(
+    session: &kernc_utils::Session,
+    references: &[AnalysisReference],
+    hovers: &[AnalysisHover],
+    target_path: &Path,
+    position: &Position,
+) -> Vec<DocumentHighlight> {
+    let Some(definition_span) =
+        find_target_definition_span(session, references, target_path, position).or_else(|| {
+            hovers.iter().find_map(|hover| {
+                let file = session.source_manager.get_file(hover.span.file)?;
+                let offset = super::match_position_in_file(file, target_path, position)?;
+                super::span_contains_offset(hover.span, offset).then_some(hover.span)
+            })
+        })
+    else {
+        return Vec::new();
+    };
+
+    let mut highlights = Vec::new();
+
+    if super::span_in_path(session, definition_span, target_path) {
+        highlights.push(DocumentHighlight {
+            range: super::span_to_range(session, definition_span),
+            kind: Some(1),
+        });
+    }
+
+    for reference in references {
+        if reference.definition_span != definition_span
+            || !super::span_in_path(session, reference.reference_span, target_path)
+        {
+            continue;
+        }
+
+        highlights.push(DocumentHighlight {
+            range: super::span_to_range(session, reference.reference_span),
+            kind: Some(1),
+        });
+    }
+
+    highlights.sort_by_key(|highlight| {
+        (
+            highlight.range.start.line,
+            highlight.range.start.character,
+            highlight.range.end.line,
+            highlight.range.end.character,
+        )
+    });
+    highlights.dedup_by(|left, right| left.range == right.range);
+    highlights
 }
 
 fn find_target_definition_span(

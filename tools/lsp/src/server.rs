@@ -2,10 +2,10 @@ use crate::analysis::{AnalysisEngine, AnalysisOutcome, cleared_uris};
 use crate::protocol::{
     ClientCapabilities, CodeActionParams, CompletionParams, DefinitionParams,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    DidSaveTextDocumentParams, DocumentSymbolParams, IncomingMessage, InitializeParams,
-    InitializeResultOptions, ReferenceParams, RenameParams, SemanticTokensParams, SetTraceParams,
-    error_response, initialize_result, log_message, log_trace, null_response, publish_diagnostics,
-    success_response,
+    DidSaveTextDocumentParams, DocumentHighlightParams, DocumentSymbolParams, IncomingMessage,
+    InitializeParams, InitializeResultOptions, ReferenceParams, RenameParams, SemanticTokensParams,
+    SetTraceParams, error_response, initialize_result, log_message, log_trace, null_response,
+    publish_diagnostics, success_response,
 };
 use crate::transport::{MessageReader, MessageWriter};
 use serde_json::Value;
@@ -238,6 +238,26 @@ fn handle_message(
                 }
                 Ok(None) => {
                     writer.write_json(&null_response(id))?;
+                }
+                Err(message) => {
+                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
+                }
+            }
+        }
+        "textDocument/documentHighlight" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/documentHighlight must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<DocumentHighlightParams>(message.params)?;
+            match state
+                .analysis
+                .document_highlights(&params.text_document.uri, params.position)
+            {
+                Ok(highlights) => {
+                    let result = serde_json::to_value(highlights)?;
+                    writer.write_json(&success_response(id, result))?;
                 }
                 Err(message) => {
                     writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
@@ -619,6 +639,7 @@ mod tests {
             result["capabilities"]["completionProvider"]["resolveProvider"],
             false
         );
+        assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
         assert_eq!(
             result["capabilities"]["codeActionProvider"]["codeActionKinds"],
             json!(["quickfix"])

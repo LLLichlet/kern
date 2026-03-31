@@ -29,21 +29,27 @@ The current server implements:
 - `textDocument/references`
 - `textDocument/hover`
 - `textDocument/completion`
+- `textDocument/semanticTokens/full`
+- `textDocument/codeAction`
 - `textDocument/prepareRename`
 - `textDocument/rename`
 
 Document state is maintained in memory and reanalyzed through compiler source
 overrides, so diagnostics and editor queries stay aligned with unsaved buffers.
 `textDocument/didChange` accepts both whole-document replacements and
-incremental range updates.
+incremental range updates. Semantic tokens currently combine lexer-driven token
+classes with compiler analysis for declarations and identifier references.
+Code actions currently focus on safe parser quick fixes such as inserting a
+missing semicolon or closing delimiter.
 
 Current limitations:
 
 - only `file://` URIs are supported
 - the temporary analysis policy currently enables `--use-std` by default to
   match common Kern project editing flows
-- semantic tokens, code actions, formatting, and workspace-wide indexing are
-  not implemented yet
+- semantic tokens do not yet cover every semantic reference class
+- code actions are currently limited to a small set of safe quick fixes
+- formatting and workspace-wide indexing are not implemented yet
 
 ## Planned Architecture
 

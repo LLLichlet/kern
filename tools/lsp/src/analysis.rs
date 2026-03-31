@@ -1,12 +1,14 @@
 use crate::protocol::{
-    CompletionItem, Diagnostic, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
-    DidOpenTextDocumentParams, DocumentSymbol, Hover, Location, MarkupContent, Position,
-    PrepareRenameResult, Range, TextDocumentContentChangeEvent, TextEdit, WorkspaceEdit,
+    CodeAction, CompletionItem, Diagnostic, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbol, Hover, Location,
+    MarkupContent, Position, PrepareRenameResult, Range, SemanticTokens,
+    TextDocumentContentChangeEvent, TextEdit, WorkspaceEdit,
 };
 use kernc_driver::{
     AnalysisArtifact, AnalysisCompletionItem, AnalysisCompletionKind, AnalysisHover,
     AnalysisReference, AnalysisSymbol, AnalysisSymbolKind, CompilerDriver, SourceOverrides,
 };
+use kernc_lexer::{TokenType, Tokenizer};
 use kernc_utils::config::CompileOptions;
 use kernc_utils::{DiagnosticLevel, FileId, Session, Span};
 use std::collections::{BTreeMap, BTreeSet};
@@ -36,6 +38,43 @@ struct RenameTarget {
     definition_span: Span,
     placeholder: String,
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct SemanticClass {
+    token_type: u32,
+    modifiers: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct SemanticTokenEntry {
+    line: u32,
+    start_char: u32,
+    length: u32,
+    token_type: u32,
+    modifiers: u32,
+}
+
+type SpanKey = (usize, usize);
+
+const TOKEN_NAMESPACE: u32 = 0;
+const TOKEN_TYPE: u32 = 1;
+const TOKEN_STRUCT: u32 = 2;
+const TOKEN_ENUM: u32 = 3;
+const TOKEN_INTERFACE: u32 = 4;
+const TOKEN_TYPE_PARAMETER: u32 = 5;
+const _TOKEN_PARAMETER: u32 = 6;
+const TOKEN_VARIABLE: u32 = 7;
+const _TOKEN_PROPERTY: u32 = 8;
+const TOKEN_FUNCTION: u32 = 9;
+const TOKEN_METHOD: u32 = 10;
+const TOKEN_KEYWORD: u32 = 11;
+const TOKEN_STRING: u32 = 12;
+const TOKEN_NUMBER: u32 = 13;
+const TOKEN_OPERATOR: u32 = 14;
+
+const MOD_DECLARATION: u32 = 1 << 0;
+const MOD_READONLY: u32 = 1 << 1;
+const MOD_STATIC: u32 = 1 << 2;
 
 #[derive(Default)]
 pub struct AnalysisEngine {
@@ -270,6 +309,74 @@ impl AnalysisEngine {
         Ok(WorkspaceEdit { changes })
     }
 
+    pub fn semantic_tokens(&self, uri: &str) -> Result<SemanticTokens, String> {
+        let artifact = self
+            .analyze_artifact(uri)
+            .map_err(|message| format!("semantic token analysis failed: {message}"))?;
+        let Some(target_doc) = self.documents.get(uri) else {
+            return Err("requested semantic tokens for a document that is not open".to_string());
+        };
+        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        let target_path = normalize_path(&target_doc.path);
+        let span_classes = build_semantic_span_classes(&artifact, &target_path);
+        let entries = collect_semantic_token_entries(&file, &span_classes);
+
+        Ok(SemanticTokens {
+            data: encode_semantic_tokens(&entries),
+        })
+    }
+
+    pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<CodeAction>, String> {
+        let artifact = self
+            .analyze_artifact(uri)
+            .map_err(|message| format!("code action analysis failed: {message}"))?;
+        let Some(target_doc) = self.documents.get(uri) else {
+            return Err("requested code actions for a document that is not open".to_string());
+        };
+        let target_path = normalize_path(&target_doc.path);
+
+        let mut actions = Vec::new();
+        let mut seen = BTreeSet::new();
+        for diagnostic in &artifact.session.diagnostics {
+            let Some(path) = artifact
+                .session
+                .source_manager
+                .get_file_path(diagnostic.primary_span.file)
+            else {
+                continue;
+            };
+            if normalize_path(path) != target_path {
+                continue;
+            }
+
+            let lsp_diagnostic = convert_diagnostic(&artifact.session, diagnostic);
+            if !ranges_overlap(&lsp_diagnostic.range, &range) {
+                continue;
+            }
+
+            let Some(action) = quick_fix_for_diagnostic(
+                uri,
+                &artifact.session,
+                diagnostic,
+                lsp_diagnostic.clone(),
+            ) else {
+                continue;
+            };
+
+            let edit_key = action
+                .edit
+                .as_ref()
+                .map(workspace_edit_key)
+                .unwrap_or_default();
+            let dedup_key = (action.title.clone(), edit_key);
+            if seen.insert(dedup_key) {
+                actions.push(action);
+            }
+        }
+
+        Ok(actions)
+    }
+
     fn analyze_document(&self, target_uri: &str) -> AnalysisOutcome {
         let Ok(artifact) = self.analyze_artifact(target_uri) else {
             return single_server_diagnostic(
@@ -341,6 +448,511 @@ fn apply_content_change(
 
     text.replace_range(start..end, &change.text);
     Ok(())
+}
+
+fn build_semantic_span_classes(
+    artifact: &AnalysisArtifact,
+    target_path: &Path,
+) -> BTreeMap<SpanKey, SemanticClass> {
+    let mut definition_classes = BTreeMap::new();
+    for module_symbol in &artifact.symbols {
+        collect_semantic_definition_classes(module_symbol, &mut definition_classes);
+    }
+    for hover in &artifact.hovers {
+        if let Some(class) = semantic_class_from_hover(&hover.contents) {
+            definition_classes.entry(hover.span).or_insert(class);
+        }
+    }
+
+    let mut document_classes = BTreeMap::new();
+    for (span, class) in &definition_classes {
+        let span = *span;
+        if span_in_path(&artifact.session, span, target_path) {
+            document_classes.insert(span_key(span), *class);
+        }
+    }
+
+    for reference in &artifact.references {
+        if !span_in_path(&artifact.session, reference.reference_span, target_path) {
+            continue;
+        }
+
+        let Some(definition_class) = definition_classes.get(&reference.definition_span) else {
+            continue;
+        };
+        document_classes.insert(
+            span_key(reference.reference_span),
+            semantic_reference_class(*definition_class),
+        );
+    }
+
+    document_classes
+}
+
+fn collect_semantic_definition_classes(
+    symbol: &AnalysisSymbol,
+    classes: &mut BTreeMap<Span, SemanticClass>,
+) {
+    classes.insert(
+        symbol.selection_span,
+        semantic_class_from_symbol_kind(symbol.kind),
+    );
+    for child in &symbol.children {
+        collect_semantic_definition_classes(child, classes);
+    }
+}
+
+fn semantic_class_from_symbol_kind(kind: AnalysisSymbolKind) -> SemanticClass {
+    let token_type = match kind {
+        AnalysisSymbolKind::Module | AnalysisSymbolKind::Namespace => TOKEN_NAMESPACE,
+        AnalysisSymbolKind::Struct | AnalysisSymbolKind::Union => TOKEN_STRUCT,
+        AnalysisSymbolKind::Enum => TOKEN_ENUM,
+        AnalysisSymbolKind::Trait => TOKEN_INTERFACE,
+        AnalysisSymbolKind::Method => TOKEN_METHOD,
+        AnalysisSymbolKind::Function => TOKEN_FUNCTION,
+        AnalysisSymbolKind::TypeAlias => TOKEN_TYPE,
+        AnalysisSymbolKind::Constant | AnalysisSymbolKind::Static => TOKEN_VARIABLE,
+    };
+
+    let mut modifiers = MOD_DECLARATION;
+    if matches!(kind, AnalysisSymbolKind::Constant) {
+        modifiers |= MOD_READONLY;
+    }
+    if matches!(kind, AnalysisSymbolKind::Static) {
+        modifiers |= MOD_STATIC;
+    }
+
+    SemanticClass {
+        token_type,
+        modifiers,
+    }
+}
+
+fn semantic_class_from_hover(contents: &str) -> Option<SemanticClass> {
+    let code = hover_code(contents)?;
+
+    if code.starts_with("fn ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_FUNCTION,
+            modifiers: MOD_DECLARATION,
+        });
+    }
+    if code.starts_with("const ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_VARIABLE,
+            modifiers: MOD_DECLARATION | MOD_READONLY,
+        });
+    }
+    if code.starts_with("static ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_VARIABLE,
+            modifiers: MOD_DECLARATION
+                | MOD_STATIC
+                | if code.contains(" mut ") {
+                    0
+                } else {
+                    MOD_READONLY
+                },
+        });
+    }
+    if code.starts_with("var ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_VARIABLE,
+            modifiers: MOD_DECLARATION
+                | if code.contains(" mut ") {
+                    0
+                } else {
+                    MOD_READONLY
+                },
+        });
+    }
+    if code.starts_with("struct ") || code.starts_with("union ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_STRUCT,
+            modifiers: MOD_DECLARATION,
+        });
+    }
+    if code.starts_with("enum ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_ENUM,
+            modifiers: MOD_DECLARATION,
+        });
+    }
+    if code.starts_with("trait ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_INTERFACE,
+            modifiers: MOD_DECLARATION,
+        });
+    }
+    if code.starts_with("module ") {
+        return Some(SemanticClass {
+            token_type: TOKEN_NAMESPACE,
+            modifiers: MOD_DECLARATION,
+        });
+    }
+    if code.starts_with("type ") {
+        return Some(SemanticClass {
+            token_type: if code.contains(" = ") {
+                TOKEN_TYPE
+            } else {
+                TOKEN_TYPE_PARAMETER
+            },
+            modifiers: MOD_DECLARATION,
+        });
+    }
+
+    None
+}
+
+fn hover_code(contents: &str) -> Option<&str> {
+    contents
+        .strip_prefix("```kern\n")
+        .and_then(|code| code.strip_suffix("\n```"))
+}
+
+fn semantic_reference_class(class: SemanticClass) -> SemanticClass {
+    SemanticClass {
+        token_type: class.token_type,
+        modifiers: class.modifiers & !MOD_DECLARATION,
+    }
+}
+
+fn collect_semantic_token_entries(
+    file: &kernc_utils::SourceFile,
+    span_classes: &BTreeMap<SpanKey, SemanticClass>,
+) -> Vec<SemanticTokenEntry> {
+    let mut tokenizer = Tokenizer::new(&file.src, FileId(0));
+    let mut entries = Vec::new();
+
+    loop {
+        let token = tokenizer.next_token();
+        if token.tag == TokenType::Eof {
+            break;
+        }
+
+        let class = match token.tag {
+            TokenType::Identifier => span_classes.get(&span_key(token.span)).copied(),
+            TokenType::Fn
+            | TokenType::Let
+            | TokenType::Mut
+            | TokenType::Const
+            | TokenType::Static
+            | TokenType::Type
+            | TokenType::Struct
+            | TokenType::Union
+            | TokenType::Enum
+            | TokenType::Trait
+            | TokenType::If
+            | TokenType::Else
+            | TokenType::For
+            | TokenType::Break
+            | TokenType::Continue
+            | TokenType::Return
+            | TokenType::Defer
+            | TokenType::Pub
+            | TokenType::Extern
+            | TokenType::Use
+            | TokenType::Impl
+            | TokenType::True
+            | TokenType::False
+            | TokenType::Undef
+            | TokenType::As
+            | TokenType::And
+            | TokenType::Or
+            | TokenType::Underscore
+            | TokenType::SelfType
+            | TokenType::SelfValue
+            | TokenType::Match
+            | TokenType::Mod
+            | TokenType::Where
+            | TokenType::CapitalFn
+            | TokenType::Void => Some(SemanticClass {
+                token_type: TOKEN_KEYWORD,
+                modifiers: 0,
+            }),
+            TokenType::StringLiteral | TokenType::CharLiteral | TokenType::ByteCharLiteral => {
+                Some(SemanticClass {
+                    token_type: TOKEN_STRING,
+                    modifiers: 0,
+                })
+            }
+            TokenType::IntLiteral | TokenType::FloatLiteral => Some(SemanticClass {
+                token_type: TOKEN_NUMBER,
+                modifiers: 0,
+            }),
+            TokenType::Plus
+            | TokenType::Minus
+            | TokenType::Star
+            | TokenType::Slash
+            | TokenType::Percent
+            | TokenType::Hash
+            | TokenType::At
+            | TokenType::Caret
+            | TokenType::Bang
+            | TokenType::Ampersand
+            | TokenType::Pipe
+            | TokenType::Tilde
+            | TokenType::EqualEqual
+            | TokenType::NotEqual
+            | TokenType::LessThan
+            | TokenType::LessEqual
+            | TokenType::GreaterThan
+            | TokenType::GreaterEqual
+            | TokenType::LShift
+            | TokenType::RShift
+            | TokenType::Assign
+            | TokenType::PlusAssign
+            | TokenType::MinusAssign
+            | TokenType::StarAssign
+            | TokenType::SlashAssign
+            | TokenType::PercentAssign
+            | TokenType::AmpersandAssign
+            | TokenType::PipeAssign
+            | TokenType::CaretAssign
+            | TokenType::LShiftAssign
+            | TokenType::RShiftAssign
+            | TokenType::Dot
+            | TokenType::DotDot
+            | TokenType::DotDotEqual
+            | TokenType::DotAmpersand
+            | TokenType::DotStar
+            | TokenType::DotLBracket
+            | TokenType::DotLBrace
+            | TokenType::DotDotAmpersand
+            | TokenType::DotDotLBracket
+            | TokenType::Ellipsis
+            | TokenType::Arrow => Some(SemanticClass {
+                token_type: TOKEN_OPERATOR,
+                modifiers: 0,
+            }),
+            _ => None,
+        };
+
+        let Some(class) = class else {
+            continue;
+        };
+        push_semantic_token_entries(&mut entries, file, token.span.start, token.span.end, class);
+    }
+
+    entries
+}
+
+fn push_semantic_token_entries(
+    entries: &mut Vec<SemanticTokenEntry>,
+    file: &kernc_utils::SourceFile,
+    start: usize,
+    end: usize,
+    class: SemanticClass,
+) {
+    if start >= end {
+        return;
+    }
+
+    let mut segment_start = start;
+    while segment_start < end {
+        let line_index = file.lookup_line(segment_start).saturating_sub(1);
+        let line_start = file.line_starts[line_index];
+        let next_line_start = file
+            .line_starts
+            .get(line_index + 1)
+            .copied()
+            .unwrap_or(file.src.len());
+        let visible_line_end = trim_line_ending(&file.src, line_start, next_line_start);
+        let segment_end = end.min(visible_line_end);
+
+        if segment_start < segment_end {
+            let start_position = byte_offset_to_position(file, segment_start);
+            let end_position = byte_offset_to_position(file, segment_end);
+            let length = end_position
+                .character
+                .saturating_sub(start_position.character);
+            if length > 0 {
+                entries.push(SemanticTokenEntry {
+                    line: start_position.line,
+                    start_char: start_position.character,
+                    length,
+                    token_type: class.token_type,
+                    modifiers: class.modifiers,
+                });
+            }
+        }
+
+        if next_line_start <= segment_start {
+            break;
+        }
+        segment_start = next_line_start;
+    }
+}
+
+fn encode_semantic_tokens(entries: &[SemanticTokenEntry]) -> Vec<u32> {
+    let mut sorted = entries.to_vec();
+    sorted.sort();
+
+    let mut data = Vec::with_capacity(sorted.len() * 5);
+    let mut previous_line = 0;
+    let mut previous_start = 0;
+
+    for (index, entry) in sorted.iter().enumerate() {
+        let delta_line = if index == 0 {
+            entry.line
+        } else {
+            entry.line - previous_line
+        };
+        let delta_start = if index == 0 || delta_line > 0 {
+            entry.start_char
+        } else {
+            entry.start_char - previous_start
+        };
+
+        data.extend_from_slice(&[
+            delta_line,
+            delta_start,
+            entry.length,
+            entry.token_type,
+            entry.modifiers,
+        ]);
+
+        previous_line = entry.line;
+        previous_start = entry.start_char;
+    }
+
+    data
+}
+
+fn quick_fix_for_diagnostic(
+    uri: &str,
+    session: &Session,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    let file = session
+        .source_manager
+        .get_file(diagnostic.primary_span.file)?;
+    let insertion_range = empty_range_at(file, diagnostic.primary_span.start);
+
+    if diagnostic.message == "Expected semicolon"
+        || diagnostic
+            .hints
+            .iter()
+            .any(|hint| hint == "consider adding a `;` here")
+    {
+        return Some(insert_text_code_action(
+            uri,
+            "Insert `;`",
+            ";",
+            insertion_range,
+            lsp_diagnostic,
+        ));
+    }
+    if diagnostic
+        .hints
+        .iter()
+        .any(|hint| hint == "unclosed parenthesis")
+    {
+        return Some(insert_text_code_action(
+            uri,
+            "Insert `)`",
+            ")",
+            insertion_range,
+            lsp_diagnostic,
+        ));
+    }
+    if diagnostic
+        .hints
+        .iter()
+        .any(|hint| hint == "unclosed bracket")
+    {
+        return Some(insert_text_code_action(
+            uri,
+            "Insert `]`",
+            "]",
+            insertion_range,
+            lsp_diagnostic,
+        ));
+    }
+    if diagnostic.hints.iter().any(|hint| hint == "unclosed block") {
+        return Some(insert_text_code_action(
+            uri,
+            "Insert `}`",
+            "}",
+            insertion_range,
+            lsp_diagnostic,
+        ));
+    }
+
+    None
+}
+
+fn insert_text_code_action(
+    uri: &str,
+    title: &str,
+    text: &str,
+    range: Range,
+    diagnostic: Diagnostic,
+) -> CodeAction {
+    let mut changes = BTreeMap::new();
+    changes.insert(
+        uri.to_string(),
+        vec![TextEdit {
+            range,
+            new_text: text.to_string(),
+        }],
+    );
+
+    CodeAction {
+        title: title.to_string(),
+        kind: Some("quickfix"),
+        diagnostics: Some(vec![diagnostic]),
+        edit: Some(WorkspaceEdit { changes }),
+        is_preferred: Some(true),
+    }
+}
+
+fn workspace_edit_key(edit: &WorkspaceEdit) -> String {
+    let mut key = String::new();
+    for (uri, edits) in &edit.changes {
+        key.push_str(uri);
+        for edit in edits {
+            key.push_str(&format!(
+                "|{}:{}:{}:{}:{}:{}",
+                edit.range.start.line,
+                edit.range.start.character,
+                edit.range.end.line,
+                edit.range.end.character,
+                edit.new_text.len(),
+                edit.new_text
+            ));
+        }
+    }
+    key
+}
+
+fn empty_range_at(file: &kernc_utils::SourceFile, offset: usize) -> Range {
+    let position = byte_offset_to_position(file, offset);
+    Range {
+        start: position.clone(),
+        end: position,
+    }
+}
+
+fn ranges_overlap(left: &Range, right: &Range) -> bool {
+    position_leq(&left.start, &right.end) && position_leq(&right.start, &left.end)
+}
+
+fn position_leq(left: &Position, right: &Position) -> bool {
+    left.line < right.line || (left.line == right.line && left.character <= right.character)
+}
+
+fn span_in_path(session: &Session, span: Span, target_path: &Path) -> bool {
+    session
+        .source_manager
+        .get_file_path(span.file)
+        .map(|path| normalize_path(path) == target_path)
+        .unwrap_or(false)
+}
+
+fn span_key(span: Span) -> SpanKey {
+    (span.start, span.end)
 }
 
 pub fn cleared_uris(previous: &BTreeSet<String>, current: &[DiagnosticBundle]) -> Vec<String> {
@@ -1022,7 +1634,7 @@ mod tests {
         position_to_byte_offset, uri_to_file_path,
     };
     use crate::protocol::{
-        DidChangeTextDocumentParams, DidOpenTextDocumentParams, Position, Range,
+        DidChangeTextDocumentParams, DidOpenTextDocumentParams, Position, Range, SemanticTokens,
         TextDocumentContentChangeEvent, TextDocumentItem, VersionedTextDocumentIdentifier,
     };
     use kernc_utils::SourceFile;
@@ -1274,6 +1886,148 @@ mod tests {
                 .iter()
                 .any(|diagnostic| diagnostic.message.contains("invalid start position"))
         );
+    }
+
+    #[test]
+    fn semantic_tokens_classify_keywords_types_and_functions() {
+        let mut analysis = AnalysisEngine::default();
+        let source = concat!(
+            "type Point = struct { x: i32 };\n",
+            "fn helper(point: Point) i32 {\n",
+            "    return point.x;\n",
+            "}\n",
+        );
+        let uri = temp_file_uri("semantic_tokens", source);
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: source.to_string(),
+            },
+        });
+
+        let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+        assert_token_type(
+            &decoded,
+            position_of_nth(source, "type", 0, 0),
+            super::TOKEN_KEYWORD,
+        );
+        assert_token_type(
+            &decoded,
+            position_of_nth(source, "Point", 0, 0),
+            super::TOKEN_STRUCT,
+        );
+        assert_token_type(
+            &decoded,
+            position_of_nth(source, "helper", 0, 0),
+            super::TOKEN_FUNCTION,
+        );
+        assert_token_type(
+            &decoded,
+            position_of_nth(source, "struct", 0, 0),
+            super::TOKEN_KEYWORD,
+        );
+    }
+
+    #[test]
+    fn code_actions_offer_missing_semicolon_fix() {
+        let mut analysis = AnalysisEngine::default();
+        let source = "fn main() i32 {\n    let value = 1\n    return value;\n}\n";
+        let uri = temp_file_uri("code_action_semicolon", source);
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: source.to_string(),
+            },
+        });
+
+        let actions = analysis
+            .code_actions(
+                &uri,
+                Range {
+                    start: Position {
+                        line: 2,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 2,
+                        character: 20,
+                    },
+                },
+            )
+            .unwrap();
+
+        let action = actions
+            .iter()
+            .find(|action| action.title == "Insert `;`")
+            .unwrap();
+        let edit = action.edit.as_ref().unwrap();
+        let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+        assert_eq!(
+            text_edit.range.start,
+            Position {
+                line: 2,
+                character: 4,
+            }
+        );
+        assert_eq!(text_edit.new_text, ";");
+        assert_eq!(action.kind, Some("quickfix"));
+        assert_eq!(action.is_preferred, Some(true));
+    }
+
+    #[test]
+    fn code_actions_offer_missing_closing_delimiter_fix() {
+        let mut analysis = AnalysisEngine::default();
+        let source = "fn main() i32 {\n    return (1 + 2;\n}\n";
+        let uri = temp_file_uri("code_action_paren", source);
+
+        let _ = analysis.open_document(DidOpenTextDocumentParams {
+            text_document: TextDocumentItem {
+                uri: uri.clone(),
+                _language_id: "kern".to_string(),
+                version: 1,
+                text: source.to_string(),
+            },
+        });
+
+        let actions = analysis
+            .code_actions(
+                &uri,
+                Range {
+                    start: Position {
+                        line: 1,
+                        character: 0,
+                    },
+                    end: Position {
+                        line: 1,
+                        character: 18,
+                    },
+                },
+            )
+            .unwrap();
+
+        let action = actions
+            .iter()
+            .find(|action| action.title == "Insert `)`")
+            .unwrap();
+        let edit = action.edit.as_ref().unwrap();
+        let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+        assert_eq!(
+            text_edit.range.start,
+            Position {
+                line: 1,
+                character: 17,
+            }
+        );
+        assert_eq!(text_edit.new_text, ")");
     }
 
     #[test]
@@ -1782,5 +2536,43 @@ mod tests {
 
     fn completion_labels(items: &[crate::protocol::CompletionItem]) -> Vec<String> {
         items.iter().map(|item| item.label.clone()).collect()
+    }
+
+    fn decode_semantic_tokens(tokens: &SemanticTokens) -> Vec<(Position, u32, u32)> {
+        let mut decoded = Vec::new();
+        let mut line = 0;
+        let mut start = 0;
+
+        for chunk in tokens.data.chunks_exact(5) {
+            line += chunk[0];
+            if chunk[0] == 0 {
+                start += chunk[1];
+            } else {
+                start = chunk[1];
+            }
+
+            decoded.push((
+                Position {
+                    line,
+                    character: start,
+                },
+                chunk[2],
+                chunk[3],
+            ));
+        }
+
+        decoded
+    }
+
+    fn assert_token_type(tokens: &[(Position, u32, u32)], position: Position, expected_type: u32) {
+        assert!(
+            tokens.iter().any(
+                |(token_position, _, token_type)| *token_position == position
+                    && *token_type == expected_type
+            ),
+            "missing semantic token {:?} at {:?}",
+            expected_type,
+            position
+        );
     }
 }

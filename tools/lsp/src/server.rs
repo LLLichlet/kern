@@ -1,9 +1,9 @@
 use crate::analysis::{AnalysisEngine, AnalysisOutcome, cleared_uris};
 use crate::protocol::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
-    CompletionParams, DefinitionParams, DocumentSymbolParams, IncomingMessage, ReferenceParams,
-    RenameParams,
-    error_response, initialize_result, null_response, publish_diagnostics, success_response,
+    CodeActionParams, CompletionParams, DefinitionParams, DidChangeTextDocumentParams,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbolParams, IncomingMessage,
+    ReferenceParams, RenameParams, SemanticTokensParams, error_response, initialize_result,
+    null_response, publish_diagnostics, success_response,
 };
 use crate::transport::{MessageReader, MessageWriter};
 use serde_json::Value;
@@ -204,12 +204,13 @@ fn handle_message(
         }
         "textDocument/hover" => {
             let id = message.id.ok_or_else(|| {
-                ServerError::Protocol(
-                    "textDocument/hover must be sent as a request".to_string(),
-                )
+                ServerError::Protocol("textDocument/hover must be sent as a request".to_string())
             })?;
             let params = required_params::<DefinitionParams>(message.params)?;
-            match state.analysis.hover(&params.text_document.uri, params.position) {
+            match state
+                .analysis
+                .hover(&params.text_document.uri, params.position)
+            {
                 Ok(Some(hover)) => {
                     let result = serde_json::to_value(hover)?;
                     writer.write_json(&success_response(id, result))?;
@@ -242,6 +243,23 @@ fn handle_message(
                 }
             }
         }
+        "textDocument/semanticTokens/full" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/semanticTokens/full must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<SemanticTokensParams>(message.params)?;
+            match state.analysis.semantic_tokens(&params.text_document.uri) {
+                Ok(tokens) => {
+                    let result = serde_json::to_value(tokens)?;
+                    writer.write_json(&success_response(id, result))?;
+                }
+                Err(message) => {
+                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
+                }
+            }
+        }
         "textDocument/prepareRename" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol(
@@ -267,21 +285,44 @@ fn handle_message(
         }
         "textDocument/rename" => {
             let id = message.id.ok_or_else(|| {
-                ServerError::Protocol(
-                    "textDocument/rename must be sent as a request".to_string(),
-                )
+                ServerError::Protocol("textDocument/rename must be sent as a request".to_string())
             })?;
             let params = required_params::<RenameParams>(message.params)?;
-            match state
-                .analysis
-                .rename(&params.text_document.uri, params.position, &params.new_name)
-            {
+            match state.analysis.rename(
+                &params.text_document.uri,
+                params.position,
+                &params.new_name,
+            ) {
                 Ok(workspace_edit) => {
                     let result = serde_json::to_value(workspace_edit)?;
                     writer.write_json(&success_response(id, result))?;
                 }
                 Err(message) => {
                     writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
+                }
+            }
+        }
+        "textDocument/codeAction" => {
+            let id = message.id.ok_or_else(|| {
+                ServerError::Protocol(
+                    "textDocument/codeAction must be sent as a request".to_string(),
+                )
+            })?;
+            let params = required_params::<CodeActionParams>(message.params)?;
+            if !context_allows_quickfix(&params.context.only) {
+                writer.write_json(&success_response(id, Value::Array(Vec::new())))?;
+            } else {
+                match state
+                    .analysis
+                    .code_actions(&params.text_document.uri, params.range)
+                {
+                    Ok(actions) => {
+                        let result = serde_json::to_value(actions)?;
+                        writer.write_json(&success_response(id, result))?;
+                    }
+                    Err(message) => {
+                        writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
+                    }
                 }
             }
         }
@@ -341,4 +382,13 @@ where
         ServerError::Protocol("expected request params, but message omitted them".to_string())
     })?;
     Ok(serde_json::from_value(params)?)
+}
+
+fn context_allows_quickfix(only: &Option<Vec<String>>) -> bool {
+    let Some(only) = only else {
+        return true;
+    };
+
+    only.iter()
+        .any(|kind| kind == "quickfix" || kind.starts_with("quickfix."))
 }

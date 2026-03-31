@@ -3,6 +3,24 @@ use serde_json::{Value, json};
 
 pub const JSONRPC_VERSION: &str = "2.0";
 pub const TEXT_DOCUMENT_SYNC_INCREMENTAL: u8 = 2;
+pub const SEMANTIC_TOKEN_TYPES: &[&str] = &[
+    "namespace",
+    "type",
+    "struct",
+    "enum",
+    "interface",
+    "typeParameter",
+    "parameter",
+    "variable",
+    "property",
+    "function",
+    "method",
+    "keyword",
+    "string",
+    "number",
+    "operator",
+];
+pub const SEMANTIC_TOKEN_MODIFIERS: &[&str] = &["declaration", "readonly", "static"];
 
 #[derive(Debug, Deserialize)]
 pub struct IncomingMessage {
@@ -107,6 +125,39 @@ pub struct RenameParams {
     pub new_name: String,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SemanticTokensParams {
+    pub text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionParams {
+    pub text_document: TextDocumentIdentifier,
+    pub range: Range,
+    pub context: CodeActionContext,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionContext {
+    #[serde(default)]
+    #[serde(rename = "diagnostics")]
+    pub _diagnostics: Vec<CodeActionDiagnostic>,
+    #[serde(default)]
+    pub only: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeActionDiagnostic {
+    #[serde(rename = "range")]
+    pub _range: Range,
+    #[serde(rename = "message")]
+    pub _message: String,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Hover {
@@ -135,9 +186,23 @@ pub struct TextEdit {
     pub new_text: String,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct WorkspaceEdit {
     pub changes: std::collections::BTreeMap<String, Vec<TextEdit>>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CodeAction {
+    pub title: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub kind: Option<&'static str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diagnostics: Option<Vec<Diagnostic>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub edit: Option<WorkspaceEdit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_preferred: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -192,6 +257,11 @@ pub struct Diagnostic {
     pub message: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct SemanticTokens {
+    pub data: Vec<u32>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Range {
     pub start: Position,
@@ -240,6 +310,14 @@ pub fn initialize_result() -> Value {
             "completionProvider": {
                 "triggerCharacters": ["."]
             },
+            "semanticTokensProvider": {
+                "legend": {
+                    "tokenTypes": SEMANTIC_TOKEN_TYPES,
+                    "tokenModifiers": SEMANTIC_TOKEN_MODIFIERS
+                },
+                "full": true
+            },
+            "codeActionProvider": true,
             "renameProvider": {
                 "prepareProvider": true
             }

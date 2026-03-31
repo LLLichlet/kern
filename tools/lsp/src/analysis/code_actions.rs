@@ -1,5 +1,7 @@
 use crate::protocol::{CodeAction, Diagnostic, Position, Range, TextEdit, WorkspaceEdit};
 use kernc_driver::AnalysisArtifact;
+use kernc_lexer::{TokenType, Tokenizer};
+use kernc_utils::FileId;
 use std::collections::BTreeMap;
 
 pub(super) fn quick_fix_for_diagnostic(
@@ -80,6 +82,22 @@ pub(super) fn quick_fix_for_diagnostic(
     if diagnostic.hints.iter().any(suggests_let_mut_fix) {
         return let_mut_code_action(artifact, diagnostic, lsp_diagnostic);
     }
+    if diagnostic.message == "match expression is not exhaustive"
+        || diagnostic.message == "match expression must be exhaustive"
+        || diagnostic
+            .hints
+            .iter()
+            .any(|hint| hint.contains("catch-all branch") || hint.starts_with("missing variants:"))
+    {
+        return add_match_catch_all_code_action(artifact, diagnostic, lsp_diagnostic);
+    }
+    if diagnostic.message == "irrefutable `let` bindings cannot use `else`"
+        || diagnostic.hints.iter().any(|hint| {
+            hint == "remove the `else` block or use a refutable variant pattern like `.Ok: value`"
+        })
+    {
+        return remove_irrefutable_let_else_code_action(artifact, diagnostic, lsp_diagnostic);
+    }
 
     None
 }
@@ -91,21 +109,34 @@ fn insert_text_code_action(
     range: Range,
     diagnostic: Diagnostic,
 ) -> CodeAction {
-    let mut changes = BTreeMap::new();
-    changes.insert(
-        uri.to_string(),
-        vec![TextEdit {
+    single_edit_code_action(
+        uri,
+        title,
+        TextEdit {
             range,
             new_text: text.to_string(),
-        }],
-    );
+        },
+        diagnostic,
+        true,
+    )
+}
+
+fn single_edit_code_action(
+    uri: &str,
+    title: &str,
+    edit: TextEdit,
+    diagnostic: Diagnostic,
+    is_preferred: bool,
+) -> CodeAction {
+    let mut changes = BTreeMap::new();
+    changes.insert(uri.to_string(), vec![edit]);
 
     CodeAction {
         title: title.to_string(),
         kind: Some("quickfix"),
         diagnostics: Some(vec![diagnostic]),
         edit: Some(WorkspaceEdit { changes }),
-        is_preferred: Some(true),
+        is_preferred: Some(is_preferred),
     }
 }
 
@@ -133,6 +164,69 @@ fn let_mut_code_action(
         "mut ",
         insertion_range,
         lsp_diagnostic,
+    ))
+}
+
+fn add_match_catch_all_code_action(
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    let file = artifact
+        .session
+        .source_manager
+        .get_file(diagnostic.primary_span.file)?;
+    let brace_offset =
+        top_level_token_offset(file, diagnostic.primary_span, TokenType::RBrace, true)?;
+    let insertion_range = empty_range_at(file, brace_offset);
+    let line_start = file.src[..brace_offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let brace_indent = leading_whitespace(&file.src[line_start..brace_offset]);
+    let insertion_text = if file.src[line_start..brace_offset].trim().is_empty() {
+        format!("{}    _ => @unreachable(),\n", brace_indent)
+    } else {
+        format!("\n{}    _ => @unreachable(),", brace_indent)
+    };
+
+    Some(single_edit_code_action(
+        &file_uri(artifact, diagnostic.primary_span.file)?,
+        "Add `_ => @unreachable()` arm",
+        TextEdit {
+            range: insertion_range,
+            new_text: insertion_text,
+        },
+        lsp_diagnostic,
+        false,
+    ))
+}
+
+fn remove_irrefutable_let_else_code_action(
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    let file = artifact
+        .session
+        .source_manager
+        .get_file(diagnostic.primary_span.file)?;
+    let else_offset =
+        top_level_token_offset(file, diagnostic.primary_span, TokenType::Else, false)?;
+    let delete_range = Range {
+        start: super::byte_offset_to_position(file, else_offset),
+        end: super::byte_offset_to_position(file, diagnostic.primary_span.end),
+    };
+
+    Some(single_edit_code_action(
+        &file_uri(artifact, diagnostic.primary_span.file)?,
+        "Remove invalid `else` branch",
+        TextEdit {
+            range: delete_range,
+            new_text: String::new(),
+        },
+        lsp_diagnostic,
+        true,
     ))
 }
 
@@ -218,4 +312,72 @@ fn spans_overlap(left: kernc_utils::Span, right: kernc_utils::Span) -> bool {
 
 fn span_len(span: kernc_utils::Span) -> usize {
     span.end.saturating_sub(span.start)
+}
+
+fn file_uri(artifact: &AnalysisArtifact, file_id: kernc_utils::FileId) -> Option<String> {
+    artifact
+        .session
+        .source_manager
+        .get_file_path(file_id)
+        .and_then(|path| super::file_path_to_uri(path).ok())
+}
+
+fn top_level_token_offset(
+    file: &kernc_utils::SourceFile,
+    span: kernc_utils::Span,
+    target: TokenType,
+    first: bool,
+) -> Option<usize> {
+    let slice = file.src.get(span.start..span.end)?;
+    let mut tokenizer = Tokenizer::new(slice, FileId(0));
+    let mut brace_depth = 0usize;
+    let mut paren_depth = 0usize;
+    let mut bracket_depth = 0usize;
+    let mut found = None;
+
+    loop {
+        let token = tokenizer.next_token();
+        if token.tag == TokenType::Eof {
+            break;
+        }
+
+        match token.tag {
+            TokenType::LBrace => brace_depth += 1,
+            TokenType::RBrace => {
+                if brace_depth == 1 && paren_depth == 0 && bracket_depth == 0 && token.tag == target
+                {
+                    let offset = span.start + token.span.start;
+                    if first {
+                        return Some(offset);
+                    }
+                    found = Some(offset);
+                }
+                brace_depth = brace_depth.saturating_sub(1);
+            }
+            TokenType::LParen => paren_depth += 1,
+            TokenType::RParen => paren_depth = paren_depth.saturating_sub(1),
+            TokenType::LBracket => bracket_depth += 1,
+            TokenType::RBracket => bracket_depth = bracket_depth.saturating_sub(1),
+            _ => {
+                if brace_depth == 0 && paren_depth == 0 && bracket_depth == 0 && token.tag == target
+                {
+                    let offset = span.start + token.span.start;
+                    if first {
+                        return Some(offset);
+                    }
+                    found = Some(offset);
+                }
+            }
+        }
+    }
+
+    found
+}
+
+fn leading_whitespace(text: &str) -> &str {
+    let width = text
+        .char_indices()
+        .find_map(|(index, ch)| (!ch.is_whitespace()).then_some(index))
+        .unwrap_or(text.len());
+    &text[..width]
 }

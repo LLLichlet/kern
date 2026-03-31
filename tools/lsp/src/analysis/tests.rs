@@ -511,6 +511,110 @@ fn code_actions_offer_let_mut_fix() {
 }
 
 #[test]
+fn code_actions_offer_match_catch_all_fix() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() i32 {\n    return match (1) {\n        1 => 1,\n    };\n}\n";
+    let uri = temp_file_uri("code_action_match_catch_all", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 1,
+                    character: 4,
+                },
+                end: Position {
+                    line: 3,
+                    character: 5,
+                },
+            },
+        )
+        .unwrap();
+
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Add `_ => @unreachable()` arm")
+        .unwrap();
+    let edit = action.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 3,
+            character: 4,
+        }
+    );
+    assert_eq!(text_edit.new_text, "        _ => @unreachable(),\n");
+    assert_eq!(action.is_preferred, Some(false));
+}
+
+#[test]
+fn code_actions_remove_irrefutable_let_else_branch() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() void {\n    let value = 1 else return;\n}\n";
+    let uri = temp_file_uri("code_action_remove_let_else", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 1,
+                    character: 4,
+                },
+                end: Position {
+                    line: 1,
+                    character: 29,
+                },
+            },
+        )
+        .unwrap();
+
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Remove invalid `else` branch")
+        .unwrap();
+    let edit = action.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 1,
+            character: 18,
+        }
+    );
+    assert_eq!(
+        text_edit.range.end,
+        Position {
+            line: 1,
+            character: 29,
+        }
+    );
+    assert_eq!(text_edit.new_text, "");
+}
+
+#[test]
 fn overlay_text_is_used_for_compiler_diagnostics() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri("overlay_diag", "extern fn main() i32 { 0 }");

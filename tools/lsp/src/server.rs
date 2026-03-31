@@ -628,7 +628,13 @@ mod tests {
     use crate::protocol::JSONRPC_VERSION;
     use crate::transport::MessageReader;
     use serde_json::json;
+    use std::fs;
     use std::io::Cursor;
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     #[test]
     fn initialize_result_advertises_precise_capabilities() {
@@ -890,6 +896,187 @@ mod tests {
             response["params"]["message"],
             "trace level set to `verbose`"
         );
+    }
+
+    #[test]
+    fn did_open_publishes_related_information_and_hints() {
+        let mut state = initialized_state();
+        let source = "fn helper() i32 { return 1; }\nfn helper() i32 { return 2; }\n";
+        let uri = temp_file_uri("server_related_diagnostics", source);
+
+        let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+        assert_eq!(messages[0]["params"]["uri"], uri);
+        let diagnostics = messages[0]["params"]["diagnostics"].as_array().unwrap();
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(
+            diagnostics[0]["message"],
+            "the name `helper` is defined multiple times\n\nHint: `helper` must be defined only once in the same scope"
+        );
+        let related = diagnostics[0]["relatedInformation"].as_array().unwrap();
+        assert_eq!(related.len(), 1);
+        assert_eq!(
+            related[0]["message"],
+            "previous definition of `helper` was here"
+        );
+    }
+
+    #[test]
+    fn did_change_republishes_empty_diagnostics_after_fix() {
+        let mut state = initialized_state();
+        let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+        let valid_source = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
+        let uri = temp_file_uri("server_diagnostic_clear", invalid_source);
+
+        let open_messages =
+            dispatch_messages(&mut state, did_open_message(&uri, invalid_source, 1));
+        assert_eq!(open_messages.len(), 1);
+        assert!(
+            !open_messages[0]["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+
+        let change_messages =
+            dispatch_messages(&mut state, did_change_message(&uri, valid_source, 2));
+
+        assert_eq!(change_messages.len(), 1);
+        assert_eq!(
+            change_messages[0]["method"],
+            "textDocument/publishDiagnostics"
+        );
+        assert_eq!(change_messages[0]["params"]["uri"], uri);
+        assert!(
+            change_messages[0]["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn document_highlight_request_returns_same_file_spans() {
+        let mut state = initialized_state();
+        let source =
+            "fn helper() i32 { return 1; }\nfn main() i32 { return helper() + helper(); }\n";
+        let uri = temp_file_uri("server_document_highlight", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(21)),
+                method: Some("textDocument/documentHighlight".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 24 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(21));
+        let highlights = response["result"].as_array().unwrap();
+        assert_eq!(highlights.len(), 3);
+        assert_eq!(
+            highlights[0]["range"]["start"],
+            json!({ "line": 0, "character": 3 })
+        );
+        assert_eq!(
+            highlights[1]["range"]["start"],
+            json!({ "line": 1, "character": 23 })
+        );
+        assert_eq!(
+            highlights[2]["range"]["start"],
+            json!({ "line": 1, "character": 34 })
+        );
+        assert!(
+            highlights
+                .iter()
+                .all(|highlight| highlight["kind"] == json!(1))
+        );
+    }
+
+    fn initialized_state() -> ServerState {
+        let mut state = ServerState::new();
+        state.initialized = true;
+        state
+    }
+
+    fn dispatch_single_response(state: &mut ServerState, message: IncomingMessage) -> Value {
+        let messages = dispatch_messages(state, message);
+        assert_eq!(messages.len(), 1);
+        messages.into_iter().next().unwrap()
+    }
+
+    fn dispatch_messages(state: &mut ServerState, message: IncomingMessage) -> Vec<Value> {
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+        let should_exit = handle_message(state, &mut writer, message).unwrap();
+        assert!(!should_exit);
+        read_all_messages(&output)
+    }
+
+    fn did_open_message(uri: &str, text: &str, version: i64) -> IncomingMessage {
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("textDocument/didOpen".to_string()),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": uri,
+                    "languageId": "kern",
+                    "version": version,
+                    "text": text
+                }
+            })),
+        }
+    }
+
+    fn did_change_message(uri: &str, text: &str, version: i64) -> IncomingMessage {
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("textDocument/didChange".to_string()),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": uri,
+                    "version": version
+                },
+                "contentChanges": [
+                    {
+                        "text": text
+                    }
+                ]
+            })),
+        }
+    }
+
+    fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
+        let path = unique_temp_file_path(prefix);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).unwrap();
+        }
+        fs::write(&path, initial_text).unwrap();
+        format!("file://{}", path.to_string_lossy())
+    }
+
+    fn unique_temp_file_path(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let counter = UNIQUE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!(
+            "{}_{}_{}_{}.rn",
+            prefix,
+            std::process::id(),
+            nanos,
+            counter
+        ))
     }
 
     fn read_single_response(output: &[u8]) -> Value {

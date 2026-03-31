@@ -1,17 +1,12 @@
-use super::ExprChecker;
-use crate::checker::Substituter;
+﻿use super::ExprChecker;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
+use crate::query::{MemberQuery, MemberQueryEnv};
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr};
 use kernc_utils::{NodeId, Span, SymbolId};
-use std::collections::HashMap;
-
-struct TraitMethodLookup {
-    owner_trait_ty: TypeId,
-    method_ty: TypeId,
-}
+use crate::checker::Substituter;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn current_module_id(&self) -> Option<DefId> {
@@ -34,20 +29,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .map(|(module_id, _)| module_id)
     }
 
-    fn def_owner_module_id(&self, def_id: DefId) -> Option<DefId> {
-        self.ctx.defs.iter().find_map(|def| {
-            let Def::Module(module) = def else {
-                return None;
-            };
-
-            if module.items.contains(&def_id) {
-                Some(module.id)
-            } else {
-                None
-            }
-        })
-    }
-
     fn global_owner_scope(&self, def_id: DefId) -> Option<crate::scope::ScopeId> {
         self.ctx.defs.iter().find_map(|def| {
             let Def::Module(module) = def else {
@@ -62,45 +43,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         })
     }
 
-    fn trait_def_for_access(
-        &mut self,
-        trait_def_id: DefId,
-        span: Span,
-    ) -> Option<crate::def::TraitDef> {
-        match self.ctx.defs.get(trait_def_id.0 as usize).cloned() {
-            Some(Def::Trait(def)) => Some(def),
-            Some(other) => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Typeck): Expected trait definition during member lookup, found {:?}.",
-                        other
-                    ),
-                );
-                None
-            }
-            None => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Kern ICE (Typeck): Missing DefId {} during trait member lookup.",
-                        trait_def_id.0
-                    ),
-                );
-                None
-            }
-        }
-    }
-
     pub(crate) fn check_identifier(&mut self, name: SymbolId, span: Span) -> TypeId {
         if let Some(info) = self.ctx.scopes.resolve(name).cloned() {
+            self.ctx.record_identifier_reference(span, info.span);
+
             if info.kind == SymbolKind::Function {
                 return self
                     .ctx
                     .type_registry
                     .intern(TypeKind::FnDef(info.def_id.unwrap(), vec![]));
             }
-            // 如果是模块，显式包装并返回 TypeKind::Module
+            // 濡傛灉鏄ā鍧楋紝鏄惧紡鍖呰骞惰繑鍥?TypeKind::Module
             if info.kind == SymbolKind::Module {
                 return self
                     .ctx
@@ -108,7 +61,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .intern(TypeKind::Module(info.def_id.unwrap()));
             }
 
-            // 处理 `use` 导入或乱序声明的常量/静态变量的按需推导
+            // 澶勭悊 `use` 瀵煎叆鎴栦贡搴忓０鏄庣殑甯搁噺/闈欐€佸彉閲忕殑鎸夐渶鎺ㄥ
             if info.type_id == TypeId::ERROR
                 && let Some(def_id) = info.def_id
             {
@@ -199,7 +152,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     node_id,
                     type_id: init_ty,
                     def_id: None,
-                    span,
+                    span: binding.span,
                     is_pub: false,
                     is_mut: binding.is_mut,
                 };
@@ -355,7 +308,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         node_id,
                         type_id: payload_ty,
                         def_id: None,
-                        span,
+                        span: bind_pattern.span,
                         is_pub: false,
                         is_mut: bind_pattern.is_mut,
                     };
@@ -393,7 +346,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             node_id,
             type_id: init_ty,
             def_id: None,
-            span,
+            span: pattern.span,
             is_pub: false,
             is_mut: pattern.is_mut,
         };
@@ -456,13 +409,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        let lhs_norm = self.resolve_tv(lhs_ty);
-
-        // 1. 获取解引用后的基础类型（Struct/Union/Enum/Module），仅用于模块判定和最后兜底的字段查找
+        // 1. 鑾峰彇瑙ｅ紩鐢ㄥ悗鐨勫熀纭€绫诲瀷锛圫truct/Union/Enum/Module锛夛紝浠呯敤浜庢ā鍧楀垽瀹氬拰鏈€鍚庡厹搴曠殑瀛楁鏌ユ壘
         let base_norm = self.get_base_type(lhs_ty);
 
-        // 2. 基于类型系统处理多级模块访问
-        // 模块不会包裹在指针里，所以用 base_norm 查是安全的
+        // 2. 鍩轰簬绫诲瀷绯荤粺澶勭悊澶氱骇妯″潡璁块棶
+        // 妯″潡涓嶄細鍖呰９鍦ㄦ寚閽堥噷锛屾墍浠ョ敤 base_norm 鏌ユ槸瀹夊叏鐨?
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(base_norm).clone() {
             let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                 m.scope_id
@@ -533,53 +484,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // === 核心修复：构造正确的查找备选队列 ===
-        // 队列优先级：精确类型匹配 -> 降级不可变指针 -> 隐式解引用(Auto-deref)字段访问
-        let mut search_tys = vec![lhs_norm];
-
-        // 3. 如果是可变类型，自动推入不可变版本作为 Fallback
-        // 现在的 lhs_norm 带有完整的指针上下文，你的降级逻辑被成功激活了！
-        match self.ctx.type_registry.get(lhs_norm).clone() {
-            TypeKind::Pointer { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::Pointer {
-                    is_mut: false,
-                    elem,
-                }));
+        if let Some((ty, owner_trait_ty)) = self.try_find_field_or_method_silent(lhs_ty, field, span)
+        {
+            if let Some(owner_trait_ty) = owner_trait_ty {
+                self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
             }
-            TypeKind::VolatilePtr { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
-                    is_mut: false,
-                    elem,
-                }));
-            }
-            TypeKind::Slice { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::Slice {
-                    is_mut: false,
-                    elem,
-                }));
-            }
-            _ => {}
+            return ty;
         }
 
-        // 4. 推入解引用后的基础类型
-        // 如果我们是在指针上调用 struct 的内部字段，靠这个兜底
-        if !search_tys.contains(&base_norm) {
-            search_tys.push(base_norm);
-        }
-
-        // 5. 按顺序逐级查找，一旦找到立刻返回
-        for search_norm in search_tys {
-            if let Some((ty, owner_trait_ty)) =
-                self.try_find_field_or_method_silent(search_norm, lhs_ty, field, span)
-            {
-                if let Some(owner_trait_ty) = owner_trait_ty {
-                    self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
-                }
-                return ty;
-            }
-        }
-
-        // 全部失败，抛出详细诊断
+        // 鍏ㄩ儴澶辫触锛屾姏鍑鸿缁嗚瘖鏂?
         let field_str = self.ctx.resolve(field);
         let lhs_str = self.ctx.ty_to_string(lhs_ty);
 
@@ -600,195 +513,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         TypeId::ERROR
     }
 
-    /// 助手 2.5：静默查找字段或方法 (不报错，查不到返回 None)
+    /// 鍔╂墜 2.5锛氶潤榛樻煡鎵惧瓧娈垫垨鏂规硶 (涓嶆姤閿欙紝鏌ヤ笉鍒拌繑鍥?None)
     fn try_find_field_or_method_silent(
         &mut self,
-        search_norm: TypeId,
         lhs_ty: TypeId,
         field: SymbolId,
         span: Span,
     ) -> Option<(TypeId, Option<TypeId>)> {
-        // 1. 如果是 Trait Object
-        if let TypeKind::TraitObject(trait_def_id, trait_args) =
-            self.ctx.type_registry.get(search_norm).clone()
-            && let Some(m) =
-                self.resolve_trait_object_method_silent(trait_def_id, &trait_args, field, lhs_ty)
-        {
-            return Some((m.method_ty, Some(m.owner_trait_ty)));
-        }
-
-        // 2. 如果是具名类型 (Struct/Union/Enum)
-        if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
-            && let Some(field_ty) = self.resolve_def_field(def_id, &generic_args, field, span)
-        {
-            return Some((field_ty, None));
-        }
-        // 支持匿名结构体/联合体的字段访问
-        if let TypeKind::AnonymousStruct(_, ref fields) | TypeKind::AnonymousUnion(_, ref fields) =
-            self.ctx.type_registry.get(search_norm).clone()
-            && let Some(f) = fields.iter().find(|f| f.name == field)
-        {
-            return Some((f.ty, None));
-        }
-
-        // 3. 检查 active_bounds 环境约束
-        for i in 0..self.ctx.active_bounds.len() {
-            let (env_target, bounds) = self.ctx.active_bounds[i].clone();
-            let mut map = HashMap::new();
-            if self.unify(env_target, search_norm, &mut map) {
-                let instantiated_bounds: Vec<TypeId> = {
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                    bounds
-                        .into_iter()
-                        .map(|bound| subst.substitute(bound))
-                        .collect()
-                };
-
-                for bound_ty in instantiated_bounds {
-                    let bound_norm = self.resolve_tv(bound_ty);
-                    if let TypeKind::TraitObject(trait_def_id, trait_args) =
-                        self.ctx.type_registry.get(bound_norm).clone()
-                        && let Some(m) = self.resolve_trait_object_method_silent(
-                            trait_def_id,
-                            &trait_args,
-                            field,
-                            lhs_ty,
-                        )
-                    {
-                        return Some((m.method_ty, Some(m.owner_trait_ty)));
-                    }
-                }
-            }
-        }
-
-        // 4. 检查全局的 impl 块
-        if let Some(method_ty) = self.resolve_impl_method(search_norm, field) {
-            return Some((method_ty, None));
-        }
-
-        None
-    }
-
-    /// 静默版：解析 Trait Object 的接口方法
-    fn resolve_trait_object_method_silent(
-        &mut self,
-        trait_def_id: DefId,
-        trait_args: &[TypeId],
-        field: SymbolId,
-        receiver_ty: TypeId,
-    ) -> Option<TraitMethodLookup> {
-        let mut visited = std::collections::HashSet::new();
-        self.resolve_trait_object_method_in_hierarchy(
-            trait_def_id,
-            trait_args,
-            field,
-            receiver_ty,
-            &mut visited,
-        )
-    }
-
-    fn resolve_trait_object_method_in_hierarchy(
-        &mut self,
-        trait_def_id: DefId,
-        trait_args: &[TypeId],
-        field: SymbolId,
-        receiver_ty: TypeId,
-        visited: &mut std::collections::HashSet<DefId>,
-    ) -> Option<TraitMethodLookup> {
-        if !visited.insert(trait_def_id) {
-            return None;
-        }
-
-        let trait_def = self.trait_def_for_access(trait_def_id, Span::default())?;
-        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
-            .generics
-            .iter()
-            .zip(trait_args.iter())
-            .map(|(param, arg)| (param.name, *arg))
-            .collect();
-
-        if let Some(&(_, mut method_ty)) = trait_def
-            .resolved_methods
-            .iter()
-            .find(|(m_name, _)| *m_name == field)
-        {
-            if let TypeKind::Function {
-                params,
-                ret,
-                is_variadic,
-            } = self.ctx.type_registry.get(method_ty).clone()
-            {
-                let mut new_params = params.clone();
-                if !new_params.is_empty() {
-                    new_params[0] = receiver_ty; // 维持调用的实际 LHS 为 receiver
-                }
-                method_ty = self.ctx.type_registry.intern(TypeKind::Function {
-                    params: new_params,
-                    ret,
-                    is_variadic,
-                });
-            }
-
-            if !trait_arg_map.is_empty() {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
-                method_ty = subst.substitute(method_ty);
-            }
-            let owner_trait_ty = self
-                .ctx
-                .type_registry
-                .intern(TypeKind::TraitObject(trait_def_id, trait_args.to_vec()));
-            return Some(TraitMethodLookup {
-                owner_trait_ty,
-                method_ty,
-            });
-        }
-
-        let mut matches = Vec::new();
-        for &super_ty in &trait_def.resolved_supertraits {
-            let inst_super_ty = if trait_arg_map.is_empty() {
-                super_ty
-            } else {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
-                subst.substitute(super_ty)
-            };
-            let inst_super_norm = self.resolve_tv(inst_super_ty);
-
-            if let TypeKind::TraitObject(super_def_id, super_args) =
-                self.ctx.type_registry.get(inst_super_norm).clone()
-                && let Some(method_lookup) = self.resolve_trait_object_method_in_hierarchy(
-                    super_def_id,
-                    &super_args,
-                    field,
-                    receiver_ty,
-                    visited,
-                )
-            {
-                matches.push(method_lookup);
-            }
-        }
-
-        if matches.len() > 1 {
-            let owners: Vec<String> = matches
-                .iter()
-                .map(|m| self.ctx.ty_to_string(m.owner_trait_ty))
-                .collect();
-            self.ctx
-                .struct_error(
-                    Span::default(),
-                    format!(
-                        "ambiguous inherited trait method `{}`",
-                        self.ctx.resolve(field)
-                    ),
-                )
-                .with_hint(format!(
-                    "the method is inherited from multiple parent traits: {}",
-                    owners.join(", ")
-                ))
-                .emit();
-            return None;
-        }
-
-        matches.into_iter().next()
+        let env = MemberQueryEnv::from_active_bounds(&self.ctx.active_bounds);
+        let current_module_id = self.current_module_id();
+        let mut query = MemberQuery::new(self.ctx);
+        query
+            .resolve_named_member(current_module_id, lhs_ty, field, &env, span)
+            .map(|resolution| (resolution.candidate.type_id, resolution.owner_trait_ty))
     }
 
     pub(crate) fn check_slice_op(
@@ -831,7 +568,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 | TypeKind::ArrayInfer { is_mut: true, .. }
         ) || self.is_lvalue_mutable(lhs);
 
-        // 如果是 `..[`，必须确保目标内存具有可变权限
+        // 濡傛灉鏄?`..[`锛屽繀椤荤‘淇濈洰鏍囧唴瀛樺叿鏈夊彲鍙樻潈闄?
         if is_mut && !base_allows_mut_slice && lhs_ty != TypeId::ERROR {
             self.ctx
                 .struct_error(
@@ -860,222 +597,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 辅助方法 1：自动解引用 Pointer/VolatilePtr，获取底层的 Struct/Union/Enum 类型
+    /// 杈呭姪鏂规硶 1锛氳嚜鍔ㄨВ寮曠敤 Pointer/VolatilePtr锛岃幏鍙栧簳灞傜殑 Struct/Union/Enum 绫诲瀷
     fn get_base_type(&mut self, mut base_ty: TypeId) -> TypeId {
         loop {
             let norm = self.resolve_tv(base_ty);
             match self.ctx.type_registry.get(norm).clone() {
-                // 遇到指针，自动扒掉外衣继续往下找
+                // 閬囧埌鎸囬拡锛岃嚜鍔ㄦ墥鎺夊琛ｇ户缁線涓嬫壘
                 TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                     base_ty = elem;
                 }
-                // 找到底了，返回
+                // 鎵惧埌搴曚簡锛岃繑鍥?
                 _ => return norm,
             }
         }
     }
 
-    /// 辅助方法 3：解析 Struct/Union 字段或 Enum 变体
-    fn resolve_def_field(
-        &mut self,
-        def_id: DefId,
-        generic_args: &[TypeId],
-        field: SymbolId,
-        span: Span,
-    ) -> Option<TypeId> {
-        let def = self.ctx.defs[def_id.0 as usize].clone();
-
-        match &def {
-            Def::Struct(s) => {
-                if let Some(f) = s.fields.iter().find(|f| f.name == field) {
-                    if !f.is_pub && self.current_module_id() != self.def_owner_module_id(def_id) {
-                        let field_name = self.ctx.resolve(field);
-                        let type_name = self.ctx.resolve(s.name);
-                        self.ctx
-                            .struct_error(
-                                span,
-                                format!(
-                                    "field `{}` of type `{}` is private",
-                                    field_name, type_name
-                                ),
-                            )
-                            .with_hint(
-                                "mark the field `pub`, or access it from within the defining module",
-                            )
-                            .emit();
-                        return Some(TypeId::ERROR);
-                    }
-
-                    return Some(self.apply_generics_to_field(
-                        &s.generics,
-                        generic_args,
-                        f.type_node.id,
-                    ));
-                }
-            }
-            Def::Union(u) => {
-                if let Some(f) = u.fields.iter().find(|f| f.name == field) {
-                    if !f.is_pub && self.current_module_id() != self.def_owner_module_id(def_id) {
-                        let field_name = self.ctx.resolve(field);
-                        let type_name = self.ctx.resolve(u.name);
-                        self.ctx
-                            .struct_error(
-                                span,
-                                format!(
-                                    "field `{}` of type `{}` is private",
-                                    field_name, type_name
-                                ),
-                            )
-                            .with_hint(
-                                "mark the field `pub`, or access it from within the defining module",
-                            )
-                            .emit();
-                        return Some(TypeId::ERROR);
-                    }
-
-                    return Some(self.apply_generics_to_field(
-                        &u.generics,
-                        generic_args,
-                        f.type_node.id,
-                    ));
-                }
-            }
-            _ => {}
-        }
-        None
-    }
-
-    /// 辅助方法 3.1：处理字段提取后的泛型替换
-    fn apply_generics_to_field(
-        &mut self,
-        generics: &[ast::GenericParam],
-        args: &[TypeId],
-        node_id: NodeId,
-    ) -> TypeId {
-        let mut field_ty = self
-            .ctx
-            .node_types
-            .get(&node_id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
-
-        if !generics.is_empty() && !args.is_empty() {
-            let mut map = std::collections::HashMap::new();
-            for (i, param) in generics.iter().enumerate() {
-                map.insert(param.name, args[i]);
-            }
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-            field_ty = subst.substitute(field_ty);
-        }
-
-        field_ty
-    }
-
-    /// 辅助方法 4：通过全局 Impl 块进行方法分发 (Method Dispatch)
-    fn resolve_impl_method(&mut self, lhs_ty: TypeId, field: SymbolId) -> Option<TypeId> {
-        let mut found_method_id = None;
-        let mut resolved_impl_args = Vec::new();
-
-        let impl_blocks: Vec<_> = self
-            .ctx
-            .global_impls
-            .iter()
-            .filter_map(|&id| {
-                if let Def::Impl(impl_def) = &self.ctx.defs[id.0 as usize] {
-                    Some(impl_def.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for impl_def in impl_blocks {
-            let impl_target_ty = self
-                .ctx
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let mut map = std::collections::HashMap::new();
-
-            if self.unify(impl_target_ty, lhs_ty, &mut map) {
-                // 检查该 Impl 块的 Where 约束是否被满足
-                if !self.satisfies_bounds(&impl_def.where_clauses, &map) {
-                    continue; // 约束不满足，说明这个 Impl 块不适用，跳过
-                }
-
-                // 将 Impl 块捕获的泛型参数提取出来
-                let mut candidate_impl_args = Vec::new();
-                for param in &impl_def.generics {
-                    candidate_impl_args
-                        .push(map.get(&param.name).copied().unwrap_or(TypeId::ERROR));
-                }
-                // 在匹配的 Impl 块内寻找目标函数
-                for &method_id in &impl_def.methods {
-                    if let Def::Function(func_def) = &self.ctx.defs[method_id.0 as usize]
-                        && func_def.name == field
-                    {
-                        found_method_id = Some(method_id);
-                        resolved_impl_args = candidate_impl_args;
-                        break;
-                    }
-                }
-            }
-            if found_method_id.is_some() {
-                break;
-            }
-        }
-
-        found_method_id.map(|method_id| {
-            self.ctx
-                .type_registry
-                .intern(TypeKind::FnDef(method_id, resolved_impl_args))
-        })
-    }
-
-    /// 辅助方法：静默检查 Where 子句约束是否满足
-    fn satisfies_bounds(
-        &mut self,
-        where_clauses: &[ast::WhereClause],
-        map: &HashMap<SymbolId, TypeId>,
-    ) -> bool {
-        let mut pairs_to_check = Vec::new();
-
-        {
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
-
-            for clause in where_clauses {
-                let original_target = self
-                    .ctx
-                    .node_types
-                    .get(&clause.target_ty.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let sub_target = subst.substitute(original_target);
-
-                for bound_ast in &clause.bounds {
-                    let original_bound = self
-                        .ctx
-                        .node_types
-                        .get(&bound_ast.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
-                    let sub_bound = subst.substitute(original_bound);
-
-                    pairs_to_check.push((sub_target, sub_bound));
-                }
-            }
-        }
-
-        for (sub_target, sub_bound) in pairs_to_check {
-            if sub_target != TypeId::ERROR && sub_bound != TypeId::ERROR {
-                // 如果存在任何一个特征未被实现，直接返回 false
-                if !self.check_trait_impl(sub_target, sub_bound) {
-                    return false;
-                }
-            }
-        }
-
-        true
-    }
 }
+
+

@@ -252,7 +252,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     node_id: param_ast.type_node.id,
                     type_id: param_tys[i],
                     def_id: None,
-                    span: param_ast.span,
+                    span: param_ast.pattern.span,
                     is_pub: false,
                     is_mut: param_ast.pattern.is_mut,
                 };

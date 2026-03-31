@@ -194,6 +194,7 @@ impl<'a> Parser<'a> {
 
     pub(super) fn parse_return_expr(&mut self, span: Span) -> ParseResult<Expr> {
         let mut val = None;
+        let mut expr_span = span;
         let is_stopper = self.check(TokenType::Semicolon)
             || self.check(TokenType::RBrace)
             || self.check(TokenType::Else)
@@ -202,11 +203,13 @@ impl<'a> Parser<'a> {
             || self.check(TokenType::Comma)
             || self.check(TokenType::Eof);
         if !is_stopper {
-            val = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
+            let value = self.parse_expression(Precedence::Lowest)?;
+            expr_span = span.to(value.span);
+            val = Some(Box::new(value));
         }
         Ok(Expr {
             id: self.new_id(),
-            span,
+            span: expr_span,
             kind: ExprKind::Return(val),
         })
     }

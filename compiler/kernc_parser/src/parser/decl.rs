@@ -244,6 +244,7 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(end),
+            name_span: name_token.span,
             name: name_id,
             is_pub,
             attributes: vec![],
@@ -284,6 +285,7 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(end),
+            name_span: name.span,
             name: name_id,
             is_pub,
             attributes: vec![],
@@ -339,6 +341,7 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(end.span),
+            name_span: start,
             name,
             is_pub: false,
             attributes: vec![],
@@ -384,6 +387,7 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(end.span),
+            name_span: start,
             name,
             is_pub: false,
             attributes: vec![],
@@ -448,6 +452,7 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(end),
+            name_span: name.span,
             name: name_id,
             is_pub,
             attributes: vec![],
@@ -532,6 +537,7 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(end),
+            name_span: name.span,
             name: name_id,
             is_pub,
             attributes: vec![],
@@ -601,6 +607,10 @@ impl<'a> Parser<'a> {
         Ok(Decl {
             id: self.new_id(),
             span: start.to(self.stream.prev_span()),
+            name_span: path
+                .last()
+                .map(|_| self.stream.prev_span())
+                .unwrap_or(start),
             name,
             is_pub,
             attributes: vec![],

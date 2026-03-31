@@ -5,6 +5,7 @@ use kernc_utils::{NodeId, Span, SymbolId};
 pub struct Decl {
     pub id: NodeId,
     pub span: Span,
+    pub name_span: Span,
     pub name: SymbolId,
     pub is_pub: bool,
     pub attributes: Vec<Attribute>,

@@ -30,6 +30,7 @@ pub struct SemaContext<'a> {
     pub module_interface_aliases: HashMap<String, String>,
     pub alias_roots: HashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
+    identifier_references: Vec<(Span, Span)>,
 }
 
 impl<'a> SemaContext<'a> {
@@ -49,6 +50,7 @@ impl<'a> SemaContext<'a> {
             alias_roots: HashMap::new(),
             root_module: None,
             global_impls: Vec::new(),
+            identifier_references: Vec::new(),
         }
     }
 
@@ -151,6 +153,15 @@ impl<'a> SemaContext<'a> {
 
     pub fn load_file<P: AsRef<std::path::Path>>(&mut self, path: P) -> std::io::Result<FileId> {
         self.sess.load_file(path)
+    }
+
+    pub fn record_identifier_reference(&mut self, reference_span: Span, definition_span: Span) {
+        self.identifier_references
+            .push((reference_span, definition_span));
+    }
+
+    pub fn identifier_references(&self) -> &[(Span, Span)] {
+        &self.identifier_references
     }
 
     /// 为类型生成确定性且唯一的修饰后缀

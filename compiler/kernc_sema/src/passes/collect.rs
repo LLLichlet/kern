@@ -117,7 +117,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                             kind: SymbolKind::Module,
                             node_id: decl.id,
                             def_id: Some(sub_id),
-                            span: decl.span,
+                            span: decl.name_span,
                             is_pub: *is_pub,
                             is_mut: false,
                         });
@@ -308,7 +308,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 kind: SymbolKind::Function,
                 node_id: decl.id,
                 def_id: Some(def_id),
-                span: decl.span,
+                span: decl.name_span,
                 is_pub: spec.vis == Visibility::Public,
                 is_mut: false,
             });
@@ -355,7 +355,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             kind: sym_kind,
             node_id: decl.id,
             def_id: Some(def_id),
-            span: decl.span,
+            span: decl.name_span,
             is_pub,
             is_mut,
         });
@@ -471,7 +471,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             kind: sym_kind,
             node_id: decl.id,
             def_id: Some(def_id),
-            span: decl.span,
+            span: decl.name_span,
             is_pub: spec.vis == Visibility::Public,
             is_mut: false,
         });

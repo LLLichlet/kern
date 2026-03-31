@@ -181,6 +181,13 @@ impl SymbolTable {
         self.scopes[scope_id.0].symbols.get(&name)
     }
 
+    pub fn symbols_in_scope(&self, scope_id: ScopeId) -> impl Iterator<Item = (SymbolId, &SymbolInfo)> + '_ {
+        self.scopes[scope_id.0]
+            .symbols
+            .iter()
+            .map(|(name, info)| (*name, info))
+    }
+
     pub fn distance_to_ancestor(&self, scope_id: ScopeId, ancestor: ScopeId) -> Option<usize> {
         let mut curr = Some(scope_id);
         let mut distance = 0;
@@ -210,5 +217,11 @@ impl SymbolTable {
             }
             curr = scope.parent;
         }
+    }
+
+    pub fn all_symbols(&self) -> impl Iterator<Item = (SymbolId, &SymbolInfo)> + '_ {
+        self.scopes
+            .iter()
+            .flat_map(|scope| scope.symbols.iter().map(|(name, info)| (*name, info)))
     }
 }

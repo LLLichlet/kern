@@ -582,6 +582,7 @@ impl CompilerDriver {
                     label: ctx.resolve(generic.name).to_string(),
                     kind: AnalysisCompletionKind::TypeParameter,
                     detail: Some("type".to_string()),
+                    insert_text: None,
                 },
             );
         }
@@ -606,6 +607,7 @@ impl CompilerDriver {
                     label: name.to_string(),
                     kind: AnalysisCompletionKind::Variable,
                     detail: params.get(index).copied().map(|ty| ctx.ty_to_string(ty)),
+                    insert_text: None,
                 },
             );
         }
@@ -629,6 +631,7 @@ impl CompilerDriver {
             label: label.to_string(),
             kind,
             detail,
+            insert_text: symbol_completion_insert_text(ctx, label, info),
         })
     }
 
@@ -769,6 +772,7 @@ impl CompilerDriver {
             label: ctx.resolve(candidate.name).to_string(),
             kind: completion_kind_from_symbol_kind(candidate.kind),
             detail,
+            insert_text: candidate_completion_insert_text(ctx, &candidate),
         })
     }
 }
@@ -1229,6 +1233,60 @@ fn push_completion_item(items: &mut Vec<AnalysisCompletionItem>, item: AnalysisC
         items.remove(index);
     }
     items.push(item);
+}
+
+fn symbol_completion_insert_text(
+    ctx: &SemaContext<'_>,
+    label: &str,
+    info: &kernc_sema::scope::SymbolInfo,
+) -> Option<String> {
+    if info.kind != kernc_sema::scope::SymbolKind::Function {
+        return None;
+    }
+
+    let def_id = info.def_id?;
+    let kernc_sema::def::Def::Function(function) = &ctx.defs[def_id.0 as usize] else {
+        return None;
+    };
+    let sig = function.resolved_sig?;
+    Some(function_completion_snippet(ctx, label, sig))
+}
+
+fn candidate_completion_insert_text(
+    ctx: &SemaContext<'_>,
+    candidate: &MemberCandidate,
+) -> Option<String> {
+    if candidate.kind != kernc_sema::scope::SymbolKind::Function {
+        return None;
+    }
+
+    Some(function_completion_snippet(
+        ctx,
+        ctx.resolve(candidate.name),
+        candidate.type_id,
+    ))
+}
+
+fn function_completion_snippet(
+    ctx: &SemaContext<'_>,
+    label: &str,
+    ty: kernc_sema::ty::TypeId,
+) -> String {
+    let normalized = ctx.type_registry.normalize(ty);
+    let has_parameters = match ctx.type_registry.get(normalized) {
+        kernc_sema::ty::TypeKind::Function {
+            params,
+            is_variadic,
+            ..
+        } => !params.is_empty() || *is_variadic,
+        _ => false,
+    };
+
+    if has_parameters {
+        format!("{label}($0)")
+    } else {
+        format!("{label}()$0")
+    }
 }
 
 fn query_span_for_stmt(stmt: &ast::Stmt) -> kernc_utils::Span {

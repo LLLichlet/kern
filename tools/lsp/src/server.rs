@@ -1349,7 +1349,12 @@ mod tests {
 
         assert_eq!(response["id"], json!(30));
         let items = response["result"].as_array().unwrap();
-        assert!(items.iter().any(|item| item["label"] == json!("helper")));
+        let helper = items
+            .iter()
+            .find(|item| item["label"] == json!("helper"))
+            .unwrap();
+        assert_eq!(helper["insertText"], json!("helper()$0"));
+        assert_eq!(helper["insertTextFormat"], json!(2));
     }
 
     #[test]

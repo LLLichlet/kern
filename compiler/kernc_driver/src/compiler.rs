@@ -53,6 +53,7 @@ pub struct AnalysisCompletionItem {
     pub label: String,
     pub kind: AnalysisCompletionKind,
     pub detail: Option<String>,
+    pub insert_text: Option<String>,
 }
 
 #[derive(Debug, Clone)]

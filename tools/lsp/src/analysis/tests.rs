@@ -1049,6 +1049,10 @@ fn completion_in_function_body_includes_visible_symbols() {
     assert!(labels.contains(&"helper".to_string()));
     assert!(labels.contains(&"param".to_string()));
     assert!(labels.contains(&"value".to_string()));
+
+    let helper = items.iter().find(|item| item.label == "helper").unwrap();
+    assert_eq!(helper.insert_text.as_deref(), Some("helper($0)"));
+    assert_eq!(helper.insert_text_format, Some(2));
 }
 
 #[test]

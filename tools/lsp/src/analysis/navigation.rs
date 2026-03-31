@@ -362,10 +362,13 @@ fn rename_edit_from_span(
 }
 
 pub(super) fn analysis_completion_to_lsp_item(item: AnalysisCompletionItem) -> CompletionItem {
+    let insert_text_format = item.insert_text.as_ref().map(|_| 2);
     CompletionItem {
         label: item.label,
         kind: lsp_completion_kind(item.kind),
         detail: item.detail,
+        insert_text: item.insert_text,
+        insert_text_format,
     }
 }
 

@@ -335,6 +335,10 @@ pub struct CompletionItem {
     pub kind: u8,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub insert_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub insert_text_format: Option<u8>,
 }
 
 #[derive(Debug, Serialize)]

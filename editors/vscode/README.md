@@ -10,6 +10,8 @@ experience for `.rn` source files.
 - diagnostics, hover, completion, rename, semantic tokens, and code actions
 - a lightweight TextMate grammar and language configuration for editor basics
 - a `Kern: Restart Language Server` command
+- a `Kern: Show Language Server Output` command
+- starter snippets for common Kern declarations
 
 ## Development
 
@@ -23,6 +25,10 @@ npm run compile
 
 Open the repository in VS Code and press `F5` from the `editors/vscode`
 directory to launch an Extension Development Host.
+
+The extension also includes checked-in VS Code launch/tasks files under
+`editors/vscode/.vscode/` so repository-local extension debugging works
+without extra manual setup.
 
 ## Language Server Resolution
 

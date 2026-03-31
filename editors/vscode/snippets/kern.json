@@ -1,0 +1,38 @@
+{
+  "Kern Function": {
+    "prefix": "kfn",
+    "body": [
+      "fn ${1:name}(${2}) ${3:void} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Insert a Kern function."
+  },
+  "Kern Type Alias": {
+    "prefix": "ktype",
+    "body": [
+      "type ${1:Name} = ${2:struct} {",
+      "\t$0",
+      "};"
+    ],
+    "description": "Insert a Kern type declaration."
+  },
+  "Kern Impl": {
+    "prefix": "kimpl",
+    "body": [
+      "impl ${1:Type} {",
+      "\t$0",
+      "}"
+    ],
+    "description": "Insert a Kern impl block."
+  },
+  "Kern Match": {
+    "prefix": "kmatch",
+    "body": [
+      "match (${1:value}) {",
+      "\t${2:pattern} => $0,",
+      "}"
+    ],
+    "description": "Insert a Kern match expression."
+  }
+}

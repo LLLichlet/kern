@@ -28,11 +28,13 @@
   "activationEvents": [
     "onLanguage:kern",
     "onCommand:kern.restartLanguageServer",
+    "onCommand:kern.showLanguageServerOutput",
     "workspaceContains:**/*.rn"
   ],
   "main": "./out/extension.js",
   "files": [
     "out/**/*",
+    "snippets/**/*",
     "syntaxes/**/*",
     "language-configuration.json",
     "README.md",
@@ -59,10 +61,20 @@
         "path": "./syntaxes/kern.tmLanguage.json"
       }
     ],
+    "snippets": [
+      {
+        "language": "kern",
+        "path": "./snippets/kern.json"
+      }
+    ],
     "commands": [
       {
         "command": "kern.restartLanguageServer",
         "title": "Kern: Restart Language Server"
+      },
+      {
+        "command": "kern.showLanguageServerOutput",
+        "title": "Kern: Show Language Server Output"
       }
     ],
     "configuration": {
@@ -85,6 +97,7 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "check": "tsc -p ./ --noEmit"

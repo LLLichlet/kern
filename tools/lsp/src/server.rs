@@ -1,9 +1,9 @@
 use crate::analysis::{AnalysisEngine, AnalysisOutcome, cleared_uris};
 use crate::protocol::{
     CodeActionParams, CompletionParams, DefinitionParams, DidChangeTextDocumentParams,
-    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DocumentSymbolParams, IncomingMessage,
-    ReferenceParams, RenameParams, SemanticTokensParams, error_response, initialize_result,
-    null_response, publish_diagnostics, success_response,
+    DidCloseTextDocumentParams, DidOpenTextDocumentParams, DidSaveTextDocumentParams,
+    DocumentSymbolParams, IncomingMessage, ReferenceParams, RenameParams, SemanticTokensParams,
+    error_response, initialize_result, null_response, publish_diagnostics, success_response,
 };
 use crate::transport::{MessageReader, MessageWriter};
 use serde_json::Value;
@@ -13,6 +13,7 @@ use std::io::{self, BufReader, BufWriter};
 
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_REQUEST: i64 = -32600;
+const SERVER_NOT_INITIALIZED: i64 = -32002;
 
 #[derive(Debug)]
 pub enum ServerError {
@@ -44,6 +45,7 @@ impl From<serde_json::Error> for ServerError {
 }
 
 struct ServerState {
+    initialized: bool,
     shutdown_requested: bool,
     analysis: AnalysisEngine,
     published_by_target: BTreeMap<String, BTreeSet<String>>,
@@ -52,6 +54,7 @@ struct ServerState {
 impl ServerState {
     fn new() -> Self {
         Self {
+            initialized: false,
             shutdown_requested: false,
             analysis: AnalysisEngine::default(),
             published_by_target: BTreeMap::new(),
@@ -100,14 +103,48 @@ fn handle_message(
         return Ok(false);
     };
 
+    if !state.initialized && requires_initialization(method) {
+        if let Some(id) = message.id {
+            writer.write_json(&error_response(
+                id,
+                SERVER_NOT_INITIALIZED,
+                format!("method `{method}` requires a completed initialize request"),
+            ))?;
+        }
+        return Ok(false);
+    }
+
+    if state.shutdown_requested && rejects_after_shutdown(method) {
+        if let Some(id) = message.id {
+            writer.write_json(&error_response(
+                id,
+                INVALID_REQUEST,
+                format!("method `{method}` is not allowed after shutdown"),
+            ))?;
+        }
+        return Ok(false);
+    }
+
     match method {
         "initialize" => {
+            if state.initialized {
+                let id = message.id.unwrap_or(Value::Null);
+                writer.write_json(&error_response(
+                    id,
+                    INVALID_REQUEST,
+                    "server is already initialized",
+                ))?;
+                return Ok(false);
+            }
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol("initialize must be sent as a request".to_string())
             })?;
+            state.initialized = true;
             writer.write_json(&success_response(id, initialize_result()))?;
         }
         "initialized" => {}
+        "$/setTrace" | "$/cancelRequest" => {}
+        "workspace/didChangeConfiguration" | "workspace/didChangeWatchedFiles" => {}
         "shutdown" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol("shutdown must be sent as a request".to_string())
@@ -140,6 +177,9 @@ fn handle_message(
             let target_uri = params.text_document.uri.clone();
             let outcome = state.analysis.close_document(params);
             publish_analysis_outcome(state, writer, &target_uri, outcome)?;
+        }
+        "textDocument/didSave" => {
+            let _ = required_params::<DidSaveTextDocumentParams>(message.params)?;
         }
         "textDocument/documentSymbol" => {
             let id = message.id.ok_or_else(|| {
@@ -391,4 +431,135 @@ fn context_allows_quickfix(only: &Option<Vec<String>>) -> bool {
 
     only.iter()
         .any(|kind| kind == "quickfix" || kind.starts_with("quickfix."))
+}
+
+fn requires_initialization(method: &str) -> bool {
+    !matches!(method, "initialize" | "initialized" | "exit")
+}
+
+fn rejects_after_shutdown(method: &str) -> bool {
+    !matches!(method, "exit" | "$/cancelRequest" | "$/setTrace")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::protocol::JSONRPC_VERSION;
+    use crate::transport::MessageReader;
+    use serde_json::json;
+    use std::io::Cursor;
+
+    #[test]
+    fn initialize_result_advertises_precise_capabilities() {
+        let result = initialize_result();
+
+        assert_eq!(result["positionEncoding"], "utf-16");
+        assert_eq!(
+            result["capabilities"]["completionProvider"]["resolveProvider"],
+            false
+        );
+        assert_eq!(
+            result["capabilities"]["codeActionProvider"]["codeActionKinds"],
+            json!(["quickfix"])
+        );
+        assert_eq!(
+            result["capabilities"]["semanticTokensProvider"]["range"],
+            false
+        );
+        assert_eq!(
+            result["capabilities"]["semanticTokensProvider"]["full"]["delta"],
+            false
+        );
+    }
+
+    #[test]
+    fn rejects_requests_before_initialize() {
+        let mut state = ServerState::new();
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        let should_exit = handle_message(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(1)),
+                method: Some("textDocument/hover".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": "file:///main.rn" },
+                    "position": { "line": 0, "character": 0 }
+                })),
+            },
+        )
+        .unwrap();
+
+        assert!(!should_exit);
+        let response = read_single_response(&output);
+        assert_eq!(response["id"], json!(1));
+        assert_eq!(response["error"]["code"], json!(SERVER_NOT_INITIALIZED));
+    }
+
+    #[test]
+    fn accepts_common_post_initialize_notifications() {
+        let mut state = ServerState::new();
+        state.initialized = true;
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        for method in [
+            "$/setTrace",
+            "$/cancelRequest",
+            "workspace/didChangeConfiguration",
+            "workspace/didChangeWatchedFiles",
+        ] {
+            let should_exit = handle_message(
+                &mut state,
+                &mut writer,
+                IncomingMessage {
+                    jsonrpc: JSONRPC_VERSION.to_string(),
+                    id: None,
+                    method: Some(method.to_string()),
+                    params: Some(json!({})),
+                },
+            )
+            .unwrap();
+
+            assert!(!should_exit);
+        }
+
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn rejects_requests_after_shutdown() {
+        let mut state = ServerState::new();
+        state.initialized = true;
+        state.shutdown_requested = true;
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        let should_exit = handle_message(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(7)),
+                method: Some("textDocument/documentSymbol".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": "file:///main.rn" }
+                })),
+            },
+        )
+        .unwrap();
+
+        assert!(!should_exit);
+        let response = read_single_response(&output);
+        assert_eq!(response["error"]["code"], json!(INVALID_REQUEST));
+    }
+
+    fn read_single_response(output: &[u8]) -> Value {
+        let mut reader = MessageReader::new(Cursor::new(output));
+        let payload = reader.read_message().unwrap().unwrap();
+        serde_json::from_slice(&payload).unwrap()
+    }
 }

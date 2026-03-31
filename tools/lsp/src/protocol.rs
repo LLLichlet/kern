@@ -79,6 +79,13 @@ pub struct DidCloseTextDocumentParams {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct DidSaveTextDocumentParams {
+    #[serde(rename = "textDocument")]
+    pub _text_document: TextDocumentIdentifier,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct TextDocumentIdentifier {
     pub uri: String,
 }
@@ -295,6 +302,7 @@ pub struct DocumentSymbol {
 
 pub fn initialize_result() -> Value {
     json!({
+        "positionEncoding": "utf-16",
         "capabilities": {
             "textDocumentSync": {
                 "openClose": true,
@@ -308,6 +316,7 @@ pub fn initialize_result() -> Value {
             "referencesProvider": true,
             "hoverProvider": true,
             "completionProvider": {
+                "resolveProvider": false,
                 "triggerCharacters": ["."]
             },
             "semanticTokensProvider": {
@@ -315,9 +324,15 @@ pub fn initialize_result() -> Value {
                     "tokenTypes": SEMANTIC_TOKEN_TYPES,
                     "tokenModifiers": SEMANTIC_TOKEN_MODIFIERS
                 },
-                "full": true
+                "range": false,
+                "full": {
+                    "delta": false
+                }
             },
-            "codeActionProvider": true,
+            "codeActionProvider": {
+                "codeActionKinds": ["quickfix"],
+                "resolveProvider": false
+            },
             "renameProvider": {
                 "prepareProvider": true
             }

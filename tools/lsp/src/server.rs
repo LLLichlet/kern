@@ -1229,6 +1229,95 @@ mod tests {
         );
     }
 
+    #[test]
+    fn document_symbol_request_returns_top_level_symbols() {
+        let mut state = initialized_state();
+        let source = concat!(
+            "type Point = struct { x: i32 };\n",
+            "fn helper(point: Point) i32 {\n",
+            "    return point.x;\n",
+            "}\n",
+        );
+        let uri = temp_file_uri("server_document_symbol", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(29)),
+                method: Some("textDocument/documentSymbol".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(29));
+        let symbols = response["result"].as_array().unwrap();
+        let names = symbols
+            .iter()
+            .map(|symbol| symbol["name"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert!(names.contains(&"Point"));
+        assert!(names.contains(&"helper"));
+    }
+
+    #[test]
+    fn completion_request_returns_visible_items() {
+        let mut state = initialized_state();
+        let source = "fn helper() i32 { return 1; }\nfn main() i32 {\n    hel\n}\n";
+        let uri = temp_file_uri("server_completion", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(30)),
+                method: Some("textDocument/completion".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 2, "character": 7 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(30));
+        let items = response["result"].as_array().unwrap();
+        assert!(items.iter().any(|item| item["label"] == json!("helper")));
+    }
+
+    #[test]
+    fn semantic_tokens_request_returns_encoded_token_data() {
+        let mut state = initialized_state();
+        let source = concat!(
+            "type Point = struct { x: i32 };\n",
+            "fn helper(point: Point) i32 {\n",
+            "    return point.x;\n",
+            "}\n",
+        );
+        let uri = temp_file_uri("server_semantic_tokens", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(31)),
+                method: Some("textDocument/semanticTokens/full".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(31));
+        let data = response["result"]["data"].as_array().unwrap();
+        assert!(!data.is_empty());
+        assert_eq!(data.len() % 5, 0);
+    }
+
     fn initialized_state() -> ServerState {
         let mut state = ServerState::new();
         state.initialized = true;

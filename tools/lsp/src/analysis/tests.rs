@@ -1056,6 +1056,35 @@ fn completion_in_function_body_includes_visible_symbols() {
 }
 
 #[test]
+fn completion_filters_and_sorts_items_by_typed_prefix() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() void {}\n",
+        "fn help() void {}\n",
+        "fn main() void {\n",
+        "    hel\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_prefix", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "hel", 0, 3))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert_eq!(labels, vec!["help".to_string(), "helper".to_string()]);
+}
+
+#[test]
 fn completion_in_method_body_includes_self() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

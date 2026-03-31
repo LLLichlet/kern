@@ -271,6 +271,23 @@ pub(super) fn is_valid_identifier(name: &str) -> bool {
     bytes.all(is_identifier_continue)
 }
 
+pub(super) fn completion_prefix(text: &str, offset: usize) -> &str {
+    let clamped = offset.min(text.len());
+    let bytes = text.as_bytes();
+
+    if bytes.get(clamped) == Some(&b'.') {
+        return "";
+    }
+
+    let mut start = clamped;
+
+    while start > 0 && is_identifier_continue(bytes[start - 1]) {
+        start -= 1;
+    }
+
+    &text[start..clamped]
+}
+
 fn is_identifier_start(byte: u8) -> bool {
     byte.is_ascii_alphabetic() || byte == b'_'
 }

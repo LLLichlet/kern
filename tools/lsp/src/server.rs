@@ -1349,6 +1349,7 @@ mod tests {
 
         assert_eq!(response["id"], json!(30));
         let items = response["result"].as_array().unwrap();
+        assert_eq!(items.len(), 1);
         let helper = items
             .iter()
             .find(|item| item["label"] == json!("helper"))

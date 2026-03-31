@@ -14,9 +14,10 @@ use self::navigation::{
     find_document_highlights, find_hover, find_reference_locations, find_rename_target,
 };
 use self::text::{
-    apply_content_change, byte_offset_to_position, file_path_to_uri, is_valid_identifier,
-    match_position_in_file, normalize_path, position_to_byte_offset, single_server_diagnostic,
-    span_contains_offset, span_to_range, trim_line_ending, uri_to_file_path,
+    apply_content_change, byte_offset_to_position, completion_prefix, file_path_to_uri,
+    is_valid_identifier, match_position_in_file, normalize_path, position_to_byte_offset,
+    single_server_diagnostic, span_contains_offset, span_to_range, trim_line_ending,
+    uri_to_file_path,
 };
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -260,9 +261,17 @@ impl AnalysisEngine {
         let Some(offset) = position_to_byte_offset(&file, &position) else {
             return Ok(Vec::new());
         };
+        let prefix = completion_prefix(&target_doc.text, offset);
 
-        Ok(artifact
-            .completion_items(&target_path, offset)
+        let mut items = artifact.completion_items(&target_path, offset);
+        if !prefix.is_empty() {
+            items.retain(|item| item.label.starts_with(prefix));
+        }
+        items.sort_by(|left, right| {
+            completion_sort_key(left, prefix).cmp(&completion_sort_key(right, prefix))
+        });
+
+        Ok(items
             .into_iter()
             .map(analysis_completion_to_lsp_item)
             .collect())
@@ -433,6 +442,18 @@ impl AnalysisEngine {
         let driver = CompilerDriver::new(options);
         Ok(driver.analyze_artifact(&input_file, &overrides))
     }
+}
+
+fn completion_sort_key(
+    item: &kernc_driver::AnalysisCompletionItem,
+    prefix: &str,
+) -> (u8, usize, String) {
+    let exact = (!prefix.is_empty() && item.label == prefix) as u8;
+    (
+        1_u8.saturating_sub(exact),
+        item.label.len(),
+        item.label.to_ascii_lowercase(),
+    )
 }
 
 pub fn cleared_uris(previous: &BTreeSet<String>, current: &[DiagnosticBundle]) -> Vec<String> {

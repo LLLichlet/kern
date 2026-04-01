@@ -25,11 +25,28 @@ use crate::protocol::{
     PrepareRenameResult, Range, SemanticTokens, SignatureHelp, TextDocumentContentChangeEvent,
     WorkspaceEdit,
 };
+use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{AnalysisArtifact, CompilerDriver, SourceOverrides};
-use kernc_utils::config::CompileOptions;
+use kernc_utils::config::{
+    CompileOptions, inject_driver_condition_defines, maybe_inject_std_alias,
+};
 use kernc_utils::{Session, Span};
+use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone)]
+pub struct AnalysisSettings {
+    pub compile_options: CompileOptions,
+}
+
+impl Default for AnalysisSettings {
+    fn default() -> Self {
+        let mut compile_options = CompileOptions::default();
+        compile_options.use_std = true;
+        Self { compile_options }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct OpenDocument {
@@ -55,12 +72,27 @@ struct RenameTarget {
     placeholder: String,
 }
 
-#[derive(Default)]
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
+    settings: AnalysisSettings,
+    project_cache: RefCell<BTreeMap<PathBuf, Option<AnalysisProject>>>,
+}
+
+impl Default for AnalysisEngine {
+    fn default() -> Self {
+        Self::new(AnalysisSettings::default())
+    }
 }
 
 impl AnalysisEngine {
+    pub fn new(settings: AnalysisSettings) -> Self {
+        Self {
+            documents: BTreeMap::new(),
+            settings,
+            project_cache: RefCell::new(BTreeMap::new()),
+        }
+    }
+
     pub fn open_document(&mut self, params: DidOpenTextDocumentParams) -> AnalysisOutcome {
         let doc = params.text_document;
         let uri = doc.uri.clone();
@@ -109,6 +141,18 @@ impl AnalysisEngine {
                 diagnostics: Vec::new(),
             }],
         }
+    }
+
+    pub fn refresh_workspace(&mut self) -> Vec<(String, AnalysisOutcome)> {
+        self.project_cache.get_mut().clear();
+        self.documents
+            .keys()
+            .cloned()
+            .map(|uri| {
+                let outcome = self.analyze_document(&uri);
+                (uri, outcome)
+            })
+            .collect()
     }
 
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
@@ -440,17 +484,50 @@ impl AnalysisEngine {
     }
 
     fn analyze_artifact(&self, target_uri: &str) -> Result<AnalysisArtifact, String> {
+        let resolved = self.resolve_analysis(target_uri)?;
+        let overrides = self.source_overrides();
+        let driver = CompilerDriver::new(resolved.compile_options);
+        Ok(driver.analyze_artifact(&resolved.input_file.to_string_lossy(), &overrides))
+    }
+
+    fn resolve_analysis(&self, target_uri: &str) -> Result<ResolvedAnalysis, String> {
         let Some(target_doc) = self.documents.get(target_uri) else {
             return Err("document is not open".to_string());
         };
 
-        let mut options = CompileOptions::default();
-        options.use_std = true;
+        if let Some(project) = self.project_for_path(&target_doc.path) {
+            let mut resolved =
+                project.resolve_for_file(&target_doc.path, &self.settings.compile_options);
+            inject_driver_condition_defines(&mut resolved.compile_options);
+            return Ok(resolved);
+        }
 
-        let input_file = target_doc.path.to_string_lossy().into_owned();
-        let overrides = self.source_overrides();
-        let driver = CompilerDriver::new(options);
-        Ok(driver.analyze_artifact(&input_file, &overrides))
+        let mut compile_options = self.settings.compile_options.clone();
+        maybe_inject_std_alias(&mut compile_options);
+        inject_driver_condition_defines(&mut compile_options);
+        Ok(ResolvedAnalysis {
+            input_file: target_doc.path.clone(),
+            compile_options,
+        })
+    }
+
+    fn project_for_path(&self, path: &Path) -> Option<AnalysisProject> {
+        let start = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or_else(|| Path::new("."))
+        };
+        let manifest_path = resolve_project_manifest_path(Some(start)).ok()?;
+
+        if let Some(project) = self.project_cache.borrow().get(&manifest_path) {
+            return project.clone();
+        }
+
+        let project = AnalysisProject::load_from_manifest(&manifest_path).ok();
+        self.project_cache
+            .borrow_mut()
+            .insert(manifest_path, project.clone());
+        project
     }
 }
 

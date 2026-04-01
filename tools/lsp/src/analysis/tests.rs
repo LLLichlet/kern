@@ -1292,6 +1292,87 @@ fn completion_on_generic_bound_receiver_includes_trait_methods() {
     assert!(labels.contains(&"len".to_string()));
 }
 
+#[test]
+fn resolve_analysis_uses_workspace_package_root_and_local_aliases() {
+    let root = unique_temp_dir("analysis_workspace");
+    let app_dir = root.join("app");
+    let util_dir = root.join("util");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::create_dir_all(util_dir.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        "[workspace]\nmembers = [\"app\", \"util\"]\n",
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"0.7\"
+
+[lib]
+root = \"src/lib.rn\"
+
+[dependencies]
+util = { path = \"../util\" }
+",
+    )
+    .unwrap();
+    fs::write(app_dir.join("src/lib.rn"), "mod sub;\n").unwrap();
+    fs::write(app_dir.join("src/sub.rn"), "fn local() i32 { return 1; }\n").unwrap();
+    fs::write(
+        util_dir.join("Craft.toml"),
+        "\
+[package]
+name = \"util\"
+version = \"0.1.0\"
+kern = \"0.7\"
+
+[lib]
+root = \"src/lib.rn\"
+",
+    )
+    .unwrap();
+    fs::write(
+        util_dir.join("src/lib.rn"),
+        "fn helper() i32 { return 1; }\n",
+    )
+    .unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&app_dir.join("src/sub.rn")).unwrap();
+    let source = fs::read_to_string(app_dir.join("src/sub.rn")).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
+
+    assert_eq!(resolved.input_file, app_dir.join("src/lib.rn"));
+    assert_eq!(
+        resolved.compile_options.root_module_name,
+        Some("app".to_string())
+    );
+    assert_eq!(
+        resolved
+            .compile_options
+            .module_aliases
+            .get("util")
+            .map(PathBuf::from),
+        Some(util_dir.join("src/lib.rn"))
+    );
+    assert!(resolved.compile_options.module_aliases.contains_key("std"));
+}
+
 fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
     let path = unique_temp_file_path(prefix);
     if let Some(parent) = path.parent() {
@@ -1299,6 +1380,12 @@ fn temp_file_uri(prefix: &str, initial_text: &str) -> String {
     }
     fs::write(&path, initial_text).unwrap();
     file_path_to_uri(&path).unwrap()
+}
+
+fn unique_temp_dir(prefix: &str) -> PathBuf {
+    let path = unique_temp_file_path(prefix);
+    fs::create_dir_all(&path).unwrap();
+    path
 }
 
 fn unique_temp_file_path(prefix: &str) -> PathBuf {

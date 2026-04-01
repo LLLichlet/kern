@@ -1,20 +1,5 @@
-mod build_plan;
-mod cli;
-mod discover;
-mod elaborate;
-mod error;
-mod execute;
-mod graph;
-mod lockfile;
-mod manifest;
-mod plan;
-mod resolver;
-mod script;
-mod source;
-mod workspace;
-
 fn main() {
-    if let Err(err) = cli::run() {
+    if let Err(err) = craft::cli::run() {
         eprintln!("error: {err}");
         std::process::exit(1);
     }

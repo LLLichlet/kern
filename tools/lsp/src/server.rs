@@ -55,23 +55,28 @@ struct ServerState {
 }
 
 impl ServerState {
+    #[cfg(test)]
     fn new() -> Self {
+        Self::with_analysis(AnalysisEngine::default())
+    }
+
+    fn with_analysis(analysis: AnalysisEngine) -> Self {
         Self {
             initialized: false,
             shutdown_requested: false,
             trace: TraceValue::Off,
-            analysis: AnalysisEngine::default(),
+            analysis,
             published_by_target: BTreeMap::new(),
         }
     }
 }
 
-pub fn run() -> Result<(), ServerError> {
+pub fn run_with_analysis(analysis: AnalysisEngine) -> Result<(), ServerError> {
     let stdin = io::stdin();
     let stdout = io::stdout();
     let mut reader = MessageReader::new(BufReader::new(stdin.lock()));
     let mut writer = MessageWriter::new(BufWriter::new(stdout.lock()));
-    let mut state = ServerState::new();
+    let mut state = ServerState::with_analysis(analysis);
 
     while let Some(payload) = reader.read_message()? {
         let message = serde_json::from_slice::<IncomingMessage>(&payload)?;
@@ -167,7 +172,12 @@ fn handle_message(
             )?;
         }
         "$/cancelRequest" => {}
-        "workspace/didChangeConfiguration" | "workspace/didChangeWatchedFiles" => {}
+        "workspace/didChangeConfiguration" => {
+            refresh_workspace(state, writer, "workspace configuration changed")?;
+        }
+        "workspace/didChangeWatchedFiles" => {
+            refresh_workspace(state, writer, "workspace files changed")?;
+        }
         "shutdown" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol("shutdown must be sent as a request".to_string())
@@ -478,6 +488,17 @@ fn publish_analysis_outcome(
         .insert(target_uri.to_string(), current);
 
     Ok(())
+}
+
+fn refresh_workspace(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    reason: &str,
+) -> Result<(), ServerError> {
+    for (target_uri, outcome) in state.analysis.refresh_workspace() {
+        publish_analysis_outcome(state, writer, &target_uri, outcome)?;
+    }
+    emit_trace(state, writer, reason, None, true)
 }
 
 fn required_params<T>(params: Option<Value>) -> Result<T, ServerError>

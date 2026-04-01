@@ -55,8 +55,8 @@ plus a small set of compiler-guided semantic repairs.
 Current limitations:
 
 - only `file://` URIs are supported
-- the temporary analysis policy currently enables `--use-std` by default to
-  match common Kern project editing flows
+- analysis defaults to `--use-std`, but this can now be overridden at server
+  startup with `--no-use-std`, `-M name=path`, and `-I name=path`
 - semantic tokens do not yet cover every semantic reference class
 - code actions are intentionally limited to safe, local edits
 - formatting and workspace-wide indexing are not implemented yet
@@ -107,6 +107,12 @@ cargo run -p kern-lsp
 
 The common integration path is a manual LSP client configuration that launches
 the compiled `kern-lsp` binary over stdio.
+
+Useful analysis overrides:
+
+```bash
+kern-lsp --no-use-std -M std=./library/std
+```
 
 As of the `0.6.4` release cycle, the repository also carries a first-party
 preview VS Code extension under `editors/vscode/` that launches `kern-lsp`

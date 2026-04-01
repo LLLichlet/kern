@@ -1,7 +1,6 @@
 use crate::error::{Error, Result};
 use crate::manifest::{DependencySpec, DetailedDependency, Manifest};
 use crate::plan::PackagePlan;
-#[cfg(test)]
 use crate::workspace::WorkspaceMember;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -69,7 +68,6 @@ pub struct ExternalDependency {
     pub version: Option<String>,
 }
 
-#[cfg(test)]
 pub fn build_graph(
     manifest_path: &Path,
     manifest: &Manifest,
@@ -363,8 +361,7 @@ fn dependency_target(
     }
 }
 
-#[cfg(test)]
-fn local_package_id_from_manifest(
+pub(crate) fn local_package_id_from_manifest(
     manifest_path: &Path,
     manifest: &Manifest,
     source: SourceId,

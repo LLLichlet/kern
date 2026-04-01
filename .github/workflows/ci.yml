@@ -51,11 +51,22 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
       - name: Cache Cargo Artifacts
         uses: Swatinem/rust-cache@v2
 
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
+
+      - name: Install VS Code Extension Dependencies
+        working-directory: editors/vscode
+        run: npm ci
 
       - name: Run kernc Integration Tests (Unix)
         if: runner.os != 'Windows'
@@ -66,11 +77,61 @@ jobs:
         shell: powershell
         run: .\scripts\run_kernc_cli_tests.ps1 -Mode ${{ matrix.test_mode }}
 
-      - name: Build craft (Unix)
+      - name: Test craft (Unix)
         if: runner.os != 'Windows'
-        run: cargo build -p craft
+        run: cargo test -p craft
 
-      - name: Build craft (Windows)
+      - name: Test craft (Windows)
         if: runner.os == 'Windows'
         shell: powershell
-        run: cargo build -p craft
+        run: cargo test -p craft
+
+      - name: Check craft Release Source Policy (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/run_craft_policy_checks.sh
+
+      - name: Check craft Release Source Policy (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\run_craft_policy_checks.ps1
+
+      - name: Test kern-lsp (Unix)
+        if: runner.os != 'Windows'
+        run: cargo test -p kern-lsp
+
+      - name: Test kern-lsp (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: cargo test -p kern-lsp
+
+      - name: Check VS Code Extension
+        working-directory: editors/vscode
+        run: |
+          npm run check
+          npm run test
+
+      - name: Package VS Code Extension Smoke Artifact
+        if: runner.os == 'Linux'
+        working-directory: editors/vscode
+        run: |
+          cargo build --release -p kern-lsp
+          npm run package:vsix -- --target linux-x64 --server-source ../../target/release/kern-lsp
+          python - <<'PY'
+          import sys
+          import zipfile
+
+          package_path = "kern-vscode-0.6.4-linux-x64.vsix"
+          with zipfile.ZipFile(package_path) as archive:
+              names = set(archive.namelist())
+              required = {
+                  "extension/extension.js",
+                  "extension/out/extension.js",
+                  "extension/server/linux-x64/kern-lsp",
+              }
+              missing = sorted(required - names)
+              if missing:
+                  raise SystemExit(f"missing VSIX entries: {missing}")
+              leaked = sorted(name for name in names if "node_modules/" in name)
+              if leaked:
+                  raise SystemExit(f"unexpected node_modules in VSIX: {leaked[:10]}")
+          PY

@@ -31,21 +31,25 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-linux-gnu
             rust_target: x86_64-unknown-linux-gnu
+            vsce_target: linux-x64
             artifact_ext: tar.gz
             test_mode: all
           - os: windows-latest
             target: x86_64-windows-msvc
             rust_target: x86_64-pc-windows-msvc
+            vsce_target: win32-x64
             artifact_ext: zip
             test_mode: smoke
           - os: macos-15-intel
             target: x86_64-apple-darwin
             rust_target: x86_64-apple-darwin
+            vsce_target: darwin-x64
             artifact_ext: tar.gz
             test_mode: all
           - os: macos-14
             target: aarch64-apple-darwin
             rust_target: aarch64-apple-darwin
+            vsce_target: darwin-arm64
             artifact_ext: tar.gz
             test_mode: all
 
@@ -64,8 +68,19 @@ jobs:
       - name: Cache Cargo Artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: editors/vscode/package-lock.json
+
       - name: Setup LLVM
         uses: ./.github/actions/setup-llvm
+
+      - name: Install VS Code Extension Dependencies
+        working-directory: editors/vscode
+        run: npm ci
 
       - name: Resolve Release Version (Unix)
         if: runner.os != 'Windows'
@@ -96,6 +111,15 @@ jobs:
         shell: powershell
         run: .\scripts\run_kernc_cli_tests.ps1 -Mode ${{ matrix.test_mode }}
 
+      - name: Check craft Release Source Policy (Unix)
+        if: runner.os != 'Windows'
+        run: bash ./scripts/run_craft_policy_checks.sh
+
+      - name: Check craft Release Source Policy (Windows)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: .\scripts\run_craft_policy_checks.ps1
+
       - name: Package Toolchain (Unix)
         if: matrix.os != 'windows-latest'
         run: |
@@ -122,6 +146,30 @@ jobs:
         with:
           name: ${{ env.ARTIFACT_FILE }}
           path: ${{ env.ARTIFACT_FILE }}
+          if-no-files-found: error
+
+      - name: Package VS Code Extension (Unix)
+        if: runner.os != 'Windows'
+        working-directory: editors/vscode
+        run: |
+          VERSION=${KERN_RELEASE_VERSION#v}
+          npm run package:vsix -- --target ${{ matrix.vsce_target }} --server-source ../../target/release/kern-lsp --out kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix
+          echo "VSCODE_ARTIFACT=kern-vscode-${VERSION}-${{ matrix.vsce_target }}.vsix" >> $GITHUB_ENV
+
+      - name: Package VS Code Extension (Windows)
+        if: runner.os == 'Windows'
+        working-directory: editors/vscode
+        shell: powershell
+        run: |
+          $VERSION = $env:KERN_RELEASE_VERSION.TrimStart('v')
+          npm run package:vsix -- --target ${{ matrix.vsce_target }} --server-source ..\..\target\release\kern-lsp.exe --out kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix
+          echo "VSCODE_ARTIFACT=kern-vscode-$VERSION-${{ matrix.vsce_target }}.vsix" >> $env:GITHUB_ENV
+
+      - name: Upload VS Code Extension Artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: ${{ env.VSCODE_ARTIFACT }}
+          path: editors/vscode/${{ env.VSCODE_ARTIFACT }}
           if-no-files-found: error
 
   publish-release:

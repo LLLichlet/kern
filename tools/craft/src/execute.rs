@@ -9,7 +9,9 @@ use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph}
 use crate::source;
 use crate::workspace;
 use kernc_driver::{CompilerDriver, KMETA_MANIFEST_FILE, load_kmeta_manifest};
-use kernc_utils::config::{CompileOptions, DriverMode, LinkProfile};
+use kernc_utils::config::{
+    CompileOptions, DriverMode, LinkProfile, inject_driver_condition_defines, resolve_std_path,
+};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -48,9 +50,10 @@ struct BuiltStdPackage {
     link_objects: Vec<PathBuf>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug)]
 struct LoadedExternalPackage {
     workspace_root: PathBuf,
+    source_config: SourceConfigContext,
     action_plan: ActionPlan,
     compile_action_index: BTreeMap<ActionKey, CompileAction>,
     local_library_actions: BTreeMap<PackageInstanceKey, CompileAction>,
@@ -59,8 +62,13 @@ struct LoadedExternalPackage {
 
 #[derive(Debug)]
 struct SourceConfigContext {
+    scopes: Vec<SourceConfigScope>,
+}
+
+#[derive(Debug, Clone)]
+struct SourceConfigScope {
     manifest_path: PathBuf,
-    manifest: Manifest,
+    sources: BTreeMap<String, crate::manifest::SourceConfig>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -291,10 +299,38 @@ fn load_source_config(build_plan: &BuildPlan) -> Result<SourceConfigContext> {
     let manifest_path = build_plan.workspace_root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
-    Ok(SourceConfigContext {
-        manifest_path,
-        manifest,
-    })
+    Ok(source_config_context(manifest_path, manifest))
+}
+
+fn source_config_context(manifest_path: PathBuf, manifest: Manifest) -> SourceConfigContext {
+    SourceConfigContext {
+        scopes: vec![SourceConfigScope {
+            manifest_path,
+            sources: manifest.sources.clone(),
+        }],
+    }
+}
+
+impl SourceConfigContext {
+    fn with_child(&self, manifest_path: PathBuf, manifest: &Manifest) -> Self {
+        let mut scopes = Vec::with_capacity(self.scopes.len() + 1);
+        scopes.push(SourceConfigScope {
+            manifest_path,
+            sources: manifest.sources.clone(),
+        });
+        scopes.extend(self.scopes.iter().cloned());
+        Self { scopes }
+    }
+
+    fn lookup_chain(&self) -> Vec<source::SourceLookup<'_>> {
+        self.scopes
+            .iter()
+            .map(|scope| source::SourceLookup {
+                manifest_path: &scope.manifest_path,
+                sources: &scope.sources,
+            })
+            .collect()
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -822,6 +858,7 @@ fn load_external_package_actions(
 
     Ok(LoadedExternalPackage {
         workspace_root: fetched.cache_path,
+        source_config: source_config.with_child(manifest_path, &manifest),
         action_plan,
         compile_action_index,
         local_library_actions,
@@ -864,7 +901,7 @@ fn build_external_package(
         required_external_dependencies(root_library_action, &loaded.local_library_actions);
     for child in required_external_dependencies {
         build_external_package(
-            source_config,
+            &loaded.source_config,
             &loaded.workspace_root,
             &child,
             command,
@@ -889,7 +926,7 @@ fn build_external_package(
         &loaded.compile_action_index,
         &loaded.local_library_actions,
         &loaded.link_action_index,
-        source_config,
+        &loaded.source_config,
         &loaded.workspace_root,
         command,
         std_workspace_root,
@@ -946,11 +983,8 @@ fn fetch_external_package(
         packages: Vec::new(),
         external_packages: vec![ResolvedExternalPackage { id: dep.clone() }],
     };
-    let mut fetched = source::fetch_external_packages(
-        &source_config.manifest_path,
-        &source_config.manifest,
-        &resolved,
-    )?;
+    let lookup_chain = source_config.lookup_chain();
+    let mut fetched = source::fetch_external_packages_with_lookup(&lookup_chain, &resolved)?;
     fetched.pop().ok_or_else(|| {
         Error::Execution(format!(
             "failed to fetch external package `{}`",
@@ -1022,7 +1056,7 @@ fn ensure_external_tool_built(
     };
     for child in required_external_dependencies {
         build_external_package(
-            source_config,
+            &loaded.source_config,
             &loaded.workspace_root,
             &child,
             command,
@@ -1045,7 +1079,7 @@ fn ensure_external_tool_built(
         &loaded.compile_action_index,
         &loaded.local_library_actions,
         &loaded.link_action_index,
-        source_config,
+        &loaded.source_config,
         &loaded.workspace_root,
         command,
         std_workspace_root,
@@ -1064,7 +1098,7 @@ fn ensure_external_tool_built(
         &loaded.compile_action_index,
         &loaded.local_library_actions,
         &loaded.link_action_index,
-        source_config,
+        &loaded.source_config,
         &loaded.workspace_root,
         command,
         std_workspace_root,
@@ -1594,43 +1628,6 @@ fn apply_host_linker_env(options: &mut CompileOptions) {
     }
 }
 
-fn inject_driver_condition_defines(options: &mut CompileOptions) {
-    let link_profile = match options.link_profile {
-        LinkProfile::Kern => "kern",
-        LinkProfile::Freestanding => "freestanding",
-        LinkProfile::Hosted => "hosted",
-        LinkProfile::None => "none",
-    };
-
-    let hosted = matches!(options.link_profile, LinkProfile::Hosted);
-    let kern_rt = options.use_std && !hosted;
-
-    options
-        .custom_defines
-        .insert("link_profile".to_string(), link_profile.to_string());
-    options
-        .custom_defines
-        .insert("hosted".to_string(), hosted.to_string());
-    options
-        .custom_defines
-        .insert("libc".to_string(), hosted.to_string());
-    options
-        .custom_defines
-        .insert("kern_rt".to_string(), kern_rt.to_string());
-}
-
-fn resolve_std_path() -> PathBuf {
-    if let Ok(custom_std) = std::env::var("KERN_STD_PATH") {
-        return PathBuf::from(custom_std);
-    }
-
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .unwrap()
-        .join("library/std")
-}
-
 #[cfg(test)]
 mod tests {
     use super::{build, run, test, validate_package_metadata_root};
@@ -2106,6 +2103,127 @@ root = "src/lib.rn"
 
 [dependencies]
 corelog = "1"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            log_root.join("src/lib.rn"),
+            r#"
+pub fn answer() i32 {
+    return corelog.base() + 1;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            corelog_root.join("Craft.toml"),
+            r#"
+[package]
+name = "corelog"
+version = "1"
+kern = "0.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            corelog_root.join("src/lib.rn"),
+            r#"
+pub fn base() i32 {
+    return 41;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Run,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Run).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+        let unit = build_plan.packages[0]
+            .units
+            .iter()
+            .find(|unit| unit.target_kind == crate::plan::TargetKind::Bin)
+            .unwrap();
+
+        let summary = run(&build_plan, &action_plan, unit).unwrap();
+        assert!(summary.executable.is_file());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn builds_and_runs_external_package_with_package_local_registry_source() {
+        let root = temp_dir("craft-exec-external-package-local-source");
+        let registry_root = root.join("vendor-registry");
+        let log_root = registry_root.join("log").join("1");
+        let nested_registry_root = log_root.join("vendor-nested");
+        let corelog_root = nested_registry_root.join("corelog").join("1");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(log_root.join("src")).unwrap();
+        fs::create_dir_all(corelog_root.join("src")).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+log = "1"
+
+[source.default]
+directory = "vendor-registry"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.rn"),
+            r#"
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    if (log.answer() == 42) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            log_root.join("Craft.toml"),
+            r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.7"
+
+[lib]
+root = "src/lib.rn"
+
+[dependencies]
+corelog = { version = "1", registry = "nested" }
+
+[source.nested]
+directory = "vendor-nested"
 "#,
         )
         .unwrap();

@@ -1,0 +1,11 @@
+[package]
+name = "blocked"
+version = "0.1.0"
+kern = "0.7"
+
+[lib]
+root = "src/lib.rn"
+
+[source.default]
+git = "http://example.com/registry.git"
+branch = "main"

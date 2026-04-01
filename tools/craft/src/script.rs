@@ -118,6 +118,22 @@ pub struct ScriptProfile {
     pub debug: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ProfileSelection {
+    #[default]
+    Dev,
+    Release,
+}
+
+impl ProfileSelection {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Dev => "dev",
+            Self::Release => "release",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScriptCommand {
     Check,
@@ -153,15 +169,28 @@ pub fn host_target() -> ScriptTarget {
     }
 }
 
-pub fn manifest_profile(manifest: &Manifest) -> ScriptProfile {
-    let dev = manifest
+pub fn manifest_profile(manifest: &Manifest, selection: ProfileSelection) -> ScriptProfile {
+    let profile = manifest
         .profile
         .as_ref()
-        .and_then(|profiles| profiles.dev.as_ref());
+        .and_then(|profiles| match selection {
+            ProfileSelection::Dev => profiles.dev.as_ref(),
+            ProfileSelection::Release => profiles.release.as_ref(),
+        });
+
+    let (default_opt, default_debug) = match selection {
+        ProfileSelection::Dev => (0, true),
+        ProfileSelection::Release => (3, false),
+    };
+
     ScriptProfile {
-        name: "dev".to_string(),
-        opt: dev.and_then(|profile| profile.opt).unwrap_or(0),
-        debug: dev.and_then(|profile| profile.debug).unwrap_or(true),
+        name: selection.name().to_string(),
+        opt: profile
+            .and_then(|profile| profile.opt)
+            .unwrap_or(default_opt),
+        debug: profile
+            .and_then(|profile| profile.debug)
+            .unwrap_or(default_debug),
     }
 }
 

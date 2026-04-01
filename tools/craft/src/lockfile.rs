@@ -1,8 +1,10 @@
 use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
+use crate::manifest::Manifest;
 use crate::plan::TargetKind;
 use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
+use crate::source;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -52,6 +54,8 @@ pub struct LockedExternalPackage {
     pub source_kind: String,
     pub source_value: Option<String>,
     pub version: Option<String>,
+    pub source_locator: Option<String>,
+    pub source_selector: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -152,6 +156,8 @@ impl Lockfile {
         let root = &resolved.workspace_root;
         let manifest = relative_display(root, manifest_path);
         let manifest_digest = digest_file(manifest_path)?;
+        let root_manifest = Manifest::load(manifest_path)?;
+        root_manifest.validate(manifest_path)?;
 
         let mut packages = Vec::new();
         let mut package_targets = Vec::new();
@@ -229,6 +235,8 @@ impl Lockfile {
                 source_kind: source_kind(&package.id.source).to_string(),
                 source_value: source_value(&package.id.source),
                 version: package.id.version.clone(),
+                source_locator: source_locator(&root_manifest, &package.id.source),
+                source_selector: source_selector(&root_manifest, &package.id.source),
             });
         }
 
@@ -309,6 +317,8 @@ impl Lockfile {
                             source_kind: String::new(),
                             source_value: None,
                             version: None,
+                            source_locator: None,
+                            source_selector: None,
                         });
                         Section::ExternalPackage(lockfile.external_packages.len() - 1)
                     }
@@ -553,6 +563,12 @@ impl Lockfile {
                     message: format!("duplicate external package id `{}`", package.id),
                 });
             }
+            if let Some(locator) = &package.source_locator {
+                validate_non_empty(path, "[[external-package]].source-locator", locator)?;
+            }
+            if let Some(selector) = &package.source_selector {
+                validate_non_empty(path, "[[external-package]].source-selector", selector)?;
+            }
         }
 
         for dependency in &self.dependencies {
@@ -667,6 +683,12 @@ impl Lockfile {
             if let Some(version) = &package.version {
                 push_string_line(&mut out, "version", version);
             }
+            if let Some(locator) = &package.source_locator {
+                push_string_line(&mut out, "source-locator", locator);
+            }
+            if let Some(selector) = &package.source_selector {
+                push_string_line(&mut out, "source-selector", selector);
+            }
         }
 
         for input in &self.package_env {
@@ -736,6 +758,8 @@ fn assign_key_value(
                 "source" => package.source_kind = parse_string(raw_value)?,
                 "source-value" => package.source_value = Some(parse_string(raw_value)?),
                 "version" => package.version = Some(parse_string(raw_value)?),
+                "source-locator" => package.source_locator = Some(parse_string(raw_value)?),
+                "source-selector" => package.source_selector = Some(parse_string(raw_value)?),
                 _ => return Err(format!("unsupported [[external-package]] key `{key}`")),
             }
         }
@@ -852,6 +876,26 @@ fn source_value(source: &SourceId) -> Option<String> {
         SourceId::PathDependency { path } => Some(path.clone()),
         SourceId::Registry { name } => name.clone(),
     }
+}
+
+fn source_locator(manifest: &Manifest, source: &SourceId) -> Option<String> {
+    let SourceId::Registry { name } = source else {
+        return None;
+    };
+    manifest
+        .sources
+        .get(name.as_deref().unwrap_or("default"))
+        .and_then(source::source_locator)
+}
+
+fn source_selector(manifest: &Manifest, source: &SourceId) -> Option<String> {
+    let SourceId::Registry { name } = source else {
+        return None;
+    };
+    manifest
+        .sources
+        .get(name.as_deref().unwrap_or("default"))
+        .and_then(source::source_selector)
 }
 
 fn relative_display(root: &Path, path: &Path) -> String {
@@ -1163,6 +1207,10 @@ members = ["app", "util"]
 
 [workspace.dependencies]
 shared = "2"
+
+[source.default]
+git = "https://example.com/shared.git"
+branch = "stable"
 "#,
         )
         .unwrap();
@@ -1262,6 +1310,8 @@ kern = "0.7"
         assert!(rendered.contains("name = \"shared\""));
         assert!(rendered.contains("target = \"external\""));
         assert!(rendered.contains("id = \"shared 2 registry\""));
+        assert!(rendered.contains("source-locator = \"https://example.com/shared.git\""));
+        assert!(rendered.contains("source-selector = \"branch:stable\""));
         assert!(rendered.contains("manifest-digest = \"fnv1a64:"));
 
         unsafe { std::env::remove_var(&env_name) };
@@ -1434,6 +1484,95 @@ kern = "0.7"
         .unwrap();
         let (_, updated) = sync_lockfile(&manifest_path, &elaboration).unwrap();
         assert_eq!(updated, LockWriteResult::Updated);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn lockfile_status_tracks_registry_source_identity_changes() {
+        let root = temp_dir("craft-lockfile-source-identity");
+        let app_dir = root.join("app");
+        fs::create_dir_all(&app_dir).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+
+[workspace.dependencies]
+shared = "2"
+
+[source.default]
+git = "https://example.com/shared.git"
+branch = "stable"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[dependencies]
+shared = { workspace = true }
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let root_manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &root_manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let _ = sync_lockfile(&manifest_path, &elaboration).unwrap();
+        assert_eq!(
+            lock_status(&manifest_path, &elaboration).unwrap(),
+            LockStatus::Current
+        );
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+
+[workspace.dependencies]
+shared = "2"
+
+[source.default]
+git = "https://example.com/shared.git"
+rev = "abc123"
+"#,
+        )
+        .unwrap();
+
+        let root_manifest = Manifest::load(&manifest_path).unwrap();
+        let members = load_members(&manifest_path, &root_manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &root_manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Lock,
+            &crate::elaborate::FeatureSelection::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            lock_status(&manifest_path, &elaboration).unwrap(),
+            LockStatus::Stale
+        );
 
         let _ = fs::remove_dir_all(root);
     }

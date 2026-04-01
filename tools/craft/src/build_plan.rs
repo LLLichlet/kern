@@ -566,6 +566,7 @@ pub fn derive(
         &host_target,
         &workspace_manifest_path,
         &workspace_manifest,
+        elaboration.profile_selection,
     )?;
     for package in &mut packages {
         let package_root = package
@@ -921,6 +922,7 @@ fn build_external_tool_index(
     host: &script::ScriptTarget,
     manifest_path: &Path,
     manifest: &Manifest,
+    profile_selection: script::ProfileSelection,
 ) -> Result<BTreeMap<ExternalPackageId, Vec<script::BuildScriptTool>>> {
     let external_packages = packages
         .iter()
@@ -956,7 +958,7 @@ fn build_external_tool_index(
         };
         let plan =
             PackagePlan::from_manifest(&external_manifest_path, &package_id, &external_manifest)?;
-        let profile = script::manifest_profile(&external_manifest);
+        let profile = script::manifest_profile(&external_manifest, profile_selection);
         let mut tools = Vec::new();
         for target_plan in plan
             .targets

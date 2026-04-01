@@ -41,6 +41,7 @@ pub struct PackageElaboration {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElaborationPlan {
     pub has_workspace: bool,
+    pub profile_selection: script::ProfileSelection,
     pub resolved_graph: ResolvedGraph,
     pub workspace_script: Option<ScriptInput>,
     pub packages: Vec<PackageElaboration>,
@@ -50,6 +51,7 @@ pub struct ElaborationPlan {
 pub struct FeatureSelection {
     pub enable_default: bool,
     pub explicit: BTreeSet<String>,
+    pub profile: script::ProfileSelection,
 }
 
 impl Default for FeatureSelection {
@@ -57,6 +59,7 @@ impl Default for FeatureSelection {
         Self {
             enable_default: true,
             explicit: BTreeSet::new(),
+            profile: script::ProfileSelection::Dev,
         }
     }
 }
@@ -129,7 +132,7 @@ pub fn plan(
             command,
             &host,
             &target,
-            &script::manifest_profile(manifest),
+            &script::manifest_profile(manifest, feature_selection.profile),
             features,
             declared_env_map(manifest_path, manifest.craft_env_names())?,
         );
@@ -186,7 +189,7 @@ pub fn plan(
             command,
             &host,
             &target,
-            &script::manifest_profile(&member.manifest),
+            &script::manifest_profile(&member.manifest, feature_selection.profile),
             features,
             declared_env_map(&member.manifest_path, member.manifest.craft_env_names())?,
         );
@@ -228,6 +231,7 @@ pub fn plan(
 
     Ok(ElaborationPlan {
         has_workspace,
+        profile_selection: feature_selection.profile,
         resolved_graph,
         workspace_script,
         packages,

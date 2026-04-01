@@ -1,0 +1,15 @@
+[package]
+name = "allowed-exception"
+version = "0.1.0"
+kern = "0.7"
+
+[craft]
+release-source-policy = "enforce"
+allow-floating-git = ["default"]
+
+[lib]
+root = "src/lib.rn"
+
+[source.default]
+git = "https://example.com/registry.git"
+branch = "main"

@@ -153,6 +153,54 @@ pub fn run() -> Result<()> {
                     .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Build))
                     .sum::<usize>()
             );
+            let source_summary =
+                summarize_check_sources(&loaded.manifest, &loaded.elaboration.resolved_graph);
+            println!(
+                "sources: configured={} directory={} git={} registry_packages={} path_packages={} missing={}",
+                source_summary.configured,
+                source_summary.directory_sources,
+                source_summary.git_sources,
+                source_summary.registry_packages,
+                source_summary.path_packages,
+                source_summary.missing_sources
+            );
+            if !source_summary.registry_bindings.is_empty() {
+                println!(
+                    "source bindings: {}",
+                    source_summary
+                        .registry_bindings
+                        .iter()
+                        .map(|binding| format!(
+                            "{}({};packages={})",
+                            binding.name, binding.backend, binding.package_count
+                        ))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+            let security_summary = summarize_source_security(&loaded.manifest);
+            println!(
+                "source security: mode={} warnings={} suppressed={} floating_git={} insecure_transport={}",
+                security_summary.policy_mode.as_str(),
+                security_summary.warning_count(),
+                security_summary.suppressed_count(),
+                security_summary.floating_git_sources,
+                security_summary.insecure_transport_sources
+            );
+            if !security_summary.warnings.is_empty() {
+                println!("source warnings: {}", security_summary.warnings.join(", "));
+            }
+            if !security_summary.suppressed.is_empty() {
+                println!(
+                    "source exceptions: {}",
+                    security_summary.suppressed.join(", ")
+                );
+            }
+            validate_check_source_policy(
+                &loaded.manifest_path,
+                &feature_selection,
+                &security_summary,
+            )?;
             println!(
                 "scripts: workspace_craft={} package_craft={} build_rn={}",
                 if loaded.elaboration.workspace_script.is_some() {
@@ -266,8 +314,13 @@ pub fn run() -> Result<()> {
             );
             for package in &fetched {
                 println!(
-                    "source: {} from={} cache={}",
+                    "source: {} backend={} registry={} selector={} revision={} locator={} from={} cache={}",
                     format_external_package_label(&package.id),
+                    format_fetched_source_backend(package),
+                    format_fetched_source_name(package),
+                    format_fetched_source_selector(package),
+                    format_fetched_source_revision(package),
+                    package.source.locator,
                     package.source_path.display(),
                     package.cache_path.display()
                 );
@@ -495,7 +548,8 @@ fn load_package_graph(
 
 fn format_feature_inputs(selection: &elaborate::FeatureSelection) -> String {
     format!(
-        "default={} explicit={}",
+        "profile={} default={} explicit={}",
+        selection.profile.name(),
         if selection.enable_default {
             "yes"
         } else {
@@ -549,6 +603,233 @@ fn format_external_package_label(package: &crate::resolver::ExternalPackageId) -
         Some(version) => format!("{} {}", package.package_name, version),
         None => package.package_name.clone(),
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CheckSourceSummary {
+    configured: usize,
+    directory_sources: usize,
+    git_sources: usize,
+    registry_packages: usize,
+    path_packages: usize,
+    missing_sources: usize,
+    registry_bindings: Vec<CheckSourceBinding>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct CheckSourceBinding {
+    name: String,
+    backend: &'static str,
+    package_count: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceSecuritySummary {
+    policy_mode: crate::manifest::ReleaseSourcePolicy,
+    floating_git_sources: usize,
+    insecure_transport_sources: usize,
+    warnings: Vec<String>,
+    suppressed: Vec<String>,
+    release_blockers: Vec<String>,
+}
+
+impl SourceSecuritySummary {
+    fn warning_count(&self) -> usize {
+        self.warnings.len()
+    }
+
+    fn suppressed_count(&self) -> usize {
+        self.suppressed.len()
+    }
+
+    fn release_blockers(&self) -> &[String] {
+        &self.release_blockers
+    }
+}
+
+fn summarize_check_sources(
+    manifest: &Manifest,
+    resolved: &crate::resolver::ResolvedGraph,
+) -> CheckSourceSummary {
+    let mut registry_counts = std::collections::BTreeMap::new();
+    let mut path_packages = 0usize;
+
+    for package in &resolved.external_packages {
+        match &package.id.source {
+            crate::graph::SourceId::PathDependency { .. } => path_packages += 1,
+            crate::graph::SourceId::Registry { name } => {
+                let name = name.as_deref().unwrap_or("default").to_string();
+                *registry_counts.entry(name).or_insert(0usize) += 1;
+            }
+            crate::graph::SourceId::Root | crate::graph::SourceId::WorkspaceMember { .. } => {}
+        }
+    }
+
+    let directory_sources = manifest
+        .sources
+        .values()
+        .filter(|source| source.directory.is_some())
+        .count();
+    let git_sources = manifest
+        .sources
+        .values()
+        .filter(|source| source.git.is_some())
+        .count();
+    let mut missing_sources = 0usize;
+    let registry_bindings = registry_counts
+        .into_iter()
+        .map(|(name, package_count)| {
+            let backend = manifest
+                .sources
+                .get(&name)
+                .map(source_binding_backend)
+                .unwrap_or_else(|| {
+                    missing_sources += 1;
+                    "missing"
+                });
+            CheckSourceBinding {
+                name,
+                backend,
+                package_count,
+            }
+        })
+        .collect::<Vec<_>>();
+
+    CheckSourceSummary {
+        configured: manifest.sources.len(),
+        directory_sources,
+        git_sources,
+        registry_packages: resolved
+            .external_packages
+            .iter()
+            .filter(|package| matches!(package.id.source, crate::graph::SourceId::Registry { .. }))
+            .count(),
+        path_packages,
+        missing_sources,
+        registry_bindings,
+    }
+}
+
+fn source_binding_backend(source: &crate::manifest::SourceConfig) -> &'static str {
+    source::source_backend(source)
+}
+
+fn summarize_source_security(manifest: &Manifest) -> SourceSecuritySummary {
+    let policy_mode = manifest
+        .craft
+        .as_ref()
+        .and_then(|craft| craft.release_source_policy)
+        .unwrap_or(crate::manifest::ReleaseSourcePolicy::Enforce);
+    let allow_floating_git = manifest
+        .craft
+        .as_ref()
+        .map(|craft| {
+            craft
+                .allow_floating_git
+                .iter()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let allow_insecure_source = manifest
+        .craft
+        .as_ref()
+        .map(|craft| {
+            craft
+                .allow_insecure_source
+                .iter()
+                .map(String::as_str)
+                .collect::<std::collections::BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut floating_git_sources = 0usize;
+    let mut insecure_transport_sources = 0usize;
+    let mut warnings = Vec::new();
+    let mut suppressed = Vec::new();
+
+    for (name, source) in &manifest.sources {
+        if let Some(locator) = source::source_locator(source) {
+            if source::is_insecure_source_locator(&locator) {
+                insecure_transport_sources += 1;
+                let label = format!("{name}(insecure-transport)");
+                if allow_insecure_source.contains(name.as_str()) {
+                    suppressed.push(label);
+                } else {
+                    warnings.push(label);
+                }
+            }
+        }
+        if source.git.is_some() {
+            if source.rev.is_none() && source.tag.is_none() {
+                floating_git_sources += 1;
+                let label = format!("{name}(floating-git)");
+                if allow_floating_git.contains(name.as_str()) {
+                    suppressed.push(label);
+                } else {
+                    warnings.push(label);
+                }
+            }
+        }
+    }
+
+    let release_blockers = match policy_mode {
+        crate::manifest::ReleaseSourcePolicy::Enforce => warnings.clone(),
+        crate::manifest::ReleaseSourcePolicy::Warn | crate::manifest::ReleaseSourcePolicy::Off => {
+            Vec::new()
+        }
+    };
+
+    SourceSecuritySummary {
+        policy_mode,
+        floating_git_sources,
+        insecure_transport_sources,
+        warnings,
+        suppressed,
+        release_blockers,
+    }
+}
+
+fn validate_check_source_policy(
+    manifest_path: &std::path::Path,
+    selection: &elaborate::FeatureSelection,
+    summary: &SourceSecuritySummary,
+) -> Result<()> {
+    if selection.profile != crate::script::ProfileSelection::Release
+        || summary.release_blockers().is_empty()
+    {
+        return Ok(());
+    }
+
+    Err(Error::Validation {
+        path: manifest_path.to_path_buf(),
+        message: format!(
+            "release source policy rejected: {}",
+            summary.release_blockers().join(", ")
+        ),
+    })
+}
+
+fn format_fetched_source_backend(package: &source::FetchedPackage) -> &'static str {
+    package.source.backend.as_str()
+}
+
+fn format_fetched_source_name(package: &source::FetchedPackage) -> &str {
+    package.source.source_name.as_deref().unwrap_or("<none>")
+}
+
+fn format_fetched_source_selector(package: &source::FetchedPackage) -> String {
+    package
+        .source
+        .selector_label()
+        .unwrap_or_else(|| "<none>".to_string())
+}
+
+fn format_fetched_source_revision(package: &source::FetchedPackage) -> &str {
+    package
+        .source
+        .resolved_revision
+        .as_deref()
+        .unwrap_or("<none>")
 }
 
 fn format_action_label(
@@ -886,6 +1167,11 @@ fn parse_command_options(
             idx += 1;
             continue;
         }
+        if arg == "--release" {
+            feature_selection.profile = crate::script::ProfileSelection::Release;
+            idx += 1;
+            continue;
+        }
         if arg == "--features" {
             let Some(value) = args.get(idx + 1) else {
                 return Err(Error::Usage(
@@ -939,12 +1225,12 @@ craft - Kern package manager and builder
 
 USAGE:
     craft help
-    craft check [PATH] [--no-default-features] [--features <FEATURES>]
-    craft lock [PATH] [--no-default-features] [--features <FEATURES>]
-    craft fetch [PATH] [--no-default-features] [--features <FEATURES>]
-    craft build [PATH] [--no-default-features] [--features <FEATURES>]
-    craft run [PATH] [--no-default-features] [--features <FEATURES>]
-    craft test [PATH] [--no-default-features] [--features <FEATURES>]
+    craft check [PATH] [--release] [--no-default-features] [--features <FEATURES>]
+    craft lock [PATH] [--release] [--no-default-features] [--features <FEATURES>]
+    craft fetch [PATH] [--release] [--no-default-features] [--features <FEATURES>]
+    craft build [PATH] [--release] [--no-default-features] [--features <FEATURES>]
+    craft run [PATH] [--release] [--no-default-features] [--features <FEATURES>]
+    craft test [PATH] [--release] [--no-default-features] [--features <FEATURES>]
 
 COMMANDS:
     help         Show this help text
@@ -956,6 +1242,7 @@ COMMANDS:
     test         Derive the test build plan for the selected package graph
 
 OPTIONS:
+    --release                Use the release profile instead of the default dev profile
     --no-default-features    Disable the implicit `default` feature
     --features <FEATURES>    Enable a comma-separated feature list
 "
@@ -963,7 +1250,15 @@ OPTIONS:
 
 #[cfg(test)]
 mod tests {
-    use super::{Command, parse_args};
+    use super::{
+        Command, parse_args, summarize_check_sources, summarize_source_security,
+        validate_check_source_policy,
+    };
+    use crate::graph::SourceId;
+    use crate::manifest::ReleaseSourcePolicy;
+    use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
+    use crate::script::ProfileSelection;
+    use std::path::PathBuf;
 
     #[test]
     fn parses_check_with_path_and_feature_options() {
@@ -985,6 +1280,10 @@ mod tests {
                 assert!(!feature_selection.enable_default);
                 assert!(feature_selection.explicit.contains("tls"));
                 assert!(feature_selection.explicit.contains("simd"));
+                assert_eq!(
+                    feature_selection.profile,
+                    crate::script::ProfileSelection::Dev
+                );
             }
             other => panic!("expected check command, got {other:?}"),
         }
@@ -1020,6 +1319,31 @@ mod tests {
                 assert!(path.is_none());
                 assert!(feature_selection.enable_default);
                 assert!(feature_selection.explicit.is_empty());
+                assert_eq!(
+                    feature_selection.profile,
+                    crate::script::ProfileSelection::Dev
+                );
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_build_with_release_profile() {
+        let cmd = parse_args(["build".to_string(), "--release".to_string()]).unwrap();
+
+        match cmd {
+            Command::Build {
+                path,
+                feature_selection,
+            } => {
+                assert!(path.is_none());
+                assert!(feature_selection.enable_default);
+                assert!(feature_selection.explicit.is_empty());
+                assert_eq!(
+                    feature_selection.profile,
+                    crate::script::ProfileSelection::Release
+                );
             }
             other => panic!("expected build command, got {other:?}"),
         }
@@ -1089,5 +1413,235 @@ mod tests {
             err.to_string().contains("must not be empty"),
             "unexpected error: {err}"
         );
+    }
+
+    #[test]
+    fn summarizes_check_sources_by_backend_and_binding() {
+        let mut manifest = crate::manifest::Manifest::default();
+        manifest.sources.insert(
+            "default".to_string(),
+            crate::manifest::SourceConfig {
+                directory: Some("vendor/default".to_string()),
+                ..Default::default()
+            },
+        );
+        manifest.sources.insert(
+            "corp".to_string(),
+            crate::manifest::SourceConfig {
+                git: Some("https://example.com/corp.git".to_string()),
+                ..Default::default()
+            },
+        );
+        let resolved = ResolvedGraph {
+            workspace_root: PathBuf::from("."),
+            packages: Vec::new(),
+            external_packages: vec![
+                ResolvedExternalPackage {
+                    id: ExternalPackageId {
+                        package_name: "log".to_string(),
+                        source: SourceId::Registry { name: None },
+                        version: Some("1".to_string()),
+                    },
+                },
+                ResolvedExternalPackage {
+                    id: ExternalPackageId {
+                        package_name: "net".to_string(),
+                        source: SourceId::Registry {
+                            name: Some("corp".to_string()),
+                        },
+                        version: Some("2".to_string()),
+                    },
+                },
+                ResolvedExternalPackage {
+                    id: ExternalPackageId {
+                        package_name: "util".to_string(),
+                        source: SourceId::PathDependency {
+                            path: "../util".to_string(),
+                        },
+                        version: None,
+                    },
+                },
+                ResolvedExternalPackage {
+                    id: ExternalPackageId {
+                        package_name: "missing".to_string(),
+                        source: SourceId::Registry {
+                            name: Some("missing".to_string()),
+                        },
+                        version: Some("1".to_string()),
+                    },
+                },
+            ],
+        };
+
+        let summary = summarize_check_sources(&manifest, &resolved);
+        assert_eq!(summary.configured, 2);
+        assert_eq!(summary.directory_sources, 1);
+        assert_eq!(summary.git_sources, 1);
+        assert_eq!(summary.registry_packages, 3);
+        assert_eq!(summary.path_packages, 1);
+        assert_eq!(summary.missing_sources, 1);
+        assert_eq!(
+            summary.registry_bindings,
+            vec![
+                super::CheckSourceBinding {
+                    name: "corp".to_string(),
+                    backend: "git",
+                    package_count: 1,
+                },
+                super::CheckSourceBinding {
+                    name: "default".to_string(),
+                    backend: "directory",
+                    package_count: 1,
+                },
+                super::CheckSourceBinding {
+                    name: "missing".to_string(),
+                    backend: "missing",
+                    package_count: 1,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn summarizes_source_security_warnings() {
+        let manifest = crate::manifest::Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[source.default]
+git = "https://example.com/default.git"
+branch = "main"
+
+[source.insecure]
+git = "http://example.com/unsafe.git"
+rev = "abc123"
+
+[source.pinned]
+git = "https://example.com/pinned.git"
+tag = "v1"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let summary = summarize_source_security(&manifest);
+        assert_eq!(summary.policy_mode, ReleaseSourcePolicy::Enforce);
+        assert_eq!(summary.floating_git_sources, 1);
+        assert_eq!(summary.insecure_transport_sources, 1);
+        assert_eq!(
+            summary.warnings,
+            vec![
+                "default(floating-git)".to_string(),
+                "insecure(insecure-transport)".to_string(),
+            ]
+        );
+        assert!(summary.suppressed.is_empty());
+    }
+
+    #[test]
+    fn release_check_policy_rejects_source_warnings() {
+        let summary = super::SourceSecuritySummary {
+            policy_mode: ReleaseSourcePolicy::Enforce,
+            floating_git_sources: 1,
+            insecure_transport_sources: 0,
+            warnings: vec!["default(floating-git)".to_string()],
+            suppressed: Vec::new(),
+            release_blockers: vec!["default(floating-git)".to_string()],
+        };
+        let selection = crate::elaborate::FeatureSelection {
+            profile: ProfileSelection::Release,
+            ..Default::default()
+        };
+
+        let err =
+            validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
+                .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("release source policy rejected: default(floating-git)")
+        );
+    }
+
+    #[test]
+    fn dev_check_policy_allows_source_warnings() {
+        let summary = super::SourceSecuritySummary {
+            policy_mode: ReleaseSourcePolicy::Enforce,
+            floating_git_sources: 1,
+            insecure_transport_sources: 1,
+            warnings: vec![
+                "default(floating-git)".to_string(),
+                "insecure(insecure-transport)".to_string(),
+            ],
+            suppressed: Vec::new(),
+            release_blockers: vec![
+                "default(floating-git)".to_string(),
+                "insecure(insecure-transport)".to_string(),
+            ],
+        };
+        let selection = crate::elaborate::FeatureSelection::default();
+
+        validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
+            .unwrap();
+    }
+
+    #[test]
+    fn summarize_source_security_respects_allowlists_and_warn_mode() {
+        let manifest = crate::manifest::Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[craft]
+release-source-policy = "warn"
+allow-floating-git = ["default"]
+allow-insecure-source = ["insecure"]
+
+[source.default]
+git = "https://example.com/default.git"
+branch = "main"
+
+[source.insecure]
+git = "http://example.com/unsafe.git"
+rev = "abc123"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let summary = summarize_source_security(&manifest);
+        assert_eq!(summary.policy_mode, ReleaseSourcePolicy::Warn);
+        assert!(summary.warnings.is_empty());
+        assert_eq!(
+            summary.suppressed,
+            vec![
+                "default(floating-git)".to_string(),
+                "insecure(insecure-transport)".to_string(),
+            ]
+        );
+        assert!(summary.release_blockers.is_empty());
+    }
+
+    #[test]
+    fn release_check_policy_allows_warn_mode_with_findings() {
+        let summary = super::SourceSecuritySummary {
+            policy_mode: ReleaseSourcePolicy::Warn,
+            floating_git_sources: 1,
+            insecure_transport_sources: 0,
+            warnings: vec!["default(floating-git)".to_string()],
+            suppressed: Vec::new(),
+            release_blockers: Vec::new(),
+        };
+        let selection = crate::elaborate::FeatureSelection {
+            profile: ProfileSelection::Release,
+            ..Default::default()
+        };
+
+        validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
+            .unwrap();
     }
 }

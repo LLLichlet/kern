@@ -166,6 +166,20 @@ Manifest rules:
 - profile behavior is deterministic
 - target-specific or feature-specific elaboration belongs in either explicit manifest tables or `craft.rn`
 
+For decentralized registries, `[source.<name>]` defines transport only. The
+package layout remains a plain `<package>/<version>/...` tree whether that tree
+comes from a checked-in directory mirror or a git repository snapshot. `craft fetch`
+should surface enough audit data to show which named source, selector, and resolved
+git revision produced each fetched package.
+
+When external packages themselves depend on registries, source lookup should be
+layered: use the current package's `[source.<name>]` first, then fall back to the
+parent package's source bindings for names that were not overridden locally.
+
+Locking should record manifest-level source identity, such as the registry locator
+and selector, without depending on a fetched git snapshot. `craft check` should
+also report lightweight warnings for floating git inputs and insecure transports.
+
 ## Feature, Profile, And Command Inputs
 
 Feature selection is part of elaboration and build planning, not an afterthought.
@@ -529,6 +543,8 @@ Current behavior:
 - `check` loads the package graph, evaluates scripts, derives the build plan, and prints audit data
 - `lock` writes a deterministic `Craft.lock`
 - `fetch` materializes external package sources into the local cache
+  - source backends may be local directories or git-backed registry trees
+  - git-backed sources still use the same decentralized `<package>/<version>` tree layout
 - `build` executes the selected build plan
 - `run` builds and runs the selected runnable binary
 - `test` builds and runs test targets

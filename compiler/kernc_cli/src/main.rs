@@ -1,9 +1,10 @@
 use kernc_driver::CompilerDriver;
 use kernc_utils::config::{
     AsmDialect, CompileOptions, DriverMode, LinkProfile, OptLevel, TargetMachine,
+    inject_driver_condition_defines, maybe_inject_std_alias,
 };
 use std::env;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process;
 
 fn set_driver_mode(options: &mut CompileOptions, requested: DriverMode, flag: &str) {
@@ -162,69 +163,6 @@ fn validate_mode_inputs(
         eprintln!("Hint: Pass object files, archives, or shared libraries via `--link-input`.");
         process::exit(1);
     }
-}
-
-fn resolve_std_path() -> PathBuf {
-    if let Ok(custom_std) = env::var("KERN_STD_PATH") {
-        return PathBuf::from(custom_std);
-    }
-
-    if let Ok(mut exe_path) = env::current_exe() {
-        exe_path.pop();
-        if exe_path.ends_with("debug") || exe_path.ends_with("release") {
-            exe_path.pop();
-            exe_path.pop();
-            return exe_path.join("library/std");
-        }
-
-        exe_path.pop();
-        return exe_path.join("lib/kern/std");
-    }
-
-    PathBuf::from("library/std")
-}
-
-fn maybe_inject_std_alias(options: &mut CompileOptions) {
-    if !options.use_std || options.module_aliases.contains_key("std") {
-        return;
-    }
-
-    let std_path = resolve_std_path();
-    if !std_path.exists() {
-        eprintln!(
-            "Warning: Kern standard library not found at `{}`.",
-            std_path.display()
-        );
-    }
-
-    options
-        .module_aliases
-        .insert("std".to_string(), std_path.to_string_lossy().to_string());
-}
-
-fn inject_driver_condition_defines(options: &mut CompileOptions) {
-    let link_profile = match options.link_profile {
-        LinkProfile::Kern => "kern",
-        LinkProfile::Freestanding => "freestanding",
-        LinkProfile::Hosted => "hosted",
-        LinkProfile::None => "none",
-    };
-
-    let hosted = matches!(options.link_profile, LinkProfile::Hosted);
-    let kern_rt = options.use_std && !hosted;
-
-    options
-        .custom_defines
-        .insert("link_profile".to_string(), link_profile.to_string());
-    options
-        .custom_defines
-        .insert("hosted".to_string(), hosted.to_string());
-    options
-        .custom_defines
-        .insert("libc".to_string(), hosted.to_string());
-    options
-        .custom_defines
-        .insert("kern_rt".to_string(), kern_rt.to_string());
 }
 
 fn parse_args() -> CompileOptions {

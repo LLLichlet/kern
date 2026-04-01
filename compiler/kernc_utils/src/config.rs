@@ -1,4 +1,6 @@
 use std::collections::HashMap;
+use std::env;
+use std::path::PathBuf;
 use std::str::FromStr;
 use target_lexicon::{PointerWidth, Triple};
 
@@ -153,4 +155,65 @@ impl Default for CompileOptions {
             use_std: false,
         }
     }
+}
+
+pub fn resolve_std_path() -> PathBuf {
+    if let Ok(custom_std) = env::var("KERN_STD_PATH") {
+        return PathBuf::from(custom_std);
+    }
+
+    if let Ok(exe_path) = env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("library/std");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("lib/kern/std");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    PathBuf::from("library/std")
+}
+
+pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
+    if !options.use_std || options.module_aliases.contains_key("std") {
+        return;
+    }
+
+    let std_path = resolve_std_path();
+    options
+        .module_aliases
+        .insert("std".to_string(), std_path.to_string_lossy().to_string());
+}
+
+pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
+    let link_profile = match options.link_profile {
+        LinkProfile::Kern => "kern",
+        LinkProfile::Freestanding => "freestanding",
+        LinkProfile::Hosted => "hosted",
+        LinkProfile::None => "none",
+    };
+
+    let hosted = matches!(options.link_profile, LinkProfile::Hosted);
+    let kern_rt = options.use_std && !hosted;
+
+    options
+        .custom_defines
+        .insert("link_profile".to_string(), link_profile.to_string());
+    options
+        .custom_defines
+        .insert("hosted".to_string(), hosted.to_string());
+    options
+        .custom_defines
+        .insert("libc".to_string(), hosted.to_string());
+    options
+        .custom_defines
+        .insert("kern_rt".to_string(), kern_rt.to_string());
 }

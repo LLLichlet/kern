@@ -114,9 +114,9 @@ Useful analysis overrides:
 kern-lsp --no-use-std -M std=./library/std
 ```
 
-As of the `0.6.4` release cycle, the repository also carries a first-party
-preview VS Code extension under `editors/vscode/` that launches `kern-lsp`
-directly.
+As of the `0.6.5` release cycle, the repository also carries a first-party
+VS Code extension under `editors/vscode/` that launches `kern-lsp` directly,
+including bundled release packaging for the language server binary.
 
 ## Dependency Policy
 

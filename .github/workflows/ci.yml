@@ -117,10 +117,13 @@ jobs:
           cargo build --release -p kern-lsp
           npm run package:vsix -- --target linux-x64 --server-source ../../target/release/kern-lsp
           python - <<'PY'
+          import json
           import sys
           import zipfile
 
-          package_path = "kern-vscode-0.6.4-linux-x64.vsix"
+          with open("package.json", "r", encoding="utf-8") as fh:
+              package_version = json.load(fh)["version"]
+          package_path = f"kern-vscode-{package_version}-linux-x64.vsix"
           with zipfile.ZipFile(package_path) as archive:
               names = set(archive.namelist())
               required = {

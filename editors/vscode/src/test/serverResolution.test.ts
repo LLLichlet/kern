@@ -13,7 +13,7 @@ function existsIn(paths: string[]): (candidate: string) => boolean {
 }
 
 test("configured relative path resolves against the first workspace root", () => {
-    const serverPath = path.join("/workspace", "bin", "kern-lsp");
+    const serverPath = path.posix.join("/workspace", "bin", "kern-lsp");
     const resolution = resolveServerCommand(
         {
             configuredPath: "bin/kern-lsp",

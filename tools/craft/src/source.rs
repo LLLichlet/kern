@@ -751,7 +751,7 @@ log = "1"
 [source.default]
 git = "{}"
 "#,
-                registry_repo.display()
+                toml_string_literal(&registry_repo)
             ),
         )
         .unwrap();
@@ -785,7 +785,7 @@ git = "{}"
         );
         assert!(fetched[0].cache_path.join("Craft.toml").is_file());
         assert_eq!(
-            fs::read_to_string(fetched[0].cache_path.join("src/lib.rn")).unwrap(),
+            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
             "pub fn x() i32 { return 0; }\n"
         );
     }
@@ -829,7 +829,7 @@ log = "1"
 git = "{}"
 branch = "main"
 "#,
-                registry_repo.display()
+                toml_string_literal(&registry_repo)
             ),
         )
         .unwrap();
@@ -873,7 +873,7 @@ branch = "main"
             Some(git_head(&registry_repo).as_str())
         );
         assert_eq!(
-            fs::read_to_string(fetched[0].cache_path.join("src/lib.rn")).unwrap(),
+            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
             "pub fn x() i32 { return 1; }\n"
         );
     }
@@ -923,7 +923,7 @@ log = "1"
 git = "{}"
 tag = "v1"
 "#,
-                registry_repo.display()
+                toml_string_literal(&registry_repo)
             ),
         )
         .unwrap();
@@ -953,7 +953,7 @@ tag = "v1"
             Some(tagged_revision.as_str())
         );
         assert_eq!(
-            fs::read_to_string(fetched[0].cache_path.join("src/lib.rn")).unwrap(),
+            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
             "pub fn x() i32 { return 0; }\n"
         );
     }
@@ -1002,7 +1002,7 @@ log = "1"
 git = "{}"
 rev = "{}"
 "#,
-                registry_repo.display(),
+                toml_string_literal(&registry_repo),
                 pinned_revision
             ),
         )
@@ -1033,7 +1033,7 @@ rev = "{}"
             Some(pinned_revision.as_str())
         );
         assert_eq!(
-            fs::read_to_string(fetched[0].cache_path.join("src/lib.rn")).unwrap(),
+            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
             "pub fn x() i32 { return 0; }\n"
         );
     }
@@ -1056,6 +1056,14 @@ rev = "{}"
         }
         run_git(repo, ["add", "."]).unwrap();
         run_git(repo, ["commit", "-m", "initial"]).unwrap();
+    }
+
+    fn toml_string_literal(path: &std::path::Path) -> String {
+        path.to_string_lossy().replace('\\', "\\\\")
+    }
+
+    fn normalized_text_file(path: &std::path::Path) -> String {
+        fs::read_to_string(path).unwrap().replace("\r\n", "\n")
     }
 
     fn commit_git_registry(repo: &PathBuf, files: &[(&str, &str)]) {

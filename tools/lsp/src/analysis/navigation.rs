@@ -8,7 +8,7 @@ use kernc_driver::{
     AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind,
 };
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 pub(super) fn analysis_symbol_to_document_symbol(
     session: &kernc_utils::Session,
@@ -119,9 +119,10 @@ pub(super) fn find_definition_location(
     references: &[AnalysisReference],
     target_path: &Path,
     position: &Position,
+    uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Option<Location> {
     let definition_span = find_target_definition_span(session, references, target_path, position)?;
-    location_from_span(session, definition_span)
+    location_from_span(session, definition_span, uri_by_path)
 }
 
 pub(super) fn find_reference_locations(
@@ -130,6 +131,7 @@ pub(super) fn find_reference_locations(
     target_path: &Path,
     position: &Position,
     include_declaration: bool,
+    uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Vec<Location> {
     let Some(definition_span) =
         find_target_definition_span(session, references, target_path, position)
@@ -138,7 +140,9 @@ pub(super) fn find_reference_locations(
     };
 
     let mut locations = Vec::new();
-    if include_declaration && let Some(location) = location_from_span(session, definition_span) {
+    if include_declaration
+        && let Some(location) = location_from_span(session, definition_span, uri_by_path)
+    {
         locations.push(location);
     }
 
@@ -147,7 +151,7 @@ pub(super) fn find_reference_locations(
             continue;
         }
 
-        if let Some(location) = location_from_span(session, reference.reference_span) {
+        if let Some(location) = location_from_span(session, reference.reference_span, uri_by_path) {
             locations.push(location);
         }
     }
@@ -313,10 +317,11 @@ pub(super) fn build_rename_changes(
     references: &[AnalysisReference],
     definition_span: kernc_utils::Span,
     new_name: &str,
+    uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> BTreeMap<String, Vec<TextEdit>> {
     let mut edits_by_uri = BTreeMap::<String, Vec<TextEdit>>::new();
 
-    if let Some(edit) = rename_edit_from_span(session, definition_span, new_name) {
+    if let Some(edit) = rename_edit_from_span(session, definition_span, new_name, uri_by_path) {
         edits_by_uri.entry(edit.0).or_default().push(edit.1);
     }
 
@@ -325,7 +330,9 @@ pub(super) fn build_rename_changes(
             continue;
         }
 
-        if let Some(edit) = rename_edit_from_span(session, reference.reference_span, new_name) {
+        if let Some(edit) =
+            rename_edit_from_span(session, reference.reference_span, new_name, uri_by_path)
+        {
             edits_by_uri.entry(edit.0).or_default().push(edit.1);
         }
     }
@@ -349,9 +356,10 @@ fn rename_edit_from_span(
     session: &kernc_utils::Session,
     span: kernc_utils::Span,
     new_name: &str,
+    uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Option<(String, TextEdit)> {
     let path = session.source_manager.get_file_path(span.file)?;
-    let uri = super::file_path_to_uri(path).ok()?;
+    let uri = uri_for_path(path, uri_by_path)?;
     Some((
         uri,
         TextEdit {
@@ -414,13 +422,26 @@ fn lsp_symbol_kind(kind: AnalysisSymbolKind) -> u8 {
     }
 }
 
-fn location_from_span(session: &kernc_utils::Session, span: kernc_utils::Span) -> Option<Location> {
+fn location_from_span(
+    session: &kernc_utils::Session,
+    span: kernc_utils::Span,
+    uri_by_path: &BTreeMap<PathBuf, String>,
+) -> Option<Location> {
     let path = session.source_manager.get_file_path(span.file)?;
-    let uri = super::file_path_to_uri(path).ok()?;
+    let uri = uri_for_path(path, uri_by_path)?;
     Some(Location {
         uri,
         range: super::span_to_range(session, span),
     })
+}
+
+fn uri_for_path(path: &Path, uri_by_path: &BTreeMap<PathBuf, String>) -> Option<String> {
+    let normalized = super::normalize_path(path);
+    if let Some(uri) = uri_by_path.get(&normalized) {
+        return Some(uri.clone());
+    }
+
+    super::file_path_to_uri(path).ok()
 }
 
 fn span_text(session: &kernc_utils::Session, span: kernc_utils::Span) -> Option<String> {

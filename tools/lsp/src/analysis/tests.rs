@@ -1357,7 +1357,10 @@ root = \"src/lib.rn\"
 
     let resolved = analysis.resolve_analysis(&uri).unwrap();
 
-    assert_eq!(resolved.input_file, app_dir.join("src/lib.rn"));
+    assert_eq!(
+        super::normalize_path(&resolved.input_file),
+        super::normalize_path(&app_dir.join("src/lib.rn"))
+    );
     assert_eq!(
         resolved.compile_options.root_module_name,
         Some("app".to_string())
@@ -1368,7 +1371,7 @@ root = \"src/lib.rn\"
             .module_aliases
             .get("util")
             .map(PathBuf::from),
-        Some(util_dir.join("src/lib.rn"))
+        Some(super::normalize_path(&util_dir.join("src/lib.rn")))
     );
     assert!(resolved.compile_options.module_aliases.contains_key("std"));
 }

@@ -197,12 +197,14 @@ impl AnalysisEngine {
             return Err("requested definition for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
+        let uri_by_path = self.uri_by_normalized_path();
 
         Ok(find_definition_location(
             &artifact.session,
             &artifact.references,
             &target_path,
             &position,
+            &uri_by_path,
         ))
     }
 
@@ -219,6 +221,7 @@ impl AnalysisEngine {
             return Err("requested references for a document that is not open".to_string());
         };
         let target_path = normalize_path(&target_doc.path);
+        let uri_by_path = self.uri_by_normalized_path();
 
         Ok(find_reference_locations(
             &artifact.session,
@@ -226,6 +229,7 @@ impl AnalysisEngine {
             &target_path,
             &position,
             include_declaration,
+            &uri_by_path,
         ))
     }
 
@@ -385,12 +389,14 @@ impl AnalysisEngine {
         ) else {
             return Err("rename target is not a supported identifier".to_string());
         };
+        let uri_by_path = self.uri_by_normalized_path();
 
         let changes = build_rename_changes(
             &artifact.session,
             &artifact.references,
             target.definition_span,
             new_name,
+            &uri_by_path,
         );
 
         Ok(WorkspaceEdit { changes })
@@ -480,6 +486,13 @@ impl AnalysisEngine {
         self.documents
             .values()
             .map(|doc| (doc.path.clone(), doc.text.clone()))
+            .collect()
+    }
+
+    fn uri_by_normalized_path(&self) -> BTreeMap<PathBuf, String> {
+        self.documents
+            .iter()
+            .map(|(uri, doc)| (normalize_path(&doc.path), uri.clone()))
             .collect()
     }
 

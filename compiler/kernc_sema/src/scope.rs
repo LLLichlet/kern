@@ -181,7 +181,10 @@ impl SymbolTable {
         self.scopes[scope_id.0].symbols.get(&name)
     }
 
-    pub fn symbols_in_scope(&self, scope_id: ScopeId) -> impl Iterator<Item = (SymbolId, &SymbolInfo)> + '_ {
+    pub fn symbols_in_scope(
+        &self,
+        scope_id: ScopeId,
+    ) -> impl Iterator<Item = (SymbolId, &SymbolInfo)> + '_ {
         self.scopes[scope_id.0]
             .symbols
             .iter()

@@ -1,4 +1,5 @@
-﻿use super::ExprChecker;
+use super::ExprChecker;
+use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
 use crate::query::{MemberQuery, MemberQueryEnv};
@@ -6,7 +7,6 @@ use crate::scope::{SymbolInfo, SymbolKind};
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr};
 use kernc_utils::{NodeId, Span, SymbolId};
-use crate::checker::Substituter;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn current_module_id(&self) -> Option<DefId> {
@@ -483,7 +483,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        if let Some((ty, owner_trait_ty)) = self.try_find_field_or_method_silent(lhs_ty, field, span)
+        if let Some((ty, owner_trait_ty)) =
+            self.try_find_field_or_method_silent(lhs_ty, field, span)
         {
             if let Some(owner_trait_ty) = owner_trait_ty {
                 self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
@@ -610,5 +611,4 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
     }
-
 }

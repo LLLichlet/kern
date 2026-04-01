@@ -182,11 +182,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         match self.ctx.type_registry.get(receiver_norm).clone() {
             TypeKind::Pointer { is_mut: true, elem } => {
-                search_tys.push(
-                    self.ctx
-                        .type_registry
-                        .intern(TypeKind::Pointer { is_mut: false, elem }),
-                );
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::Pointer {
+                    is_mut: false,
+                    elem,
+                }));
             }
             TypeKind::VolatilePtr { is_mut: true, elem } => {
                 search_tys.push(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
@@ -195,11 +194,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 }));
             }
             TypeKind::Slice { is_mut: true, elem } => {
-                search_tys.push(
-                    self.ctx
-                        .type_registry
-                        .intern(TypeKind::Slice { is_mut: false, elem }),
-                );
+                search_tys.push(self.ctx.type_registry.intern(TypeKind::Slice {
+                    is_mut: false,
+                    elem,
+                }));
             }
             _ => {}
         }
@@ -228,7 +226,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
             let type_id = if info.kind == SymbolKind::Function {
                 info.def_id
-                    .map(|def_id| self.ctx.type_registry.intern(TypeKind::FnDef(def_id, vec![])))
+                    .map(|def_id| {
+                        self.ctx
+                            .type_registry
+                            .intern(TypeKind::FnDef(def_id, vec![]))
+                    })
                     .unwrap_or(info.type_id)
             } else if info.kind == SymbolKind::Module {
                 info.def_id
@@ -271,7 +273,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         let type_id = if info.kind == SymbolKind::Function {
             info.def_id
-                .map(|def_id| self.ctx.type_registry.intern(TypeKind::FnDef(def_id, vec![])))
+                .map(|def_id| {
+                    self.ctx
+                        .type_registry
+                        .intern(TypeKind::FnDef(def_id, vec![]))
+                })
                 .unwrap_or(info.type_id)
         } else if info.kind == SymbolKind::Module {
             info.def_id
@@ -303,9 +309,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         match self.ctx.defs[def_id.0 as usize].clone() {
             Def::Struct(struct_def) => {
                 for field in &struct_def.fields {
-                    if !field.is_pub
-                        && def_owner_module_id(self.ctx, def_id) != current_module_id
-                    {
+                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
                         continue;
                     }
 
@@ -328,9 +332,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             }
             Def::Union(union_def) => {
                 for field in &union_def.fields {
-                    if !field.is_pub
-                        && def_owner_module_id(self.ctx, def_id) != current_module_id
-                    {
+                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
                         continue;
                     }
 
@@ -365,7 +367,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
     ) -> Option<MemberCandidate> {
         match self.ctx.defs[def_id.0 as usize].clone() {
             Def::Struct(struct_def) => {
-                let field = struct_def.fields.iter().find(|field| field.name == member_name)?;
+                let field = struct_def
+                    .fields
+                    .iter()
+                    .find(|field| field.name == member_name)?;
                 if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
                     self.ctx
                         .struct_error(
@@ -402,7 +407,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 })
             }
             Def::Union(union_def) => {
-                let field = union_def.fields.iter().find(|field| field.name == member_name)?;
+                let field = union_def
+                    .fields
+                    .iter()
+                    .find(|field| field.name == member_name)?;
                 if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
                     self.ctx
                         .struct_error(

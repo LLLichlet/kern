@@ -20,7 +20,10 @@ mod tests {
 
         let mut parser = Parser::new(source, file_id, &mut session);
         let module = parser.parse_module().unwrap();
-        let ast::DeclKind::Function { body: Some(body), .. } = &module.decls[0].kind else {
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
             panic!("expected function body");
         };
         let ast::ExprKind::Block {

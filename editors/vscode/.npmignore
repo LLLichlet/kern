@@ -1,12 +1,12 @@
-src/**
+src/
 tsconfig.json
 .gitignore
+.vscode/
+scripts/
+testdata/
 *.tsbuildinfo
-.vscode/**
-scripts/**
-testdata/**
 *.vsix
 out/**/*.js
 !out/extension.js
-out/test/**
+out/test/
 out/**/*.map

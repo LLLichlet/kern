@@ -1,15 +1,20 @@
 import * as fs from "node:fs";
-import * as path from "node:path";
 import * as vscode from "vscode";
 import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
+    State,
 } from "vscode-languageclient/node";
+import {
+    resolveServerCommand,
+    type ResolvedServerCommand,
+} from "./serverResolution";
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let statusItem: vscode.LanguageStatusItem | undefined;
+let fileWatchers: vscode.FileSystemWatcher[] = [];
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     outputChannel = vscode.window.createOutputChannel("Kern Language Server");
@@ -47,13 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 }
 
 export async function deactivate(): Promise<void> {
-    if (!client) {
-        return;
-    }
-
-    const current = client;
-    client = undefined;
-    await current.stop();
+    await stopLanguageServer();
 }
 
 async function restartLanguageServer(
@@ -61,12 +60,7 @@ async function restartLanguageServer(
     explicit: boolean,
 ): Promise<void> {
     setStatus("restarting", "Restarting kern-lsp", vscode.LanguageStatusSeverity.Information);
-    if (client) {
-        const current = client;
-        client = undefined;
-        await current.stop();
-    }
-
+    await stopLanguageServer();
     await startLanguageServer(context);
 
     if (explicit) {
@@ -75,21 +69,38 @@ async function restartLanguageServer(
 }
 
 async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
-    const server = resolveServerCommand();
-    if (!server) {
-        appendOutput("Failed to resolve kern-lsp executable.");
+    const resolution = resolveServerCommand(
+        {
+            configuredPath: vscode.workspace
+                .getConfiguration("kern")
+                .get<string>("server.path", ""),
+            configuredArgs: vscode.workspace
+                .getConfiguration("kern")
+                .get<string[]>("server.args", []),
+            workspaceRoots: (vscode.workspace.workspaceFolders ?? []).map((folder) => ({
+                fsPath: folder.uri.fsPath,
+                name: folder.name,
+            })),
+            extensionPath: context.extensionPath,
+        },
+        fs.existsSync,
+    );
+    if (resolution.kind === "error") {
+        appendOutput(resolution.message);
         setStatus(
             "missing",
             "kern-lsp not found",
             vscode.LanguageStatusSeverity.Error,
         );
-        void vscode.window.showErrorMessage(
-            "Unable to start kern-lsp. Configure `kern.server.path` or install `kern-lsp` on PATH.",
-        );
+        void vscode.window.showErrorMessage(resolution.message);
         return;
     }
 
-    appendOutput(`Starting kern-lsp: ${server.command} ${server.args.join(" ")}`.trim());
+    const server = resolution;
+    fileWatchers = createLanguageServerWatchers();
+    appendOutput(
+        `Starting kern-lsp (${server.source}): ${server.command} ${server.args.join(" ")}`.trim(),
+    );
     setStatus("starting", "Starting kern-lsp", vscode.LanguageStatusSeverity.Information);
 
     const serverOptions: ServerOptions = {
@@ -106,6 +117,10 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "kern" }],
         outputChannel,
+        synchronize: {
+            configurationSection: "kern",
+            fileEvents: fileWatchers,
+        },
     };
 
     client = new LanguageClient(
@@ -115,71 +130,70 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
         clientOptions,
     );
 
-    await client.start();
-    appendOutput("kern-lsp started.");
-    setStatus("running", "kern-lsp running", vscode.LanguageStatusSeverity.Information);
-}
-
-function resolveServerCommand(): ResolvedServerCommand | undefined {
-    const config = vscode.workspace.getConfiguration("kern");
-    const configuredPath = config.get<string>("server.path", "").trim();
-    const configuredArgs = config.get<string[]>("server.args", []);
-
-    if (configuredPath.length > 0) {
-        if (looksLikeAbsoluteExecutablePath(configuredPath) && !fs.existsSync(configuredPath)) {
-            appendOutput(`Configured kern-lsp path does not exist: ${configuredPath}`);
-            void vscode.window.showErrorMessage(
-                `Configured kern-lsp path does not exist: ${configuredPath}`,
+    client.onDidChangeState((event) => {
+        if (event.newState === State.Running) {
+            setStatus(
+                `source=${server.source}`,
+                "kern-lsp running",
+                vscode.LanguageStatusSeverity.Information,
             );
-            return undefined;
+            appendOutput(`kern-lsp is running (${server.source}).`);
+        } else if (event.newState === State.Starting) {
+            setStatus("starting", "Starting kern-lsp", vscode.LanguageStatusSeverity.Information);
+        } else {
+            setStatus("stopped", "kern-lsp stopped", vscode.LanguageStatusSeverity.Warning);
+            appendOutput("kern-lsp stopped.");
         }
+    });
 
-        return {
-            command: configuredPath,
-            args: configuredArgs,
-        };
+    try {
+        await client.start();
+    } catch (error) {
+        appendOutput(`Failed to start kern-lsp: ${formatError(error)}`);
+        setStatus("failed", "kern-lsp failed to start", vscode.LanguageStatusSeverity.Error);
+        void vscode.window.showErrorMessage(
+            `Failed to start kern-lsp from ${server.source}. See the Kern Language Server output for details.`,
+        );
+        await stopLanguageServer();
+    }
+}
+
+async function stopLanguageServer(): Promise<void> {
+    disposeWatchers();
+    if (!client) {
+        return;
     }
 
-    for (const folder of vscode.workspace.workspaceFolders ?? []) {
-        for (const candidate of localServerCandidates(folder.uri.fsPath)) {
-            if (fs.existsSync(candidate)) {
-                return {
-                    command: candidate,
-                    args: configuredArgs,
-                };
-            }
-        }
-    }
-
-    return {
-        command: executableName("kern-lsp"),
-        args: configuredArgs,
-    };
-}
-
-function looksLikeAbsoluteExecutablePath(value: string): boolean {
-    return path.isAbsolute(value) || value.includes(path.sep);
-}
-
-function localServerCandidates(root: string): string[] {
-    const name = executableName("kern-lsp");
-    return [
-        path.join(root, "target", "debug", name),
-        path.join(root, "target", "release", name),
-    ];
-}
-
-function executableName(base: string): string {
-    return process.platform === "win32" ? `${base}.exe` : base;
-}
-
-interface ResolvedServerCommand {
-    command: string;
-    args: string[];
+    const current = client;
+    client = undefined;
+    await current.stop();
 }
 
 function appendOutput(message: string): void {
     outputChannel?.appendLine(`[kern] ${message}`);
+}
+
+function createLanguageServerWatchers(): vscode.FileSystemWatcher[] {
+    return [
+        vscode.workspace.createFileSystemWatcher("**/*.rn"),
+        vscode.workspace.createFileSystemWatcher("**/Craft.toml"),
+        vscode.workspace.createFileSystemWatcher("**/craft.rn"),
+        vscode.workspace.createFileSystemWatcher("**/build.rn"),
+    ];
+}
+
+function disposeWatchers(): void {
+    for (const watcher of fileWatchers) {
+        watcher.dispose();
+    }
+    fileWatchers = [];
+}
+
+function formatError(error: unknown): string {
+    if (error instanceof Error) {
+        return error.message;
+    }
+    return String(error);
 }
 
 function setStatus(

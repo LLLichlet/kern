@@ -6,6 +6,8 @@ experience for `.rn` source files.
 ## Features
 
 - Kern language registration for `.rn`
+- Kern logo as the bundled language icon
+- optional `Kern Icons` file icon theme for `.rn` files
 - stdio LSP connection to `kern-lsp`
 - diagnostics, hover, completion, rename, semantic tokens, and code actions
 - a lightweight TextMate grammar and language configuration for editor basics
@@ -79,6 +81,24 @@ This command packages the bundled extension entrypoint and the staged
 
 CI uses the same script and passes `--server-source` explicitly so release
 artifacts always bundle the just-built `kern-lsp`.
+
+## Icons
+
+The extension contributes the Kern logo as the default language icon for `kern`
+documents and also ships a `Kern Icons` file icon theme that maps `.rn` files
+to the same mark.
+
+The packaged extension also declares the PNG logo as its Marketplace icon, so
+the published listing and installed extension entry stay visually aligned with
+the language/file icon assets.
+
+If your current file icon theme already overrides language/file icons, switch
+VS Code's File Icon Theme to `Kern Icons` to guarantee that `.rn` files use the
+bundled logo.
+
+The extension README intentionally does not embed the raw SVG asset. GitHub
+renders local SVGs fine, but Marketplace publishing is stricter about extension
+assets, so the actual icon file is shipped inside the extension package instead.
 
 ## Settings
 

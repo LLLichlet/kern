@@ -1,5 +1,7 @@
 # Kern Programming Language
 
+![Kern logo](./logo.svg)
+
 > **Status:** v0.6.4 (Experimental)
 > *High Abstraction, Low Policy.*
 
@@ -112,6 +114,16 @@ powershell -Command "Set-ExecutionPolicy Bypass -Scope Process -Force; Invoke-Ex
 ```
 
 *(After installation, you may need to restart your terminal or update your PATH variables as prompted by the script).*
+
+## VS Code Extension
+
+The first-party VS Code extension lives under [`editors/vscode`](./editors/vscode).
+It now ships with the Kern logo as the language icon, and the repository also
+includes a `Kern Icons` file icon theme for `.rn` files.
+
+If your current VS Code file icon theme does not surface the Kern language icon,
+switch the File Icon Theme to `Kern Icons` to force the `.rn` explorer icon to
+use the bundled logo.
 
 ## Building from Source
 

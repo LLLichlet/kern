@@ -748,26 +748,24 @@ fn summarize_source_security(manifest: &Manifest) -> SourceSecuritySummary {
     let mut suppressed = Vec::new();
 
     for (name, source) in &manifest.sources {
-        if let Some(locator) = source::source_locator(source) {
-            if source::is_insecure_source_locator(&locator) {
-                insecure_transport_sources += 1;
-                let label = format!("{name}(insecure-transport)");
-                if allow_insecure_source.contains(name.as_str()) {
-                    suppressed.push(label);
-                } else {
-                    warnings.push(label);
-                }
+        if let Some(locator) = source::source_locator(source)
+            && source::is_insecure_source_locator(&locator)
+        {
+            insecure_transport_sources += 1;
+            let label = format!("{name}(insecure-transport)");
+            if allow_insecure_source.contains(name.as_str()) {
+                suppressed.push(label);
+            } else {
+                warnings.push(label);
             }
         }
-        if source.git.is_some() {
-            if source.rev.is_none() && source.tag.is_none() {
-                floating_git_sources += 1;
-                let label = format!("{name}(floating-git)");
-                if allow_floating_git.contains(name.as_str()) {
-                    suppressed.push(label);
-                } else {
-                    warnings.push(label);
-                }
+        if source.git.is_some() && source.rev.is_none() && source.tag.is_none() {
+            floating_git_sources += 1;
+            let label = format!("{name}(floating-git)");
+            if allow_floating_git.contains(name.as_str()) {
+                suppressed.push(label);
+            } else {
+                warnings.push(label);
             }
         }
     }

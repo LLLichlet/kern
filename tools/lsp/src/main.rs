@@ -25,8 +25,10 @@ fn main() {
 }
 
 fn parse_args() -> Result<CompileOptions, String> {
-    let mut options = CompileOptions::default();
-    options.use_std = true;
+    let mut options = CompileOptions {
+        use_std: true,
+        ..CompileOptions::default()
+    };
 
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {

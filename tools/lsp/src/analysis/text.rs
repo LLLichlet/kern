@@ -171,7 +171,7 @@ pub(super) fn uri_to_file_path(uri: &str) -> Option<PathBuf> {
     {
         let trimmed = decoded.strip_prefix('/').unwrap_or(&decoded);
         let with_separators = trimmed.replace('/', "\\");
-        return Some(PathBuf::from(with_separators));
+        Some(PathBuf::from(with_separators))
     }
 
     #[cfg(not(windows))]

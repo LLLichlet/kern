@@ -49,9 +49,12 @@ pub struct AnalysisSettings {
 
 impl Default for AnalysisSettings {
     fn default() -> Self {
-        let mut compile_options = CompileOptions::default();
-        compile_options.use_std = true;
-        Self { compile_options }
+        Self {
+            compile_options: CompileOptions {
+                use_std: true,
+                ..CompileOptions::default()
+            },
+        }
     }
 }
 
@@ -150,6 +153,7 @@ struct SemanticTokensCacheKey {
 }
 
 impl AnalysisCacheKey {
+    #[cfg(test)]
     fn from_resolved(resolved: &ResolvedAnalysis, source_overrides: &SourceOverrides) -> Self {
         let mut hashed_overrides = source_overrides
             .iter()
@@ -245,6 +249,7 @@ impl AnalysisEngine {
         }
     }
 
+    #[cfg(test)]
     pub fn open_document(&mut self, params: DidOpenTextDocumentParams) -> AnalysisOutcome {
         match self.open_document_state(params) {
             DocumentSyncAction::ScheduleTarget(uri) => self.analyze_document(&uri),
@@ -278,6 +283,7 @@ impl AnalysisEngine {
         DocumentSyncAction::ScheduleTarget(uri)
     }
 
+    #[cfg(test)]
     pub fn change_document(&mut self, params: DidChangeTextDocumentParams) -> AnalysisOutcome {
         match self.change_document_state(params) {
             DocumentSyncAction::ScheduleTarget(uri) => self.analyze_document(&uri),
@@ -316,6 +322,7 @@ impl AnalysisEngine {
         DocumentSyncAction::ScheduleTarget(params.text_document.uri)
     }
 
+    #[cfg(test)]
     pub fn close_document(&mut self, params: DidCloseTextDocumentParams) -> AnalysisOutcome {
         match self.close_document_state(params) {
             DocumentSyncAction::ScheduleTarget(uri) => self.analyze_document(&uri),
@@ -840,6 +847,7 @@ impl AnalysisEngine {
             .filter(|_| !dirty_documents.is_clean()))
     }
 
+    #[cfg(test)]
     fn source_overrides(&self) -> SourceOverrides {
         self.dirty_documents_snapshot().overrides.clone()
     }
@@ -1237,7 +1245,7 @@ fn remap_offset(offset: usize, replacements: &[OffsetReplacement]) -> Option<usi
         return None;
     }
 
-    Some(offset.checked_add_signed(delta as isize)?)
+    offset.checked_add_signed(delta as isize)
 }
 
 pub fn cleared_uris(previous: &BTreeSet<String>, current: &[DiagnosticBundle]) -> Vec<String> {

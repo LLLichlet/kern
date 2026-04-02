@@ -359,10 +359,10 @@ fn handle_message(
             )?;
         }
         "$/cancelRequest" => {
-            if let Some(params) = message.params {
-                if let Ok(params) = serde_json::from_value::<CancelRequestParams>(params) {
-                    state.cancel_request(params.id);
-                }
+            if let Some(params) = message.params
+                && let Ok(params) = serde_json::from_value::<CancelRequestParams>(params)
+            {
+                state.cancel_request(params.id);
             }
         }
         "workspace/didChangeConfiguration" => {

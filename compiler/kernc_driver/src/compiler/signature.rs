@@ -102,11 +102,12 @@ fn collect_call_sites_in_decl(
     call_sites: &mut Vec<SignatureCallSite>,
 ) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                collect_call_sites_in_expr(ctx, file_id, body, call_sites);
-            }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => {
+            collect_call_sites_in_expr(ctx, file_id, body, call_sites);
         }
+        ast::DeclKind::Function { body: None, .. } => {}
         ast::DeclKind::Var { value, .. } => {
             collect_call_sites_in_expr(ctx, file_id, value, call_sites);
         }
@@ -247,11 +248,10 @@ fn collect_call_sites_in_expr(
                 collect_call_sites_in_expr(ctx, file_id, end, call_sites);
             }
         }
-        ast::ExprKind::Return(value) => {
-            if let Some(value) = value {
-                collect_call_sites_in_expr(ctx, file_id, value, call_sites);
-            }
+        ast::ExprKind::Return(Some(value)) => {
+            collect_call_sites_in_expr(ctx, file_id, value, call_sites);
         }
+        ast::ExprKind::Return(None) => {}
         ast::ExprKind::Closure { captures, body, .. } => {
             for capture in captures {
                 collect_call_sites_in_expr(ctx, file_id, &capture.value, call_sites);

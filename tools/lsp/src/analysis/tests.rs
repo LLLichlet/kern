@@ -68,7 +68,7 @@ fn close_document_clears_open_state_and_returns_empty_bundle() {
         text_document: crate::protocol::TextDocumentIdentifier { uri: uri.clone() },
     });
 
-    assert!(analysis.documents.get(&uri).is_none());
+    assert!(!analysis.documents.contains_key(&uri));
     let bundle = outcome
         .bundles
         .iter()

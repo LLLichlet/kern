@@ -53,6 +53,10 @@ impl MemberQueryEnv {
         self.active_bounds.len()
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.active_bounds.is_empty()
+    }
+
     pub fn truncate(&mut self, len: usize) {
         self.active_bounds.truncate(len);
     }

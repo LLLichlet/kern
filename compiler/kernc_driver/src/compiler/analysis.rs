@@ -49,7 +49,7 @@ impl CompilerDriver {
 
         match self.try_analyze_structure(session, input_file, source_overrides) {
             Ok(structure) => self.analyze_artifact_from_structure(&structure),
-            Err(session) => self.empty_analysis_artifact(session),
+            Err(session) => self.empty_analysis_artifact(*session),
         }
     }
 
@@ -225,13 +225,13 @@ impl CompilerDriver {
         mut session: Session,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> Result<StructureArtifact, Session> {
+    ) -> Result<StructureArtifact, Box<Session>> {
         let mut ctx = self.build_sema_context(&mut session);
         let Some(asts) = self.load_asts(&mut ctx, input_file, source_overrides) else {
-            return Err(session);
+            return Err(Box::new(session));
         };
         let Some(snapshot) = self.build_structure_snapshot(&mut ctx, asts.clone()) else {
-            return Err(session);
+            return Err(Box::new(session));
         };
         let completion_model = self.collect_structure_completion_model(&ctx, &asts);
         drop(ctx);
@@ -249,10 +249,10 @@ impl CompilerDriver {
         mut session: Session,
         input_file: &str,
         source_overrides: &SourceOverrides,
-    ) -> Result<ParsedModuleArtifact, Session> {
+    ) -> Result<ParsedModuleArtifact, Box<Session>> {
         let mut ctx = self.build_sema_context(&mut session);
         let Some(asts) = self.load_asts(&mut ctx, input_file, source_overrides) else {
-            return Err(session);
+            return Err(Box::new(session));
         };
         let modules = asts
             .into_iter()
@@ -546,15 +546,12 @@ impl CompilerDriver {
                 .source_manager
                 .get_file_path(parsed_module.file_id)?;
             let normalized = normalize_driver_path(path);
-            let Some((module_id, clean_module)) =
+            let (module_id, clean_module) =
                 clean_modules
                     .iter()
                     .find_map(|(path, module_id, module_ast)| {
                         (path == &normalized).then_some((*module_id, *module_ast))
-                    })
-            else {
-                return None;
-            };
+                    })?;
 
             let clean_file_id = module_file_id(&ctx.defs, module_id);
             let module_changed = module_source_changed(

@@ -531,17 +531,16 @@ impl CompilerDriver {
                     );
                 }
             }
-            ast::ExprKind::Return(value) => {
-                if let Some(value) = value {
-                    self.collect_member_completion_items_in_expr(
-                        member_query,
-                        module_id,
-                        value,
-                        member_env,
-                        member_items_by_span,
-                    );
-                }
+            ast::ExprKind::Return(Some(value)) => {
+                self.collect_member_completion_items_in_expr(
+                    member_query,
+                    module_id,
+                    value,
+                    member_env,
+                    member_items_by_span,
+                );
             }
+            ast::ExprKind::Return(None) => {}
             ast::ExprKind::As { lhs, .. }
             | ast::ExprKind::GenericInstantiation { target: lhs, .. } => {
                 self.collect_member_completion_items_in_expr(

@@ -182,7 +182,7 @@ extern fn main(args: [][]u8) i32 {
     );
     assert!(
         String::from_utf8_lossy(&output.stderr)
-            .contains("irrefutable `let` bindings cannot use `else`"),
+            .contains("irrefutable `let` patterns cannot use `else`"),
         "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );

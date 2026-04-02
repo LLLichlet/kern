@@ -111,6 +111,36 @@ impl DirtyDocumentsSnapshot {
     fn len(&self) -> usize {
         self.hashed_overrides.len()
     }
+
+    fn remap_for(&self, aliases: &BTreeMap<PathBuf, PathBuf>) -> Self {
+        if aliases.is_empty() || self.overrides.is_empty() {
+            return self.clone();
+        }
+
+        let mut overrides = self.overrides.clone();
+        for (source_path, generated_path) in aliases {
+            let normalized_source = normalize_path(source_path);
+            let normalized_generated = normalize_path(generated_path);
+            if overrides.contains_key(&normalized_generated) {
+                continue;
+            }
+            let Some(source) = overrides.get(&normalized_source).cloned() else {
+                continue;
+            };
+            overrides.insert(normalized_generated, source);
+        }
+
+        let mut hashed_overrides = overrides
+            .iter()
+            .map(|(path, text)| (normalize_path(path), hash_source_text(text)))
+            .collect::<Vec<_>>();
+        hashed_overrides.sort();
+
+        Self {
+            overrides,
+            hashed_overrides,
+        }
+    }
 }
 
 pub struct AnalysisEngine {
@@ -888,7 +918,9 @@ impl AnalysisEngine {
 
     fn analyze_artifact(&self, target_uri: &str) -> Result<Rc<AnalysisArtifact>, String> {
         let resolved = self.resolve_analysis(target_uri)?;
-        let dirty_documents = self.dirty_documents_snapshot();
+        let dirty_documents = self
+            .dirty_documents_snapshot()
+            .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
         if let Some(artifact) = self.artifact_cache.borrow().get(&cache_key) {
             return Ok(Rc::clone(artifact));
@@ -931,7 +963,9 @@ impl AnalysisEngine {
         target_uri: &str,
     ) -> Result<Rc<StructureArtifact>, String> {
         let resolved = self.resolve_analysis(target_uri)?;
-        let dirty_documents = self.dirty_documents_snapshot();
+        let dirty_documents = self
+            .dirty_documents_snapshot()
+            .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
         if let Some(structure) = self.structure_cache.borrow().get(&cache_key) {
             return Ok(Rc::clone(structure));
@@ -964,7 +998,9 @@ impl AnalysisEngine {
         target_uri: &str,
     ) -> Result<(Rc<ParsedModuleArtifact>, CompilerDriver), String> {
         let resolved = self.resolve_analysis(target_uri)?;
-        let dirty_documents = self.dirty_documents_snapshot();
+        let dirty_documents = self
+            .dirty_documents_snapshot()
+            .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
         let driver = CompilerDriver::new(resolved.compile_options);
 
@@ -1006,6 +1042,7 @@ impl AnalysisEngine {
         Ok(ResolvedAnalysis {
             input_file: self.infer_standalone_analysis_root(&target_doc.path),
             compile_options,
+            source_path_aliases: BTreeMap::new(),
         })
     }
 

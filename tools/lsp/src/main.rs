@@ -39,6 +39,21 @@ fn parse_args() -> Result<CompileOptions, String> {
             }
             "--use-std" => options.use_std = true,
             "--no-use-std" => options.use_std = false,
+            "--features" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "expected `a,b,c` after `--features`".to_string())?;
+                for feature in value.split(',') {
+                    let feature = feature.trim();
+                    if feature.is_empty() {
+                        return Err("empty feature name in `--features`".to_string());
+                    }
+                    if !options.craft_features.iter().any(|item| item == feature) {
+                        options.craft_features.push(feature.to_string());
+                    }
+                }
+            }
+            "--no-default-features" => options.craft_default_features = false,
             "-M" => {
                 let value = args
                     .next()
@@ -80,11 +95,14 @@ fn usage() -> &'static str {
 kern-lsp - Kern language server
 
 USAGE:
-    kern-lsp [--use-std|--no-use-std] [-M <name=path>]... [-I <name=path>]...
+    kern-lsp [--use-std|--no-use-std] [--features <a,b>] [--no-default-features] [-M <name=path>]... [-I <name=path>]...
 
 OPTIONS:
     --use-std        Enable std injection for analysis (default)
     --no-use-std     Disable std injection for analysis
+    --features <a,b> Enable explicit `craft` features for project analysis
+    --no-default-features
+                     Disable default `craft` features for project analysis
     -M <name=path>   Add a source module alias for analysis
     -I <name=path>   Add an imported kmeta module alias for analysis
 "

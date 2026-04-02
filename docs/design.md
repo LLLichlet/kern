@@ -81,6 +81,8 @@ In Kern, **mutability is a property of storage, not an intrinsic part of the bas
 
 Pointers explicitly carry mutability permissions for the memory they point to.
 
+In Kern, a pointer is still just a first-class value type. It can be stored, passed, returned, compared, initialized explicitly, participate in arithmetic, and be used as the target of an `impl` block like any other concrete type. Kern does not model pointers as a hidden borrow/reference system in the Rust or C++ sense.
+
   * **Normal Pointers**:
       * `*T`: Immutable pointer. Allows reading from `T`.
       * `*mut T`: Mutable pointer. Allows reading and writing to `T`.
@@ -301,6 +303,8 @@ extern {fn process_c_data(data: *extern struct { a: u8, b: u64 }) void; }
 
 `impl` blocks attach methods to a concrete type (including pointer types). The `self` parameter is implicitly injected and managed by the Semantic Analyzer.
 
+The key rule is that `impl` is type-directed, not pointer-directed. A pointer type such as `*i32`, `*mut File`, or `[][]u8` is simply another concrete type in the type system. If a design wants a trait to describe value semantics, it should be implemented for the value type itself (for example `impl i32 : Eq[i32]`). If a design wants pointer semantics, it should implement the pointer type explicitly.
+
 ```kern
 type Point = struct { x: i32, y: i32 };
 
@@ -340,6 +344,8 @@ Trait Object VTables use a two-part layout:
 
 This makes `*Sub -> *Super` upcasts a constant-time metadata rewrite while avoiding C++-style subobject pointer adjustment.
 
+This pointer requirement belongs specifically to trait-object construction. It should not be confused with ordinary trait implementations. In other words, `*Trait` is an explicit runtime packaging form, not the semantic foundation of traits in Kern.
+
 <!-- end list -->
 
 ```kern
@@ -364,6 +370,7 @@ Unlike some languages where generic parameter declaration and trait bounding are
 
 * **Explicit Separation**: Generic parameters are introduced first (e.g., `impl[T]`), and bounds are applied via `where`.
 * **Orthogonal Pointer Constraints**: Kern's strict type system allows you to constrain different pointer derivations of the same generic type independently. For example, `where *T: TraitA, *mut T: TraitB` is entirely valid. The compiler treats each pointer level and mutability qualifier as a distinct type subject to its own traits.
+* **Value-First Semantics**: If a trait models the behavior of a value, the natural bound should target the value type directly (`where T: Eq[T]`, `where K: Hash[K]`). Pointer-shaped bounds should be reserved for APIs whose semantics are genuinely about pointer types or explicit trait objects.
 
 **Implementation Blocks with Constraints:**
 In the following example, `impl[T]` introduces the generic `T`. `*List[T] : Printable` defines that we are implementing the `Printable` trait for the type `*List[T]`. The `where` clause specifies the prerequisite: this implementation only exists if `*T` itself is `Printable`.

@@ -142,6 +142,7 @@ This produces `kernc`, `craft`, and `kern-lsp` in `target/release/`.
 
 ## Documentation
 
+  * **[Kern Tutorial](docs/tutorial/README.md)**: A practical multi-chapter guide for learning the language, using `kernc`, understanding `craft`, driving `kern-lsp`, and navigating the repository.
   * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
   * **[Kern Language Design Document](docs/design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
   * **[The `craft` Design Draft](docs/craft.md)**: The proposed package manager, lockfile, manifest, and build-planning architecture.

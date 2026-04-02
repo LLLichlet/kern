@@ -215,8 +215,27 @@ impl<'a> Parser<'a> {
     fn parse_single_match_pattern(&mut self) -> ParseResult<MatchPattern> {
         let pat_start = self.peek().span;
 
+        if self.match_token(&[TokenType::DotLBrace]) {
+            let variant = self.parse_braced_variant_pattern(None, pat_start)?;
+            return Ok(MatchPattern {
+                kind: MatchPatternKind::Variant(variant),
+                span: pat_start.to(self.stream.prev_span()),
+            });
+        }
+
         if self.match_token(&[TokenType::Dot]) {
             return self.parse_shorthand_variant_pattern(pat_start);
+        }
+
+        if self.looks_like_typed_braced_variant_pattern() {
+            let target_type = self.parse_type()?;
+            self.expect(TokenType::DotLBrace)?;
+            let variant =
+                self.parse_braced_variant_pattern(Some(Box::new(target_type)), pat_start)?;
+            return Ok(MatchPattern {
+                kind: MatchPatternKind::Variant(variant),
+                span: pat_start.to(self.stream.prev_span()),
+            });
         }
 
         let expr = self.parse_expression(Precedence::Lowest)?;
@@ -243,18 +262,15 @@ impl<'a> Parser<'a> {
             });
         }
         if self.match_token(&[TokenType::Colon]) {
-            let binding = Some(self.parse_binding_pattern()?);
-            let ty = self.expr_to_type(expr)?;
-            let (target_type, variant_name, variant_span) = self.extract_variant_from_type(ty)?;
-            return Ok(MatchPattern {
-                kind: MatchPatternKind::Variant(VariantPattern {
-                    target_type: Some(Box::new(target_type)),
-                    variant_name,
-                    variant_span,
-                    binding,
-                }),
-                span: pat_start.to(self.stream.prev_span()),
-            });
+            let _ = self.parse_binding_pattern()?;
+            self.session
+                .struct_error(
+                    expr.span,
+                    "enum payload patterns must use braced destructuring syntax",
+                )
+                .with_hint("write this as `.{ Variant: value }` or `Type.{ Variant: value }`")
+                .emit();
+            return Err(crate::ParseError);
         }
 
         Ok(MatchPattern {
@@ -264,7 +280,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_shorthand_variant_pattern(&mut self, pat_start: Span) -> ParseResult<MatchPattern> {
-        let variant = self.parse_variant_pattern_after_dot()?;
+        let variant = self.parse_unit_variant_pattern_after_dot(None)?;
 
         Ok(MatchPattern {
             kind: MatchPatternKind::Variant(variant),
@@ -272,41 +288,64 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_variant_pattern_after_dot(&mut self) -> ParseResult<VariantPattern> {
+    fn parse_unit_variant_pattern_after_dot(
+        &mut self,
+        target_type: Option<Box<TypeNode>>,
+    ) -> ParseResult<VariantPattern> {
         let v_tok = self.expect(TokenType::Identifier)?;
         let variant_name = self.intern_token(v_tok);
 
-        let mut binding = None;
         if self.match_token(&[TokenType::Colon]) {
-            binding = Some(self.parse_binding_pattern()?);
+            let _ = self.parse_binding_pattern()?;
+            self.session
+                .struct_error(
+                    v_tok.span,
+                    "enum payload patterns must use braced destructuring syntax",
+                )
+                .with_hint("write this as `.{ Variant: value }` or `Type.{ Variant: value }`")
+                .emit();
+            return Err(crate::ParseError);
         }
 
         Ok(VariantPattern {
-            target_type: None,
+            target_type,
             variant_name,
             variant_span: v_tok.span,
-            binding,
+            binding: None,
+        })
+    }
+
+    fn parse_braced_variant_pattern(
+        &mut self,
+        target_type: Option<Box<TypeNode>>,
+        _start_span: Span,
+    ) -> ParseResult<VariantPattern> {
+        let variant_tok = self.expect(TokenType::Identifier)?;
+        let variant_name = self.intern_token(variant_tok);
+        self.expect(TokenType::Colon)?;
+        let binding = self.parse_binding_pattern()?;
+        self.match_token(&[TokenType::Comma]);
+        self.expect(TokenType::RBrace)?;
+
+        Ok(VariantPattern {
+            target_type,
+            variant_name,
+            variant_span: variant_tok.span,
+            binding: Some(binding),
         })
     }
 
     fn parse_typed_let_variant_pattern(&mut self, start_span: Span) -> ParseResult<LetPattern> {
         let target_type = self.parse_type()?;
-        self.expect(TokenType::Dot)?;
-        let variant_tok = self.expect(TokenType::Identifier)?;
-        let variant_name = self.intern_token(variant_tok);
-
-        let mut binding = None;
-        if self.match_token(&[TokenType::Colon]) {
-            binding = Some(self.parse_binding_pattern()?);
-        }
+        let variant = if self.match_token(&[TokenType::DotLBrace]) {
+            self.parse_braced_variant_pattern(Some(Box::new(target_type)), start_span)?
+        } else {
+            self.expect(TokenType::Dot)?;
+            self.parse_unit_variant_pattern_after_dot(Some(Box::new(target_type)))?
+        };
 
         Ok(LetPattern {
-            kind: LetPatternKind::Variant(VariantPattern {
-                target_type: Some(Box::new(target_type)),
-                variant_name,
-                variant_span: variant_tok.span,
-                binding,
-            }),
+            kind: LetPatternKind::Variant(variant),
             span: start_span.to(self.stream.prev_span()),
         })
     }
@@ -314,8 +353,16 @@ impl<'a> Parser<'a> {
     fn parse_let_pattern(&mut self) -> ParseResult<LetPattern> {
         let start_span = self.peek().span;
 
+        if self.match_token(&[TokenType::DotLBrace]) {
+            let variant = self.parse_braced_variant_pattern(None, start_span)?;
+            return Ok(LetPattern {
+                kind: LetPatternKind::Variant(variant),
+                span: start_span.to(self.stream.prev_span()),
+            });
+        }
+
         if self.match_token(&[TokenType::Dot]) {
-            let variant = self.parse_variant_pattern_after_dot()?;
+            let variant = self.parse_unit_variant_pattern_after_dot(None)?;
             return Ok(LetPattern {
                 kind: LetPatternKind::Variant(variant),
                 span: start_span.to(self.stream.prev_span()),
@@ -324,7 +371,8 @@ impl<'a> Parser<'a> {
 
         if self.check(TokenType::Identifier) {
             let next = self.stream.peek_nth(1).tag;
-            if next == TokenType::Dot || next == TokenType::LBracket {
+            if next == TokenType::Dot || next == TokenType::DotLBrace || next == TokenType::LBracket
+            {
                 return self.parse_typed_let_variant_pattern(start_span);
             }
         }
@@ -334,6 +382,35 @@ impl<'a> Parser<'a> {
             span: binding.span,
             kind: LetPatternKind::Binding(binding),
         })
+    }
+
+    fn looks_like_typed_braced_variant_pattern(&mut self) -> bool {
+        if !self.check(TokenType::Identifier) {
+            return false;
+        }
+
+        let mut index = 1;
+        while self.stream.peek_nth(index).tag == TokenType::Dot
+            && self.stream.peek_nth(index + 1).tag == TokenType::Identifier
+        {
+            index += 2;
+        }
+
+        if self.stream.peek_nth(index).tag == TokenType::LBracket {
+            let mut depth = 1;
+            index += 1;
+            while depth > 0 {
+                match self.stream.peek_nth(index).tag {
+                    TokenType::LBracket => depth += 1,
+                    TokenType::RBracket => depth -= 1,
+                    TokenType::Eof => return false,
+                    _ => {}
+                }
+                index += 1;
+            }
+        }
+
+        self.stream.peek_nth(index).tag == TokenType::DotLBrace
     }
 
     pub(super) fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {

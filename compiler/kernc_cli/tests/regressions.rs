@@ -247,14 +247,14 @@ extern fn main() i32 {
     defer gpa.deinit();
 
     let mut text = match (make_text(gpa, "kern-lang")) {
-        .Ok: text => text,
-        .Err: _ => return 1,
+        .{ Ok: text } => text,
+        .{ Err: _ } => return 1,
     };
     defer text..&.deinit(gpa);
 
     let mut text2 = match (make_text(gpa, "kern")) {
-        .Ok: text => text,
-        .Err: _ => return 2,
+        .{ Ok: text } => text,
+        .{ Err: _ } => return 2,
     };
     text2..&.deinit(gpa);
 
@@ -301,7 +301,7 @@ extern fn main(args: [][]u8) i32 {
 
     let picked = match (VALUE) {
         .None => i32.{0},
-        .Some: v => v,
+        .{ Some: v } => v,
     };
 
     return mode + picked + (TABLE.[1] as i32);
@@ -352,7 +352,7 @@ const fn unwrap_switch(v: Switch) i32 {
     match (v) {
         .Off => 0,
         .On => 1,
-        .Value: payload => payload,
+        .{ Value: payload } => payload,
     }
 }
 
@@ -683,8 +683,8 @@ fn fail() Result[i32, i32] {
 
 extern fn main() i32 {
     let _ = match (fail()) {
-        .Ok: v => v,
-        .Err: _err => {
+        .{ Ok: v } => v,
+        .{ Err: _err } => {
             let _ = i32.{0};
             return 0;
         },

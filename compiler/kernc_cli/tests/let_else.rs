@@ -22,7 +22,7 @@ type Option[T] = enum {
 };
 
 fn extract(value: Option[i32]) i32 {
-    let Option[i32].Some: inner = value else return 0;
+    let Option[i32].{ Some: inner } = value else return 0;
     return inner;
 }
 
@@ -51,7 +51,7 @@ type Option[T] = enum {
 };
 
 const fn unwrap_or(value: Option[i32], fallback: i32) i32 {
-    let .Some: inner = value else return fallback;
+    let .{ Some: inner } = value else return fallback;
     return inner;
 }
 
@@ -72,6 +72,68 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn rejects_legacy_let_variant_payload_syntax() {
+    let output = compile_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let .Some: value = Option[i32].{ Some: 3 } else return 0;
+    return value;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("enum payload patterns must use braced destructuring syntax"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_legacy_match_variant_payload_syntax() {
+    let output = compile_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+extern fn main(args: [][]u8) i32 {
+    return match (Option[i32].{ Some: 3 }) {
+        .Some: value => value,
+        .None => 0,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("enum payload patterns must use braced destructuring syntax"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_refutable_let_without_else() {
     let output = compile_source(
         r#"
@@ -81,7 +143,7 @@ type Option[T] = enum {
 };
 
 extern fn main(args: [][]u8) i32 {
-    let .Some: value = Option[i32].{ Some: 3 };
+    let .{ Some: value } = Option[i32].{ Some: 3 };
     return value;
 }
 "#,
@@ -136,7 +198,7 @@ type Option[T] = enum {
 };
 
 extern fn main(args: [][]u8) i32 {
-    let .Some: value = Option[i32].{ None } else 0;
+    let .{ Some: value } = Option[i32].{ None } else 0;
     return value;
 }
 "#,
@@ -166,7 +228,7 @@ type Option[T] = enum {
 };
 
 fn pick(value: Option[i32], fallback: bool) i32 {
-    let .Some: inner = value else if (fallback) { return 7; } else { return 3; };
+    let .{ Some: inner } = value else if (fallback) { return 7; } else { return 3; };
     return inner;
 }
 
@@ -198,7 +260,7 @@ extern fn main(args: [][]u8) i32 {
     let value = i32.{5};
 
     {
-        let .Some: value = Option[i32].{ Some: 9 } else return 1;
+        let .{ Some: value } = Option[i32].{ Some: 9 } else return 1;
         if (value != i32.{9}) {
             return 2;
         }

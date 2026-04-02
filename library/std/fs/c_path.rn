@@ -5,7 +5,7 @@ use ..types.Error;
 
 pub fn alloc_c_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
     let ptr = match (cffi.cstr.alloc_z(alloc, path)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return .{ Err: .{ OutOfMemory } },
     };
     return .{ Ok: ptr };

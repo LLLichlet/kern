@@ -42,7 +42,7 @@ fn decode_named(v: Switch) i32 {
     match (v) {
         .Off => 40,
         .On => 70,
-        .Error: payload => payload,
+        .{ Error: payload } => payload,
     }
 }
 
@@ -50,7 +50,7 @@ fn decode_anon(v: enum: u16 { Off = 4, On = 7, Error: i32 }) i32 {
     match (v) {
         .Off => 1,
         .On => 2,
-        .Error: payload => payload,
+        .{ Error: payload } => payload,
     }
 }
 

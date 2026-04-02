@@ -157,8 +157,8 @@ extern fn _start_windows() void {
             WINDOWS_ARG_WIDE_BUF.[0 .. wide_len],
             WINDOWS_ARG_BUF..[out_len .. 32768]
         )) {
-            .Ok: len => len,
-            .Err: _ => break,
+            .{ Ok: len } => len,
+            .{ Err: _ } => break,
         };
 
         out_len += written;

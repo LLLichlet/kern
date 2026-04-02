@@ -157,7 +157,7 @@ pub fn file_name(path: []u8) Option[[]u8] {
     }
 
     match (last_separator(trimmed)) {
-        .Some: index => return .{ Some: trimmed.[index + 1 .. #trimmed] },
+        .{ Some: index } => return .{ Some: trimmed.[index + 1 .. #trimmed] },
         .None => return .{ Some: trimmed },
     }
 }
@@ -170,7 +170,7 @@ pub fn parent(path: []u8) Option[[]u8] {
     }
 
     match (last_separator(trimmed)) {
-        .Some: index => return .{ Some: trimmed.[0 .. index] },
+        .{ Some: index } => return .{ Some: trimmed.[0 .. index] },
         .None => {
             if (prefix_len > 0) {
                 return .{ Some: trimmed.[0 .. prefix_len] };
@@ -182,7 +182,7 @@ pub fn parent(path: []u8) Option[[]u8] {
 
 pub fn extension(path: []u8) Option[[]u8] {
     let name = match (file_name(path)) {
-        .Some: name => name,
+        .{ Some: name } => name,
         .None => return .{ None },
     };
 
@@ -202,7 +202,7 @@ pub fn extension(path: []u8) Option[[]u8] {
 
 pub fn file_stem(path: []u8) Option[[]u8] {
     let name = match (file_name(path)) {
-        .Some: name => name,
+        .{ Some: name } => name,
         .None => return .{ None },
     };
 
@@ -307,7 +307,7 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
 
     for (let mut seg_index = 0; seg_index < segments.len; seg_index += 1) {
         let segment = match (segments.get(seg_index)) {
-            .Some: segment => segment,
+            .{ Some: segment } => segment,
             .None => continue,
         };
         if (!append_path_segment(out..&, alloc, prefix_len, sep, segment)) {
@@ -328,7 +328,7 @@ pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) Result[Stri
     let prefix_len = root_prefix_len(trimmed);
 
     match (parent(trimmed)) {
-        .Some: dir => return join(alloc, dir, name),
+        .{ Some: dir } => return join(alloc, dir, name),
         .None => {
             if (#trimmed == prefix_len and prefix_len > 0) {
                 return join(alloc, trimmed, name);
@@ -340,7 +340,7 @@ pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) Result[Stri
 
 pub fn with_extension(alloc: *mut Allocator, path: []u8, ext: []u8) Result[String, Error] {
     let stem = match (file_stem(path)) {
-        .Some: stem => stem,
+        .{ Some: stem } => stem,
         .None => return .{ Err: .{ InvalidPath } },
     };
 

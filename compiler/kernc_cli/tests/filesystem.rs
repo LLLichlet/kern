@@ -33,19 +33,19 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     let mut writer = match (fs.create(gpa, "{path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 1,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 1,
     }};
     let ok = match (ok_bool()) {{
-        .Ok: value => value,
-        .Err: _ => return 2,
+        .{{ Ok: value }} => value,
+        .{{ Err: _ }} => return 2,
     }};
     if (!ok) {{
         return 3;
     }}
     match (writer..&.close()) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 4,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 4,
     }}
     return 0;
 }}
@@ -78,16 +78,16 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     let written = match (fs.write_all(gpa, "{path}", "abc123")) {{
-        .Ok: count => count,
-        .Err: _ => return 1,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 1,
     }};
     if (written != 6) {{
         return 2;
     }}
 
     let mut text = match (fs.read_to_string(gpa, "{path}")) {{
-        .Ok: text => text,
-        .Err: _ => return 3,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 3,
     }};
     defer text..&.deinit(gpa);
 
@@ -96,8 +96,8 @@ extern fn main() i32 {{
     }}
 
     match (fs.remove_file(gpa, "{path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 5,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 5,
     }}
 
     let missing = fs.open_read(gpa, "{path}");
@@ -139,61 +139,61 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     let dir_exists_before = match (fs.exists(gpa, "{dir_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 1,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 1,
     }};
     if (dir_exists_before) {{
         return 2;
     }}
 
     match (fs.create_dir(gpa, "{dir_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 3,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 3,
     }}
 
     let dir_exists = match (fs.exists(gpa, "{dir_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 4,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 4,
     }};
     if (!dir_exists) {{
         return 5;
     }}
 
     let dir_meta = match (fs.metadata(gpa, "{dir_path}")) {{
-        .Ok: meta => meta,
-        .Err: _ => return 6,
+        .{{ Ok: meta }} => meta,
+        .{{ Err: _ }} => return 6,
     }};
     if (!dir_meta.is_dir() or dir_meta.is_file()) {{
         return 7;
     }}
 
     let dir_is_dir = match (fs.is_dir(gpa, "{dir_path}")) {{
-        .Ok: yes => yes,
-        .Err: _ => return 8,
+        .{{ Ok: yes }} => yes,
+        .{{ Err: _ }} => return 8,
     }};
     if (!dir_is_dir) {{
         return 9;
     }}
 
     let file_exists_before = match (fs.exists(gpa, "{file_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 10,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 10,
     }};
     if (file_exists_before) {{
         return 11;
     }}
 
     let written = match (fs.write_all(gpa, "{file_path}", "hello")) {{
-        .Ok: count => count,
-        .Err: _ => return 12,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 12,
     }};
     if (written != 5) {{
         return 13;
     }}
 
     let file_meta = match (fs.metadata(gpa, "{file_path}")) {{
-        .Ok: meta => meta,
-        .Err: _ => return 14,
+        .{{ Ok: meta }} => meta,
+        .{{ Err: _ }} => return 14,
     }};
     if (!file_meta.is_file() or file_meta.is_dir()) {{
         return 15;
@@ -203,42 +203,42 @@ extern fn main() i32 {{
     }}
 
     let file_is_file = match (fs.is_file(gpa, "{file_path}")) {{
-        .Ok: yes => yes,
-        .Err: _ => return 17,
+        .{{ Ok: yes }} => yes,
+        .{{ Err: _ }} => return 17,
     }};
     if (!file_is_file) {{
         return 18;
     }}
 
     let file_is_dir = match (fs.is_dir(gpa, "{file_path}")) {{
-        .Ok: yes => yes,
-        .Err: _ => return 19,
+        .{{ Ok: yes }} => yes,
+        .{{ Err: _ }} => return 19,
     }};
     if (file_is_dir) {{
         return 20;
     }}
 
     match (fs.remove_file(gpa, "{file_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 21,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 21,
     }}
 
     let file_exists_after = match (fs.exists(gpa, "{file_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 22,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 22,
     }};
     if (file_exists_after) {{
         return 23;
     }}
 
     match (fs.remove_dir(gpa, "{dir_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 24,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 24,
     }}
 
     let dir_exists_after = match (fs.exists(gpa, "{dir_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 25,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 25,
     }};
     if (dir_exists_after) {{
         return 26;
@@ -277,28 +277,28 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     let mut writer = match (fs.create(gpa, "{path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 1,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 1,
     }};
     let written = match (writer..&.write_all("kern-fs")) {{
-        .Ok: count => count,
-        .Err: _ => return 2,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 2,
     }};
     if (written != 7) {{
         return 3;
     }}
     match (writer..&.close()) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 4,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 4,
     }}
 
     let mut reader = match (fs.open_read(gpa, "{path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 5,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 5,
     }};
     let mut text = match (reader..&.read_to_string(gpa)) {{
-        .Ok: text => text,
-        .Err: _ => return 6,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 6,
     }};
     defer text..&.deinit(gpa);
 
@@ -306,8 +306,8 @@ extern fn main() i32 {{
         return 7;
     }}
     match (reader..&.close()) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 8,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 8,
     }}
 
     let missing = fs.open_read(gpa, "{path}.missing");
@@ -346,16 +346,16 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     let mut created = match (fs.create_new(gpa, "{path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 1,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 1,
     }};
     match (created..&.write_all("ab")) {{
-        .Ok: count => {{
+        .{{ Ok: count }} => {{
             if (count != 2) {{
                 return 2;
             }}
         }},
-        .Err: _ => return 3,
+        .{{ Err: _ }} => return 3,
     }}
     created..&.deinit();
 
@@ -365,36 +365,36 @@ extern fn main() i32 {{
     }}
 
     let mut appended = match (fs.open_append(gpa, "{path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 5,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 5,
     }};
     match (appended..&.write_all("cd")) {{
-        .Ok: count => {{
+        .{{ Ok: count }} => {{
             if (count != 2) {{
                 return 6;
             }}
         }},
-        .Err: _ => return 7,
+        .{{ Err: _ }} => return 7,
     }}
     appended..&.deinit();
 
     let mut writer = match (fs.open_write(gpa, "{path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 8,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 8,
     }};
     match (writer..&.write("Z")) {{
-        .Ok: count => {{
+        .{{ Ok: count }} => {{
             if (count != 1) {{
                 return 9;
             }}
         }},
-        .Err: _ => return 10,
+        .{{ Err: _ }} => return 10,
     }}
     writer..&.deinit();
 
     let mut text = match (fs.read_to_string(gpa, "{path}")) {{
-        .Ok: text => text,
-        .Err: _ => return 11,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 11,
     }};
     defer text..&.deinit(gpa);
 
@@ -440,42 +440,42 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{dir_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 1,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
     }}
 
     let root_is_dir = match (fs.is_dir(gpa, "{root_path}")) {{
-        .Ok: yes => yes,
-        .Err: _ => return 2,
+        .{{ Ok: yes }} => yes,
+        .{{ Err: _ }} => return 2,
     }};
     if (!root_is_dir) {{
         return 3;
     }}
 
     let nested_is_dir = match (fs.is_dir(gpa, "{dir_path}")) {{
-        .Ok: yes => yes,
-        .Err: _ => return 4,
+        .{{ Ok: yes }} => yes,
+        .{{ Err: _ }} => return 4,
     }};
     if (!nested_is_dir) {{
         return 5;
     }}
 
     match (fs.create_dir_all(gpa, "{dir_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 6,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 6,
     }}
 
     let written = match (fs.write_all(gpa, "{file_path}", "nested")) {{
-        .Ok: count => count,
-        .Err: _ => return 7,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 7,
     }};
     if (written != 6) {{
         return 8;
     }}
 
     let mut text = match (fs.read_to_string(gpa, "{file_path}")) {{
-        .Ok: text => text,
-        .Err: _ => return 9,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 9,
     }};
     defer text..&.deinit(gpa);
 
@@ -531,35 +531,35 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{old_dir_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 1,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
     }}
 
     match (fs.write_all(gpa, "{old_file_path}", "rename-me")) {{
-        .Ok: count => {{
+        .{{ Ok: count }} => {{
             if (count != 9) {{
                 return 2;
             }}
         }},
-        .Err: _ => return 3,
+        .{{ Err: _ }} => return 3,
     }}
 
     match (fs.rename(gpa, "{old_file_path}", "{renamed_file_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 4,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 4,
     }}
 
     let old_file_exists = match (fs.exists(gpa, "{old_file_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 5,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 5,
     }};
     if (old_file_exists) {{
         return 6;
     }}
 
     let mut text = match (fs.read_to_string(gpa, "{renamed_file_path}")) {{
-        .Ok: text => text,
-        .Err: _ => return 7,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 7,
     }};
     defer text..&.deinit(gpa);
     if (!text.&.eq("rename-me")) {{
@@ -567,29 +567,29 @@ extern fn main() i32 {{
     }}
 
     match (fs.rename(gpa, "{old_dir_path}", "{new_dir_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 9,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 9,
     }}
 
     let old_dir_exists = match (fs.exists(gpa, "{old_dir_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 10,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 10,
     }};
     if (old_dir_exists) {{
         return 11;
     }}
 
     let new_dir_is_dir = match (fs.is_dir(gpa, "{new_dir_path}")) {{
-        .Ok: yes => yes,
-        .Err: _ => return 12,
+        .{{ Ok: yes }} => yes,
+        .{{ Err: _ }} => return 12,
     }};
     if (!new_dir_is_dir) {{
         return 13;
     }}
 
     let new_file_exists = match (fs.exists(gpa, "{new_file_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 14,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 14,
     }};
     if (!new_file_exists) {{
         return 15;
@@ -640,16 +640,16 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{alpha_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 1,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
     }}
     match (fs.write_all(gpa, "{file_a_path}", "A")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 2,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 2,
     }}
     match (fs.write_all(gpa, "{file_b_path}", "B")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 3,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 3,
     }}
 
     let mut total = usize.{{0}};
@@ -684,8 +684,8 @@ extern fn main() i32 {{
         }}
         return true;
     }})) {{
-        .Ok: count => count,
-        .Err: _ => return 4,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 4,
     }};
 
     if (visited != 3 or total != 3) {{
@@ -702,8 +702,8 @@ extern fn main() i32 {{
         early.* += 1;
         return false;
     }})) {{
-        .Ok: count => count,
-        .Err: _ => return 7,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 7,
     }};
 
     if (stopped != 1 or early != 1) {{
@@ -754,34 +754,34 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{nested_dir_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 1,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
     }}
     match (fs.write_all(gpa, "{nested_file_path}", "deep")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 2,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 2,
     }}
     match (fs.write_all(gpa, "{sibling_file_path}", "root")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 3,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 3,
     }}
 
     match (fs.remove_dir_all(gpa, "{root_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 4,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 4,
     }}
 
     let root_exists = match (fs.exists(gpa, "{root_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 5,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 5,
     }};
     if (root_exists) {{
         return 6;
     }}
 
     let nested_exists = match (fs.exists(gpa, "{nested_file_path}")) {{
-        .Ok: exists => exists,
-        .Err: _ => return 7,
+        .{{ Ok: exists }} => exists,
+        .{{ Err: _ }} => return 7,
     }};
     if (nested_exists) {{
         return 8;
@@ -898,8 +898,8 @@ extern fn main() i32 {
     let gpa = GPAllocator.{ backing: page }..&;
 
     let mut joined = match (fs.join(gpa, "/tmp/kern", "src/main.rn")) {
-        .Ok: path => path,
-        .Err: _ => return 1,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 1,
     };
     defer joined..&.deinit(gpa);
     if (!joined.&.eq("/tmp/kern/src/main.rn")) {
@@ -907,8 +907,8 @@ extern fn main() i32 {
     }
 
     let mut bare = match (fs.join(gpa, "", "note.txt")) {
-        .Ok: path => path,
-        .Err: _ => return 3,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 3,
     };
     defer bare..&.deinit(gpa);
     if (!bare.&.eq("note.txt")) {
@@ -916,8 +916,8 @@ extern fn main() i32 {
     }
 
     let mut rooted = match (fs.join(gpa, "/tmp/kern", "/etc/passwd")) {
-        .Ok: path => path,
-        .Err: _ => return 5,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 5,
     };
     defer rooted..&.deinit(gpa);
     if (!rooted.&.eq("/etc/passwd")) {
@@ -925,8 +925,8 @@ extern fn main() i32 {
     }
 
     let mut normalized = match (fs.normalize(gpa, "/tmp/./kern//src/../out/file.txt")) {
-        .Ok: path => path,
-        .Err: _ => return 7,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 7,
     };
     defer normalized..&.deinit(gpa);
     if (!normalized.&.eq("/tmp/kern/out/file.txt")) {
@@ -934,8 +934,8 @@ extern fn main() i32 {
     }
 
     let mut relative = match (fs.normalize(gpa, "alpha/./beta/../gamma")) {
-        .Ok: path => path,
-        .Err: _ => return 9,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 9,
     };
     defer relative..&.deinit(gpa);
     if (!relative.&.eq("alpha/gamma")) {
@@ -943,8 +943,8 @@ extern fn main() i32 {
     }
 
     let mut escaped = match (fs.normalize(gpa, "../../alpha/../beta")) {
-        .Ok: path => path,
-        .Err: _ => return 11,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 11,
     };
     defer escaped..&.deinit(gpa);
     if (!escaped.&.eq("../../beta")) {
@@ -952,8 +952,8 @@ extern fn main() i32 {
     }
 
     let mut root = match (fs.normalize(gpa, "/alpha/../..")) {
-        .Ok: path => path,
-        .Err: _ => return 13,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 13,
     };
     defer root..&.deinit(gpa);
     if (!root.&.eq("/")) {
@@ -961,8 +961,8 @@ extern fn main() i32 {
     }
 
     let mut empty = match (fs.normalize(gpa, "")) {
-        .Ok: path => path,
-        .Err: _ => return 15,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 15,
     };
     defer empty..&.deinit(gpa);
     if (!empty.&.eq(".")) {
@@ -994,8 +994,8 @@ extern fn main() i32 {
     let gpa = GPAllocator.{ backing: page }..&;
 
     let mut renamed = match (fs.with_file_name(gpa, "/tmp/kern/main.rn", "lib.rn")) {
-        .Ok: path => path,
-        .Err: _ => return 1,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 1,
     };
     defer renamed..&.deinit(gpa);
     if (!renamed.&.eq("/tmp/kern/lib.rn")) {
@@ -1003,8 +1003,8 @@ extern fn main() i32 {
     }
 
     let mut reext = match (fs.with_extension(gpa, "/tmp/kern/main.rn", "ll")) {
-        .Ok: path => path,
-        .Err: _ => return 3,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 3,
     };
     defer reext..&.deinit(gpa);
     if (!reext.&.eq("/tmp/kern/main.ll")) {
@@ -1012,8 +1012,8 @@ extern fn main() i32 {
     }
 
     let mut stripped = match (fs.with_extension(gpa, "archive.tar", "")) {
-        .Ok: path => path,
-        .Err: _ => return 5,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 5,
     };
     defer stripped..&.deinit(gpa);
     if (!stripped.&.eq("archive")) {
@@ -1021,8 +1021,8 @@ extern fn main() i32 {
     }
 
     let mut hidden = match (fs.with_extension(gpa, ".gitignore", "txt")) {
-        .Ok: path => path,
-        .Err: _ => return 7,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 7,
     };
     defer hidden..&.deinit(gpa);
     if (!hidden.&.eq(".gitignore.txt")) {
@@ -1030,8 +1030,8 @@ extern fn main() i32 {
     }
 
     let mut rooted = match (fs.with_file_name(gpa, "/", "boot")) {
-        .Ok: path => path,
-        .Err: _ => return 9,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 9,
     };
     defer rooted..&.deinit(gpa);
     if (!rooted.&.eq("/boot")) {
@@ -1086,8 +1086,8 @@ extern fn main() i32 {
     }
 
     let mut joined = match (fs.join(gpa, "C:\\kern", "src\\main.rn")) {
-        .Ok: path => path,
-        .Err: _ => return 4,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 4,
     };
     defer joined..&.deinit(gpa);
     if (!joined.&.eq("C:\\kern\\src\\main.rn")) {
@@ -1095,8 +1095,8 @@ extern fn main() i32 {
     }
 
     let mut forward = match (fs.join(gpa, "C:/kern", "src/main.rn")) {
-        .Ok: path => path,
-        .Err: _ => return 6,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 6,
     };
     defer forward..&.deinit(gpa);
     if (!forward.&.eq("C:/kern/src/main.rn")) {
@@ -1104,8 +1104,8 @@ extern fn main() i32 {
     }
 
     let mut rooted = match (fs.join(gpa, "C:\\kern", "D:\\other\\out.rn")) {
-        .Ok: path => path,
-        .Err: _ => return 8,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 8,
     };
     defer rooted..&.deinit(gpa);
     if (!rooted.&.eq("D:\\other\\out.rn")) {
@@ -1113,8 +1113,8 @@ extern fn main() i32 {
     }
 
     let mut normalized = match (fs.normalize(gpa, "C:\\kern\\.\\src\\\\..\\out\\file.txt")) {
-        .Ok: path => path,
-        .Err: _ => return 10,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 10,
     };
     defer normalized..&.deinit(gpa);
     if (!normalized.&.eq("C:\\kern\\out\\file.txt")) {
@@ -1122,8 +1122,8 @@ extern fn main() i32 {
     }
 
     let mut forward_normalized = match (fs.normalize(gpa, "C:/kern/./src//../out/file.txt")) {
-        .Ok: path => path,
-        .Err: _ => return 12,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 12,
     };
     defer forward_normalized..&.deinit(gpa);
     if (!forward_normalized.&.eq("C:/kern/out/file.txt")) {
@@ -1131,8 +1131,8 @@ extern fn main() i32 {
     }
 
     let mut unc_joined = match (fs.join(gpa, "\\\\server\\share", "dir\\main.rn")) {
-        .Ok: path => path,
-        .Err: _ => return 14,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 14,
     };
     defer unc_joined..&.deinit(gpa);
     if (!unc_joined.&.eq("\\\\server\\share\\dir\\main.rn")) {
@@ -1140,8 +1140,8 @@ extern fn main() i32 {
     }
 
     let mut unc = match (fs.normalize(gpa, "\\\\server\\share\\src\\\\..\\out\\file.txt")) {
-        .Ok: path => path,
-        .Err: _ => return 16,
+        .{ Ok: path } => path,
+        .{ Err: _ } => return 16,
     };
     defer unc..&.deinit(gpa);
     if (!unc.&.eq("\\\\server\\share\\out\\file.txt")) {
@@ -1191,22 +1191,22 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{root_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 1,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
     }}
 
     match (fs.write_all(gpa, "{file_path}", "unicode-ok")) {{
-        .Ok: count => {{
+        .{{ Ok: count }} => {{
             if (count != 10) {{
                 return 2;
             }}
         }},
-        .Err: _ => return 3,
+        .{{ Err: _ }} => return 3,
     }}
 
     let mut text = match (fs.read_to_string(gpa, "{file_path}")) {{
-        .Ok: text => text,
-        .Err: _ => return 4,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 4,
     }};
     defer text..&.deinit(gpa);
     if (!text.&.eq("unicode-ok")) {{
@@ -1222,8 +1222,8 @@ extern fn main() i32 {{
         }}
         return true;
     }})) {{
-        .Ok: count => count,
-        .Err: _ => return 6,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 6,
     }};
 
     if (visited != 1 or hits != 1) {{
@@ -1270,37 +1270,37 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{root_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 1,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
     }}
 
     let written = match (fs.write_all(gpa, "{from_path}", "kern")) {{
-        .Ok: count => count,
-        .Err: _ => return 2,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 2,
     }};
     if (written != 4) {{
         return 3;
     }}
 
     let copied = match (fs.copy(gpa, "{from_path}", "{to_path}")) {{
-        .Ok: count => count,
-        .Err: _ => return 4,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 4,
     }};
     if (copied != 4) {{
         return 5;
     }}
 
     let appended = match (fs.append_all(gpa, "{to_path}", "-lang")) {{
-        .Ok: count => count,
-        .Err: _ => return 6,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 6,
     }};
     if (appended != 5) {{
         return 7;
     }}
 
     let mut text = match (fs.read_to_string(gpa, "{to_path}")) {{
-        .Ok: text => text,
-        .Err: _ => return 8,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 8,
     }};
     defer text..&.deinit(gpa);
     if (!text.&.eq("kern-lang")) {{
@@ -1308,28 +1308,28 @@ extern fn main() i32 {{
     }}
 
     let mut src = match (fs.open_read(gpa, "{from_path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 10,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 10,
     }};
     defer src..&.deinit();
 
     let mut dst = match (fs.create(gpa, "{to_path}")) {{
-        .Ok: file => file,
-        .Err: _ => return 11,
+        .{{ Ok: file }} => file,
+        .{{ Err: _ }} => return 11,
     }};
     defer dst..&.deinit();
 
     let roundtrip = match (src..&.copy_to(dst..&)) {{
-        .Ok: count => count,
-        .Err: _ => return 12,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 12,
     }};
     if (roundtrip != 4) {{
         return 13;
     }}
 
     let mut text2 = match (fs.read_to_string(gpa, "{to_path}")) {{
-        .Ok: text => text,
-        .Err: _ => return 14,
+        .{{ Ok: text }} => text,
+        .{{ Err: _ }} => return 14,
     }};
     defer text2..&.deinit(gpa);
     if (!text2.&.eq("kern")) {{
@@ -1383,16 +1383,16 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{beta_path}")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 1,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 1,
     }}
     match (fs.write_all(gpa, "{root_file_path}", "root")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 2,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 2,
     }}
     match (fs.write_all(gpa, "{beta_file_path}", "deep")) {{
-        .Ok: _ => {{}},
-        .Err: _ => return 3,
+        .{{ Ok: _ }} => {{}},
+        .{{ Err: _ }} => return 3,
     }}
 
     let mut saw_alpha = bool.{{false}};
@@ -1432,8 +1432,8 @@ extern fn main() i32 {{
         }}
         return true;
     }})) {{
-        .Ok: count => count,
-        .Err: _ => return 4,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 4,
     }};
 
     if (walked != 4) {{
@@ -1453,8 +1453,8 @@ extern fn main() i32 {{
         file_hits.* += 1;
         return true;
     }})) {{
-        .Ok: count => count,
-        .Err: _ => return 7,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 7,
     }};
 
     if (walked_files != 4 or file_hits != 2) {{
@@ -1471,8 +1471,8 @@ extern fn main() i32 {{
         dir_hits.* += 1;
         return true;
     }})) {{
-        .Ok: count => count,
-        .Err: _ => return 9,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 9,
     }};
 
     if (walked_dirs != 4 or dir_hits != 2) {{
@@ -1486,8 +1486,8 @@ extern fn main() i32 {{
         early.* += 1;
         return false;
     }})) {{
-        .Ok: count => count,
-        .Err: _ => return 11,
+        .{{ Ok: count }} => count,
+        .{{ Err: _ }} => return 11,
     }};
 
     if (stopped != 1 or early != 1) {{
@@ -1536,65 +1536,65 @@ extern fn main() i32 {{
     let gpa = GPAllocator.{{ backing: page }}..&;
 
     let missing_dir = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
-        .Ok: removed => removed,
-        .Err: _ => return 1,
+        .{{ Ok: removed }} => removed,
+        .{{ Err: _ }} => return 1,
     }};
     if (missing_dir) {{
         return 2;
     }}
 
     let created = match (fs.create_dir_if_missing(gpa, "{root_path}")) {{
-        .Ok: created => created,
-        .Err: _ => return 3,
+        .{{ Ok: created }} => created,
+        .{{ Err: _ }} => return 3,
     }};
     if (!created) {{
         return 4;
     }}
 
     let created_again = match (fs.create_dir_if_missing(gpa, "{root_path}")) {{
-        .Ok: created => created,
-        .Err: _ => return 5,
+        .{{ Ok: created }} => created,
+        .{{ Err: _ }} => return 5,
     }};
     if (created_again) {{
         return 6;
     }}
 
     match (fs.write_all(gpa, "{file_path}", "payload")) {{
-        .Ok: count => {{
+        .{{ Ok: count }} => {{
             if (count != 7) {{
                 return 7;
             }}
         }},
-        .Err: _ => return 8,
+        .{{ Err: _ }} => return 8,
     }}
 
     let removed_file = match (fs.remove_file_if_exists(gpa, "{file_path}")) {{
-        .Ok: removed => removed,
-        .Err: _ => return 9,
+        .{{ Ok: removed }} => removed,
+        .{{ Err: _ }} => return 9,
     }};
     if (!removed_file) {{
         return 10;
     }}
 
     let removed_file_again = match (fs.remove_file_if_exists(gpa, "{file_path}")) {{
-        .Ok: removed => removed,
-        .Err: _ => return 11,
+        .{{ Ok: removed }} => removed,
+        .{{ Err: _ }} => return 11,
     }};
     if (removed_file_again) {{
         return 12;
     }}
 
     let removed_dir = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
-        .Ok: removed => removed,
-        .Err: _ => return 13,
+        .{{ Ok: removed }} => removed,
+        .{{ Err: _ }} => return 13,
     }};
     if (!removed_dir) {{
         return 14;
     }}
 
     let removed_dir_again = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
-        .Ok: removed => removed,
-        .Err: _ => return 15,
+        .{{ Ok: removed }} => removed,
+        .{{ Err: _ }} => return 15,
     }};
     if (removed_dir_again) {{
         return 16;

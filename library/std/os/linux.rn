@@ -283,8 +283,8 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
     let _ = search_path;
     let options = OpenOptions.{ read: true };
     let handle = match (open_file(path, options.&)) {
-        .Ok: handle => handle,
-        .Err: err => return .{ Err: err },
+        .{ Ok: handle } => handle,
+        .{ Err: err } => return .{ Err: err },
     };
     defer {
         let _ = close_file(handle);
@@ -385,7 +385,7 @@ pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
 
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     match (write_file(handle, ptr, len)) {
-        .Ok: written => return written,
-        .Err: _ => return 0,
+        .{ Ok: written } => return written,
+        .{ Err: _ } => return 0,
     }
 }

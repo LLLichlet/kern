@@ -20,22 +20,22 @@ fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
 fn open_with_c_path(c_path: *u8, options: *OpenOptions) Result[File, Error] {
     let raw_options = to_os_open_options(options);
     match (os.open_file(c_path, raw_options.&)) {
-        .Ok: handle => return .{ Ok: .{ handle: handle } },
-        .Err: err => return .{ Err: .{ Os: err } },
+        .{ Ok: handle } => return .{ Ok: .{ handle: handle } },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
     }
 }
 
 fn metadata_with_c_path(c_path: *u8) Result[Metadata, Error] {
     match (os.metadata(c_path)) {
-        .Ok: meta => return .{ Ok: meta },
-        .Err: err => return .{ Err: .{ Os: err } },
+        .{ Ok: meta } => return .{ Ok: meta },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
     }
 }
 
 fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) Result[bool, Error] {
     match (os.rename(old_c_path, new_c_path)) {
-        .Ok: renamed => return .{ Ok: renamed },
-        .Err: err => return .{ Err: .{ Os: err } },
+        .{ Ok: renamed } => return .{ Ok: renamed },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
     }
 }
 
@@ -45,8 +45,8 @@ pub fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) Result[Fil
     }
 
     let c_path = match (alloc_c_path(alloc, path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
 
     let result = open_with_c_path(c_path, options);
@@ -92,14 +92,14 @@ pub fn create_new(alloc: *mut Allocator, path: []u8) Result[File, Error] {
 
 pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool, Error] {
     let old_c_path = match (alloc_c_path(alloc, old_path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
 
     let mut new_c_path = *mut u8.{undef};
     match (alloc_c_path(alloc, new_path)) {
-        .Ok: ptr => new_c_path = ptr,
-        .Err: err => {
+        .{ Ok: ptr } => new_c_path = ptr,
+        .{ Err: err } => {
             free_c_path(alloc, old_path, old_c_path);
             return .{ Err: err };
         },
@@ -113,8 +113,8 @@ pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool
 
 pub fn metadata(alloc: *mut Allocator, path: []u8) Result[Metadata, Error] {
     let c_path = match (alloc_c_path(alloc, path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
 
     let result = metadata_with_c_path(c_path);
@@ -124,13 +124,13 @@ pub fn metadata(alloc: *mut Allocator, path: []u8) Result[Metadata, Error] {
 
 pub fn exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     let c_path = match (alloc_c_path(alloc, path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
 
     let result = match (os.metadata(c_path)) {
-        .Ok: _ => Result[bool, Error].{ Ok: true },
-        .Err: err => {
+        .{ Ok: _ } => Result[bool, Error].{ Ok: true },
+        .{ Err: err } => {
             if (os.is_not_found(err)) {
                 Result[bool, Error].{ Ok: false }
             } else {
@@ -144,9 +144,9 @@ pub fn exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 
 pub fn is_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     match (metadata(alloc, path)) {
-        .Ok: meta => return .{ Ok: meta.is_file() },
-        .Err: err => match (err) {
-            .Os: os_err => {
+        .{ Ok: meta } => return .{ Ok: meta.is_file() },
+        .{ Err: err } => match (err) {
+            .{ Os: os_err } => {
                 if (os.is_not_found(os_err)) {
                     return .{ Ok: false };
                 }
@@ -159,9 +159,9 @@ pub fn is_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 
 pub fn is_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     match (metadata(alloc, path)) {
-        .Ok: meta => return .{ Ok: meta.is_dir() },
-        .Err: err => match (err) {
-            .Os: os_err => {
+        .{ Ok: meta } => return .{ Ok: meta.is_dir() },
+        .{ Err: err } => match (err) {
+            .{ Os: os_err } => {
                 if (os.is_not_found(os_err)) {
                     return .{ Ok: false };
                 }
@@ -174,13 +174,13 @@ pub fn is_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 
 pub fn remove_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     let c_path = match (alloc_c_path(alloc, path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
 
     let result = match (os.remove_file(c_path)) {
-        .Ok: removed => Result[bool, Error].{ Ok: removed },
-        .Err: err => Result[bool, Error].{ Err: .{ Os: err } },
+        .{ Ok: removed } => Result[bool, Error].{ Ok: removed },
+        .{ Err: err } => Result[bool, Error].{ Err: .{ Os: err } },
     };
     free_c_path(alloc, path, c_path);
     return result;
@@ -188,9 +188,9 @@ pub fn remove_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 
 pub fn remove_file_if_exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     match (remove_file(alloc, path)) {
-        .Ok: removed => return .{ Ok: removed },
-        .Err: err => match (err) {
-            .Os: os_err => {
+        .{ Ok: removed } => return .{ Ok: removed },
+        .{ Err: err } => match (err) {
+            .{ Os: os_err } => {
                 if (os.is_not_found(os_err)) {
                     return .{ Ok: false };
                 }
@@ -215,8 +215,8 @@ pub fn stderr() File {
 
 pub fn read_to_string(alloc: *mut Allocator, path: []u8) Result[String, Error] {
     let mut file = match (open_read(alloc, path)) {
-        .Ok: file => file,
-        .Err: err => return .{ Err: err },
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
     };
     defer file..&.deinit();
     return file..&.read_to_string(alloc);
@@ -224,8 +224,8 @@ pub fn read_to_string(alloc: *mut Allocator, path: []u8) Result[String, Error] {
 
 pub fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Error] {
     let mut file = match (create(alloc, path)) {
-        .Ok: file => file,
-        .Err: err => return .{ Err: err },
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
     };
     defer file..&.deinit();
     return file..&.write_all(buf);
@@ -233,8 +233,8 @@ pub fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Err
 
 pub fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Error] {
     let mut file = match (open_append(alloc, path)) {
-        .Ok: file => file,
-        .Err: err => return .{ Err: err },
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
     };
     defer file..&.deinit();
     return file..&.write_all(buf);
@@ -242,14 +242,14 @@ pub fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Er
 
 pub fn copy(alloc: *mut Allocator, from_path: []u8, to_path: []u8) Result[usize, Error] {
     let mut from = match (open_read(alloc, from_path)) {
-        .Ok: file => file,
-        .Err: err => return .{ Err: err },
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
     };
     defer from..&.deinit();
 
     let mut to = match (create(alloc, to_path)) {
-        .Ok: file => file,
-        .Err: err => return .{ Err: err },
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
     };
     defer to..&.deinit();
 
@@ -272,8 +272,8 @@ impl *mut File {
         }
 
         match (os.read_file(self.handle, buf.[0]..&, len)) {
-            .Ok: count => return .{ Ok: count },
-            .Err: err => return .{ Err: .{ Os: err } },
+            .{ Ok: count } => return .{ Ok: count },
+            .{ Err: err } => return .{ Err: .{ Os: err } },
         }
     }
 
@@ -284,8 +284,8 @@ impl *mut File {
         }
 
         match (os.write_file(self.handle, buf.[0].&, len)) {
-            .Ok: count => return .{ Ok: count },
-            .Err: err => return .{ Err: .{ Os: err } },
+            .{ Ok: count } => return .{ Ok: count },
+            .{ Err: err } => return .{ Err: .{ Os: err } },
         }
     }
 
@@ -293,8 +293,8 @@ impl *mut File {
         let mut total = 0;
         for (; total < #buf; ) {
             let written = match (self.write(buf.[total .. #buf])) {
-                .Ok: count => count,
-                .Err: err => return .{ Err: err },
+                .{ Ok: count } => count,
+                .{ Err: err } => return .{ Err: err },
             };
             if (written == 0) {
                 return .{ Err: .{ WriteZero } };
@@ -310,8 +310,8 @@ impl *mut File {
 
         for (;;) {
             let read = match (self.read(chunk..[0 .. 1024])) {
-                .Ok: count => count,
-                .Err: err => return .{ Err: err },
+                .{ Ok: count } => count,
+                .{ Err: err } => return .{ Err: err },
             };
 
             if (read == 0) {
@@ -319,8 +319,8 @@ impl *mut File {
             }
 
             let written = match (other.write_all(chunk.[0 .. read])) {
-                .Ok: count => count,
-                .Err: err => return .{ Err: err },
+                .{ Ok: count } => count,
+                .{ Err: err } => return .{ Err: err },
             };
             total += written;
         }
@@ -333,8 +333,8 @@ impl *mut File {
 
         let close_result = os.close_file(self.handle);
         match (close_result) {
-            .Ok: _ => {}
-            .Err: err => return .{ Err: .{ Os: err } },
+            .{ Ok: _ } => {}
+            .{ Err: err } => return .{ Err: .{ Os: err } },
         }
         self.handle = os.invalid_handle();
         return .{ Ok: true };
@@ -351,8 +351,8 @@ impl *mut File {
         for (;;) {
             let mut read = 0;
             match (self.read(chunk..[0 .. 1024])) {
-                .Ok: count => read = count,
-                .Err: err => {
+                .{ Ok: count } => read = count,
+                .{ Err: err } => {
                     out..&.deinit(alloc);
                     return .{ Err: err };
                 }

@@ -80,7 +80,7 @@ impl[T] []T {
     pub fn find_map[U](call_back: *Fn(T) Option[U]) Option[U] {
         for (let mut i = 0; i < #self; i += 1) {
             match (call_back(self.[i])) {
-                .Some: value => return .{ Some: value },
+                .{ Some: value } => return .{ Some: value },
                 .None => {}
             }
         }

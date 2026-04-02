@@ -38,7 +38,7 @@ impl[K, V] *mut Map[K, V]
         let mut target = MIN_CAPACITY;
         for (; required_len > max_occupied(target); ) {
             target = match (self.next_capacity(target)) {
-                .Some: cap => cap,
+                .{ Some: cap } => cap,
                 .None => return .{ None },
             };
         }
@@ -47,22 +47,22 @@ impl[K, V] *mut Map[K, V]
 
     fn alloc_table(alloc: *mut Allocator, capacity: usize) Option[Table[K, V]] {
         let ctrl_layout = match (array_layout_of[u8](capacity)) {
-            .Some: layout => layout,
+            .{ Some: layout } => layout,
             .None => return .{ None },
         };
         let entries_layout = match (array_layout_of[Entry[K, V]](capacity)) {
-            .Some: layout => layout,
+            .{ Some: layout } => layout,
             .None => return .{ None },
         };
 
         let ctrl = match (alloc.alloc(ctrl_layout)) {
-            .Some: ptr => ptr,
+            .{ Some: ptr } => ptr,
             .None => return .{ None },
         };
         @memset(ctrl, EMPTY, capacity);
 
         let entries_raw = match (alloc.alloc(entries_layout)) {
-            .Some: ptr => ptr,
+            .{ Some: ptr } => ptr,
             .None => *mut u8.{0},
         };
         if ((entries_raw as usize) == 0) {
@@ -83,11 +83,11 @@ impl[K, V] *mut Map[K, V]
         if (capacity == 0) return;
 
         let ctrl_layout = match (array_layout_of[u8](capacity)) {
-            .Some: layout => layout,
+            .{ Some: layout } => layout,
             .None => return,
         };
         let entries_layout = match (array_layout_of[Entry[K, V]](capacity)) {
-            .Some: layout => layout,
+            .{ Some: layout } => layout,
             .None => return,
         };
 
@@ -125,7 +125,7 @@ impl[K, V] *mut Map[K, V]
     fn rebuild(alloc: *mut Allocator, requested_capacity: usize) bool {
         let new_capacity = if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
         let table = match (self.alloc_table(alloc, new_capacity)) {
-            .Some: table => table,
+            .{ Some: table } => table,
             .None => return false,
         };
 
@@ -161,7 +161,7 @@ impl[K, V] *mut Map[K, V]
         let required_len = self.len + additional;
         let required_occupied = required_len + self.tombstones;
         let target = match (self.capacity_for_len(required_occupied)) {
-            .Some: cap => cap,
+            .{ Some: cap } => cap,
             .None => return false,
         };
 
@@ -228,7 +228,7 @@ impl[K, V] *mut Map[K, V]
         }
 
         let target = match (self.capacity_for_len(self.len)) {
-            .Some: cap => cap,
+            .{ Some: cap } => cap,
             .None => return false,
         };
 
@@ -243,7 +243,7 @@ impl[K, V] *mut Map[K, V]
         let hash = key_hash(key);
         if (self.capacity > 0) {
             match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
-                .Some: index => {
+                .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     entry.value = value;
                     return true;
@@ -257,7 +257,7 @@ impl[K, V] *mut Map[K, V]
         }
 
         let slot = match (self.find_insert_slot(hash)) {
-            .Some: slot => slot,
+            .{ Some: slot } => slot,
             .None => return false,
         };
         let _ = self.write_slot(slot, hash, key, value);
@@ -268,7 +268,7 @@ impl[K, V] *mut Map[K, V]
         let hash = key_hash(key);
         if (self.capacity > 0) {
             match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
-                .Some: index => {
+                .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     return .{ Some: entry.value..& };
                 }
@@ -281,7 +281,7 @@ impl[K, V] *mut Map[K, V]
         }
 
         let slot = match (self.find_insert_slot(hash)) {
-            .Some: slot => slot,
+            .{ Some: slot } => slot,
             .None => return .{ None },
         };
         return .{ Some: self.write_slot(slot, hash, key, value) };
@@ -291,7 +291,7 @@ impl[K, V] *mut Map[K, V]
         let hash = key_hash(key);
         if (self.capacity > 0) {
             match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
-                .Some: index => {
+                .{ Some: index } => {
                     let entry = entry_ptr[K, V](self.entries, index);
                     return .{ Some: entry.value..& };
                 }
@@ -305,7 +305,7 @@ impl[K, V] *mut Map[K, V]
 
         let value = make_value();
         let slot = match (self.find_insert_slot(hash)) {
-            .Some: slot => slot,
+            .{ Some: slot } => slot,
             .None => return .{ None },
         };
         return .{ Some: self.write_slot(slot, hash, key, value) };
@@ -316,7 +316,7 @@ impl[K, V] *mut Map[K, V]
 
         let hash = key_hash(key);
         let slot = match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
-            .Some: index => index,
+            .{ Some: index } => index,
             .None => return .{ None },
         };
         let entry = entry_ptr[K, V](self.entries, slot);
@@ -351,7 +351,7 @@ impl[K, V] *mut Map[K, V]
 
         let hash = key_hash(key);
         let slot = match (find_index_with_hash[K, V](self.ctrl, self.entries, self.capacity, key, hash)) {
-            .Some: index => index,
+            .{ Some: index } => index,
             .None => return .{ None },
         };
         let entry = entry_ptr[K, V](self.entries, slot);

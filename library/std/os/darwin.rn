@@ -320,8 +320,8 @@ pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
 
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     match (write_file(handle, ptr, len)) {
-        .Ok: written => return written,
-        .Err: _ => return 0,
+        .{ Ok: written } => return written,
+        .{ Err: _ } => return 0,
     }
 }
 

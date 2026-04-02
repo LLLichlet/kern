@@ -30,7 +30,7 @@ extern fn main() i32 {
     }
 
     let array_layout = match (array_layout_of[u32](6)) {
-        .Some: layout => layout,
+        .{ Some: layout } => layout,
         .None => return 2,
     };
     if (array_layout.size != 24 or array_layout.align != 4) {
@@ -38,7 +38,7 @@ extern fn main() i32 {
     }
 
     let ptr = match (page.alloc(array_layout)) {
-        .Some: raw => raw,
+        .{ Some: raw } => raw,
         .None => return 4,
     };
     page.free(ptr, array_layout);
@@ -89,7 +89,7 @@ extern fn main() i32 {
     }
 
     let value_ptr = match (map.get_ptr(7)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 5,
     };
     value_ptr.* = 123;
@@ -101,7 +101,7 @@ extern fn main() i32 {
         calls.* += 1;
         return 700;
     })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 7,
     };
     if (existing.* != 123) {
@@ -112,7 +112,7 @@ extern fn main() i32 {
     }
 
     let inserted = match (map.get_or_insert(gpa, 100, 500)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 10,
     };
     if (inserted.* != 500) {
@@ -123,7 +123,7 @@ extern fn main() i32 {
         calls.* += 1;
         return 900;
     })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 12,
     };
     if (lazy_inserted.* != 900) {
@@ -291,7 +291,7 @@ extern fn main() i32 {
     }
 
     let value_ptr = match (map.get_ptr(7)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 4,
     };
     value_ptr.* = 123;
@@ -301,7 +301,7 @@ extern fn main() i32 {
     }
 
     let removed = match (map.remove(7)) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 6,
     };
     if (removed != 123) {
@@ -420,7 +420,7 @@ extern fn main() i32 {
     }
 
     let removed = match (map.remove(Key.{ group: 1, id: 10 })) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 7,
     };
     if (removed != 10) {
@@ -578,7 +578,7 @@ extern fn main() i32 {
     }
 
     let existing = match (map.get_or_insert(gpa, 3, 111)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 5,
     };
     if (existing.* != 99) {
@@ -593,7 +593,7 @@ extern fn main() i32 {
     }
 
     let inserted = match (map.get_or_insert(gpa, 100, 500)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 9,
     };
     if (inserted.* != 500) {
@@ -607,7 +607,7 @@ extern fn main() i32 {
         calls.* += 1;
         return 700;
     })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 12,
     };
     if (lazy_existing.* != 500) {
@@ -621,7 +621,7 @@ extern fn main() i32 {
         calls.* += 1;
         return 900;
     })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 15,
     };
     if (lazy_inserted.* != 900) {
@@ -776,7 +776,7 @@ extern fn main() i32 {
         }
         return .{ None };
     })) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 9,
     };
     if (found != 44) {
@@ -800,7 +800,7 @@ extern fn main() i32 {
     let removed = match (map.remove_where(.[](key: i32, value: i32) bool {
         return key == 3 and value == 33;
     })) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 16,
     };
     if (removed != 33) {
@@ -862,7 +862,7 @@ extern fn main() i32 {
     if (!map.insert(gpa, 4, 40)) return 6;
 
     let removed = match (map.remove(2)) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 7,
     };
     if (removed != 20) {
@@ -919,12 +919,12 @@ extern fn main() i32 {
     }
 
     let mut owned_keys = match (map.keys(gpa)) {
-        .Some: out => out,
+        .{ Some: out } => out,
         .None => return 19,
     };
     defer owned_keys..&.deinit(gpa);
     let mut owned_values = match (map.values(gpa)) {
-        .Some: out => out,
+        .{ Some: out } => out,
         .None => return 20,
     };
     defer owned_values..&.deinit(gpa);
@@ -1057,22 +1057,22 @@ extern fn main() i32 {
     if (!map.floor_key(40).is_some_and(.[](key: i32) bool { return key == 40; })) return 17;
 
     let first = match (map.first_ptr()) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 18,
     };
     first.* += 1;
     let last = match (map.last_ptr()) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 19,
     };
     last.* += 2;
     let ceil_mid = match (map.ceil_ptr(21)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 20,
     };
     ceil_mid.* += 3;
     let floor_mid = match (map.floor_ptr(29)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 21,
     };
     floor_mid.* += 4;
@@ -1123,7 +1123,7 @@ extern fn main() i32 {
     }
 
     let removed_mid = match (map.remove(gpa, 20)) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 2,
     };
     if (removed_mid != 200 or map.contains(20)) {
@@ -1131,7 +1131,7 @@ extern fn main() i32 {
     }
 
     let removed_first = match (map.remove(gpa, 1)) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 4,
     };
     if (removed_first != 10 or map.contains(1)) {
@@ -1139,7 +1139,7 @@ extern fn main() i32 {
     }
 
     let removed_last = match (map.remove(gpa, 40)) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 6,
     };
     if (removed_last != 400 or map.contains(40)) {
@@ -1226,7 +1226,7 @@ extern fn main() i32 {
     }
 
     let removed = match (list.remove(2)) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 5,
     };
     if (removed != 2) {
@@ -1253,7 +1253,7 @@ extern fn main() i32 {
     }
 
     let found = match (data.find([2]i32.{9, 3})) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 12,
     };
     if (found != 1) {
@@ -1285,14 +1285,14 @@ extern fn main() i32 {
         return 20;
     }
     let first_big = match (list.position(.[](value: i32) bool { return value > 2; })) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 21,
     };
     if (first_big != 1) {
         return 22;
     }
     let last_big = match (list.rposition(.[](value: i32) bool { return value > 2; })) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 23,
     };
     if (last_big != 2) {
@@ -1305,14 +1305,14 @@ extern fn main() i32 {
         return 26;
     }
     let stripped_prefix = match (list.strip_prefix([2]i32.{1, 8})) {
-        .Some: tail => tail,
+        .{ Some: tail } => tail,
         .None => return 27,
     };
     if (!stripped_prefix.eq([2]i32.{3, 1})) {
         return 28;
     }
     let stripped_suffix = match (list.strip_suffix([2]i32.{3, 1})) {
-        .Some: head => head,
+        .{ Some: head } => head,
         .None => return 29,
     };
     if (!stripped_suffix.eq([2]i32.{1, 8})) {
@@ -1350,7 +1350,7 @@ extern fn main() i32 {
         }
         return .{ None };
     })) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 37,
     };
     if (mapped_big != 80) {
@@ -1366,7 +1366,7 @@ extern fn main() i32 {
         return 39;
     }
     let found_eight = match (sorted_view.binary_search(8)) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 40,
     };
     if (found_eight != 4) {
@@ -1394,7 +1394,7 @@ extern fn main() i32 {
         return 47;
     }
     let lang_index = match (text.find("lang")) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 48,
     };
     if (lang_index != 5) {
@@ -1404,7 +1404,7 @@ extern fn main() i32 {
         return 50;
     }
     let dash_index = match (text.find_byte(b'-')) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 51,
     };
     if (dash_index != 4) {
@@ -1420,14 +1420,14 @@ extern fn main() i32 {
         return 55;
     }
     let stripped_text_prefix = match (text.strip_prefix("kern-")) {
-        .Some: tail => tail,
+        .{ Some: tail } => tail,
         .None => return 56,
     };
     if (!stripped_text_prefix.eq("lang")) {
         return 57;
     }
     let stripped_text_suffix = match (text.strip_suffix("-lang")) {
-        .Some: head => head,
+        .{ Some: head } => head,
         .None => return 58,
     };
     if (!stripped_text_suffix.eq("kern")) {
@@ -1481,21 +1481,21 @@ extern fn main() i32 {
         return 70;
     }
     let last_dash = match (text.rfind_byte(b'-')) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 71,
     };
     if (last_dash != 13) {
         return 72;
     }
     let free_last_dash = match (rfind_byte(text.as_str(), b'-')) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 73,
     };
     if (free_last_dash != 13) {
         return 74;
     }
     let free_first_dash = match (find_byte(text.as_str(), b'-')) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 75,
     };
     if (free_first_dash != 4) {
@@ -1518,7 +1518,7 @@ extern fn main() i32 {
     }
 
     let popped = match (text.pop_char()) {
-        .Some: byte => byte,
+        .{ Some: byte } => byte,
         .None => return 81,
     };
     if (popped != b'!') {
@@ -1557,7 +1557,7 @@ extern fn main() i32 {
         return 91;
     }
     let space_index = match (padded.find_byte(b'k')) {
-        .Some: index => index,
+        .{ Some: index } => index,
         .None => return 92,
     };
     if (space_index != 3) {
@@ -1746,7 +1746,7 @@ extern fn main() i32 {
     }
 
     let swapped = match (list.swap_remove(1)) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 30,
     };
     if (swapped != 30) {
@@ -1812,7 +1812,7 @@ extern fn main() i32 {
         seen.* += value;
         return value * 3;
     })) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 1,
     };
     if (mapped != 21 or seen != 7) {
@@ -1844,7 +1844,7 @@ extern fn main() i32 {
         return .{ Some: 123 };
     });
     let option_fallback_value = match (option_fallback) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 5,
     };
     if (option_fallback_value != 123 or seen != 117) {
@@ -1859,8 +1859,8 @@ extern fn main() i32 {
     let chained = match (mapped_result.and_then(.[](value: i32) Result[i32, i32] {
         return .{ Ok: value * 2 };
     })) {
-        .Ok: value => value,
-        .Err: _ => return 7,
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 7,
     };
     if (chained != 12 or seen != 122) {
         return 8;
@@ -1877,8 +1877,8 @@ extern fn main() i32 {
     let recovered = match (Result[i32, i32].{ Err: 8 }.or_else(.[](err: i32) Result[i32, i32] {
         return .{ Ok: err + 2 };
     })) {
-        .Ok: value => value,
-        .Err: _ => return 10,
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 10,
     };
     if (recovered != 10) {
         return 11;

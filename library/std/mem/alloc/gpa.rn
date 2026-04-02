@@ -265,7 +265,7 @@ impl *mut GPAllocator : Allocator {
         let raw_layout = Layout.{ size: raw_size, align: GPA_CHUNK_ALIGN };
 
         let raw = match (self.backing.alloc(raw_layout)) {
-            .Some: ptr => ptr,
+            .{ Some: ptr } => ptr,
             .None => return false,
         };
 
@@ -299,7 +299,7 @@ impl *mut GPAllocator : Allocator {
             return;
         }
 
-        let .Some: chunk = self.find_chunk_containing(ptr) else {
+        let .{ Some: chunk } = self.find_chunk_containing(ptr) else {
             self.trap_invalid_free();
             return;
         };

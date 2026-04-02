@@ -55,11 +55,11 @@ impl[T] *mut List[T] {
         }
 
         let new_layout = match (self.buffer_layout(new_cap)) {
-            .Some: layout => layout,
+            .{ Some: layout } => layout,
             .None => return false,
         };
         let new_ptr_u8 = match (alloc.alloc(new_layout)) {
-            .Some: ptr => ptr,
+            .{ Some: ptr } => ptr,
             .None => return false,
         };
 
@@ -67,14 +67,14 @@ impl[T] *mut List[T] {
 
         if (self.cap > 0 and self.len > 0) {
             let old_layout = match (self.buffer_layout(self.cap)) {
-                .Some: layout => layout,
+                .{ Some: layout } => layout,
                 .None => return false,
             };
             @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, self.len * elem_size);
             alloc.free(self.ptr as *mut u8, old_layout);
         } else if (self.cap > 0) {
             let old_layout = match (self.buffer_layout(self.cap)) {
-                .Some: layout => layout,
+                .{ Some: layout } => layout,
                 .None => return false,
             };
             alloc.free(self.ptr as *mut u8, old_layout);
@@ -158,11 +158,11 @@ impl[T] *mut List[T] {
         let src_addr = src_ptr as usize;
         if (src_addr >= base_addr and src_addr < end_addr) {
             temp_layout = match (self.buffer_layout(additional)) {
-                .Some: layout => layout,
+                .{ Some: layout } => layout,
                 .None => return false,
             };
             temp_ptr = match (alloc.alloc(temp_layout)) {
-                .Some: ptr => ptr,
+                .{ Some: ptr } => ptr,
                 .None => return false,
             };
             @memcpy(temp_ptr, src_ptr as *u8, additional * elem_size);
@@ -223,7 +223,7 @@ impl[T] *mut List[T] {
 
         if (self.cap > 0) {
             let layout = match (self.buffer_layout(self.cap)) {
-                .Some: layout => layout,
+                .{ Some: layout } => layout,
                 .None => return,
             };
             alloc.free(self.ptr as *mut u8, layout);
@@ -332,11 +332,11 @@ impl[T] *mut List[T] {
         }
 
         let exact_layout = match (self.buffer_layout(self.len)) {
-            .Some: layout => layout,
+            .{ Some: layout } => layout,
             .None => return false,
         };
         let new_ptr_u8 = match (alloc.alloc(exact_layout)) {
-            .Some: ptr => ptr,
+            .{ Some: ptr } => ptr,
             .None => return false,
         };
 
@@ -344,7 +344,7 @@ impl[T] *mut List[T] {
 
         @memcpy(new_ptr as *mut u8, self.ptr as *mut u8, exact_layout.size);
         let old_layout = match (self.buffer_layout(self.cap)) {
-            .Some: layout => layout,
+            .{ Some: layout } => layout,
             .None => return false,
         };
         alloc.free(self.ptr as *mut u8, old_layout);

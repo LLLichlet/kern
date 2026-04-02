@@ -35,7 +35,7 @@ fn is_on(v: enum: u32 { Off = 0, On = 1, Error: i32 }) bool {
     match (v) {
         .Off => false,
         .On => true,
-        .Error: _ => false,
+        .{ Error: _ } => false,
     }
 }
 

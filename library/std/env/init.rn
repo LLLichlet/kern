@@ -61,7 +61,7 @@ fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
 
 #[if(libc and (os == "linux" or os == "darwin"))]
 fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
-    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return .{ None };
+    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return .{ None };
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     let value_ptr = libc_getenv(c_name);
@@ -73,7 +73,7 @@ fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
 
 #[if(os == "windows")]
 fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
-    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return .{ None };
+    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return .{ None };
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     let required = GetEnvironmentVariableA(c_name, 0, 0) as usize;
@@ -81,8 +81,8 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
         return .{ None };
     }
 
-    let .Some: layout = array_layout_of[u8](required) else return .{ None };
-    let .Some: buffer = alloc.alloc(layout) else return .{ None };
+    let .{ Some: layout } = array_layout_of[u8](required) else return .{ None };
+    let .{ Some: buffer } = alloc.alloc(layout) else return .{ None };
     defer alloc.free(buffer, layout);
 
     let written = GetEnvironmentVariableA(c_name, buffer, required as u32) as usize;
@@ -95,7 +95,7 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
 
 #[if(libc and (os == "linux" or os == "darwin"))]
 fn has_posix(alloc: *mut Allocator, name: []u8) bool {
-    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return false;
+    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return false;
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     return (libc_getenv(c_name) as usize) != 0;
@@ -103,7 +103,7 @@ fn has_posix(alloc: *mut Allocator, name: []u8) bool {
 
 #[if(os == "windows")]
 fn has_windows(alloc: *mut Allocator, name: []u8) bool {
-    let .Some: c_name = cffi.cstr.alloc_z(alloc, name) else return false;
+    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return false;
     defer cffi.cstr.free_z(alloc, name, c_name);
 
     return (GetEnvironmentVariableA(c_name, 0, 0) as usize) != 0;
@@ -125,7 +125,7 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
 
         let entry = entry_ptr.[0 .. cffi.cstr.len(entry_ptr)];
         match (split_var(entry)) {
-            .Some: var => {
+            .{ Some: var } => {
                 total += 1;
                 if (!visitor(var)) {
                     return total;
@@ -158,7 +158,7 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
 
         let entry = cursor.[0 .. len];
         match (split_var(entry)) {
-            .Some: var => {
+            .{ Some: var } => {
                 total += 1;
                 if (!visitor(var)) {
                     return total;
@@ -213,7 +213,7 @@ pub fn has(alloc: *mut Allocator, name: []u8) bool {
 
 pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[String] {
     match (get(alloc, name)) {
-        .Some: value => return .{ Some: value },
+        .{ Some: value } => return .{ Some: value },
         .None => {
             let mut value = String.{};
             if (!value..&.push_str(alloc, fallback)) {

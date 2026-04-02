@@ -2,7 +2,7 @@ use super::super::{ParseError, ParseResult, Parser};
 use super::Precedence;
 use kernc_ast::*;
 use kernc_lexer::{Token, TokenType};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::Span;
 
 impl<'a> Parser<'a> {
     pub(super) fn parse_typed_data_init_prefix(&mut self, start_token: Token) -> ParseResult<Expr> {
@@ -515,35 +515,4 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub(super) fn extract_variant_from_type(
-        &mut self,
-        ty: TypeNode,
-    ) -> ParseResult<(TypeNode, SymbolId, Span)> {
-        if let TypeKind::Path {
-            mut segments,
-            mut segment_spans,
-            generics,
-        } = ty.kind
-            && let Some(variant_name) = segments.pop()
-            && let Some(variant_span) = segment_spans.pop()
-            && !segments.is_empty()
-        {
-            let remain_ty = TypeNode {
-                id: self.new_id(),
-                span: ty.span,
-                kind: TypeKind::Path {
-                    segments,
-                    segment_spans,
-                    generics,
-                },
-            };
-            return Ok((remain_ty, variant_name, variant_span));
-        }
-
-        self.add_error(
-            ty.span,
-            "Expected a qualified ADT variant path like `Type.Variant` before `:`".to_string(),
-        );
-        Err(ParseError)
-    }
 }

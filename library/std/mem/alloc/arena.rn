@@ -77,7 +77,7 @@ impl *mut ArenaAllocator : Allocator {
         let raw_layout = Layout.{ size: raw_size, align: ARENA_CHUNK_ALIGN };
 
         let raw = match (self.backing.alloc(raw_layout)) {
-            .Some: ptr => ptr,
+            .{ Some: ptr } => ptr,
             .None => return false,
         };
 

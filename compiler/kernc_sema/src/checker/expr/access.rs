@@ -144,7 +144,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if else_branch.is_some() {
                     self.ctx
                         .struct_error(span, "irrefutable `let` bindings cannot use `else`")
-                        .with_hint("remove the `else` block or use a refutable variant pattern like `.Ok: value`")
+                        .with_hint("remove the `else` block or use a refutable variant pattern like `.{ Ok: value }`")
                         .emit();
                 }
 
@@ -171,7 +171,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.ctx
                         .struct_error(span, "refutable `let` patterns require an `else` branch")
                         .with_hint(
-                            "write this as `let .Variant: value = expr else return ...;` or another diverging expression",
+                            "write this as `let .{ Variant: value } = expr else return ...;` or another diverging expression",
                         )
                         .emit();
                     return TypeId::VOID;

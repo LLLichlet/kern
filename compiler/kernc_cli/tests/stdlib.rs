@@ -24,7 +24,7 @@ extern fn main() i32 {
 
     let aligned = Layout.{ size: 33, align: 256 };
     let ptr_a = match (gpa.alloc(aligned)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 1,
     };
     if (((ptr_a as usize) % 256) != 0) {
@@ -33,7 +33,7 @@ extern fn main() i32 {
 
     let compact = Layout.{ size: 17, align: 64 };
     let ptr_b = match (gpa.alloc(compact)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 3,
     };
     if (((ptr_b as usize) % 64) != 0) {
@@ -44,7 +44,7 @@ extern fn main() i32 {
     gpa.free(ptr_b, compact);
 
     let ptr_c = match (gpa.alloc(aligned)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 5,
     };
     if (((ptr_c as usize) % 256) != 0) {
@@ -56,7 +56,7 @@ extern fn main() i32 {
     defer arena.deinit();
 
     let arena_a = match (arena.alloc(Layout.{ size: 24, align: 16 })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 7,
     };
     if (((arena_a as usize) % 16) != 0) {
@@ -64,7 +64,7 @@ extern fn main() i32 {
     }
 
     let arena_b = match (arena.alloc(Layout.{ size: 40, align: 32 })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 9,
     };
     if (((arena_b as usize) % 32) != 0) {
@@ -77,7 +77,7 @@ extern fn main() i32 {
     arena.reset();
 
     let arena_reused = match (arena.alloc(Layout.{ size: 24, align: 16 })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 12,
     };
     if ((arena_reused as usize) != (arena_a as usize)) {
@@ -88,11 +88,11 @@ extern fn main() i32 {
     defer bump.deinit();
 
     let bump_a = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 14,
     };
     let bump_b = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 15,
     };
     if ((bump_b as usize) <= (bump_a as usize)) {
@@ -102,7 +102,7 @@ extern fn main() i32 {
     bump.reset();
 
     let bump_reused = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 17,
     };
     if ((bump_reused as usize) != (bump_a as usize)) {
@@ -138,7 +138,7 @@ extern fn main() i32 {
 
     let good = Layout.{ size: 16, align: 16 };
     let ptr = match (gpa.alloc(good)) {
-        .Some: ptr => ptr,
+        .{ Some: ptr } => ptr,
         .None => return 1,
     };
 
@@ -762,7 +762,7 @@ extern fn main() i32 {
     }
 
     let mut found = match (env.get(gpa, "KERN_STD_ENV_TEST")) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 1,
     };
     defer found..&.deinit(gpa);
@@ -776,7 +776,7 @@ extern fn main() i32 {
     }
 
     let mut fallback = match (env.get_or_clone(gpa, "KERN_STD_ENV_MISSING", "fallback")) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 4,
     };
     defer fallback..&.deinit(gpa);
@@ -785,7 +785,7 @@ extern fn main() i32 {
     }
 
     let mut empty = match (env.get_or_empty(gpa, "KERN_STD_ENV_MISSING")) {
-        .Some: value => value,
+        .{ Some: value } => value,
         .None => return 6,
     };
     defer empty..&.deinit(gpa);

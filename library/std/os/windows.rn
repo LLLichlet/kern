@@ -207,8 +207,8 @@ pub fn utf8_z_to_wide(path: *u8) Result[*mut u16, Error] {
     }
 
     let wide = match (alloc_wide_units(required as usize + 1)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
 
     let written = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, wide, required);
@@ -263,8 +263,8 @@ pub fn wide_z_to_utf8_alloc(ptr: *u16) Result[*mut u8, Error] {
     let len = utf16_z_len(ptr);
     if (len == 0) {
         let out = match (alloc_utf8_units(1)) {
-            .Ok: ptr => ptr,
-            .Err: err => return .{ Err: err },
+            .{ Ok: ptr } => ptr,
+            .{ Err: err } => return .{ Err: err },
         };
         out.* = 0;
         return .{ Ok: out };
@@ -276,8 +276,8 @@ pub fn wide_z_to_utf8_alloc(ptr: *u16) Result[*mut u8, Error] {
     }
 
     let out = match (alloc_utf8_units(required as usize + 1)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
 
     let written = WideCharToMultiByte(CP_UTF8, 0, ptr, len as i32, out, required, 0, 0);
@@ -315,8 +315,8 @@ pub fn close_file(handle: Handle) Result[bool, Error] {
 
 pub fn metadata(path: *u8) Result[Metadata, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_path);
 
@@ -374,8 +374,8 @@ fn is_dot_entry(name: []u16) bool {
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
     let _ = path;
     let wide_search_path = match (utf8_z_to_wide(search_path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_search_path);
 
@@ -395,8 +395,8 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
         if (!is_dot_entry(name)) {
             let utf8_name_buf = [1040]mut u8.{undef};
             let utf8_name_len = match (wide_to_utf8_into(name, utf8_name_buf..[0 .. 1040])) {
-                .Ok: len => len,
-                .Err: err => return .{ Err: err },
+                .{ Ok: len } => len,
+                .{ Err: err } => return .{ Err: err },
             };
             let utf8_name = utf8_name_buf.[0 .. utf8_name_len];
             total += 1;
@@ -420,8 +420,8 @@ pub fn open_file(
     options: *OpenOptions,
 ) Result[Handle, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_path);
 
@@ -460,8 +460,8 @@ pub fn open_file(
 
 pub fn create_dir(path: *u8) Result[bool, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_path);
 
@@ -473,8 +473,8 @@ pub fn create_dir(path: *u8) Result[bool, Error] {
 
 pub fn remove_dir(path: *u8) Result[bool, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_path);
 
@@ -486,8 +486,8 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
 
 pub fn remove_file(path: *u8) Result[bool, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_path);
 
@@ -499,14 +499,14 @@ pub fn remove_file(path: *u8) Result[bool, Error] {
 
 pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
     let wide_old_path = match (utf8_z_to_wide(old_path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_old_path);
 
     let wide_new_path = match (utf8_z_to_wide(new_path)) {
-        .Ok: ptr => ptr,
-        .Err: err => return .{ Err: err },
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
     };
     defer free_wide_units(wide_new_path);
 
@@ -518,8 +518,8 @@ pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
 
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     match (write_file(handle, ptr, len)) {
-        .Ok: written => return written,
-        .Err: _ => return 0,
+        .{ Ok: written } => return written,
+        .{ Err: _ } => return 0,
     }
 }
 

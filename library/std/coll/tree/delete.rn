@@ -157,7 +157,7 @@ impl[K, V] *mut Tree[K, V]
         let left = child_at[K, V](node, index);
         if (left.len >= MIN_DEGREE) {
             let pred = match (last_hit[K, V](left)) {
-                .Some: hit => hit,
+                .{ Some: hit } => hit,
                 .None => return false,
             };
             let pred_key = key_at[K, V](pred.node, pred.index);
@@ -172,7 +172,7 @@ impl[K, V] *mut Tree[K, V]
         let right = child_at[K, V](node, index + 1);
         if (right.len >= MIN_DEGREE) {
             let succ = match (first_hit[K, V](right)) {
-                .Some: hit => hit,
+                .{ Some: hit } => hit,
                 .None => return false,
             };
             let succ_key = key_at[K, V](succ.node, succ.index);

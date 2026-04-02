@@ -20,7 +20,7 @@ fn create_heap_closure(alc: *mut Allocator, factor: i32) Tuple2 {
     let layout = layout_of[@typeOf(stack_closure)]();
 
     let heap_raw = match (alc.alloc(layout)) {
-        .Some: s => s as *mut @typeOf(stack_closure),
+        .{ Some: s } => s as *mut @typeOf(stack_closure),
         .None => @trap(),
     };
 

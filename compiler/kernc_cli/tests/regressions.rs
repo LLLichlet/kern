@@ -536,6 +536,43 @@ extern fn main() i32 {
 }
 
 #[test]
+fn runs_zig_style_multiline_strings() {
+    let output = build_and_run(
+        "kernc_multiline_string_run",
+        r#"
+use std.io;
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+
+    let msg =
+        \\line one
+        \\line "two"
+        \\line three
+    ;
+
+    let mut out = io.stdout();
+    let _ = out..&.write(msg);
+    let _ = out..&.write("\n");
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(
+        String::from_utf8_lossy(&output.stdout),
+        "line one\nline \"two\"\nline three\n"
+    );
+}
+
+#[test]
 fn runs_defer_after_return_value_evaluation() {
     let output = build_and_run_source(
         r#"

@@ -53,6 +53,13 @@ impl<'a> Tokenizer<'a> {
             }
             b'0'..=b'9' => self.scan_number(),
             b'"' => self.scan_string(),
+            b'\\' => {
+                if self.match_char(b'\\') {
+                    self.scan_multiline_string()
+                } else {
+                    self.make_token(TokenType::Illegal)
+                }
+            }
             b'\'' => self.scan_char(TokenType::CharLiteral),
 
             b'(' => self.make_token(TokenType::LParen),
@@ -364,6 +371,34 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    fn scan_multiline_string(&mut self) -> Token {
+        loop {
+            while !self.is_eof() && !is_line_break(self.peek()) {
+                self.advance();
+            }
+
+            let line_break_start = self.current;
+            if !self.consume_line_break() {
+                break;
+            }
+
+            while is_horizontal_space(self.peek()) {
+                self.advance();
+            }
+
+            if self.peek() == b'\\' && self.peek_next() == b'\\' {
+                self.advance();
+                self.advance();
+                continue;
+            }
+
+            self.current = line_break_start;
+            break;
+        }
+
+        self.make_token(TokenType::StringLiteral)
+    }
+
     fn scan_char(&mut self, tag: TokenType) -> Token {
         // 刚吃掉了左边的单引号 '，现在处于字符内容的第一个字节
         let c = self.peek();
@@ -532,6 +567,14 @@ impl<'a> Tokenizer<'a> {
         true
     }
 
+    fn consume_line_break(&mut self) -> bool {
+        if self.match_char(b'\r') {
+            let _ = self.match_char(b'\n');
+            return true;
+        }
+        self.match_char(b'\n')
+    }
+
     fn match_assign(&mut self, single: TokenType, double: TokenType) -> Token {
         if self.match_char(b'=') {
             self.make_token(double)
@@ -631,6 +674,14 @@ impl<'a> Tokenizer<'a> {
 
 fn is_alpha_numeric(c: u8) -> bool {
     is_alpha(c) || is_digit(c)
+}
+
+fn is_line_break(c: u8) -> bool {
+    c == b'\n' || c == b'\r'
+}
+
+fn is_horizontal_space(c: u8) -> bool {
+    c == b' ' || c == b'\t'
 }
 
 fn is_alpha(c: u8) -> bool {

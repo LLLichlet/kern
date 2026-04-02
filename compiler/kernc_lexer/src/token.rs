@@ -12,7 +12,7 @@ pub enum TokenType {
     Identifier,      // abc, my_var
     IntLiteral,      // 123, 0xFF
     FloatLiteral,    // 3.14
-    StringLiteral,   // "hello"
+    StringLiteral,   // "hello" or Zig-style \\ multiline
     CharLiteral,     // 'a'
     ByteCharLiteral, // b'a'
 

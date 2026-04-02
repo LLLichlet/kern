@@ -236,17 +236,47 @@ impl<'a> Parser<'a> {
             .slice_source(token.span)
             .to_string();
 
-        if raw.len() < 2 || !raw.starts_with('"') || !raw.ends_with('"') {
-            self.session
-                .struct_error(token.span, "invalid or unterminated string literal")
-                .with_hint("ensure the string is properly enclosed in double quotes `\"`")
-                .emit();
-            return Err(ParseError);
+        if raw.starts_with('"') {
+            if raw.len() < 2 || !raw.ends_with('"') {
+                self.session
+                    .struct_error(token.span, "invalid or unterminated string literal")
+                    .with_hint("ensure the string is properly enclosed in double quotes `\"`")
+                    .emit();
+                return Err(ParseError);
+            }
+
+            let inner = &raw[1..raw.len() - 1];
+            let unescaped = self.unescape_string(inner, token.span)?;
+            return Ok(self.session.intern(&unescaped));
         }
 
-        let inner = &raw[1..raw.len() - 1];
-        let unescaped = self.unescape_string(inner, token.span)?;
-        Ok(self.session.intern(&unescaped))
+        if raw.starts_with("\\\\") {
+            let cooked = self.parse_multiline_string_literal(&raw, token.span)?;
+            return Ok(self.session.intern(&cooked));
+        }
+
+        self.session
+            .struct_error(token.span, "invalid string literal")
+            .with_hint("use either `\"...\"` or Zig-style multiline lines beginning with `\\\\`")
+            .emit();
+        Err(ParseError)
+    }
+
+    fn parse_multiline_string_literal(&mut self, raw: &str, span: Span) -> ParseResult<String> {
+        let mut lines = Vec::new();
+        for line in raw.lines() {
+            let trimmed = line.trim_start_matches([' ', '\t']);
+            let Some(content) = trimmed.strip_prefix("\\\\") else {
+                self.session
+                    .struct_error(span, "invalid multiline string literal continuation")
+                    .with_hint("each continued line must begin with `\\\\` after indentation")
+                    .emit();
+                return Err(ParseError);
+            };
+            lines.push(content);
+        }
+
+        Ok(lines.join("\n"))
     }
 
     fn unescape_string(&mut self, input: &str, span: Span) -> ParseResult<String> {

@@ -1,6 +1,292 @@
 ﻿use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    fn is_discard_name(&self, name: SymbolId) -> bool {
+        self.ctx.resolve(name) == "_"
+    }
+
+    fn is_pattern_field_pun(&self, field: &ast::DestructurePatternField) -> bool {
+        matches!(
+            &field.pattern.kind,
+            ast::PatternKind::Binding(binding)
+                if binding.name == field.name
+                    && !binding.is_mut
+                    && binding.name_span == field.name_span
+                    && binding.span == field.name_span
+        )
+    }
+
+    pub(super) fn struct_pattern_field_ty(
+        &mut self,
+        target_ty: TypeId,
+        field_name: SymbolId,
+        span: Span,
+    ) -> ConstEvalResult<Option<TypeId>> {
+        let norm = self.ctx.type_registry.normalize(target_ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Def(def_id, generic_args) => match self.ctx.defs.get(def_id.0 as usize) {
+                Some(Def::Struct(def)) => {
+                    let Some(field) = def.fields.iter().find(|field| field.name == field_name) else {
+                        return Ok(None);
+                    };
+
+                    let mut field_ty = self
+                        .ctx
+                        .node_types
+                        .get(&field.type_node.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+
+                    if !def.generics.is_empty() && !generic_args.is_empty() {
+                        let mut map = HashMap::new();
+                        for (i, param) in def.generics.iter().enumerate() {
+                            map.insert(param.name, generic_args[i]);
+                        }
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                        field_ty = subst.substitute(field_ty);
+                    }
+
+                    Ok(Some(field_ty))
+                }
+                Some(Def::Union(def)) => {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "destructuring patterns are not supported for union `{}`",
+                                self.ctx.resolve(def.name)
+                            ),
+                        )
+                        .with_hint("union values do not carry an active-field tag; access them explicitly instead")
+                        .emit();
+                    Err(ConstEvalError)
+                }
+                _ => Ok(None),
+            },
+            TypeKind::AnonymousStruct(_, fields) => {
+                Ok(fields.iter().find(|field| field.name == field_name).map(|field| field.ty))
+            }
+            TypeKind::AnonymousUnion(_, _) => {
+                self.ctx
+                    .struct_error(span, "destructuring patterns are not supported for anonymous unions")
+                    .with_hint("union values do not carry an active-field tag; access them explicitly instead")
+                    .emit();
+                Err(ConstEvalError)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    pub(super) fn match_inner_pattern(
+        &mut self,
+        pattern: &ast::Pattern,
+        target_value: &ConstValue,
+        target_ty: TypeId,
+        depth: usize,
+    ) -> ConstEvalResult<Option<HashMap<SymbolId, ConstValue>>> {
+        match &pattern.kind {
+            ast::PatternKind::Binding(binding) => {
+                let mut bindings = HashMap::new();
+                if !self.is_discard_name(binding.name) {
+                    bindings.insert(binding.name, target_value.clone());
+                }
+                Ok(Some(bindings))
+            }
+            ast::PatternKind::Ignore => Ok(Some(HashMap::new())),
+            ast::PatternKind::Variant(variant) => {
+                let expected_tag = match self.variant_tag(
+                    target_ty,
+                    variant.variant_name,
+                    depth,
+                    variant.variant_span,
+                )? {
+                    Some(tag) => tag,
+                    None => return Ok(None),
+                };
+
+                if self
+                    .variant_payload_ty(target_ty, variant.variant_name, depth, pattern.span)?
+                    .is_some()
+                {
+                    let variant_name = self.ctx.resolve(variant.variant_name).to_string();
+                    self.ctx
+                        .struct_error(
+                            pattern.span,
+                            format!("variant `{}` requires payload destructuring", variant_name),
+                        )
+                        .with_hint(format!(
+                            "write this as `.{{ {}: value }}`",
+                            variant_name
+                        ))
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+
+                match target_value {
+                    ConstValue::Enum { tag, .. } if *tag == expected_tag => {
+                        Ok(Some(HashMap::new()))
+                    }
+                    ConstValue::Int(tag) if *tag == expected_tag => Ok(Some(HashMap::new())),
+                    _ => Ok(None),
+                }
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                let norm_target = self.ctx.type_registry.normalize(target_ty);
+                match self.ctx.type_registry.get(norm_target).clone() {
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_) => {
+                        if destructure.fields.len() != 1 {
+                            self.ctx
+                                .struct_error(
+                                    pattern.span,
+                                    "enum destructuring patterns must specify exactly one variant",
+                                )
+                                .emit();
+                            return Err(ConstEvalError);
+                        }
+
+                        let field = &destructure.fields[0];
+                        let expected_tag =
+                            match self.variant_tag(target_ty, field.name, depth, field.name_span)? {
+                                Some(tag) => tag,
+                                None => return Ok(None),
+                            };
+
+                        let payload_ty =
+                            self.variant_payload_ty(target_ty, field.name, depth, field.span)?;
+                        match target_value {
+                            ConstValue::Enum { tag, payload } if *tag == expected_tag => {
+                                match payload_ty {
+                                    Some(payload_ty) => {
+                                        if self.is_pattern_field_pun(field) {
+                                            let field_name = self.ctx.resolve(field.name).to_string();
+                                            self.ctx
+                                                .struct_error(
+                                                    field.span,
+                                                    format!(
+                                                        "variant `{}` requires an explicit payload pattern",
+                                                        field_name
+                                                    ),
+                                                )
+                                                .with_hint(format!(
+                                                    "write this as `.{{ {}: value }}`",
+                                                    field_name
+                                                ))
+                                                .emit();
+                                            return Err(ConstEvalError);
+                                        }
+
+                                        let Some(payload) = payload else {
+                                            return Ok(None);
+                                        };
+                                        self.match_inner_pattern(
+                                            &field.pattern,
+                                            payload,
+                                            payload_ty,
+                                            depth + 1,
+                                        )
+                                    }
+                                    None => {
+                                        let field_name = self.ctx.resolve(field.name).to_string();
+                                        self.ctx
+                                            .struct_error(
+                                                field.span,
+                                                format!("variant `{}` does not take a payload", field_name),
+                                            )
+                                            .with_hint(format!(
+                                                "use `.{}` for the payload-less form",
+                                                field_name
+                                            ))
+                                            .emit();
+                                        Err(ConstEvalError)
+                                    }
+                                }
+                            }
+                            ConstValue::Int(tag) if *tag == expected_tag => match payload_ty {
+                                Some(_) => Ok(None),
+                                None => {
+                                    let field_name = self.ctx.resolve(field.name).to_string();
+                                    self.ctx
+                                        .struct_error(
+                                            field.span,
+                                            format!("variant `{}` does not take a payload", field_name),
+                                        )
+                                        .with_hint(format!(
+                                            "use `.{}` for the payload-less form",
+                                            field_name
+                                        ))
+                                        .emit();
+                                    Err(ConstEvalError)
+                                }
+                            },
+                            _ => Ok(None),
+                        }
+                    }
+                    _ => {
+                        let ConstValue::Struct(field_values) = target_value else {
+                            self.ctx
+                                .struct_error(
+                                    pattern.span,
+                                    "destructuring patterns are only supported on struct and enum constants",
+                                )
+                                .emit();
+                            return Err(ConstEvalError);
+                        };
+
+                        let mut bindings = HashMap::new();
+                        let mut seen = HashMap::new();
+                        for field in &destructure.fields {
+                            if seen.insert(field.name, ()).is_some() {
+                                self.ctx
+                                    .struct_error(
+                                        field.span,
+                                        format!(
+                                            "field `{}` is destructured more than once",
+                                            self.ctx.resolve(field.name)
+                                        ),
+                                    )
+                                    .emit();
+                                return Err(ConstEvalError);
+                            }
+
+                            let Some(field_ty) =
+                                self.struct_pattern_field_ty(target_ty, field.name, field.span)?
+                            else {
+                                self.ctx
+                                    .struct_error(
+                                        field.span,
+                                        format!(
+                                            "field `{}` does not exist in `{}`",
+                                            self.ctx.resolve(field.name),
+                                            self.ctx.ty_to_string(norm_target)
+                                        ),
+                                    )
+                                    .emit();
+                                return Err(ConstEvalError);
+                            };
+
+                            let Some(field_value) = field_values.get(&field.name) else {
+                                return Ok(None);
+                            };
+
+                            let Some(nested) = self.match_inner_pattern(
+                                &field.pattern,
+                                field_value,
+                                field_ty,
+                                depth + 1,
+                            )? else {
+                                return Ok(None);
+                            };
+
+                            bindings.extend(nested);
+                        }
+
+                        Ok(Some(bindings))
+                    }
+                }
+            }
+        }
+    }
+
     pub(super) fn eval_data_init(
         &mut self,
         expr: &Expr,
@@ -320,44 +606,9 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     Ok(None)
                 }
             }
-            ast::MatchPatternKind::Variant(variant) => self.match_variant_pattern(
-                variant.variant_name,
-                variant.binding.as_ref(),
-                target_value,
-                target_ty,
-                depth,
-                pattern.span,
-            ),
-            ast::MatchPatternKind::CatchAll => Ok(Some(HashMap::new())),
-        }
-    }
-
-    pub(super) fn match_variant_pattern(
-        &mut self,
-        variant_name: SymbolId,
-        binding: Option<&ast::BindingPattern>,
-        target_value: &ConstValue,
-        target_ty: TypeId,
-        depth: usize,
-        span: Span,
-    ) -> ConstEvalResult<Option<HashMap<SymbolId, ConstValue>>> {
-        let expected_tag = match self.variant_tag(target_ty, variant_name, depth, span)? {
-            Some(tag) => tag,
-            None => return Ok(None),
-        };
-
-        let mut bindings = HashMap::new();
-        match target_value {
-            ConstValue::Enum { tag, payload } if *tag == expected_tag => {
-                if let Some(binding) = binding
-                    && let Some(payload) = payload
-                {
-                    bindings.insert(binding.name, payload.as_ref().clone());
-                }
-                Ok(Some(bindings))
+            ast::MatchPatternKind::Pattern(pattern) => {
+                self.match_inner_pattern(pattern, target_value, target_ty, depth)
             }
-            ConstValue::Int(tag) if *tag == expected_tag => Ok(Some(bindings)),
-            _ => Ok(None),
         }
     }
 

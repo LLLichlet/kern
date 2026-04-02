@@ -1,6 +1,86 @@
 use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    fn pattern_is_irrefutable(
+        &mut self,
+        pattern: &ast::Pattern,
+        target_ty: TypeId,
+        depth: usize,
+    ) -> ConstEvalResult<bool> {
+        match &pattern.kind {
+            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => Ok(true),
+            ast::PatternKind::Variant(_) => Ok(false),
+            ast::PatternKind::Destructure(destructure) => {
+                let norm_target = self.ctx.type_registry.normalize(target_ty);
+                if matches!(
+                    self.ctx.type_registry.get(norm_target),
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
+                ) {
+                    return Ok(false);
+                }
+
+                for field in &destructure.fields {
+                    let Some(field_ty) =
+                        self.struct_pattern_field_ty(target_ty, field.name, field.span)?
+                    else {
+                        return Ok(false);
+                    };
+
+                    if !self.pattern_is_irrefutable(&field.pattern, field_ty, depth + 1)? {
+                        return Ok(false);
+                    }
+                }
+
+                Ok(true)
+            }
+        }
+    }
+
+    fn install_pattern_binding_types(
+        &mut self,
+        pattern: &ast::Pattern,
+        target_ty: TypeId,
+        depth: usize,
+    ) -> ConstEvalResult<()> {
+        match &pattern.kind {
+            ast::PatternKind::Binding(binding) => {
+                if self.ctx.resolve(binding.name) != "_" {
+                    self.define_local_type(binding.name, target_ty);
+                    self.define_local_mutability(binding.name, binding.is_mut);
+                }
+            }
+            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+            ast::PatternKind::Destructure(destructure) => {
+                let norm_target = self.ctx.type_registry.normalize(target_ty);
+                if matches!(
+                    self.ctx.type_registry.get(norm_target),
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
+                ) {
+                    if let Some(field) = destructure.fields.first()
+                        && let Some(payload_ty) =
+                            self.variant_payload_ty(target_ty, field.name, depth, field.span)?
+                    {
+                        self.install_pattern_binding_types(&field.pattern, payload_ty, depth + 1)?;
+                    }
+                } else {
+                    for field in &destructure.fields {
+                        if let Some(field_ty) =
+                            self.struct_pattern_field_ty(target_ty, field.name, field.span)?
+                        {
+                            self.install_pattern_binding_types(
+                                &field.pattern,
+                                field_ty,
+                                depth + 1,
+                            )?;
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn eval_inner(&mut self, expr: &Expr, depth: usize) -> ConstEvalResult<ConstValue> {
         if depth > 100 {
             self.ctx
@@ -93,61 +173,38 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 let value = self.eval_inner(init, depth + 1)?;
                 let init_ty = self.expr_type(init);
 
-                match &pattern.kind {
-                    ast::LetPatternKind::Binding(binding) => {
-                        self.define_local(binding.name, value);
-                        self.define_local_type(binding.name, init_ty);
-                        self.define_local_mutability(binding.name, binding.is_mut);
-                        if else_branch.is_some() {
-                            self.ctx
-                                .struct_error(
-                                    expr.span,
-                                    "irrefutable `let` bindings cannot use `else`",
-                                )
-                                .emit();
-                            return Err(ConstEvalError);
-                        }
-                    }
-                    ast::LetPatternKind::Variant(variant) => {
-                        let Some(bindings) = self.match_variant_pattern(
-                            variant.variant_name,
-                            variant.binding.as_ref(),
-                            &value,
-                            init_ty,
-                            depth + 1,
-                            pattern.span,
-                        )?
-                        else {
-                            let Some(else_expr) = else_branch else {
-                                self.ctx
-                                    .struct_error(
-                                        expr.span,
-                                        "refutable `let` patterns require an `else` branch",
-                                    )
-                                    .emit();
-                                return Err(ConstEvalError);
-                            };
-                            let _ = self.eval_inner(else_expr, depth + 1)?;
-                            return Ok(ConstValue::Void);
-                        };
-
-                        for (name, value) in bindings {
-                            self.define_local(name, value);
-                        }
-
-                        if let Some(binding) = &variant.binding
-                            && let Some(payload_ty) = self.variant_payload_ty(
-                                init_ty,
-                                variant.variant_name,
-                                depth + 1,
-                                pattern.span,
-                            )?
-                        {
-                            self.define_local_type(binding.name, payload_ty);
-                            self.define_local_mutability(binding.name, binding.is_mut);
-                        }
-                    }
+                let is_irrefutable =
+                    self.pattern_is_irrefutable(&pattern.pattern, init_ty, depth + 1)?;
+                if is_irrefutable && else_branch.is_some() {
+                    self.ctx
+                        .struct_error(expr.span, "irrefutable `let` patterns cannot use `else`")
+                        .emit();
+                    return Err(ConstEvalError);
                 }
+                if !is_irrefutable && else_branch.is_none() {
+                    self.ctx
+                        .struct_error(expr.span, "refutable `let` patterns require an `else` branch")
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+
+                let Some(bindings) =
+                    self.match_inner_pattern(&pattern.pattern, &value, init_ty, depth + 1)?
+                else {
+                    let Some(else_expr) = else_branch else {
+                        self.ctx
+                            .struct_error(expr.span, "refutable `let` patterns require an `else` branch")
+                            .emit();
+                        return Err(ConstEvalError);
+                    };
+                    let _ = self.eval_inner(else_expr, depth + 1)?;
+                    return Ok(ConstValue::Void);
+                };
+
+                for (name, value) in bindings {
+                    self.define_local(name, value);
+                }
+                self.install_pattern_binding_types(&pattern.pattern, init_ty, depth + 1)?;
 
                 Ok(ConstValue::Void)
             }
@@ -774,12 +831,14 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
         for arm in arms {
             let mut bindings = None;
+            let mut matched_pattern = None;
 
             for pattern in &arm.patterns {
                 if let Some(found) =
                     self.match_pattern(pattern, &target_value, target_ty, depth + 1)?
                 {
                     bindings = Some(found);
+                    matched_pattern = Some(pattern);
                     break;
                 }
             }
@@ -791,6 +850,11 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             self.push_local_scope();
             for (name, value) in bindings {
                 self.define_local(name, value);
+            }
+            if let Some(pattern) = matched_pattern
+                && let ast::MatchPatternKind::Pattern(inner) = &pattern.kind
+            {
+                self.install_pattern_binding_types(inner, target_ty, depth + 1)?;
             }
             let body_value = self.eval_inner(&arm.body, depth + 1);
             self.pop_local_scope();

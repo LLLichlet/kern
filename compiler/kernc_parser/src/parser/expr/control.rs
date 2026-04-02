@@ -175,20 +175,6 @@ impl<'a> Parser<'a> {
     fn parse_match_arm(&mut self) -> ParseResult<MatchArm> {
         let arm_start = self.peek().span;
 
-        if self.match_token(&[TokenType::Underscore]) {
-            self.expect(TokenType::Arrow)?;
-            let body = self.parse_match_body()?;
-            self.match_token(&[TokenType::Comma]);
-            return Ok(MatchArm {
-                patterns: vec![MatchPattern {
-                    kind: MatchPatternKind::CatchAll,
-                    span: arm_start.to(self.stream.prev_span()),
-                }],
-                body,
-                span: arm_start.to(self.stream.prev_span()),
-            });
-        }
-
         let patterns = self.parse_match_patterns()?;
         self.expect(TokenType::Arrow)?;
         let body = self.parse_match_body()?;
@@ -215,26 +201,15 @@ impl<'a> Parser<'a> {
     fn parse_single_match_pattern(&mut self) -> ParseResult<MatchPattern> {
         let pat_start = self.peek().span;
 
-        if self.match_token(&[TokenType::DotLBrace]) {
-            let variant = self.parse_braced_variant_pattern(None, pat_start)?;
+        if self.check(TokenType::Underscore)
+            || self.check(TokenType::DotLBrace)
+            || self.check(TokenType::Dot)
+            || self.looks_like_typed_pattern()
+        {
+            let pattern = self.parse_pattern()?;
             return Ok(MatchPattern {
-                kind: MatchPatternKind::Variant(variant),
-                span: pat_start.to(self.stream.prev_span()),
-            });
-        }
-
-        if self.match_token(&[TokenType::Dot]) {
-            return self.parse_shorthand_variant_pattern(pat_start);
-        }
-
-        if self.looks_like_typed_braced_variant_pattern() {
-            let target_type = self.parse_type()?;
-            self.expect(TokenType::DotLBrace)?;
-            let variant =
-                self.parse_braced_variant_pattern(Some(Box::new(target_type)), pat_start)?;
-            return Ok(MatchPattern {
-                kind: MatchPatternKind::Variant(variant),
-                span: pat_start.to(self.stream.prev_span()),
+                span: pattern.span,
+                kind: MatchPatternKind::Pattern(pattern),
             });
         }
 
@@ -262,7 +237,7 @@ impl<'a> Parser<'a> {
             });
         }
         if self.match_token(&[TokenType::Colon]) {
-            let _ = self.parse_binding_pattern()?;
+            let _ = self.parse_pattern()?;
             self.session
                 .struct_error(
                     expr.span,
@@ -276,15 +251,6 @@ impl<'a> Parser<'a> {
         Ok(MatchPattern {
             kind: MatchPatternKind::Value(Box::new(expr.clone())),
             span: expr.span,
-        })
-    }
-
-    fn parse_shorthand_variant_pattern(&mut self, pat_start: Span) -> ParseResult<MatchPattern> {
-        let variant = self.parse_unit_variant_pattern_after_dot(None)?;
-
-        Ok(MatchPattern {
-            kind: MatchPatternKind::Variant(variant),
-            span: pat_start.to(self.stream.prev_span()),
         })
     }
 
@@ -311,80 +277,113 @@ impl<'a> Parser<'a> {
             target_type,
             variant_name,
             variant_span: v_tok.span,
-            binding: None,
         })
     }
 
-    fn parse_braced_variant_pattern(
+    fn parse_braced_destructure_pattern(
         &mut self,
         target_type: Option<Box<TypeNode>>,
-        _start_span: Span,
-    ) -> ParseResult<VariantPattern> {
-        let variant_tok = self.expect(TokenType::Identifier)?;
-        let variant_name = self.intern_token(variant_tok);
-        self.expect(TokenType::Colon)?;
-        let binding = self.parse_binding_pattern()?;
-        self.match_token(&[TokenType::Comma]);
+        start_span: Span,
+    ) -> ParseResult<Pattern> {
+        let mut fields = Vec::new();
+
+        while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let field_tok = self.expect(TokenType::Identifier)?;
+            let field_name = self.intern_token(field_tok);
+            let pattern = if self.match_token(&[TokenType::Colon]) {
+                Box::new(self.parse_pattern()?)
+            } else {
+                Box::new(Pattern {
+                    span: field_tok.span,
+                    kind: PatternKind::Binding(BindingPattern {
+                        name: field_name,
+                        name_span: field_tok.span,
+                        is_mut: false,
+                        span: field_tok.span,
+                    }),
+                })
+            };
+            let field_span = field_tok.span.to(pattern.span);
+            fields.push(DestructurePatternField {
+                name: field_name,
+                name_span: field_tok.span,
+                pattern,
+                span: field_span,
+            });
+
+            if !self.match_token(&[TokenType::Comma]) {
+                break;
+            }
+        }
+
         self.expect(TokenType::RBrace)?;
 
-        Ok(VariantPattern {
-            target_type,
-            variant_name,
-            variant_span: variant_tok.span,
-            binding: Some(binding),
+        let end_span = self.stream.prev_span();
+        Ok(Pattern {
+            span: start_span.to(end_span),
+            kind: PatternKind::Destructure(DestructurePattern {
+                target_type,
+                fields,
+            }),
         })
     }
 
-    fn parse_typed_let_variant_pattern(&mut self, start_span: Span) -> ParseResult<LetPattern> {
+    fn parse_typed_pattern(&mut self, start_span: Span) -> ParseResult<Pattern> {
         let target_type = self.parse_type()?;
-        let variant = if self.match_token(&[TokenType::DotLBrace]) {
-            self.parse_braced_variant_pattern(Some(Box::new(target_type)), start_span)?
+        if self.match_token(&[TokenType::DotLBrace]) {
+            self.parse_braced_destructure_pattern(Some(Box::new(target_type)), start_span)
         } else {
             self.expect(TokenType::Dot)?;
-            self.parse_unit_variant_pattern_after_dot(Some(Box::new(target_type)))?
-        };
-
-        Ok(LetPattern {
-            kind: LetPatternKind::Variant(variant),
-            span: start_span.to(self.stream.prev_span()),
-        })
+            let variant = self.parse_unit_variant_pattern_after_dot(Some(Box::new(target_type)))?;
+            Ok(Pattern {
+                span: start_span.to(self.stream.prev_span()),
+                kind: PatternKind::Variant(variant),
+            })
+        }
     }
 
-    fn parse_let_pattern(&mut self) -> ParseResult<LetPattern> {
+    fn parse_pattern(&mut self) -> ParseResult<Pattern> {
         let start_span = self.peek().span;
 
-        if self.match_token(&[TokenType::DotLBrace]) {
-            let variant = self.parse_braced_variant_pattern(None, start_span)?;
-            return Ok(LetPattern {
-                kind: LetPatternKind::Variant(variant),
-                span: start_span.to(self.stream.prev_span()),
+        if self.match_token(&[TokenType::Underscore]) {
+            return Ok(Pattern {
+                span: start_span,
+                kind: PatternKind::Ignore,
             });
+        }
+
+        if self.match_token(&[TokenType::DotLBrace]) {
+            return self.parse_braced_destructure_pattern(None, start_span);
         }
 
         if self.match_token(&[TokenType::Dot]) {
             let variant = self.parse_unit_variant_pattern_after_dot(None)?;
-            return Ok(LetPattern {
-                kind: LetPatternKind::Variant(variant),
+            return Ok(Pattern {
                 span: start_span.to(self.stream.prev_span()),
+                kind: PatternKind::Variant(variant),
             });
         }
 
-        if self.check(TokenType::Identifier) {
-            let next = self.stream.peek_nth(1).tag;
-            if next == TokenType::Dot || next == TokenType::DotLBrace || next == TokenType::LBracket
-            {
-                return self.parse_typed_let_variant_pattern(start_span);
-            }
+        if self.looks_like_typed_pattern() {
+            return self.parse_typed_pattern(start_span);
         }
 
         let binding = self.parse_binding_pattern()?;
-        Ok(LetPattern {
+        Ok(Pattern {
             span: binding.span,
-            kind: LetPatternKind::Binding(binding),
+            kind: PatternKind::Binding(binding),
         })
     }
 
-    fn looks_like_typed_braced_variant_pattern(&mut self) -> bool {
+    fn parse_let_pattern(&mut self) -> ParseResult<LetPattern> {
+        let pattern = self.parse_pattern()?;
+        Ok(LetPattern {
+            span: pattern.span,
+            pattern,
+        })
+    }
+
+    fn looks_like_typed_pattern(&mut self) -> bool {
         if !self.check(TokenType::Identifier) {
             return false;
         }
@@ -410,7 +409,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        self.stream.peek_nth(index).tag == TokenType::DotLBrace
+        matches!(
+            self.stream.peek_nth(index).tag,
+            TokenType::Dot | TokenType::DotLBrace
+        )
     }
 
     pub(super) fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {

@@ -1214,13 +1214,22 @@ impl CompletionModel {
         pattern: &ast::LetPattern,
         visible: &mut Vec<AnalysisCompletionItem>,
     ) {
+        self.record_pattern_bindings(&pattern.pattern, visible);
+    }
+
+    fn record_pattern_bindings(
+        &self,
+        pattern: &ast::Pattern,
+        visible: &mut Vec<AnalysisCompletionItem>,
+    ) {
         match &pattern.kind {
-            ast::LetPatternKind::Binding(binding) => {
+            ast::PatternKind::Binding(binding) => {
                 self.record_span_binding(binding.span, visible);
             }
-            ast::LetPatternKind::Variant(variant) => {
-                if let Some(binding) = &variant.binding {
-                    self.record_span_binding(binding.span, visible);
+            ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {}
+            ast::PatternKind::Destructure(destructure) => {
+                for field in &destructure.fields {
+                    self.record_pattern_bindings(&field.pattern, visible);
                 }
             }
         }
@@ -1232,11 +1241,8 @@ impl CompletionModel {
         visible: &mut Vec<AnalysisCompletionItem>,
     ) {
         for pattern in &arm.patterns {
-            let ast::MatchPatternKind::Variant(variant) = &pattern.kind else {
-                continue;
-            };
-            if let Some(binding) = &variant.binding {
-                self.record_span_binding(binding.span, visible);
+            if let ast::MatchPatternKind::Pattern(inner) = &pattern.kind {
+                self.record_pattern_bindings(inner, visible);
             }
         }
     }

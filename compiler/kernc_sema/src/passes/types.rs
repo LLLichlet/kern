@@ -597,11 +597,34 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     // 递归查找并解析表达式内部的所有 TypeNode
+    fn resolve_pattern(&mut self, pattern: &ast::Pattern, scope: ScopeId) {
+        match &pattern.kind {
+            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {
+                if let ast::PatternKind::Variant(variant) = &pattern.kind
+                    && let Some(ty) = &variant.target_type
+                {
+                    self.resolve_type(ty, scope);
+                }
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                if let Some(ty) = &destructure.target_type {
+                    self.resolve_type(ty, scope);
+                }
+                for field in &destructure.fields {
+                    self.resolve_pattern(&field.pattern, scope);
+                }
+            }
+        }
+    }
+
     fn resolve_expr(&mut self, expr: &ast::Expr, scope: ScopeId) {
         match &expr.kind {
             ast::ExprKind::Let {
-                init, else_branch, ..
+                pattern,
+                init,
+                else_branch,
             } => {
+                self.resolve_pattern(&pattern.pattern, scope);
                 self.resolve_expr(init, scope);
                 if let Some(else_branch) = else_branch {
                     self.resolve_expr(else_branch, scope);
@@ -647,13 +670,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                                 self.resolve_expr(start, scope);
                                 self.resolve_expr(end, scope);
                             }
-                            // 捕获 Match 分支中可能携带的显式类型前缀 (e.g., Result[i32].Ok)
-                            ast::MatchPatternKind::Variant(variant) => {
-                                if let Some(ty) = &variant.target_type {
-                                    self.resolve_type(ty, scope);
-                                }
+                            ast::MatchPatternKind::Pattern(pattern) => {
+                                self.resolve_pattern(pattern, scope);
                             }
-                            _ => {}
                         }
                     }
                     self.resolve_expr(&arm.body, scope);

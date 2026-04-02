@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
-use kernc_sema::checker::ConstEvaluator;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::Def;
 use kernc_sema::ty::{TypeId, TypeKind};
@@ -36,30 +35,11 @@ pub(super) struct ClosureLowerSpec<'a> {
     pub exp_ty: TypeId,
 }
 
-struct NamedVariantArmSpec<'a> {
-    arm: &'a ast::MatchArm,
-    binding: Option<&'a ast::BindingPattern>,
-    target_expr: &'a MastExpr,
-    mono_id: MonoId,
-    tag_idx: usize,
-    variant_def: &'a ast::EnumVariant,
-    def_generics: &'a [ast::GenericParam],
-    gen_args: &'a [TypeId],
-    subst_map: &'a HashMap<SymbolId, TypeId>,
-    exp_ty: TypeId,
-    is_pure: bool,
-}
-
-struct AnonymousVariantArmSpec<'a> {
-    arm: &'a ast::MatchArm,
-    binding: Option<&'a ast::BindingPattern>,
-    target_expr: &'a MastExpr,
-    mono_id: MonoId,
-    variant_idx: usize,
-    variant_def: &'a kernc_sema::ty::AnonymousVariant,
-    subst_map: &'a HashMap<SymbolId, TypeId>,
-    exp_ty: TypeId,
-    is_pure: bool,
+struct PatternBindingPlan {
+    name: SymbolId,
+    ty: TypeId,
+    is_mut: bool,
+    init: MastExpr,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -229,7 +209,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         if is_pure {
-            target_var_expr.clone()
+            MastExpr::new(tag_ty, target_var_expr.kind.clone(), span)
         } else {
             MastExpr::new(
                 tag_ty,
@@ -282,34 +262,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    fn bind_payload_pattern(
-        &mut self,
-        span: Span,
-        binding: &ast::BindingPattern,
-        target_expr: &MastExpr,
-        mono_id: MonoId,
-        field_idx: usize,
-        payload_ty: TypeId,
-    ) -> Option<MastStmt> {
-        let payload_extract =
-            self.build_payload_extract_expr(span, target_expr, mono_id, field_idx, payload_ty)?;
-
-        self.bind_local_type(
-            span,
-            binding.name,
-            payload_ty,
-            binding.is_mut,
-            "match arm payload binding",
-        );
-
-        Some(MastStmt::Let {
-            name: binding.name,
-            ty: payload_ty,
-            is_mut: binding.is_mut,
-            init: payload_extract,
-        })
-    }
-
     fn build_payload_extract_expr(
         &mut self,
         span: Span,
@@ -344,6 +296,277 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.ctx.resolve(name) == "_"
     }
 
+    fn resolve_struct_pattern_field(
+        &mut self,
+        target_ty: TypeId,
+        field_name: SymbolId,
+        span: Span,
+    ) -> Option<(TypeId, MonoId, usize)> {
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
+        match self.ctx.type_registry.get(norm_target).clone() {
+            TypeKind::Def(def_id, gen_args) => {
+                let Def::Struct(def) = &self.ctx.defs[def_id.0 as usize] else {
+                    self.ctx.emit_ice(
+                        span,
+                        "Kern ICE (Lowering): expected a struct definition while lowering a destructuring pattern.",
+                    );
+                    return None;
+                };
+
+                let ast_idx = def.fields.iter().position(|field| field.name == field_name)?;
+                let mut field_ty = self
+                    .ctx
+                    .node_types
+                    .get(&def.fields[ast_idx].type_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+
+                if !def.generics.is_empty() && !gen_args.is_empty() {
+                    let mut map = HashMap::new();
+                    for (i, param) in def.generics.iter().enumerate() {
+                        map.insert(param.name, gen_args[i]);
+                    }
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    field_ty = subst.substitute(field_ty);
+                }
+
+                let field_idx = self.get_physical_field_index(target_ty, field_name, span);
+                let struct_id = self.instantiate_struct(def_id, &gen_args);
+                Some((field_ty, struct_id, field_idx))
+            }
+            TypeKind::AnonymousStruct(_, fields) => {
+                let field_idx = fields.iter().position(|field| field.name == field_name)?;
+                let struct_id = self.instantiate_anon_struct(norm_target);
+                Some((fields[field_idx].ty, struct_id, field_idx))
+            }
+            _ => None,
+        }
+    }
+
+    fn bool_expr(&self, span: Span, value: bool) -> MastExpr {
+        MastExpr::new(TypeId::BOOL, MastExprKind::Bool(value), span)
+    }
+
+    fn and_expr(&self, span: Span, lhs: MastExpr, rhs: MastExpr) -> MastExpr {
+        if matches!(lhs.kind, MastExprKind::Bool(true)) {
+            return rhs;
+        }
+        if matches!(rhs.kind, MastExprKind::Bool(true)) {
+            return lhs;
+        }
+
+        MastExpr::new(
+            TypeId::BOOL,
+            MastExprKind::If {
+                cond: Box::new(lhs),
+                then_branch: MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(rhs)),
+                    defers: vec![],
+                },
+                else_branch: Some(MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(self.bool_expr(span, false))),
+                    defers: vec![],
+                }),
+            },
+            span,
+        )
+    }
+
+    fn build_enum_variant_condition(
+        &mut self,
+        span: Span,
+        target_expr: &MastExpr,
+        target_ty: TypeId,
+        variant_name: SymbolId,
+    ) -> Option<(MastExpr, Option<(usize, TypeId, MonoId)>)> {
+        let adt_info = self.resolve_match_adt(target_ty, span)?;
+        let (variant_idx, tag_value) = self.resolve_match_variant(&adt_info, variant_name, span)?;
+        let tag_expr = self.build_match_tag_expr(target_expr, &Some(adt_info.clone()), span);
+        let tag_cond = MastExpr::new(
+            TypeId::BOOL,
+            MastExprKind::Binary {
+                op: ast::BinaryOperator::Equal,
+                lhs: Box::new(tag_expr.clone()),
+                rhs: Box::new(MastExpr::new(tag_expr.ty, MastExprKind::Integer(tag_value), span)),
+            },
+            span,
+        );
+
+        let payload_info = match adt_info {
+            MatchAdtInfo::Named {
+                mono_id,
+                gen_args,
+                def,
+                is_pure,
+                ..
+            } => {
+                if is_pure {
+                    None
+                } else {
+                    def.variants[variant_idx].payload_type.as_ref().map(|payload_ast| {
+                        let mut payload_ty = self
+                            .ctx
+                            .node_types
+                            .get(&payload_ast.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+                        if !def.generics.is_empty() && !gen_args.is_empty() {
+                            let mut map = HashMap::new();
+                            for (i, param) in def.generics.iter().enumerate() {
+                                map.insert(param.name, gen_args[i]);
+                            }
+                            let mut subst =
+                                Substituter::new(&mut self.ctx.type_registry, &map);
+                            payload_ty = subst.substitute(payload_ty);
+                        }
+                        (variant_idx, payload_ty, mono_id)
+                    })
+                }
+            }
+            MatchAdtInfo::Anonymous {
+                mono_id,
+                def,
+                is_pure,
+                ..
+            } => {
+                if is_pure {
+                    None
+                } else {
+                    def.variants[variant_idx]
+                        .payload_ty
+                        .map(|payload_ty| (variant_idx, payload_ty, mono_id))
+                }
+            }
+        };
+
+        Some((tag_cond, payload_info))
+    }
+
+    fn collect_pattern_plan(
+        &mut self,
+        span: Span,
+        pattern: &ast::Pattern,
+        target_expr: &MastExpr,
+        target_ty: TypeId,
+        bindings: &mut Vec<PatternBindingPlan>,
+    ) -> MastExpr {
+        match &pattern.kind {
+            ast::PatternKind::Binding(binding) => {
+                if !self.is_ignored_binding(binding.name) {
+                    bindings.push(PatternBindingPlan {
+                        name: binding.name,
+                        ty: target_ty,
+                        is_mut: binding.is_mut,
+                        init: target_expr.clone(),
+                    });
+                }
+                self.bool_expr(span, true)
+            }
+            ast::PatternKind::Ignore => self.bool_expr(span, true),
+            ast::PatternKind::Variant(variant) => self
+                .build_enum_variant_condition(span, target_expr, target_ty, variant.variant_name)
+                .map(|(cond, _)| cond)
+                .unwrap_or_else(|| self.bool_expr(span, false)),
+            ast::PatternKind::Destructure(destructure) => {
+                let norm_target = self.ctx.type_registry.normalize(target_ty);
+                if matches!(
+                    self.ctx.type_registry.get(norm_target),
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
+                ) {
+                    let Some(field) = destructure.fields.first() else {
+                        return self.bool_expr(span, true);
+                    };
+                    let Some((tag_cond, payload_info)) =
+                        self.build_enum_variant_condition(span, target_expr, target_ty, field.name)
+                    else {
+                        return self.bool_expr(span, false);
+                    };
+                    let Some((variant_idx, payload_ty, mono_id)) = payload_info else {
+                        return tag_cond;
+                    };
+                    let Some(payload_expr) = self.build_payload_extract_expr(
+                        span,
+                        target_expr,
+                        mono_id,
+                        variant_idx,
+                        payload_ty,
+                    ) else {
+                        return self.bool_expr(span, false);
+                    };
+                    let inner = self.collect_pattern_plan(
+                        span,
+                        &field.pattern,
+                        &payload_expr,
+                        payload_ty,
+                        bindings,
+                    );
+                    self.and_expr(span, tag_cond, inner)
+                } else {
+                    let mut cond = self.bool_expr(span, true);
+                    for field in &destructure.fields {
+                        let Some((field_ty, struct_id, field_idx)) =
+                            self.resolve_struct_pattern_field(target_ty, field.name, field.span)
+                        else {
+                            return self.bool_expr(span, false);
+                        };
+                        let field_expr = MastExpr::new(
+                            field_ty,
+                            MastExprKind::FieldAccess {
+                                lhs: Box::new(target_expr.clone()),
+                                struct_id,
+                                field_idx,
+                            },
+                            field.span,
+                        );
+                        let inner = self.collect_pattern_plan(
+                            field.span,
+                            &field.pattern,
+                            &field_expr,
+                            field_ty,
+                            bindings,
+                        );
+                        cond = self.and_expr(field.span, cond, inner);
+                    }
+                    cond
+                }
+            }
+        }
+    }
+
+    fn lower_match_pattern_body(
+        &mut self,
+        arm_body: &Expr,
+        bindings: Vec<PatternBindingPlan>,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        exp_ty: TypeId,
+    ) -> MastBlock {
+        self.local_types.push(HashMap::new());
+        let mut prefix = Vec::new();
+        for binding in bindings {
+            self.bind_local_type(
+                arm_body.span,
+                binding.name,
+                binding.ty,
+                binding.is_mut,
+                "match pattern binding",
+            );
+            prefix.push(MastStmt::Let {
+                name: binding.name,
+                ty: binding.ty,
+                is_mut: binding.is_mut,
+                init: binding.init,
+            });
+        }
+
+        let mut block = self.lower_block_as_body(arm_body, subst_map, exp_ty);
+        prefix.append(&mut block.stmts);
+        block.stmts = prefix;
+        self.local_types.pop();
+        block
+    }
+
     pub(crate) fn lower_let_stmts(
         &mut self,
         expr: &Expr,
@@ -352,280 +575,97 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         else_branch: Option<&Expr>,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> Vec<MastStmt> {
-        match &pattern.kind {
-            ast::LetPatternKind::Binding(binding) => {
-                let init_mast = self.lower_expr(init, subst_map, None);
-                if self.is_ignored_binding(binding.name) {
-                    vec![MastStmt::Expr(init_mast)]
-                } else {
-                    let var_ty = init_mast.ty;
-                    self.bind_local_type(
-                        expr.span,
-                        binding.name,
-                        var_ty,
-                        binding.is_mut,
-                        "block local binding",
-                    );
-                    vec![MastStmt::Let {
-                        name: binding.name,
-                        ty: var_ty,
-                        is_mut: binding.is_mut,
-                        init: init_mast,
-                    }]
-                }
-            }
-            ast::LetPatternKind::Variant(variant) => {
-                self.lower_variant_let_stmts(expr.span, variant, init, else_branch, subst_map)
-            }
-        }
-    }
-
-    fn lower_variant_let_stmts(
-        &mut self,
-        span: Span,
-        variant: &ast::VariantPattern,
-        init: &Expr,
-        else_branch: Option<&Expr>,
-        subst_map: &HashMap<SymbolId, TypeId>,
-    ) -> Vec<MastStmt> {
         let lowered_init = self.lower_expr(init, subst_map, None);
         let target_ty = lowered_init.ty;
         let (target_let, target_var_expr) =
             self.build_match_target_binding(target_ty, lowered_init, init.span);
-        let adt_info = self.resolve_match_adt(target_ty, init.span);
-        let tag_access = self.build_match_tag_expr(&target_var_expr, &adt_info, init.span);
 
-        let Some(else_expr) = else_branch else {
-            self.ctx.emit_ice(
-                span,
-                "Kern ICE (Lowering): refutable `let` reached lowering without an `else` branch.",
-            );
-            return vec![MastStmt::Expr(MastExpr::new(
-                TypeId::VOID,
-                MastExprKind::Trap,
-                span,
-            ))];
-        };
+        let mut bindings = Vec::new();
+        let condition = self.collect_pattern_plan(
+            expr.span,
+            &pattern.pattern,
+            &target_var_expr,
+            target_ty,
+            &mut bindings,
+        );
 
-        let mut outer_stmts = Vec::new();
-        let mut success_stmts = Vec::new();
+        if let Some(else_expr) = else_branch {
+            let mut outer_stmts = Vec::new();
+            let mut success_stmts = Vec::new();
 
-        if let Some(binding) = &variant.binding
-            && !self.is_ignored_binding(binding.name)
-        {
-            match adt_info.as_ref() {
-                Some(MatchAdtInfo::Named {
-                    mono_id,
-                    gen_args,
-                    def,
-                    is_pure,
-                    ..
-                }) => {
-                    let Some((variant_idx, _)) = self.resolve_match_variant(
-                        adt_info.as_ref().unwrap(),
-                        variant.variant_name,
-                        span,
-                    ) else {
-                        return vec![MastStmt::Expr(MastExpr::new(
-                            TypeId::VOID,
-                            MastExprKind::Trap,
-                            span,
-                        ))];
-                    };
-
-                    if !is_pure {
-                        let variant_def = &def.variants[variant_idx];
-                        let Some(payload_ast) = &variant_def.payload_type else {
-                            self.ctx.emit_ice(
-                                span,
-                                format!(
-                                    "Kern ICE (Lowering): variant `{}` expected payload during `let ... else` lowering.",
-                                    self.ctx.resolve(variant.variant_name)
-                                ),
-                            );
-                            return vec![MastStmt::Expr(MastExpr::new(
-                                TypeId::VOID,
-                                MastExprKind::Trap,
-                                span,
-                            ))];
-                        };
-
-                        let mut payload_ty = self
-                            .ctx
-                            .node_types
-                            .get(&payload_ast.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
-                        if !def.generics.is_empty() && !gen_args.is_empty() {
-                            let mut var_map = HashMap::new();
-                            for (i, param) in def.generics.iter().enumerate() {
-                                var_map.insert(param.name, gen_args[i]);
-                            }
-                            let mut subst = Substituter::new(&mut self.ctx.type_registry, &var_map);
-                            payload_ty = subst.substitute(payload_ty);
-                        }
-
-                        self.bind_local_type(
-                            span,
-                            binding.name,
-                            payload_ty,
-                            binding.is_mut,
-                            "let-else payload binding",
-                        );
-                        outer_stmts.push(MastStmt::Let {
-                            name: binding.name,
-                            ty: payload_ty,
-                            is_mut: binding.is_mut,
-                            init: MastExpr::new(payload_ty, MastExprKind::Undef, span),
-                        });
-
-                        if let Some(payload_expr) = self.build_payload_extract_expr(
-                            span,
-                            &target_var_expr,
-                            *mono_id,
-                            variant_idx,
-                            payload_ty,
-                        ) {
-                            success_stmts.push(MastStmt::Expr(MastExpr::new(
-                                TypeId::VOID,
-                                MastExprKind::Assign {
-                                    op: ast::AssignmentOperator::Assign,
-                                    lhs: Box::new(MastExpr::new(
-                                        payload_ty,
-                                        MastExprKind::Var(binding.name),
-                                        span,
-                                    )),
-                                    rhs: Box::new(payload_expr),
-                                },
-                                span,
-                            )));
-                        }
-                    }
-                }
-                Some(MatchAdtInfo::Anonymous {
-                    mono_id,
-                    def,
-                    is_pure,
-                    ..
-                }) => {
-                    let Some((variant_idx, _)) = self.resolve_match_variant(
-                        adt_info.as_ref().unwrap(),
-                        variant.variant_name,
-                        span,
-                    ) else {
-                        return vec![MastStmt::Expr(MastExpr::new(
-                            TypeId::VOID,
-                            MastExprKind::Trap,
-                            span,
-                        ))];
-                    };
-
-                    if !is_pure {
-                        let Some(payload_ty) = def.variants[variant_idx].payload_ty else {
-                            self.ctx.emit_ice(
-                                span,
-                                format!(
-                                    "Kern ICE (Lowering): anonymous variant `{}` expected payload during `let ... else` lowering.",
-                                    self.ctx.resolve(variant.variant_name)
-                                ),
-                            );
-                            return vec![MastStmt::Expr(MastExpr::new(
-                                TypeId::VOID,
-                                MastExprKind::Trap,
-                                span,
-                            ))];
-                        };
-
-                        self.bind_local_type(
-                            span,
-                            binding.name,
-                            payload_ty,
-                            binding.is_mut,
-                            "let-else payload binding",
-                        );
-                        outer_stmts.push(MastStmt::Let {
-                            name: binding.name,
-                            ty: payload_ty,
-                            is_mut: binding.is_mut,
-                            init: MastExpr::new(payload_ty, MastExprKind::Undef, span),
-                        });
-
-                        if let Some(payload_expr) = self.build_payload_extract_expr(
-                            span,
-                            &target_var_expr,
-                            *mono_id,
-                            variant_idx,
-                            payload_ty,
-                        ) {
-                            success_stmts.push(MastStmt::Expr(MastExpr::new(
-                                TypeId::VOID,
-                                MastExprKind::Assign {
-                                    op: ast::AssignmentOperator::Assign,
-                                    lhs: Box::new(MastExpr::new(
-                                        payload_ty,
-                                        MastExprKind::Var(binding.name),
-                                        span,
-                                    )),
-                                    rhs: Box::new(payload_expr),
-                                },
-                                span,
-                            )));
-                        }
-                    }
-                }
-                None => {
-                    self.ctx.emit_ice(
-                        span,
-                        "Kern ICE (Lowering): variant `let` lowered without enum metadata.",
-                    );
-                    return vec![MastStmt::Expr(MastExpr::new(
-                        TypeId::VOID,
-                        MastExprKind::Trap,
-                        span,
-                    ))];
-                }
+            for binding in bindings {
+                self.bind_local_type(
+                    expr.span,
+                    binding.name,
+                    binding.ty,
+                    binding.is_mut,
+                    "let pattern binding",
+                );
+                outer_stmts.push(MastStmt::Let {
+                    name: binding.name,
+                    ty: binding.ty,
+                    is_mut: binding.is_mut,
+                    init: MastExpr::new(binding.ty, MastExprKind::Undef, expr.span),
+                });
+                success_stmts.push(MastStmt::Expr(MastExpr::new(
+                    TypeId::VOID,
+                    MastExprKind::Assign {
+                        op: ast::AssignmentOperator::Assign,
+                        lhs: Box::new(MastExpr::new(
+                            binding.ty,
+                            MastExprKind::Var(binding.name),
+                            expr.span,
+                        )),
+                        rhs: Box::new(binding.init),
+                    },
+                    expr.span,
+                )));
             }
-        }
 
-        let Some((_, tag_value)) = adt_info
-            .as_ref()
-            .and_then(|info| self.resolve_match_variant(info, variant.variant_name, span))
-        else {
-            return vec![MastStmt::Expr(MastExpr::new(
+            let if_expr = MastExpr::new(
                 TypeId::VOID,
-                MastExprKind::Trap,
-                span,
-            ))];
-        };
-
-        let switch_expr = MastExpr::new(
-            TypeId::VOID,
-            MastExprKind::Switch {
-                target: Box::new(tag_access),
-                cases: vec![MastSwitchCase {
-                    values: vec![tag_value],
-                    body: MastBlock {
+                MastExprKind::If {
+                    cond: Box::new(condition),
+                    then_branch: MastBlock {
                         stmts: success_stmts,
                         result: None,
                         defers: vec![],
                     },
-                }],
-                default_case: Some(self.lower_block_as_body(else_expr, subst_map, TypeId::VOID)),
-            },
-            span,
-        );
+                    else_branch: Some(self.lower_block_as_body(else_expr, subst_map, TypeId::VOID)),
+                },
+                expr.span,
+            );
 
-        outer_stmts.push(MastStmt::Expr(MastExpr::new(
-            TypeId::VOID,
-            MastExprKind::Block(MastBlock {
-                stmts: vec![target_let],
-                result: Some(Box::new(switch_expr)),
-                defers: vec![],
-            }),
-            span,
-        )));
+            outer_stmts.push(MastStmt::Expr(MastExpr::new(
+                TypeId::VOID,
+                MastExprKind::Block(MastBlock {
+                    stmts: vec![target_let],
+                    result: Some(Box::new(if_expr)),
+                    defers: vec![],
+                }),
+                expr.span,
+            )));
 
-        outer_stmts
+            outer_stmts
+        } else {
+            let mut stmts = vec![target_let];
+            for binding in bindings {
+                self.bind_local_type(
+                    expr.span,
+                    binding.name,
+                    binding.ty,
+                    binding.is_mut,
+                    "let pattern binding",
+                );
+                stmts.push(MastStmt::Let {
+                    name: binding.name,
+                    ty: binding.ty,
+                    is_mut: binding.is_mut,
+                    init: binding.init,
+                });
+            }
+            stmts
+        }
     }
 
     pub(crate) fn lower_block_as_body(
@@ -978,37 +1018,165 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExprKind {
         let lowered_target = self.lower_expr(target, subst_map, None);
         let target_ty = lowered_target.ty;
-
-        // 1. 创建局部绑定 (Let Binding)，防止重复执行副作用
         let (let_stmt, target_var_expr) =
             self.build_match_target_binding(target_ty, lowered_target, target.span);
-
-        // 2. 解析目标类型的枚举/ADT信息
-        let adt_info = self.resolve_match_adt(target_ty, target.span);
-
-        // 3. 构建 Switch 的 Tag 提取表达式
-        let tag_access = self.build_match_tag_expr(&target_var_expr, &adt_info, target.span);
-
-        // 4. 解析所有的分支 (Arms)
-        let (mast_cases, def_case) =
-            self.lower_match_arms(arms, &target_var_expr, &adt_info, subst_map, exp_ty);
-
-        // 5. 组装最终的 Block 表达式
-        let switch_expr = MastExpr::new(
-            exp_ty,
-            MastExprKind::Switch {
-                target: Box::new(tag_access),
-                cases: mast_cases,
-                default_case: def_case,
-            },
-            target.span,
-        );
+        let match_expr =
+            self.lower_match_arm_chain(arms, 0, &target_var_expr, target_ty, subst_map, exp_ty);
 
         MastExprKind::Block(MastBlock {
             stmts: vec![let_stmt],
-            result: Some(Box::new(switch_expr)),
+            result: Some(Box::new(match_expr)),
             defers: vec![],
         })
+    }
+
+    fn lower_match_arm_chain(
+        &mut self,
+        arms: &[ast::MatchArm],
+        arm_index: usize,
+        target_var_expr: &MastExpr,
+        target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        exp_ty: TypeId,
+    ) -> MastExpr {
+        if arm_index >= arms.len() {
+            return MastExpr::new(exp_ty, MastExprKind::Trap, target_var_expr.span);
+        }
+
+        let arm = &arms[arm_index];
+        self.lower_match_pattern_chain(
+            &arm.patterns,
+            0,
+            arm,
+            arms,
+            arm_index,
+            target_var_expr,
+            target_ty,
+            subst_map,
+            exp_ty,
+        )
+    }
+
+    fn lower_match_pattern_chain(
+        &mut self,
+        patterns: &[ast::MatchPattern],
+        pattern_index: usize,
+        arm: &ast::MatchArm,
+        arms: &[ast::MatchArm],
+        arm_index: usize,
+        target_var_expr: &MastExpr,
+        target_ty: TypeId,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        exp_ty: TypeId,
+    ) -> MastExpr {
+        if pattern_index >= patterns.len() {
+            return self.lower_match_arm_chain(
+                arms,
+                arm_index + 1,
+                target_var_expr,
+                target_ty,
+                subst_map,
+                exp_ty,
+            );
+        }
+
+        let pattern = &patterns[pattern_index];
+        let (cond, bindings) = match &pattern.kind {
+            ast::MatchPatternKind::Value(value) => {
+                let cond = if let ExprKind::EnumLiteral { variant, .. } = value.kind {
+                    self.build_enum_variant_condition(
+                        pattern.span,
+                        target_var_expr,
+                        target_ty,
+                        variant,
+                    )
+                    .map(|(cond, _)| cond)
+                    .unwrap_or_else(|| self.bool_expr(pattern.span, false))
+                } else {
+                    let value_expr = self.lower_expr(value, subst_map, Some(target_ty));
+                    MastExpr::new(
+                        TypeId::BOOL,
+                        MastExprKind::Binary {
+                            op: ast::BinaryOperator::Equal,
+                            lhs: Box::new(target_var_expr.clone()),
+                            rhs: Box::new(value_expr),
+                        },
+                        pattern.span,
+                    )
+                };
+                (cond, Vec::new())
+            }
+            ast::MatchPatternKind::Range {
+                start,
+                end,
+                inclusive,
+            } => {
+                let start_expr = self.lower_expr(start, subst_map, Some(target_ty));
+                let end_expr = self.lower_expr(end, subst_map, Some(target_ty));
+                let lower = MastExpr::new(
+                    TypeId::BOOL,
+                    MastExprKind::Binary {
+                        op: ast::BinaryOperator::LessOrEqual,
+                        lhs: Box::new(start_expr),
+                        rhs: Box::new(target_var_expr.clone()),
+                    },
+                    pattern.span,
+                );
+                let upper_op = if *inclusive {
+                    ast::BinaryOperator::LessOrEqual
+                } else {
+                    ast::BinaryOperator::LessThan
+                };
+                let upper = MastExpr::new(
+                    TypeId::BOOL,
+                    MastExprKind::Binary {
+                        op: upper_op,
+                        lhs: Box::new(target_var_expr.clone()),
+                        rhs: Box::new(end_expr),
+                    },
+                    pattern.span,
+                );
+                (self.and_expr(pattern.span, lower, upper), Vec::new())
+            }
+            ast::MatchPatternKind::Pattern(inner) => {
+                let mut bindings = Vec::new();
+                let cond = self.collect_pattern_plan(
+                    pattern.span,
+                    inner,
+                    target_var_expr,
+                    target_ty,
+                    &mut bindings,
+                );
+                (cond, bindings)
+            }
+        };
+
+        let then_branch = self.lower_match_pattern_body(&arm.body, bindings, subst_map, exp_ty);
+        let fallback = self.lower_match_pattern_chain(
+            patterns,
+            pattern_index + 1,
+            arm,
+            arms,
+            arm_index,
+            target_var_expr,
+            target_ty,
+            subst_map,
+            exp_ty,
+        );
+
+        MastExpr::new(
+            exp_ty,
+            MastExprKind::If {
+                cond: Box::new(cond),
+                then_branch,
+                else_branch: Some(MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(fallback)),
+                    defers: vec![],
+                }),
+            },
+            arm.span,
+        )
     }
 
     /// 辅助方法：生成临时 Let 绑定，隔离作用域
@@ -1066,239 +1234,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 辅助方法：解析并降级 Match 的所有分支
-    fn lower_match_arms(
-        &mut self,
-        arms: &[ast::MatchArm],
-        target_var_expr: &MastExpr,
-        adt_info: &Option<MatchAdtInfo>,
-        subst_map: &HashMap<SymbolId, TypeId>,
-        exp_ty: TypeId,
-    ) -> (Vec<MastSwitchCase>, Option<MastBlock>) {
-        let mut mast_cases = Vec::new();
-        let mut def_case = None;
-
-        for arm in arms {
-            let mut case_vals = Vec::new();
-            let mut has_catch_all = false;
-            let mut bound_variant = None;
-
-            for pat in &arm.patterns {
-                match &pat.kind {
-                    ast::MatchPatternKind::Value(val_expr) => {
-                        if let Some(info) = adt_info {
-                            if let ExprKind::EnumLiteral { variant, .. } = &val_expr.kind
-                                && let Some((_, tag_value)) =
-                                    self.resolve_match_variant(info, *variant, val_expr.span)
-                            {
-                                case_vals.push(tag_value);
-                            }
-                        } else {
-                            let mut ce = ConstEvaluator::new(self.ctx);
-                            if let Ok(val) = ce.eval_math(val_expr) {
-                                case_vals.push(val as u128);
-                            }
-                        }
-                    }
-                    ast::MatchPatternKind::Range {
-                        start,
-                        end,
-                        inclusive,
-                    } => {
-                        let mut ce = ConstEvaluator::new(self.ctx);
-                        if let (Ok(s), Ok(e)) = (ce.eval_math(start), ce.eval_math(end)) {
-                            let end_bound = if *inclusive { e } else { e - 1 };
-                            for v in s..=end_bound {
-                                case_vals.push(v as u128);
-                            }
-                        }
-                    }
-                    ast::MatchPatternKind::Variant(variant) => {
-                        let Some(info) = adt_info.as_ref() else {
-                            self.ctx.emit_ice(
-                                pat.span,
-                                "Kern ICE (Lowering): variant match pattern lowered without enum metadata.",
-                            );
-                            continue;
-                        };
-
-                        if let Some((variant_idx, tag_value)) =
-                            self.resolve_match_variant(info, variant.variant_name, pat.span)
-                        {
-                            case_vals.push(tag_value);
-                            bound_variant =
-                                Some((variant_idx, &variant.variant_name, &variant.binding));
-                        }
-                    }
-                    ast::MatchPatternKind::CatchAll => {
-                        has_catch_all = true;
-                    }
-                }
-            }
-
-            if has_catch_all {
-                def_case = Some(self.lower_block_as_body(&arm.body, subst_map, exp_ty));
-            } else {
-                let body_block = if let Some((tag_idx, _v_name, binding)) = bound_variant {
-                    match adt_info.as_ref() {
-                        Some(MatchAdtInfo::Named {
-                            mono_id,
-                            gen_args,
-                            def,
-                            is_pure,
-                            ..
-                        }) => {
-                            let variant_def = &def.variants[tag_idx];
-                            self.lower_match_variant_arm(NamedVariantArmSpec {
-                                arm,
-                                binding: binding.as_ref(),
-                                target_expr: target_var_expr,
-                                mono_id: *mono_id,
-                                tag_idx,
-                                variant_def,
-                                def_generics: &def.generics,
-                                gen_args,
-                                subst_map,
-                                exp_ty,
-                                is_pure: *is_pure,
-                            })
-                        }
-                        Some(MatchAdtInfo::Anonymous {
-                            mono_id,
-                            def,
-                            is_pure,
-                            ..
-                        }) => {
-                            let variant_def = &def.variants[tag_idx];
-                            self.lower_anon_match_variant_arm(AnonymousVariantArmSpec {
-                                arm,
-                                binding: binding.as_ref(),
-                                target_expr: target_var_expr,
-                                mono_id: *mono_id,
-                                variant_idx: tag_idx,
-                                variant_def,
-                                subst_map,
-                                exp_ty,
-                                is_pure: *is_pure,
-                            })
-                        }
-                        None => {
-                            self.ctx.emit_ice(
-                                arm.span,
-                                "Kern ICE (Lowering): bound match arm lacks enum metadata.",
-                            );
-                            self.lower_block_as_body(&arm.body, subst_map, exp_ty)
-                        }
-                    }
-                } else {
-                    self.lower_block_as_body(&arm.body, subst_map, exp_ty)
-                };
-
-                mast_cases.push(MastSwitchCase {
-                    values: case_vals,
-                    body: body_block,
-                });
-            }
-        }
-        (mast_cases, def_case)
-    }
-
-    fn lower_match_variant_arm(&mut self, spec: NamedVariantArmSpec<'_>) -> MastBlock {
-        self.local_types.push(HashMap::new());
-        let mut arm_stmts = Vec::new();
-
-        // 如果不是 Pure 且用户要求绑定变量，提取负载
-        if !spec.is_pure
-            && let Some(bind_pattern) = spec.binding
-        {
-            let Some(payload_ast) = &spec.variant_def.payload_type else {
-                self.ctx.emit_ice(
-                    spec.arm.span,
-                    format!(
-                        "Kern ICE (Lowering): attempted to bind payload to variant `{}` without payload.",
-                        self.ctx.resolve(spec.variant_def.name)
-                    ),
-                );
-                let block = self.lower_block_as_body(&spec.arm.body, spec.subst_map, spec.exp_ty);
-                self.local_types.pop();
-                return block;
-            };
-
-            let mut payload_ty = self
-                .ctx
-                .node_types
-                .get(&payload_ast.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-
-            if !spec.def_generics.is_empty() && !spec.gen_args.is_empty() {
-                let mut var_map = HashMap::new();
-                for (i, param) in spec.def_generics.iter().enumerate() {
-                    var_map.insert(param.name, spec.gen_args[i]);
-                }
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &var_map);
-                payload_ty = subst.substitute(payload_ty);
-            }
-
-            if let Some(payload_stmt) = self.bind_payload_pattern(
-                spec.arm.span,
-                bind_pattern,
-                spec.target_expr,
-                spec.mono_id,
-                spec.tag_idx,
-                payload_ty,
-            ) {
-                arm_stmts.push(payload_stmt);
-            }
-        }
-
-        let mut block = self.lower_block_as_body(&spec.arm.body, spec.subst_map, spec.exp_ty);
-        arm_stmts.append(&mut block.stmts);
-        block.stmts = arm_stmts;
-
-        self.local_types.pop();
-        block
-    }
-
-    fn lower_anon_match_variant_arm(&mut self, spec: AnonymousVariantArmSpec<'_>) -> MastBlock {
-        self.local_types.push(HashMap::new());
-        let mut arm_stmts = Vec::new();
-
-        if !spec.is_pure
-            && let Some(bind_pattern) = spec.binding
-        {
-            let Some(payload_ty) = spec.variant_def.payload_ty else {
-                self.ctx.emit_ice(
-                    spec.arm.span,
-                    format!(
-                        "Kern ICE (Lowering): attempted to bind payload to variant `{}` without payload.",
-                        self.ctx.resolve(spec.variant_def.name)
-                    ),
-                );
-                let block = self.lower_block_as_body(&spec.arm.body, spec.subst_map, spec.exp_ty);
-                self.local_types.pop();
-                return block;
-            };
-
-            if let Some(payload_stmt) = self.bind_payload_pattern(
-                spec.arm.span,
-                bind_pattern,
-                spec.target_expr,
-                spec.mono_id,
-                spec.variant_idx,
-                payload_ty,
-            ) {
-                arm_stmts.push(payload_stmt);
-            }
-        }
-
-        let mut block = self.lower_block_as_body(&spec.arm.body, spec.subst_map, spec.exp_ty);
-        arm_stmts.append(&mut block.stmts);
-        block.stmts = arm_stmts;
-
-        self.local_types.pop();
-        block
-    }
 
     pub(crate) fn lower_return(
         &mut self,

@@ -1,9 +1,5 @@
 use super::ExprChecker;
-use crate::checker::Substituter;
 use crate::def::Def;
-use crate::passes::TypeResolver;
-use crate::scope::{SymbolInfo, SymbolKind};
-use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{Span, SymbolId};
@@ -37,6 +33,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
                 None
             }
+        }
+    }
+
+    fn top_level_pattern_variant_name(&self, pattern: &ast::Pattern) -> Option<SymbolId> {
+        match &pattern.kind {
+            ast::PatternKind::Variant(variant) => Some(variant.variant_name),
+            ast::PatternKind::Destructure(destructure) if destructure.fields.len() == 1 => {
+                Some(destructure.fields[0].name)
+            }
+            _ => None,
         }
     }
 
@@ -158,196 +164,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.check_coercion(start, norm_target, s_ty);
                     self.check_coercion(end, norm_target, e_ty);
                 }
-                ast::MatchPatternKind::Variant(variant) => {
-                    if !is_adt {
-                        self.ctx.emit_error(
-                            pat.span,
-                            "variant matching is only allowed on ADT targets",
-                        );
-                        continue;
+                ast::MatchPatternKind::Pattern(pattern) => {
+                    self.check_pattern(arm.body.id, pattern, norm_target);
+
+                    if is_adt
+                        && let Some(variant_name) = self.top_level_pattern_variant_name(pattern)
+                    {
+                        handled_variants.insert(variant_name);
                     }
 
-                    if let Some(explicit_ty_ast) = &variant.target_type {
-                        let mut resolver = TypeResolver::new(self.ctx);
-                        let scope = resolver.current_scope_id().unwrap();
-                        let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
-
-                        // 纯类型匹配检查，不涉及表达式和 BNC
-                        let mut map = std::collections::HashMap::new();
-                        if !self.unify(norm_target, explicit_ty, &mut map)
-                            && norm_target != explicit_ty
-                        {
-                            self.emit_mismatch_error(pat.span, norm_target, explicit_ty);
-                        }
+                    if self.pattern_is_irrefutable(pattern, norm_target) {
+                        *has_catch_all = true;
                     }
-
-                    match self.ctx.type_registry.get(norm_target).clone() {
-                        TypeKind::Enum(def_id, generic_args) => {
-                            let Some(adt_def) =
-                                self.match_enum_def(def_id, pat.span, "check a match arm")
-                            else {
-                                continue;
-                            };
-
-                            if let Some(v) = adt_def
-                                .variants
-                                .iter()
-                                .find(|v| v.name == variant.variant_name)
-                            {
-                                let definition_span = v.name_span;
-                                let payload_type = v.payload_type.clone();
-                                self.ctx.record_identifier_reference(
-                                    variant.variant_span,
-                                    definition_span,
-                                );
-                                handled_variants.insert(variant.variant_name);
-
-                                if let Some(bind_pattern) = &variant.binding {
-                                    if let Some(payload_ast) = &payload_type {
-                                        let mut payload_ty = self
-                                            .ctx
-                                            .node_types
-                                            .get(&payload_ast.id)
-                                            .copied()
-                                            .unwrap_or(TypeId::ERROR);
-
-                                        if !adt_def.generics.is_empty() && !generic_args.is_empty()
-                                        {
-                                            let mut map = std::collections::HashMap::new();
-                                            for (i, param) in adt_def.generics.iter().enumerate() {
-                                                map.insert(param.name, generic_args[i]);
-                                            }
-                                            let mut subst =
-                                                Substituter::new(&mut self.ctx.type_registry, &map);
-                                            payload_ty = subst.substitute(payload_ty);
-                                        }
-
-                                        let info = SymbolInfo {
-                                            kind: SymbolKind::Var,
-                                            node_id: arm.body.id,
-                                            type_id: payload_ty,
-                                            def_id: None,
-                                            span: bind_pattern.name_span,
-                                            is_pub: false,
-                                            is_mut: bind_pattern.is_mut,
-                                        };
-                                        if self
-                                            .ctx
-                                            .scopes
-                                            .define(bind_pattern.name, info.clone())
-                                            .is_ok()
-                                        {
-                                            self.ctx.record_symbol_definition(
-                                                info.span,
-                                                SemanticSymbolKind::Variable,
-                                                info.is_mut,
-                                                info.is_pub,
-                                            );
-                                        }
-                                    } else {
-                                        self.ctx
-                                            .struct_error(
-                                                pat.span,
-                                                format!(
-                                                    "variant `{}` has no payload",
-                                                    self.ctx.resolve(variant.variant_name)
-                                                ),
-                                            )
-                                            .emit();
-                                    }
-                                } else if payload_type.is_some() {
-                                    self.ctx
-                                        .struct_error(
-                                            pat.span,
-                                            format!(
-                                                "variant `{}` requires a binding for its payload",
-                                                self.ctx.resolve(variant.variant_name)
-                                            ),
-                                        )
-                                        .emit();
-                                }
-                            } else {
-                                self.ctx
-                                    .struct_error(pat.span, "variant not found in ADT")
-                                    .emit();
-                            }
-                        }
-                        TypeKind::AnonymousEnum(enum_def) => {
-                            if let Some(v) = enum_def
-                                .variants
-                                .iter()
-                                .find(|v| v.name == variant.variant_name)
-                            {
-                                let definition_span = v.name_span;
-                                let payload_ty = v.payload_ty;
-                                self.ctx.record_identifier_reference(
-                                    variant.variant_span,
-                                    definition_span,
-                                );
-                                handled_variants.insert(variant.variant_name);
-
-                                if let Some(bind_pattern) = &variant.binding {
-                                    if let Some(payload_ty) = payload_ty {
-                                        let info = SymbolInfo {
-                                            kind: SymbolKind::Var,
-                                            node_id: arm.body.id,
-                                            type_id: payload_ty,
-                                            def_id: None,
-                                            span: bind_pattern.name_span,
-                                            is_pub: false,
-                                            is_mut: bind_pattern.is_mut,
-                                        };
-                                        if self
-                                            .ctx
-                                            .scopes
-                                            .define(bind_pattern.name, info.clone())
-                                            .is_ok()
-                                        {
-                                            self.ctx.record_symbol_definition(
-                                                info.span,
-                                                SemanticSymbolKind::Variable,
-                                                info.is_mut,
-                                                info.is_pub,
-                                            );
-                                        }
-                                    } else {
-                                        self.ctx
-                                            .struct_error(
-                                                pat.span,
-                                                format!(
-                                                    "variant `{}` has no payload",
-                                                    self.ctx.resolve(variant.variant_name)
-                                                ),
-                                            )
-                                            .emit();
-                                    }
-                                } else if payload_ty.is_some() {
-                                    self.ctx
-                                        .struct_error(
-                                            pat.span,
-                                            format!(
-                                                "variant `{}` requires a binding for its payload",
-                                                self.ctx.resolve(variant.variant_name)
-                                            ),
-                                        )
-                                        .emit();
-                                }
-                            } else {
-                                self.ctx
-                                    .struct_error(pat.span, "variant not found in ADT")
-                                    .emit();
-                            }
-                        }
-                        _ => {
-                            self.ctx.emit_ice(
-                                pat.span,
-                                "Kern ICE (Typeck): Expected ADT target during variant match checking.",
-                            );
-                        }
-                    }
-                }
-                ast::MatchPatternKind::CatchAll => {
-                    *has_catch_all = true;
                 }
             }
         }

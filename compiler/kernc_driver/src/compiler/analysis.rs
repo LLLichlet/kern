@@ -2049,17 +2049,30 @@ fn normalize_data_literal_for_body_only_comparison(literal: &mut ast::DataLitera
 
 fn normalize_let_pattern_for_body_only_comparison(pattern: &mut ast::LetPattern) {
     pattern.span = Span::default();
+    normalize_pattern_for_body_only_comparison(&mut pattern.pattern);
+}
+
+fn normalize_pattern_for_body_only_comparison(pattern: &mut ast::Pattern) {
+    pattern.span = Span::default();
     match &mut pattern.kind {
-        ast::LetPatternKind::Binding(binding) => {
+        ast::PatternKind::Binding(binding) => {
             normalize_binding_pattern_for_body_only_comparison(binding);
         }
-        ast::LetPatternKind::Variant(variant) => {
+        ast::PatternKind::Ignore => {}
+        ast::PatternKind::Variant(variant) => {
             variant.variant_span = Span::default();
             if let Some(target_type) = &mut variant.target_type {
                 normalize_type_for_body_only_comparison(target_type);
             }
-            if let Some(binding) = &mut variant.binding {
-                normalize_binding_pattern_for_body_only_comparison(binding);
+        }
+        ast::PatternKind::Destructure(destructure) => {
+            if let Some(target_type) = &mut destructure.target_type {
+                normalize_type_for_body_only_comparison(target_type);
+            }
+            for field in &mut destructure.fields {
+                field.span = Span::default();
+                field.name_span = Span::default();
+                normalize_pattern_for_body_only_comparison(&mut field.pattern);
             }
         }
     }
@@ -2073,16 +2086,9 @@ fn normalize_match_pattern_for_body_only_comparison(pattern: &mut ast::MatchPatt
             normalize_expr_for_body_only_comparison(start);
             normalize_expr_for_body_only_comparison(end);
         }
-        ast::MatchPatternKind::Variant(variant) => {
-            variant.variant_span = Span::default();
-            if let Some(target_type) = &mut variant.target_type {
-                normalize_type_for_body_only_comparison(target_type);
-            }
-            if let Some(binding) = &mut variant.binding {
-                normalize_binding_pattern_for_body_only_comparison(binding);
-            }
+        ast::MatchPatternKind::Pattern(inner) => {
+            normalize_pattern_for_body_only_comparison(inner);
         }
-        ast::MatchPatternKind::CatchAll => {}
     }
 }
 

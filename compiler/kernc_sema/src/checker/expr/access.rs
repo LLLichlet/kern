@@ -6,10 +6,403 @@ use crate::query::{MemberQuery, MemberQueryEnv};
 use crate::scope::{SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast::{self as ast, Expr};
+use kernc_ast::{self as ast, Expr, TypeNode};
 use kernc_utils::{NodeId, Span, SymbolId};
 
+#[derive(Clone, Copy)]
+struct ResolvedPatternField {
+    name: SymbolId,
+    ty: TypeId,
+    definition_span: Option<Span>,
+}
+
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn is_discard_name(&self, name: SymbolId) -> bool {
+        self.ctx.resolve(name) == "_"
+    }
+
+    fn define_pattern_binding(
+        &mut self,
+        node_id: NodeId,
+        binding: &ast::BindingPattern,
+        ty: TypeId,
+    ) {
+        if self.is_discard_name(binding.name) {
+            return;
+        }
+
+        let info = SymbolInfo {
+            kind: SymbolKind::Var,
+            node_id,
+            type_id: ty,
+            def_id: None,
+            span: binding.name_span,
+            is_pub: false,
+            is_mut: binding.is_mut,
+        };
+        if self.ctx.scopes.define(binding.name, info.clone()).is_ok() {
+            self.ctx.record_symbol_definition(
+                info.span,
+                SemanticSymbolKind::Variable,
+                info.is_mut,
+                info.is_pub,
+            );
+        }
+    }
+
+    fn check_pattern_explicit_type(
+        &mut self,
+        explicit_ty_ast: Option<&TypeNode>,
+        actual_ty: TypeId,
+        span: Span,
+    ) {
+        let Some(explicit_ty_ast) = explicit_ty_ast else {
+            return;
+        };
+
+        let mut resolver = TypeResolver::new(self.ctx);
+        let scope = resolver.current_scope_id().unwrap();
+        let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
+
+        let actual_ty = self.resolve_tv(actual_ty);
+        let mut map = std::collections::HashMap::new();
+        if !self.unify(actual_ty, explicit_ty, &mut map) && actual_ty != explicit_ty {
+            self.emit_mismatch_error(span, actual_ty, explicit_ty);
+        }
+    }
+
+    fn is_pattern_field_pun(&self, field: &ast::DestructurePatternField) -> bool {
+        matches!(
+            &field.pattern.kind,
+            ast::PatternKind::Binding(binding)
+                if binding.name == field.name
+                    && !binding.is_mut
+                    && binding.name_span == field.name_span
+                    && binding.span == field.name_span
+        )
+    }
+
+    fn variant_payload_type(
+        &mut self,
+        norm_target: TypeId,
+        variant_name: SymbolId,
+        span: Span,
+    ) -> Option<Option<TypeId>> {
+        match self.ctx.type_registry.get(norm_target).clone() {
+            TypeKind::Enum(def_id, generic_args) => {
+                let adt_def = self.match_enum_def(def_id, span, "inspect a pattern variant")?;
+                let variant = adt_def.variants.iter().find(|v| v.name == variant_name)?;
+                let definition_span = variant.name_span;
+                self.ctx
+                    .record_identifier_reference(span, definition_span);
+
+                let payload_ty = variant.payload_type.as_ref().map(|payload_ast| {
+                    let mut payload_ty = self
+                        .ctx
+                        .node_types
+                        .get(&payload_ast.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+
+                    if !adt_def.generics.is_empty() && !generic_args.is_empty() {
+                        let mut map = std::collections::HashMap::new();
+                        for (i, param) in adt_def.generics.iter().enumerate() {
+                            map.insert(param.name, generic_args[i]);
+                        }
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                        payload_ty = subst.substitute(payload_ty);
+                    }
+
+                    payload_ty
+                });
+                Some(payload_ty)
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let variant = enum_def.variants.iter().find(|v| v.name == variant_name)?;
+                self.ctx
+                    .record_identifier_reference(span, variant.name_span);
+                Some(variant.payload_ty)
+            }
+            _ => None,
+        }
+    }
+
+    fn resolve_struct_pattern_fields(
+        &mut self,
+        norm_target: TypeId,
+        span: Span,
+    ) -> Option<(Vec<ResolvedPatternField>, String)> {
+        match self.ctx.type_registry.get(norm_target).clone() {
+            TypeKind::Def(def_id, generic_args) => match &self.ctx.defs[def_id.0 as usize] {
+                Def::Struct(def) => {
+                    let mut fields = Vec::new();
+                    for field in &def.fields {
+                        let mut field_ty = self
+                            .ctx
+                            .node_types
+                            .get(&field.type_node.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+
+                        if !def.generics.is_empty() && !generic_args.is_empty() {
+                            let mut map = std::collections::HashMap::new();
+                            for (i, param) in def.generics.iter().enumerate() {
+                                map.insert(param.name, generic_args[i]);
+                            }
+                            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                            field_ty = subst.substitute(field_ty);
+                        }
+
+                        fields.push(ResolvedPatternField {
+                            name: field.name,
+                            ty: field_ty,
+                            definition_span: Some(field.name_span),
+                        });
+                    }
+
+                    Some((fields, self.ctx.resolve(def.name).to_string()))
+                }
+                Def::Union(def) => {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "destructuring patterns are not supported for union `{}`",
+                                self.ctx.resolve(def.name)
+                            ),
+                        )
+                        .with_hint("union values do not carry an active-field tag; access them explicitly instead")
+                        .emit();
+                    None
+                }
+                _ => None,
+            },
+            TypeKind::AnonymousStruct(_, fields) => Some((
+                fields
+                    .iter()
+                    .map(|field| ResolvedPatternField {
+                        name: field.name,
+                        ty: field.ty,
+                        definition_span: None,
+                    })
+                    .collect(),
+                self.ctx.ty_to_string(norm_target),
+            )),
+            TypeKind::AnonymousUnion(_, _) => {
+                self.ctx
+                    .struct_error(span, "destructuring patterns are not supported for anonymous unions")
+                    .with_hint("union values do not carry an active-field tag; access them explicitly instead")
+                    .emit();
+                None
+            }
+            _ => None,
+        }
+    }
+
+    pub(super) fn pattern_is_irrefutable(
+        &mut self,
+        pattern: &ast::Pattern,
+        actual_ty: TypeId,
+    ) -> bool {
+        match &pattern.kind {
+            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => true,
+            ast::PatternKind::Variant(_) => false,
+            ast::PatternKind::Destructure(destructure) => {
+                let actual_ty = self.resolve_tv(actual_ty);
+                if matches!(
+                    self.ctx.type_registry.get(actual_ty),
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
+                ) {
+                    return false;
+                }
+
+                let Some((field_defs, _)) =
+                    self.resolve_struct_pattern_fields(actual_ty, pattern.span)
+                else {
+                    return false;
+                };
+
+                destructure.fields.iter().all(|field| {
+                    field_defs
+                        .iter()
+                        .find(|candidate| candidate.name == field.name)
+                        .map(|resolved| self.pattern_is_irrefutable(&field.pattern, resolved.ty))
+                        .unwrap_or(false)
+                })
+            }
+        }
+    }
+
+    pub(super) fn check_pattern(
+        &mut self,
+        node_id: NodeId,
+        pattern: &ast::Pattern,
+        actual_ty: TypeId,
+    ) {
+        match &pattern.kind {
+            ast::PatternKind::Binding(binding) => {
+                self.define_pattern_binding(node_id, binding, actual_ty);
+            }
+            ast::PatternKind::Ignore => {}
+            ast::PatternKind::Variant(variant) => {
+                self.check_pattern_explicit_type(
+                    variant.target_type.as_deref(),
+                    actual_ty,
+                    pattern.span,
+                );
+                let norm_target = self.resolve_tv(actual_ty);
+
+                let Some(payload_ty) =
+                    self.variant_payload_type(norm_target, variant.variant_name, variant.variant_span)
+                else {
+                    self.ctx
+                        .struct_error(pattern.span, "variant pattern is only allowed on enum values")
+                        .emit();
+                    return;
+                };
+
+                if payload_ty.is_some() {
+                    let variant_name = self.ctx.resolve(variant.variant_name).to_string();
+                    self.ctx
+                        .struct_error(
+                            pattern.span,
+                            format!("variant `{}` requires payload destructuring", variant_name),
+                        )
+                        .with_hint(format!(
+                            "write this as `.{{ {}: value }}` or `Type.{{ {}: value }}`",
+                            variant_name, variant_name
+                        ))
+                        .emit();
+                }
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                self.check_pattern_explicit_type(
+                    destructure.target_type.as_deref(),
+                    actual_ty,
+                    pattern.span,
+                );
+
+                let norm_target = self.resolve_tv(actual_ty);
+                match self.ctx.type_registry.get(norm_target).clone() {
+                    TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_) => {
+                        if destructure.fields.len() != 1 {
+                            self.ctx
+                                .struct_error(
+                                    pattern.span,
+                                    "enum destructuring patterns must specify exactly one variant",
+                                )
+                                .with_hint("use `.{ Variant: pattern }` for payload variants or `.Variant` for payload-less variants")
+                                .emit();
+                            return;
+                        }
+
+                        let field = &destructure.fields[0];
+                        let Some(payload_ty) =
+                            self.variant_payload_type(norm_target, field.name, field.name_span)
+                        else {
+                            self.ctx
+                                .struct_error(
+                                    field.span,
+                                    format!(
+                                        "variant `{}` not found in enum pattern",
+                                        self.ctx.resolve(field.name)
+                                    ),
+                                )
+                                .emit();
+                            return;
+                        };
+
+                        if let Some(payload_ty) = payload_ty {
+                            if self.is_pattern_field_pun(field) {
+                                let field_name = self.ctx.resolve(field.name).to_string();
+                                self.ctx
+                                    .struct_error(
+                                        field.span,
+                                        format!(
+                                            "variant `{}` requires an explicit payload pattern",
+                                            field_name
+                                        ),
+                                    )
+                                    .with_hint(format!(
+                                        "write this as `.{{ {}: value }}`",
+                                        field_name
+                                    ))
+                                    .emit();
+                                return;
+                            }
+
+                            self.check_pattern(node_id, &field.pattern, payload_ty);
+                        } else {
+                            let field_name = self.ctx.resolve(field.name).to_string();
+                            self.ctx
+                                .struct_error(
+                                    field.span,
+                                    format!("variant `{}` does not take a payload", field_name),
+                                )
+                                .with_hint(format!(
+                                    "use `.{}` for the payload-less form",
+                                    field_name
+                                ))
+                                .emit();
+                        }
+                    }
+                    _ => {
+                        let Some((field_defs, type_name)) =
+                            self.resolve_struct_pattern_fields(norm_target, pattern.span)
+                        else {
+                            self.ctx
+                                .struct_error(
+                                    pattern.span,
+                                    "destructuring patterns are only supported on structs and enum values",
+                                )
+                                .emit();
+                            return;
+                        };
+
+                        let mut seen = std::collections::HashSet::new();
+                        for field in &destructure.fields {
+                            if !seen.insert(field.name) {
+                                self.ctx
+                                    .struct_error(
+                                        field.span,
+                                        format!(
+                                            "field `{}` is destructured more than once",
+                                            self.ctx.resolve(field.name)
+                                        ),
+                                    )
+                                    .emit();
+                                continue;
+                            }
+
+                            let Some(resolved_field) =
+                                field_defs.iter().find(|candidate| candidate.name == field.name)
+                            else {
+                                self.ctx
+                                    .struct_error(
+                                        field.span,
+                                        format!(
+                                            "field `{}` does not exist in `{}`",
+                                            self.ctx.resolve(field.name),
+                                            type_name
+                                        ),
+                                    )
+                                    .emit();
+                                continue;
+                            };
+
+                            if let Some(definition_span) = resolved_field.definition_span {
+                                self.ctx
+                                    .record_identifier_reference(field.name_span, definition_span);
+                            }
+
+                            self.check_pattern(node_id, &field.pattern, resolved_field.ty);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     fn current_module_id(&self) -> Option<DefId> {
         let current_scope = self.ctx.scopes.current_scope_id()?;
 
@@ -139,211 +532,41 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
         }
 
-        match &pattern.kind {
-            ast::LetPatternKind::Binding(binding) => {
-                if else_branch.is_some() {
-                    self.ctx
-                        .struct_error(span, "irrefutable `let` bindings cannot use `else`")
-                        .with_hint("remove the `else` block or use a refutable variant pattern like `.{ Ok: value }`")
-                        .emit();
-                }
-
-                let info = SymbolInfo {
-                    kind: SymbolKind::Var,
-                    node_id,
-                    type_id: init_ty,
-                    def_id: None,
-                    span: binding.name_span,
-                    is_pub: false,
-                    is_mut: binding.is_mut,
-                };
-                if self.ctx.scopes.define(binding.name, info.clone()).is_ok() {
-                    self.ctx.record_symbol_definition(
-                        info.span,
-                        SemanticSymbolKind::Variable,
-                        info.is_mut,
-                        info.is_pub,
-                    );
-                }
+        let is_irrefutable = self.pattern_is_irrefutable(&pattern.pattern, norm_init);
+        match (is_irrefutable, else_branch) {
+            (true, Some(_)) => {
+                self.ctx
+                    .struct_error(span, "irrefutable `let` patterns cannot use `else`")
+                    .with_hint(
+                        "remove the `else` block or use a refutable enum pattern like `.{ Ok: value }`",
+                    )
+                    .emit();
             }
-            ast::LetPatternKind::Variant(variant) => {
-                let Some(else_expr) = else_branch else {
-                    self.ctx
-                        .struct_error(span, "refutable `let` patterns require an `else` branch")
-                        .with_hint(
-                            "write this as `let .{ Variant: value } = expr else return ...;` or another diverging expression",
-                        )
-                        .emit();
-                    return TypeId::VOID;
-                };
+            (false, None) => {
+                self.ctx
+                    .struct_error(span, "refutable `let` patterns require an `else` branch")
+                    .with_hint(
+                        "write this as `let .{ Variant: value } = expr else return ...;` or another diverging expression",
+                    )
+                    .emit();
+            }
+            _ => {}
+        }
 
-                if let Some(explicit_ty_ast) = &variant.target_type {
-                    let mut resolver = TypeResolver::new(self.ctx);
-                    let scope = resolver.current_scope_id().unwrap();
-                    let explicit_ty = resolver.resolve_type(explicit_ty_ast, scope);
-
-                    let mut map = std::collections::HashMap::new();
-                    if !self.unify(norm_init, explicit_ty, &mut map) && norm_init != explicit_ty {
-                        self.emit_mismatch_error(span, norm_init, explicit_ty);
-                    }
-                }
-
-                let mut payload_binding_ty = None;
-                match self.ctx.type_registry.get(norm_init).clone() {
-                    TypeKind::Enum(def_id, generic_args) => {
-                        let Some(adt_def) =
-                            self.match_enum_def(def_id, span, "check a let-pattern binding")
-                        else {
-                            return TypeId::VOID;
-                        };
-
-                        if let Some(v) = adt_def
-                            .variants
-                            .iter()
-                            .find(|v| v.name == variant.variant_name)
-                        {
-                            let definition_span = v.name_span;
-                            let payload_type = v.payload_type.clone();
-                            self.ctx
-                                .record_identifier_reference(variant.variant_span, definition_span);
-                            if let Some(bind_pattern) = &variant.binding {
-                                if let Some(payload_ast) = &payload_type {
-                                    let mut payload_ty = self
-                                        .ctx
-                                        .node_types
-                                        .get(&payload_ast.id)
-                                        .copied()
-                                        .unwrap_or(TypeId::ERROR);
-
-                                    if !adt_def.generics.is_empty() && !generic_args.is_empty() {
-                                        let mut map = std::collections::HashMap::new();
-                                        for (i, param) in adt_def.generics.iter().enumerate() {
-                                            map.insert(param.name, generic_args[i]);
-                                        }
-                                        let mut subst =
-                                            Substituter::new(&mut self.ctx.type_registry, &map);
-                                        payload_ty = subst.substitute(payload_ty);
-                                    }
-
-                                    payload_binding_ty = Some((bind_pattern, payload_ty));
-                                } else {
-                                    self.ctx
-                                        .struct_error(
-                                            span,
-                                            format!(
-                                                "variant `{}` has no payload",
-                                                self.ctx.resolve(variant.variant_name)
-                                            ),
-                                        )
-                                        .emit();
-                                }
-                            } else if payload_type.is_some() {
-                                self.ctx
-                                    .struct_error(
-                                        span,
-                                        format!(
-                                            "variant `{}` requires a binding for its payload",
-                                            self.ctx.resolve(variant.variant_name)
-                                        ),
-                                    )
-                                    .emit();
-                            }
-                        } else {
-                            self.ctx
-                                .struct_error(span, "variant not found in ADT")
-                                .emit();
-                        }
-                    }
-                    TypeKind::AnonymousEnum(enum_def) => {
-                        if let Some(v) = enum_def
-                            .variants
-                            .iter()
-                            .find(|v| v.name == variant.variant_name)
-                        {
-                            let definition_span = v.name_span;
-                            let payload_ty = v.payload_ty;
-                            self.ctx
-                                .record_identifier_reference(variant.variant_span, definition_span);
-                            if let Some(bind_pattern) = &variant.binding {
-                                if let Some(payload_ty) = payload_ty {
-                                    payload_binding_ty = Some((bind_pattern, payload_ty));
-                                } else {
-                                    self.ctx
-                                        .struct_error(
-                                            span,
-                                            format!(
-                                                "variant `{}` has no payload",
-                                                self.ctx.resolve(variant.variant_name)
-                                            ),
-                                        )
-                                        .emit();
-                                }
-                            } else if payload_ty.is_some() {
-                                self.ctx
-                                    .struct_error(
-                                        span,
-                                        format!(
-                                            "variant `{}` requires a binding for its payload",
-                                            self.ctx.resolve(variant.variant_name)
-                                        ),
-                                    )
-                                    .emit();
-                            }
-                        } else {
-                            self.ctx
-                                .struct_error(span, "variant not found in ADT")
-                                .emit();
-                        }
-                    }
-                    TypeKind::Error => {}
-                    _ => {
-                        self.ctx
-                            .struct_error(
-                                span,
-                                "variant `let` patterns are only allowed on ADT values",
-                            )
-                            .emit();
-                    }
-                }
-
-                let else_ty = self.check_expr(else_expr, None);
-                let norm_else = self.resolve_tv(else_ty);
-                if norm_else != TypeId::NEVER && norm_else != TypeId::ERROR {
-                    self.ctx
-                        .struct_error(
-                            else_expr.span,
-                            "`let ... else` failure branches must diverge",
-                        )
-                        .with_hint("end the `else` block with `return`, `break`, `continue`, or another diverging expression")
-                        .emit();
-                }
-
-                if let Some((bind_pattern, payload_ty)) = payload_binding_ty {
-                    let info = SymbolInfo {
-                        kind: SymbolKind::Var,
-                        node_id,
-                        type_id: payload_ty,
-                        def_id: None,
-                        span: bind_pattern.name_span,
-                        is_pub: false,
-                        is_mut: bind_pattern.is_mut,
-                    };
-                    if self
-                        .ctx
-                        .scopes
-                        .define(bind_pattern.name, info.clone())
-                        .is_ok()
-                    {
-                        self.ctx.record_symbol_definition(
-                            info.span,
-                            SemanticSymbolKind::Variable,
-                            info.is_mut,
-                            info.is_pub,
-                        );
-                    }
-                }
+        if let Some(else_expr) = else_branch {
+            let else_ty = self.check_expr(else_expr, None);
+            let norm_else = self.resolve_tv(else_ty);
+            if norm_else != TypeId::NEVER && norm_else != TypeId::ERROR {
+                self.ctx
+                    .struct_error(else_expr.span, "`let ... else` failure branches must diverge")
+                    .with_hint(
+                        "end the `else` block with `return`, `break`, `continue`, or another diverging expression",
+                    )
+                    .emit();
             }
         }
+
+        self.check_pattern(node_id, &pattern.pattern, init_ty);
         TypeId::VOID
     }
 

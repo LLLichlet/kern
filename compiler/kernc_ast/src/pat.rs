@@ -15,18 +15,39 @@ pub struct VariantPattern {
     pub target_type: Option<Box<TypeNode>>,
     pub variant_name: SymbolId,
     pub variant_span: Span,
-    pub binding: Option<BindingPattern>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum LetPatternKind {
+pub struct DestructurePatternField {
+    pub name: SymbolId,
+    pub name_span: Span,
+    pub pattern: Box<Pattern>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DestructurePattern {
+    pub target_type: Option<Box<TypeNode>>,
+    pub fields: Vec<DestructurePatternField>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternKind {
     Binding(BindingPattern),
+    Ignore,
     Variant(VariantPattern),
+    Destructure(DestructurePattern),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LetPattern {
-    pub kind: LetPatternKind,
+    pub pattern: Pattern,
     pub span: Span,
 }
 
@@ -38,8 +59,7 @@ pub enum MatchPatternKind {
         end: Box<Expr>,
         inclusive: bool,
     },
-    Variant(VariantPattern),
-    CatchAll,
+    Pattern(Pattern),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -1213,6 +1213,7 @@ mod tests {
     use crate::graph::PackageId;
     use crate::manifest::Manifest;
     use crate::plan::TargetKind;
+    use crate::script::ScriptOs;
     use crate::workspace::load_members;
     use std::fs;
     use std::path::Path;
@@ -1226,6 +1227,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn os_variant_name(os: ScriptOs) -> &'static str {
+        match os {
+            ScriptOs::Unknown => "unknown",
+            ScriptOs::Linux => "linux",
+            ScriptOs::Windows => "windows",
+            ScriptOs::Darwin => "darwin",
+        }
     }
 
     #[test]
@@ -1910,6 +1920,7 @@ root = "src/lib.rn"
     #[test]
     fn applies_build_script_link_directives_per_unit() {
         let root = temp_dir("craft-build-plan-script");
+        let os_variant = os_variant_name(crate::script::host_target().os);
         fs::write(
             root.join("Craft.toml"),
             r#"
@@ -1934,29 +1945,29 @@ root = "tests/smoke.rn"
         .unwrap();
         fs::write(
             root.join("build.rn"),
-            r#"
+            format!(
+                r#"
 use craft.builder;
 
-pub fn build(b: *mut builder.Builder) void {
-    if (b.feature_enabled("simd")) {
+pub fn build(b: *mut builder.Builder) void {{
+    if (b.feature_enabled("simd")) {{
         b.link_arg("-flto");
-    }
+    }}
 
-    match (b.target.os) {
-        .windows => b.link_system_lib("ws2_32"),
-        .linux => {},
-        .darwin => {},
-        .unknown => {},
-    }
+    if (b.target.os == .{os_variant}) {{
+        b.link_arg("-Dtarget-os-match");
+    }}
 
-    match (b.unit.kind) {
-        .bin => b.link_framework("Security"),
-        .test => b.link_search("native/test"),
-        .lib => {},
-        .example => {},
-    }
-}
-"#,
+    if (b.unit.kind == .bin) {{
+        b.link_framework("Security");
+    }}
+
+    if (b.unit.kind == .test) {{
+        b.link_search("native/test");
+    }}
+}}
+"#
+            ),
         )
         .unwrap();
 
@@ -1992,6 +2003,7 @@ pub fn build(b: *mut builder.Builder) void {
             .find(|unit| unit.target_kind == TargetKind::Bin)
             .unwrap();
         assert!(bin.link.args.iter().any(|arg| arg == "-flto"));
+        assert!(bin.link.args.iter().any(|arg| arg == "-Dtarget-os-match"));
         assert!(bin.link.frameworks.iter().any(|name| name == "Security"));
 
         let test = package

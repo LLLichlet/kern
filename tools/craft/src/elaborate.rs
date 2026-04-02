@@ -439,6 +439,7 @@ mod tests {
     use super::plan;
     use crate::manifest::Manifest;
     use crate::resolver::ResolvedDependencyTarget;
+    use crate::script::ScriptOs;
     use crate::workspace::load_members;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -451,6 +452,15 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    fn os_variant_name(os: ScriptOs) -> &'static str {
+        match os {
+            ScriptOs::Unknown => "unknown",
+            ScriptOs::Linux => "linux",
+            ScriptOs::Windows => "windows",
+            ScriptOs::Darwin => "darwin",
+        }
     }
 
     #[test]
@@ -713,6 +723,64 @@ pub fn craft(p: *mut plan.Plan) void {
             Some(&crate::plan::PlanValue::String(
                 crate::script::host_target().arch.to_string()
             ))
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn pure_enum_equality_checks_work_in_craft_scripts() {
+        let root = temp_dir("craft-elaborate-enum-equality");
+        let os_variant = os_variant_name(crate::script::host_target().os);
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("craft.rn"),
+            format!(
+                r#"
+use craft.plan;
+
+pub fn craft(p: *mut plan.Plan) void {{
+    if (p.target.os == .{os_variant}) {{
+        p.cfg_bool("target_os_match", true);
+    }}
+
+    if (p.command == .check) {{
+        p.define_bool("check_mode", true);
+    }}
+}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            elaboration.packages[0].plan.cfg.get("target_os_match"),
+            Some(&crate::plan::PlanValue::Bool(true))
+        );
+        assert_eq!(
+            elaboration.packages[0].plan.define.get("check_mode"),
+            Some(&crate::plan::PlanValue::Bool(true))
         );
 
         let _ = fs::remove_dir_all(root);

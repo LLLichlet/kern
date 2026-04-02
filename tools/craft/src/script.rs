@@ -1343,6 +1343,10 @@ fn push_unique(values: &mut Vec<String>, value: String) {
     }
 }
 
+fn pure_enum_value(tag: i128) -> ConstValue {
+    ConstValue::Int(tag)
+}
+
 fn plan_argument_value(
     ctx: &mut kernc_sema::SemaContext<'_>,
     script_context: &ScriptContext,
@@ -1407,10 +1411,7 @@ fn plan_argument_value(
     plan.insert(field("profile", ctx), ConstValue::Struct(profile));
     plan.insert(
         field("command", ctx),
-        ConstValue::Enum {
-            tag: script_context.command.tag(),
-            payload: None,
-        },
+        pure_enum_value(script_context.command.tag()),
     );
 
     ConstValue::Struct(plan)
@@ -1427,17 +1428,11 @@ fn build_argument_value(
     let mut unit = HashMap::new();
     unit.insert(
         field("domain", ctx),
-        ConstValue::Enum {
-            tag: build_domain_tag(script_context.unit.domain),
-            payload: None,
-        },
+        pure_enum_value(build_domain_tag(script_context.unit.domain)),
     );
     unit.insert(
         field("kind", ctx),
-        ConstValue::Enum {
-            tag: target_kind_tag(script_context.unit.target_kind),
-            payload: None,
-        },
+        pure_enum_value(target_kind_tag(script_context.unit.target_kind)),
     );
     unit.insert(
         field("name", ctx),
@@ -1545,10 +1540,7 @@ fn target_value(
     let mut value = HashMap::new();
     value.insert(
         field("os", ctx),
-        ConstValue::Enum {
-            tag: target.os.tag(),
-            payload: None,
-        },
+        pure_enum_value(target.os.tag()),
     );
     value.insert(field("arch", ctx), ConstValue::String(target.arch.clone()));
     value.insert(

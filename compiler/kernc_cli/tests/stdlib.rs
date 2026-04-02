@@ -14,7 +14,7 @@ fn runs_hosted_program_using_gpa_alignment_and_arena_allocator() {
         "kernc_std_alloc",
         r#"
 use std.mem.Layout;
-use std.mem.alloc.{PageAllocator, GPAllocator, ArenaAllocator};
+use std.mem.alloc.{PageAllocator, GPAllocator, ArenaAllocator, BumpAllocator};
 
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
@@ -84,6 +84,31 @@ extern fn main() i32 {
         return 13;
     }
 
+    let bump = BumpAllocator.{ backing: page }..&;
+    defer bump.deinit();
+
+    let bump_a = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
+        .Some: ptr => ptr,
+        .None => return 14,
+    };
+    let bump_b = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
+        .Some: ptr => ptr,
+        .None => return 15,
+    };
+    if ((bump_b as usize) <= (bump_a as usize)) {
+        return 16;
+    }
+
+    bump.reset();
+
+    let bump_reused = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
+        .Some: ptr => ptr,
+        .None => return 17,
+    };
+    if ((bump_reused as usize) != (bump_a as usize)) {
+        return 18;
+    }
+
     return 0;
 }
 "#,
@@ -96,6 +121,44 @@ extern fn main() i32 {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn rejects_gpa_invalid_free_usage() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_alloc_invalid_free",
+        r#"
+use std.mem.Layout;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    defer gpa.deinit();
+
+    let good = Layout.{ size: 16, align: 16 };
+    let ptr = match (gpa.alloc(good)) {
+        .Some: ptr => ptr,
+        .None => return 1,
+    };
+
+    gpa.free(ptr, Layout.{ size: 8, align: 16 });
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected invalid GPA free to fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
 }
 
 #[test]

@@ -2,8 +2,10 @@ mod allocator;
 mod page;
 mod gpa;
 mod arena;
+mod bump;
 
 pub use .allocator.Allocator;
 pub use .page.PageAllocator;
 pub use .gpa.GPAllocator;
 pub use .arena.ArenaAllocator;
+pub use .bump.BumpAllocator;

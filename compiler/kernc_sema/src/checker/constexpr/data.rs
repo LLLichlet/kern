@@ -7,7 +7,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         literal: &ast::DataLiteralKind,
         depth: usize,
     ) -> ConstEvalResult<ConstValue> {
-        let norm_target = self.expr_type(expr);
+        let target_ty = self.expr_type(expr);
+        let norm_target = self.ctx.type_registry.normalize(target_ty);
 
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, _) => {
@@ -420,7 +421,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<Option<i128>> {
-        match self.ctx.type_registry.get(target_ty).clone() {
+        let norm = self.ctx.type_registry.normalize(target_ty);
+        match self.ctx.type_registry.get(norm).clone() {
             TypeKind::Enum(def_id, _) => {
                 let Some(Def::Enum(enum_def)) = self.ctx.defs.get(def_id.0 as usize).cloned()
                 else {
@@ -482,7 +484,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         depth: usize,
         span: Span,
     ) -> ConstEvalResult<ConstValue> {
-        let norm_ty = self.node_type(node_id);
+        let ty = self.node_type(node_id);
+        let norm_ty = self.ctx.type_registry.normalize(ty);
 
         let def_id = if let TypeKind::Enum(id, _) = self.ctx.type_registry.get(norm_ty) {
             *id

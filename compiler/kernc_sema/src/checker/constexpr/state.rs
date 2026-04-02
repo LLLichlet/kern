@@ -1,4 +1,5 @@
 use super::*;
+use crate::passes::TypeResolver;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     pub(super) fn global_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
@@ -79,11 +80,26 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 .unwrap_or(TypeId::ERROR),
             ExprKind::DataInit { type_node, .. } => type_node
                 .as_deref()
-                .and_then(|ty| self.ctx.node_types.get(&ty.id).copied())
-                .map(|ty| self.resolved_type(ty))
+                .map(|ty| self.resolve_explicit_type_node(ty))
                 .unwrap_or(TypeId::ERROR),
             _ => TypeId::ERROR,
         }
+    }
+
+    pub(super) fn resolve_explicit_type_node(&mut self, ty_node: &ast::TypeNode) -> TypeId {
+        if let Some(&ty) = self.ctx.node_types.get(&ty_node.id)
+            && ty != TypeId::ERROR
+        {
+            return self.resolved_type(ty);
+        }
+
+        let Some(scope) = self.ctx.scopes.current_scope_id() else {
+            return TypeId::ERROR;
+        };
+
+        let mut resolver = TypeResolver::new(self.ctx);
+        let ty = resolver.resolve_type(ty_node, scope);
+        self.resolved_type(ty)
     }
 
     pub(super) fn callable_return_type(

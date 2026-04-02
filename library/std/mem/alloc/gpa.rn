@@ -33,7 +33,7 @@ const GPA_ALLOC_HEADER_SIZE = @sizeOf[AllocationHeader]();
 const GPA_CHUNK_ALIGN = @alignOf[BackingChunk]();
 const GPA_CHUNK_HEADER_SIZE = @sizeOf[BackingChunk]();
 
-pub type GPAllocator = struct {
+pub type GPA = struct {
     backing: *mut Allocator,
     free_list: *mut FreeBlock = 0,
     chunks: *mut BackingChunk = 0,
@@ -81,7 +81,7 @@ fn gpa_required_block_size(layout: Layout) usize {
     return gpa_align_up(payload + GPA_ALLOC_HEADER_SIZE + align - 1, GPA_FREE_ALIGN);
 }
 
-impl *mut GPAllocator : Allocator {
+impl *mut GPA : Allocator {
     fn trap_invalid_free() void {
         @trap();
     }

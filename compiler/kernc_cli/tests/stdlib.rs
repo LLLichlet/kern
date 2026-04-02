@@ -9,17 +9,17 @@ use support::{
 };
 
 #[test]
-fn runs_hosted_program_using_gpa_alignment_and_arena_allocator() {
+fn runs_hosted_program_using_gpa_alignment_and_arena() {
     let output = build_and_run(
         "kernc_std_alloc",
         r#"
 use std.mem.Layout;
-use std.mem.alloc.{PageAllocator, GPAllocator, ArenaAllocator, BumpAllocator};
+use std.mem.alloc.{Page, GPA, Arena};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
+    let page = Page.{}..&;
 
-    let gpa = GPAllocator.{ backing: page }..&;
+    let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
 
     let aligned = Layout.{ size: 33, align: 256 };
@@ -52,7 +52,7 @@ extern fn main() i32 {
     }
     gpa.free(ptr_c, aligned);
 
-    let arena = ArenaAllocator.{ backing: page }..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
 
     let arena_a = match (arena.alloc(Layout.{ size: 24, align: 16 })) {
@@ -84,14 +84,14 @@ extern fn main() i32 {
         return 13;
     }
 
-    let bump = BumpAllocator.{ backing: page }..&;
-    defer bump.deinit();
+    let grow = Arena.{ backing: page }..&;
+    defer grow.deinit();
 
-    let bump_a = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
+    let bump_a = match (grow.alloc(Layout.{ size: 12, align: 8 })) {
         .{ Some: ptr } => ptr,
         .None => return 14,
     };
-    let bump_b = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
+    let bump_b = match (grow.alloc(Layout.{ size: 12, align: 8 })) {
         .{ Some: ptr } => ptr,
         .None => return 15,
     };
@@ -99,14 +99,30 @@ extern fn main() i32 {
         return 16;
     }
 
-    bump.reset();
-
-    let bump_reused = match (bump.alloc(Layout.{ size: 12, align: 8 })) {
+    let large = match (grow.alloc(Layout.{ size: 9000, align: 64 })) {
         .{ Some: ptr } => ptr,
         .None => return 17,
     };
-    if ((bump_reused as usize) != (bump_a as usize)) {
+    if (((large as usize) % 64) != 0) {
         return 18;
+    }
+
+    grow.reset();
+
+    let large_reused = match (grow.alloc(Layout.{ size: 9000, align: 64 })) {
+        .{ Some: ptr } => ptr,
+        .None => return 19,
+    };
+    if ((large_reused as usize) != (large as usize)) {
+        return 20;
+    }
+
+    let bump_reused = match (grow.alloc(Layout.{ size: 12, align: 8 })) {
+        .{ Some: ptr } => ptr,
+        .None => return 21,
+    };
+    if ((bump_reused as usize) <= (large_reused as usize)) {
+        return 22;
     }
 
     return 0;
@@ -129,11 +145,11 @@ fn rejects_gpa_invalid_free_usage() {
         "kernc_std_alloc_invalid_free",
         r#"
 use std.mem.Layout;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
 
     let good = Layout.{ size: 16, align: 16 };
@@ -778,11 +794,11 @@ fn runs_hosted_program_using_std_env_get() {
         &source_path,
         r#"
 use std.env;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
     if (!env.has(gpa, "KERN_STD_ENV_TEST")) {
         return 10;

@@ -3,7 +3,7 @@ use std.Option;
 use std.mem.Layout;
 use ..Allocator;
 
-pub type PageAllocator = struct {};
+pub type Page = struct {};
 
 const WINDOWS_PAGE_READWRITE = u32.{4};
 
@@ -15,7 +15,7 @@ fn dangling_ptr(align: usize) *mut u8 {
     return normalize_align(align) as *mut u8;
 }
 
-impl *mut PageAllocator : Allocator{
+impl *mut Page : Allocator{
     pub fn alloc(layout: Layout) Option[*mut u8] {
         if (layout.size == 0) {
             return .{ Some: dangling_ptr(layout.align) };

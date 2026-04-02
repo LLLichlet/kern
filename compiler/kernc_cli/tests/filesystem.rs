@@ -22,15 +22,15 @@ fn runs_hosted_program_with_fs_create_followed_by_another_result_match() {
 use std.Result;
 use std.fs;
 use std.os;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 fn ok_bool() Result[bool, os.Error] {{
     return .{{ Ok: true }};
 }}
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     let mut writer = match (fs.create(gpa, "{path}")) {{
         .{{ Ok: file }} => file,
@@ -71,11 +71,11 @@ fn runs_hosted_program_using_std_fs_convenience_functions() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     let written = match (fs.write_all(gpa, "{path}", "abc123")) {{
         .{{ Ok: count }} => count,
@@ -132,11 +132,11 @@ fn runs_hosted_program_using_std_fs_metadata_and_directories() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     let dir_exists_before = match (fs.exists(gpa, "{dir_path}")) {{
         .{{ Ok: exists }} => exists,
@@ -270,11 +270,11 @@ fn runs_hosted_program_using_std_fs_roundtrip() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     let mut writer = match (fs.create(gpa, "{path}")) {{
         .{{ Ok: file }} => file,
@@ -339,11 +339,11 @@ fn runs_hosted_program_using_std_fs_open_variants() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     let mut created = match (fs.create_new(gpa, "{path}")) {{
         .{{ Ok: file }} => file,
@@ -433,11 +433,11 @@ fn runs_hosted_program_using_std_fs_create_dir_all() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{dir_path}")) {{
         .{{ Ok: _ }} => {{}},
@@ -524,11 +524,11 @@ fn runs_hosted_program_using_std_fs_rename() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{old_dir_path}")) {{
         .{{ Ok: _ }} => {{}},
@@ -633,11 +633,11 @@ fn runs_hosted_program_using_std_fs_read_dir() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{alpha_path}")) {{
         .{{ Ok: _ }} => {{}},
@@ -747,11 +747,11 @@ fn runs_hosted_program_using_std_fs_remove_dir_all() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{nested_dir_path}")) {{
         .{{ Ok: _ }} => {{}},
@@ -891,11 +891,11 @@ fn runs_hosted_program_using_std_fs_path_join_and_normalize() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
     let mut joined = match (fs.join(gpa, "/tmp/kern", "src/main.rn")) {
         .{ Ok: path } => path,
@@ -987,11 +987,11 @@ fn runs_hosted_program_using_std_fs_path_replacements() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
     let mut renamed = match (fs.with_file_name(gpa, "/tmp/kern/main.rn", "lib.rn")) {
         .{ Ok: path } => path,
@@ -1065,11 +1065,11 @@ fn runs_hosted_program_using_std_fs_windows_path_semantics() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
     if (!fs.parent("C:\\kern\\src\\main.rn").is_some_and(.[](dir: []u8) bool {
         return dir.eq("C:\\kern\\src");
@@ -1184,11 +1184,11 @@ fn runs_hosted_program_using_std_fs_unicode_paths_on_windows() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{root_path}")) {{
         .{{ Ok: _ }} => {{}},
@@ -1263,11 +1263,11 @@ fn runs_hosted_program_using_std_fs_copy_and_append() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{root_path}")) {{
         .{{ Ok: _ }} => {{}},
@@ -1376,11 +1376,11 @@ fn runs_hosted_program_using_std_fs_walk_dir() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     match (fs.create_dir_all(gpa, "{beta_path}")) {{
         .{{ Ok: _ }} => {{}},
@@ -1529,11 +1529,11 @@ fn runs_hosted_program_using_std_fs_if_exists_helpers() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{PageAllocator, GPAllocator}};
+use std.mem.alloc.{{Page, GPA}};
 
 extern fn main() i32 {{
-    let page = PageAllocator.{{}}..&;
-    let gpa = GPAllocator.{{ backing: page }}..&;
+    let page = Page.{{}}..&;
+    let gpa = GPA.{{ backing: page }}..&;
 
     let missing_dir = match (fs.remove_dir_if_exists(gpa, "{root_path}")) {{
         .{{ Ok: removed }} => removed,

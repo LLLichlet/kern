@@ -12,11 +12,11 @@ const ARENA_DEFAULT_CHUNK_SIZE = usize.{4096};
 const ARENA_CHUNK_ALIGN = @alignOf[Chunk]();
 const ARENA_CHUNK_HEADER_SIZE = @sizeOf[Chunk]();
 
-pub type ArenaAllocator = struct {
+pub type Arena = struct {
     backing: *mut Allocator,
-    head: *mut Chunk = 0,
     current: *mut Chunk = 0,
     chunk_size: usize = 4096,
+    next_chunk_size: usize = 4096,
 };
 
 fn arena_max_usize(lhs: usize, rhs: usize) usize {
@@ -44,9 +44,21 @@ fn arena_dangling_ptr(align: usize) *mut u8 {
     return arena_normalize_align(align) as *mut u8;
 }
 
-impl *mut ArenaAllocator : Allocator {
+fn arena_payload_size(layout: Layout) usize {
+    return if (layout.size == 0) usize.{1} else layout.size;
+}
+
+fn arena_grow_hint(size: usize) usize {
+    let max = ~usize.{0};
+    if (size > max / 2) {
+        return max;
+    }
+    return size * 2;
+}
+
+impl *mut Arena : Allocator {
     fn chunk_can_fit(chunk: *mut Chunk, layout: Layout) bool {
-        let payload = if (layout.size == 0) usize.{1} else layout.size;
+        let payload = arena_payload_size(layout);
         let align = arena_normalize_align(layout.align);
         let start = chunk as usize;
         let alloc_start = arena_align_up(start + chunk.used, align);
@@ -55,7 +67,7 @@ impl *mut ArenaAllocator : Allocator {
     }
 
     fn alloc_from_chunk(chunk: *mut Chunk, layout: Layout) Option[*mut u8] {
-        let payload = if (layout.size == 0) usize.{1} else layout.size;
+        let payload = arena_payload_size(layout);
         let align = arena_normalize_align(layout.align);
         let start = chunk as usize;
         let alloc_start = arena_align_up(start + chunk.used, align);
@@ -69,11 +81,24 @@ impl *mut ArenaAllocator : Allocator {
         return .{ Some: alloc_start as *mut u8 };
     }
 
+    fn release_chain(first: *mut Chunk) void {
+        let mut chunk = first;
+        for (; (chunk as usize) != 0; ) {
+            let next = chunk.next;
+            self.backing.free(
+                chunk as *mut u8,
+                Layout.{ size: chunk.size, align: ARENA_CHUNK_ALIGN }
+            );
+            chunk = next;
+        }
+    }
+
     fn grow(layout: Layout) bool {
-        let payload = if (layout.size == 0) usize.{1} else layout.size;
+        let payload = arena_payload_size(layout);
         let align = arena_normalize_align(layout.align);
         let min_size = ARENA_CHUNK_HEADER_SIZE + payload + align - 1;
-        let raw_size = arena_max_usize(arena_default_chunk_size(self.chunk_size), min_size);
+        let base_size = arena_default_chunk_size(self.next_chunk_size);
+        let raw_size = arena_max_usize(base_size, min_size);
         let raw_layout = Layout.{ size: raw_size, align: ARENA_CHUNK_ALIGN };
 
         let raw = match (self.backing.alloc(raw_layout)) {
@@ -84,9 +109,9 @@ impl *mut ArenaAllocator : Allocator {
         let chunk = raw as *mut Chunk;
         chunk.size = raw_size;
         chunk.used = ARENA_CHUNK_HEADER_SIZE;
-        chunk.next = self.head;
-        self.head = chunk;
+        chunk.next = self.current;
         self.current = chunk;
+        self.next_chunk_size = arena_grow_hint(raw_size);
         return true;
     }
 
@@ -97,15 +122,6 @@ impl *mut ArenaAllocator : Allocator {
 
         if ((self.current as usize) != 0 and self.chunk_can_fit(self.current, layout)) {
             return self.alloc_from_chunk(self.current, layout);
-        }
-
-        let mut chunk = self.head;
-        for (; (chunk as usize) != 0; ) {
-            if (self.chunk_can_fit(chunk, layout)) {
-                self.current = chunk;
-                return self.alloc_from_chunk(chunk, layout);
-            }
-            chunk = chunk.next;
         }
 
         if (!self.grow(layout)) {
@@ -121,31 +137,27 @@ impl *mut ArenaAllocator : Allocator {
     }
 
     pub fn reset() void {
-        let mut chunk = self.head;
-
-        for (; (chunk as usize) != 0; ) {
-            chunk.used = ARENA_CHUNK_HEADER_SIZE;
-            chunk = chunk.next;
+        if ((self.current as usize) == 0) {
+            self.next_chunk_size = arena_default_chunk_size(self.chunk_size);
+            return;
         }
 
-        self.current = self.head;
+        let keep = self.current;
+        let rest = keep.next;
+        keep.used = ARENA_CHUNK_HEADER_SIZE;
+        keep.next = 0;
+        self.release_chain(rest);
+        self.current = keep;
+        self.next_chunk_size = arena_max_usize(
+            arena_default_chunk_size(self.chunk_size),
+            keep.size
+        );
     }
 
     pub fn deinit() void {
-        let mut chunk = self.head;
-        let chunk_layout_align = ARENA_CHUNK_ALIGN;
-
-        for (; (chunk as usize) != 0; ) {
-            let next = chunk.next;
-            self.backing.free(
-                chunk as *mut u8,
-                Layout.{ size: chunk.size, align: chunk_layout_align }
-            );
-            chunk = next;
-        }
-
-        self.head = 0;
+        self.release_chain(self.current);
         self.current = 0;
+        self.next_chunk_size = arena_default_chunk_size(self.chunk_size);
     }
 
     pub fn clear() void {

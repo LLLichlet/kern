@@ -19,10 +19,10 @@ fn runs_hosted_program_using_layout_based_allocator_api() {
     let output = build_and_run_hosted(
         r#"
 use std.mem.{layout_of, array_layout_of};
-use std.mem.alloc.PageAllocator;
+use std.mem.alloc.Page;
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
+    let page = Page.{}..&;
 
     let item_layout = layout_of[u64]();
     if (item_layout.size != 8 or item_layout.align != 8) {
@@ -60,11 +60,11 @@ fn runs_hosted_program_using_std_coll_tree() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.Tree;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
     let mut lazy_calls = i32.{0};
@@ -159,7 +159,7 @@ fn runs_hosted_program_using_custom_ord_tree_key() {
         r#"
 use std.coll.Tree;
 use std.cmp.{Eq, Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 type Key = struct {
     major: i32,
@@ -185,8 +185,8 @@ impl *Key : Comparable[Key] {
 impl *Key : Ord[Key] {}
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Tree[Key, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -267,11 +267,11 @@ fn runs_hosted_program_using_std_coll_map() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.Map;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -374,7 +374,7 @@ fn runs_hosted_program_using_custom_hash_map_key_with_collisions() {
 use std.coll.Map;
 use std.cmp.Eq;
 use std.hash.Hash;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 type Key = struct {
     group: i32,
@@ -394,8 +394,8 @@ impl *Key : Hash[Key] {
 }
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Map[Key, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -483,11 +483,11 @@ fn runs_hosted_program_using_string_traits_for_ordering_and_hashing() {
 use std.coll.String;
 use std.cmp.{LESS, EQUAL, GREATER};
 use std.hash.hash_of;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
     let alpha = String.{}..&;
     defer alpha.deinit(gpa);
@@ -549,11 +549,11 @@ fn runs_hosted_program_using_map_get_or_insert_apis() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.Map;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
     defer map.deinit(gpa);
     let mut lazy_calls = i32.{0};
@@ -652,11 +652,11 @@ fn runs_hosted_program_using_map_traversal_and_filter_helpers() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.Map;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -732,11 +732,11 @@ fn runs_hosted_program_using_map_predicate_algorithms() {
         r#"
 use std.{Option};
 use std.coll.Map;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -841,11 +841,11 @@ fn runs_hosted_program_using_map_list_bridge_helpers() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.{Map, List};
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
     defer map.deinit(gpa);
     let keys = List[i32].{}..&;
@@ -965,11 +965,11 @@ fn runs_hosted_program_using_tree_ordered_traversal_helpers() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.{Tree, String};
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -1027,11 +1027,11 @@ fn runs_hosted_program_using_tree_boundary_queries() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.Tree;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -1107,11 +1107,11 @@ fn runs_hosted_program_using_tree_remove() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.{Tree, String};
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
 
@@ -1203,11 +1203,11 @@ fn runs_hosted_program_using_list_slice_and_string_algorithms() {
 use std.{Option};
 use std.coll.{List, String, find_byte, rfind_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
 use std.cmp.{LESS, GREATER, EQUAL};
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
     let list = List[i32].{}..&;
     defer list.deinit(gpa);
@@ -1597,11 +1597,11 @@ fn runs_hosted_program_using_coll_iteration_and_copy_helpers() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.{List, String};
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
 
     let base = [4]i32.{1, 2, 3, 4};
     let base_view = base.[0 .. 4];

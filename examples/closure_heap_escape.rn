@@ -1,5 +1,5 @@
-use std.mem.alloc.{PageAllocator, GPAllocator};
-use std.mem::{Allocator, Layout, layout_of};
+use std.mem.alloc.{Page, GPA};
+use std.mem.{Allocator, Layout, layout_of};
 use std.io.println;
 
 fn smash_stack() void {
@@ -31,8 +31,8 @@ fn create_heap_closure(alc: *mut Allocator, factor: i32) Tuple2 {
     } 
 }
 extern fn main(args: [][]u8) i32 {
-    let pa = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: pa }..&;
+    let pa = Page.{}..&;
+    let gpa = GPA.{ backing: pa }..&;
 
     let t = create_heap_closure(gpa, 10);
     let heap_cb = t._0;

@@ -231,7 +231,7 @@ fn preserves_outer_binding_after_shadowing_match_payload() {
         r#"
 use std.Result;
 use std.coll.String;
-use std.mem.alloc.{PageAllocator, GPAllocator};
+use std.mem.alloc.{Page, GPA};
 
 fn make_text(alloc: *mut std.mem.alloc.Allocator, text: []u8) Result[String, i32] {
     let mut out = String.{};
@@ -242,8 +242,8 @@ fn make_text(alloc: *mut std.mem.alloc.Allocator, text: []u8) Result[String, i32
 }
 
 extern fn main() i32 {
-    let page = PageAllocator.{}..&;
-    let gpa = GPAllocator.{ backing: page }..&;
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
 
     let mut text = match (make_text(gpa, "kern-lang")) {

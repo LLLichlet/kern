@@ -1258,7 +1258,7 @@ use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {{
     match (p.env("{env_name}")) {{
-        .Some: value => p.define_string("env_value", value),
+        .{{ Some: value }} => p.define_string("env_value", value),
         .None => {{}},
     }}
 }}
@@ -1622,7 +1622,7 @@ use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {{
     match (p.env("{env_name}")) {{
-        .Some: value => p.define_string("env_value", value),
+        .{{ Some: value }} => p.define_string("env_value", value),
         .None => {{}},
     }}
 }}

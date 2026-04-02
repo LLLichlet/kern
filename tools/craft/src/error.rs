@@ -57,6 +57,46 @@ impl Error {
     pub fn from_io_plain(source: io::Error) -> Self {
         Self::Io { path: None, source }
     }
+
+    pub fn exit_code(&self) -> i32 {
+        const EXIT_FAILURE: i32 = 1;
+        const EXIT_USAGE: i32 = 2;
+
+        match self {
+            Self::Usage(_) => EXIT_USAGE,
+            _ => EXIT_FAILURE,
+        }
+    }
+
+    pub fn hint(&self) -> Option<String> {
+        match self {
+            Self::Usage(_) => Some("run `craft help` to see the supported commands and options".to_string()),
+            Self::ManifestNotFound { .. } => Some(
+                "run `craft` inside a package directory, or pass a package path like `craft check path/to/pkg`"
+                    .to_string(),
+            ),
+            Self::ScriptValidation { path, .. } => match path.file_name().and_then(|name| name.to_str()) {
+                Some("craft.rn") => Some(
+                    "declare `pub fn craft(p: *mut plan.Plan) void` and import `craft.plan`"
+                        .to_string(),
+                ),
+                Some("build.rn") => Some(
+                    "declare `pub fn build(b: *mut builder.Builder) void` and import `craft.builder`"
+                        .to_string(),
+                ),
+                _ => None,
+            },
+            Self::Validation { message, .. }
+                if message.starts_with("release source policy rejected:") =>
+            {
+                Some(
+                    "pin floating git sources with `rev` or `tag`, switch insecure URLs to HTTPS, or relax `[craft].release-source-policy`"
+                        .to_string(),
+                )
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Display for Error {
@@ -121,5 +161,33 @@ impl StdError for Error {
             Self::Io { source, .. } => Some(source),
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Error;
+    use std::path::PathBuf;
+
+    #[test]
+    fn usage_errors_return_usage_exit_code_and_help_hint() {
+        let err = Error::Usage("bad args".to_string());
+        assert_eq!(err.exit_code(), 2);
+        assert_eq!(
+            err.hint().as_deref(),
+            Some("run `craft help` to see the supported commands and options")
+        );
+    }
+
+    #[test]
+    fn craft_script_validation_provides_entrypoint_hint() {
+        let err = Error::ScriptValidation {
+            path: PathBuf::from("craft.rn"),
+            message: "missing required entry".to_string(),
+        };
+        assert_eq!(
+            err.hint().as_deref(),
+            Some("declare `pub fn craft(p: *mut plan.Plan) void` and import `craft.plan`")
+        );
     }
 }

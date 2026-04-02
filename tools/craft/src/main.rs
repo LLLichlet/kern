@@ -1,6 +1,10 @@
 fn main() {
     if let Err(err) = craft::cli::run() {
+        eprintln!("craft failed");
         eprintln!("error: {err}");
-        std::process::exit(1);
+        if let Some(hint) = err.hint() {
+            eprintln!("help: {hint}");
+        }
+        std::process::exit(err.exit_code());
     }
 }

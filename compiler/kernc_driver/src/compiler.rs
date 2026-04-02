@@ -332,10 +332,12 @@ impl CompilerDriver {
         }
 
         if self.options.driver_mode.emits_linker_input() {
-            println!(
-                "Successfully emitted linker input to `{}`",
-                self.options.output_file
-            );
+            if self.options.report_progress {
+                println!(
+                    "Successfully emitted linker input to `{}`",
+                    self.options.output_file
+                );
+            }
             return true;
         }
 

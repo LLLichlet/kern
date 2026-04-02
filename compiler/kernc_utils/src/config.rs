@@ -128,6 +128,7 @@ pub struct CompileOptions {
     pub linker_args: Vec<String>,
     pub entry_symbol: Option<String>,
     pub print_link_command: bool,
+    pub report_progress: bool,
     pub use_std: bool,
 }
 
@@ -157,6 +158,7 @@ impl Default for CompileOptions {
             linker_args: Vec::new(),
             entry_symbol: None,
             print_link_command: false,
+            report_progress: true,
             use_std: false,
         }
     }

@@ -55,13 +55,17 @@ impl CompilerDriver {
         target: &LinkTarget,
         success_prefix: &str,
     ) -> bool {
-        println!("Linking for target: {} ...", target.triple);
+        if self.options.report_progress {
+            println!("Linking for target: {} ...", target.triple);
+        }
         let mut cmd = self.build_link_command(link_input_path, target);
         self.maybe_print_link_command(&cmd);
 
         match cmd.status() {
             Ok(status) if status.success() => {
-                println!("{} to `{}`", success_prefix, self.options.output_file);
+                if self.options.report_progress {
+                    println!("{} to `{}`", success_prefix, self.options.output_file);
+                }
                 true
             }
             Ok(status) => {

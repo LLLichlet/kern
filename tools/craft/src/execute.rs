@@ -469,6 +469,7 @@ fn ensure_compile_action_built(
         root_module_name: (action.target_kind == crate::plan::TargetKind::Lib)
             .then(|| action.package_id.name.clone()),
         driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
         use_std: true,
         link_profile: LinkProfile::Hosted,
         ..CompileOptions::default()
@@ -771,6 +772,7 @@ fn ensure_link_action_built(
     let mut options = CompileOptions {
         output_file: action.artifact_path.to_string_lossy().to_string(),
         driver_mode: DriverMode::LinkOnly,
+        report_progress: false,
         link_profile: LinkProfile::Hosted,
         use_std: true,
         ..CompileOptions::default()
@@ -1593,6 +1595,7 @@ fn build_std_package(
         metadata_package_version: None,
         root_module_name: Some("std".to_string()),
         driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
         use_std: false,
         link_profile: LinkProfile::Hosted,
         ..CompileOptions::default()

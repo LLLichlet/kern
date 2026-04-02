@@ -19,6 +19,36 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Component, Path, PathBuf};
 
+const DEV_DEFAULT_OPT_LEVEL: u8 = 0;
+const RELEASE_DEFAULT_OPT_LEVEL: u8 = 3;
+
+const OPTION_SOME_TAG: i128 = 0;
+const OPTION_NONE_TAG: i128 = 1;
+
+const DEPENDENCY_KIND_NORMAL_TAG: i128 = 0;
+const DEPENDENCY_KIND_DEV_TAG: i128 = 1;
+const DEPENDENCY_KIND_BUILD_TAG: i128 = 2;
+
+const SCRIPT_COMMAND_CHECK_TAG: i128 = 0;
+const SCRIPT_COMMAND_LOCK_TAG: i128 = 1;
+const SCRIPT_COMMAND_FETCH_TAG: i128 = 2;
+const SCRIPT_COMMAND_BUILD_TAG: i128 = 3;
+const SCRIPT_COMMAND_RUN_TAG: i128 = 4;
+const SCRIPT_COMMAND_TEST_TAG: i128 = 5;
+
+const TARGET_KIND_LIB_TAG: i128 = 0;
+const TARGET_KIND_BIN_TAG: i128 = 1;
+const TARGET_KIND_TEST_TAG: i128 = 2;
+const TARGET_KIND_EXAMPLE_TAG: i128 = 3;
+
+const BUILD_DOMAIN_HOST_TAG: i128 = 0;
+const BUILD_DOMAIN_TARGET_TAG: i128 = 1;
+
+const SCRIPT_OS_UNKNOWN_TAG: i128 = 0;
+const SCRIPT_OS_LINUX_TAG: i128 = 1;
+const SCRIPT_OS_WINDOWS_TAG: i128 = 2;
+const SCRIPT_OS_DARWIN_TAG: i128 = 3;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScriptExecution {
     pub env_inputs: Vec<ScriptEnvInput>,
@@ -28,6 +58,20 @@ pub struct ScriptExecution {
 pub struct ScriptEnvInput {
     pub name: String,
     pub value: Option<String>,
+}
+
+fn option_some(value: ConstValue) -> ConstValue {
+    ConstValue::Enum {
+        tag: OPTION_SOME_TAG,
+        payload: Some(Box::new(value)),
+    }
+}
+
+fn option_none() -> ConstValue {
+    ConstValue::Enum {
+        tag: OPTION_NONE_TAG,
+        payload: None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -179,8 +223,8 @@ pub fn manifest_profile(manifest: &Manifest, selection: ProfileSelection) -> Scr
         });
 
     let (default_opt, default_debug) = match selection {
-        ProfileSelection::Dev => (0, true),
-        ProfileSelection::Release => (3, false),
+        ProfileSelection::Dev => (DEV_DEFAULT_OPT_LEVEL, true),
+        ProfileSelection::Release => (RELEASE_DEFAULT_OPT_LEVEL, false),
     };
 
     ScriptProfile {
@@ -526,14 +570,8 @@ impl ScriptHost for PackagePlanHost<'_> {
                 };
                 self.env_reads.insert(name);
                 Ok(match value {
-                    Some(value) => ConstValue::Enum {
-                        tag: 0,
-                        payload: Some(Box::new(ConstValue::String(value))),
-                    },
-                    None => ConstValue::Enum {
-                        tag: 1,
-                        payload: None,
-                    },
+                    Some(value) => option_some(ConstValue::String(value)),
+                    None => option_none(),
                 })
             }
             "__craft_plan_cfg_bool" => {
@@ -1330,9 +1368,9 @@ fn expect_dependency_kind(
     };
 
     match tag {
-        0 => Ok(DependencyKind::Normal),
-        1 => Ok(DependencyKind::Dev),
-        2 => Ok(DependencyKind::Build),
+        DEPENDENCY_KIND_NORMAL_TAG => Ok(DependencyKind::Normal),
+        DEPENDENCY_KIND_DEV_TAG => Ok(DependencyKind::Dev),
+        DEPENDENCY_KIND_BUILD_TAG => Ok(DependencyKind::Build),
         _ => Err(format!("invalid `{label}` value `{tag}`")),
     }
 }
@@ -1437,14 +1475,8 @@ fn build_argument_value(
     unit.insert(
         field("name", ctx),
         match &script_context.unit.target_name {
-            Some(name) => ConstValue::Enum {
-                tag: 0,
-                payload: Some(Box::new(ConstValue::String(name.clone()))),
-            },
-            None => ConstValue::Enum {
-                tag: 1,
-                payload: None,
-            },
+            Some(name) => option_some(ConstValue::String(name.clone())),
+            None => option_none(),
         },
     );
     unit.insert(
@@ -1485,14 +1517,8 @@ fn build_argument_value(
     paths.insert(
         field("metadata", ctx),
         match &script_context.paths.metadata_path {
-            Some(path) => ConstValue::Enum {
-                tag: 0,
-                payload: Some(Box::new(ConstValue::String(path.clone()))),
-            },
-            None => ConstValue::Enum {
-                tag: 1,
-                payload: None,
-            },
+            Some(path) => option_some(ConstValue::String(path.clone())),
+            None => option_none(),
         },
     );
     builder.insert(field("paths", ctx), ConstValue::Struct(paths));
@@ -1503,29 +1529,29 @@ fn build_argument_value(
 impl ScriptCommand {
     fn tag(self) -> i128 {
         match self {
-            Self::Check => 0,
-            Self::Lock => 1,
-            Self::Fetch => 2,
-            Self::Build => 3,
-            Self::Run => 4,
-            Self::Test => 5,
+            Self::Check => SCRIPT_COMMAND_CHECK_TAG,
+            Self::Lock => SCRIPT_COMMAND_LOCK_TAG,
+            Self::Fetch => SCRIPT_COMMAND_FETCH_TAG,
+            Self::Build => SCRIPT_COMMAND_BUILD_TAG,
+            Self::Run => SCRIPT_COMMAND_RUN_TAG,
+            Self::Test => SCRIPT_COMMAND_TEST_TAG,
         }
     }
 }
 
 fn target_kind_tag(kind: TargetKind) -> i128 {
     match kind {
-        TargetKind::Lib => 0,
-        TargetKind::Bin => 1,
-        TargetKind::Test => 2,
-        TargetKind::Example => 3,
+        TargetKind::Lib => TARGET_KIND_LIB_TAG,
+        TargetKind::Bin => TARGET_KIND_BIN_TAG,
+        TargetKind::Test => TARGET_KIND_TEST_TAG,
+        TargetKind::Example => TARGET_KIND_EXAMPLE_TAG,
     }
 }
 
 fn build_domain_tag(domain: BuildDomain) -> i128 {
     match domain {
-        BuildDomain::Host => 0,
-        BuildDomain::Target => 1,
+        BuildDomain::Host => BUILD_DOMAIN_HOST_TAG,
+        BuildDomain::Target => BUILD_DOMAIN_TARGET_TAG,
     }
 }
 
@@ -1538,10 +1564,7 @@ fn target_value(
     }
 
     let mut value = HashMap::new();
-    value.insert(
-        field("os", ctx),
-        pure_enum_value(target.os.tag()),
-    );
+    value.insert(field("os", ctx), pure_enum_value(target.os.tag()));
     value.insert(field("arch", ctx), ConstValue::String(target.arch.clone()));
     value.insert(
         field("vendor", ctx),
@@ -1554,10 +1577,10 @@ fn target_value(
 impl ScriptOs {
     fn tag(self) -> i128 {
         match self {
-            Self::Unknown => 0,
-            Self::Linux => 1,
-            Self::Windows => 2,
-            Self::Darwin => 3,
+            Self::Unknown => SCRIPT_OS_UNKNOWN_TAG,
+            Self::Linux => SCRIPT_OS_LINUX_TAG,
+            Self::Windows => SCRIPT_OS_WINDOWS_TAG,
+            Self::Darwin => SCRIPT_OS_DARWIN_TAG,
         }
     }
 }

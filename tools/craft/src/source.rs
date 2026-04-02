@@ -64,23 +64,6 @@ impl FetchedSourceBackend {
     }
 }
 
-impl FetchedGitSelector {
-    pub fn label(&self) -> String {
-        match self {
-            Self::Default => "default".to_string(),
-            Self::Rev(rev) => format!("rev:{rev}"),
-            Self::Branch(branch) => format!("branch:{branch}"),
-            Self::Tag(tag) => format!("tag:{tag}"),
-        }
-    }
-}
-
-impl FetchedSource {
-    pub fn selector_label(&self) -> Option<String> {
-        self.selector.as_ref().map(FetchedGitSelector::label)
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PreparedSource {
     root: PathBuf,

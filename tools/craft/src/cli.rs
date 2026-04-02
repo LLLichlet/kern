@@ -76,139 +76,86 @@ pub fn run() -> Result<()> {
                 &loaded.manifest,
                 &feature_selection,
             );
-
-            print_section("workspace");
-            print_field(
-                "layout",
-                if let Some(workspace) = &loaded.manifest.workspace {
-                    format!(
-                        "workspace with {} declared member(s)",
-                        workspace.members.len()
-                    )
-                } else {
-                    "single package".to_string()
-                },
-            );
-            print_field("validated", loaded.workspace_members.len());
-            if !loaded.workspace_members.is_empty() {
-                let member_names = loaded
-                    .workspace_members
-                    .iter()
-                    .map(|member| {
-                        member
-                            .manifest
-                            .package
-                            .as_ref()
-                            .map(|package| package.name.as_str())
-                            .unwrap_or("<workspace>")
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                print_field("members", member_names);
-            }
             let edge_count = loaded
                 .package_graph
                 .packages
                 .iter()
                 .map(|pkg| pkg.dependencies.len())
                 .sum::<usize>();
-            print_section("graph");
-            print_field(
-                "packages",
+            let source_summary =
+                summarize_check_sources(&loaded.manifest, &loaded.elaboration.resolved_graph);
+            let security_summary = summarize_source_security(&loaded.manifest);
+            validate_check_source_policy(
+                &loaded.manifest_path,
+                &feature_selection,
+                &security_summary,
+            )?;
+            let dependency_summary = format!(
+                "normal {}, dev {}, build {}",
+                loaded
+                    .elaboration
+                    .packages
+                    .iter()
+                    .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Normal))
+                    .sum::<usize>(),
+                loaded
+                    .elaboration
+                    .packages
+                    .iter()
+                    .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Dev))
+                    .sum::<usize>(),
+                loaded
+                    .elaboration
+                    .packages
+                    .iter()
+                    .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Build))
+                    .sum::<usize>()
+            );
+            print_note(
+                "workspace",
+                if let Some(workspace) = &loaded.manifest.workspace {
+                    format!(
+                        "{} declared member(s), {} validated",
+                        workspace.members.len(),
+                        loaded.workspace_members.len()
+                    )
+                } else {
+                    "single package".to_string()
+                },
+            );
+            print_note(
+                "graph",
                 format!(
-                    "{} local, {} external",
+                    "{} local package(s), {} external package(s), {} edge(s)",
                     loaded.elaboration.resolved_graph.packages.len(),
-                    loaded.elaboration.resolved_graph.external_packages.len()
+                    loaded.elaboration.resolved_graph.external_packages.len(),
+                    edge_count
                 ),
             );
-            print_field("edges", edge_count);
-            print_field(
+            print_note(
                 "targets",
                 format!(
-                    "lib {}, bin {}, test {}, example {}",
+                    "lib {}, bin {}, test {}, example {}, normalized {}",
                     format_yes_no(loaded.manifest.lib.is_some()),
                     loaded.manifest.bin.len(),
                     loaded.manifest.test.len(),
-                    loaded.manifest.example.len()
+                    loaded.manifest.example.len(),
+                    loaded.elaboration.package_target_count()
                 ),
             );
-            print_field("normalized", loaded.elaboration.package_target_count());
-            print_field(
-                "dependencies",
+            print_note("dependencies", dependency_summary);
+            print_note(
+                "sources",
                 format!(
-                    "normal {}, dev {}, build {}",
-                    loaded
-                        .elaboration
-                        .packages
-                        .iter()
-                        .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Normal))
-                        .sum::<usize>(),
-                    loaded
-                        .elaboration
-                        .packages
-                        .iter()
-                        .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Dev))
-                        .sum::<usize>(),
-                    loaded
-                        .elaboration
-                        .packages
-                        .iter()
-                        .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Build))
-                        .sum::<usize>()
-                ),
-            );
-            let source_summary =
-                summarize_check_sources(&loaded.manifest, &loaded.elaboration.resolved_graph);
-            print_field(
-                "scripts",
-                format!(
-                    "workspace craft {}, package craft {}, build.rn {}",
-                    format_yes_no(loaded.elaboration.workspace_script.is_some()),
-                    loaded.elaboration.package_script_count(),
-                    build_plan.build_script_count()
-                ),
-            );
-            print_field(
-                "env inputs",
-                format!(
-                    "workspace {}, package {}",
-                    loaded.elaboration.workspace_env_input_count(),
-                    loaded.elaboration.package_env_input_count()
-                ),
-            );
-            print_field(
-                "lockfile",
-                match lock_status {
-                    lockfile::LockStatus::Missing => "missing",
-                    lockfile::LockStatus::Current => "current",
-                    lockfile::LockStatus::Stale => "stale",
-                },
-            );
-
-            print_section("sources");
-            print_field(
-                "bindings",
-                format!(
-                    "configured {}, missing {}",
-                    source_summary.configured, source_summary.missing_sources
-                ),
-            );
-            print_field(
-                "packages",
-                format!(
-                    "registry {}, path {}",
-                    source_summary.registry_packages, source_summary.path_packages
-                ),
-            );
-            print_field(
-                "backends",
-                format!(
-                    "directory {}, git {}",
-                    source_summary.directory_sources, source_summary.git_sources
+                    "{} binding(s), {} registry package(s), {} path package(s), {} warning(s)",
+                    source_summary.configured,
+                    source_summary.registry_packages,
+                    source_summary.path_packages,
+                    security_summary.warning_count()
                 ),
             );
             if !source_summary.registry_bindings.is_empty() {
-                print_field(
+                print_note(
                     "registries",
                     source_summary
                         .registry_bindings
@@ -223,72 +170,35 @@ pub fn run() -> Result<()> {
                         .join(", "),
                 );
             }
-            let security_summary = summarize_source_security(&loaded.manifest);
-            print_field(
-                "security",
+            print_note(
+                "scripts",
                 format!(
-                    "policy {}, warnings {}, exceptions {}",
-                    security_summary.policy_mode.as_str(),
-                    security_summary.warning_count(),
-                    security_summary.suppressed_count()
+                    "workspace craft {}, package craft {}, build.rn {}, env inputs {}",
+                    format_yes_no(loaded.elaboration.workspace_script.is_some()),
+                    loaded.elaboration.package_script_count(),
+                    build_plan.build_script_count(),
+                    loaded.elaboration.workspace_env_input_count()
+                        + loaded.elaboration.package_env_input_count()
                 ),
+            );
+            print_note(
+                "lockfile",
+                match lock_status {
+                    lockfile::LockStatus::Missing => "missing",
+                    lockfile::LockStatus::Current => "current",
+                    lockfile::LockStatus::Stale => "stale",
+                },
             );
             if !security_summary.warnings.is_empty() {
-                print_field("warnings", security_summary.warnings.join(", "));
+                for warning in &security_summary.warnings {
+                    print_warn(format!("source policy: {warning}"));
+                }
             }
             if !security_summary.suppressed.is_empty() {
-                print_field("exceptions", security_summary.suppressed.join(", "));
-            }
-            validate_check_source_policy(
-                &loaded.manifest_path,
-                &feature_selection,
-                &security_summary,
-            )?;
-            print_section("build plan");
-            print_field("units", build_plan.unit_count());
-            print_field(
-                "actions",
-                format!(
-                    "compile {}, link {}",
-                    action_plan.compile_count(),
-                    action_plan.link_count()
-                ),
-            );
-            print_field(
-                "staging",
-                format!(
-                    "generated files {}, staged actions {}",
-                    build_plan.generated_file_count(),
-                    build_plan.staged_action_count()
-                ),
-            );
-            print_field(
-                "edges",
-                format!(
-                    "target local {}, target external {}, build local {}, build external {}",
-                    build_plan.local_dependency_edge_count(),
-                    build_plan.external_dependency_edge_count(),
-                    build_plan.build_local_dependency_edge_count(),
-                    build_plan.build_external_dependency_edge_count()
-                ),
-            );
-            print_field(
-                "link",
-                format!(
-                    "system libs {}, frameworks {}, search paths {}, args {}",
-                    build_plan.link_system_lib_count(),
-                    build_plan.link_framework_count(),
-                    build_plan.link_search_path_count(),
-                    build_plan.link_arg_count()
-                ),
-            );
-            if build_plan.generated_file_count() > 0 {
-                print_section("generated files");
+                print_note("exceptions", security_summary.suppressed.join(", "));
             }
             print_generated_files(&build_plan);
-
-            print_section("result");
-            print_field("status", "checked");
+            print_ok("check completed");
 
             Ok(())
         }
@@ -316,27 +226,26 @@ pub fn run() -> Result<()> {
                 &loaded.manifest,
                 &feature_selection,
             );
-            print_section("lockfile");
-            print_field(
-                "status",
-                match lock_result {
-                    lockfile::LockWriteResult::Created => "created",
-                    lockfile::LockWriteResult::Updated => "updated",
-                    lockfile::LockWriteResult::Unchanged => "unchanged",
-                },
-            );
-            print_field("path", lock_path.display());
-            print_section("graph");
-            print_field("packages", loaded.package_graph.packages.len());
-            print_field("edges", edge_count);
-            print_field(
-                "resolved",
+            let status = match lock_result {
+                lockfile::LockWriteResult::Created => "created",
+                lockfile::LockWriteResult::Updated => "updated",
+                lockfile::LockWriteResult::Unchanged => "unchanged",
+            };
+            print_note("lockfile", format!("{status} at {}", lock_path.display()));
+            print_note(
+                "graph",
                 format!(
-                    "{} local, {} external",
-                    loaded.elaboration.resolved_graph.packages.len(),
+                    "{} package(s), {} edge(s), {} external package(s)",
+                    loaded.package_graph.packages.len(),
+                    edge_count,
                     loaded.elaboration.resolved_graph.external_packages.len()
                 ),
             );
+            print_ok(match lock_result {
+                lockfile::LockWriteResult::Created => "lockfile created",
+                lockfile::LockWriteResult::Updated => "lockfile updated",
+                lockfile::LockWriteResult::Unchanged => "lockfile already current",
+            });
 
             Ok(())
         }
@@ -362,25 +271,29 @@ pub fn run() -> Result<()> {
                 &loaded.manifest,
                 &feature_selection,
             );
-            print_section("sources");
-            print_field("packages", fetched.len());
-            print_field(
-                "changes",
+            print_note(
+                "packages",
                 format!(
-                    "created {}, updated {}, unchanged {}",
-                    summary.created, summary.updated, summary.unchanged
+                    "{} external package(s): created {}, updated {}, unchanged {}",
+                    fetched.len(),
+                    summary.created,
+                    summary.updated,
+                    summary.unchanged
                 ),
             );
             for package in &fetched {
-                print_item(&format_external_package_label(&package.id));
-                print_detail("backend", format_fetched_source_backend(package));
-                print_detail("registry", format_fetched_source_name(package));
-                print_detail("selector", format_fetched_source_selector(package));
-                print_detail("revision", format_fetched_source_revision(package));
-                print_detail("locator", &package.source.locator);
-                print_detail("source", package.source_path.display());
-                print_detail("cache", package.cache_path.display());
+                print_action(
+                    "fetch",
+                    format_external_package_label(&package.id),
+                    format!(
+                        "from {} [{}] -> {}",
+                        format_fetched_source_name(package),
+                        format_fetched_source_backend(package),
+                        package.cache_path.display()
+                    ),
+                );
             }
+            print_ok("fetch completed");
 
             Ok(())
         }
@@ -410,19 +323,17 @@ pub fn run() -> Result<()> {
                 &loaded.manifest,
                 &feature_selection,
             );
-            print_section("build plan");
-            print_field(
-                "units",
+            print_note(
+                "plan",
                 format!(
-                    "{} total (lib {}, bin {}, test {}, example {})",
+                    "{} unit(s), {} compile action(s), {} link action(s), {} generated file(s)",
                     build_plan.unit_count(),
-                    count_units_of_kind(&build_plan, TargetKind::Lib),
-                    count_units_of_kind(&build_plan, TargetKind::Bin),
-                    count_units_of_kind(&build_plan, TargetKind::Test),
-                    count_units_of_kind(&build_plan, TargetKind::Example),
+                    action_plan.compile_count(),
+                    action_plan.link_count(),
+                    build_plan.generated_file_count()
                 ),
             );
-            print_field(
+            print_note(
                 "dependencies",
                 format!(
                     "target local {}, target external {}, build local {}, build external {}",
@@ -432,49 +343,14 @@ pub fn run() -> Result<()> {
                     build_plan.build_external_dependency_edge_count()
                 ),
             );
-            print_field(
-                "actions",
-                format!(
-                    "build scripts {}, compile {}, link {}",
-                    build_plan.build_script_count(),
-                    action_plan.compile_count(),
-                    action_plan.link_count()
-                ),
-            );
-            print_field(
-                "staging",
-                format!(
-                    "generated files {}, staged actions {}",
-                    build_plan.generated_file_count(),
-                    build_plan.staged_action_count()
-                ),
-            );
-            print_field(
-                "link",
-                format!(
-                    "system libs {}, frameworks {}, search paths {}, args {}",
-                    build_plan.link_system_lib_count(),
-                    build_plan.link_framework_count(),
-                    build_plan.link_search_path_count(),
-                    build_plan.link_arg_count()
-                ),
-            );
-            if build_plan.generated_file_count() > 0 {
-                print_section("generated files");
-            }
             print_generated_files(&build_plan);
             print_compile_actions(&action_plan);
             print_link_actions(&action_plan);
             let execution = execute::build(&build_plan, &action_plan)?;
-            print_section("result");
-            print_field("status", "built");
-            print_field(
-                "executed",
-                format!(
-                    "compile {}, link {}",
-                    execution.compile_actions, execution.link_actions
-                ),
-            );
+            print_ok(format!(
+                "build completed (compile {}, link {})",
+                execution.compile_actions, execution.link_actions
+            ));
 
             Ok(())
         }
@@ -526,53 +402,25 @@ pub fn run() -> Result<()> {
                 &loaded.manifest,
                 &feature_selection,
             );
-            print_section("run");
-            print_field("target", format_unit_label(run_unit));
-            print_field(
-                "build plan",
+            print_note("target", format_unit_label(run_unit));
+            print_note(
+                "plan",
                 format!(
-                    "units {}, generated files {}, staged actions {}",
+                    "{} unit(s), {} compile action(s), {} link action(s), {} generated file(s)",
                     build_plan.unit_count(),
-                    build_plan.generated_file_count(),
-                    build_plan.staged_action_count()
+                    action_plan.compile_count(),
+                    action_plan.link_count(),
+                    build_plan.generated_file_count()
                 ),
             );
-            print_field(
-                "dependencies",
-                format!(
-                    "target local {}, target external {}, build local {}, build external {}",
-                    build_plan.local_dependency_edge_count(),
-                    build_plan.external_dependency_edge_count(),
-                    build_plan.build_local_dependency_edge_count(),
-                    build_plan.build_external_dependency_edge_count()
-                ),
-            );
-            if !run_unit.generated_files.is_empty() {
-                print_section("generated files");
-            }
             print_generated_files_for_unit(&build_plan, run_unit);
-            if action_plan.compile_actions.iter().any(|action| {
-                action.domain == run_unit.domain
-                    && action.package_id == run_unit.package_id
-                    && action.target_kind == run_unit.target_kind
-                    && action.target_name == run_unit.target_name
-            }) {
-                print_section("compile actions");
-            }
             print_compile_actions_for_unit(&action_plan, run_unit);
-            if action_plan.link_actions.iter().any(|action| {
-                action.domain == run_unit.domain
-                    && action.package_id == run_unit.package_id
-                    && action.target_kind == run_unit.target_kind
-                    && action.target_name == run_unit.target_name
-            }) {
-                print_section("link actions");
-            }
             print_link_actions_for_unit(&action_plan, run_unit);
             let execution = execute::run(&build_plan, &action_plan, run_unit)?;
-            print_section("result");
-            print_field("status", "ran");
-            print_field("executable", execution.executable.display());
+            print_ok(format!(
+                "run completed ({})",
+                execution.executable.display()
+            ));
 
             Ok(())
         }
@@ -602,10 +450,17 @@ pub fn run() -> Result<()> {
                 &loaded.manifest,
                 &feature_selection,
             );
-            print_section("tests");
-            print_field("units", tests.len());
+            print_note(
+                "tests",
+                format!(
+                    "{} target(s), {} compile action(s), {} link action(s)",
+                    tests.len(),
+                    action_plan.compile_count(),
+                    action_plan.link_count()
+                ),
+            );
             if !tests.is_empty() {
-                print_field(
+                print_note(
                     "targets",
                     tests
                         .iter()
@@ -614,61 +469,20 @@ pub fn run() -> Result<()> {
                         .join(", "),
                 );
             }
-            print_field(
-                "build plan",
-                format!(
-                    "units {}, generated files {}, staged actions {}",
-                    build_plan.unit_count(),
-                    build_plan.generated_file_count(),
-                    build_plan.staged_action_count()
-                ),
-            );
-            print_field(
-                "dependencies",
-                format!(
-                    "target local {}, target external {}, build local {}, build external {}",
-                    build_plan.local_dependency_edge_count(),
-                    build_plan.external_dependency_edge_count(),
-                    build_plan.build_local_dependency_edge_count(),
-                    build_plan.build_external_dependency_edge_count()
-                ),
-            );
-            if tests.iter().any(|unit| !unit.generated_files.is_empty()) {
-                print_section("generated files");
-            }
             for unit in &tests {
                 print_generated_files_for_unit(&build_plan, unit);
             }
-            if tests.iter().any(|unit| {
-                action_plan.compile_actions.iter().any(|action| {
-                    action.domain == unit.domain
-                        && action.package_id == unit.package_id
-                        && action.target_kind == unit.target_kind
-                        && action.target_name == unit.target_name
-                })
-            }) {
-                print_section("compile actions");
-            }
             for unit in &tests {
                 print_compile_actions_for_unit(&action_plan, unit);
-            }
-            if tests.iter().any(|unit| {
-                action_plan.link_actions.iter().any(|action| {
-                    action.domain == unit.domain
-                        && action.package_id == unit.package_id
-                        && action.target_kind == unit.target_kind
-                        && action.target_name == unit.target_name
-                })
-            }) {
-                print_section("link actions");
             }
             for unit in &tests {
                 print_link_actions_for_unit(&action_plan, unit);
             }
             let execution = execute::test(&build_plan, &action_plan, &tests)?;
-            print_section("result");
-            print_field("status", "tested");
-            print_field("executed", execution.executed);
+            print_ok(format!(
+                "test run completed ({} executed)",
+                execution.executed
+            ));
 
             Ok(())
         }
@@ -721,27 +535,25 @@ fn print_command_header(
     manifest: &Manifest,
     feature_selection: &elaborate::FeatureSelection,
 ) {
-    println!("craft {command}");
-    print_field("manifest", manifest_path.display());
-    print_field("package", format_package_label(manifest));
-    print_field("features", format_feature_inputs(feature_selection));
+    println!("==> {command} {}", format_package_label(manifest));
+    print_note("manifest", manifest_path.display());
+    print_note("features", format_feature_inputs(feature_selection));
 }
 
-fn print_section(title: &str) {
-    println!();
-    println!("{title}");
+fn print_note(label: &str, value: impl Display) {
+    println!("    {label}: {value}");
 }
 
-fn print_field(label: &str, value: impl Display) {
-    println!("  {:<12} {}", label, value);
+fn print_action(kind: &str, subject: impl Display, detail: impl Display) {
+    println!("  {:<8} {} {}", kind, subject, detail);
 }
 
-fn print_item(label: &str) {
-    println!("  - {label}");
+fn print_ok(message: impl Display) {
+    println!("[ok] {message}");
 }
 
-fn print_detail(label: &str, value: impl Display) {
-    println!("    {:<10} {}", label, value);
+fn print_warn(message: impl Display) {
+    println!("[warn] {message}");
 }
 
 fn format_package_label(manifest: &Manifest) -> String {
@@ -758,7 +570,7 @@ fn format_yes_no(value: bool) -> &'static str {
 
 fn format_feature_inputs(selection: &elaborate::FeatureSelection) -> String {
     format!(
-        "{} profile, default features {}, explicit {}",
+        "{}, default={}, explicit={}",
         selection.profile.name(),
         if selection.enable_default {
             "on"
@@ -780,14 +592,6 @@ fn format_explicit_features(selection: &elaborate::FeatureSelection) -> String {
             .collect::<Vec<_>>()
             .join(",")
     }
-}
-
-fn count_units_of_kind(plan: &build_plan::BuildPlan, kind: TargetKind) -> usize {
-    plan.packages
-        .iter()
-        .flat_map(|package| &package.units)
-        .filter(|unit| unit.target_kind == kind)
-        .count()
 }
 
 fn units_of_kind(plan: &build_plan::BuildPlan, kind: TargetKind) -> Vec<&build_plan::BuildUnit> {
@@ -846,10 +650,6 @@ struct SourceSecuritySummary {
 impl SourceSecuritySummary {
     fn warning_count(&self) -> usize {
         self.warnings.len()
-    }
-
-    fn suppressed_count(&self) -> usize {
-        self.suppressed.len()
     }
 
     fn release_blockers(&self) -> &[String] {
@@ -1025,21 +825,6 @@ fn format_fetched_source_name(package: &source::FetchedPackage) -> &str {
     package.source.source_name.as_deref().unwrap_or("<none>")
 }
 
-fn format_fetched_source_selector(package: &source::FetchedPackage) -> String {
-    package
-        .source
-        .selector_label()
-        .unwrap_or_else(|| "<none>".to_string())
-}
-
-fn format_fetched_source_revision(package: &source::FetchedPackage) -> &str {
-    package
-        .source
-        .resolved_revision
-        .as_deref()
-        .unwrap_or("<none>")
-}
-
 fn format_action_label(
     package_id: &crate::graph::PackageId,
     domain: crate::graph::BuildDomain,
@@ -1089,11 +874,6 @@ fn format_source_input(input: &build_plan::CompileSourceInput) -> String {
 }
 
 fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
-    if action_plan.compile_actions.is_empty() {
-        return;
-    }
-
-    print_section("compile actions");
     for action in &action_plan.compile_actions {
         print_compile_action(action, &action.artifact_name);
     }
@@ -1108,7 +888,7 @@ fn print_generated_files(build_plan: &build_plan::BuildPlan) {
 }
 
 fn print_generated_files_for_unit(
-    build_plan: &build_plan::BuildPlan,
+    _build_plan: &build_plan::BuildPlan,
     unit: &build_plan::BuildUnit,
 ) {
     if unit.generated_files.is_empty() {
@@ -1126,84 +906,10 @@ fn print_generated_files_for_unit(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    print_item(&format_unit_label(unit));
-    print_detail("files", files);
-    let compile_inputs = build_plan.compile_input_nodes_for_unit(unit);
-    if !compile_inputs.is_empty() {
-        print_detail("compile", format_bound_nodes(&compile_inputs));
-    }
-    let artifact_outputs = build_plan.artifact_output_nodes_for_unit(unit);
-    if !artifact_outputs.is_empty() {
-        print_detail("artifact", format_bound_nodes(&artifact_outputs));
-    }
-}
-
-fn format_bound_nodes(actions: &[&build_plan::StagedAction]) -> String {
-    actions
-        .iter()
-        .map(|action| match &action.kind {
-            build_plan::StagedActionKind::WriteFile { .. } => {
-                format!(
-                    "node#{}:write:{}{}",
-                    action.id,
-                    action.output,
-                    format_stage_dependencies(action.depends_on.as_slice())
-                )
-            }
-            build_plan::StagedActionKind::RunTool { tool, args } => {
-                format!(
-                    "node#{}:run_tool:{}<= {}({}){}",
-                    action.id,
-                    action.output,
-                    tool.executable_path,
-                    args.join(" "),
-                    format_stage_dependencies(action.depends_on.as_slice())
-                )
-            }
-            build_plan::StagedActionKind::CopyFile { source } => {
-                format!(
-                    "node#{}:copy:{}<= {}{}",
-                    action.id,
-                    action.output,
-                    source,
-                    format_stage_dependencies(action.depends_on.as_slice())
-                )
-            }
-            build_plan::StagedActionKind::CopyDirectory { source } => {
-                format!(
-                    "node#{}:copy_dir:{}<= {}{}",
-                    action.id,
-                    action.output,
-                    source,
-                    format_stage_dependencies(action.depends_on.as_slice())
-                )
-            }
-        })
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-fn format_stage_dependencies(depends_on: &[usize]) -> String {
-    if depends_on.is_empty() {
-        String::new()
-    } else {
-        format!(
-            " deps={}",
-            depends_on
-                .iter()
-                .map(|id| id.to_string())
-                .collect::<Vec<_>>()
-                .join("+")
-        )
-    }
+    print_action("generate", format_unit_label(unit), format!("-> {files}"));
 }
 
 fn print_link_actions(action_plan: &build_plan::ActionPlan) {
-    if action_plan.link_actions.is_empty() {
-        return;
-    }
-
-    print_section("link actions");
     for action in &action_plan.link_actions {
         print_link_action(action, &action.artifact_name);
     }
@@ -1235,85 +941,68 @@ fn print_link_actions_for_unit(action_plan: &build_plan::ActionPlan, unit: &buil
 }
 
 fn print_compile_action(action: &build_plan::CompileAction, artifact_name: &str) {
-    print_item(&format_action_label(
-        &action.package_id,
-        action.domain,
-        action.target_kind,
-        artifact_name,
-    ));
-    print_detail("source", format_source_input(&action.source_input));
-    print_detail("object", action.object_path.display());
-    print_detail("artifact", action.artifact_path.display());
-    print_detail("cfg", format_plan_map(&action.cfg));
-    print_detail("define", format_plan_map(&action.define));
+    let mut detail = format!("<= {}", format_source_input(&action.source_input));
+    if !action.cfg.is_empty() {
+        detail.push_str(&format!(" | cfg {}", format_plan_map(&action.cfg)));
+    }
+    if !action.define.is_empty() {
+        detail.push_str(&format!(" | define {}", format_plan_map(&action.define)));
+    }
+    print_action(
+        "compile",
+        format_action_label(
+            &action.package_id,
+            action.domain,
+            action.target_kind,
+            artifact_name,
+        ),
+        detail,
+    );
 }
 
 fn print_link_action(action: &build_plan::LinkAction, artifact_name: &str) {
-    print_item(&format_action_label(
-        &action.package_id,
-        action.domain,
-        action.target_kind,
-        artifact_name,
-    ));
-    print_detail("object", action.primary_object.display());
-    print_detail(
-        "locals",
-        if action.local_library_objects.is_empty() {
-            "<none>".to_string()
-        } else {
-            action
-                .local_library_objects
-                .iter()
-                .map(|path| path.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        },
-    );
-    print_detail(
-        "external",
-        if action.external_dependencies.is_empty() {
-            "<none>".to_string()
-        } else {
+    let mut extras = Vec::new();
+    if !action.external_dependencies.is_empty() {
+        extras.push(format!(
+            "externals {}",
             action
                 .external_dependencies
                 .iter()
                 .map(|dep| dep.package_id.package_name.as_str())
                 .collect::<Vec<_>>()
                 .join(", ")
-        },
-    );
-    print_detail("artifact", action.artifact_path.display());
-    print_detail(
-        "sys libs",
-        if action.link.system_libs.is_empty() {
-            "<none>".to_string()
-        } else {
-            action.link.system_libs.join(", ")
-        },
-    );
-    print_detail(
-        "framework",
-        if action.link.frameworks.is_empty() {
-            "<none>".to_string()
-        } else {
-            action.link.frameworks.join(", ")
-        },
-    );
-    print_detail(
-        "searches",
-        if action.link.search_paths.is_empty() {
-            "<none>".to_string()
-        } else {
-            action.link.search_paths.join(", ")
-        },
-    );
-    print_detail(
-        "args",
-        if action.link.args.is_empty() {
-            "<none>".to_string()
-        } else {
-            action.link.args.join(", ")
-        },
+        ));
+    }
+    if !action.link.system_libs.is_empty() {
+        extras.push(format!("libs {}", action.link.system_libs.join(", ")));
+    }
+    if !action.link.frameworks.is_empty() {
+        extras.push(format!("frameworks {}", action.link.frameworks.join(", ")));
+    }
+    if !action.link.search_paths.is_empty() {
+        extras.push(format!("search {}", action.link.search_paths.join(", ")));
+    }
+    if !action.link.args.is_empty() {
+        extras.push(format!("args {}", action.link.args.join(", ")));
+    }
+    let detail = if extras.is_empty() {
+        format!("-> {}", action.artifact_path.display())
+    } else {
+        format!(
+            "-> {} ({})",
+            action.artifact_path.display(),
+            extras.join("; ")
+        )
+    };
+    print_action(
+        "link",
+        format_action_label(
+            &action.package_id,
+            action.domain,
+            action.target_kind,
+            artifact_name,
+        ),
+        detail,
     );
 }
 

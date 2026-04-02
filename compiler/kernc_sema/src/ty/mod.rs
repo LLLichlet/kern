@@ -8,6 +8,7 @@ pub use registry::TypeRegistry;
 
 use crate::def::DefId;
 use kernc_utils::{NodeId, Span, SymbolId};
+use std::hash::{Hash, Hasher};
 
 /// 类型的唯一 ID (轻量级 Handle)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -181,10 +182,70 @@ pub struct AnonymousEnum {
     pub variants: Vec<AnonymousVariant>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone)]
 pub struct AnonymousVariant {
     pub name: SymbolId,
     pub name_span: Span,
     pub payload_ty: Option<TypeId>,
     pub explicit_value: Option<i128>,
+}
+
+impl PartialEq for AnonymousVariant {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.payload_ty == other.payload_ty
+            && self.explicit_value == other.explicit_value
+    }
+}
+
+impl Eq for AnonymousVariant {}
+
+impl Hash for AnonymousVariant {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.payload_ty.hash(state);
+        self.explicit_value.hash(state);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AnonymousEnum, AnonymousVariant, TypeId, TypeKind, TypeRegistry};
+    use kernc_utils::{FileId, Span, SymbolId};
+
+    #[test]
+    fn anonymous_enum_identity_ignores_variant_spans() {
+        let mut registry = TypeRegistry::new();
+        let variant_name = SymbolId(7);
+
+        let first = registry.intern(TypeKind::AnonymousEnum(AnonymousEnum {
+            backing_ty: Some(TypeId::U32),
+            variants: vec![AnonymousVariant {
+                name: variant_name,
+                name_span: Span {
+                    file: FileId(0),
+                    start: 1,
+                    end: 3,
+                },
+                payload_ty: Some(TypeId::I32),
+                explicit_value: Some(9),
+            }],
+        }));
+
+        let second = registry.intern(TypeKind::AnonymousEnum(AnonymousEnum {
+            backing_ty: Some(TypeId::U32),
+            variants: vec![AnonymousVariant {
+                name: variant_name,
+                name_span: Span {
+                    file: FileId(1),
+                    start: 40,
+                    end: 44,
+                },
+                payload_ty: Some(TypeId::I32),
+                explicit_value: Some(9),
+            }],
+        }));
+
+        assert_eq!(first, second);
+    }
 }

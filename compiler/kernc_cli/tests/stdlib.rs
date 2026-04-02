@@ -4,9 +4,99 @@ use std::fs;
 use std::process::Command;
 
 use support::{
-    assert_not_textual_llvm_ir, assert_success, build_temp_program, repo_root, run_kernc,
-    unique_temp_path,
+    assert_not_textual_llvm_ir, assert_success, build_and_run, build_temp_program, repo_root,
+    run_kernc, unique_temp_path,
 };
+
+#[test]
+fn runs_hosted_program_using_gpa_alignment_and_arena_allocator() {
+    let output = build_and_run(
+        "kernc_std_alloc",
+        r#"
+use std.mem.Layout;
+use std.mem.alloc.{PageAllocator, GPAllocator, ArenaAllocator};
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+
+    let gpa = GPAllocator.{ backing: page }..&;
+    defer gpa.deinit();
+
+    let aligned = Layout.{ size: 33, align: 256 };
+    let ptr_a = match (gpa.alloc(aligned)) {
+        .Some: ptr => ptr,
+        .None => return 1,
+    };
+    if (((ptr_a as usize) % 256) != 0) {
+        return 2;
+    }
+
+    let compact = Layout.{ size: 17, align: 64 };
+    let ptr_b = match (gpa.alloc(compact)) {
+        .Some: ptr => ptr,
+        .None => return 3,
+    };
+    if (((ptr_b as usize) % 64) != 0) {
+        return 4;
+    }
+
+    gpa.free(ptr_a, aligned);
+    gpa.free(ptr_b, compact);
+
+    let ptr_c = match (gpa.alloc(aligned)) {
+        .Some: ptr => ptr,
+        .None => return 5,
+    };
+    if (((ptr_c as usize) % 256) != 0) {
+        return 6;
+    }
+    gpa.free(ptr_c, aligned);
+
+    let arena = ArenaAllocator.{ backing: page }..&;
+    defer arena.deinit();
+
+    let arena_a = match (arena.alloc(Layout.{ size: 24, align: 16 })) {
+        .Some: ptr => ptr,
+        .None => return 7,
+    };
+    if (((arena_a as usize) % 16) != 0) {
+        return 8;
+    }
+
+    let arena_b = match (arena.alloc(Layout.{ size: 40, align: 32 })) {
+        .Some: ptr => ptr,
+        .None => return 9,
+    };
+    if (((arena_b as usize) % 32) != 0) {
+        return 10;
+    }
+    if ((arena_b as usize) <= (arena_a as usize)) {
+        return 11;
+    }
+
+    arena.reset();
+
+    let arena_reused = match (arena.alloc(Layout.{ size: 24, align: 16 })) {
+        .Some: ptr => ptr,
+        .None => return 12,
+    };
+    if ((arena_reused as usize) != (arena_a as usize)) {
+        return 13;
+    }
+
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
 
 #[test]
 fn compiles_std_hello_world_in_compile_only_mode() {

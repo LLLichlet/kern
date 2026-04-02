@@ -1,144 +1,223 @@
 use std.Option;
 use std.mem.Layout;
-use std.mem.alloc.Allocator;
+use ..Allocator;
 
-type BlockHeader = struct {
+type FreeBlock = struct {
     size: usize,
-    next: *mut BlockHeader,
+    next: *mut FreeBlock,
 };
+
+type AllocationHeader = struct {
+    size: usize,
+    lead: usize,
+};
+
+type BackingChunk = struct {
+    size: usize,
+    next: *mut BackingChunk,
+};
+
+const GPA_DEFAULT_CHUNK_SIZE = usize.{4096};
+const GPA_FREE_ALIGN = @alignOf[FreeBlock]();
+const GPA_FREE_HEADER_SIZE = @sizeOf[FreeBlock]();
+const GPA_ALLOC_HEADER_ALIGN = @alignOf[AllocationHeader]();
+const GPA_ALLOC_HEADER_SIZE = @sizeOf[AllocationHeader]();
+const GPA_CHUNK_ALIGN = @alignOf[BackingChunk]();
+const GPA_CHUNK_HEADER_SIZE = @sizeOf[BackingChunk]();
 
 pub type GPAllocator = struct {
     backing: *mut Allocator,
-    free_list: *mut BlockHeader = 0,
+    free_list: *mut FreeBlock = 0,
+    chunks: *mut BackingChunk = 0,
+    chunk_size: usize = 4096,
 };
 
-fn align_up(val: usize, alignment: usize) usize {
-    let remainder = val % alignment;
-    if (remainder == 0) return val;
-    return val + (alignment - remainder);
+fn gpa_max_usize(lhs: usize, rhs: usize) usize {
+    return if (lhs > rhs) lhs else rhs;
+}
+
+fn gpa_normalize_align(align: usize) usize {
+    return if (align == 0) usize.{1} else align;
+}
+
+fn gpa_align_up(value: usize, align: usize) usize {
+    let align = gpa_normalize_align(align);
+    let remainder = value % align;
+    if (remainder == 0) {
+        return value;
+    }
+    return value + (align - remainder);
+}
+
+fn gpa_dangling_ptr(align: usize) *mut u8 {
+    return gpa_normalize_align(align) as *mut u8;
+}
+
+fn gpa_default_chunk_size(size: usize) usize {
+    return if (size == 0) GPA_DEFAULT_CHUNK_SIZE else size;
+}
+
+fn gpa_request_align(layout: Layout) usize {
+    return gpa_max_usize(gpa_normalize_align(layout.align), GPA_ALLOC_HEADER_ALIGN);
+}
+
+fn gpa_allocation_size(layout: Layout) usize {
+    return if (layout.size == 0) usize.{1} else layout.size;
+}
+
+fn gpa_required_block_size(layout: Layout) usize {
+    let payload = gpa_allocation_size(layout);
+    let align = gpa_request_align(layout);
+    return gpa_align_up(payload + GPA_ALLOC_HEADER_SIZE + align - 1, GPA_FREE_ALIGN);
 }
 
 impl *mut GPAllocator : Allocator {
-    
-    /// 按地址顺序插入并尝试合并
-    fn insert_free_block(block: *mut BlockHeader) void {
-        let mut prev = *mut BlockHeader.{0};
+    fn insert_free_block(block: *mut FreeBlock) void {
+        let mut prev = *mut FreeBlock.{0};
         let mut curr = self.free_list;
 
-        // 1. 寻找合适的插入位置（保持链表按内存地址严格递增）
-        for (; curr as usize != 0 and (curr as usize) < (block as usize); ) {
+        for (; (curr as usize) != 0 and (curr as usize) < (block as usize); ) {
             prev = curr;
             curr = curr.next;
         }
 
-        // 插入到 prev 和 curr 之间
         block.next = curr;
-        if (prev as usize == 0) {
+        if ((prev as usize) == 0) {
             self.free_list = block;
         } else {
             prev.next = block;
         }
 
-        // 2. 向后合并
-        if (curr as usize != 0) {
-            // 如果 block 的尾部刚好等于 curr 的头部地址
-            if ((block as usize) + block.size == (curr as usize)) {
-                block.size += curr.size;     // 吞并 curr 的大小
-                block.next = curr.next;      // 跳过 curr
-            }
+        if ((curr as usize) != 0 and ((block as usize) + block.size == (curr as usize))) {
+            block.size += curr.size;
+            block.next = curr.next;
         }
 
-        // 3. 向前合并
-        if (prev as usize != 0) {
-            // 如果 prev 的尾部刚好等于 block 的头部地址
-            if ((prev as usize) + prev.size == (block as usize)) {
-                prev.size += block.size;     // 吞并 block
-                prev.next = block.next;      // 跳过 block
-            }
+        if ((prev as usize) != 0 and ((prev as usize) + prev.size == (block as usize))) {
+            prev.size += block.size;
+            prev.next = block.next;
         }
     }
 
-    pub fn alloc(layout: Layout) Option[*mut u8] {
-        let header_size = @sizeOf[BlockHeader]();
-        let actual_size = align_up(layout.size + header_size, 8);
-        
-        // 设定最小分裂阈值：至少能容纳一个头部 + 8 字节数据
-        let min_split = header_size + 8; 
-
-        let mut prev = *mut BlockHeader.{0};
+    fn alloc_from_free_list(layout: Layout) Option[*mut u8] {
+        let payload_size = gpa_allocation_size(layout);
+        let align = gpa_request_align(layout);
+        let mut prev = *mut FreeBlock.{0};
         let mut curr = self.free_list;
 
-        for (; curr as usize != 0; ) {
-            if (curr.size >= actual_size) {
-                // 找到可用块，触发切割逻辑
-                if (curr.size >= actual_size + min_split) {
-                    let remainder_size = curr.size - actual_size;
-                    curr.size = actual_size; // 截断当前块分配
+        for (; (curr as usize) != 0; ) {
+            let block_start = curr as usize;
+            let block_end = block_start + curr.size;
+            let header_addr =
+                gpa_align_up(block_start + GPA_ALLOC_HEADER_SIZE, align) - GPA_ALLOC_HEADER_SIZE;
+            let user_addr = header_addr + GPA_ALLOC_HEADER_SIZE;
+            let used_end = gpa_align_up(user_addr + payload_size, GPA_FREE_ALIGN);
 
-                    // 计算剩余内存块的起始地址（转换为 usize 做纯字节加法）
-                    let remainder_ptr = ((curr as usize) + actual_size) as *mut BlockHeader;
-                    remainder_ptr.size = remainder_size;
+            if (used_end <= block_end) {
+                let mut taken_size = used_end - block_start;
+                let remainder_size = block_end - used_end;
 
-                    // 因为链表已经是地址有序的，切出来的余料正好可以替换掉原先 curr 的位置
-                    remainder_ptr.next = curr.next;
-                    if (prev as usize == 0) {
-                        self.free_list = remainder_ptr;
+                if (remainder_size >= GPA_FREE_HEADER_SIZE) {
+                    let remainder = used_end as *mut FreeBlock;
+                    remainder.size = remainder_size;
+                    remainder.next = curr.next;
+                    if ((prev as usize) == 0) {
+                        self.free_list = remainder;
                     } else {
-                        prev.next = remainder_ptr;
+                        prev.next = remainder;
                     }
                 } else {
-                    // 如果块大小刚好（或者只多出几个字节不够切），直接整个摘除
-                    if (prev as usize == 0) {
+                    taken_size = curr.size;
+                    if ((prev as usize) == 0) {
                         self.free_list = curr.next;
                     } else {
                         prev.next = curr.next;
                     }
                 }
 
-                // 跨越头部，返回 payload
-                let user_ptr = (curr + 1) as *mut u8;
-                return .{ Some: user_ptr };
+                let header = header_addr as *mut AllocationHeader;
+                header.size = taken_size;
+                header.lead = header_addr - block_start;
+                return .{ Some: user_addr as *mut u8 };
             }
+
             prev = curr;
             curr = curr.next;
         }
 
-        // 3. Free List 没有足够大的块，向 PageAllocator 进货
-        let page_size = 4096;
-        let request_size = if (actual_size > page_size) actual_size else page_size;
+        return .{ None };
+    }
 
-        let new_block_u8 = match (self.backing.alloc(.{ size: request_size, align: 4096 })) {
-            .Some: mut ptr => ptr,
-            .None => return .{ None },
+    fn grow(layout: Layout) bool {
+        let needed = gpa_required_block_size(layout);
+        let chunk_payload = gpa_max_usize(gpa_default_chunk_size(self.chunk_size), needed);
+        let raw_size = chunk_payload + GPA_CHUNK_HEADER_SIZE + GPA_FREE_ALIGN;
+        let raw_layout = Layout.{ size: raw_size, align: GPA_CHUNK_ALIGN };
+
+        let raw = match (self.backing.alloc(raw_layout)) {
+            .Some: ptr => ptr,
+            .None => return false,
         };
 
-        let new_block = new_block_u8 as *mut BlockHeader;
-        new_block.size = request_size;
+        let chunk = raw as *mut BackingChunk;
+        chunk.size = raw_size;
+        chunk.next = self.chunks;
+        self.chunks = chunk;
 
-        // 对新批发来的“大页蛋糕”直接进行第一刀切割
-        if (new_block.size >= actual_size + min_split) {
-            let remainder_size = new_block.size - actual_size;
-            new_block.size = actual_size;
+        let raw_start = raw as usize;
+        let usable_start = gpa_align_up(raw_start + GPA_CHUNK_HEADER_SIZE, GPA_FREE_ALIGN);
+        let block = usable_start as *mut FreeBlock;
+        block.size = raw_size - (usable_start - raw_start);
+        self.insert_free_block(block);
+        return true;
+    }
 
-            let remainder_ptr = ((new_block as usize) + actual_size) as *mut BlockHeader;
-            remainder_ptr.size = remainder_size;
-
-            // 新拿到的页地址未知，借助辅助函数自动排序插入并合并
-            self.insert_free_block(remainder_ptr);
+    pub fn alloc(layout: Layout) Option[*mut u8] {
+        if (layout.size == 0) {
+            return .{ Some: gpa_dangling_ptr(layout.align) };
         }
 
-        let user_ptr = (new_block + 1) as *mut u8;
-        return .{ Some: user_ptr };
+        let cached = self.alloc_from_free_list(layout);
+        if (cached.is_some()) {
+            return cached;
+        }
+
+        if (!self.grow(layout)) {
+            return .{ None };
+        }
+
+        return self.alloc_from_free_list(layout);
     }
 
     pub fn free(ptr: *mut u8, layout: Layout) void {
-        if (ptr as usize == 0) return;
-        let _ = layout;
+        if ((ptr as usize) == 0 or layout.size == 0) {
+            return;
+        }
 
-        // 后退一个 Header
-        let header_ptr = (ptr as *mut BlockHeader) - 1;
+        let header = ((ptr as usize) - GPA_ALLOC_HEADER_SIZE) as *mut AllocationHeader;
+        let block = ((header as usize) - header.lead) as *mut FreeBlock;
+        block.size = header.size;
+        self.insert_free_block(block);
+    }
 
-        // 统一交给辅助函数处理排序插入与碎片合并
-        self.insert_free_block(header_ptr);
+    pub fn deinit() void {
+        let mut chunk = self.chunks;
+        let chunk_layout_align = GPA_CHUNK_ALIGN;
+
+        for (; (chunk as usize) != 0; ) {
+            let next = chunk.next;
+            self.backing.free(
+                chunk as *mut u8,
+                Layout.{ size: chunk.size, align: chunk_layout_align }
+            );
+            chunk = next;
+        }
+
+        self.chunks = 0;
+        self.free_list = 0;
+    }
+
+    pub fn clear() void {
+        self.deinit();
     }
 }

@@ -1,0 +1,154 @@
+use std.Option;
+use std.mem.Layout;
+use ..Allocator;
+
+type Chunk = struct {
+    size: usize,
+    used: usize,
+    next: *mut Chunk,
+};
+
+const ARENA_DEFAULT_CHUNK_SIZE = usize.{4096};
+const ARENA_CHUNK_ALIGN = @alignOf[Chunk]();
+const ARENA_CHUNK_HEADER_SIZE = @sizeOf[Chunk]();
+
+pub type ArenaAllocator = struct {
+    backing: *mut Allocator,
+    head: *mut Chunk = 0,
+    current: *mut Chunk = 0,
+    chunk_size: usize = 4096,
+};
+
+fn arena_max_usize(lhs: usize, rhs: usize) usize {
+    return if (lhs > rhs) lhs else rhs;
+}
+
+fn arena_normalize_align(align: usize) usize {
+    return if (align == 0) usize.{1} else align;
+}
+
+fn arena_align_up(value: usize, align: usize) usize {
+    let align = arena_normalize_align(align);
+    let remainder = value % align;
+    if (remainder == 0) {
+        return value;
+    }
+    return value + (align - remainder);
+}
+
+fn arena_default_chunk_size(size: usize) usize {
+    return if (size == 0) ARENA_DEFAULT_CHUNK_SIZE else size;
+}
+
+fn arena_dangling_ptr(align: usize) *mut u8 {
+    return arena_normalize_align(align) as *mut u8;
+}
+
+impl *mut ArenaAllocator : Allocator {
+    fn chunk_can_fit(chunk: *mut Chunk, layout: Layout) bool {
+        let payload = if (layout.size == 0) usize.{1} else layout.size;
+        let align = arena_normalize_align(layout.align);
+        let start = chunk as usize;
+        let alloc_start = arena_align_up(start + chunk.used, align);
+        let alloc_end = alloc_start + payload;
+        return alloc_end <= start + chunk.size;
+    }
+
+    fn alloc_from_chunk(chunk: *mut Chunk, layout: Layout) Option[*mut u8] {
+        let payload = if (layout.size == 0) usize.{1} else layout.size;
+        let align = arena_normalize_align(layout.align);
+        let start = chunk as usize;
+        let alloc_start = arena_align_up(start + chunk.used, align);
+        let alloc_end = alloc_start + payload;
+
+        if (alloc_end > start + chunk.size) {
+            return .{ None };
+        }
+
+        chunk.used = alloc_end - start;
+        return .{ Some: alloc_start as *mut u8 };
+    }
+
+    fn grow(layout: Layout) bool {
+        let payload = if (layout.size == 0) usize.{1} else layout.size;
+        let align = arena_normalize_align(layout.align);
+        let min_size = ARENA_CHUNK_HEADER_SIZE + payload + align - 1;
+        let raw_size = arena_max_usize(arena_default_chunk_size(self.chunk_size), min_size);
+        let raw_layout = Layout.{ size: raw_size, align: ARENA_CHUNK_ALIGN };
+
+        let raw = match (self.backing.alloc(raw_layout)) {
+            .Some: ptr => ptr,
+            .None => return false,
+        };
+
+        let chunk = raw as *mut Chunk;
+        chunk.size = raw_size;
+        chunk.used = ARENA_CHUNK_HEADER_SIZE;
+        chunk.next = self.head;
+        self.head = chunk;
+        self.current = chunk;
+        return true;
+    }
+
+    pub fn alloc(layout: Layout) Option[*mut u8] {
+        if (layout.size == 0) {
+            return .{ Some: arena_dangling_ptr(layout.align) };
+        }
+
+        if ((self.current as usize) != 0 and self.chunk_can_fit(self.current, layout)) {
+            return self.alloc_from_chunk(self.current, layout);
+        }
+
+        let mut chunk = self.head;
+        for (; (chunk as usize) != 0; ) {
+            if (self.chunk_can_fit(chunk, layout)) {
+                self.current = chunk;
+                return self.alloc_from_chunk(chunk, layout);
+            }
+            chunk = chunk.next;
+        }
+
+        if (!self.grow(layout)) {
+            return .{ None };
+        }
+
+        return self.alloc_from_chunk(self.current, layout);
+    }
+
+    pub fn free(ptr: *mut u8, layout: Layout) void {
+        let _ = ptr;
+        let _ = layout;
+    }
+
+    pub fn reset() void {
+        let mut chunk = self.head;
+
+        for (; (chunk as usize) != 0; ) {
+            chunk.used = ARENA_CHUNK_HEADER_SIZE;
+            chunk = chunk.next;
+        }
+
+        self.current = self.head;
+    }
+
+    pub fn deinit() void {
+        let mut chunk = self.head;
+        let chunk_layout_align = ARENA_CHUNK_ALIGN;
+
+        for (; (chunk as usize) != 0; ) {
+            let next = chunk.next;
+            self.backing.free(
+                chunk as *mut u8,
+                Layout.{ size: chunk.size, align: chunk_layout_align }
+            );
+            chunk = next;
+        }
+
+        self.head = 0;
+        self.current = 0;
+    }
+
+    pub fn clear() void {
+        self.reset();
+    }
+}

@@ -28,6 +28,14 @@ fn build_and_run_source(source: &str) -> std::process::Output {
     )
 }
 
+fn build_and_run_source_with_std(source: &str) -> std::process::Output {
+    build_and_run(
+        "kernc_regression_std_run",
+        source,
+        &["--use-std", "--link-profile", "hosted"],
+    )
+}
+
 #[test]
 fn imports_kmeta_package_with_alias_and_links_against_real_package_name() {
     let root = unique_temp_path("kernc_kmeta_pkg", "dir");
@@ -212,6 +220,56 @@ extern fn main(args: [][]u8) i32 {
     assert!(
         output.status.success(),
         "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn preserves_outer_binding_after_shadowing_match_payload() {
+    let output = build_and_run_source_with_std(
+        r#"
+use std.Result;
+use std.coll.String;
+use std.mem.alloc.{PageAllocator, GPAllocator};
+
+fn make_text(alloc: *mut std.mem.alloc.Allocator, text: []u8) Result[String, i32] {
+    let mut out = String.{};
+    if (!out..&.push_str(alloc, text)) {
+        return .{ Err: 1 };
+    }
+    return .{ Ok: out };
+}
+
+extern fn main() i32 {
+    let page = PageAllocator.{}..&;
+    let gpa = GPAllocator.{ backing: page }..&;
+    defer gpa.deinit();
+
+    let mut text = match (make_text(gpa, "kern-lang")) {
+        .Ok: text => text,
+        .Err: _ => return 1,
+    };
+    defer text..&.deinit(gpa);
+
+    let mut text2 = match (make_text(gpa, "kern")) {
+        .Ok: text => text,
+        .Err: _ => return 2,
+    };
+    text2..&.deinit(gpa);
+
+    if (!text.&.eq("kern-lang")) {
+        return 3;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

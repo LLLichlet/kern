@@ -114,11 +114,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     pub(super) fn compile_block(&mut self, block: &MastBlock) -> Option<BasicValueEnum<'ctx>> {
+        let saved_locals = self.locals.clone();
+
         // 1. 执行普通语句
         for stmt in &block.stmts {
-            let current_block = self.current_insert_block("block statement")?;
+            let Some(current_block) = self.current_insert_block("block statement") else {
+                self.locals = saved_locals;
+                return None;
+            };
             if current_block.get_terminator().is_some() {
-                break;
+                self.locals = saved_locals;
+                return None;
             }
 
             match stmt {
@@ -142,8 +148,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         }
 
-        let current_block = self.current_insert_block("block result")?;
+        let Some(current_block) = self.current_insert_block("block result") else {
+            self.locals = saved_locals;
+            return None;
+        };
         if current_block.get_terminator().is_some() {
+            self.locals = saved_locals;
             return None;
         }
 
@@ -159,6 +169,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         // 4. Yield 这个在 defer 执行前就已经算好的值
+        self.locals = saved_locals;
         result_val
     }
 

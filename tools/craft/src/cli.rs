@@ -12,6 +12,7 @@ use crate::source;
 use crate::workspace;
 use std::env;
 use std::fmt::Display;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug)]
@@ -20,27 +21,158 @@ pub enum Command {
     Check {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
     },
     Lock {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
     },
     Fetch {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
     },
     Build {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
     },
     Run {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
     },
     Test {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct UiOptions {
+    verbose: bool,
+    color: ColorChoice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorChoice {
+    #[default]
+    Auto,
+    Always,
+    Never,
+}
+
+struct Renderer {
+    verbose: bool,
+    color_enabled: bool,
+}
+
+#[derive(Clone, Copy)]
+enum Tone {
+    Accent,
+    Muted,
+    Ok,
+    Warn,
+    Build,
+    Link,
+    Generate,
+    Fetch,
+}
+
+impl Renderer {
+    const LABEL_WIDTH: usize = 10;
+
+    fn new(ui: UiOptions) -> Self {
+        let color_enabled = match ui.color {
+            ColorChoice::Always => true,
+            ColorChoice::Never => false,
+            ColorChoice::Auto => {
+                std::io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none()
+            }
+        };
+
+        Self {
+            verbose: ui.verbose,
+            color_enabled,
+        }
+    }
+
+    fn header_with_path(
+        &self,
+        command: &str,
+        manifest: &Manifest,
+        manifest_path: &Path,
+        feature_selection: &elaborate::FeatureSelection,
+    ) {
+        let marker = self.paint(Tone::Accent, "==>");
+        let command = self.paint(Tone::Accent, command);
+        println!("{marker} {command} {}", format_package_label(manifest));
+        if self.verbose {
+            self.meta("manifest", manifest_path.display());
+            self.meta("features", format_feature_inputs(feature_selection));
+        }
+    }
+
+    fn meta(&self, label: &str, value: impl Display) {
+        let label = self.paint(
+            Tone::Muted,
+            &format!("{label:<width$}", width = Self::LABEL_WIDTH),
+        );
+        println!("    {label} {value}");
+    }
+
+    fn summary(&self, label: &str, value: impl Display) {
+        let label = self.paint(
+            Tone::Muted,
+            &format!("{label:<width$}", width = Self::LABEL_WIDTH),
+        );
+        println!("    {label} {value}");
+    }
+
+    fn section(&self, name: &str) {
+        if !self.verbose {
+            return;
+        }
+        let marker = self.paint(Tone::Muted, "--");
+        let name = self.paint(Tone::Accent, name);
+        println!("  {marker} {name}");
+    }
+
+    fn action(&self, tone: Tone, kind: &str, subject: impl Display, detail: impl Display) {
+        if !self.verbose {
+            return;
+        }
+        let kind = self.paint(tone, &format!("{kind:<8}"));
+        println!("  {kind} {subject} {detail}");
+    }
+
+    fn ok(&self, message: impl Display) {
+        println!("{} {message}", self.paint(Tone::Ok, "[ok]"));
+    }
+
+    fn warn(&self, message: impl Display) {
+        println!("{} {message}", self.paint(Tone::Warn, "[warn]"));
+    }
+
+    fn paint(&self, tone: Tone, text: &str) -> String {
+        if !self.color_enabled {
+            return text.to_string();
+        }
+
+        let code = match tone {
+            Tone::Accent => "1;36",
+            Tone::Muted => "2",
+            Tone::Ok => "1;32",
+            Tone::Warn => "1;33",
+            Tone::Build => "1;34",
+            Tone::Link => "1;35",
+            Tone::Generate => "1;36",
+            Tone::Fetch => "1;32",
+        };
+        format!("\x1b[{code}m{text}\x1b[0m")
+    }
 }
 
 pub fn run() -> Result<()> {
@@ -52,7 +184,9 @@ pub fn run() -> Result<()> {
         Command::Check {
             path,
             feature_selection,
+            ui,
         } => {
+            let render = Renderer::new(ui);
             let loaded = load_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Check,
@@ -70,10 +204,10 @@ pub fn run() -> Result<()> {
                 &feature_selection,
             );
 
-            print_command_header(
+            render.header_with_path(
                 "check",
-                &loaded.manifest_path,
                 &loaded.manifest,
+                &loaded.manifest_path,
                 &feature_selection,
             );
             let edge_count = loaded
@@ -111,7 +245,7 @@ pub fn run() -> Result<()> {
                     .map(|pkg| pkg.plan.dependency_count(graph::DependencyKind::Build))
                     .sum::<usize>()
             );
-            print_note(
+            render.summary(
                 "workspace",
                 if let Some(workspace) = &loaded.manifest.workspace {
                     format!(
@@ -123,7 +257,7 @@ pub fn run() -> Result<()> {
                     "single package".to_string()
                 },
             );
-            print_note(
+            render.summary(
                 "graph",
                 format!(
                     "{} local package(s), {} external package(s), {} edge(s)",
@@ -132,7 +266,7 @@ pub fn run() -> Result<()> {
                     edge_count
                 ),
             );
-            print_note(
+            render.summary(
                 "targets",
                 format!(
                     "lib {}, bin {}, test {}, example {}, normalized {}",
@@ -143,8 +277,10 @@ pub fn run() -> Result<()> {
                     loaded.elaboration.package_target_count()
                 ),
             );
-            print_note("dependencies", dependency_summary);
-            print_note(
+            if render.verbose {
+                render.meta("deps", dependency_summary);
+            }
+            render.summary(
                 "sources",
                 format!(
                     "{} binding(s), {} registry package(s), {} path package(s), {} warning(s)",
@@ -154,8 +290,8 @@ pub fn run() -> Result<()> {
                     security_summary.warning_count()
                 ),
             );
-            if !source_summary.registry_bindings.is_empty() {
-                print_note(
+            if render.verbose && !source_summary.registry_bindings.is_empty() {
+                render.meta(
                     "registries",
                     source_summary
                         .registry_bindings
@@ -170,18 +306,20 @@ pub fn run() -> Result<()> {
                         .join(", "),
                 );
             }
-            print_note(
-                "scripts",
-                format!(
-                    "workspace craft {}, package craft {}, build.rn {}, env inputs {}",
-                    format_yes_no(loaded.elaboration.workspace_script.is_some()),
-                    loaded.elaboration.package_script_count(),
-                    build_plan.build_script_count(),
-                    loaded.elaboration.workspace_env_input_count()
-                        + loaded.elaboration.package_env_input_count()
-                ),
-            );
-            print_note(
+            if render.verbose {
+                render.meta(
+                    "scripts",
+                    format!(
+                        "workspace craft {}, package craft {}, build.rn {}, env inputs {}",
+                        format_yes_no(loaded.elaboration.workspace_script.is_some()),
+                        loaded.elaboration.package_script_count(),
+                        build_plan.build_script_count(),
+                        loaded.elaboration.workspace_env_input_count()
+                            + loaded.elaboration.package_env_input_count()
+                    ),
+                );
+            }
+            render.summary(
                 "lockfile",
                 match lock_status {
                     lockfile::LockStatus::Missing => "missing",
@@ -191,21 +329,26 @@ pub fn run() -> Result<()> {
             );
             if !security_summary.warnings.is_empty() {
                 for warning in &security_summary.warnings {
-                    print_warn(format!("source policy: {warning}"));
+                    render.warn(format!("source policy: {warning}"));
                 }
             }
-            if !security_summary.suppressed.is_empty() {
-                print_note("exceptions", security_summary.suppressed.join(", "));
+            if render.verbose && !security_summary.suppressed.is_empty() {
+                render.meta("exceptions", security_summary.suppressed.join(", "));
             }
-            print_generated_files(&build_plan);
-            print_ok("check completed");
+            if render.verbose && build_plan.generated_file_count() > 0 {
+                render.section("generated");
+            }
+            print_generated_files(&render, &build_plan);
+            render.ok("check completed");
 
             Ok(())
         }
         Command::Lock {
             path,
             feature_selection,
+            ui,
         } => {
+            let render = Renderer::new(ui);
             let loaded = load_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Lock,
@@ -220,10 +363,10 @@ pub fn run() -> Result<()> {
                 .map(|pkg| pkg.dependencies.len())
                 .sum::<usize>();
 
-            print_command_header(
+            render.header_with_path(
                 "lock",
-                &loaded.manifest_path,
                 &loaded.manifest,
+                &loaded.manifest_path,
                 &feature_selection,
             );
             let status = match lock_result {
@@ -231,8 +374,8 @@ pub fn run() -> Result<()> {
                 lockfile::LockWriteResult::Updated => "updated",
                 lockfile::LockWriteResult::Unchanged => "unchanged",
             };
-            print_note("lockfile", format!("{status} at {}", lock_path.display()));
-            print_note(
+            render.summary("lockfile", format!("{status} at {}", lock_path.display()));
+            render.summary(
                 "graph",
                 format!(
                     "{} package(s), {} edge(s), {} external package(s)",
@@ -241,7 +384,7 @@ pub fn run() -> Result<()> {
                     loaded.elaboration.resolved_graph.external_packages.len()
                 ),
             );
-            print_ok(match lock_result {
+            render.ok(match lock_result {
                 lockfile::LockWriteResult::Created => "lockfile created",
                 lockfile::LockWriteResult::Updated => "lockfile updated",
                 lockfile::LockWriteResult::Unchanged => "lockfile already current",
@@ -252,7 +395,9 @@ pub fn run() -> Result<()> {
         Command::Fetch {
             path,
             feature_selection,
+            ui,
         } => {
+            let render = Renderer::new(ui);
             let loaded = load_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Fetch,
@@ -265,13 +410,13 @@ pub fn run() -> Result<()> {
             )?;
             let summary = source::summarize_fetch(&fetched);
 
-            print_command_header(
+            render.header_with_path(
                 "fetch",
-                &loaded.manifest_path,
                 &loaded.manifest,
+                &loaded.manifest_path,
                 &feature_selection,
             );
-            print_note(
+            render.summary(
                 "packages",
                 format!(
                     "{} external package(s): created {}, updated {}, unchanged {}",
@@ -281,8 +426,12 @@ pub fn run() -> Result<()> {
                     summary.unchanged
                 ),
             );
+            if render.verbose && !fetched.is_empty() {
+                render.section("actions");
+            }
             for package in &fetched {
-                print_action(
+                render.action(
+                    Tone::Fetch,
                     "fetch",
                     format_external_package_label(&package.id),
                     format!(
@@ -293,14 +442,16 @@ pub fn run() -> Result<()> {
                     ),
                 );
             }
-            print_ok("fetch completed");
+            render.ok("fetch completed");
 
             Ok(())
         }
         Command::Build {
             path,
             feature_selection,
+            ui,
         } => {
+            let render = Renderer::new(ui);
             let loaded = load_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Build,
@@ -317,13 +468,13 @@ pub fn run() -> Result<()> {
             let target = crate::script::host_target();
             let action_plan = build_plan.derive_actions(&target);
 
-            print_command_header(
+            render.header_with_path(
                 "build",
-                &loaded.manifest_path,
                 &loaded.manifest,
+                &loaded.manifest_path,
                 &feature_selection,
             );
-            print_note(
+            render.summary(
                 "plan",
                 format!(
                     "{} unit(s), {} compile action(s), {} link action(s), {} generated file(s)",
@@ -333,21 +484,30 @@ pub fn run() -> Result<()> {
                     build_plan.generated_file_count()
                 ),
             );
-            print_note(
-                "dependencies",
-                format!(
-                    "target local {}, target external {}, build local {}, build external {}",
-                    build_plan.local_dependency_edge_count(),
-                    build_plan.external_dependency_edge_count(),
-                    build_plan.build_local_dependency_edge_count(),
-                    build_plan.build_external_dependency_edge_count()
-                ),
-            );
-            print_generated_files(&build_plan);
-            print_compile_actions(&action_plan);
-            print_link_actions(&action_plan);
+            if render.verbose {
+                render.meta(
+                    "deps",
+                    format!(
+                        "target local {}, target external {}, build local {}, build external {}",
+                        build_plan.local_dependency_edge_count(),
+                        build_plan.external_dependency_edge_count(),
+                        build_plan.build_local_dependency_edge_count(),
+                        build_plan.build_external_dependency_edge_count()
+                    ),
+                );
+            }
+            if render.verbose
+                && (build_plan.generated_file_count() > 0
+                    || action_plan.compile_count() > 0
+                    || action_plan.link_count() > 0)
+            {
+                render.section("actions");
+            }
+            print_generated_files(&render, &build_plan);
+            print_compile_actions(&render, &action_plan);
+            print_link_actions(&render, &action_plan);
             let execution = execute::build(&build_plan, &action_plan)?;
-            print_ok(format!(
+            render.ok(format!(
                 "build completed (compile {}, link {})",
                 execution.compile_actions, execution.link_actions
             ));
@@ -357,7 +517,9 @@ pub fn run() -> Result<()> {
         Command::Run {
             path,
             feature_selection,
+            ui,
         } => {
+            let render = Renderer::new(ui);
             let loaded = load_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Run,
@@ -396,14 +558,14 @@ pub fn run() -> Result<()> {
                 }
             };
 
-            print_command_header(
+            render.header_with_path(
                 "run",
-                &loaded.manifest_path,
                 &loaded.manifest,
+                &loaded.manifest_path,
                 &feature_selection,
             );
-            print_note("target", format_unit_label(run_unit));
-            print_note(
+            render.summary("target", format_unit_label(run_unit));
+            render.summary(
                 "plan",
                 format!(
                     "{} unit(s), {} compile action(s), {} link action(s), {} generated file(s)",
@@ -413,11 +575,18 @@ pub fn run() -> Result<()> {
                     build_plan.generated_file_count()
                 ),
             );
-            print_generated_files_for_unit(&build_plan, run_unit);
-            print_compile_actions_for_unit(&action_plan, run_unit);
-            print_link_actions_for_unit(&action_plan, run_unit);
+            if render.verbose
+                && (run_unit.generated_files.len() > 0
+                    || action_plan.compile_count() > 0
+                    || action_plan.link_count() > 0)
+            {
+                render.section("actions");
+            }
+            print_generated_files_for_unit(&render, &build_plan, run_unit);
+            print_compile_actions_for_unit(&render, &action_plan, run_unit);
+            print_link_actions_for_unit(&render, &action_plan, run_unit);
             let execution = execute::run(&build_plan, &action_plan, run_unit)?;
-            print_ok(format!(
+            render.ok(format!(
                 "run completed ({})",
                 execution.executable.display()
             ));
@@ -427,7 +596,9 @@ pub fn run() -> Result<()> {
         Command::Test {
             path,
             feature_selection,
+            ui,
         } => {
+            let render = Renderer::new(ui);
             let loaded = load_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Test,
@@ -444,13 +615,13 @@ pub fn run() -> Result<()> {
             let action_plan = build_plan.derive_actions(&crate::script::host_target());
             let tests = units_of_kind(&build_plan, TargetKind::Test);
 
-            print_command_header(
+            render.header_with_path(
                 "test",
-                &loaded.manifest_path,
                 &loaded.manifest,
+                &loaded.manifest_path,
                 &feature_selection,
             );
-            print_note(
+            render.summary(
                 "tests",
                 format!(
                     "{} target(s), {} compile action(s), {} link action(s)",
@@ -459,8 +630,8 @@ pub fn run() -> Result<()> {
                     action_plan.link_count()
                 ),
             );
-            if !tests.is_empty() {
-                print_note(
+            if render.verbose && !tests.is_empty() {
+                render.meta(
                     "targets",
                     tests
                         .iter()
@@ -469,17 +640,24 @@ pub fn run() -> Result<()> {
                         .join(", "),
                 );
             }
-            for unit in &tests {
-                print_generated_files_for_unit(&build_plan, unit);
+            if render.verbose
+                && (!tests.is_empty()
+                    || action_plan.compile_count() > 0
+                    || action_plan.link_count() > 0)
+            {
+                render.section("actions");
             }
             for unit in &tests {
-                print_compile_actions_for_unit(&action_plan, unit);
+                print_generated_files_for_unit(&render, &build_plan, unit);
             }
             for unit in &tests {
-                print_link_actions_for_unit(&action_plan, unit);
+                print_compile_actions_for_unit(&render, &action_plan, unit);
+            }
+            for unit in &tests {
+                print_link_actions_for_unit(&render, &action_plan, unit);
             }
             let execution = execute::test(&build_plan, &action_plan, &tests)?;
-            print_ok(format!(
+            render.ok(format!(
                 "test run completed ({} executed)",
                 execution.executed
             ));
@@ -527,33 +705,6 @@ fn load_package_graph(
         package_graph,
         elaboration,
     })
-}
-
-fn print_command_header(
-    command: &str,
-    manifest_path: &Path,
-    manifest: &Manifest,
-    feature_selection: &elaborate::FeatureSelection,
-) {
-    println!("==> {command} {}", format_package_label(manifest));
-    print_note("manifest", manifest_path.display());
-    print_note("features", format_feature_inputs(feature_selection));
-}
-
-fn print_note(label: &str, value: impl Display) {
-    println!("    {label}: {value}");
-}
-
-fn print_action(kind: &str, subject: impl Display, detail: impl Display) {
-    println!("  {:<8} {} {}", kind, subject, detail);
-}
-
-fn print_ok(message: impl Display) {
-    println!("[ok] {message}");
-}
-
-fn print_warn(message: impl Display) {
-    println!("[warn] {message}");
 }
 
 fn format_package_label(manifest: &Manifest) -> String {
@@ -873,21 +1024,22 @@ fn format_source_input(input: &build_plan::CompileSourceInput) -> String {
     }
 }
 
-fn print_compile_actions(action_plan: &build_plan::ActionPlan) {
+fn print_compile_actions(render: &Renderer, action_plan: &build_plan::ActionPlan) {
     for action in &action_plan.compile_actions {
-        print_compile_action(action, &action.artifact_name);
+        print_compile_action(render, action, &action.artifact_name);
     }
 }
 
-fn print_generated_files(build_plan: &build_plan::BuildPlan) {
+fn print_generated_files(render: &Renderer, build_plan: &build_plan::BuildPlan) {
     for package in &build_plan.packages {
         for unit in &package.units {
-            print_generated_files_for_unit(build_plan, unit);
+            print_generated_files_for_unit(render, build_plan, unit);
         }
     }
 }
 
 fn print_generated_files_for_unit(
+    render: &Renderer,
     _build_plan: &build_plan::BuildPlan,
     unit: &build_plan::BuildUnit,
 ) {
@@ -906,16 +1058,22 @@ fn print_generated_files_for_unit(
         })
         .collect::<Vec<_>>()
         .join(", ");
-    print_action("generate", format_unit_label(unit), format!("-> {files}"));
+    render.action(
+        Tone::Generate,
+        "generate",
+        format_unit_label(unit),
+        format!("-> {files}"),
+    );
 }
 
-fn print_link_actions(action_plan: &build_plan::ActionPlan) {
+fn print_link_actions(render: &Renderer, action_plan: &build_plan::ActionPlan) {
     for action in &action_plan.link_actions {
-        print_link_action(action, &action.artifact_name);
+        print_link_action(render, action, &action.artifact_name);
     }
 }
 
 fn print_compile_actions_for_unit(
+    render: &Renderer,
     action_plan: &build_plan::ActionPlan,
     unit: &build_plan::BuildUnit,
 ) {
@@ -925,22 +1083,30 @@ fn print_compile_actions_for_unit(
             && action.target_kind == unit.target_kind
             && action.target_name == unit.target_name
     }) {
-        print_compile_action(action, &unit.artifact_name);
+        print_compile_action(render, action, &unit.artifact_name);
     }
 }
 
-fn print_link_actions_for_unit(action_plan: &build_plan::ActionPlan, unit: &build_plan::BuildUnit) {
+fn print_link_actions_for_unit(
+    render: &Renderer,
+    action_plan: &build_plan::ActionPlan,
+    unit: &build_plan::BuildUnit,
+) {
     for action in action_plan.link_actions.iter().filter(|action| {
         action.domain == unit.domain
             && action.package_id == unit.package_id
             && action.target_kind == unit.target_kind
             && action.target_name == unit.target_name
     }) {
-        print_link_action(action, &unit.artifact_name);
+        print_link_action(render, action, &unit.artifact_name);
     }
 }
 
-fn print_compile_action(action: &build_plan::CompileAction, artifact_name: &str) {
+fn print_compile_action(
+    render: &Renderer,
+    action: &build_plan::CompileAction,
+    artifact_name: &str,
+) {
     let mut detail = format!("<= {}", format_source_input(&action.source_input));
     if !action.cfg.is_empty() {
         detail.push_str(&format!(" | cfg {}", format_plan_map(&action.cfg)));
@@ -948,7 +1114,8 @@ fn print_compile_action(action: &build_plan::CompileAction, artifact_name: &str)
     if !action.define.is_empty() {
         detail.push_str(&format!(" | define {}", format_plan_map(&action.define)));
     }
-    print_action(
+    render.action(
+        Tone::Build,
         "compile",
         format_action_label(
             &action.package_id,
@@ -960,7 +1127,7 @@ fn print_compile_action(action: &build_plan::CompileAction, artifact_name: &str)
     );
 }
 
-fn print_link_action(action: &build_plan::LinkAction, artifact_name: &str) {
+fn print_link_action(render: &Renderer, action: &build_plan::LinkAction, artifact_name: &str) {
     let mut extras = Vec::new();
     if !action.external_dependencies.is_empty() {
         extras.push(format!(
@@ -994,7 +1161,8 @@ fn print_link_action(action: &build_plan::LinkAction, artifact_name: &str) {
             extras.join("; ")
         )
     };
-    print_action(
+    render.action(
+        Tone::Link,
         "link",
         format_action_label(
             &action.package_id,
@@ -1022,31 +1190,37 @@ where
         return Ok(Command::Help);
     }
 
-    let (path, feature_selection) = parse_command_options(rest)?;
+    let (path, feature_selection, ui) = parse_command_options(rest)?;
     match cmd.as_str() {
         "check" => Ok(Command::Check {
             path,
             feature_selection,
+            ui,
         }),
         "lock" => Ok(Command::Lock {
             path,
             feature_selection,
+            ui,
         }),
         "fetch" => Ok(Command::Fetch {
             path,
             feature_selection,
+            ui,
         }),
         "build" => Ok(Command::Build {
             path,
             feature_selection,
+            ui,
         }),
         "run" => Ok(Command::Run {
             path,
             feature_selection,
+            ui,
         }),
         "test" => Ok(Command::Test {
             path,
             feature_selection,
+            ui,
         }),
         _ => Err(Error::Usage(format!(
             "unsupported command line: {}\n\n{}",
@@ -1058,13 +1232,39 @@ where
 
 fn parse_command_options(
     args: &[String],
-) -> Result<(Option<PathBuf>, elaborate::FeatureSelection)> {
+) -> Result<(Option<PathBuf>, elaborate::FeatureSelection, UiOptions)> {
     let mut path: Option<PathBuf> = None;
     let mut feature_selection = elaborate::FeatureSelection::default();
+    let mut ui = UiOptions::default();
     let mut idx = 0;
 
     while idx < args.len() {
         let arg = &args[idx];
+        if arg == "--verbose" || arg == "-v" {
+            ui.verbose = true;
+            idx += 1;
+            continue;
+        }
+        if arg == "--no-color" {
+            ui.color = ColorChoice::Never;
+            idx += 1;
+            continue;
+        }
+        if arg == "--color" {
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage(
+                    "`--color` requires one of: auto, always, never".to_string(),
+                ));
+            };
+            ui.color = parse_color_choice(value)?;
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--color=") {
+            ui.color = parse_color_choice(value)?;
+            idx += 1;
+            continue;
+        }
         if arg == "--no-default-features" {
             feature_selection.enable_default = false;
             idx += 1;
@@ -1106,7 +1306,18 @@ fn parse_command_options(
         idx += 1;
     }
 
-    Ok((path, feature_selection))
+    Ok((path, feature_selection, ui))
+}
+
+fn parse_color_choice(raw: &str) -> Result<ColorChoice> {
+    match raw {
+        "auto" => Ok(ColorChoice::Auto),
+        "always" => Ok(ColorChoice::Always),
+        "never" => Ok(ColorChoice::Never),
+        other => Err(Error::Usage(format!(
+            "unsupported `--color` value `{other}`; expected auto, always, or never"
+        ))),
+    }
 }
 
 fn extend_feature_selection(selection: &mut elaborate::FeatureSelection, raw: &str) -> Result<()> {
@@ -1129,7 +1340,7 @@ craft
 
 usage
   craft help
-  craft <command> [path] [--release] [--no-default-features] [--features <FEATURES>]
+  craft <command> [path] [--release] [--no-default-features] [--features <FEATURES>] [--verbose] [--color <WHEN>]
 
 commands
   help   Show this help text
@@ -1144,19 +1355,23 @@ options
   --release                Use the release profile instead of the default dev profile
   --no-default-features    Disable the implicit `default` feature
   --features <FEATURES>    Enable a comma-separated feature list
+  --verbose, -v            Print detailed action logs instead of the default compact summary
+  --color <WHEN>           Color mode: auto, always, never
+  --no-color               Alias for `--color never`
 
 examples
   craft check
   craft build path/to/pkg --release
   craft run --features tls,simd
+  craft build --verbose --color always
 "
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        Command, parse_args, summarize_check_sources, summarize_source_security,
-        validate_check_source_policy,
+        ColorChoice, Command, UiOptions, parse_args, summarize_check_sources,
+        summarize_source_security, validate_check_source_policy,
     };
     use crate::graph::SourceId;
     use crate::manifest::ReleaseSourcePolicy;
@@ -1179,6 +1394,7 @@ mod tests {
             Command::Check {
                 path,
                 feature_selection,
+                ui,
             } => {
                 assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
                 assert!(!feature_selection.enable_default);
@@ -1188,6 +1404,7 @@ mod tests {
                     feature_selection.profile,
                     crate::script::ProfileSelection::Dev
                 );
+                assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected check command, got {other:?}"),
         }
@@ -1201,11 +1418,13 @@ mod tests {
             Command::Lock {
                 path,
                 feature_selection,
+                ui,
             } => {
                 assert!(path.is_none());
                 assert!(feature_selection.enable_default);
                 assert_eq!(feature_selection.explicit.len(), 1);
                 assert!(feature_selection.explicit.contains("ssl"));
+                assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected lock command, got {other:?}"),
         }
@@ -1219,6 +1438,7 @@ mod tests {
             Command::Build {
                 path,
                 feature_selection,
+                ui,
             } => {
                 assert!(path.is_none());
                 assert!(feature_selection.enable_default);
@@ -1227,6 +1447,7 @@ mod tests {
                     feature_selection.profile,
                     crate::script::ProfileSelection::Dev
                 );
+                assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected build command, got {other:?}"),
         }
@@ -1240,6 +1461,7 @@ mod tests {
             Command::Build {
                 path,
                 feature_selection,
+                ui,
             } => {
                 assert!(path.is_none());
                 assert!(feature_selection.enable_default);
@@ -1248,6 +1470,7 @@ mod tests {
                     feature_selection.profile,
                     crate::script::ProfileSelection::Release
                 );
+                assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected build command, got {other:?}"),
         }
@@ -1261,10 +1484,12 @@ mod tests {
             Command::Fetch {
                 path,
                 feature_selection,
+                ui,
             } => {
                 assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
                 assert!(feature_selection.enable_default);
                 assert!(feature_selection.explicit.is_empty());
+                assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected fetch command, got {other:?}"),
         }
@@ -1278,10 +1503,12 @@ mod tests {
             Command::Run {
                 path,
                 feature_selection,
+                ui,
             } => {
                 assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
                 assert!(feature_selection.enable_default);
                 assert!(feature_selection.explicit.is_empty());
+                assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected run command, got {other:?}"),
         }
@@ -1295,14 +1522,84 @@ mod tests {
             Command::Test {
                 path,
                 feature_selection,
+                ui,
             } => {
                 assert!(path.is_none());
                 assert!(feature_selection.enable_default);
                 assert_eq!(feature_selection.explicit.len(), 1);
                 assert!(feature_selection.explicit.contains("simd"));
+                assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected test command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_verbose_flag() {
+        let cmd = parse_args(["build".to_string(), "--verbose".to_string()]).unwrap();
+
+        match cmd {
+            Command::Build { ui, .. } => {
+                assert_eq!(
+                    ui,
+                    UiOptions {
+                        verbose: true,
+                        color: ColorChoice::Auto,
+                    }
+                );
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_short_verbose_and_color_always() {
+        let cmd = parse_args([
+            "build".to_string(),
+            "-v".to_string(),
+            "--color=always".to_string(),
+        ])
+        .unwrap();
+
+        match cmd {
+            Command::Build { ui, .. } => {
+                assert_eq!(
+                    ui,
+                    UiOptions {
+                        verbose: true,
+                        color: ColorChoice::Always,
+                    }
+                );
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_no_color_alias() {
+        let cmd = parse_args(["check".to_string(), "--no-color".to_string()]).unwrap();
+
+        match cmd {
+            Command::Check { ui, .. } => {
+                assert_eq!(
+                    ui,
+                    UiOptions {
+                        verbose: false,
+                        color: ColorChoice::Never,
+                    }
+                );
+            }
+            other => panic!("expected check command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_color_choice() {
+        let err = parse_args(["build".to_string(), "--color=rgb".to_string()]).unwrap_err();
+        assert!(
+            err.to_string().contains("expected auto, always, or never"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

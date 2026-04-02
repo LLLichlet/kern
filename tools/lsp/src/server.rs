@@ -1,6 +1,6 @@
-use crate::analysis::{AnalysisEngine, AnalysisOutcome, cleared_uris};
+use crate::analysis::{AnalysisEngine, AnalysisOutcome, DocumentSyncAction, cleared_uris};
 use crate::protocol::{
-    ClientCapabilities, CodeActionParams, CompletionParams, DefinitionParams,
+    CancelRequestParams, ClientCapabilities, CodeActionParams, CompletionParams, DefinitionParams,
     DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams,
     DidSaveTextDocumentParams, DocumentHighlightParams, DocumentSymbolParams, IncomingMessage,
     InitializeParams, InitializeResultOptions, ReferenceParams, RenameParams, SemanticTokensParams,
@@ -50,8 +50,72 @@ struct ServerState {
     initialized: bool,
     shutdown_requested: bool,
     trace: TraceValue,
+    diagnostics_flush_policy: DiagnosticsFlushPolicy,
     analysis: AnalysisEngine,
+    next_analysis_generation: u64,
+    latest_generation_by_target: BTreeMap<String, AnalysisGeneration>,
+    canceled_request_ids: Vec<Value>,
+    pending_diagnostics_targets: BTreeSet<String>,
+    pending_workspace_refresh_reason: Option<String>,
+    pending_diagnostics: BTreeMap<String, ScheduledDiagnosticsPublish>,
     published_by_target: BTreeMap<String, BTreeSet<String>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+struct AnalysisGeneration(u64);
+
+#[derive(Debug, Clone)]
+struct RequestContext {
+    id: Value,
+    target_uri: Option<String>,
+    generation: Option<AnalysisGeneration>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SchedulerLane {
+    Interactive,
+    Diagnostics,
+}
+
+struct ScheduledDiagnosticsPublish {
+    generation: AnalysisGeneration,
+    outcome: AnalysisOutcome,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct DiagnosticsFlushPolicy {
+    target_task_budget: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SchedulerDrainDecision {
+    Drain,
+    Defer,
+}
+
+impl DiagnosticsFlushPolicy {
+    fn new() -> Self {
+        Self {
+            target_task_budget: 2,
+        }
+    }
+
+    fn decide_after_message(self, method: &str) -> SchedulerDrainDecision {
+        match method {
+            "textDocument/didOpen" | "textDocument/didClose" | "textDocument/didSave" => {
+                SchedulerDrainDecision::Drain
+            }
+            "textDocument/didChange"
+            | "workspace/didChangeConfiguration"
+            | "workspace/didChangeWatchedFiles" => SchedulerDrainDecision::Defer,
+            _ => SchedulerDrainDecision::Defer,
+        }
+    }
+
+    fn should_force_drain_for_pending_work(self, state: &ServerState) -> bool {
+        state.pending_workspace_refresh_reason.is_some()
+            || state.pending_diagnostics_targets.len() >= self.target_task_budget
+    }
 }
 
 impl ServerState {
@@ -65,9 +129,130 @@ impl ServerState {
             initialized: false,
             shutdown_requested: false,
             trace: TraceValue::Off,
+            diagnostics_flush_policy: DiagnosticsFlushPolicy::new(),
             analysis,
+            next_analysis_generation: 0,
+            latest_generation_by_target: BTreeMap::new(),
+            canceled_request_ids: Vec::new(),
+            pending_diagnostics_targets: BTreeSet::new(),
+            pending_workspace_refresh_reason: None,
+            pending_diagnostics: BTreeMap::new(),
             published_by_target: BTreeMap::new(),
         }
+    }
+
+    fn begin_target_analysis(&mut self, target_uri: &str) -> AnalysisGeneration {
+        self.next_analysis_generation += 1;
+        let generation = AnalysisGeneration(self.next_analysis_generation);
+        self.latest_generation_by_target
+            .insert(target_uri.to_string(), generation);
+        generation
+    }
+
+    fn begin_workspace_refresh(&mut self) -> BTreeMap<String, AnalysisGeneration> {
+        self.analysis
+            .document_uris()
+            .into_iter()
+            .map(|target_uri| {
+                let generation = self.begin_target_analysis(&target_uri);
+                (target_uri, generation)
+            })
+            .collect()
+    }
+
+    fn is_current_generation(&self, target_uri: &str, generation: AnalysisGeneration) -> bool {
+        self.latest_generation_by_target.get(target_uri).copied() == Some(generation)
+    }
+
+    fn request_context(&self, id: Value) -> RequestContext {
+        RequestContext {
+            id,
+            target_uri: None,
+            generation: None,
+        }
+    }
+
+    fn request_context_for_document(&self, id: Value, target_uri: &str) -> RequestContext {
+        RequestContext {
+            id,
+            target_uri: Some(target_uri.to_string()),
+            generation: self.latest_generation_by_target.get(target_uri).copied(),
+        }
+    }
+
+    fn cancel_request(&mut self, id: Value) {
+        if self
+            .canceled_request_ids
+            .iter()
+            .any(|canceled| canceled == &id)
+        {
+            return;
+        }
+        self.canceled_request_ids.push(id);
+    }
+
+    fn should_skip_request(&mut self, request: &RequestContext) -> bool {
+        self.should_drop_response(request)
+    }
+
+    fn should_drop_response(&mut self, request: &RequestContext) -> bool {
+        if let Some(index) = self
+            .canceled_request_ids
+            .iter()
+            .position(|canceled| canceled == &request.id)
+        {
+            self.canceled_request_ids.swap_remove(index);
+            return true;
+        }
+
+        match (&request.target_uri, request.generation) {
+            (Some(target_uri), Some(generation)) => {
+                !self.is_current_generation(target_uri, generation)
+            }
+            _ => false,
+        }
+    }
+
+    fn queue_diagnostics_publish(
+        &mut self,
+        target_uri: String,
+        generation: AnalysisGeneration,
+        outcome: AnalysisOutcome,
+    ) {
+        self.pending_diagnostics.insert(
+            target_uri,
+            ScheduledDiagnosticsPublish {
+                generation,
+                outcome,
+            },
+        );
+    }
+
+    fn queue_target_diagnostics_task(&mut self, target_uri: String) {
+        if self.pending_workspace_refresh_reason.is_some() {
+            return;
+        }
+        self.pending_diagnostics_targets.insert(target_uri);
+    }
+
+    fn queue_workspace_refresh_task(&mut self, reason: String) {
+        self.pending_workspace_refresh_reason = Some(reason);
+        self.pending_diagnostics_targets.clear();
+    }
+
+    fn has_pending_diagnostics_work(&self) -> bool {
+        !self.pending_diagnostics_targets.is_empty()
+            || self.pending_workspace_refresh_reason.is_some()
+            || !self.pending_diagnostics.is_empty()
+    }
+
+    fn should_drain_scheduler_after(&self, method: &str) -> bool {
+        self.has_pending_diagnostics_work()
+            && (self.diagnostics_flush_policy.decide_after_message(method)
+                == SchedulerDrainDecision::Drain
+                || self
+                    .diagnostics_flush_policy
+                    .should_force_drain_for_pending_work(self))
     }
 }
 
@@ -137,23 +322,25 @@ fn handle_message(
     match method {
         "initialize" => {
             if state.initialized {
-                let id = message.id.unwrap_or(Value::Null);
-                writer.write_json(&error_response(
-                    id,
+                let request = state.request_context(message.id.unwrap_or(Value::Null));
+                write_error_response(
+                    state,
+                    writer,
+                    &request,
                     INVALID_REQUEST,
                     "server is already initialized",
-                ))?;
+                )?;
                 return Ok(false);
             }
-            let id = message.id.ok_or_else(|| {
+            let request = state.request_context(message.id.ok_or_else(|| {
                 ServerError::Protocol("initialize must be sent as a request".to_string())
-            })?;
+            })?);
             let params = required_params::<InitializeParams>(message.params)?;
-            ensure_utf16_position_encoding(&params.capabilities, id.clone(), writer)?;
+            ensure_utf16_position_encoding(&params.capabilities, request.id.clone(), writer)?;
             let capabilities = negotiate_capabilities(&params.capabilities);
             state.trace = TraceValue::from_raw(params.trace.as_deref());
             state.initialized = true;
-            writer.write_json(&success_response(id, initialize_result(capabilities)))?;
+            write_success_response(state, writer, &request, initialize_result(capabilities))?;
             emit_initialize_followups(state, writer, &params, capabilities)?;
         }
         "initialized" => {}
@@ -171,19 +358,25 @@ fn handle_message(
                 false,
             )?;
         }
-        "$/cancelRequest" => {}
+        "$/cancelRequest" => {
+            if let Some(params) = message.params {
+                if let Ok(params) = serde_json::from_value::<CancelRequestParams>(params) {
+                    state.cancel_request(params.id);
+                }
+            }
+        }
         "workspace/didChangeConfiguration" => {
-            refresh_workspace(state, writer, "workspace configuration changed")?;
+            schedule_workspace_refresh(state, writer, "workspace configuration changed")?;
         }
         "workspace/didChangeWatchedFiles" => {
-            refresh_workspace(state, writer, "workspace files changed")?;
+            schedule_workspace_refresh(state, writer, "workspace files changed")?;
         }
         "shutdown" => {
-            let id = message.id.ok_or_else(|| {
+            let request = state.request_context(message.id.ok_or_else(|| {
                 ServerError::Protocol("shutdown must be sent as a request".to_string())
-            })?;
+            })?);
             state.shutdown_requested = true;
-            writer.write_json(&null_response(id))?;
+            write_null_response(state, writer, &request)?;
         }
         "exit" => {
             if !state.shutdown_requested {
@@ -196,20 +389,35 @@ fn handle_message(
         "textDocument/didOpen" => {
             let params = required_params::<DidOpenTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
-            let outcome = state.analysis.open_document(params);
-            publish_analysis_outcome(state, writer, &target_uri, outcome)?;
+            execute_document_diagnostics(
+                state,
+                writer,
+                &target_uri,
+                SchedulerLane::Diagnostics,
+                |analysis| analysis.open_document_state(params),
+            )?;
         }
         "textDocument/didChange" => {
             let params = required_params::<DidChangeTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
-            let outcome = state.analysis.change_document(params);
-            publish_analysis_outcome(state, writer, &target_uri, outcome)?;
+            execute_document_diagnostics(
+                state,
+                writer,
+                &target_uri,
+                SchedulerLane::Diagnostics,
+                |analysis| analysis.change_document_state(params),
+            )?;
         }
         "textDocument/didClose" => {
             let params = required_params::<DidCloseTextDocumentParams>(message.params)?;
             let target_uri = params.text_document.uri.clone();
-            let outcome = state.analysis.close_document(params);
-            publish_analysis_outcome(state, writer, &target_uri, outcome)?;
+            execute_document_diagnostics(
+                state,
+                writer,
+                &target_uri,
+                SchedulerLane::Diagnostics,
+                |analysis| analysis.close_document_state(params),
+            )?;
         }
         "textDocument/didSave" => {
             let _ = required_params::<DidSaveTextDocumentParams>(message.params)?;
@@ -221,15 +429,14 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<DocumentSymbolParams>(message.params)?;
-            match state.analysis.document_symbols(&params.text_document.uri) {
-                Ok(symbols) => {
-                    let result = serde_json::to_value(symbols)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.document_symbols(&params.text_document.uri),
+            )?;
         }
         "textDocument/definition" => {
             let id = message.id.ok_or_else(|| {
@@ -238,21 +445,14 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<DefinitionParams>(message.params)?;
-            match state
-                .analysis
-                .goto_definition(&params.text_document.uri, params.position)
-            {
-                Ok(Some(location)) => {
-                    let result = serde_json::to_value(location)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Ok(None) => {
-                    writer.write_json(&null_response(id))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_optional_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.goto_definition(&params.text_document.uri, params.position),
+            )?;
         }
         "textDocument/documentHighlight" => {
             let id = message.id.ok_or_else(|| {
@@ -261,18 +461,14 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<DocumentHighlightParams>(message.params)?;
-            match state
-                .analysis
-                .document_highlights(&params.text_document.uri, params.position)
-            {
-                Ok(highlights) => {
-                    let result = serde_json::to_value(highlights)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.document_highlights(&params.text_document.uri, params.position),
+            )?;
         }
         "textDocument/references" => {
             let id = message.id.ok_or_else(|| {
@@ -281,40 +477,34 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<ReferenceParams>(message.params)?;
-            match state.analysis.references(
+            execute_document_request(
+                state,
+                writer,
+                id,
                 &params.text_document.uri,
-                params.position,
-                params.context.include_declaration,
-            ) {
-                Ok(locations) => {
-                    let result = serde_json::to_value(locations)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+                SchedulerLane::Interactive,
+                |analysis| {
+                    analysis.references(
+                        &params.text_document.uri,
+                        params.position,
+                        params.context.include_declaration,
+                    )
+                },
+            )?;
         }
         "textDocument/hover" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol("textDocument/hover must be sent as a request".to_string())
             })?;
             let params = required_params::<DefinitionParams>(message.params)?;
-            match state
-                .analysis
-                .hover(&params.text_document.uri, params.position)
-            {
-                Ok(Some(hover)) => {
-                    let result = serde_json::to_value(hover)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Ok(None) => {
-                    writer.write_json(&null_response(id))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_optional_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.hover(&params.text_document.uri, params.position),
+            )?;
         }
         "textDocument/signatureHelp" => {
             let id = message.id.ok_or_else(|| {
@@ -323,21 +513,14 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<SignatureHelpParams>(message.params)?;
-            match state
-                .analysis
-                .signature_help(&params.text_document.uri, params.position)
-            {
-                Ok(Some(help)) => {
-                    let result = serde_json::to_value(help)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Ok(None) => {
-                    writer.write_json(&null_response(id))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_optional_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.signature_help(&params.text_document.uri, params.position),
+            )?;
         }
         "textDocument/completion" => {
             let id = message.id.ok_or_else(|| {
@@ -346,18 +529,14 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<CompletionParams>(message.params)?;
-            match state
-                .analysis
-                .completion(&params.text_document.uri, params.position)
-            {
-                Ok(items) => {
-                    let result = serde_json::to_value(items)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.completion(&params.text_document.uri, params.position),
+            )?;
         }
         "textDocument/semanticTokens/full" => {
             let id = message.id.ok_or_else(|| {
@@ -366,15 +545,14 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<SemanticTokensParams>(message.params)?;
-            match state.analysis.semantic_tokens(&params.text_document.uri) {
-                Ok(tokens) => {
-                    let result = serde_json::to_value(tokens)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.semantic_tokens(&params.text_document.uri),
+            )?;
         }
         "textDocument/prepareRename" => {
             let id = message.id.ok_or_else(|| {
@@ -383,40 +561,30 @@ fn handle_message(
                 )
             })?;
             let params = required_params::<DefinitionParams>(message.params)?;
-            match state
-                .analysis
-                .prepare_rename(&params.text_document.uri, params.position)
-            {
-                Ok(Some(result)) => {
-                    let result = serde_json::to_value(result)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Ok(None) => {
-                    writer.write_json(&null_response(id))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+            execute_optional_document_request(
+                state,
+                writer,
+                id,
+                &params.text_document.uri,
+                SchedulerLane::Interactive,
+                |analysis| analysis.prepare_rename(&params.text_document.uri, params.position),
+            )?;
         }
         "textDocument/rename" => {
             let id = message.id.ok_or_else(|| {
                 ServerError::Protocol("textDocument/rename must be sent as a request".to_string())
             })?;
             let params = required_params::<RenameParams>(message.params)?;
-            match state.analysis.rename(
+            execute_document_request(
+                state,
+                writer,
+                id,
                 &params.text_document.uri,
-                params.position,
-                &params.new_name,
-            ) {
-                Ok(workspace_edit) => {
-                    let result = serde_json::to_value(workspace_edit)?;
-                    writer.write_json(&success_response(id, result))?;
-                }
-                Err(message) => {
-                    writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                }
-            }
+                SchedulerLane::Interactive,
+                |analysis| {
+                    analysis.rename(&params.text_document.uri, params.position, &params.new_name)
+                },
+            )?;
         }
         "textDocument/codeAction" => {
             let id = message.id.ok_or_else(|| {
@@ -426,33 +594,44 @@ fn handle_message(
             })?;
             let params = required_params::<CodeActionParams>(message.params)?;
             if !context_allows_quickfix(&params.context.only) {
-                writer.write_json(&success_response(id, Value::Array(Vec::new())))?;
+                execute_document_request(
+                    state,
+                    writer,
+                    id,
+                    &params.text_document.uri,
+                    SchedulerLane::Interactive,
+                    |_| Ok::<Value, String>(Value::Array(Vec::new())),
+                )?;
             } else {
-                match state
-                    .analysis
-                    .code_actions(&params.text_document.uri, params.range)
-                {
-                    Ok(actions) => {
-                        let result = serde_json::to_value(actions)?;
-                        writer.write_json(&success_response(id, result))?;
-                    }
-                    Err(message) => {
-                        writer.write_json(&error_response(id, INVALID_REQUEST, message))?;
-                    }
-                }
+                execute_document_request(
+                    state,
+                    writer,
+                    id,
+                    &params.text_document.uri,
+                    SchedulerLane::Interactive,
+                    |analysis| {
+                        analysis.code_actions(&params.text_document.uri, params.range.clone())
+                    },
+                )?;
             }
         }
         _ => {
             if let Some(id) = message.id {
-                writer.write_json(&error_response(
-                    id,
+                let request = state.request_context(id);
+                write_error_response(
+                    state,
+                    writer,
+                    &request,
                     METHOD_NOT_FOUND,
                     format!("method `{method}` is not implemented"),
-                ))?;
+                )?;
             }
         }
     }
 
+    if state.should_drain_scheduler_after(method) {
+        drain_scheduler(state, writer)?;
+    }
     Ok(false)
 }
 
@@ -460,8 +639,13 @@ fn publish_analysis_outcome(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
     target_uri: &str,
+    generation: AnalysisGeneration,
     outcome: AnalysisOutcome,
 ) -> Result<(), ServerError> {
+    if !state.is_current_generation(target_uri, generation) {
+        return Ok(());
+    }
+
     for bundle in &outcome.bundles {
         writer.write_json(&publish_diagnostics(
             bundle.uri.clone(),
@@ -490,15 +674,187 @@ fn publish_analysis_outcome(
     Ok(())
 }
 
-fn refresh_workspace(
+fn flush_diagnostics_lane(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+) -> Result<(), ServerError> {
+    if let Some(reason) = state.pending_workspace_refresh_reason.take() {
+        let generations = state.begin_workspace_refresh();
+        for (target_uri, outcome) in state.analysis.refresh_workspace() {
+            let generation = generations
+                .get(&target_uri)
+                .copied()
+                .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+            state.queue_diagnostics_publish(target_uri, generation, outcome);
+        }
+        state.pending_diagnostics_targets.clear();
+        emit_trace(state, writer, reason, None, true)?;
+    } else {
+        let targets = std::mem::take(&mut state.pending_diagnostics_targets);
+        for target_uri in targets {
+            let generation = state
+                .latest_generation_by_target
+                .get(&target_uri)
+                .copied()
+                .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+            let outcome = state.analysis.analyze_document_uri(&target_uri);
+            state.queue_diagnostics_publish(target_uri, generation, outcome);
+        }
+    }
+
+    let pending = std::mem::take(&mut state.pending_diagnostics);
+    for (target_uri, publish) in pending {
+        publish_analysis_outcome(
+            state,
+            writer,
+            &target_uri,
+            publish.generation,
+            publish.outcome,
+        )?;
+    }
+    Ok(())
+}
+
+fn drain_scheduler(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+) -> Result<(), ServerError> {
+    flush_diagnostics_lane(state, writer)
+}
+
+fn execute_document_diagnostics<F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    target_uri: &str,
+    _lane: SchedulerLane,
+    action: F,
+) -> Result<(), ServerError>
+where
+    F: FnOnce(&mut AnalysisEngine) -> DocumentSyncAction,
+{
+    let generation = state.begin_target_analysis(target_uri);
+    match action(&mut state.analysis) {
+        DocumentSyncAction::ScheduleTarget(uri) => {
+            state
+                .latest_generation_by_target
+                .insert(uri.clone(), generation);
+            state.queue_target_diagnostics_task(uri);
+        }
+        DocumentSyncAction::Immediate(outcome) => {
+            state.queue_diagnostics_publish(target_uri.to_string(), generation, outcome);
+        }
+    }
+    let _ = writer;
+    Ok(())
+}
+
+fn execute_workspace_diagnostics_refresh(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    reason: &str,
+    _lane: SchedulerLane,
+) -> Result<(), ServerError> {
+    state.queue_workspace_refresh_task(reason.to_string());
+    let _ = writer;
+    Ok(())
+}
+
+fn execute_document_request<T, F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Value,
+    target_uri: &str,
+    _lane: SchedulerLane,
+    analysis: F,
+) -> Result<(), ServerError>
+where
+    T: serde::Serialize,
+    F: FnOnce(&AnalysisEngine) -> Result<T, String>,
+{
+    let request = state.request_context_for_document(id, target_uri);
+    if state.should_skip_request(&request) {
+        return Ok(());
+    }
+
+    match analysis(&state.analysis) {
+        Ok(result) => {
+            write_success_response(state, writer, &request, serde_json::to_value(result)?)
+        }
+        Err(message) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+    }
+}
+
+fn execute_optional_document_request<T, F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Value,
+    target_uri: &str,
+    _lane: SchedulerLane,
+    analysis: F,
+) -> Result<(), ServerError>
+where
+    T: serde::Serialize,
+    F: FnOnce(&AnalysisEngine) -> Result<Option<T>, String>,
+{
+    let request = state.request_context_for_document(id, target_uri);
+    if state.should_skip_request(&request) {
+        return Ok(());
+    }
+
+    match analysis(&state.analysis) {
+        Ok(Some(result)) => {
+            write_success_response(state, writer, &request, serde_json::to_value(result)?)
+        }
+        Ok(None) => write_null_response(state, writer, &request),
+        Err(message) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+    }
+}
+
+fn write_success_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+    result: Value,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        return Ok(());
+    }
+    writer.write_json(&success_response(request.id.clone(), result))?;
+    Ok(())
+}
+
+fn write_null_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        return Ok(());
+    }
+    writer.write_json(&null_response(request.id.clone()))?;
+    Ok(())
+}
+
+fn write_error_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+    code: i64,
+    message: impl Into<String>,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        return Ok(());
+    }
+    writer.write_json(&error_response(request.id.clone(), code, message))?;
+    Ok(())
+}
+
+fn schedule_workspace_refresh(
     state: &mut ServerState,
     writer: &mut MessageWriter<impl io::Write>,
     reason: &str,
 ) -> Result<(), ServerError> {
-    for (target_uri, outcome) in state.analysis.refresh_workspace() {
-        publish_analysis_outcome(state, writer, &target_uri, outcome)?;
-    }
-    emit_trace(state, writer, reason, None, true)
+    execute_workspace_diagnostics_refresh(state, writer, reason, SchedulerLane::Diagnostics)
 }
 
 fn required_params<T>(params: Option<Value>) -> Result<T, ServerError>
@@ -794,6 +1150,261 @@ mod tests {
     }
 
     #[test]
+    fn stale_analysis_generation_drops_publish_result() {
+        let mut state = initialized_state();
+        let uri = temp_file_uri("server_stale_publish", "fn main() void {}\n");
+        let stale = state.begin_target_analysis(&uri);
+        let _newer = state.begin_target_analysis(&uri);
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        publish_analysis_outcome(
+            &mut state,
+            &mut writer,
+            &uri,
+            stale,
+            AnalysisOutcome {
+                bundles: vec![crate::analysis::DiagnosticBundle {
+                    uri: uri.clone(),
+                    diagnostics: Vec::new(),
+                }],
+            },
+        )
+        .unwrap();
+
+        assert!(output.is_empty());
+        assert!(!state.published_by_target.contains_key(&uri));
+    }
+
+    #[test]
+    fn diagnostics_lane_coalesces_latest_publish_per_target() {
+        let mut state = initialized_state();
+        let uri = temp_file_uri("server_diagnostics_queue", "fn main() void {}\n");
+        let first = state.begin_target_analysis(&uri);
+        let second = state.begin_target_analysis(&uri);
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        state.queue_diagnostics_publish(
+            uri.clone(),
+            first,
+            AnalysisOutcome {
+                bundles: vec![crate::analysis::DiagnosticBundle {
+                    uri: uri.clone(),
+                    diagnostics: Vec::new(),
+                }],
+            },
+        );
+        state.queue_diagnostics_publish(
+            uri.clone(),
+            second,
+            AnalysisOutcome {
+                bundles: vec![crate::analysis::DiagnosticBundle {
+                    uri: uri.clone(),
+                    diagnostics: Vec::new(),
+                }],
+            },
+        );
+
+        flush_diagnostics_lane(&mut state, &mut writer).unwrap();
+
+        let messages = read_all_messages(&output);
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+        assert!(state.pending_diagnostics.is_empty());
+    }
+
+    #[test]
+    fn diagnostics_lane_coalesces_target_analysis_tasks() {
+        let mut state = initialized_state();
+        let uri = temp_file_uri("server_diagnostics_task_queue", "fn main() void {}\n");
+
+        state.queue_target_diagnostics_task(uri.clone());
+        state.queue_target_diagnostics_task(uri.clone());
+
+        assert_eq!(state.pending_diagnostics_targets.len(), 1);
+        assert!(state.pending_diagnostics_targets.contains(&uri));
+    }
+
+    #[test]
+    fn diagnostics_execution_defers_publish_until_scheduler_drain() {
+        let mut state = initialized_state();
+        let uri = temp_file_uri("server_diagnostics_deferred_flush", "fn main() void {}\n");
+        let mut output = Vec::new();
+        {
+            let mut writer = MessageWriter::new(&mut output);
+            execute_document_diagnostics(
+                &mut state,
+                &mut writer,
+                &uri,
+                SchedulerLane::Diagnostics,
+                |analysis| {
+                    analysis.open_document_state(DidOpenTextDocumentParams {
+                        text_document: crate::protocol::TextDocumentItem {
+                            uri: uri.clone(),
+                            _language_id: "kern".to_string(),
+                            version: 1,
+                            text: "fn main() void {}\n".to_string(),
+                        },
+                    })
+                },
+            )
+            .unwrap();
+        }
+
+        assert!(output.is_empty());
+        assert!(state.pending_diagnostics_targets.contains(&uri));
+
+        {
+            let mut writer = MessageWriter::new(&mut output);
+            drain_scheduler(&mut state, &mut writer).unwrap();
+        }
+
+        let messages = read_all_messages(&output);
+        assert!(!messages.is_empty());
+        assert_eq!(messages[0]["method"], "textDocument/publishDiagnostics");
+    }
+
+    #[test]
+    fn did_save_is_an_explicit_scheduler_drain_boundary() {
+        let state = initialized_state();
+        assert!(
+            state
+                .diagnostics_flush_policy
+                .decide_after_message("textDocument/didSave")
+                == SchedulerDrainDecision::Drain
+        );
+    }
+
+    #[test]
+    fn interactive_requests_do_not_auto_drain_deferred_diagnostics() {
+        let mut state = initialized_state();
+        let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+        let uri = temp_file_uri("server_deferred_diagnostics_interactive", invalid_source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, invalid_source, 1));
+        let _ = dispatch_messages(
+            &mut state,
+            did_change_message(
+                &uri,
+                "fn main() i32 {\n    let value = i32.{2}\n    return value;\n}\n",
+                2,
+            ),
+        );
+        assert!(state.has_pending_diagnostics_work());
+
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(52)),
+                method: Some("textDocument/hover".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 0, "character": 3 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(52));
+        assert!(state.has_pending_diagnostics_work());
+    }
+
+    #[test]
+    fn cancel_notification_registers_request_id() {
+        let mut state = initialized_state();
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        let should_exit = handle_message(
+            &mut state,
+            &mut writer,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: None,
+                method: Some("$/cancelRequest".to_string()),
+                params: Some(json!({ "id": 41 })),
+            },
+        )
+        .unwrap();
+
+        assert!(!should_exit);
+        assert_eq!(state.canceled_request_ids, vec![json!(41)]);
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn canceled_request_drops_response() {
+        let mut state = initialized_state();
+        state.cancel_request(json!(42));
+        let request = state.request_context(json!(42));
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        write_success_response(&mut state, &mut writer, &request, json!({ "ok": true })).unwrap();
+
+        assert!(output.is_empty());
+        assert!(state.canceled_request_ids.is_empty());
+    }
+
+    #[test]
+    fn canceled_document_request_skips_analysis_work() {
+        let mut state = initialized_state();
+        let uri = temp_file_uri("server_canceled_preflight", "fn main() void {}\n");
+        state.cancel_request(json!(44));
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+        let mut analyzed = false;
+
+        execute_document_request(
+            &mut state,
+            &mut writer,
+            json!(44),
+            &uri,
+            SchedulerLane::Interactive,
+            |_| {
+                analyzed = true;
+                Ok::<Value, String>(json!({ "ok": true }))
+            },
+        )
+        .unwrap();
+
+        assert!(!analyzed);
+        assert!(output.is_empty());
+        assert!(state.canceled_request_ids.is_empty());
+    }
+
+    #[test]
+    fn stale_document_request_generation_drops_response() {
+        let mut state = initialized_state();
+        let uri = temp_file_uri("server_stale_request", "fn main() void {}\n");
+        let _current = state.begin_target_analysis(&uri);
+        let request = state.request_context_for_document(json!(43), &uri);
+        let _newer = state.begin_target_analysis(&uri);
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+
+        write_success_response(&mut state, &mut writer, &request, json!({ "ok": true })).unwrap();
+
+        assert!(output.is_empty());
+    }
+
+    #[test]
+    fn stale_document_request_skips_analysis_work() {
+        let mut state = initialized_state();
+        let uri = temp_file_uri("server_stale_preflight", "fn main() void {}\n");
+        let stale_generation = state.begin_target_analysis(&uri);
+        let _newer = state.begin_target_analysis(&uri);
+        let stale_request = RequestContext {
+            id: json!(46),
+            target_uri: Some(uri),
+            generation: Some(stale_generation),
+        };
+
+        assert!(state.should_skip_request(&stale_request));
+    }
+
+    #[test]
     fn initialize_negotiates_capabilities_from_client_support() {
         let mut state = ServerState::new();
         let mut output = Vec::new();
@@ -991,18 +1602,92 @@ mod tests {
         let change_messages =
             dispatch_messages(&mut state, did_change_message(&uri, valid_source, 2));
 
-        assert_eq!(change_messages.len(), 1);
+        assert!(change_messages.is_empty());
+
+        let save_messages = dispatch_messages(&mut state, did_save_message(&uri));
+
+        assert_eq!(save_messages.len(), 1);
         assert_eq!(
-            change_messages[0]["method"],
+            save_messages[0]["method"],
             "textDocument/publishDiagnostics"
         );
-        assert_eq!(change_messages[0]["params"]["uri"], uri);
+        assert_eq!(save_messages[0]["params"]["uri"], uri);
         assert!(
-            change_messages[0]["params"]["diagnostics"]
+            save_messages[0]["params"]["diagnostics"]
                 .as_array()
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[test]
+    fn multiple_did_change_notifications_coalesce_until_save() {
+        let mut state = initialized_state();
+        let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";
+        let still_invalid = "fn main() i32 {\n    let value = i32.{2}\n    return value;\n}\n";
+        let valid_source = "fn main() i32 {\n    let value = i32.{2};\n    return value;\n}\n";
+        let uri = temp_file_uri("server_diagnostic_coalesce", invalid_source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, invalid_source, 1));
+        assert!(
+            dispatch_messages(&mut state, did_change_message(&uri, still_invalid, 2)).is_empty()
+        );
+        assert!(
+            dispatch_messages(&mut state, did_change_message(&uri, valid_source, 3)).is_empty()
+        );
+
+        let save_messages = dispatch_messages(&mut state, did_save_message(&uri));
+
+        assert_eq!(save_messages.len(), 1);
+        assert_eq!(
+            save_messages[0]["method"],
+            "textDocument/publishDiagnostics"
+        );
+        assert!(
+            save_messages[0]["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn did_change_under_budget_stays_deferred() {
+        let mut state = initialized_state();
+        let source = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
+        let changed = "fn main() i32 {\n    let value = i32.{2};\n    return value;\n}\n";
+        let uri = temp_file_uri("server_diagnostic_budget_single", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let change_messages = dispatch_messages(&mut state, did_change_message(&uri, changed, 2));
+
+        assert!(change_messages.is_empty());
+        assert_eq!(state.pending_diagnostics_targets.len(), 1);
+    }
+
+    #[test]
+    fn did_change_reaching_target_budget_triggers_auto_drain() {
+        let mut state = initialized_state();
+        let source = "fn main() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
+        let changed_a = "fn main() i32 {\n    let value = i32.{2};\n    return value;\n}\n";
+        let changed_b = "fn main() i32 {\n    let value = i32.{3};\n    return value;\n}\n";
+        let uri_a = temp_file_uri("server_diagnostic_budget_a", source);
+        let uri_b = temp_file_uri("server_diagnostic_budget_b", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri_a, source, 1));
+        let _ = dispatch_messages(&mut state, did_open_message(&uri_b, source, 1));
+
+        assert!(dispatch_messages(&mut state, did_change_message(&uri_a, changed_a, 2)).is_empty());
+        let change_messages =
+            dispatch_messages(&mut state, did_change_message(&uri_b, changed_b, 2));
+
+        assert_eq!(change_messages.len(), 2);
+        assert!(
+            change_messages
+                .iter()
+                .all(|message| message["method"] == "textDocument/publishDiagnostics")
+        );
+        assert!(!state.has_pending_diagnostics_work());
     }
 
     #[test]
@@ -1527,6 +2212,19 @@ mod tests {
                         "text": text
                     }
                 ]
+            })),
+        }
+    }
+
+    fn did_save_message(uri: &str) -> IncomingMessage {
+        IncomingMessage {
+            jsonrpc: JSONRPC_VERSION.to_string(),
+            id: None,
+            method: Some("textDocument/didSave".to_string()),
+            params: Some(json!({
+                "textDocument": {
+                    "uri": uri
+                }
             })),
         }
     }

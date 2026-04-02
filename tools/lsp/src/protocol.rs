@@ -114,6 +114,11 @@ pub struct SetTraceParams {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CancelRequestParams {
+    pub id: Value,
+}
+
+#[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DidOpenTextDocumentParams {
     pub text_document: TextDocumentItem,
@@ -401,7 +406,7 @@ pub struct Diagnostic {
     pub related_information: Option<Vec<DiagnosticRelatedInformation>>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SemanticTokens {
     pub data: Vec<u32>,
 }

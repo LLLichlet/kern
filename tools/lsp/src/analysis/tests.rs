@@ -4,8 +4,9 @@ use super::{
     position_to_byte_offset, uri_to_file_path,
 };
 use crate::protocol::{
-    DidChangeTextDocumentParams, DidOpenTextDocumentParams, Position, Range, SemanticTokens,
-    TextDocumentContentChangeEvent, TextDocumentItem, VersionedTextDocumentIdentifier,
+    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
+    Range, SemanticTokens, TextDocumentContentChangeEvent, TextDocumentItem,
+    VersionedTextDocumentIdentifier,
 };
 use kernc_utils::SourceFile;
 use std::collections::BTreeSet;
@@ -47,6 +48,33 @@ fn full_sync_replaces_document_text() {
     let doc = analysis.documents.get(&uri).unwrap();
     assert_eq!(doc.version, 2);
     assert_eq!(doc.text, "let x = 2;");
+}
+
+#[test]
+fn close_document_clears_open_state_and_returns_empty_bundle() {
+    let mut analysis = AnalysisEngine::default();
+    let uri = temp_file_uri("close_document", "let x = 1;");
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "let x = 1;".to_string(),
+        },
+    });
+
+    let outcome = analysis.close_document(DidCloseTextDocumentParams {
+        text_document: crate::protocol::TextDocumentIdentifier { uri: uri.clone() },
+    });
+
+    assert!(analysis.documents.get(&uri).is_none());
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap();
+    assert!(bundle.diagnostics.is_empty());
 }
 
 #[test]
@@ -374,6 +402,46 @@ fn semantic_tokens_prefer_symbol_kinds_and_modifiers_for_references() {
         &decoded,
         position_of_nth(source, "value", 1, 0),
         SemanticTokenTypes::PROPERTY,
+        0,
+    );
+}
+
+#[test]
+fn semantic_tokens_classify_enum_variant_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Result = enum { Ok: i32, Err };\n",
+        "fn main() i32 {\n",
+        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    let other = Result.{ Err };\n",
+        "    let _ = value;\n",
+        "    let _ = other;\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_enum_variant", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token(
+        &decoded,
+        position_of_nth(source, "Ok", 1, 0),
+        SemanticTokenTypes::ENUM,
+        0,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "Err", 1, 0),
+        SemanticTokenTypes::ENUM,
         0,
     );
 }
@@ -749,6 +817,43 @@ fn extracts_document_symbols_from_compiler_artifact() {
 }
 
 #[test]
+fn document_symbols_use_structure_cache_without_body_artifact() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Point = struct { x: i32 };\n",
+        "fn helper(point: Point) i32 {\n",
+        "    return point.x;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("document_symbols_structure_only", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+    assert_eq!(analysis.parse_cache.borrow().len(), 0);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let names = symbols
+        .iter()
+        .map(|symbol| symbol.name.clone())
+        .collect::<Vec<_>>();
+
+    assert!(names.contains(&"Point".to_string()));
+    assert!(names.contains(&"helper".to_string()));
+    assert_eq!(analysis.parse_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+#[test]
 fn goto_definition_resolves_local_identifier_references() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper() i32 {\n    let value = i32.{1};\n    return value;\n}\n";
@@ -802,6 +907,102 @@ fn goto_definition_resolves_function_identifier_references() {
         definition.range.start,
         position_of_nth(source, "helper", 0, 0)
     );
+}
+
+#[test]
+fn goto_definition_resolves_impl_method_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "impl Counter {\n",
+        "    fn get() i32 { return self.value; }\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    return counter.get();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("goto_definition_impl_method", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "get", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start, position_of_nth(source, "get", 0, 0));
+}
+
+#[test]
+fn goto_definition_resolves_struct_field_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    return counter.value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("goto_definition_struct_field", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "value", 2, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(
+        definition.range.start,
+        position_of_nth(source, "value", 0, 0)
+    );
+}
+
+#[test]
+fn goto_definition_resolves_enum_variant_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Result = enum { Ok: i32, Err };\n",
+        "fn main() i32 {\n",
+        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("goto_definition_enum_variant", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let definition = analysis
+        .goto_definition(&uri, position_of_nth(source, "Ok", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(definition.uri, uri);
+    assert_eq!(definition.range.start, position_of_nth(source, "Ok", 0, 0));
 }
 
 #[test]
@@ -921,6 +1122,161 @@ fn hover_resolves_function_signature_from_reference() {
 }
 
 #[test]
+fn hover_resolves_impl_method_signature_from_reference() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "impl Counter {\n",
+        "    fn get() i32 { return self.value; }\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    return counter.get();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_impl_method_reference", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "get", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("fn get: fn(Counter) i32"));
+}
+
+#[test]
+fn hover_resolves_struct_field_from_reference() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    return counter.value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_struct_field_reference", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "value", 2, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("field value: i32"));
+}
+
+#[test]
+fn hover_resolves_enum_variant_from_reference() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Result = enum { Ok: i32, Err };\n",
+        "fn main() i32 {\n",
+        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    let _ = value;\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_enum_variant_reference", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "Ok", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("variant Ok: i32"));
+}
+
+#[test]
+fn hover_resolves_match_variant_pattern_from_reference() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Result = enum { Ok: i32, Err };\n",
+        "fn main() i32 {\n",
+        "    let value = Result.{ Err };\n",
+        "    return match (value) {\n",
+        "        .Err => 0,\n",
+        "        .Ok: payload => payload,\n",
+        "    };\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_match_variant_pattern_reference", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "Err", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("variant Err"));
+}
+
+#[test]
+fn hover_resolves_typed_match_variant_path_from_reference() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Result = enum { Ok: i32, Err };\n",
+        "fn main() i32 {\n",
+        "    let value = Result.{ Ok: i32.{1} };\n",
+        "    return match (value) {\n",
+        "        Result.Ok: payload => payload,\n",
+        "        .Err => 0,\n",
+        "    };\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_typed_match_variant_path_reference", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "Ok", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("variant Ok: i32"));
+}
+
+#[test]
 fn signature_help_resolves_function_parameters_and_active_argument() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
@@ -984,6 +1340,37 @@ fn hover_resolves_local_definition_without_references() {
 }
 
 #[test]
+fn hover_on_impl_method_definition_prefers_method_span() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct {};\n",
+        "impl Counter {\n",
+        "    fn get() i32 { return 1; }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_impl_method_definition", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "get", 0, 1))
+        .unwrap()
+        .unwrap();
+    let range = hover.range.unwrap();
+
+    assert!(hover.contents.value.contains("fn get:"));
+    assert_eq!(range.start, position_of_nth(source, "get", 0, 0));
+    assert_eq!(range.end, position_of_nth(source, "get", 0, 3));
+}
+
+#[test]
 fn prepare_rename_returns_placeholder_for_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = "fn helper() i32 { return 1; }\nfn main() i32 { return helper(); }\n";
@@ -1041,6 +1428,33 @@ fn rename_updates_definition_and_references() {
         edits[2].range.start,
         position_of_nth(source, "helper", 2, 0)
     );
+}
+
+#[test]
+fn rename_updates_local_binding_definition_and_references() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() i32 {\n    let value = i32.{1};\n    return value + value;\n}\n";
+    let uri = temp_file_uri("rename_local_binding", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let edit = analysis
+        .rename(&uri, position_of_nth(source, "value", 1, 1), "answer")
+        .unwrap();
+    let edits = edit.changes.get(&uri).unwrap();
+
+    assert_eq!(edits.len(), 3);
+    assert!(edits.iter().all(|edit| edit.new_text == "answer"));
+    assert_eq!(edits[0].range.start, position_of_nth(source, "value", 0, 0));
+    assert_eq!(edits[1].range.start, position_of_nth(source, "value", 1, 0));
+    assert_eq!(edits[2].range.start, position_of_nth(source, "value", 2, 0));
 }
 
 #[test]
@@ -1115,6 +1529,102 @@ fn completion_in_function_body_includes_visible_symbols() {
     let helper = items.iter().find(|item| item.label == "helper").unwrap();
     assert_eq!(helper.insert_text.as_deref(), Some("helper($0)"));
     assert_eq!(helper.insert_text_format, Some(2));
+}
+
+#[test]
+fn completion_in_function_signature_uses_parse_and_structure_caches() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Helper = struct {};\n",
+        "fn make() Helper {\n",
+        "    return Helper.{};\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_signature_cache", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "Helper", 1, 3))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"Helper".to_string()));
+    assert_eq!(analysis.parse_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert!(analysis.artifact_cache.borrow().is_empty());
+}
+
+#[test]
+fn completion_in_function_body_still_uses_full_artifact_cache() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    return hel;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_body_cache", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    analysis.parse_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
+    analysis.artifact_cache.borrow_mut().clear();
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "hel", 1, 3))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"helper".to_string()));
+    assert_eq!(analysis.parse_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+}
+
+#[test]
+fn semantic_tokens_cache_reuses_rendered_tokens_for_stable_document() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() i32 {\n    let mut value = 1;\n    return value;\n}\n";
+    let uri = temp_file_uri("semantic_tokens_cache", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let first = analysis.semantic_tokens(&uri).unwrap();
+    assert_eq!(analysis.semantic_tokens_cache.borrow().len(), 1);
+
+    analysis.artifact_cache.borrow_mut().clear();
+    let second = analysis.semantic_tokens(&uri).unwrap();
+
+    assert_eq!(first.data, second.data);
+    assert!(analysis.artifact_cache.borrow().is_empty());
+    assert_eq!(analysis.semantic_tokens_cache.borrow().len(), 1);
 }
 
 #[test]
@@ -1374,6 +1884,797 @@ root = \"src/lib.rn\"
         Some(super::normalize_path(&util_dir.join("src/lib.rn")))
     );
     assert!(resolved.compile_options.module_aliases.contains_key("std"));
+}
+
+#[test]
+fn resolve_analysis_prefers_nearest_init_module_root_without_manifest() {
+    let root = unique_temp_dir("analysis_init_root");
+    let dbg_dir = root.join("dbg");
+    fs::create_dir_all(&dbg_dir).unwrap();
+
+    fs::write(
+        dbg_dir.join("init.rn"),
+        "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
+    )
+    .unwrap();
+    fs::write(
+        dbg_dir.join("option.rn"),
+        "pub type Option[T] = enum { Some: T, None };\n",
+    )
+    .unwrap();
+    fs::write(
+        dbg_dir.join("result.rn"),
+        "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n",
+    )
+    .unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
+    let source = fs::read_to_string(dbg_dir.join("result.rn")).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
+
+    assert_eq!(
+        super::normalize_path(&resolved.input_file),
+        super::normalize_path(&dbg_dir.join("init.rn"))
+    );
+}
+
+#[test]
+fn standalone_submodule_analysis_does_not_treat_parent_import_as_root_error() {
+    let root = unique_temp_dir("analysis_parent_import");
+    let dbg_dir = root.join("dbg");
+    fs::create_dir_all(&dbg_dir).unwrap();
+
+    fs::write(
+        dbg_dir.join("init.rn"),
+        "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
+    )
+    .unwrap();
+    fs::write(
+        dbg_dir.join("option.rn"),
+        "pub type Option[T] = enum { Some: T, None };\n",
+    )
+    .unwrap();
+    let result_source = "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n";
+    fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: result_source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap();
+    assert!(bundle.diagnostics.iter().all(|diagnostic| {
+        !diagnostic
+            .message
+            .contains("Cannot use `..` (Parent) from the root module")
+    }));
+}
+
+#[test]
+fn analysis_cache_reuses_shared_module_root_between_requests() {
+    let root = unique_temp_dir("analysis_cache_shared_root");
+    let dbg_dir = root.join("dbg");
+    fs::create_dir_all(&dbg_dir).unwrap();
+
+    fs::write(
+        dbg_dir.join("init.rn"),
+        "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
+    )
+    .unwrap();
+    let option_source = "pub type Option[T] = enum { Some: T, None };\n";
+    fs::write(dbg_dir.join("option.rn"), option_source).unwrap();
+    let result_source = "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n";
+    fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let result_uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
+    let option_uri = file_path_to_uri(&dbg_dir.join("option.rn")).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: result_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: result_source.to_string(),
+        },
+    });
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+
+    let _ = analysis.semantic_tokens(&result_uri).unwrap();
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: option_uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: option_source.to_string(),
+        },
+    });
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+
+    let _ = analysis.semantic_tokens(&result_uri).unwrap();
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+}
+
+#[test]
+fn source_overrides_only_include_dirty_documents() {
+    let uri = temp_file_uri("analysis_dirty_overrides", "fn main() void {}\n");
+    let path = uri_to_file_path(&uri).unwrap();
+    let source = fs::read_to_string(&path).unwrap();
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.clone(),
+        },
+    });
+    assert!(analysis.source_overrides().is_empty());
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: Some(Range {
+                start: Position {
+                    line: 0,
+                    character: 15,
+                },
+                end: Position {
+                    line: 0,
+                    character: 15,
+                },
+            }),
+            text: "\nfn helper() void {}".to_string(),
+        }],
+    });
+    assert_eq!(analysis.source_overrides().len(), 1);
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 3,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: source,
+        }],
+    });
+    assert!(analysis.source_overrides().is_empty());
+}
+
+#[test]
+fn dirty_document_snapshot_reuses_cached_overrides_until_documents_change() {
+    let uri = temp_file_uri("analysis_dirty_snapshot_cache", "fn main() void {}\n");
+    let path = uri_to_file_path(&uri).unwrap();
+    let source = fs::read_to_string(&path).unwrap();
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source,
+        },
+    });
+
+    let clean_snapshot = analysis.dirty_documents_snapshot();
+    let clean_snapshot_again = analysis.dirty_documents_snapshot();
+    assert!(std::rc::Rc::ptr_eq(&clean_snapshot, &clean_snapshot_again));
+    assert!(clean_snapshot.is_clean());
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "fn main() void {}\nfn helper() void {}\n".to_string(),
+        }],
+    });
+
+    let dirty_snapshot = analysis.dirty_documents_snapshot();
+    let dirty_snapshot_again = analysis.dirty_documents_snapshot();
+    assert!(!std::rc::Rc::ptr_eq(&clean_snapshot, &dirty_snapshot));
+    assert!(std::rc::Rc::ptr_eq(&dirty_snapshot, &dirty_snapshot_again));
+    assert_eq!(dirty_snapshot.len(), 1);
+}
+
+#[test]
+fn opening_clean_sibling_document_keeps_cached_artifact() {
+    let root = unique_temp_dir("analysis_cache_clean_open");
+    let dbg_dir = root.join("dbg");
+    fs::create_dir_all(&dbg_dir).unwrap();
+
+    fs::write(
+        dbg_dir.join("init.rn"),
+        "mod option;\nmod result;\npub use .option.Option;\npub use .result.Result;\n",
+    )
+    .unwrap();
+    let option_source = "pub type Option[T] = enum { Some: T, None };\n";
+    fs::write(dbg_dir.join("option.rn"), option_source).unwrap();
+    let result_source = "use ..Option;\npub type Result[T] = enum { Ok: T, Err: Option[T] };\n";
+    fs::write(dbg_dir.join("result.rn"), result_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let result_uri = file_path_to_uri(&dbg_dir.join("result.rn")).unwrap();
+    let option_uri = file_path_to_uri(&dbg_dir.join("option.rn")).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: result_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: result_source.to_string(),
+        },
+    });
+
+    let resolved = analysis.resolve_analysis(&result_uri).unwrap();
+    let cache_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
+    let cached_before = analysis
+        .artifact_cache
+        .borrow()
+        .get(&cache_key)
+        .cloned()
+        .unwrap();
+    let structure_before = analysis
+        .structure_cache
+        .borrow()
+        .get(&cache_key)
+        .cloned()
+        .unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: option_uri,
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: option_source.to_string(),
+        },
+    });
+
+    let cached_after = analysis
+        .artifact_cache
+        .borrow()
+        .get(&cache_key)
+        .cloned()
+        .unwrap();
+    let structure_after = analysis
+        .structure_cache
+        .borrow()
+        .get(&cache_key)
+        .cloned()
+        .unwrap();
+    assert!(std::rc::Rc::ptr_eq(&cached_before, &cached_after));
+    assert!(std::rc::Rc::ptr_eq(&structure_before, &structure_after));
+}
+
+#[test]
+fn reverting_dirty_document_reuses_clean_caches() {
+    let uri = temp_file_uri(
+        "analysis_cache_revert_clean",
+        "fn main() i32 { return 1; }\n",
+    );
+    let path = uri_to_file_path(&uri).unwrap();
+    let original = fs::read_to_string(&path).unwrap();
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: original.clone(),
+        },
+    });
+
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
+    let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
+    let clean_artifact = analysis
+        .artifact_cache
+        .borrow()
+        .get(&clean_key)
+        .cloned()
+        .unwrap();
+    let clean_structure = analysis
+        .structure_cache
+        .borrow()
+        .get(&clean_key)
+        .cloned()
+        .unwrap();
+
+    let dirty_source = "fn main() i32 {\n    let value = 41;\n    return value + 1;\n}\n";
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty_source.to_string(),
+        }],
+    });
+
+    assert!(analysis.artifact_cache.borrow().contains_key(&clean_key));
+    assert!(analysis.structure_cache.borrow().contains_key(&clean_key));
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 3,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: original,
+        }],
+    });
+
+    let reused_artifact = analysis
+        .artifact_cache
+        .borrow()
+        .get(&clean_key)
+        .cloned()
+        .unwrap();
+    let reused_structure = analysis
+        .structure_cache
+        .borrow()
+        .get(&clean_key)
+        .cloned()
+        .unwrap();
+
+    assert!(std::rc::Rc::ptr_eq(&clean_artifact, &reused_artifact));
+    assert!(std::rc::Rc::ptr_eq(&clean_structure, &reused_structure));
+}
+
+#[test]
+fn body_only_dirty_diagnostics_reuse_clean_structure_cache() {
+    let uri = temp_file_uri(
+        "analysis_dirty_body_reuse",
+        "fn main() i32 { return i32.{1}; }\n",
+    );
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "fn main() i32 { return i32.{1}; }\n".to_string(),
+        },
+    });
+
+    let resolved = analysis.resolve_analysis(&uri).unwrap();
+    let clean_key = super::AnalysisCacheKey::from_resolved(&resolved, &analysis.source_overrides());
+    let clean_structure = analysis
+        .structure_cache
+        .borrow()
+        .get(&clean_key)
+        .cloned()
+        .unwrap();
+
+    analysis.parse_cache.borrow_mut().clear();
+    let dirty_text = "fn main() i32 {\n    let value = i32.{41};\n    return value + i32.{1};\n}\n";
+    let doc = analysis.documents.get_mut(&uri).unwrap();
+    doc.text = dirty_text.to_string();
+    doc.version = 2;
+    doc.is_dirty = true;
+    doc.text_hash = super::hash_source_text(&doc.text);
+    analysis.invalidate_dirty_document_snapshot();
+
+    let fast_report = analysis.analyze_dirty_report(&uri).unwrap();
+    assert!(fast_report.is_some());
+
+    let outcome = analysis.analyze_document(&uri);
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap();
+    assert!(bundle.diagnostics.is_empty());
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+    assert_eq!(analysis.parse_cache.borrow().len(), 1);
+
+    let reused_structure = analysis
+        .structure_cache
+        .borrow()
+        .get(&clean_key)
+        .cloned()
+        .unwrap();
+    assert!(std::rc::Rc::ptr_eq(&clean_structure, &reused_structure));
+}
+
+#[test]
+fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
+    let uri = temp_file_uri(
+        "analysis_dirty_structure_fallback",
+        "fn main() i32 { return i32.{1}; }\n",
+    );
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "fn main() i32 { return i32.{1}; }\n".to_string(),
+        },
+    });
+
+    let outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "fn main() i32 { return i32.{1}; }\nfn helper() i32 { return i32.{2}; }\n"
+                .to_string(),
+        }],
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap();
+    assert!(bundle.diagnostics.is_empty());
+    assert_eq!(analysis.structure_cache.borrow().len(), 2);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 2);
+}
+
+#[test]
+fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
+    let root = unique_temp_dir("analysis_fast_path_preserve_sibling");
+    fs::write(root.join("init.rn"), "mod good;\nmod bad;\n").unwrap();
+    fs::write(root.join("good.rn"), "fn main() i32 { return i32.{1}; }\n").unwrap();
+    fs::write(root.join("bad.rn"), "fn broken() i32 { return missing; }\n").unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let good_uri = file_path_to_uri(&root.join("good.rn")).unwrap();
+    let bad_uri = file_path_to_uri(&root.join("bad.rn")).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: bad_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: fs::read_to_string(root.join("bad.rn")).unwrap(),
+        },
+    });
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: good_uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: fs::read_to_string(root.join("good.rn")).unwrap(),
+        },
+    });
+
+    let outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: good_uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "fn main() i32 {\n    let value = i32.{41};\n    return value + i32.{1};\n}\n"
+                .to_string(),
+        }],
+    });
+
+    let good_bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == good_uri)
+        .unwrap();
+    let bad_bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == bad_uri)
+        .unwrap();
+
+    assert!(good_bundle.diagnostics.is_empty());
+    assert!(
+        bad_bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("undeclared identifier"))
+    );
+}
+
+#[test]
+fn function_body_fast_path_preserves_clean_target_diagnostics_outside_changed_owner() {
+    let original = "fn main() i32 { return i32.{1}; }\nfn helper() i32 { return missing; }\n";
+    let dirty = concat!(
+        "fn main() i32 {\n",
+        "    let value = i32.{41};\n",
+        "    return value + i32.{1};\n",
+        "}\n",
+        "fn helper() i32 { return missing; }\n",
+    );
+    let uri = temp_file_uri("analysis_fast_path_preserve_target", original);
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: original.to_string(),
+        },
+    });
+
+    let outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap();
+    let diagnostic = bundle
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.message.contains("undeclared identifier"))
+        .unwrap();
+
+    assert_eq!(
+        diagnostic.range.start,
+        position_of_nth(dirty, "missing", 0, 0)
+    );
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+}
+
+#[test]
+fn function_body_fast_path_replaces_overlapping_clean_target_diagnostics() {
+    let original = "fn main() i32 { return missing; }\n";
+    let dirty = concat!(
+        "fn main() i32 {\n",
+        "    let value = i32.{41};\n",
+        "    return value + i32.{1};\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("analysis_fast_path_drop_target_overlap", original);
+    let mut analysis = AnalysisEngine::default();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: original.to_string(),
+        },
+    });
+
+    let outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: dirty.to_string(),
+        }],
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .unwrap();
+
+    assert!(bundle.diagnostics.is_empty());
+    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.artifact_cache.borrow().len(), 1);
+}
+
+#[test]
+fn semantic_tokens_classify_local_let_bindings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 {\n",
+        "    let value = helper();\n",
+        "    return value;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_local_let", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token(
+        &decoded,
+        position_of_nth(source, "value", 0, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::DECLARATION | SemanticModifiers::READONLY,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "value", 1, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::READONLY,
+    );
+}
+
+#[test]
+fn semantic_tokens_classify_mutable_bindings_and_params() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn bump(mut value: i32) i32 {\n",
+        "    let mut total = value;\n",
+        "    return total;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_mut_bindings", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token(
+        &decoded,
+        position_of_nth(source, "value", 0, 0),
+        SemanticTokenTypes::PARAMETER,
+        SemanticModifiers::DECLARATION,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "value", 1, 0),
+        SemanticTokenTypes::PARAMETER,
+        0,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "total", 0, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::DECLARATION,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "total", 1, 0),
+        SemanticTokenTypes::VARIABLE,
+        0,
+    );
+}
+
+#[test]
+fn semantic_tokens_classify_imported_function_references_in_submodules() {
+    let root = unique_temp_dir("semantic_tokens_imported_function");
+    let dbg_dir = root.join("dbg");
+    fs::create_dir_all(&dbg_dir).unwrap();
+
+    fs::write(
+        dbg_dir.join("init.rn"),
+        "pub mod helper;\nmod use_helper;\n",
+    )
+    .unwrap();
+    fs::write(
+        dbg_dir.join("helper.rn"),
+        "pub fn helper() i32 { return 1; }\n",
+    )
+    .unwrap();
+    let use_helper_source = "use ..helper.helper;\npub fn run() i32 { return helper(); }\n";
+    fs::write(dbg_dir.join("use_helper.rn"), use_helper_source).unwrap();
+
+    let mut analysis = AnalysisEngine::default();
+    let uri = file_path_to_uri(&dbg_dir.join("use_helper.rn")).unwrap();
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: use_helper_source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token(
+        &decoded,
+        position_of_nth(use_helper_source, "helper", 2, 0),
+        SemanticTokenTypes::FUNCTION,
+        0,
+    );
+}
+
+#[test]
+fn semantic_tokens_classify_variant_let_else_payload_bindings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Option[T] = enum {\n",
+        "    None,\n",
+        "    Some: T,\n",
+        "};\n",
+        "\n",
+        "fn unwrap_or_zero(value: Option[i32]) i32 {\n",
+        "    let .Some: inner = value else return 0;\n",
+        "    return inner;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("semantic_tokens_let_else_binding", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+
+    assert_token(
+        &decoded,
+        position_of_nth(source, "inner", 0, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::DECLARATION | SemanticModifiers::READONLY,
+    );
+    assert_token(
+        &decoded,
+        position_of_nth(source, "inner", 1, 0),
+        SemanticTokenTypes::VARIABLE,
+        SemanticModifiers::READONLY,
+    );
 }
 
 fn temp_file_uri(prefix: &str, initial_text: &str) -> String {

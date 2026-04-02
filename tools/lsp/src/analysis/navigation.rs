@@ -4,8 +4,8 @@ use crate::protocol::{
     ParameterInformation, Position, SignatureHelp, SignatureInformation, TextEdit,
 };
 use kernc_driver::{
-    AnalysisCompletionItem, AnalysisCompletionKind, AnalysisHover, AnalysisReference,
-    AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind,
+    AnalysisCompletionItem, AnalysisCompletionKind, AnalysisHover, AnalysisSemanticEntry,
+    AnalysisSemanticRole, AnalysisSignatureHelp, AnalysisSymbol, AnalysisSymbolKind,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -52,89 +52,47 @@ pub(super) fn analysis_signature_help_to_lsp_help(help: AnalysisSignatureHelp) -
 pub(super) fn find_rename_target(
     session: &kernc_utils::Session,
     hovers: &[AnalysisHover],
-    references: &[AnalysisReference],
+    semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
     position: &Position,
 ) -> Option<RenameTarget> {
-    if let Some(target) =
-        rename_target_at_definition_position(session, hovers, target_path, position)
+    let match_entry = semantic_entry_at_position(session, semantic_entries, target_path, position)?;
+    if !hovers
+        .iter()
+        .any(|hover| hover.span == match_entry.definition_span)
     {
-        return Some(target);
+        return None;
     }
 
-    for reference in references {
-        let Some(file) = session
-            .source_manager
-            .get_file(reference.reference_span.file)
-        else {
-            continue;
-        };
-        let Some(offset) = super::match_position_in_file(file, target_path, position) else {
-            continue;
-        };
-        if !super::span_contains_offset(reference.reference_span, offset) {
-            continue;
-        }
-
-        let placeholder = span_text(session, reference.reference_span)?;
-        return Some(RenameTarget {
-            query_span: reference.reference_span,
-            definition_span: reference.definition_span,
-            placeholder,
-        });
-    }
-
-    None
-}
-
-fn rename_target_at_definition_position(
-    session: &kernc_utils::Session,
-    hovers: &[AnalysisHover],
-    target_path: &Path,
-    position: &Position,
-) -> Option<RenameTarget> {
-    for hover in hovers {
-        let Some(file) = session.source_manager.get_file(hover.span.file) else {
-            continue;
-        };
-        let Some(offset) = super::match_position_in_file(file, target_path, position) else {
-            continue;
-        };
-        if !super::span_contains_offset(hover.span, offset) {
-            continue;
-        }
-
-        return Some(RenameTarget {
-            query_span: hover.span,
-            definition_span: hover.span,
-            placeholder: span_text(session, hover.span)?,
-        });
-    }
-
-    None
+    Some(RenameTarget {
+        query_span: match_entry.span,
+        definition_span: match_entry.definition_span,
+        placeholder: span_text(session, match_entry.span)?,
+    })
 }
 
 pub(super) fn find_definition_location(
     session: &kernc_utils::Session,
-    references: &[AnalysisReference],
+    semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
     position: &Position,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Option<Location> {
-    let definition_span = find_target_definition_span(session, references, target_path, position)?;
+    let definition_span =
+        find_target_definition_span(session, semantic_entries, target_path, position)?;
     location_from_span(session, definition_span, uri_by_path)
 }
 
 pub(super) fn find_reference_locations(
     session: &kernc_utils::Session,
-    references: &[AnalysisReference],
+    semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
     position: &Position,
     include_declaration: bool,
     uri_by_path: &BTreeMap<PathBuf, String>,
 ) -> Vec<Location> {
     let Some(definition_span) =
-        find_target_definition_span(session, references, target_path, position)
+        find_target_definition_span(session, semantic_entries, target_path, position)
     else {
         return Vec::new();
     };
@@ -146,12 +104,13 @@ pub(super) fn find_reference_locations(
         locations.push(location);
     }
 
-    for reference in references {
-        if reference.definition_span != definition_span {
+    for entry in semantic_entries {
+        if entry.role != AnalysisSemanticRole::Reference || entry.definition_span != definition_span
+        {
             continue;
         }
 
-        if let Some(location) = location_from_span(session, reference.reference_span, uri_by_path) {
+        if let Some(location) = location_from_span(session, entry.span, uri_by_path) {
             locations.push(location);
         }
     }
@@ -172,19 +131,21 @@ pub(super) fn find_reference_locations(
 
 pub(super) fn find_document_highlights(
     session: &kernc_utils::Session,
-    references: &[AnalysisReference],
+    semantic_entries: &[AnalysisSemanticEntry],
     hovers: &[AnalysisHover],
     target_path: &Path,
     position: &Position,
 ) -> Vec<DocumentHighlight> {
     let Some(definition_span) =
-        find_target_definition_span(session, references, target_path, position).or_else(|| {
-            hovers.iter().find_map(|hover| {
-                let file = session.source_manager.get_file(hover.span.file)?;
-                let offset = super::match_position_in_file(file, target_path, position)?;
-                super::span_contains_offset(hover.span, offset).then_some(hover.span)
-            })
-        })
+        find_target_definition_span(session, semantic_entries, target_path, position).or_else(
+            || {
+                hovers.iter().find_map(|hover| {
+                    let file = session.source_manager.get_file(hover.span.file)?;
+                    let offset = super::match_position_in_file(file, target_path, position)?;
+                    super::span_contains_offset(hover.span, offset).then_some(hover.span)
+                })
+            },
+        )
     else {
         return Vec::new();
     };
@@ -198,15 +159,16 @@ pub(super) fn find_document_highlights(
         });
     }
 
-    for reference in references {
-        if reference.definition_span != definition_span
-            || !super::span_in_path(session, reference.reference_span, target_path)
+    for entry in semantic_entries {
+        if entry.role != AnalysisSemanticRole::Reference
+            || entry.definition_span != definition_span
+            || !super::span_in_path(session, entry.span, target_path)
         {
             continue;
         }
 
         highlights.push(DocumentHighlight {
-            range: super::span_to_range(session, reference.reference_span),
+            range: super::span_to_range(session, entry.span),
             kind: Some(1),
         });
     }
@@ -225,50 +187,18 @@ pub(super) fn find_document_highlights(
 
 fn find_target_definition_span(
     session: &kernc_utils::Session,
-    references: &[AnalysisReference],
+    semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
     position: &Position,
 ) -> Option<kernc_utils::Span> {
-    let mut best_match = None;
-
-    for reference in references {
-        let Some(reference_file) = session
-            .source_manager
-            .get_file(reference.reference_span.file)
-        else {
-            continue;
-        };
-        let reference_offset = super::match_position_in_file(reference_file, target_path, position);
-        if let Some(offset) = reference_offset
-            && super::span_contains_offset(reference.reference_span, offset)
-        {
-            best_match = Some(reference.definition_span);
-            break;
-        }
-
-        let Some(definition_file) = session
-            .source_manager
-            .get_file(reference.definition_span.file)
-        else {
-            continue;
-        };
-        let definition_offset =
-            super::match_position_in_file(definition_file, target_path, position);
-        if let Some(offset) = definition_offset
-            && super::span_contains_offset(reference.definition_span, offset)
-        {
-            best_match = Some(reference.definition_span);
-            break;
-        }
-    }
-
-    best_match
+    semantic_entry_at_position(session, semantic_entries, target_path, position)
+        .map(|entry| entry.definition_span)
 }
 
 pub(super) fn find_hover(
     session: &kernc_utils::Session,
     hovers: &[AnalysisHover],
-    references: &[AnalysisReference],
+    semantic_entries: &[AnalysisSemanticEntry],
     target_path: &Path,
     position: &Position,
 ) -> Option<Hover> {
@@ -276,7 +206,8 @@ pub(super) fn find_hover(
         return Some(hover);
     }
 
-    let definition_span = find_target_definition_span(session, references, target_path, position)?;
+    let definition_span =
+        find_target_definition_span(session, semantic_entries, target_path, position)?;
     let hover = hovers.iter().find(|hover| hover.span == definition_span)?;
     Some(analysis_hover_to_lsp_hover(session, hover))
 }
@@ -287,6 +218,8 @@ fn hover_at_definition_position(
     target_path: &Path,
     position: &Position,
 ) -> Option<Hover> {
+    let mut best_match = None;
+
     for hover in hovers {
         let Some(file) = session.source_manager.get_file(hover.span.file) else {
             continue;
@@ -295,11 +228,20 @@ fn hover_at_definition_position(
             continue;
         };
         if super::span_contains_offset(hover.span, offset) {
-            return Some(analysis_hover_to_lsp_hover(session, hover));
+            let replace = best_match
+                .map(|current: &AnalysisHover| {
+                    let current_len = current.span.end.saturating_sub(current.span.start);
+                    let next_len = hover.span.end.saturating_sub(hover.span.start);
+                    next_len < current_len
+                })
+                .unwrap_or(true);
+            if replace {
+                best_match = Some(hover);
+            }
         }
     }
 
-    None
+    best_match.map(|hover| analysis_hover_to_lsp_hover(session, hover))
 }
 
 fn analysis_hover_to_lsp_hover(session: &kernc_utils::Session, hover: &AnalysisHover) -> Hover {
@@ -314,7 +256,7 @@ fn analysis_hover_to_lsp_hover(session: &kernc_utils::Session, hover: &AnalysisH
 
 pub(super) fn build_rename_changes(
     session: &kernc_utils::Session,
-    references: &[AnalysisReference],
+    semantic_entries: &[AnalysisSemanticEntry],
     definition_span: kernc_utils::Span,
     new_name: &str,
     uri_by_path: &BTreeMap<PathBuf, String>,
@@ -325,14 +267,13 @@ pub(super) fn build_rename_changes(
         edits_by_uri.entry(edit.0).or_default().push(edit.1);
     }
 
-    for reference in references {
-        if reference.definition_span != definition_span {
+    for entry in semantic_entries {
+        if entry.role != AnalysisSemanticRole::Reference || entry.definition_span != definition_span
+        {
             continue;
         }
 
-        if let Some(edit) =
-            rename_edit_from_span(session, reference.reference_span, new_name, uri_by_path)
-        {
+        if let Some(edit) = rename_edit_from_span(session, entry.span, new_name, uri_by_path) {
             edits_by_uri.entry(edit.0).or_default().push(edit.1);
         }
     }
@@ -447,4 +388,41 @@ fn uri_for_path(path: &Path, uri_by_path: &BTreeMap<PathBuf, String>) -> Option<
 fn span_text(session: &kernc_utils::Session, span: kernc_utils::Span) -> Option<String> {
     let file = session.source_manager.get_file(span.file)?;
     Some(file.src.get(span.start..span.end)?.to_string())
+}
+
+fn semantic_entry_at_position<'a>(
+    session: &kernc_utils::Session,
+    semantic_entries: &'a [AnalysisSemanticEntry],
+    target_path: &Path,
+    position: &Position,
+) -> Option<&'a AnalysisSemanticEntry> {
+    let mut best_match = None;
+
+    for entry in semantic_entries {
+        let Some(file) = session.source_manager.get_file(entry.span.file) else {
+            continue;
+        };
+        let Some(offset) = super::match_position_in_file(file, target_path, position) else {
+            continue;
+        };
+        if !super::span_contains_offset(entry.span, offset) {
+            continue;
+        }
+
+        let replace = best_match
+            .map(|current: &AnalysisSemanticEntry| {
+                let current_len = current.span.end.saturating_sub(current.span.start);
+                let next_len = entry.span.end.saturating_sub(entry.span.start);
+                next_len < current_len
+                    || (next_len == current_len
+                        && entry.role == AnalysisSemanticRole::Reference
+                        && current.role == AnalysisSemanticRole::Definition)
+            })
+            .unwrap_or(true);
+        if replace {
+            best_match = Some(entry);
+        }
+    }
+
+    best_match
 }

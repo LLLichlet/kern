@@ -1,5 +1,8 @@
 use crate::protocol::SemanticTokens;
-use kernc_driver::{AnalysisArtifact, AnalysisSymbol, AnalysisSymbolKind};
+use kernc_driver::{
+    AnalysisArtifact, AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole,
+    AnalysisSymbol, AnalysisSymbolKind,
+};
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::FileId;
 use std::collections::BTreeMap;
@@ -68,6 +71,14 @@ fn build_semantic_span_classes(
     target_path: &Path,
 ) -> BTreeMap<SpanKey, SemanticClass> {
     let mut definition_classes = BTreeMap::new();
+    for entry in &artifact.semantic_entries {
+        if entry.role != AnalysisSemanticRole::Definition {
+            continue;
+        }
+        definition_classes
+            .entry(entry.definition_span)
+            .or_insert_with(|| semantic_class_from_entry(entry));
+    }
     for module_symbol in &artifact.symbols {
         collect_semantic_definition_classes(module_symbol, &mut definition_classes);
     }
@@ -85,6 +96,19 @@ fn build_semantic_span_classes(
         }
     }
 
+    for entry in &artifact.semantic_entries {
+        if entry.role != AnalysisSemanticRole::Reference {
+            continue;
+        }
+        if !super::span_in_path(&artifact.session, entry.span, target_path) {
+            continue;
+        }
+        document_classes.insert(
+            span_key(entry.span),
+            semantic_reference_class(semantic_class_from_entry(entry)),
+        );
+    }
+
     for reference in &artifact.references {
         if !super::span_in_path(&artifact.session, reference.reference_span, target_path) {
             continue;
@@ -100,6 +124,49 @@ fn build_semantic_span_classes(
     }
 
     document_classes
+}
+
+fn semantic_class_from_entry(entry: &AnalysisSemanticEntry) -> SemanticClass {
+    let token_type = match entry.kind {
+        AnalysisSemanticKind::Module | AnalysisSemanticKind::Namespace => {
+            SemanticTokenTypes::NAMESPACE
+        }
+        AnalysisSemanticKind::Struct => SemanticTokenTypes::STRUCT,
+        AnalysisSemanticKind::Enum => SemanticTokenTypes::ENUM,
+        AnalysisSemanticKind::Interface => SemanticTokenTypes::INTERFACE,
+        AnalysisSemanticKind::Type => SemanticTokenTypes::TYPE,
+        AnalysisSemanticKind::TypeParameter => SemanticTokenTypes::TYPE_PARAMETER,
+        AnalysisSemanticKind::Property => SemanticTokenTypes::PROPERTY,
+        AnalysisSemanticKind::Variable => SemanticTokenTypes::VARIABLE,
+        AnalysisSemanticKind::Parameter => SemanticTokenTypes::PARAMETER,
+        AnalysisSemanticKind::Function => SemanticTokenTypes::FUNCTION,
+        AnalysisSemanticKind::Method => SemanticTokenTypes::METHOD,
+        AnalysisSemanticKind::Constant | AnalysisSemanticKind::Static => {
+            SemanticTokenTypes::VARIABLE
+        }
+    };
+
+    let mut modifiers = match entry.role {
+        AnalysisSemanticRole::Definition => SemanticModifiers::DECLARATION,
+        AnalysisSemanticRole::Reference => 0,
+    };
+    if matches!(entry.kind, AnalysisSemanticKind::Constant)
+        || matches!(
+            entry.kind,
+            AnalysisSemanticKind::Variable | AnalysisSemanticKind::Parameter
+        ) && !entry.is_mut
+        || matches!(entry.kind, AnalysisSemanticKind::Static) && !entry.is_mut
+    {
+        modifiers |= SemanticModifiers::READONLY;
+    }
+    if matches!(entry.kind, AnalysisSemanticKind::Static) {
+        modifiers |= SemanticModifiers::STATIC;
+    }
+
+    SemanticClass {
+        token_type,
+        modifiers,
+    }
 }
 
 fn collect_semantic_definition_classes(

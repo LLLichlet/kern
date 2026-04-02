@@ -17,6 +17,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.functions.push(MastFunction {
             id,
             name,
+            linkage: MastLinkage::Internal,
             params: vec![],
             ret_ty: TypeId::VOID,
             body: Some(MastBlock {
@@ -202,6 +203,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mast_fn = MastFunction {
             id,
             name: mangled_name,
+            linkage: MastLinkage::External,
             params: mast_params,
             ret_ty: conc_ret,
             body,
@@ -779,6 +781,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.globals.push(MastGlobal {
             id,
             name: self.ctx.get_export_name(g.id, &[]),
+            linkage: MastLinkage::External,
             ty,
             is_mut,
             init,

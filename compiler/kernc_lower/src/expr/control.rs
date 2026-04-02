@@ -814,6 +814,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.functions.push(MastFunction {
             id: func_id,
             name: format!("__closure_fn_{}", func_id.0),
+            linkage: MastLinkage::Internal,
             params: mast_params,
             ret_ty,
             body: Some(body_block),

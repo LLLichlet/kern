@@ -36,10 +36,17 @@ pub struct Lowerer<'a, 'ctx> {
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
+        let module_name = ctx
+            .root_module
+            .and_then(|root_id| match &ctx.defs[root_id.0 as usize] {
+                Def::Module(module) => Some(ctx.resolve(module.name).to_string()),
+                _ => None,
+            })
+            .unwrap_or_else(|| "kern_out".to_string());
         Self {
             ctx,
             module: MastModule {
-                name: "kern_out".to_string(),
+                name: module_name,
                 structs: Vec::new(),
                 globals: Vec::new(),
                 functions: Vec::new(),

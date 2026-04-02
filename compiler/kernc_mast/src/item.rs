@@ -22,6 +22,12 @@ pub struct MastModule {
     pub anon_enum_map: HashMap<TypeId, MonoId>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MastLinkage {
+    External,
+    Internal,
+}
+
 #[derive(Debug, Clone)]
 pub struct MastStruct {
     pub id: MonoId,
@@ -45,6 +51,7 @@ pub struct MastField {
 pub struct MastGlobal {
     pub id: MonoId,
     pub name: String, // 扁平化的全局符号名
+    pub linkage: MastLinkage,
     pub ty: TypeId,
     pub is_mut: bool,           // 对应 static mut
     pub init: Option<MastExpr>, // extern 的时候为 None。初始化必须是常量表达式。
@@ -56,6 +63,7 @@ pub struct MastGlobal {
 pub struct MastFunction {
     pub id: MonoId,
     pub name: String, // 例如 "Point_i32_move_by" (方法被扁平化为普通函数)
+    pub linkage: MastLinkage,
     pub params: Vec<MastParam>,
     pub ret_ty: TypeId,
     pub body: Option<MastBlock>, // extern 时为 None

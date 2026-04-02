@@ -194,6 +194,130 @@ extern fn main() i32 {
 }
 
 #[test]
+fn custom_defines_are_available_as_compile_time_constants() {
+    let source_path = unique_temp_path("kernc_custom_define_const", "rn");
+    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
+    let executable_path = unique_temp_path("kernc_custom_define_const", exe_ext);
+
+    fs::write(
+        &source_path,
+        r#"
+extern fn main() i32 {
+    let _ = GREETING_MSG;
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+    let output = run_kernc([
+        "--use-std",
+        "--link-profile",
+        "hosted",
+        "-D",
+        "GREETING_MSG=Hello from injected define",
+        source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ]);
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "custom define binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn compile_only_object_does_not_export_synthesized_symbols() {
+    if cfg!(windows) {
+        return;
+    }
+
+    let source_path = unique_temp_path("kernc_internal_symbols", "rn");
+    let object_path = unique_temp_path("kernc_internal_symbols", "o");
+
+    fs::write(
+        &source_path,
+        r#"
+use std.io;
+
+fn run_cb(cb: *Fn() i32) i32 {
+    return cb();
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    let value = run_cb(.[]() i32 {
+        return 42;
+    });
+    io.println("{}", .{"world",});
+    io.println("{}", .{value,});
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let output = run_kernc([
+        "-c",
+        "--use-std",
+        "--link-profile",
+        "hosted",
+        source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ]);
+
+    assert_success(&output, "kernc");
+
+    let nm_output = Command::new("nm")
+        .arg("-g")
+        .arg(&object_path)
+        .output()
+        .unwrap();
+    assert!(
+        nm_output.status.success(),
+        "nm failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&nm_output.stdout),
+        String::from_utf8_lossy(&nm_output.stderr)
+    );
+    let symbols = String::from_utf8_lossy(&nm_output.stdout);
+    assert!(
+        symbols.lines().any(|line| line.ends_with(" main")),
+        "expected exported `main`, got:\n{}",
+        symbols
+    );
+    for hidden in [".str.", "__closure_fn_", "__vtable_"] {
+        assert!(
+            !symbols.contains(hidden),
+            "unexpected exported synthesized symbol `{}`:\n{}",
+            hidden,
+            symbols
+        );
+    }
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&object_path);
+}
+
+#[test]
 fn links_windows_kern_program_with_std_by_default() {
     if !cfg!(windows) {
         return;

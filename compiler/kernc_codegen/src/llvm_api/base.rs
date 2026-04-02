@@ -185,12 +185,14 @@ impl From<AtomicRMWBinOp> for LLVMAtomicRMWBinOp {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Linkage {
     External,
+    Internal,
 }
 
 impl From<Linkage> for LLVMLinkage {
     fn from(value: Linkage) -> Self {
         match value {
             Linkage::External => LLVMLinkage::LLVMExternalLinkage,
+            Linkage::Internal => LLVMLinkage::LLVMInternalLinkage,
         }
     }
 }

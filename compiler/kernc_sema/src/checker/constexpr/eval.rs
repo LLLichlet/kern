@@ -474,6 +474,28 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     }
                 }
             }
+            (
+                ConstValue::Enum {
+                    tag: l_tag,
+                    payload: l_payload,
+                },
+                ConstValue::Enum {
+                    tag: r_tag,
+                    payload: r_payload,
+                },
+            ) => {
+                use BinaryOperator::*;
+                match op {
+                    Equal => Ok(ConstValue::Bool(l_tag == r_tag && l_payload == r_payload)),
+                    NotEqual => Ok(ConstValue::Bool(l_tag != r_tag || l_payload != r_payload)),
+                    _ => {
+                        self.ctx
+                            .struct_error(span, "unsupported operator for constant enum values")
+                            .emit();
+                        Err(ConstEvalError)
+                    }
+                }
+            }
             _ => {
                 self.ctx
                     .struct_error(

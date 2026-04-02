@@ -31,7 +31,28 @@ impl Metadata {
 #[if(os == "linux")]
 mod linux;
 #[if(os == "linux")]
-pub use .linux.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};
+pub use .linux.{
+    Error, 
+    Handle, 
+    invalid_handle, 
+    get_stdin_handle, 
+    get_stdout_handle, 
+    get_stderr_handle, 
+    open_file, 
+    read_file, 
+    write_file, 
+    close_file, 
+    metadata, 
+    scan_dir, 
+    create_dir, 
+    remove_dir, 
+    remove_file,
+    rename, 
+    is_not_found, 
+    is_already_exists, 
+    write, 
+    exit
+};
 
 #[if(os == "darwin")]
 mod darwin;

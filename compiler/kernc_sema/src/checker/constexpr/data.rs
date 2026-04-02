@@ -505,19 +505,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             return Err(ConstEvalError);
         };
 
-        // Payload-carrying ADT variants cannot be treated as plain integer constants.
-        for v in &data_def.variants {
-            if v.payload_type.is_some() {
-                self.ctx
-                    .struct_error(
-                        span,
-                        "cannot evaluate ADT variants with payloads as integer constants",
-                    )
-                    .with_hint("only C-style `data` types (without payloads) can be implicitly evaluated to integers")
-                    .emit();
-                return Err(ConstEvalError);
-            }
-        }
+        let has_payload_variants = data_def
+            .variants
+            .iter()
+            .any(|variant| variant.payload_type.is_some());
 
         let mut current_val: i128 = 0;
         for v in data_def.variants {
@@ -527,7 +518,25 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 current_val = val;
             }
             if v.name == variant_name {
-                return Ok(ConstValue::Int(current_val));
+                if v.payload_type.is_some() {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            "cannot evaluate ADT variants with payloads as integer constants",
+                        )
+                        .with_hint("only payload-less variants can be used directly in constant expressions")
+                        .emit();
+                    return Err(ConstEvalError);
+                }
+
+                return if has_payload_variants {
+                    Ok(ConstValue::Enum {
+                        tag: current_val,
+                        payload: None,
+                    })
+                } else {
+                    Ok(ConstValue::Int(current_val))
+                };
             }
             current_val += 1;
         }

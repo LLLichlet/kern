@@ -40,7 +40,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             ConstValue::Int(v) => Some(MastExprKind::Integer(v as u128)),
                             ConstValue::Float(f) => Some(MastExprKind::Float(f)),
                             ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
-                            ConstValue::String(s) => Some(MastExprKind::StringLiteral(s)),
+                            ConstValue::String(s) => {
+                                Some(self.lower_string_literal(&s, const_expr.span))
+                            }
                             _ => {
                                 let inlined_mast = self.lower_expr(
                                     &const_expr,
@@ -193,7 +195,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                         ConstValue::Float(f) => Some(MastExprKind::Float(f)),
                                         ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
                                         ConstValue::String(s) => {
-                                            Some(MastExprKind::StringLiteral(s))
+                                            Some(self.lower_string_literal(&s, const_expr.span))
                                         }
                                         _ => {
                                             let inlined_mast =

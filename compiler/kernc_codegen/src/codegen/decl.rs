@@ -4,7 +4,7 @@ use crate::module::Linkage;
 use crate::types::{BasicTypeEnum, StructType};
 use crate::values::{BasicValueEnum, GlobalValue};
 use kernc_ast as ast;
-use kernc_mast::{MastExpr, MastExprKind, MastFunction, MastGlobal, MastStruct};
+use kernc_mast::{MastExpr, MastExprKind, MastFunction, MastGlobal, MastLinkage, MastStruct};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
@@ -349,9 +349,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let is_memory_mut = self.requires_mutable_memory(g.ty);
             global_val.set_constant(!(is_binding_mut || is_memory_mut));
 
-            if g.is_extern {
-                global_val.set_linkage(Linkage::External);
-            } else {
+            match g.linkage {
+                MastLinkage::External => global_val.set_linkage(Linkage::External),
+                MastLinkage::Internal => global_val.set_linkage(Linkage::Internal),
+            }
+
+            if !g.is_extern {
                 global_val.set_initializer(&llvm_ty.const_zero());
             }
 
@@ -436,6 +439,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
 
             let llvm_func = self.module.add_function(&llvm_symbol_name, fn_type, None);
+            match f.linkage {
+                MastLinkage::External => llvm_func.as_global_value().set_linkage(Linkage::External),
+                MastLinkage::Internal => llvm_func.as_global_value().set_linkage(Linkage::Internal),
+            }
 
             if is_cold {
                 let kind_id = Attribute::get_named_enum_kind_id("cold");

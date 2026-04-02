@@ -294,6 +294,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.globals.push(MastGlobal {
             id,
             name: format!("__vtable_invalid_{}_{}", source_ty.0, trait_ty.0),
+            linkage: MastLinkage::Internal,
             ty: vtable_array_ty,
             is_mut: false,
             init: Some(MastExpr::new(
@@ -390,6 +391,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.globals.push(MastGlobal {
             id: vtable_id,
             name: format!("__vtable_{}_{}", source_ty.0, actual_trait_ty.0),
+            linkage: MastLinkage::Internal,
             ty: vtable_array_ty,
             is_mut: false,
             init: Some(vtable_init),

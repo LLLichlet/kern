@@ -1,5 +1,7 @@
 mod option;
 mod result;
+mod runtime;
 
 pub use .option.Option;
 pub use .result.Result;
+pub use .runtime.{trap, panic, assert, log, debug};

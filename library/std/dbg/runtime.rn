@@ -1,0 +1,36 @@
+use std.fs;
+
+fn write_stderr(buf: []u8) void {
+    let mut err = fs.stderr();
+    let _ = err..&.write_all(buf);
+}
+
+fn write_stderr_line(prefix: []u8, msg: []u8) void {
+    write_stderr(prefix);
+    write_stderr(msg);
+    write_stderr("\n");
+}
+
+pub fn trap() ! {
+    @trap();
+}
+
+pub fn panic(msg: []u8) ! {
+    write_stderr_line("panic: ", msg);
+    trap();
+}
+
+pub fn assert(ok: bool, msg: []u8) void {
+    if (!ok) {
+        write_stderr_line("assertion failed: ", msg);
+        trap();
+    }
+}
+
+pub fn log(msg: []u8) void {
+    write_stderr_line("log: ", msg);
+}
+
+pub fn debug(msg: []u8) void {
+    write_stderr_line("debug: ", msg);
+}

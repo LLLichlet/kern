@@ -4,8 +4,8 @@ use std::fs;
 use std::process::Command;
 
 use support::{
-    assert_not_textual_llvm_ir, assert_success, build_and_run, build_temp_program, repo_root,
-    run_kernc, unique_temp_path,
+    assert_not_textual_llvm_ir, assert_success, build_and_run, build_temp_program,
+    compile_source_with_args, repo_root, run_kernc, unique_temp_path,
 };
 
 #[test]
@@ -159,6 +159,108 @@ extern fn main() i32 {
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn runs_dbg_logging_helpers() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_dbg_helpers",
+        r#"
+use std.dbg;
+
+extern fn main() i32 {
+    dbg.log("boot");
+    dbg.debug("trace");
+    dbg.assert(true, "should not fail");
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected dbg helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(stderr.contains("log: boot"), "unexpected stderr:\n{}", stderr);
+    assert!(stderr.contains("debug: trace"), "unexpected stderr:\n{}", stderr);
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn dbg_assert_failure_aborts_with_message() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_dbg_assert_fail",
+        r#"
+use std.dbg;
+
+extern fn main() i32 {
+    dbg.assert(false, "boom");
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected dbg.assert(false, ...) to abort:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(
+        stderr.contains("assertion failed: boom"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn hints_about_trailing_comma_for_single_print_argument() {
+    let output = compile_source_with_args(
+        "kernc_std_print_scalar_hint",
+        r#"
+use std.io;
+
+extern fn main() i32 {
+    io.println("value={}", .{ 42 });
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("write `.{ value, }` with a trailing comma"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("scalar initialization"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
 }
 
 #[test]

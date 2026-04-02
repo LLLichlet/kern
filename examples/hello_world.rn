@@ -1,6 +1,7 @@
 use std.io;
 
 extern fn main(args: [][]u8) i32 {
+    // Single formatting arguments still need a trailing comma: `.{ value, }`.
     io.println("hello, {}!", .{"world",});
     0
 }

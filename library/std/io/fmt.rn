@@ -68,12 +68,18 @@ pub fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
 }
 
 pub fn print(fmt: []u8, args: []*Printable) void {
+    // Formatting arguments must be passed as `.{ value, }`.
+    // The trailing comma is required for single-element argument lists.
+    // Without it, Kern parses `.{ value }` as scalar initialization.
     let mut out_file = stdout(); 
     let writer = *mut Writer.{ out_file..& };
     format_to(writer, fmt, args);
 }
 
 pub fn println(fmt: []u8, args: []*Printable) void {
+    // Formatting arguments must be passed as `.{ value, }`.
+    // The trailing comma is required for single-element argument lists.
+    // Without it, Kern parses `.{ value }` as scalar initialization.
     let mut out_file = stdout();
     let writer = *mut Writer.{ out_file..& };
     format_to(writer, fmt, args);

@@ -151,13 +151,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        self.check_data_literal(literal, target_ty, span)
+        self.check_data_literal(literal, target_ty, type_node.is_none(), span)
     }
 
     fn check_data_literal(
         &mut self,
         kind: &ast::DataLiteralKind,
         expected: TypeId,
+        is_untyped_literal: bool,
         span: Span,
     ) -> TypeId {
         let exp_norm = self.resolve_tv(expected);
@@ -269,7 +270,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         TypeId::ERROR
                     }
                 } else {
-                    self.check_scalar_literal(inner, expected)
+                    self.check_scalar_literal(inner, expected, is_untyped_literal)
                 }
             }
         }
@@ -823,7 +824,32 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     /// 辅助方法 4：校验标量构造 `.{ 10 }`
-    fn check_scalar_literal(&mut self, inner: &Expr, expected: TypeId) -> TypeId {
+    fn check_scalar_literal(
+        &mut self,
+        inner: &Expr,
+        expected: TypeId,
+        is_untyped_literal: bool,
+    ) -> TypeId {
+        let expected_norm = self.resolve_tv(expected);
+        if is_untyped_literal
+            && matches!(
+                self.ctx.type_registry.get(expected_norm),
+                TypeKind::Slice { .. } | TypeKind::Array { .. } | TypeKind::ArrayInfer { .. }
+            )
+        {
+            let exp_str = self.ctx.ty_to_string(expected);
+            let inner_ty = self.check_expr(inner, None);
+            let act_str = self.ctx.ty_to_string(inner_ty);
+            self.ctx
+                .struct_error(inner.span, "mismatched types")
+                .with_hint(format!("expected `{}`", exp_str))
+                .with_hint(format!("   found `{}`", act_str))
+                .with_hint("if you meant a single-element array literal, write `.{ value, }` with a trailing comma")
+                .with_hint("without the comma, Kern parses `.{ value }` as scalar initialization")
+                .emit();
+            return TypeId::ERROR;
+        }
+
         let inner_ty = self.check_expr(inner, Some(expected));
         self.check_coercion(inner, expected, inner_ty);
         expected

@@ -114,6 +114,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     pub(super) fn compile_block(&mut self, block: &MastBlock) -> Option<BasicValueEnum<'ctx>> {
+        // Snapshot the visible locals before entering the block.
+        // Inner bindings, especially enum payload names, must not leak after block exit.
         let saved_locals = self.locals.clone();
 
         // 1. 执行普通语句
@@ -169,6 +171,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         // 4. Yield 这个在 defer 执行前就已经算好的值
+        // Restore the outer local map so later lookups cannot resolve to stale shadowing slots.
         self.locals = saved_locals;
         result_val
     }

@@ -184,3 +184,36 @@ extern fn main(args: [][]u8) i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn preserves_outer_binding_after_nested_let_else_shadowing() {
+    let output = build_and_run_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let value = i32.{5};
+
+    {
+        let .Some: value = Option[i32].{ Some: 9 } else return 1;
+        if (value != i32.{9}) {
+            return 2;
+        }
+    }
+
+    return value;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(5),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

@@ -1,36 +1,45 @@
-use std.fs;
+use std.io.{Printable, Writer, format_to, stderr};
 
-fn write_stderr(buf: []u8) void {
-    let mut err = fs.stderr();
-    let _ = err..&.write_all(buf);
-}
-
-fn write_stderr_line(prefix: []u8, msg: []u8) void {
-    write_stderr(prefix);
-    write_stderr(msg);
-    write_stderr("\n");
+fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
+    let mut err_file = stderr();
+    let writer = *mut Writer.{ err_file..& };
+    let _ = writer.write(prefix);
+    format_to(writer, fmt, args);
+    let _ = writer.write("\n");
 }
 
 pub fn trap() ! {
     @trap();
 }
 
-pub fn panic(msg: []u8) ! {
-    write_stderr_line("panic: ", msg);
+pub fn panic(fmt: []u8, args: []*Printable) ! {
+    // Formatting arguments must be passed as `.{ value, }`.
+    // The trailing comma is required for single-element argument lists.
+    // Without it, Kern parses `.{ value }` as scalar initialization.
+    write_stderr("panic: ", fmt, args);
     trap();
 }
 
-pub fn assert(ok: bool, msg: []u8) void {
+pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
     if (!ok) {
-        write_stderr_line("assertion failed: ", msg);
+        // Formatting arguments must be passed as `.{ value, }`.
+        // The trailing comma is required for single-element argument lists.
+        // Without it, Kern parses `.{ value }` as scalar initialization.
+        write_stderr("assertion failed: ", fmt, args);
         trap();
     }
 }
 
-pub fn log(msg: []u8) void {
-    write_stderr_line("log: ", msg);
+pub fn log(fmt: []u8, args: []*Printable) void {
+    // Formatting arguments must be passed as `.{ value, }`.
+    // The trailing comma is required for single-element argument lists.
+    // Without it, Kern parses `.{ value }` as scalar initialization.
+    write_stderr("log: ", fmt, args);
 }
 
-pub fn debug(msg: []u8) void {
-    write_stderr_line("debug: ", msg);
+pub fn debug(fmt: []u8, args: []*Printable) void {
+    // Formatting arguments must be passed as `.{ value, }`.
+    // The trailing comma is required for single-element argument lists.
+    // Without it, Kern parses `.{ value }` as scalar initialization.
+    write_stderr("debug: ", fmt, args);
 }

@@ -5,7 +5,7 @@ mod fmt;
 use std.fs;
 use std.os;
 
-pub use .fmt.println;
+pub use .fmt.{format_to, print, println};
 pub use .traits.{Printable, Writer};
 
 pub type File = struct {
@@ -23,4 +23,8 @@ impl *mut File : Writer {
 
 pub fn stdout() File {
     return .{ inner: fs.stdout() };
+}
+
+pub fn stderr() File {
+    return .{ inner: fs.stderr() };
 }

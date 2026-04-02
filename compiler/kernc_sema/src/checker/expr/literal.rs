@@ -109,14 +109,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let kind = self.ctx.type_registry.get(norm).clone();
 
             // 如果上下文期望一个整数或浮点数，直接复用期望的类型
-            if self.ctx.type_registry.is_integer(norm)
-                || self.ctx.type_registry.is_float(norm)
-                || matches!(
-                    kind,
-                    TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
-                )
-            {
+            if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
                 res_ty = exp;
+            } else if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = kind
+            {
+                let elem_norm = self.resolve_tv(elem);
+                let elem_kind = self.ctx.type_registry.get(elem_norm).clone();
+
+                // Integer literals can directly materialize plain raw pointers,
+                // but not fat pointers like `*Trait` or `*Fn`, which require
+                // dedicated lowering to construct both data and metadata parts.
+                if !matches!(
+                    elem_kind,
+                    TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+                ) {
+                    res_ty = exp;
+                }
             }
         }
         res_ty

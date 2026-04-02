@@ -169,9 +169,9 @@ fn runs_dbg_logging_helpers() {
 use std.dbg;
 
 extern fn main() i32 {
-    dbg.log("boot");
-    dbg.debug("trace");
-    dbg.assert(true, "should not fail");
+    dbg.log("boot {}", .{ 1, });
+    dbg.debug("trace {}", .{ "ok", });
+    dbg.assert(true, "should not fail {}", .{ 7, });
     return 0;
 }
 "#,
@@ -187,8 +187,8 @@ extern fn main() i32 {
     );
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
-    assert!(stderr.contains("log: boot"), "unexpected stderr:\n{}", stderr);
-    assert!(stderr.contains("debug: trace"), "unexpected stderr:\n{}", stderr);
+    assert!(stderr.contains("log: boot 1"), "unexpected stderr:\n{}", stderr);
+    assert!(stderr.contains("debug: trace ok"), "unexpected stderr:\n{}", stderr);
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
@@ -202,7 +202,7 @@ fn dbg_assert_failure_aborts_with_message() {
 use std.dbg;
 
 extern fn main() i32 {
-    dbg.assert(false, "boom");
+    dbg.assert(false, "boom {}", .{ 42, });
     return 0;
 }
 "#,
@@ -219,13 +219,43 @@ extern fn main() i32 {
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
-        stderr.contains("assertion failed: boom"),
+        stderr.contains("assertion failed: boom 42"),
         "unexpected stderr:\n{}",
         stderr
     );
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn wrapped_fmt_helpers_accept_inline_integer_literals() {
+    let output = build_and_run(
+        "kernc_std_fmt_wrapper_literals",
+        r#"
+use std.io;
+
+fn wrap(fmt: []u8, args: []*io.Printable) void {
+    io.println(fmt, args);
+}
+
+extern fn main() i32 {
+    wrap("{}", .{ 42, });
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    assert!(
+        output.status.success(),
+        "expected wrapped fmt helper to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("42"), "unexpected stdout:\n{}", stdout);
 }
 
 #[test]

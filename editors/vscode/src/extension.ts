@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { spawn } from "node:child_process";
 import * as vscode from "vscode";
 import {
     LanguageClient,
@@ -10,11 +11,21 @@ import {
     resolveServerCommand,
     type ResolvedServerCommand,
 } from "./serverResolution";
+import {
+    craftRefreshArgs,
+    discoverCraftWorkspaceFolders,
+    resolveCraftCommand,
+} from "./craftContext";
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let statusItem: vscode.LanguageStatusItem | undefined;
 let fileWatchers: vscode.FileSystemWatcher[] = [];
+
+type WorkspaceRoot = {
+    fsPath: string;
+    name: string;
+};
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
     outputChannel = vscode.window.createOutputChannel("Kern Language Server");
@@ -39,10 +50,18 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             outputChannel?.show(true);
         }),
     );
+    context.subscriptions.push(
+        vscode.commands.registerCommand("kern.refreshCraftAnalysisContext", async () => {
+            await refreshCraftAnalysisContext(context);
+        }),
+    );
 
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((event) => {
-            if (event.affectsConfiguration("kern.server")) {
+            if (
+                event.affectsConfiguration("kern.server") ||
+                event.affectsConfiguration("kern.project")
+            ) {
                 void restartLanguageServer(context, false);
             }
         }),
@@ -69,18 +88,16 @@ async function restartLanguageServer(
 }
 
 async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
+    const kernConfig = vscode.workspace.getConfiguration("kern");
+    const serverArgs = [
+        ...projectAnalysisArgs(kernConfig),
+        ...kernConfig.get<string[]>("server.args", []),
+    ];
     const resolution = resolveServerCommand(
         {
-            configuredPath: vscode.workspace
-                .getConfiguration("kern")
-                .get<string>("server.path", ""),
-            configuredArgs: vscode.workspace
-                .getConfiguration("kern")
-                .get<string[]>("server.args", []),
-            workspaceRoots: (vscode.workspace.workspaceFolders ?? []).map((folder) => ({
-                fsPath: folder.uri.fsPath,
-                name: folder.name,
-            })),
+            configuredPath: kernConfig.get<string>("server.path", ""),
+            configuredArgs: serverArgs,
+            workspaceRoots: workspaceRoots(),
             extensionPath: context.extensionPath,
         },
         fs.existsSync,
@@ -103,14 +120,20 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     );
     setStatus("starting", "Starting kern-lsp", vscode.LanguageStatusSeverity.Information);
 
+    const serverEnv = {
+        ...process.env,
+        ...configuredServerEnv(kernConfig),
+    };
     const serverOptions: ServerOptions = {
         run: {
             command: server.command,
             args: server.args,
+            options: { env: serverEnv },
         },
         debug: {
             command: server.command,
             args: server.args,
+            options: { env: serverEnv },
         },
     };
 
@@ -173,10 +196,131 @@ function appendOutput(message: string): void {
     outputChannel?.appendLine(`[kern] ${message}`);
 }
 
+function workspaceRoots(): WorkspaceRoot[] {
+    return (vscode.workspace.workspaceFolders ?? []).map((folder) => ({
+        fsPath: folder.uri.fsPath,
+        name: folder.name,
+    }));
+}
+
+function projectAnalysisArgs(config: vscode.WorkspaceConfiguration): string[] {
+    const args: string[] = [];
+    const features = config.get<string[]>("project.features", []);
+    const normalized = features
+        .map((feature) => feature.trim())
+        .filter((feature) => feature.length > 0);
+    if (normalized.length > 0) {
+        args.push("--features", normalized.join(","));
+    }
+    if (config.get<boolean>("project.noDefaultFeatures", false)) {
+        args.push("--no-default-features");
+    }
+    return args;
+}
+
+function configuredServerEnv(config: vscode.WorkspaceConfiguration): Record<string, string> {
+    const raw = config.get<unknown>("server.env", {});
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+        return {};
+    }
+
+    const env: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw)) {
+        if (typeof value === "string") {
+            env[key] = value;
+        }
+    }
+    return env;
+}
+
+async function refreshCraftAnalysisContext(
+    context: vscode.ExtensionContext,
+): Promise<void> {
+    const config = vscode.workspace.getConfiguration("kern");
+    const roots = discoverCraftWorkspaceFolders(workspaceRoots(), fs.existsSync);
+    if (roots.length === 0) {
+        void vscode.window.showWarningMessage(
+            "No workspace folder with Craft.toml was found.",
+        );
+        return;
+    }
+
+    const command = resolveCraftCommand(config.get<string>("craft.path", ""), roots[0]?.fsPath);
+    const args = craftRefreshArgs(
+        config.get<string[]>("project.features", []),
+        config.get<boolean>("project.noDefaultFeatures", false),
+    );
+    const env = {
+        ...process.env,
+        ...configuredServerEnv(config),
+    };
+
+    outputChannel?.show(true);
+    setStatus(
+        "refreshing",
+        "Refreshing craft analysis context",
+        vscode.LanguageStatusSeverity.Information,
+    );
+
+    try {
+        for (const root of roots) {
+            appendOutput(
+                `Refreshing craft analysis context in ${root.fsPath}: ${command} ${args.join(" ")}`,
+            );
+            await runCraftCheck(command, args, root.fsPath, env);
+        }
+        appendOutput("Craft analysis context refreshed.");
+        await restartLanguageServer(context, false);
+        void vscode.window.showInformationMessage(
+            "Craft analysis context refreshed.",
+        );
+    } catch (error) {
+        appendOutput(`Craft analysis context refresh failed: ${formatError(error)}`);
+        setStatus(
+            "refresh-failed",
+            "Craft analysis refresh failed",
+            vscode.LanguageStatusSeverity.Error,
+        );
+        void vscode.window.showErrorMessage(
+            "Failed to refresh Craft analysis context. See the Kern Language Server output for details.",
+        );
+    }
+}
+
+function runCraftCheck(
+    command: string,
+    args: string[],
+    cwd: string,
+    env: NodeJS.ProcessEnv,
+): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const child = spawn(command, args, {
+            cwd,
+            env,
+            stdio: ["ignore", "pipe", "pipe"],
+        });
+        child.stdout.on("data", (chunk: Buffer | string) => {
+            appendOutput(String(chunk).trimEnd());
+        });
+        child.stderr.on("data", (chunk: Buffer | string) => {
+            appendOutput(String(chunk).trimEnd());
+        });
+        child.on("error", reject);
+        child.on("close", (code) => {
+            if (code === 0) {
+                resolve();
+                return;
+            }
+            reject(new Error(`craft exited with status ${code ?? "unknown"}`));
+        });
+    });
+}
+
 function createLanguageServerWatchers(): vscode.FileSystemWatcher[] {
     return [
         vscode.workspace.createFileSystemWatcher("**/*.rn"),
         vscode.workspace.createFileSystemWatcher("**/Craft.toml"),
+        vscode.workspace.createFileSystemWatcher("**/.craft/analysis.toml"),
         vscode.workspace.createFileSystemWatcher("**/craft.rn"),
         vscode.workspace.createFileSystemWatcher("**/build.rn"),
     ];

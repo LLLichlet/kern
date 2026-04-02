@@ -6,7 +6,7 @@
       "type": "shell",
       "command": "npm run compile",
       "options": {
-        "cwd": "${workspaceFolder}"
+        "cwd": "${workspaceFolder}/editors/vscode"
       },
       "problemMatcher": "$tsc"
     }

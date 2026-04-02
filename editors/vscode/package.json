@@ -72,11 +72,20 @@
       {
         "command": "kern.showLanguageServerOutput",
         "title": "Kern: Show Language Server Output"
+      },
+      {
+        "command": "kern.refreshCraftAnalysisContext",
+        "title": "Kern: Refresh Craft Analysis Context"
       }
     ],
     "configuration": {
       "title": "Kern",
       "properties": {
+        "kern.craft.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the craft executable used by the refresh-analysis command. Leave empty to use craft on PATH."
+        },
         "kern.server.path": {
           "type": "string",
           "default": "",
@@ -89,6 +98,27 @@
             "type": "string"
           },
           "description": "Additional command-line arguments passed to kern-lsp."
+        },
+        "kern.server.env": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Extra environment variables to inject into the kern-lsp process."
+        },
+        "kern.project.features": {
+          "type": "array",
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "description": "Explicit craft features enabled for workspace analysis."
+        },
+        "kern.project.noDefaultFeatures": {
+          "type": "boolean",
+          "default": false,
+          "description": "Disable default craft features for workspace analysis."
         }
       }
     }
@@ -98,7 +128,7 @@
     "compile": "tsc -p ./ && node ./scripts/build-extension.mjs",
     "watch": "tsc -watch -p ./",
     "check": "tsc -p ./ --noEmit",
-    "test": "npm run compile && node --test out/test/serverResolution.test.js",
+    "test": "npm run compile && node --test out/test/serverResolution.test.js out/test/craftContext.test.js",
     "stage:server": "node ./scripts/stage-server.mjs",
     "package:vsix": "node ./scripts/package-vsix.mjs"
   },

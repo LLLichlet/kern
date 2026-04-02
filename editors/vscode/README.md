@@ -13,6 +13,7 @@ experience for `.rn` source files.
 - a lightweight TextMate grammar and language configuration for editor basics
 - a `Kern: Restart Language Server` command
 - a `Kern: Show Language Server Output` command
+- a `Kern: Refresh Craft Analysis Context` command
 - starter snippets for common Kern declarations
 
 ## Development
@@ -27,8 +28,11 @@ npm run check
 npm run test
 ```
 
-Open the repository in VS Code and press `F5` from the `editors/vscode`
-directory to launch an Extension Development Host.
+Open the repository root in VS Code and press `F5` to launch an Extension
+Development Host.
+
+If you prefer opening `editors/vscode` directly as the workspace, the checked-in
+debug configuration there now works as well.
 
 The extension also includes checked-in VS Code launch/tasks files under
 `editors/vscode/.vscode/` so repository-local extension debugging works
@@ -104,6 +108,27 @@ assets, so the actual icon file is shipped inside the extension package instead.
 
 - `kern.server.path`: explicit path to the `kern-lsp` executable
 - `kern.server.args`: additional command-line arguments passed to `kern-lsp`
+- `kern.server.env`: extra environment variables injected into the `kern-lsp` process
+- `kern.craft.path`: explicit path to the `craft` executable used by the refresh command
+- `kern.project.features`: explicit `craft` features enabled for analysis
+- `kern.project.noDefaultFeatures`: disable default `craft` features for analysis
+
+For `craft`-driven conditional compilation, configure the editor with the same
+feature and environment context you use at the command line. Example:
+
+```json
+{
+  "kern.project.features": ["experimental"],
+  "kern.server.env": {
+    "KERN_DEV": "1"
+  }
+}
+```
+
+After changing your active feature or environment setup, run `Kern: Refresh
+Craft Analysis Context`. The command executes `craft check` for workspace roots
+that contain `Craft.toml`, updates `.craft/analysis.toml`, and restarts the
+language server so diagnostics and navigation pick up the new plan immediately.
 
 ## Release Posture
 

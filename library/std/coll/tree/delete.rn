@@ -5,7 +5,7 @@ use std.mem.alloc.Allocator;
 use ..base.{
     MIN_DEGREE,
     Node,
-    TreeMap,
+    Tree,
     key_at,
     value_at,
     child_at,
@@ -18,7 +18,7 @@ use ..base.{
 
 const MIN_KEYS = usize.{7};
 
-impl[K, V] *mut TreeMap[K, V]
+impl[K, V] *mut Tree[K, V]
     where *K: Ord[K],
 {
     fn delete_free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {

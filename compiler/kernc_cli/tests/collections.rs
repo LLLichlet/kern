@@ -56,16 +56,16 @@ extern fn main() i32 {
 }
 
 #[test]
-fn runs_hosted_program_using_std_coll_tree_map() {
+fn runs_hosted_program_using_std_coll_tree() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.TreeMap;
+use std.coll.Tree;
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
-    let map = TreeMap[i32, i32].{}..&;
+    let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
     let mut lazy_calls = i32.{0};
 
@@ -154,10 +154,10 @@ extern fn main() i32 {
 }
 
 #[test]
-fn runs_hosted_program_using_custom_ord_tree_map_key() {
+fn runs_hosted_program_using_custom_ord_tree_key() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.TreeMap;
+use std.coll.Tree;
 use std.cmp.{Eq, Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
@@ -187,7 +187,7 @@ impl *Key : Ord[Key] {}
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
-    let map = TreeMap[Key, i32].{}..&;
+    let map = Tree[Key, i32].{}..&;
     defer map.deinit(gpa);
 
     if (!map.insert(gpa, Key.{ major: 1, minor: 0 }, 10)) {
@@ -230,17 +230,17 @@ extern fn main() i32 {
 }
 
 #[test]
-fn rejects_tree_map_key_without_ord() {
+fn rejects_tree_key_without_ord() {
     let output = compile_source_with_std(
         r#"
-use std.coll.TreeMap;
+use std.coll.Tree;
 
 type Key = struct {
     raw: i32,
 };
 
 extern fn main(args: [][]u8) i32 {
-    let map = TreeMap[Key, i32].{}..&;
+    let map = Tree[Key, i32].{}..&;
     let _ = map;
     return 0;
 }
@@ -256,7 +256,7 @@ extern fn main(args: [][]u8) i32 {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("Ord[Key]") || stderr.contains("TreeMap[Key, i32]"),
+        stderr.contains("Ord[Key]") || stderr.contains("Tree[Key, i32]"),
         "unexpected stderr:\n{}",
         stderr
     );
@@ -961,16 +961,16 @@ extern fn main() i32 {
 }
 
 #[test]
-fn runs_hosted_program_using_tree_map_ordered_traversal_helpers() {
+fn runs_hosted_program_using_tree_ordered_traversal_helpers() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.{TreeMap, String};
+use std.coll.{Tree, String};
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
-    let map = TreeMap[i32, i32].{}..&;
+    let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
 
     if (!map.insert(gpa, 3, 30)) return 1;
@@ -1023,16 +1023,16 @@ extern fn main() i32 {
 }
 
 #[test]
-fn runs_hosted_program_using_tree_map_boundary_queries() {
+fn runs_hosted_program_using_tree_boundary_queries() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.TreeMap;
+use std.coll.Tree;
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
-    let map = TreeMap[i32, i32].{}..&;
+    let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
 
     if (!map.insert(gpa, 10, 100)) return 1;
@@ -1082,7 +1082,7 @@ extern fn main() i32 {
     if (!map.get(30).is_some_and(.[](value: i32) bool { return value == 303; })) return 24;
     if (!map.get(40).is_some_and(.[](value: i32) bool { return value == 402; })) return 25;
 
-    let empty = TreeMap[i32, i32].{}..&;
+    let empty = Tree[i32, i32].{}..&;
     defer empty.deinit(gpa);
     if (empty.first().is_some()) return 26;
     if (empty.last().is_some()) return 27;
@@ -1103,16 +1103,16 @@ extern fn main() i32 {
 }
 
 #[test]
-fn runs_hosted_program_using_tree_map_remove() {
+fn runs_hosted_program_using_tree_remove() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.{TreeMap, String};
+use std.coll.{Tree, String};
 use std.mem.alloc.{PageAllocator, GPAllocator};
 
 extern fn main() i32 {
     let page = PageAllocator.{}..&;
     let gpa = GPAllocator.{ backing: page }..&;
-    let map = TreeMap[i32, i32].{}..&;
+    let map = Tree[i32, i32].{}..&;
     defer map.deinit(gpa);
 
     let mut i = i32.{1};
@@ -1171,7 +1171,7 @@ extern fn main() i32 {
         return 14;
     }
 
-    let small = TreeMap[i32, i32].{}..&;
+    let small = Tree[i32, i32].{}..&;
     defer small.deinit(gpa);
     if (!small.insert(gpa, 2, 20)) return 15;
     if (!small.insert(gpa, 1, 10)) return 16;

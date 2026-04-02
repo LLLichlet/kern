@@ -3,4 +3,4 @@ mod delete;
 mod mutable;
 mod query;
 
-pub use .base.TreeMap;
+pub use .base.Tree;

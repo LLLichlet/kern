@@ -2,7 +2,7 @@ use std.Option;
 use std.cmp.Ord;
 use ..base.{
     Node,
-    TreeMap,
+    Tree,
     key_at,
     value_at,
     child_at,
@@ -12,7 +12,7 @@ use ..base.{
     floor_hit,
 };
 
-impl[K, V] *TreeMap[K, V]
+impl[K, V] *Tree[K, V]
     where *K: Ord[K],
 {
     fn compare(lhs: K, rhs: K) i32 {

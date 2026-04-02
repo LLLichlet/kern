@@ -7,7 +7,7 @@ use ..base.{
     MAX_KEYS,
     MAX_CHILDREN,
     Node,
-    TreeMap,
+    Tree,
     key_at,
     child_at,
     set_key,
@@ -19,7 +19,7 @@ use ..base.{
     floor_hit,
 };
 
-impl[K, V] *mut TreeMap[K, V]
+impl[K, V] *mut Tree[K, V]
     where *K: Ord[K],
 {
     fn compare(lhs: K, rhs: K) i32 {

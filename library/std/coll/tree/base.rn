@@ -127,7 +127,7 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
     return found;
 }
 
-pub type TreeMap[K, V] where *K: Ord[K] = struct {
+pub type Tree[K, V] where *K: Ord[K] = struct {
     pub root: *mut Node[K, V] = 0,
     pub len: usize = 0,
 };

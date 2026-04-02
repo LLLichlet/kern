@@ -4,3 +4,5 @@ kern-v*.tar.gz
 *.vsix
 editors/vscode/node_modules/
 editors/vscode/out/
+dev_install.sh
+.codex

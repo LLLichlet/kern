@@ -15,221 +15,221 @@ pub type Comparable[T] = trait {
 pub type Ord[T]: Eq[T] + Comparable[T] = trait {};
 
 pub fn eq[T](lhs: T, rhs: T) bool
-    where *T: Eq[T],
+    where T: Eq[T],
 {
-    return lhs.&.eq(rhs);
+    return lhs.eq(rhs);
 }
 
 pub fn ord_cmp[T](lhs: T, rhs: T) Ordering
-    where *T: Ord[T],
+    where T: Ord[T],
 {
-    return lhs.&.cmp(rhs);
+    return lhs.cmp(rhs);
 }
 
-impl *i8 : Eq[i8] {
+impl i8 : Eq[i8] {
     pub fn eq(other: i8) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *i8 : Comparable[i8] {
+impl i8 : Comparable[i8] {
     pub fn cmp(other: i8) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *i8 : Ord[i8] {}
+impl i8 : Ord[i8] {}
 
-impl *i16 : Eq[i16] {
+impl i16 : Eq[i16] {
     pub fn eq(other: i16) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *i16 : Comparable[i16] {
+impl i16 : Comparable[i16] {
     pub fn cmp(other: i16) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *i16 : Ord[i16] {}
+impl i16 : Ord[i16] {}
 
-impl *i32 : Eq[i32] {
+impl i32 : Eq[i32] {
     pub fn eq(other: i32) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *i32 : Comparable[i32] {
+impl i32 : Comparable[i32] {
     pub fn cmp(other: i32) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *i32 : Ord[i32] {}
+impl i32 : Ord[i32] {}
 
-impl *i64 : Eq[i64] {
+impl i64 : Eq[i64] {
     pub fn eq(other: i64) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *i64 : Comparable[i64] {
+impl i64 : Comparable[i64] {
     pub fn cmp(other: i64) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *i64 : Ord[i64] {}
+impl i64 : Ord[i64] {}
 
-impl *i128 : Eq[i128] {
+impl i128 : Eq[i128] {
     pub fn eq(other: i128) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *i128 : Comparable[i128] {
+impl i128 : Comparable[i128] {
     pub fn cmp(other: i128) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *i128 : Ord[i128] {}
+impl i128 : Ord[i128] {}
 
-impl *isize : Eq[isize] {
+impl isize : Eq[isize] {
     pub fn eq(other: isize) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *isize : Comparable[isize] {
+impl isize : Comparable[isize] {
     pub fn cmp(other: isize) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *isize : Ord[isize] {}
+impl isize : Ord[isize] {}
 
-impl *u8 : Eq[u8] {
+impl u8 : Eq[u8] {
     pub fn eq(other: u8) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *u8 : Comparable[u8] {
+impl u8 : Comparable[u8] {
     pub fn cmp(other: u8) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *u8 : Ord[u8] {}
+impl u8 : Ord[u8] {}
 
-impl *u16 : Eq[u16] {
+impl u16 : Eq[u16] {
     pub fn eq(other: u16) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *u16 : Comparable[u16] {
+impl u16 : Comparable[u16] {
     pub fn cmp(other: u16) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *u16 : Ord[u16] {}
+impl u16 : Ord[u16] {}
 
-impl *u32 : Eq[u32] {
+impl u32 : Eq[u32] {
     pub fn eq(other: u32) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *u32 : Comparable[u32] {
+impl u32 : Comparable[u32] {
     pub fn cmp(other: u32) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *u32 : Ord[u32] {}
+impl u32 : Ord[u32] {}
 
-impl *u64 : Eq[u64] {
+impl u64 : Eq[u64] {
     pub fn eq(other: u64) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *u64 : Comparable[u64] {
+impl u64 : Comparable[u64] {
     pub fn cmp(other: u64) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *u64 : Ord[u64] {}
+impl u64 : Ord[u64] {}
 
-impl *u128 : Eq[u128] {
+impl u128 : Eq[u128] {
     pub fn eq(other: u128) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *u128 : Comparable[u128] {
+impl u128 : Comparable[u128] {
     pub fn cmp(other: u128) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *u128 : Ord[u128] {}
+impl u128 : Ord[u128] {}
 
-impl *usize : Eq[usize] {
+impl usize : Eq[usize] {
     pub fn eq(other: usize) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *usize : Comparable[usize] {
+impl usize : Comparable[usize] {
     pub fn cmp(other: usize) Ordering {
-        if (self.* < other) return LESS;
-        if (self.* > other) return GREATER;
+        if (self < other) return LESS;
+        if (self > other) return GREATER;
         return EQUAL;
     }
 }
 
-impl *usize : Ord[usize] {}
+impl usize : Ord[usize] {}
 
-impl *bool : Eq[bool] {
+impl bool : Eq[bool] {
     pub fn eq(other: bool) bool {
-        return self.* == other;
+        return self == other;
     }
 }
 
-impl *bool : Comparable[bool] {
+impl bool : Comparable[bool] {
     pub fn cmp(other: bool) Ordering {
-        if (self.* == other) return EQUAL;
-        if (!self.* and other) return LESS;
+        if (self == other) return EQUAL;
+        if (!self and other) return LESS;
         return GREATER;
     }
 }
 
-impl *bool : Ord[bool] {}
+impl bool : Ord[bool] {}

@@ -13,7 +13,7 @@ use ..base.{
 };
 
 impl[K, V] *Map[K, V]
-    where *K: Eq[K] + Hash[K],
+    where K: Eq[K] + Hash[K],
 {
     pub fn is_empty() bool {
         return self.len == 0;

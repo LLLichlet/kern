@@ -1,5 +1,5 @@
 use std.Option;
-use std.cmp.{Comparable, Ord, Ordering};
+use std.cmp.{Eq, Comparable, Ord, Ordering};
 use std.hash.{Hash, hash_bytes};
 use ..String;
 
@@ -69,16 +69,22 @@ impl *String {
     }
 }
 
-impl *String : Comparable[String] {
-    pub fn cmp(other: String) Ordering {
-        return self.as_str().lex_cmp(other.&.as_str());
+impl String : Eq[String] {
+    pub fn eq(other: String) bool {
+        return self.&.as_str().eq(other.&.as_str());
     }
 }
 
-impl *String : Ord[String] {}
+impl String : Comparable[String] {
+    pub fn cmp(other: String) Ordering {
+        return self.&.as_str().lex_cmp(other.&.as_str());
+    }
+}
 
-impl *String : Hash[String] {
+impl String : Ord[String] {}
+
+impl String : Hash[String] {
     pub fn hash() u64 {
-        return hash_bytes(self.as_str());
+        return hash_bytes(self.&.as_str());
     }
 }

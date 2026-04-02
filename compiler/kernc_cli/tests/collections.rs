@@ -166,13 +166,13 @@ type Key = struct {
     minor: i32,
 };
 
-impl *Key : Eq[Key] {
+impl Key : Eq[Key] {
     pub fn eq(other: Key) bool {
         return self.major == other.major and self.minor == other.minor;
     }
 }
 
-impl *Key : Comparable[Key] {
+impl Key : Comparable[Key] {
     pub fn cmp(other: Key) Ordering {
         if (self.major < other.major) return LESS;
         if (self.major > other.major) return GREATER;
@@ -182,7 +182,7 @@ impl *Key : Comparable[Key] {
     }
 }
 
-impl *Key : Ord[Key] {}
+impl Key : Ord[Key] {}
 
 extern fn main() i32 {
     let page = Page.{}..&;
@@ -381,13 +381,13 @@ type Key = struct {
     id: i32,
 };
 
-impl *Key : Eq[Key] {
+impl Key : Eq[Key] {
     pub fn eq(other: Key) bool {
         return self.group == other.group and self.id == other.id;
     }
 }
 
-impl *Key : Hash[Key] {
+impl Key : Hash[Key] {
     pub fn hash() u64 {
         return self.group as u64;
     }
@@ -507,16 +507,16 @@ extern fn main() i32 {
         return 3;
     }
 
-    if (alpha.cmp(alpha_copy.*) != EQUAL) {
+    if (alpha.*.cmp(alpha_copy.*) != EQUAL) {
         return 4;
     }
-    if (alpha.cmp(beta.*) == EQUAL) {
+    if (alpha.*.cmp(beta.*) == EQUAL) {
         return 5;
     }
-    if (alpha.cmp(beta.*) != LESS) {
+    if (alpha.*.cmp(beta.*) != LESS) {
         return 6;
     }
-    if (beta.cmp(alpha.*) != GREATER) {
+    if (beta.*.cmp(alpha.*) != GREATER) {
         return 7;
     }
 

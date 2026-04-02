@@ -105,10 +105,10 @@ impl[T] []T {
 }
 
 impl[T] []T
-    where *T: Eq[T],
+    where T: Eq[T],
 {
     fn elem_eq(lhs: T, rhs: T) bool {
-        return lhs.&.eq(rhs);
+        return lhs.eq(rhs);
     }
 
     fn matches_at(index: usize, needle: []T) bool {
@@ -174,12 +174,12 @@ impl[T] []T
 }
 
 impl[T] []T
-    where *T: Ord[T],
+    where T: Ord[T],
 {
     pub fn lex_cmp(other: []T) Ordering {
         let shared = if (#self < #other) #self else #other;
         for (let mut i = 0; i < shared; i += 1) {
-            let ord = self.[i].&.cmp(other.[i]);
+            let ord = self.[i].cmp(other.[i]);
             if (ord != EQUAL) {
                 return ord;
             }
@@ -196,7 +196,7 @@ impl[T] []T
 
         for (; left < right; ) {
             let mid = left + (right - left) / 2;
-            let ord = self.[mid].&.cmp(target);
+            let ord = self.[mid].cmp(target);
             if (ord == LESS) {
                 left = mid + 1;
             } else {
@@ -204,7 +204,7 @@ impl[T] []T
             }
         }
 
-        if (left < #self and self.[left].&.cmp(target) == EQUAL) {
+        if (left < #self and self.[left].cmp(target) == EQUAL) {
             return .{ Some: left };
         }
 

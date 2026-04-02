@@ -1,13 +1,9 @@
 mod support;
 
-use support::compile_source_with_args;
+use support::{build_and_run, compile_source_with_args};
 
 fn compile_source(source: &str) -> std::process::Output {
     compile_source_with_args("kernc_trait_test", source, &[])
-}
-
-fn compile_source_with_std(source: &str) -> std::process::Output {
-    compile_source_with_args("kernc_trait_test_std", source, &["--use-std"])
 }
 
 #[test]
@@ -241,12 +237,13 @@ extern fn main(args: [][]u8) i32 {
 
 #[test]
 fn compiles_std_cmp_ord_bound_for_builtin_scalars() {
-    let output = compile_source_with_std(
+    let output = build_and_run(
+        "kernc_trait_ord_value_bound",
         r#"
 use std.cmp.Ord;
 
-fn classify[T](lhs: *T, rhs: T) i32
-    where *T: Ord[T],
+fn classify[T](lhs: T, rhs: T) i32
+    where T: Ord[T],
 {
     match (lhs.cmp(rhs)) {
         -1 => -1,
@@ -261,22 +258,25 @@ extern fn main(args: [][]u8) i32 {
     let b = i32.{7};
     let c = bool.{true};
     let d = bool.{false};
-    return classify(a.&, b) + classify(c.&, d);
+    return classify(a, b) + classify(c, d);
 }
 "#,
+        &["--use-std"],
     );
 
     assert!(
         output.status.success(),
-        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
 }
 
 #[test]
 fn compiles_std_cmp_ord_bound_for_custom_impls() {
-    let output = compile_source_with_std(
+    let output = build_and_run(
+        "kernc_trait_custom_ord_value_bound",
         r#"
 use std.cmp.{Eq, Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 
@@ -285,13 +285,13 @@ type Key = struct {
     bias: i32,
 };
 
-impl *Key : Eq[Key] {
+impl Key : Eq[Key] {
     pub fn eq(other: Key) bool {
         return self.raw == other.raw and self.bias == other.bias;
     }
 }
 
-impl *Key : Comparable[Key] {
+impl Key : Comparable[Key] {
     pub fn cmp(other: Key) Ordering {
         let lhs = self.raw + self.bias;
         let rhs = other.raw + other.bias;
@@ -301,10 +301,10 @@ impl *Key : Comparable[Key] {
     }
 }
 
-impl *Key : Ord[Key] {}
+impl Key : Ord[Key] {}
 
-fn classify[T](lhs: *T, rhs: T) i32
-    where *T: Ord[T],
+fn classify[T](lhs: T, rhs: T) i32
+    where T: Ord[T],
 {
     match (lhs.cmp(rhs)) {
         -1 => -1,
@@ -317,7 +317,61 @@ fn classify[T](lhs: *T, rhs: T) i32
 extern fn main(args: [][]u8) i32 {
     let lhs = Key.{ raw: 3, bias: 4 };
     let rhs = Key.{ raw: 6, bias: 0 };
-    return classify(lhs.&, rhs);
+    if (classify(lhs, rhs) != 1) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+}
+
+#[test]
+fn value_and_pointer_impls_remain_distinct_trait_targets() {
+    let output = compile_source(
+        r#"
+type Marker = trait {
+    tag: fn() i32,
+};
+
+impl i32 : Marker {
+    pub fn tag() i32 {
+        return 1;
+    }
+}
+
+impl *i32 : Marker {
+    pub fn tag() i32 {
+        return 2;
+    }
+}
+
+fn value_tag[T](x: T) i32
+    where T: Marker,
+{
+    return x.tag();
+}
+
+fn pointer_tag[T](x: *T) i32
+    where *T: Marker,
+{
+    return x.tag();
+}
+
+extern fn main(args: [][]u8) i32 {
+    let value = i32.{7};
+    let _ = value_tag(value);
+    let _ = pointer_tag(value.&);
+    return 0;
 }
 "#,
     );

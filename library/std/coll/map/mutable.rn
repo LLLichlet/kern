@@ -22,7 +22,7 @@ use ..base.{
 };
 
 impl[K, V] *mut Map[K, V]
-    where *K: Eq[K] + Hash[K],
+    where K: Eq[K] + Hash[K],
 {
     fn next_capacity(current: usize) Option[usize] {
         if (current == 0) {

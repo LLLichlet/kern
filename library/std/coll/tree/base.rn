@@ -67,7 +67,7 @@ pub fn last_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
 }
 
 pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
-    where *K: Ord[K],
+    where K: Ord[K],
 {
     let mut node = root;
     let mut found = Option[SearchHit[K, V]].{ None };
@@ -76,7 +76,7 @@ pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
         let current = node;
         let mut index = 0;
         for (; index < current.len; index += 1) {
-            let cmp = key_at[K, V](current, index).&.cmp(key);
+            let cmp = key_at[K, V](current, index).cmp(key);
             if (cmp >= 0) {
                 found = .{ Some: SearchHit[K, V].{ node: current, index: index } };
                 if (cmp == 0 or current.is_leaf) {
@@ -99,7 +99,7 @@ pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
 }
 
 pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
-    where *K: Ord[K],
+    where K: Ord[K],
 {
     let mut node = root;
     let mut found = Option[SearchHit[K, V]].{ None };
@@ -107,7 +107,7 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
     for (; (node as usize) != 0; ) {
         let mut index = 0;
         for (; index < node.len; index += 1) {
-            let cmp = key_at[K, V](node, index).&.cmp(key);
+            let cmp = key_at[K, V](node, index).cmp(key);
             if (cmp > 0) {
                 break;
             }
@@ -127,7 +127,7 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
     return found;
 }
 
-pub type Tree[K, V] where *K: Ord[K] = struct {
+pub type Tree[K, V] where K: Ord[K] = struct {
     pub root: *mut Node[K, V] = 0,
     pub len: usize = 0,
 };

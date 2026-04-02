@@ -27,86 +27,86 @@ pub fn hash_bytes(bytes: []u8) u64 {
 }
 
 pub fn hash_of[T](value: T) u64
-    where *T: Hash[T],
+    where T: Hash[T],
 {
-    return value.&.hash();
+    return value.hash();
 }
 
-impl *i8 : Hash[i8] {
+impl i8 : Hash[i8] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *i16 : Hash[i16] {
+impl i16 : Hash[i16] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *i32 : Hash[i32] {
+impl i32 : Hash[i32] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *i64 : Hash[i64] {
+impl i64 : Hash[i64] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *i128 : Hash[i128] {
+impl i128 : Hash[i128] {
     pub fn hash() u64 {
-        return mix_u128(self.* as u128);
+        return mix_u128(self as u128);
     }
 }
 
-impl *isize : Hash[isize] {
+impl isize : Hash[isize] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *u8 : Hash[u8] {
+impl u8 : Hash[u8] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *u16 : Hash[u16] {
+impl u16 : Hash[u16] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *u32 : Hash[u32] {
+impl u32 : Hash[u32] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *u64 : Hash[u64] {
+impl u64 : Hash[u64] {
     pub fn hash() u64 {
-        return mix_u64(self.*);
+        return mix_u64(self);
     }
 }
 
-impl *u128 : Hash[u128] {
+impl u128 : Hash[u128] {
     pub fn hash() u64 {
-        return mix_u128(self.*);
+        return mix_u128(self);
     }
 }
 
-impl *usize : Hash[usize] {
+impl usize : Hash[usize] {
     pub fn hash() u64 {
-        return mix_u64(self.* as u64);
+        return mix_u64(self as u64);
     }
 }
 
-impl *bool : Hash[bool] {
+impl bool : Hash[bool] {
     pub fn hash() u64 {
-        let bits = if (self.*) u64.{1} else u64.{0};
+        let bits = if (self) u64.{1} else u64.{0};
         return mix_u64(bits);
     }
 }

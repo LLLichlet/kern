@@ -20,10 +20,10 @@ use ..base.{
 };
 
 impl[K, V] *mut Tree[K, V]
-    where *K: Ord[K],
+    where K: Ord[K],
 {
     fn compare(lhs: K, rhs: K) i32 {
-        return lhs.&.cmp(rhs);
+        return lhs.cmp(rhs);
     }
 
     fn alloc_node(alloc: *mut Allocator, is_leaf: bool) Option[*mut Node[K, V]] {

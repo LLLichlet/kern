@@ -41,10 +41,17 @@ impl[T] *List[T] {
 }
 
 impl[T] *List[T]
-    where *T: Eq[T],
+    where T: Eq[T],
 {
     pub fn eq(other: []T) bool {
-        return self.as_slice().eq(other);
+        let items = self.as_slice();
+        if (#items != #other) return false;
+        for (let mut i = 0; i < #items; i += 1) {
+            if (!items.[i].eq(other.[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     pub fn starts_with(prefix: []T) bool {
@@ -73,10 +80,21 @@ impl[T] *List[T]
 }
 
 impl[T] *List[T]
-    where *T: Ord[T],
+    where T: Ord[T],
 {
     pub fn lex_cmp(other: []T) Ordering {
-        return self.as_slice().lex_cmp(other);
+        let items = self.as_slice();
+        let shared = if (#items < #other) #items else #other;
+        for (let mut i = 0; i < shared; i += 1) {
+            let ord = items.[i].cmp(other.[i]);
+            if (ord != Ordering.{0}) {
+                return ord;
+            }
+        }
+
+        if (#items < #other) return Ordering.{-1};
+        if (#items > #other) return Ordering.{1};
+        return Ordering.{0};
     }
 
     pub fn binary_search(target: T) Option[usize] {

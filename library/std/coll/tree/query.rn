@@ -13,10 +13,10 @@ use ..base.{
 };
 
 impl[K, V] *Tree[K, V]
-    where *K: Ord[K],
+    where K: Ord[K],
 {
     fn compare(lhs: K, rhs: K) i32 {
-        return lhs.&.cmp(rhs);
+        return lhs.cmp(rhs);
     }
 
     fn for_each_node(node: *mut Node[K, V], visitor: *Fn(K, V) void) void {

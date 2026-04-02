@@ -19,6 +19,10 @@ pub enum Error {
         path: PathBuf,
         message: String,
     },
+    AnalysisContextParse {
+        path: PathBuf,
+        message: String,
+    },
     LockfileParse {
         path: PathBuf,
         message: String,
@@ -32,6 +36,10 @@ pub enum Error {
         message: String,
     },
     Execution(String),
+    AnalysisContextValidation {
+        path: PathBuf,
+        message: String,
+    },
     LockfileValidation {
         path: PathBuf,
         message: String,
@@ -70,6 +78,14 @@ impl Display for Error {
             Self::ManifestParse { path, message } => {
                 write!(f, "failed to parse `{}`: {}", path.display(), message)
             }
+            Self::AnalysisContextParse { path, message } => {
+                write!(
+                    f,
+                    "failed to parse analysis context `{}`: {}",
+                    path.display(),
+                    message
+                )
+            }
             Self::LockfileParse { path, message } => {
                 write!(
                     f,
@@ -85,6 +101,13 @@ impl Display for Error {
                 write!(f, "invalid craft script `{}`: {message}", path.display())
             }
             Self::Execution(message) => write!(f, "execution failed: {message}"),
+            Self::AnalysisContextValidation { path, message } => {
+                write!(
+                    f,
+                    "invalid analysis context `{}`: {message}",
+                    path.display()
+                )
+            }
             Self::LockfileValidation { path, message } => {
                 write!(f, "invalid lockfile `{}`: {message}", path.display())
             }

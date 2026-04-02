@@ -791,6 +791,70 @@ pub fn craft(p: *mut plan.Plan) void {{
     }
 
     #[test]
+    fn env_presence_checks_work_with_none_comparisons() {
+        let root = temp_dir("craft-elaborate-env-none-compare");
+        let env_name = format!(
+            "KRAFT_COMPARE_ENV_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        unsafe { std::env::set_var(&env_name, "enabled") };
+
+        fs::write(
+            root.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[craft]
+env = ["{env_name}"]
+"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("craft.rn"),
+            format!(
+                r#"
+use craft.plan;
+
+pub fn craft(p: *mut plan.Plan) void {{
+    if (p.env("{env_name}") != .None) {{
+        p.cfg_bool("env_present", true);
+    }}
+}}
+"#
+            ),
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Check,
+            &super::FeatureSelection::default(),
+        )
+        .unwrap();
+
+        assert_eq!(
+            elaboration.packages[0].plan.cfg.get("env_present"),
+            Some(&crate::plan::PlanValue::Bool(true))
+        );
+
+        unsafe { std::env::remove_var(&env_name) };
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn rejects_env_reads_outside_declared_allowlist() {
         let root = temp_dir("craft-elaborate-env-undeclared");
         let env_name = format!(

@@ -37,6 +37,56 @@ pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<Executi
     build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Build)
 }
 
+pub(crate) fn materialize_analysis_inputs(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+) -> Result<()> {
+    let source_config = load_source_config(build_plan)?;
+    let mut built_std_packages = BTreeMap::new();
+    ensure_std_packages_for_actions(
+        &build_plan.workspace_root,
+        &action_plan.compile_actions,
+        &mut built_std_packages,
+    )?;
+    let mut built_external_packages = BTreeMap::new();
+    let mut built_external_tools = BTreeMap::new();
+    let mut external_build_stack = BTreeSet::new();
+    let compile_action_index = compile_actions_index(&action_plan.compile_actions);
+    let local_library_actions = local_library_actions(&action_plan.compile_actions);
+    let link_action_index = link_actions_by_artifact_path(&action_plan.link_actions);
+    let mut compiled = BTreeSet::new();
+    let mut linked = BTreeSet::new();
+    let mut staged_outputs = BTreeSet::new();
+
+    for action in &action_plan.compile_actions {
+        if action.domain != BuildDomain::Target {
+            continue;
+        }
+        execute_staged_actions(
+            action.compile_inputs.as_slice(),
+            action_plan.build_nodes.as_slice(),
+            &mut staged_outputs,
+            action.required_source_path(),
+            action_plan,
+            &compile_action_index,
+            &local_library_actions,
+            &link_action_index,
+            &source_config,
+            &build_plan.workspace_root,
+            crate::script::ScriptCommand::Build,
+            &build_plan.workspace_root,
+            &mut built_std_packages,
+            &mut built_external_packages,
+            &mut built_external_tools,
+            &mut external_build_stack,
+            &mut compiled,
+            &mut linked,
+        )?;
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BuiltExternalPackage {
     metadata_root_path: PathBuf,

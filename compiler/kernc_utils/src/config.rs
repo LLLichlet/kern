@@ -112,6 +112,9 @@ pub struct CompileOptions {
     pub driver_mode: DriverMode,
     /// 允许通过 CLI 传入自定义环境变量，例如 kernc -D my_feature=true
     pub custom_defines: HashMap<String, String>,
+    /// `craft` project analysis feature selection used by tools such as `kern-lsp`.
+    pub craft_features: Vec<String>,
+    pub craft_default_features: bool,
     // 模块别名映射表
     pub module_aliases: HashMap<String, String>,
     // 模块接口别名映射表（指向 kmeta 根目录）
@@ -141,6 +144,8 @@ impl Default for CompileOptions {
             opt_level: OptLevel::O0,
             driver_mode: DriverMode::CompileAndLink,
             custom_defines: HashMap::new(),
+            craft_features: Vec::new(),
+            craft_default_features: true,
             module_aliases: HashMap::new(),
             module_interface_aliases: HashMap::new(),
             asm_dialect: AsmDialect::default(),

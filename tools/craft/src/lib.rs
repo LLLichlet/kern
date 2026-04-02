@@ -1,3 +1,4 @@
+pub mod analysis_context;
 pub mod cli;
 pub mod discover;
 pub mod error;

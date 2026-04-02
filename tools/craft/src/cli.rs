@@ -1,3 +1,4 @@
+use crate::analysis_context;
 use crate::build_plan;
 use crate::discover;
 use crate::elaborate;
@@ -60,6 +61,13 @@ pub fn run() -> Result<()> {
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
             let action_plan = build_plan.derive_actions(&crate::script::host_target());
+            execute::materialize_analysis_inputs(&build_plan, &action_plan)?;
+            let _ = analysis_context::sync_analysis_context(
+                &loaded.manifest_path,
+                &loaded.elaboration,
+                &build_plan,
+                &feature_selection,
+            );
 
             println!("checked {}", loaded.manifest_path.display());
             if let Some(package) = &loaded.manifest.package {
@@ -339,6 +347,12 @@ pub fn run() -> Result<()> {
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+            let _ = analysis_context::sync_analysis_context(
+                &loaded.manifest_path,
+                &loaded.elaboration,
+                &build_plan,
+                &feature_selection,
+            );
             let target = crate::script::host_target();
             let action_plan = build_plan.derive_actions(&target);
 
@@ -396,6 +410,12 @@ pub fn run() -> Result<()> {
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Run)?;
+            let _ = analysis_context::sync_analysis_context(
+                &loaded.manifest_path,
+                &loaded.elaboration,
+                &build_plan,
+                &feature_selection,
+            );
             let action_plan = build_plan.derive_actions(&crate::script::host_target());
             let runnable = units_of_kind(&build_plan, TargetKind::Bin);
 
@@ -460,6 +480,12 @@ pub fn run() -> Result<()> {
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Test)?;
+            let _ = analysis_context::sync_analysis_context(
+                &loaded.manifest_path,
+                &loaded.elaboration,
+                &build_plan,
+                &feature_selection,
+            );
             let action_plan = build_plan.derive_actions(&crate::script::host_target());
             let tests = units_of_kind(&build_plan, TargetKind::Test);
 

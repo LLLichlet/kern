@@ -390,6 +390,12 @@ pub fn build(b: *mut builder.Builder) void {
 }
 ```
 
+Important:
+
+- generated source files participate in compilation through the generated root
+- `build.rn` currently replaces a unit source root; it does not implicitly add sibling modules into the original package `src/` tree
+- if you want `mod build_info;` to resolve against a generated file, copy or generate the entry source under the generated root as well, then bind that output with `set_source_root(...)` or `set_source_root_from(...)`
+
 ## Generated Files And Staged Actions
 
 `build.rn` does not work by mutating the filesystem invisibly during planning.

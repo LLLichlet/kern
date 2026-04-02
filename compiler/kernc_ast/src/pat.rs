@@ -5,6 +5,7 @@ use kernc_utils::{Span, SymbolId};
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindingPattern {
     pub name: SymbolId,
+    pub name_span: Span,
     pub is_mut: bool,
     pub span: Span,
 }
@@ -13,6 +14,7 @@ pub struct BindingPattern {
 pub struct VariantPattern {
     pub target_type: Option<Box<TypeNode>>,
     pub variant_name: SymbolId,
+    pub variant_span: Span,
     pub binding: Option<BindingPattern>,
 }
 

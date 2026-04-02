@@ -13,6 +13,7 @@ pub struct MemberCandidate {
     pub kind: SymbolKind,
     pub type_id: TypeId,
     pub def_id: Option<DefId>,
+    pub definition_span: Span,
     pub is_mut: bool,
 }
 
@@ -122,6 +123,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                                 kind: SymbolKind::Var,
                                 type_id: field.ty,
                                 def_id: None,
+                                definition_span: Span::default(),
                                 is_mut: false,
                             },
                         );
@@ -247,6 +249,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     kind: info.kind,
                     type_id,
                     def_id: info.def_id,
+                    definition_span: info.span,
                     is_mut: info.is_mut,
                 },
             );
@@ -293,6 +296,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 kind: info.kind,
                 type_id,
                 def_id: info.def_id,
+                definition_span: info.span,
                 is_mut: info.is_mut,
             },
             owner_trait_ty: None,
@@ -325,6 +329,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                             kind: SymbolKind::Var,
                             type_id: ty,
                             def_id: None,
+                            definition_span: field.name_span,
                             is_mut: false,
                         },
                     );
@@ -348,6 +353,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                             kind: SymbolKind::Var,
                             type_id: ty,
                             def_id: None,
+                            definition_span: field.name_span,
                             is_mut: false,
                         },
                     );
@@ -390,6 +396,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         kind: SymbolKind::Var,
                         type_id: TypeId::ERROR,
                         def_id: None,
+                        definition_span: field.name_span,
                         is_mut: false,
                     });
                 }
@@ -403,6 +410,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         field.type_node.id,
                     ),
                     def_id: None,
+                    definition_span: field.name_span,
                     is_mut: false,
                 })
             }
@@ -430,6 +438,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         kind: SymbolKind::Var,
                         type_id: TypeId::ERROR,
                         def_id: None,
+                        definition_span: field.name_span,
                         is_mut: false,
                     });
                 }
@@ -443,6 +452,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         field.type_node.id,
                     ),
                     def_id: None,
+                    definition_span: field.name_span,
                     is_mut: false,
                 })
             }
@@ -497,6 +507,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     kind: SymbolKind::Var,
                     type_id: field.ty,
                     def_id: None,
+                    definition_span: Span::default(),
                     is_mut: false,
                 },
                 owner_trait_ty: None,
@@ -662,6 +673,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         kind: SymbolKind::Function,
                         type_id,
                         def_id: Some(*method_id),
+                        definition_span: function.name_span,
                         is_mut: false,
                     },
                 );
@@ -723,6 +735,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         .type_registry
                         .intern(TypeKind::FnDef(*method_id, resolved_impl_args)),
                     def_id: Some(*method_id),
+                    definition_span: function.name_span,
                     is_mut: false,
                 });
             }
@@ -820,6 +833,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     kind: SymbolKind::Function,
                     type_id: method_ty,
                     def_id: None,
+                    definition_span: trait_method_span(&trait_def, *method_name),
                     is_mut: false,
                 },
             );
@@ -905,6 +919,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     kind: SymbolKind::Function,
                     type_id: method_ty,
                     def_id: None,
+                    definition_span: trait_method_span(&trait_def, member_name),
                     is_mut: false,
                 },
                 owner_trait_ty: Some(
@@ -1016,6 +1031,15 @@ fn def_owner_module_id(ctx: &SemaContext<'_>, def_id: DefId) -> Option<DefId> {
             None
         }
     })
+}
+
+fn trait_method_span(trait_def: &crate::def::TraitDef, method_name: SymbolId) -> Span {
+    trait_def
+        .methods
+        .iter()
+        .find(|method| method.name == method_name)
+        .map(|method| method.name_span)
+        .unwrap_or_default()
 }
 
 fn impl_bounds_satisfied(

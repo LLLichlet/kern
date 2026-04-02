@@ -133,6 +133,7 @@ impl<'a> Parser<'a> {
 
         Ok(BindingPattern {
             name: self.intern_token(name_token),
+            name_span: name_token.span,
             is_mut,
             span,
         })
@@ -357,6 +358,7 @@ impl<'a> Parser<'a> {
             kind: ExprKind::FieldAccess {
                 lhs: Box::new(left),
                 field: field_id,
+                field_span: field_token.span,
             },
         })
     }

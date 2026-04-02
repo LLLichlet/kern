@@ -5,9 +5,11 @@ pub mod def;
 pub mod passes;
 pub mod query;
 pub mod scope;
+pub mod semantic;
 pub mod ty;
 
 pub use builtin::BuiltinInjector;
-pub use context::SemaContext;
+pub use context::{SemaContext, SemaStructureSnapshot};
 pub use query::{MemberCandidate, MemberQuery, MemberQueryEnv};
+pub use semantic::{SemanticDefinition, SemanticSymbolKind};
 pub use ty::LayoutEngine;

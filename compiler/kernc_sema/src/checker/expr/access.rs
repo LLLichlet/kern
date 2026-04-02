@@ -4,6 +4,7 @@ use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
 use crate::query::{MemberQuery, MemberQueryEnv};
 use crate::scope::{SymbolInfo, SymbolKind};
+use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr};
 use kernc_utils::{NodeId, Span, SymbolId};
@@ -152,11 +153,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     node_id,
                     type_id: init_ty,
                     def_id: None,
-                    span: binding.span,
+                    span: binding.name_span,
                     is_pub: false,
                     is_mut: binding.is_mut,
                 };
-                let _ = self.ctx.scopes.define(binding.name, info);
+                if self.ctx.scopes.define(binding.name, info.clone()).is_ok() {
+                    self.ctx.record_symbol_definition(
+                        info.span,
+                        SemanticSymbolKind::Variable,
+                        info.is_mut,
+                        info.is_pub,
+                    );
+                }
             }
             ast::LetPatternKind::Variant(variant) => {
                 let Some(else_expr) = else_branch else {
@@ -194,8 +202,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .iter()
                             .find(|v| v.name == variant.variant_name)
                         {
+                            let definition_span = v.name_span;
+                            let payload_type = v.payload_type.clone();
+                            self.ctx
+                                .record_identifier_reference(variant.variant_span, definition_span);
                             if let Some(bind_pattern) = &variant.binding {
-                                if let Some(payload_ast) = &v.payload_type {
+                                if let Some(payload_ast) = &payload_type {
                                     let mut payload_ty = self
                                         .ctx
                                         .node_types
@@ -225,7 +237,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                         )
                                         .emit();
                                 }
-                            } else if v.payload_type.is_some() {
+                            } else if payload_type.is_some() {
                                 self.ctx
                                     .struct_error(
                                         span,
@@ -248,8 +260,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .iter()
                             .find(|v| v.name == variant.variant_name)
                         {
+                            let definition_span = v.name_span;
+                            let payload_ty = v.payload_ty;
+                            self.ctx
+                                .record_identifier_reference(variant.variant_span, definition_span);
                             if let Some(bind_pattern) = &variant.binding {
-                                if let Some(payload_ty) = v.payload_ty {
+                                if let Some(payload_ty) = payload_ty {
                                     payload_binding_ty = Some((bind_pattern, payload_ty));
                                 } else {
                                     self.ctx
@@ -262,7 +278,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                         )
                                         .emit();
                                 }
-                            } else if v.payload_ty.is_some() {
+                            } else if payload_ty.is_some() {
                                 self.ctx
                                     .struct_error(
                                         span,
@@ -308,11 +324,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         node_id,
                         type_id: payload_ty,
                         def_id: None,
-                        span: bind_pattern.span,
+                        span: bind_pattern.name_span,
                         is_pub: false,
                         is_mut: bind_pattern.is_mut,
                     };
-                    let _ = self.ctx.scopes.define(bind_pattern.name, info);
+                    if self
+                        .ctx
+                        .scopes
+                        .define(bind_pattern.name, info.clone())
+                        .is_ok()
+                    {
+                        self.ctx.record_symbol_definition(
+                            info.span,
+                            SemanticSymbolKind::Variable,
+                            info.is_mut,
+                            info.is_pub,
+                        );
+                    }
                 }
             }
         }
@@ -346,11 +374,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             node_id,
             type_id: init_ty,
             def_id: None,
-            span: pattern.span,
+            span: pattern.name_span,
             is_pub: false,
             is_mut: pattern.is_mut,
         };
-        let _ = self.ctx.scopes.define(pattern.name, info);
+        if self.ctx.scopes.define(pattern.name, info.clone()).is_ok() {
+            self.ctx.record_symbol_definition(
+                info.span,
+                SemanticSymbolKind::Static,
+                info.is_mut,
+                info.is_pub,
+            );
+        }
 
         TypeId::VOID
     }
@@ -402,6 +437,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expr_id: NodeId,
         lhs: &Expr,
         field: SymbolId,
+        field_span: Span,
         span: Span,
     ) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
@@ -427,16 +463,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return TypeId::ERROR;
             };
             if let Some(target_info) = self.ctx.scopes.resolve_in(mod_scope, field) {
-                let real_ty = if target_info.kind == SymbolKind::Function {
+                let definition_span = target_info.span;
+                let target_kind = target_info.kind;
+                let target_def_id = target_info.def_id;
+                let target_type_id = target_info.type_id;
+                let real_ty = if target_kind == SymbolKind::Function {
                     self.ctx
                         .type_registry
-                        .intern(TypeKind::FnDef(target_info.def_id.unwrap(), vec![]))
-                } else if target_info.kind == SymbolKind::Module {
+                        .intern(TypeKind::FnDef(target_def_id.unwrap(), vec![]))
+                } else if target_kind == SymbolKind::Module {
                     self.ctx
                         .type_registry
-                        .intern(TypeKind::Module(target_info.def_id.unwrap()))
-                } else if target_info.type_id == TypeId::ERROR {
-                    if let Some(def_id) = target_info.def_id {
+                        .intern(TypeKind::Module(target_def_id.unwrap()))
+                } else if target_type_id == TypeId::ERROR {
+                    if let Some(def_id) = target_def_id {
                         let global_expr_opt =
                             if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
                                 Some(g.value.clone())
@@ -459,17 +499,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 computed_ty
                             }
                         } else {
-                            target_info.type_id
+                            target_type_id
                         }
                     } else {
-                        target_info.type_id
+                        target_type_id
                     }
                 } else {
-                    target_info.type_id
+                    target_type_id
                 };
 
                 let mod_ty = self.ctx.type_registry.intern(TypeKind::Module(mod_def_id));
                 self.ctx.node_types.insert(lhs.id, mod_ty);
+                self.ctx
+                    .record_identifier_reference(field_span, definition_span);
                 return real_ty;
             } else {
                 let field_name = self.ctx.resolve(field);
@@ -483,13 +525,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        if let Some((ty, owner_trait_ty)) =
-            self.try_find_field_or_method_silent(lhs_ty, field, span)
-        {
-            if let Some(owner_trait_ty) = owner_trait_ty {
+        if let Some(resolution) = self.try_find_field_or_method_silent(lhs_ty, field, span) {
+            self.ctx
+                .record_identifier_reference(field_span, resolution.candidate.definition_span);
+            if let Some(owner_trait_ty) = resolution.owner_trait_ty {
                 self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
             }
-            return ty;
+            return resolution.candidate.type_id;
         }
 
         // No field or method matched. Emit the detailed fallback diagnostic.
@@ -519,13 +561,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         lhs_ty: TypeId,
         field: SymbolId,
         span: Span,
-    ) -> Option<(TypeId, Option<TypeId>)> {
+    ) -> Option<crate::query::MemberResolution> {
         let env = MemberQueryEnv::from_active_bounds(&self.ctx.active_bounds);
         let current_module_id = self.current_module_id();
         let mut query = MemberQuery::new(self.ctx);
-        query
-            .resolve_named_member(current_module_id, lhs_ty, field, &env, span)
-            .map(|resolution| (resolution.candidate.type_id, resolution.owner_trait_ty))
+        query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
     }
 
     pub(crate) fn check_slice_op(

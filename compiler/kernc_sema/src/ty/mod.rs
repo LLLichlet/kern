@@ -7,7 +7,7 @@ pub use layout::LayoutEngine;
 pub use registry::TypeRegistry;
 
 use crate::def::DefId;
-use kernc_utils::{NodeId, SymbolId};
+use kernc_utils::{NodeId, Span, SymbolId};
 
 /// 类型的唯一 ID (轻量级 Handle)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -184,6 +184,7 @@ pub struct AnonymousEnum {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AnonymousVariant {
     pub name: SymbolId,
+    pub name_span: Span,
     pub payload_ty: Option<TypeId>,
     pub explicit_value: Option<i128>,
 }

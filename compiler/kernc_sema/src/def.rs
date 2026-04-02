@@ -95,6 +95,7 @@ pub struct ImportDef {
 pub struct FunctionDef {
     pub id: DefId,
     pub name: SymbolId,
+    pub name_span: Span,
     pub vis: Visibility,
     pub parent: Option<DefId>, // 所属的 Module 或 Impl 块
     pub is_imported: bool,

@@ -207,7 +207,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
 
     pub(super) fn enum_ctor_variant_name(&mut self, inner: &Expr, span: Span) -> Option<SymbolId> {
         match inner.kind {
-            ExprKind::Identifier(name) | ExprKind::EnumLiteral(name) => Some(name),
+            ExprKind::Identifier(name) => Some(name),
+            ExprKind::EnumLiteral { variant, .. } => Some(variant),
             _ => {
                 self.ctx
                     .struct_error(span, "enum constant initialization expects a variant name")

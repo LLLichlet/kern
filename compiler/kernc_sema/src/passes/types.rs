@@ -86,7 +86,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             Def::Trait(t) => self.resolve_trait_item(item_id, t, parent_scope),
             Def::TypeAlias(t) => self.resolve_type_alias_item(t, parent_scope),
             Def::Impl(i) => self.resolve_impl_item(i, parent_scope),
-            Def::Global(g) => self.resolve_global_item(g, parent_scope),
+            Def::Global(_) => {}
             Def::Enum(a) => self.resolve_enum_item(item_id, a, parent_scope),
             _ => {}
         }
@@ -130,10 +130,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         if let Def::Function(mut updated_f) = self.ctx.defs[item_id.0 as usize].clone() {
             updated_f.resolved_sig = Some(sig_ty);
             self.ctx.defs[item_id.0 as usize] = Def::Function(updated_f);
-        }
-
-        if let Some(body) = &f.body {
-            self.resolve_expr(body, func_scope);
         }
 
         self.ctx.scopes.exit_scope();
@@ -272,19 +268,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
     }
 
-    fn resolve_global_item(&mut self, g: &GlobalDef, parent_scope: ScopeId) {
-        self.resolve_expr(&g.value, parent_scope);
-        let val_ty = self
-            .ctx
-            .node_types
-            .get(&g.value.id)
-            .copied()
-            .unwrap_or(TypeId::ERROR);
-        self.ensure_sized(val_ty, g.value.span);
-        self.ctx.scopes.set_current_scope(parent_scope);
-        self.ctx.scopes.update_type(g.name, val_ty);
-    }
-
     fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumDef, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let adt_scope = self.ctx.scopes.enter_scope();
@@ -332,9 +315,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
 
         let ty_id = match &ty_node.kind {
-            ast::TypeKind::Path { segments, generics } => {
-                self.resolve_path_type(segments, generics, env_scope, ty_node.span)
-            }
+            ast::TypeKind::Path {
+                segments, generics, ..
+            } => self.resolve_path_type(segments, generics, env_scope, ty_node.span),
             ast::TypeKind::Void => TypeId::VOID,
 
             // 内联的匿名结构体
@@ -394,6 +377,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
                     anon_variants.push(AnonymousVariant {
                         name: variant.name,
+                        name_span: variant.name_span,
                         payload_ty,
                         explicit_value,
                     });

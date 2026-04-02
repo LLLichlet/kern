@@ -266,6 +266,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
                         name: self_sym,
+                        name_span: decl.span,
                         is_mut: false,
                         span: decl.span,
                     },
@@ -282,6 +283,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: decl.name,
+            name_span: decl.name_span,
             vis: spec.vis,
             parent: spec.parent_impl.or(self.current_module),
             is_imported: self.current_module_imported,

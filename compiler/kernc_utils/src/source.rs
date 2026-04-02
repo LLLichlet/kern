@@ -26,7 +26,7 @@ pub struct Location {
 /// SourceFile: 单个文件的底层管理者
 /// =========================================================
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SourceFile {
     pub path: PathBuf,
     pub name: String,
@@ -120,7 +120,7 @@ impl SourceFile {
 /// SourceManager: 全局资源中心
 /// =========================================================
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct SourceManager {
     files: Vec<SourceFile>,
 }

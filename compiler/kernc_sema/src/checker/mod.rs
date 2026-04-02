@@ -7,8 +7,9 @@ pub(crate) use expr::ExprChecker;
 pub use subst::Substituter;
 
 use crate::context::SemaContext;
-use crate::def::{Def, FunctionDef, ImplDef};
+use crate::def::{Def, DefId, FunctionDef, GlobalDef, ImplDef};
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
+use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast as ast;
 use kernc_utils::Span;
@@ -17,6 +18,8 @@ use kernc_utils::Span;
 pub struct TypeckDriver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
 }
+
+type BodyWorkItem = (DefId, ScopeId);
 
 impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
@@ -135,6 +138,124 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
     }
 
+    pub fn global_worklist(&self) -> Vec<(DefId, ScopeId)> {
+        let mut globals = Vec::new();
+        for def in &self.ctx.defs {
+            if let Def::Module(module) = def {
+                for item_id in &module.items {
+                    if matches!(self.ctx.defs[item_id.0 as usize], Def::Global(_)) {
+                        globals.push((*item_id, module.scope_id));
+                    }
+                }
+            }
+        }
+        globals
+    }
+
+    pub fn resolve_global_worklist(&mut self, globals: &[(DefId, ScopeId)]) {
+        let mut changed = true;
+        let mut max_iters = 100;
+        let mut resolved_globals = std::collections::HashSet::new();
+
+        while changed && max_iters > 0 {
+            changed = false;
+            max_iters -= 1;
+
+            for &(item_id, scope_id) in globals {
+                if resolved_globals.contains(&item_id) {
+                    continue;
+                }
+
+                let Some(global) = self.global_def(item_id, "infer a global initializer") else {
+                    continue;
+                };
+
+                let old_err_cnt = self.ctx.sess.error_count;
+                let old_diag_len = self.ctx.sess.diagnostics.len();
+                let old_node_types = self.ctx.node_types.clone();
+                let init_ty = self.check_global_initializer(scope_id, &global);
+
+                if init_ty != TypeId::ERROR {
+                    resolved_globals.insert(item_id);
+                    changed = true;
+
+                    if self.ctx.scopes.resolve_local(global.name).is_some() {
+                        self.ctx.scopes.update_type(global.name, init_ty);
+                    }
+
+                    if !global.is_extern {
+                        if let ast::ExprKind::Undef = global.value.kind {
+                            self.ctx.emit_error(global.span, "Global variables cannot be initialized with bare `undef`. Must provide a typed constant value (e.g., `.{undef}`).");
+                        } else {
+                            let mut evaluator = ConstEvaluator::new(self.ctx);
+                            let _ = evaluator.eval_inner(&global.value, 0);
+                        }
+                    } else if !matches!(global.value.kind, ast::ExprKind::DataInit { literal: ast::DataLiteralKind::Scalar(ref inner), .. } if matches!(inner.kind, ast::ExprKind::Undef))
+                    {
+                        self.ctx.emit_error(global.span, "Extern statics must be initialized with `undef`, e.g., `static X = i32.{undef};`");
+                    }
+                } else {
+                    self.ctx.sess.error_count = old_err_cnt;
+                    self.ctx.sess.diagnostics.truncate(old_diag_len);
+                    self.ctx.node_types = old_node_types;
+                }
+            }
+        }
+
+        if resolved_globals.len() < globals.len() {
+            for &(item_id, scope_id) in globals {
+                if !resolved_globals.contains(&item_id) {
+                    let Some(global) = self.global_def(item_id, "re-check an unresolved global")
+                    else {
+                        continue;
+                    };
+
+                    let _ = self.check_global_initializer(scope_id, &global);
+
+                    self.ctx
+                        .struct_error(
+                            global.span,
+                            format!(
+                                "cannot resolve global constant `{}`",
+                                self.ctx.resolve(global.name)
+                            ),
+                        )
+                        .with_hint("this is usually caused by a circular dependency (e.g., A depends on B, and B depends on A) or an undefined variable")
+                        .emit();
+                }
+            }
+        }
+    }
+
+    pub fn body_worklist(&self) -> Vec<BodyWorkItem> {
+        let mut worklist = Vec::new();
+        for def in &self.ctx.defs {
+            if let Def::Module(module) = def {
+                for item_id in &module.items {
+                    if !matches!(self.ctx.defs[item_id.0 as usize], Def::Global(_)) {
+                        worklist.push((*item_id, module.scope_id));
+                    }
+                }
+            }
+        }
+        worklist
+    }
+
+    pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) {
+        for &(def_id, parent_scope) in worklist {
+            self.ctx.scopes.set_current_scope(parent_scope);
+            self.check_item(def_id, parent_scope);
+        }
+    }
+
+    fn check_global_initializer(&mut self, scope_id: ScopeId, global: &GlobalDef) -> TypeId {
+        self.ctx.scopes.set_current_scope(scope_id);
+        let mut checker = ExprChecker::new(self.ctx, None);
+        let init_ty = checker.check_expr(&global.value, None);
+        self.ctx.scopes.set_current_scope(scope_id);
+        init_ty
+    }
+
     fn check_item(&mut self, id: crate::def::DefId, parent_scope: ScopeId) {
         let def = self.ctx.defs[id.0 as usize].clone();
 
@@ -213,18 +334,23 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for param in &f.generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let node_id = self.ctx.next_node_id();
-            let _ = self.ctx.scopes.define(
-                param.name,
-                SymbolInfo {
-                    kind: SymbolKind::TypeParam,
-                    node_id,
-                    type_id: param_ty,
-                    def_id: None,
-                    span: f.span,
-                    is_pub: false,
-                    is_mut: false,
-                },
-            );
+            let info = SymbolInfo {
+                kind: SymbolKind::TypeParam,
+                node_id,
+                type_id: param_ty,
+                def_id: None,
+                span: f.span,
+                is_pub: false,
+                is_mut: false,
+            };
+            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
+                self.ctx.record_symbol_definition(
+                    info.span,
+                    SemanticSymbolKind::TypeParameter,
+                    info.is_mut,
+                    info.is_pub,
+                );
+            }
         }
 
         // 将 Where 子句的约束压入当前上下文的 active_bounds 中
@@ -252,11 +378,23 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                     node_id: param_ast.type_node.id,
                     type_id: param_tys[i],
                     def_id: None,
-                    span: param_ast.pattern.span,
+                    span: param_ast.pattern.name_span,
                     is_pub: false,
                     is_mut: param_ast.pattern.is_mut,
                 };
-                let _ = self.ctx.scopes.define(param_ast.pattern.name, info);
+                if self
+                    .ctx
+                    .scopes
+                    .define(param_ast.pattern.name, info.clone())
+                    .is_ok()
+                {
+                    self.ctx.record_symbol_definition(
+                        info.span,
+                        SemanticSymbolKind::Parameter,
+                        info.is_mut,
+                        info.is_pub,
+                    );
+                }
             }
         }
 
@@ -295,18 +433,23 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for param in &s.generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let node_id = self.ctx.next_node_id();
-            let _ = self.ctx.scopes.define(
-                param.name,
-                SymbolInfo {
-                    kind: SymbolKind::TypeParam,
-                    node_id,
-                    type_id: param_ty,
-                    def_id: None,
-                    span: s.span,
-                    is_pub: false,
-                    is_mut: false,
-                },
-            );
+            let info = SymbolInfo {
+                kind: SymbolKind::TypeParam,
+                node_id,
+                type_id: param_ty,
+                def_id: None,
+                span: s.span,
+                is_pub: false,
+                is_mut: false,
+            };
+            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
+                self.ctx.record_symbol_definition(
+                    info.span,
+                    SemanticSymbolKind::TypeParameter,
+                    info.is_mut,
+                    info.is_pub,
+                );
+            }
         }
 
         // 2. 遍历检查所有字段的默认值
@@ -354,18 +497,23 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for param in &u.generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let node_id = self.ctx.next_node_id();
-            let _ = self.ctx.scopes.define(
-                param.name,
-                SymbolInfo {
-                    kind: SymbolKind::TypeParam,
-                    node_id,
-                    type_id: param_ty,
-                    def_id: None,
-                    span: u.span,
-                    is_pub: false,
-                    is_mut: false,
-                },
-            );
+            let info = SymbolInfo {
+                kind: SymbolKind::TypeParam,
+                node_id,
+                type_id: param_ty,
+                def_id: None,
+                span: u.span,
+                is_pub: false,
+                is_mut: false,
+            };
+            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
+                self.ctx.record_symbol_definition(
+                    info.span,
+                    SemanticSymbolKind::TypeParameter,
+                    info.is_mut,
+                    info.is_pub,
+                );
+            }
         }
 
         // 2. 遍历检查所有字段的默认值
@@ -413,18 +561,23 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         for param in &i.generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let node_id = self.ctx.next_node_id();
-            let _ = self.ctx.scopes.define(
-                param.name,
-                SymbolInfo {
-                    kind: SymbolKind::TypeParam,
-                    node_id,
-                    type_id: param_ty,
-                    def_id: None,
-                    span: i.span,
-                    is_pub: false,
-                    is_mut: false,
-                },
-            );
+            let info = SymbolInfo {
+                kind: SymbolKind::TypeParam,
+                node_id,
+                type_id: param_ty,
+                def_id: None,
+                span: i.span,
+                is_pub: false,
+                is_mut: false,
+            };
+            if self.ctx.scopes.define(param.name, info.clone()).is_ok() {
+                self.ctx.record_symbol_definition(
+                    info.span,
+                    SemanticSymbolKind::TypeParameter,
+                    info.is_mut,
+                    info.is_pub,
+                );
+            }
         }
 
         let prev_bounds_len = self.ctx.active_bounds.len();

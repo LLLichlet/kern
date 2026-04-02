@@ -155,7 +155,10 @@ impl<'a> Parser<'a> {
             Ok(Expr {
                 id: self.new_id(),
                 span: start_span.to(id_token.span),
-                kind: ExprKind::EnumLiteral(sid),
+                kind: ExprKind::EnumLiteral {
+                    variant: sid,
+                    variant_span: id_token.span,
+                },
             })
         } else {
             self.add_error(

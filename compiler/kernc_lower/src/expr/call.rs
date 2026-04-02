@@ -33,7 +33,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> Option<(NodeId, SymbolId, MastExpr)> {
-        let ExprKind::FieldAccess { lhs, field } = &callee.kind else {
+        let ExprKind::FieldAccess { lhs, field, .. } = &callee.kind else {
             return None;
         };
 

@@ -154,7 +154,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 let pointer = self.eval_inner(operand, depth + 1)?;
                 self.resolve_pointer_target(&pointer, require_mut, expr.span)
             }
-            ExprKind::FieldAccess { lhs, field } => {
+            ExprKind::FieldAccess { lhs, field, .. } => {
                 let lhs_norm = self.expr_type(lhs);
 
                 let mut place = match self.ctx.type_registry.get(lhs_norm).clone() {

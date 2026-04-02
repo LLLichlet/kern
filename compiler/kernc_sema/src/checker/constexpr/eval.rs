@@ -77,8 +77,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Call { callee, args } => self.eval_call(callee, args, depth, expr.span),
 
             // === 5. Enum literals ===
-            ExprKind::EnumLiteral(variant_name) => {
-                self.eval_enum_literal(expr.id, *variant_name, depth, expr.span)
+            ExprKind::EnumLiteral { variant, .. } => {
+                self.eval_enum_literal(expr.id, *variant, depth, expr.span)
             }
 
             // === 6. Aggregate initialization ===
@@ -177,7 +177,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::Return(value) => self.eval_return(value.as_deref(), depth, expr.span),
 
             // === 8. Constant aggregate projection ===
-            ExprKind::FieldAccess { lhs, field } => {
+            ExprKind::FieldAccess { lhs, field, .. } => {
                 let norm_lhs = self.expr_type(lhs);
 
                 if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_lhs).clone() {
@@ -326,7 +326,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     let bit_width = layout.compute_type_size(norm) * 8;
                     if bit_width < 128 {
                         let mask = (1i128 << bit_width) - 1;
-                        v &= mask; // 姝ゆ椂 -1 浼氳鎴柇涓虹殑 0xFF...FF
+                        v &= mask; // Truncate wrapped values like `-1` to the target bit-pattern.
                     }
                 }
 

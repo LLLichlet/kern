@@ -109,7 +109,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::Unary { op, operand } => self.lower_unary(*op, operand, subst_map),
 
             ExprKind::Call { callee, args } => self.lower_call(callee, args, subst_map, expr.span),
-            ExprKind::FieldAccess { lhs, field } => {
+            ExprKind::FieldAccess { lhs, field, .. } => {
                 // 必须使用代换后的 concrete_ty，避免在泛型函数体里提前以 Param 实参实例化 FnDef。
                 let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
 
@@ -129,9 +129,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::DataInit { literal, .. } => {
                 self.lower_data_init(literal, subst_map, concrete_ty, expr.span)
             }
-            ExprKind::EnumLiteral(variant_name) => {
-                self.lower_enum_literal(*variant_name, concrete_ty)
-            }
+            ExprKind::EnumLiteral { variant, .. } => self.lower_enum_literal(*variant, concrete_ty),
 
             ExprKind::As { lhs, target } => {
                 return self.lower_as_expr(lhs, target, concrete_ty, subst_map, expr.span);

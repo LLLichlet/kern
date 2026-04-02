@@ -130,6 +130,7 @@ impl<'a> Parser<'a> {
 
             variants.push(EnumVariant {
                 name: name_id,
+                name_span: name_token.span,
                 payload_type,
                 value,
                 span: variant_span,
@@ -179,6 +180,7 @@ impl<'a> Parser<'a> {
 
             fields.push(StructFieldDef {
                 name: name_id,
+                name_span: name_token.span,
                 is_pub,
                 type_node: field_type,
                 default_value,
@@ -227,6 +229,7 @@ impl<'a> Parser<'a> {
 
             fields.push(StructFieldDef {
                 name: name_id,
+                name_span: name_token.span,
                 is_pub,
                 type_node: field_type,
                 default_value,
@@ -266,6 +269,7 @@ impl<'a> Parser<'a> {
 
                 captures.push(CapturePattern {
                     name,
+                    name_span: name_tok.span,
                     value,
                     span: name_tok.span.to(self.stream.prev_span()),
                 });
@@ -487,10 +491,12 @@ impl<'a> Parser<'a> {
             }
 
             let val = self.parse_expression(Precedence::Lowest)?;
+            let field_span = name.span.to(val.span);
             fields.push(StructFieldInit {
                 name: name_id,
+                name_span: name.span,
                 value: val,
-                span: name.span,
+                span: field_span,
             });
 
             if !self.match_token(&[TokenType::Comma]) {
@@ -512,20 +518,26 @@ impl<'a> Parser<'a> {
     pub(super) fn extract_variant_from_type(
         &mut self,
         ty: TypeNode,
-    ) -> ParseResult<(TypeNode, SymbolId)> {
+    ) -> ParseResult<(TypeNode, SymbolId, Span)> {
         if let TypeKind::Path {
             mut segments,
+            mut segment_spans,
             generics,
         } = ty.kind
             && let Some(variant_name) = segments.pop()
+            && let Some(variant_span) = segment_spans.pop()
             && !segments.is_empty()
         {
             let remain_ty = TypeNode {
                 id: self.new_id(),
                 span: ty.span,
-                kind: TypeKind::Path { segments, generics },
+                kind: TypeKind::Path {
+                    segments,
+                    segment_spans,
+                    generics,
+                },
             };
-            return Ok((remain_ty, variant_name));
+            return Ok((remain_ty, variant_name, variant_span));
         }
 
         self.add_error(

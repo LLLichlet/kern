@@ -240,7 +240,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 };
                 Some(module.scope_id)
             }
-            ExprKind::FieldAccess { lhs, field } => {
+            ExprKind::FieldAccess { lhs, field, .. } => {
                 let mod_scope = self.module_scope_from_expr(lhs)?;
                 let info = self.ctx.scopes.resolve_in(mod_scope, *field)?.clone();
                 if info.kind != SymbolKind::Module {
@@ -287,7 +287,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                     .collect();
                 Some((def_id, generic_args))
             }
-            ExprKind::FieldAccess { lhs, field } => {
+            ExprKind::FieldAccess { lhs, field, .. } => {
                 let mod_scope = self.module_scope_from_expr(lhs)?;
                 let info = self.ctx.scopes.resolve_in(mod_scope, *field)?.clone();
                 if info.kind == SymbolKind::Function {

@@ -4,6 +4,7 @@ use crate::checker::{ConstEvaluator, Substituter};
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
+use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{AtomicOrdering, Span};
@@ -963,7 +964,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         for cap in captures {
             let cap_ty = self.check_expr(&cap.value, None);
             state_fields.push(cap_ty);
-            capture_env.push((cap.name, cap_ty, cap.span));
+            capture_env.push((cap.name, cap_ty, cap.name_span));
         }
 
         let current_scope = match self.ctx.scopes.current_scope_id() {
@@ -1011,7 +1012,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 is_pub: false,
                 is_mut: false,
             };
-            let _ = self.ctx.scopes.define(name, info);
+            if self.ctx.scopes.define(name, info.clone()).is_ok() {
+                self.ctx.record_symbol_definition(
+                    info.span,
+                    SemanticSymbolKind::Variable,
+                    info.is_mut,
+                    info.is_pub,
+                );
+            }
         }
 
         // 注入闭包参数
@@ -1022,11 +1030,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 node_id: param_node_id,
                 type_id: param_tys[i],
                 def_id: None,
-                span: param.span,
+                span: param.pattern.name_span,
                 is_pub: false,
                 is_mut: param.pattern.is_mut,
             };
-            let _ = self.ctx.scopes.define(param.pattern.name, info);
+            if self
+                .ctx
+                .scopes
+                .define(param.pattern.name, info.clone())
+                .is_ok()
+            {
+                self.ctx.record_symbol_definition(
+                    info.span,
+                    SemanticSymbolKind::Parameter,
+                    info.is_mut,
+                    info.is_pub,
+                );
+            }
         }
 
         // 推导函数体

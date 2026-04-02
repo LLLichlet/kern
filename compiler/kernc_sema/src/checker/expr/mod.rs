@@ -80,9 +80,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::IndexAccess { lhs, index, is_mut } => {
                 self.check_index_access(lhs, index, *is_mut, expr.span)
             }
-            ExprKind::FieldAccess { lhs, field } => {
-                self.check_field_access(expr.id, lhs, *field, expr.span)
-            }
+            ExprKind::FieldAccess {
+                lhs,
+                field,
+                field_span,
+            } => self.check_field_access(expr.id, lhs, *field, *field_span, expr.span),
             ExprKind::SliceOp {
                 lhs,
                 start,
@@ -120,9 +122,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 self.check_data_init_expr(type_node.as_deref(), literal, expected_ty, expr.span)
             }
-            ExprKind::EnumLiteral(variant_name) => {
-                self.check_enum_literal(*variant_name, expected_ty, expr.span)
-            }
+            ExprKind::EnumLiteral {
+                variant,
+                variant_span,
+            } => self.check_enum_literal(*variant, *variant_span, expected_ty, expr.span),
             ExprKind::Undef => self.check_undef(expected_ty, expr.span),
 
             // === 9. 控制流 ===

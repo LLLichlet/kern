@@ -3,6 +3,7 @@ use crate::checker::Substituter;
 use crate::def::Def;
 use crate::passes::TypeResolver;
 use crate::scope::{SymbolInfo, SymbolKind};
+use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{Span, SymbolId};
@@ -147,8 +148,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     self.check_coercion(v, norm_target, v_ty);
 
                     // 尝试从值匹配中回收 EnumLiteral 以辅助穷尽性检查
-                    if is_adt && let ExprKind::EnumLiteral(name) = &v.kind {
-                        handled_variants.insert(*name);
+                    if is_adt && let ExprKind::EnumLiteral { variant, .. } = &v.kind {
+                        handled_variants.insert(*variant);
                     }
                 }
                 ast::MatchPatternKind::Range { start, end, .. } => {
@@ -193,10 +194,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 .iter()
                                 .find(|v| v.name == variant.variant_name)
                             {
+                                let definition_span = v.name_span;
+                                let payload_type = v.payload_type.clone();
+                                self.ctx.record_identifier_reference(
+                                    variant.variant_span,
+                                    definition_span,
+                                );
                                 handled_variants.insert(variant.variant_name);
 
                                 if let Some(bind_pattern) = &variant.binding {
-                                    if let Some(payload_ast) = &v.payload_type {
+                                    if let Some(payload_ast) = &payload_type {
                                         let mut payload_ty = self
                                             .ctx
                                             .node_types
@@ -220,11 +227,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                             node_id: arm.body.id,
                                             type_id: payload_ty,
                                             def_id: None,
-                                            span: pat.span,
+                                            span: bind_pattern.name_span,
                                             is_pub: false,
                                             is_mut: bind_pattern.is_mut,
                                         };
-                                        let _ = self.ctx.scopes.define(bind_pattern.name, info);
+                                        if self
+                                            .ctx
+                                            .scopes
+                                            .define(bind_pattern.name, info.clone())
+                                            .is_ok()
+                                        {
+                                            self.ctx.record_symbol_definition(
+                                                info.span,
+                                                SemanticSymbolKind::Variable,
+                                                info.is_mut,
+                                                info.is_pub,
+                                            );
+                                        }
                                     } else {
                                         self.ctx
                                             .struct_error(
@@ -236,7 +255,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                             )
                                             .emit();
                                     }
-                                } else if v.payload_type.is_some() {
+                                } else if payload_type.is_some() {
                                     self.ctx
                                         .struct_error(
                                             pat.span,
@@ -259,20 +278,38 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 .iter()
                                 .find(|v| v.name == variant.variant_name)
                             {
+                                let definition_span = v.name_span;
+                                let payload_ty = v.payload_ty;
+                                self.ctx.record_identifier_reference(
+                                    variant.variant_span,
+                                    definition_span,
+                                );
                                 handled_variants.insert(variant.variant_name);
 
                                 if let Some(bind_pattern) = &variant.binding {
-                                    if let Some(payload_ty) = v.payload_ty {
+                                    if let Some(payload_ty) = payload_ty {
                                         let info = SymbolInfo {
                                             kind: SymbolKind::Var,
                                             node_id: arm.body.id,
                                             type_id: payload_ty,
                                             def_id: None,
-                                            span: pat.span,
+                                            span: bind_pattern.name_span,
                                             is_pub: false,
                                             is_mut: bind_pattern.is_mut,
                                         };
-                                        let _ = self.ctx.scopes.define(bind_pattern.name, info);
+                                        if self
+                                            .ctx
+                                            .scopes
+                                            .define(bind_pattern.name, info.clone())
+                                            .is_ok()
+                                        {
+                                            self.ctx.record_symbol_definition(
+                                                info.span,
+                                                SemanticSymbolKind::Variable,
+                                                info.is_mut,
+                                                info.is_pub,
+                                            );
+                                        }
                                     } else {
                                         self.ctx
                                             .struct_error(
@@ -284,7 +321,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                             )
                                             .emit();
                                     }
-                                } else if v.payload_ty.is_some() {
+                                } else if payload_ty.is_some() {
                                     self.ctx
                                         .struct_error(
                                             pat.span,

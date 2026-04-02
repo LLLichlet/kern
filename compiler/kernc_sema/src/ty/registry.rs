@@ -2,6 +2,7 @@ use super::{PrimitiveType, TypeId, TypeKind};
 use std::collections::HashMap;
 
 /// 类型仓库
+#[derive(Clone)]
 pub struct TypeRegistry {
     /// 存储具体的类型结构
     types: Vec<TypeKind>,

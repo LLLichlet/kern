@@ -675,16 +675,24 @@ impl<'a> Parser<'a> {
                 span: expr.span,
                 kind: TypeKind::Path {
                     segments: vec![id],
+                    segment_spans: vec![expr.span],
                     generics: Vec::new(),
                 },
             }),
-            ExprKind::FieldAccess { lhs, field } => {
+            ExprKind::FieldAccess {
+                lhs,
+                field,
+                field_span,
+            } => {
                 let mut base = self.expr_to_type(*lhs)?;
                 if let TypeKind::Path {
-                    ref mut segments, ..
+                    ref mut segments,
+                    ref mut segment_spans,
+                    ..
                 } = base.kind
                 {
                     segments.push(field);
+                    segment_spans.push(field_span);
                     base.span = base.span.to(expr.span);
                     Ok(base)
                 } else {

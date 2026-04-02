@@ -245,11 +245,12 @@ impl<'a> Parser<'a> {
         if self.match_token(&[TokenType::Colon]) {
             let binding = Some(self.parse_binding_pattern()?);
             let ty = self.expr_to_type(expr)?;
-            let (target_type, variant_name) = self.extract_variant_from_type(ty)?;
+            let (target_type, variant_name, variant_span) = self.extract_variant_from_type(ty)?;
             return Ok(MatchPattern {
                 kind: MatchPatternKind::Variant(VariantPattern {
                     target_type: Some(Box::new(target_type)),
                     variant_name,
+                    variant_span,
                     binding,
                 }),
                 span: pat_start.to(self.stream.prev_span()),
@@ -283,6 +284,7 @@ impl<'a> Parser<'a> {
         Ok(VariantPattern {
             target_type: None,
             variant_name,
+            variant_span: v_tok.span,
             binding,
         })
     }
@@ -302,6 +304,7 @@ impl<'a> Parser<'a> {
             kind: LetPatternKind::Variant(VariantPattern {
                 target_type: Some(Box::new(target_type)),
                 variant_name,
+                variant_span: variant_tok.span,
                 binding,
             }),
             span: start_span.to(self.stream.prev_span()),

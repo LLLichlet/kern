@@ -166,6 +166,7 @@ impl<'a> Substituter<'a> {
                     .into_iter()
                     .map(|variant| crate::ty::AnonymousVariant {
                         name: variant.name,
+                        name_span: variant.name_span,
                         payload_ty: variant.payload_ty.map(|ty| self.substitute(ty)),
                         explicit_value: variant.explicit_value,
                     })

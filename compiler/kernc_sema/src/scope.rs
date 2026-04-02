@@ -36,7 +36,7 @@ pub struct SymbolInfo {
 }
 
 /// 单层作用域 (持久化结构)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Scope {
     pub id: ScopeId,
     /// 指向父作用域。对于模块的顶层作用域，可能是 None 或者指向全局 Builtin 作用域
@@ -55,6 +55,7 @@ impl Scope {
 }
 
 /// 符号表 (Arena & 执行上下文)
+#[derive(Clone)]
 pub struct SymbolTable {
     /// 所有的作用域都永久存储在这里 (Arena)
     scopes: Vec<Scope>,
@@ -220,6 +221,15 @@ impl SymbolTable {
             }
             curr = scope.parent;
         }
+    }
+
+    pub fn update_type_in_scope(&mut self, scope_id: ScopeId, name: SymbolId, ty: TypeId) -> bool {
+        if let Some(info) = self.scopes[scope_id.0].symbols.get_mut(&name) {
+            info.type_id = ty;
+            return true;
+        }
+
+        false
     }
 
     pub fn all_symbols(&self) -> impl Iterator<Item = (SymbolId, &SymbolInfo)> + '_ {

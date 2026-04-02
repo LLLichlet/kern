@@ -28,6 +28,28 @@ impl CompilerDriver {
         ctx: &mut SemaContext<'_>,
         asts: &[(DefId, ast::Module)],
     ) -> CompletionModel {
+        let mut model = self.collect_structure_completion_model(ctx, asts);
+        let mut member_items_by_span = BTreeMap::new();
+        let mut member_query = MemberQuery::new(ctx);
+        let mut member_env = MemberQueryEnv::default();
+        for (mod_id, ast) in asts {
+            self.collect_member_completion_items_in_module(
+                &mut member_query,
+                *mod_id,
+                ast,
+                &mut member_env,
+                &mut member_items_by_span,
+            );
+        }
+        model.member_items_by_span = member_items_by_span;
+        model
+    }
+
+    pub(super) fn collect_structure_completion_model(
+        &self,
+        ctx: &SemaContext<'_>,
+        asts: &[(DefId, ast::Module)],
+    ) -> CompletionModel {
         let mut items_by_span = BTreeMap::new();
         for (name, info) in ctx.scopes.all_symbols() {
             let Some(item) = self.completion_item_for_symbol(ctx, name, info) else {
@@ -55,36 +77,20 @@ impl CompilerDriver {
             );
         }
 
-        let mut member_items_by_span = BTreeMap::new();
-        let mut member_query = MemberQuery::new(ctx);
-        let mut member_env = MemberQueryEnv::default();
         let modules = asts
             .iter()
             .filter_map(|(mod_id, ast)| {
-                let kernc_sema::def::Def::Module(module_def) =
-                    &member_query.context().defs[mod_id.0 as usize]
-                else {
+                let kernc_sema::def::Def::Module(module_def) = &ctx.defs[mod_id.0 as usize] else {
                     return None;
                 };
                 let module_file_id = module_def.file_id;
                 let module_scope_id = module_def.scope_id;
 
-                let top_level_items = member_query
-                    .context()
+                let top_level_items = ctx
                     .scopes
                     .symbols_in_scope(module_scope_id)
-                    .filter_map(|(name, info)| {
-                        self.completion_item_for_symbol(member_query.context(), name, info)
-                    })
+                    .filter_map(|(name, info)| self.completion_item_for_symbol(ctx, name, info))
                     .collect();
-
-                self.collect_member_completion_items_in_module(
-                    &mut member_query,
-                    *mod_id,
-                    ast,
-                    &mut member_env,
-                    &mut member_items_by_span,
-                );
 
                 Some(CompletionModule {
                     file_id: module_file_id,
@@ -98,7 +104,7 @@ impl CompilerDriver {
             root_items,
             items_by_span,
             function_items_by_span,
-            member_items_by_span,
+            member_items_by_span: BTreeMap::new(),
             modules,
         }
     }
@@ -777,6 +783,29 @@ impl CompilerDriver {
     }
 }
 
+pub(super) fn parsed_requires_body_completion(
+    session: &Session,
+    modules: &[super::ParsedModule],
+    target_path: &Path,
+    offset: usize,
+) -> bool {
+    let Some(module) = modules.iter().find(|module| {
+        session
+            .source_manager
+            .get_file_path(module.file_id)
+            .map(|path| normalize_analysis_path(path) == target_path)
+            .unwrap_or(false)
+    }) else {
+        return true;
+    };
+
+    module
+        .ast
+        .decls
+        .iter()
+        .any(|decl| decl_requires_body_completion(decl, offset))
+}
+
 impl CompletionModel {
     pub(super) fn completion_items(
         &self,
@@ -1233,6 +1262,26 @@ fn push_completion_item(items: &mut Vec<AnalysisCompletionItem>, item: AnalysisC
         items.remove(index);
     }
     items.push(item);
+}
+
+fn decl_requires_body_completion(decl: &ast::Decl, offset: usize) -> bool {
+    if !span_contains_offset(decl.span, offset) {
+        return false;
+    }
+
+    match &decl.kind {
+        ast::DeclKind::Function { body, .. } => body
+            .as_ref()
+            .map(|body| span_contains_offset(query_span_for_expr(body), offset))
+            .unwrap_or(false),
+        ast::DeclKind::Var { value, .. } => {
+            span_contains_offset(query_span_for_expr(value), offset)
+        }
+        ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => decls
+            .iter()
+            .any(|child| decl_requires_body_completion(child, offset)),
+        _ => false,
+    }
 }
 
 fn symbol_completion_insert_text(

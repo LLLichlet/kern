@@ -1086,9 +1086,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 match &pat.kind {
                     ast::MatchPatternKind::Value(val_expr) => {
                         if let Some(info) = adt_info {
-                            if let ExprKind::EnumLiteral(variant_name) = &val_expr.kind
+                            if let ExprKind::EnumLiteral { variant, .. } = &val_expr.kind
                                 && let Some((_, tag_value)) =
-                                    self.resolve_match_variant(info, *variant_name, val_expr.span)
+                                    self.resolve_match_variant(info, *variant, val_expr.span)
                             {
                                 case_vals.push(tag_value);
                             }

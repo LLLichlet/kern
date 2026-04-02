@@ -215,10 +215,12 @@ impl<'a> Parser<'a> {
         let mut span = start_token.span;
 
         let mut segments = vec![first_id];
+        let mut segment_spans = vec![start_token.span];
 
         while self.match_token(&[TokenType::Dot]) {
             let id_token = self.expect(TokenType::Identifier)?;
             segments.push(self.intern_token(id_token));
+            segment_spans.push(id_token.span);
             span = span.to(id_token.span);
         }
 
@@ -232,7 +234,11 @@ impl<'a> Parser<'a> {
         Ok(TypeNode {
             id: self.new_id(),
             span,
-            kind: TypeKind::Path { segments, generics },
+            kind: TypeKind::Path {
+                segments,
+                segment_spans,
+                generics,
+            },
         })
     }
 
@@ -279,6 +285,7 @@ impl<'a> Parser<'a> {
 
             fields.push(StructFieldDef {
                 name: name_id,
+                name_span: name_token.span,
                 is_pub,
                 type_node: field_type,
                 default_value,
@@ -342,6 +349,7 @@ impl<'a> Parser<'a> {
 
             variants.push(EnumVariant {
                 name: name_id,
+                name_span: name_token.span,
                 payload_type,
                 value,
                 span,
@@ -400,6 +408,7 @@ impl<'a> Parser<'a> {
 
             fields.push(StructFieldDef {
                 name: name_id,
+                name_span: name_token.span,
                 is_pub: false,
                 default_value: None,
                 span: name_token.span.to(method_type.span),

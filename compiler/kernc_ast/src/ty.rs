@@ -13,6 +13,7 @@ pub enum TypeKind {
     /// 路径类型引用: `i32`, `std.io.File`, `Map[K, V]`
     Path {
         segments: Vec<SymbolId>,
+        segment_spans: Vec<Span>,
         generics: Vec<TypeNode>,
     },
 
@@ -104,6 +105,7 @@ pub enum TypeKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructFieldDef {
     pub name: SymbolId,
+    pub name_span: Span,
     pub is_pub: bool,
     pub type_node: TypeNode,
     pub default_value: Option<Box<Expr>>,
@@ -113,6 +115,7 @@ pub struct StructFieldDef {
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: SymbolId,
+    pub name_span: Span,
     /// 负载类型。例如 `Ok: i32`
     pub payload_type: Option<Box<TypeNode>>,
     /// 显式赋值鉴别器。例如 `Red = 0`

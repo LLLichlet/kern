@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::Path;
 
+#[derive(Clone)]
 pub struct Session {
     // --- 1. 基础工具 ---
     pub interner: Interner,

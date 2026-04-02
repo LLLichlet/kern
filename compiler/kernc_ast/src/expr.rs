@@ -63,6 +63,7 @@ pub enum ExprKind {
     FieldAccess {
         lhs: Box<Expr>,
         field: SymbolId,
+        field_span: Span,
     },
     IndexAccess {
         lhs: Box<Expr>,
@@ -84,7 +85,10 @@ pub enum ExprKind {
     },
 
     /// 枚举/上下文简写: .Red, .Ok
-    EnumLiteral(SymbolId),
+    EnumLiteral {
+        variant: SymbolId,
+        variant_span: Span,
+    },
 
     // --- Control Flow ---
     If {
@@ -182,6 +186,7 @@ pub enum DataLiteralKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructFieldInit {
     pub name: SymbolId,
+    pub name_span: Span,
     pub value: Expr,
     pub span: Span,
 }
@@ -190,6 +195,7 @@ pub struct StructFieldInit {
 pub struct CapturePattern {
     /// 闭包内部绑定的局部名字
     pub name: SymbolId,
+    pub name_span: Span,
     /// 捕获目标的值表达式 (例如 `counter..&` 或省略简写时的自身变量引用)
     pub value: Expr,
     pub span: Span,

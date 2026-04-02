@@ -1,10 +1,24 @@
 use kernc_utils::AtomicOrdering;
 use kernc_utils::{DiagnosticBuilder, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use crate::def::{Def, DefId};
 use crate::scope::{ScopeId, SymbolTable};
+use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
 use crate::ty::{TypeFormatter, TypeId, TypeRegistry};
+
+#[derive(Clone)]
+pub struct SemaStructureSnapshot {
+    pub type_registry: TypeRegistry,
+    pub node_types: HashMap<NodeId, TypeId>,
+    pub atomic_orderings: HashMap<NodeId, AtomicOrdering>,
+    pub trait_method_owners: HashMap<NodeId, TypeId>,
+    pub defs: Vec<Def>,
+    pub scopes: SymbolTable,
+    pub global_impls: Vec<DefId>,
+    pub alias_roots: HashMap<SymbolId, DefId>,
+    pub root_module: Option<DefId>,
+}
 
 pub struct SemaContext<'a> {
     // 1. 底层设施：持有全局 Session 的可变借用
@@ -31,6 +45,7 @@ pub struct SemaContext<'a> {
     pub alias_roots: HashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
     identifier_references: Vec<(Span, Span)>,
+    semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }
 
 impl<'a> SemaContext<'a> {
@@ -51,6 +66,7 @@ impl<'a> SemaContext<'a> {
             root_module: None,
             global_impls: Vec::new(),
             identifier_references: Vec::new(),
+            semantic_definitions: BTreeMap::new(),
         }
     }
 
@@ -66,6 +82,35 @@ impl<'a> SemaContext<'a> {
 
     pub fn ty_to_string(&self, ty: TypeId) -> String {
         TypeFormatter { ctx: self }.format(ty)
+    }
+
+    pub fn structure_snapshot(&self) -> SemaStructureSnapshot {
+        SemaStructureSnapshot {
+            type_registry: self.type_registry.clone(),
+            node_types: self.node_types.clone(),
+            atomic_orderings: self.atomic_orderings.clone(),
+            trait_method_owners: self.trait_method_owners.clone(),
+            defs: self.defs.clone(),
+            scopes: self.scopes.clone(),
+            global_impls: self.global_impls.clone(),
+            alias_roots: self.alias_roots.clone(),
+            root_module: self.root_module,
+        }
+    }
+
+    pub fn restore_structure(&mut self, snapshot: SemaStructureSnapshot) {
+        self.type_registry = snapshot.type_registry;
+        self.node_types = snapshot.node_types;
+        self.atomic_orderings = snapshot.atomic_orderings;
+        self.trait_method_owners = snapshot.trait_method_owners;
+        self.active_bounds.clear();
+        self.defs = snapshot.defs;
+        self.scopes = snapshot.scopes;
+        self.global_impls = snapshot.global_impls;
+        self.alias_roots = snapshot.alias_roots;
+        self.root_module = snapshot.root_module;
+        self.identifier_references.clear();
+        self.semantic_definitions.clear();
     }
 
     /// 将所有通过 -M 传入的模块别名（如 std）注入到全局的根作用域中。
@@ -162,6 +207,27 @@ impl<'a> SemaContext<'a> {
 
     pub fn identifier_references(&self) -> &[(Span, Span)] {
         &self.identifier_references
+    }
+
+    pub fn record_symbol_definition(
+        &mut self,
+        span: Span,
+        kind: SemanticSymbolKind,
+        is_mut: bool,
+        is_pub: bool,
+    ) {
+        self.semantic_definitions
+            .entry(span)
+            .or_insert(SemanticDefinition {
+                span,
+                kind,
+                is_mut,
+                is_pub,
+            });
+    }
+
+    pub fn semantic_definitions(&self) -> impl Iterator<Item = &SemanticDefinition> {
+        self.semantic_definitions.values()
     }
 
     /// 为类型生成确定性且唯一的修饰后缀

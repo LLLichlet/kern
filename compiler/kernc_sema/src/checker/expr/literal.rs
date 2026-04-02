@@ -67,7 +67,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let init_f = &init_fields[0];
         let variant = enum_def.variants.iter().find(|v| v.name == init_f.name);
         if let Some(v) = variant {
-            if let Some(payload_ty) = v.payload_ty {
+            let definition_span = v.name_span;
+            let payload_ty = v.payload_ty;
+            self.ctx
+                .record_identifier_reference(init_f.name_span, definition_span);
+            if let Some(payload_ty) = payload_ty {
                 let val_ty = self.check_expr(&init_f.value, Some(payload_ty));
                 self.check_coercion(&init_f.value, payload_ty, val_ty);
             } else {
@@ -249,7 +253,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::DataLiteralKind::Scalar(inner) => {
                 if is_data {
                     if let ExprKind::Identifier(variant_name) = &inner.kind {
-                        self.check_enum_literal(*variant_name, Some(expected), inner.span)
+                        self.check_enum_literal(
+                            *variant_name,
+                            inner.span,
+                            Some(expected),
+                            inner.span,
+                        )
                     } else {
                         self.ctx
                             .struct_error(
@@ -270,6 +279,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn check_enum_literal(
         &mut self,
         variant_name: SymbolId,
+        variant_span: Span,
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
@@ -279,8 +289,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if let TypeKind::Enum(def_id, _) = self.ctx.type_registry.get(norm_exp) {
                 if let Def::Enum(d) = &self.ctx.defs[def_id.0 as usize] {
                     if let Some(v) = d.variants.iter().find(|v| v.name == variant_name) {
+                        let definition_span = v.name_span;
+                        let requires_payload = v.payload_type.is_some();
+                        self.ctx
+                            .record_identifier_reference(variant_span, definition_span);
                         // 如果有 payload，必须使用 Struct() 初始化，不能用这种标量形式
-                        if v.payload_type.is_some() {
+                        if requires_payload {
                             let v_str = self.ctx.resolve(variant_name).to_string();
                             self.ctx
                                 .struct_error(
@@ -322,7 +336,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             } else if let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(norm_exp) {
                 if let Some(v) = enum_def.variants.iter().find(|v| v.name == variant_name) {
-                    if v.payload_ty.is_some() {
+                    let definition_span = v.name_span;
+                    let requires_payload = v.payload_ty.is_some();
+                    self.ctx
+                        .record_identifier_reference(variant_span, definition_span);
+                    if requires_payload {
                         let v_str = self.ctx.resolve(variant_name).to_string();
                         self.ctx
                             .struct_error(span, format!("variant `{}` requires a payload", v_str))
@@ -419,7 +437,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let variant = data_def.variants.iter().find(|v| v.name == init_f.name);
 
         if let Some(v) = variant {
-            if let Some(payload_ast) = &v.payload_type {
+            let definition_span = v.name_span;
+            let payload_ast = v.payload_type.clone();
+            self.ctx
+                .record_identifier_reference(init_f.name_span, definition_span);
+            if let Some(payload_ast) = &payload_ast {
                 let mut payload_ty = self
                     .ctx
                     .node_types

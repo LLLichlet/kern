@@ -182,6 +182,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: name_id,
+            name_span: Default::default(),
             vis: Visibility::Public,
             parent: None,
             is_imported: false,
@@ -246,6 +247,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: name_id,
+            name_span: Default::default(),
             vis: Visibility::Public,
             parent: None,
             is_imported: false,
@@ -303,6 +305,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: name_id,
+            name_span: Default::default(),
             vis: Visibility::Public,
             parent: None,
             is_imported: false,
@@ -379,6 +382,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: name_id,
+            name_span: Default::default(),
             vis: Visibility::Public,
             parent: None,
             is_imported: false,
@@ -387,6 +391,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             params: vec![ast::FuncParam {
                 pattern: ast::BindingPattern {
                     name: self.ctx.intern("val"),
+                    name_span: Default::default(),
                     is_mut: false,
                     span: Default::default(),
                 },
@@ -459,6 +464,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: name_id,
+            name_span: Default::default(),
             vis: Visibility::Public,
             parent: None,
             is_imported: false,
@@ -540,6 +546,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: name_id,
+            name_span: Default::default(),
             vis: Visibility::Public,
             parent: None,
             is_imported: false,
@@ -549,6 +556,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
                         name: self.ctx.intern("dest"),
+                        name_span: Default::default(),
                         is_mut: false,
                         span: Default::default(),
                     },
@@ -562,6 +570,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
                         name: self.ctx.intern(if is_memcpy { "src" } else { "val" }),
+                        name_span: Default::default(),
                         is_mut: false,
                         span: Default::default(),
                     },
@@ -575,6 +584,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
                         name: self.ctx.intern("len"),
+                        name_span: Default::default(),
                         is_mut: false,
                         span: Default::default(),
                     },
@@ -756,6 +766,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             param_defs.push(ast::FuncParam {
                 pattern: ast::BindingPattern {
                     name: self.ctx.intern(param_name),
+                    name_span: Default::default(),
                     is_mut: false,
                     span: Default::default(),
                 },
@@ -785,6 +796,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let func_def = FunctionDef {
             id: def_id,
             name: name_id,
+            name_span: Default::default(),
             vis: Visibility::Public,
             parent: None,
             is_imported: false,

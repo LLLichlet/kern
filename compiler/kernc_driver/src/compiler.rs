@@ -6,10 +6,15 @@ mod signature;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use kernc_ast as ast;
 use kernc_codegen::{CodeGenerator, Context, InlineAsmDialect};
 use kernc_lower::Lowerer;
-use kernc_sema::SemaContext;
+use kernc_sema::def::DefId;
+use kernc_sema::scope::ScopeId;
+use kernc_sema::ty::TypeId;
+use kernc_sema::{SemaContext, SemaStructureSnapshot};
 use kernc_utils::Session;
+use kernc_utils::SymbolId;
 use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode};
 
 use crate::metadata;
@@ -19,6 +24,17 @@ pub type SourceOverrides = HashMap<PathBuf, String>;
 pub struct AnalysisReport {
     pub session: Session,
     pub succeeded: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AnalysisSpanReplacement {
+    pub clean: kernc_utils::Span,
+    pub dirty: kernc_utils::Span,
+}
+
+pub struct TargetedAnalysisReport {
+    pub report: AnalysisReport,
+    pub replaced_spans: Vec<AnalysisSpanReplacement>,
 }
 
 #[derive(Debug, Clone)]
@@ -31,6 +47,40 @@ pub struct AnalysisReference {
 pub struct AnalysisHover {
     pub span: kernc_utils::Span,
     pub contents: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisSemanticRole {
+    Definition,
+    Reference,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AnalysisSemanticKind {
+    Module,
+    Namespace,
+    Struct,
+    Enum,
+    Interface,
+    Type,
+    TypeParameter,
+    Property,
+    Variable,
+    Parameter,
+    Function,
+    Method,
+    Constant,
+    Static,
+}
+
+#[derive(Debug, Clone)]
+pub struct AnalysisSemanticEntry {
+    pub span: kernc_utils::Span,
+    pub definition_span: kernc_utils::Span,
+    pub kind: AnalysisSemanticKind,
+    pub role: AnalysisSemanticRole,
+    pub is_mut: bool,
+    pub is_pub: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,12 +155,46 @@ pub struct AnalysisArtifact {
     pub symbols: Vec<AnalysisSymbol>,
     pub references: Vec<AnalysisReference>,
     pub hovers: Vec<AnalysisHover>,
+    pub semantic_entries: Vec<AnalysisSemanticEntry>,
+    asts: Vec<(DefId, ast::Module)>,
+    resolved_globals: Vec<ResolvedGlobalType>,
     completion_model: completion::CompletionModel,
     signature_model: signature::SignatureModel,
 }
 
+pub struct AnalysisOutline {
+    pub session: Session,
+    pub symbols: Vec<AnalysisSymbol>,
+}
+
+pub struct ParsedModuleArtifact {
+    session: Session,
+    modules: Vec<ParsedModule>,
+}
+
+#[derive(Clone)]
+struct ParsedModule {
+    name: String,
+    file_id: kernc_utils::FileId,
+    ast: ast::Module,
+}
+
+pub struct StructureArtifact {
+    session: Session,
+    asts: Vec<(DefId, ast::Module)>,
+    snapshot: SemaStructureSnapshot,
+    completion_model: completion::CompletionModel,
+}
+
 pub struct CompilerDriver {
     pub options: CompileOptions,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedGlobalType {
+    scope_id: ScopeId,
+    name: SymbolId,
+    ty: TypeId,
 }
 
 struct TempFileGuard {
@@ -146,6 +230,28 @@ impl AnalysisArtifact {
     ) -> Option<AnalysisSignatureHelp> {
         self.signature_model
             .signature_help(&self.session, target_path, offset)
+    }
+}
+
+impl ParsedModuleArtifact {
+    pub fn requires_body_completion(&self, target_path: &Path, offset: usize) -> bool {
+        completion::parsed_requires_body_completion(
+            &self.session,
+            &self.modules,
+            target_path,
+            offset,
+        )
+    }
+}
+
+impl StructureArtifact {
+    pub fn completion_items(
+        &self,
+        target_path: &Path,
+        offset: usize,
+    ) -> Vec<AnalysisCompletionItem> {
+        self.completion_model
+            .completion_items(&self.session, target_path, offset)
     }
 }
 
@@ -254,11 +360,27 @@ impl CompilerDriver {
 
         let mut ctx = self.build_sema_context(session);
         let asts = self.load_asts(&mut ctx, input_file, source_overrides)?;
-        if !self.run_sema_pipeline(&mut ctx, asts) {
+        let snapshot = self.build_structure_snapshot(&mut ctx, asts)?;
+        drop(ctx);
+
+        let mut ctx = self.build_sema_context(session);
+        ctx.restore_structure(snapshot);
+        if !self.run_body_pipeline(&mut ctx) {
             return None;
         }
 
         Some(ctx)
+    }
+
+    pub fn analyze_structure(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> Option<StructureArtifact> {
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+        self.try_analyze_structure(session, input_file, source_overrides)
+            .ok()
     }
 
     fn lower_module<'a>(&self, ctx: &mut SemaContext<'a>) -> Option<kernc_mast::MastModule> {

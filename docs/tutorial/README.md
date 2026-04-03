@@ -18,7 +18,7 @@ It is written for three audiences:
 
 ## What Is Stable Today
 
-The current `v0.6.5` tree already has a fairly solid core:
+The current `v0.6.6` tree already has a fairly solid core:
 
 - the language model in `docs/design.md`
 - the `kernc` compile/link workflow

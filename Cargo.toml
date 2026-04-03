@@ -7,10 +7,10 @@ members = [
 ]
 
 [workspace.package]
-version = "0.6.5"
+version = "0.6.6"
 edition = "2024"
 authors = ["softfault <givenyoung46@gmail.com>"]
-license = "MIT" 
+license = "MIT"
 
 [workspace.dependencies]
 

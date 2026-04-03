@@ -1,4 +1,7 @@
 //! Core B-tree storage primitives.
+//!
+//! Design:
+//! keep node capacity fixed and surface search hits explicitly so higher layers can compose inserts and deletes.
 
 use std.Option;
 use std.cmp.Ord;
@@ -16,14 +19,19 @@ pub type Node[K, V] = struct {
     pub is_leaf: bool,
     /// The number of initialized keys in the node.
     pub len: usize,
+    /// Sorted keys stored in this node.
     pub keys: [15]K,
+    /// Values parallel to `keys`.
     pub values: [15]V,
+    /// Child pointers between key ranges.
     pub children: [16]*mut Node[K, V],
 };
 
 /// The location of a matched or neighboring key inside the tree.
 pub type SearchHit[K, V] = struct {
+    /// The node containing the hit.
     pub node: *mut Node[K, V],
+    /// The index inside `node`.
     pub index: usize,
 };
 
@@ -58,6 +66,9 @@ pub fn set_child[K, V](node: *mut Node[K, V], index: usize, child: *mut Node[K, 
 }
 
 /// Returns the first key position in the tree.
+///
+/// Returns:
+/// `None` when the tree is empty.
 pub fn first_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
     if ((root as usize) == 0) {
         return .{ None };
@@ -71,6 +82,9 @@ pub fn first_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
 }
 
 /// Returns the last key position in the tree.
+///
+/// Returns:
+/// `None` when the tree is empty.
 pub fn last_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
     if ((root as usize) == 0) {
         return .{ None };
@@ -84,6 +98,8 @@ pub fn last_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
 }
 
 /// Returns the first key position whose key is greater than or equal to `key`.
+///
+/// This is the lower-bound search primitive used by ordered queries.
 pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
     where K: Ord[K],
 {
@@ -117,6 +133,8 @@ pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
 }
 
 /// Returns the last key position whose key is less than or equal to `key`.
+///
+/// This is the upper-bound search primitive used by ordered queries.
 pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
     where K: Ord[K],
 {
@@ -147,6 +165,9 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
 }
 
 /// An ordered map backed by a B-tree.
+///
+/// The mutable layer owns balancing and node allocation; this base type only
+/// stores the root pointer and entry count.
 pub type Tree[K, V] where K: Ord[K] = struct {
     /// The root node pointer, or null when the tree is empty.
     pub root: *mut Node[K, V] = 0,

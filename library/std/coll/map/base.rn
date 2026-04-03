@@ -1,4 +1,7 @@
 //! Core hash-map storage primitives.
+//!
+//! Design:
+//! keep probing, tombstones, and load-factor policy visible so higher layers stay predictable.
 
 use std.Option;
 use std.cmp.Eq;
@@ -25,8 +28,11 @@ pub type Entry[K, V] = struct {
 
 /// A raw table allocation used during rebuilds.
 pub type Table[K, V] = struct {
+    /// Control bytes describing whether each slot is empty, deleted, or full.
     pub ctrl: *mut u8,
+    /// Entry storage parallel to `ctrl`.
     pub entries: *mut Entry[K, V],
+    /// The total number of addressable slots.
     pub capacity: usize,
 };
 
@@ -46,6 +52,9 @@ pub fn entry_ptr[K, V](entries: *mut Entry[K, V], index: usize) *mut Entry[K, V]
 }
 
 /// Visits every occupied entry in a raw table.
+///
+/// Returns:
+/// the number of occupied entries observed, including the last delivered one.
 pub fn visit_full[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, visitor: *Fn(*mut Entry[K, V]) bool) usize {
     let mut total = 0;
     for (let mut i = 0; i < capacity; i += 1) {
@@ -76,6 +85,9 @@ pub fn keys_equal[K](lhs: K, rhs: K) bool
 }
 
 /// Finds the slot index for a key and precomputed hash.
+///
+/// The search stops at the first `EMPTY` slot, so deleted tombstones do not
+/// terminate probing.
 pub fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity: usize, key: K, hash: u64) Option[usize]
     where K: Eq[K] + Hash[K],
 {
@@ -103,11 +115,16 @@ pub fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity
 }
 
 /// Returns the maximum number of occupied slots allowed before growing.
+///
+/// This keeps the steady-state load factor at or below 75%.
 pub fn max_occupied(capacity: usize) usize {
     return capacity - capacity / 4;
 }
 
 /// An open-addressed hash map.
+///
+/// `Map` stores keys and values in parallel slot arrays and uses linear probing
+/// with tombstones for deletions.
 pub type Map[K, V] where K: Eq[K] + Hash[K] = struct {
     pub ctrl: *mut u8 = 0,
     pub entries: *mut Entry[K, V] = 0,

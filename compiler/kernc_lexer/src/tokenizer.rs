@@ -550,6 +550,10 @@ impl<'a> Tokenizer<'a> {
         self.source[self.current + 1]
     }
 
+    fn peek_nth(&self, offset: usize) -> u8 {
+        self.source.get(self.current + offset).copied().unwrap_or(0)
+    }
+
     fn match_char(&mut self, expected: u8) -> bool {
         if self.current >= self.source.len() {
             return false;
@@ -600,6 +604,22 @@ impl<'a> Tokenizer<'a> {
                 }
                 b'/' => {
                     if self.peek_next() == b'/' {
+                        let doc_kind = match self.peek_nth(2) {
+                            b'/' if self.peek_nth(3) != b'/' => Some(TokenType::DocCommentOuter),
+                            b'!' => Some(TokenType::DocCommentInner),
+                            _ => None,
+                        };
+                        if let Some(tag) = doc_kind {
+                            self.start = self.current;
+                            self.advance();
+                            self.advance();
+                            self.advance();
+                            while !self.is_eof() && !is_line_break(self.peek()) {
+                                self.advance();
+                            }
+                            return Some(self.make_token(tag));
+                        }
+
                         // Skip a line comment.
                         while !self.is_eof() && self.peek() != b'\n' {
                             self.advance();

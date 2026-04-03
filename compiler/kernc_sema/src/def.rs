@@ -76,6 +76,7 @@ pub struct ModuleDef {
     pub items: Vec<DefId>,       // Definitions owned by this module.
     pub imports: Vec<ImportDef>, // Deferred `use` declarations resolved by a later pass.
     pub is_init: bool,
+    pub docs: Option<ast::DocBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -106,6 +107,7 @@ pub struct FunctionDef {
     pub is_intrinsic: bool,
     pub span: Span,
     pub resolved_sig: Option<TypeId>,
+    pub docs: Option<ast::DocBlock>,
     pub attributes: Vec<ast::Attribute>,
 }
 
@@ -120,6 +122,7 @@ pub struct StructDef {
     pub fields: Vec<ast::StructFieldDef>,
     pub is_extern: bool,
     pub span: Span,
+    pub docs: Option<ast::DocBlock>,
     pub attributes: Vec<ast::Attribute>,
 }
 
@@ -134,6 +137,7 @@ pub struct UnionDef {
     pub fields: Vec<ast::StructFieldDef>,
     pub is_extern: bool,
     pub span: Span,
+    pub docs: Option<ast::DocBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -147,6 +151,7 @@ pub struct EnumDef {
     pub backing_type: Option<Box<ast::TypeNode>>,
     pub variants: Vec<ast::EnumVariant>,
     pub span: Span,
+    pub docs: Option<ast::DocBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -164,6 +169,7 @@ pub struct TraitDef {
     pub resolved_methods: Vec<(SymbolId, TypeId)>,
     pub span: Span,
     pub is_builtin: bool,
+    pub docs: Option<ast::DocBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -176,6 +182,7 @@ pub struct TypeAliasDef {
     pub where_clauses: Vec<ast::WhereClause>,
     pub target: ast::TypeNode,
     pub span: Span,
+    pub docs: Option<ast::DocBlock>,
 }
 
 #[derive(Debug, Clone)]
@@ -203,5 +210,6 @@ pub struct GlobalDef {
     pub is_extern: bool,
     pub is_mut: bool,
     pub span: Span,
+    pub docs: Option<ast::DocBlock>,
     pub attributes: Vec<ast::Attribute>,
 }

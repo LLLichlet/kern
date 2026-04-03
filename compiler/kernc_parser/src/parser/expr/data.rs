@@ -131,6 +131,7 @@ impl<'a> Parser<'a> {
             variants.push(EnumVariant {
                 name: name_id,
                 name_span: name_token.span,
+                docs: None,
                 payload_type,
                 value,
                 span: variant_span,
@@ -182,6 +183,7 @@ impl<'a> Parser<'a> {
                 name: name_id,
                 name_span: name_token.span,
                 is_pub,
+                docs: None,
                 type_node: field_type,
                 default_value,
                 span: field_span,
@@ -231,6 +233,7 @@ impl<'a> Parser<'a> {
                 name: name_id,
                 name_span: name_token.span,
                 is_pub,
+                docs: None,
                 type_node: field_type,
                 default_value,
                 span: field_span,

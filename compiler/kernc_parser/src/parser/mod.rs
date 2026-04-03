@@ -117,6 +117,46 @@ impl<'a> Parser<'a> {
         }
     }
 
+    fn parse_doc_block(&mut self, expect_inner: bool) -> Option<kernc_ast::DocBlock> {
+        let expected = if expect_inner {
+            TokenType::DocCommentInner
+        } else {
+            TokenType::DocCommentOuter
+        };
+
+        if !self.check(expected) {
+            return None;
+        }
+
+        let mut lines = Vec::new();
+        let mut span = Span::default();
+        while self.check(expected) {
+            let token = self.advance();
+            let text = self.doc_text_for_token(token, expect_inner);
+            span = if lines.is_empty() {
+                token.span
+            } else {
+                span.to(token.span)
+            };
+            lines.push(kernc_ast::DocLine {
+                span: token.span,
+                text,
+            });
+        }
+
+        Some(kernc_ast::DocBlock { span, lines })
+    }
+
+    fn doc_text_for_token(&self, token: Token, is_inner: bool) -> String {
+        let source = self.session.source_manager.slice_source(token.span);
+        let prefix = if is_inner { "//!" } else { "///" };
+        let mut text = source.strip_prefix(prefix).unwrap_or(source);
+        if let Some(rest) = text.strip_prefix(' ') {
+            text = rest;
+        }
+        text.to_string()
+    }
+
     // ==========================================
     // Error Handling & Synchronization
     // ==========================================

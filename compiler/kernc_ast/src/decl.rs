@@ -1,4 +1,4 @@
-use super::{Attribute, BindingPattern, Expr, TypeNode};
+use super::{Attribute, BindingPattern, DocBlock, Expr, TypeNode};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -8,6 +8,7 @@ pub struct Decl {
     pub name_span: Span,
     pub name: SymbolId,
     pub is_pub: bool,
+    pub docs: Option<DocBlock>,
     pub attributes: Vec<Attribute>,
     pub kind: DeclKind,
 }

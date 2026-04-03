@@ -95,6 +95,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             resolved_methods: vec![],
             is_builtin: true,
             span: Span::default(),
+            docs: None,
         };
 
         self.ctx.add_def(Def::Trait(trait_def));
@@ -202,6 +203,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             is_intrinsic: true,
             resolved_sig: Some(sig_ty),
             span: Default::default(),
+            docs: None,
             attributes: vec![],
         };
 
@@ -267,6 +269,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             is_intrinsic: true,
             resolved_sig: Some(sig_ty),
             span: Default::default(),
+            docs: None,
             attributes: vec![],
         };
 
@@ -325,6 +328,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             is_intrinsic: true,
             resolved_sig: Some(sig_ty),
             span: Default::default(),
+            docs: None,
             attributes: vec![],
         };
 
@@ -415,6 +419,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             is_intrinsic: true,
             resolved_sig: Some(sig_ty),
             span: Default::default(),
+            docs: None,
             attributes: vec![],
         };
 
@@ -484,6 +489,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             is_intrinsic: true,
             resolved_sig: Some(sig_ty),
             span: Default::default(),
+            docs: None,
             attributes: vec![],
         };
 
@@ -609,6 +615,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             is_intrinsic: true,
             resolved_sig: Some(sig_ty),
             span: Default::default(),
+            docs: None,
             attributes: vec![],
         };
 
@@ -816,6 +823,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             is_intrinsic: true,
             resolved_sig: Some(sig_ty),
             span: Default::default(),
+            docs: None,
             attributes: vec![],
         };
 
@@ -869,6 +877,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 is_extern: false,
                 is_mut: false,
                 span: Span::default(),
+                docs: None,
                 attributes: Vec::new(),
             }));
 

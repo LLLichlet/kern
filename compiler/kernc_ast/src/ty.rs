@@ -1,4 +1,4 @@
-use super::Expr;
+use super::{DocBlock, Expr};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -108,6 +108,7 @@ pub struct StructFieldDef {
     pub name: SymbolId,
     pub name_span: Span,
     pub is_pub: bool,
+    pub docs: Option<DocBlock>,
     pub type_node: TypeNode,
     pub default_value: Option<Box<Expr>>,
     pub span: Span,
@@ -117,6 +118,7 @@ pub struct StructFieldDef {
 pub struct EnumVariant {
     pub name: SymbolId,
     pub name_span: Span,
+    pub docs: Option<DocBlock>,
     /// Optional payload type, for example `Ok: i32`.
     pub payload_type: Option<Box<TypeNode>>,
     /// Explicit discriminant value, for example `Red = 0`.

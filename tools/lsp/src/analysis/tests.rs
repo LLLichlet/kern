@@ -1124,6 +1124,45 @@ fn hover_resolves_function_signature_from_reference() {
 }
 
 #[test]
+fn hover_renders_native_docs_after_signature() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "/// Read one byte from the receiver register.\n",
+        "///\n",
+        "/// Safety:\n",
+        "/// - `self` must point to a mapped UART object.\n",
+        "fn helper(x: i32) i32 { return x; }\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let uri = temp_file_uri("hover_docs", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "helper", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("fn helper: fn(i32) i32"));
+    assert!(hover
+        .contents
+        .value
+        .contains("Read one byte from the receiver register."));
+    assert!(hover.contents.value.contains("**Safety**"));
+    assert!(hover
+        .contents
+        .value
+        .contains("`self` must point to a mapped UART object."));
+}
+
+#[test]
 fn hover_resolves_impl_method_signature_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

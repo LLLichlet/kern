@@ -1,3 +1,4 @@
+use crate::doc::{collect_kmeta_doc_items, render_kmeta_docs_toml};
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
 use std::collections::BTreeMap;
@@ -5,6 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 pub const KMETA_MANIFEST_FILE: &str = "Kmeta.toml";
+pub const KMETA_DOCS_FILE: &str = "Kmeta.docs.toml";
 const KMETA_FORMAT_VERSION: u32 = 2;
 const KMETA_KIND_SOURCE_SNAPSHOT: &str = "source_snapshot";
 const KMETA_SOURCE_ROOT: &str = "src";
@@ -78,6 +80,10 @@ pub fn emit_package_metadata(
         format!("{}/init.rn", KMETA_SOURCE_ROOT),
     );
     write_manifest(&output_root.join(KMETA_MANIFEST_FILE), &manifest)?;
+    write_docs(
+        &output_root.join(KMETA_DOCS_FILE),
+        &render_kmeta_docs_toml(&collect_kmeta_doc_items(ctx)),
+    )?;
 
     let mut stack = vec![root_id];
     while let Some(module_id) = stack.pop() {
@@ -174,6 +180,10 @@ fn write_manifest(path: &Path, manifest: &KmetaManifest) -> Result<(), String> {
 
     fs::write(path, lines.join("\n"))
         .map_err(|err| format!("failed to write `{}`: {err}", path.display()))
+}
+
+fn write_docs(path: &Path, contents: &str) -> Result<(), String> {
+    fs::write(path, contents).map_err(|err| format!("failed to write `{}`: {err}", path.display()))
 }
 
 fn parse_manifest(contents: &str) -> Result<KmetaManifest, String> {

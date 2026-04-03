@@ -235,6 +235,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             submodules: HashMap::new(),
             items: Vec::new(),
             imports: Vec::new(),
+            docs: None,
         };
         self.ctx.add_def(Def::Module(dummy_def));
         let mut ast = {

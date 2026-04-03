@@ -109,6 +109,7 @@ impl<'a> Parser<'a> {
 
     // Top Level
     pub fn parse_module(&mut self) -> ParseResult<Module> {
+        let docs = self.parse_doc_block(true);
         // Parse file-level `#![...]` attributes before any declarations.
         let attributes = self.parse_attributes(true).unwrap_or_default();
 
@@ -124,12 +125,14 @@ impl<'a> Parser<'a> {
         }
         Ok(Module {
             path: "test.rn".to_string(),
+            docs,
             attributes,
             decls,
         })
     }
 
     fn parse_decl(&mut self) -> ParseResult<Option<Decl>> {
+        let docs = self.parse_doc_block(false);
         // Attributes syntactically precede every declaration.
         let attributes = self.parse_attributes(false).unwrap_or_default();
 
@@ -155,6 +158,7 @@ impl<'a> Parser<'a> {
                 self.add_error(start_span, "Extern blocks cannot be pub".to_string());
             }
             let mut decl = self.parse_extern_block(start_span)?;
+            decl.docs = docs;
             decl.attributes = attributes;
             return Ok(Some(decl));
         }
@@ -225,6 +229,7 @@ impl<'a> Parser<'a> {
                         _ => {}
                     }
                 }
+                decl.docs = docs;
                 decl.attributes = attributes;
                 Ok(Some(decl))
             }
@@ -247,6 +252,7 @@ impl<'a> Parser<'a> {
             name_span: name_token.span,
             name: name_id,
             is_pub,
+            docs: None,
             attributes: vec![],
             kind: DeclKind::ModDecl { is_pub },
         })
@@ -288,6 +294,7 @@ impl<'a> Parser<'a> {
             name_span: name.span,
             name: name_id,
             is_pub,
+            docs: None,
             attributes: vec![],
             kind: DeclKind::Function {
                 generics,
@@ -344,6 +351,7 @@ impl<'a> Parser<'a> {
             name_span: start,
             name,
             is_pub: false,
+            docs: None,
             attributes: vec![],
             kind: DeclKind::ExternBlock { abi, decls },
         })
@@ -390,6 +398,7 @@ impl<'a> Parser<'a> {
             name_span: start,
             name,
             is_pub: false,
+            docs: None,
             attributes: vec![],
             kind: DeclKind::Impl {
                 generics,
@@ -455,6 +464,7 @@ impl<'a> Parser<'a> {
             name_span: name.span,
             name: name_id,
             is_pub,
+            docs: None,
             attributes: vec![],
             kind: DeclKind::Var {
                 value,
@@ -540,6 +550,7 @@ impl<'a> Parser<'a> {
             name_span: name.span,
             name: name_id,
             is_pub,
+            docs: None,
             attributes: vec![],
             kind: DeclKind::TypeAlias {
                 generics,
@@ -613,6 +624,7 @@ impl<'a> Parser<'a> {
                 .unwrap_or(start),
             name,
             is_pub,
+            docs: None,
             attributes: vec![],
             kind: DeclKind::Use {
                 kind,

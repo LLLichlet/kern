@@ -285,9 +285,9 @@ fn semantic_class_from_hover(contents: &str) -> Option<SemanticClass> {
 }
 
 fn hover_code(contents: &str) -> Option<&str> {
-    contents
-        .strip_prefix("```kern\n")
-        .and_then(|code| code.strip_suffix("\n```"))
+    let rest = contents.strip_prefix("```kern\n")?;
+    let end = rest.find("\n```")?;
+    Some(&rest[..end])
 }
 
 fn semantic_reference_class(class: SemanticClass) -> SemanticClass {
@@ -362,6 +362,7 @@ fn collect_semantic_token_entries(
                     modifiers: 0,
                 })
             }
+            TokenType::DocCommentOuter | TokenType::DocCommentInner => None,
             TokenType::IntLiteral | TokenType::FloatLiteral => Some(SemanticClass {
                 token_type: SemanticTokenTypes::NUMBER,
                 modifiers: 0,

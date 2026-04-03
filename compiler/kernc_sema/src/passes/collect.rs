@@ -141,6 +141,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         if let Def::Module(m) = &mut self.ctx.defs[mod_id.0 as usize] {
             m.items = item_ids;
             m.imports = imports;
+            m.docs = module.docs.clone();
         }
 
         if let Some(prev) = prev_scope {
@@ -298,6 +299,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             is_intrinsic: false,
             span: decl.span,
             resolved_sig: None,
+            docs: decl.docs.clone(),
             attributes: decl.attributes.clone(),
         };
 
@@ -340,6 +342,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             is_extern,
             is_mut,
             span: decl.span,
+            docs: decl.docs.clone(),
             attributes: decl.attributes.clone(),
         };
 
@@ -391,6 +394,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     fields: fields.clone(),
                     is_extern: spec.is_extern || *target_extern,
                     span: decl.span,
+                    docs: decl.docs.clone(),
                     attributes: decl.attributes.clone(),
                 })
             }
@@ -409,6 +413,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     fields: fields.clone(),
                     is_extern: spec.is_extern || *target_extern,
                     span: decl.span,
+                    docs: decl.docs.clone(),
                 })
             }
             TypeKind::Enum {
@@ -432,6 +437,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     backing_type: backing_type.clone(),
                     variants: variants.clone(),
                     span: decl.span,
+                    docs: decl.docs.clone(),
                 })
             }
             TypeKind::Trait { fields } => {
@@ -449,6 +455,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     resolved_supertraits: Vec::new(),
                     is_builtin: false,
                     span: decl.span,
+                    docs: decl.docs.clone(),
                 })
             }
             _ => {
@@ -462,6 +469,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     where_clauses: spec.where_clauses.to_vec(),
                     target: spec.target.clone(),
                     span: decl.span,
+                    docs: decl.docs.clone(),
                 })
             }
         };

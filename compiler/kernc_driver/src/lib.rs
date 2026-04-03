@@ -1,4 +1,5 @@
 mod compiler;
+mod doc;
 mod loader;
 mod metadata;
 

@@ -6,6 +6,7 @@ use super::{
     AnalysisSymbol, AnalysisSymbolKind, CompilerDriver, ParsedModule, ParsedModuleArtifact,
     SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
+use crate::doc::render_hover_markdown;
 use crate::loader::ModuleLoader;
 use kernc_ast as ast;
 use kernc_sema::checker::TypeckDriver;
@@ -872,7 +873,10 @@ impl CompilerDriver {
             kernc_sema::scope::SymbolKind::TypeParam => format!("type {}", name),
         };
 
-        Some(format!("```kern\n{}\n```", code))
+        Some(render_hover_markdown(
+            &code,
+            info.def_id.and_then(|def_id| self.doc_block_for_def(ctx, def_id)),
+        ))
     }
 
     fn hover_contents_for_function(
@@ -882,7 +886,7 @@ impl CompilerDriver {
     ) -> Option<String> {
         let name = ctx.resolve(function.name);
         let code = self.render_function_hover(ctx, function, name)?;
-        Some(format!("```kern\n{}\n```", code))
+        Some(render_hover_markdown(&code, function.docs.as_ref()))
     }
 
     fn render_function_hover(
@@ -967,10 +971,9 @@ impl CompilerDriver {
         type_node_id: kernc_utils::NodeId,
     ) -> Option<String> {
         let ty = ctx.node_types.get(&type_node_id).copied()?;
-        Some(format!(
-            "```kern\nfield {}: {}\n```",
-            ctx.resolve(name),
-            ctx.ty_to_string(ty)
+        Some(render_hover_markdown(
+            &format!("field {}: {}", ctx.resolve(name), ctx.ty_to_string(ty)),
+            self.field_doc_block(ctx, name, type_node_id),
         ))
     }
 
@@ -981,10 +984,9 @@ impl CompilerDriver {
         type_node_id: kernc_utils::NodeId,
     ) -> Option<String> {
         let ty = ctx.node_types.get(&type_node_id).copied()?;
-        Some(format!(
-            "```kern\nfn {}: {}\n```",
-            ctx.resolve(name),
-            ctx.ty_to_string(ty)
+        Some(render_hover_markdown(
+            &format!("fn {}: {}", ctx.resolve(name), ctx.ty_to_string(ty)),
+            self.trait_method_doc_block(ctx, name, type_node_id),
         ))
     }
 
@@ -997,13 +999,83 @@ impl CompilerDriver {
         if let Some(payload_type) = &variant.payload_type {
             let ty = ctx.node_types.get(&payload_type.id).copied()?;
             Some(format!(
-                "```kern\nvariant {}: {}\n```",
-                name,
-                ctx.ty_to_string(ty)
+                "{}",
+                render_hover_markdown(
+                    &format!("variant {}: {}", name, ctx.ty_to_string(ty)),
+                    variant.docs.as_ref(),
+                )
             ))
         } else {
-            Some(format!("```kern\nvariant {}\n```", name))
+            Some(render_hover_markdown(
+                &format!("variant {}", name),
+                variant.docs.as_ref(),
+            ))
         }
+    }
+
+    fn doc_block_for_def<'a>(
+        &self,
+        ctx: &'a SemaContext<'_>,
+        def_id: DefId,
+    ) -> Option<&'a ast::DocBlock> {
+        match &ctx.defs[def_id.0 as usize] {
+            kernc_sema::def::Def::Module(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::Function(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::Struct(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::Union(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::Enum(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::Trait(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::Global(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::TypeAlias(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::Impl(_) => None,
+        }
+    }
+
+    fn field_doc_block<'a>(
+        &self,
+        ctx: &'a SemaContext<'_>,
+        name: kernc_utils::SymbolId,
+        type_node_id: kernc_utils::NodeId,
+    ) -> Option<&'a ast::DocBlock> {
+        for def in &ctx.defs {
+            match def {
+                kernc_sema::def::Def::Struct(struct_def) => {
+                    for field in &struct_def.fields {
+                        if field.name == name && field.type_node.id == type_node_id {
+                            return field.docs.as_ref();
+                        }
+                    }
+                }
+                kernc_sema::def::Def::Union(union_def) => {
+                    for field in &union_def.fields {
+                        if field.name == name && field.type_node.id == type_node_id {
+                            return field.docs.as_ref();
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        None
+    }
+
+    fn trait_method_doc_block<'a>(
+        &self,
+        ctx: &'a SemaContext<'_>,
+        name: kernc_utils::SymbolId,
+        type_node_id: kernc_utils::NodeId,
+    ) -> Option<&'a ast::DocBlock> {
+        for def in &ctx.defs {
+            let kernc_sema::def::Def::Trait(trait_def) = def else {
+                continue;
+            };
+            for method in &trait_def.methods {
+                if method.name == name && method.type_node.id == type_node_id {
+                    return method.docs.as_ref();
+                }
+            }
+        }
+        None
     }
 
     fn is_hoverable_span(&self, ctx: &SemaContext<'_>, span: kernc_utils::Span) -> bool {

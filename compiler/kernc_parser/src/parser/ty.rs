@@ -266,6 +266,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let docs = self.parse_doc_block(false);
             let is_pub = self.match_token(&[TokenType::Pub]);
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
@@ -287,6 +288,7 @@ impl<'a> Parser<'a> {
                 name: name_id,
                 name_span: name_token.span,
                 is_pub,
+                docs,
                 type_node: field_type,
                 default_value,
                 span,
@@ -324,6 +326,7 @@ impl<'a> Parser<'a> {
         let mut variants = Vec::new();
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let docs = self.parse_doc_block(false);
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
 
@@ -350,6 +353,7 @@ impl<'a> Parser<'a> {
             variants.push(EnumVariant {
                 name: name_id,
                 name_span: name_token.span,
+                docs,
                 payload_type,
                 value,
                 span,
@@ -378,6 +382,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
+            let docs = self.parse_doc_block(false);
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
             self.expect(TokenType::Colon)?;
@@ -410,6 +415,7 @@ impl<'a> Parser<'a> {
                 name: name_id,
                 name_span: name_token.span,
                 is_pub: false,
+                docs,
                 default_value: None,
                 span: name_token.span.to(method_type.span),
                 type_node: method_type,

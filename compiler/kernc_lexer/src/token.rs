@@ -32,6 +32,12 @@ pub enum TokenType {
     /// Byte character literal, for example `b'a'`.
     ByteCharLiteral,
 
+    /// Outer doc comment, for example `/// Summary`.
+    DocCommentOuter,
+
+    /// Inner doc comment, for example `//! Module summary`.
+    DocCommentInner,
+
     // === Keywords ===
     
     Fn, 

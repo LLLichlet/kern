@@ -1,5 +1,6 @@
 mod attr;
 mod decl;
+mod doc;
 mod expr;
 mod module;
 mod op;
@@ -9,6 +10,7 @@ mod ty;
 
 pub use attr::*;
 pub use decl::*;
+pub use doc::*;
 pub use expr::*;
 pub use module::*;
 pub use op::*;

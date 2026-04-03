@@ -86,4 +86,41 @@ fn main() void {
 
         assert_eq!(value, "line one\nline \"two\"\nline three");
     }
+
+    #[test]
+    fn parses_native_doc_comments_on_modules_items_and_members() {
+        let source = r#"
+//! UART support.
+//!
+//! Design:
+//! Keep the hardware boundary explicit.
+
+/// A typed UART handle.
+type Uart = struct {
+    /// Base MMIO register address.
+    ///
+    /// Safety:
+    /// - Must point to a mapped UART register block.
+    base: ^mut u8,
+};
+"#;
+        let (_session, module) = parse_module(source);
+        let module_docs = module.docs.as_ref().expect("expected module docs");
+        assert_eq!(module_docs.lines.len(), 4);
+        assert_eq!(module_docs.lines[0].text, "UART support.");
+
+        let decl = &module.decls[0];
+        let decl_docs = decl.docs.as_ref().expect("expected item docs");
+        assert_eq!(decl_docs.lines[0].text, "A typed UART handle.");
+
+        let ast::DeclKind::TypeAlias { target, .. } = &decl.kind else {
+            panic!("expected type alias");
+        };
+        let ast::TypeKind::Struct { fields, .. } = &target.kind else {
+            panic!("expected struct type");
+        };
+        let field_docs = fields[0].docs.as_ref().expect("expected field docs");
+        assert_eq!(field_docs.lines[0].text, "Base MMIO register address.");
+        assert_eq!(field_docs.lines[2].text, "Safety:");
+    }
 }

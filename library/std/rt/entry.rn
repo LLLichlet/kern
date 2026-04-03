@@ -30,26 +30,13 @@ extern fn _start_linux() void {
     });
 }
 
-#[if(os == "darwin" and arch == "aarch64")]
+// Darwin dynamic executables enter through dyld/libSystem startup glue, which
+// calls the configured entry symbol with argc/argv following the platform ABI.
+// Unlike Linux freestanding entry, we should not decode a raw process stack here.
+#[if(os == "darwin")]
 #[export_name("start")]
 extern fn _start_darwin(argc: usize, argv: **u8) void {
     kern_entry(argc, argv)
-}
-
-#[if(os == "darwin" and arch == "x86_64")]
-#[export_name("start")]
-#[naked]
-extern fn _start_darwin() void {
-    @asm(.{
-        asm: .{
-            "mov rdi, [rsp]",
-            "lea rsi, [rsp + 8]",
-            "and rsp, -16",
-            "call _kern_entry",
-        },
-        clobbers: .{ "memory", "rdi", "rsi" },
-        volatile: true
-    });
 }
 
 #[if(os == "linux" or os == "darwin")]

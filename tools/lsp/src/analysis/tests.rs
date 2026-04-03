@@ -2366,7 +2366,10 @@ pub fn build(b: *mut builder.Builder) void {
     });
     let resolved = analysis.resolve_analysis(&uri).unwrap();
 
-    assert_eq!(super::normalize_path(&resolved.input_file), generated_path);
+    assert_eq!(
+        super::normalize_path(&resolved.input_file),
+        super::normalize_path(&generated_path)
+    );
     assert_eq!(
         resolved
             .compile_options
@@ -2483,7 +2486,10 @@ pub fn build(b: *mut builder.Builder) void {
     });
     let resolved = analysis.resolve_analysis(&uri).unwrap();
 
-    assert_eq!(super::normalize_path(&resolved.input_file), generated_main);
+    assert_eq!(
+        super::normalize_path(&resolved.input_file),
+        super::normalize_path(&generated_main)
+    );
     assert_eq!(
         resolved
             .compile_options

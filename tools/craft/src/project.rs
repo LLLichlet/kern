@@ -762,6 +762,12 @@ mod tests {
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
 
+    fn normalize_test_path(path: &Path) -> PathBuf {
+        super::normalize_platform_path(
+            std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()),
+        )
+    }
+
     fn temp_dir(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -844,7 +850,10 @@ root = \"src/lib.rn\"
         let resolved =
             project.resolve_for_file(&app_dir.join("src/lib.rn"), &CompileOptions::default());
 
-        assert_eq!(resolved.input_file, app_dir.join("src/lib.rn"));
+        assert_eq!(
+            normalize_test_path(&resolved.input_file),
+            normalize_test_path(&app_dir.join("src/lib.rn"))
+        );
         assert_eq!(
             resolved.compile_options.root_module_name,
             Some("app".to_string())
@@ -855,7 +864,7 @@ root = \"src/lib.rn\"
                 .module_aliases
                 .get("util")
                 .map(PathBuf::from),
-            Some(util_dir.join("src/lib.rn"))
+            Some(normalize_test_path(&util_dir.join("src/lib.rn")))
         );
     }
 
@@ -898,7 +907,10 @@ root = \"src/demo.rn\"
         let resolved =
             project.resolve_for_file(&app_dir.join("src/demo.rn"), &CompileOptions::default());
 
-        assert_eq!(resolved.input_file, app_dir.join("src/demo.rn"));
+        assert_eq!(
+            normalize_test_path(&resolved.input_file),
+            normalize_test_path(&app_dir.join("src/demo.rn"))
+        );
         assert_eq!(resolved.compile_options.root_module_name, None);
     }
 
@@ -952,7 +964,10 @@ root = \"src/demo.rn\"
             &CompileOptions::default(),
         );
 
-        assert_eq!(resolved.input_file, app_dir.join("src/demo.rn"));
+        assert_eq!(
+            normalize_test_path(&resolved.input_file),
+            normalize_test_path(&app_dir.join("src/demo.rn"))
+        );
         assert_eq!(resolved.compile_options.root_module_name, None);
     }
 
@@ -991,7 +1006,10 @@ root = \"src/lib.rn\"
         let resolved =
             project.resolve_for_file(&app_dir.join("craft.rn"), &CompileOptions::default());
 
-        assert_eq!(resolved.input_file, app_dir.join("craft.rn"));
+        assert_eq!(
+            normalize_test_path(&resolved.input_file),
+            normalize_test_path(&app_dir.join("craft.rn"))
+        );
         assert_eq!(
             resolved
                 .compile_options
@@ -1048,7 +1066,10 @@ root = \"src/main.rn\"
         let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
         let resolved = project.resolve_for_file(&root.join("craft.rn"), &CompileOptions::default());
 
-        assert_eq!(resolved.input_file, root.join("craft.rn"));
+        assert_eq!(
+            normalize_test_path(&resolved.input_file),
+            normalize_test_path(&root.join("craft.rn"))
+        );
         assert_eq!(
             resolved
                 .compile_options
@@ -1339,7 +1360,10 @@ pub fn build(b: *mut builder.Builder) void {
             .map(|(key, value)| (key.clone(), value.clone()))
             .collect::<HashMap<_, _>>();
 
-        assert_eq!(resolved.input_file, generated_root);
+        assert_eq!(
+            normalize_test_path(&resolved.input_file),
+            normalize_test_path(&generated_root)
+        );
         assert_eq!(defines.get("generated").map(String::as_str), Some("true"));
         assert_eq!(
             defines.get("ENTRY_KIND").map(String::as_str),
@@ -1408,13 +1432,16 @@ pub fn build(b: *mut builder.Builder) void {
             .join("main.rn");
         let generated_info = generated_main.parent().unwrap().join("build_info.rn");
 
-        assert_eq!(resolved.input_file, generated_main);
+        assert_eq!(
+            normalize_test_path(&resolved.input_file),
+            normalize_test_path(&generated_main)
+        );
         assert_eq!(
             resolved
                 .source_path_aliases
-                .get(&root.join("src/main.rn"))
-                .cloned(),
-            Some(generated_main.clone())
+                .get(&normalize_test_path(&root.join("src/main.rn")))
+                .map(|path| normalize_test_path(path)),
+            Some(normalize_test_path(&generated_main))
         );
         assert!(generated_info.is_file());
         assert_eq!(

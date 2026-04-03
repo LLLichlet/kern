@@ -19,7 +19,12 @@ import {
     discoverCraftWorkspaceFolders,
     resolveCraftCommand,
 } from "./craftContext";
-import { shouldAutoTriggerSuggest } from "./clientBehavior";
+import {
+    createAutoSuggestRequest,
+    matchesAutoSuggestRequest,
+    shouldAutoTriggerSuggest,
+    shouldHideAutoTriggeredSuggest,
+} from "./clientBehavior";
 import { DiagnosticBuffer } from "./diagnosticBuffer";
 
 let client: LanguageClient | undefined;
@@ -28,6 +33,9 @@ let statusItem: vscode.LanguageStatusItem | undefined;
 let fileWatchers: vscode.FileSystemWatcher[] = [];
 let diagnosticBuffer:
     | DiagnosticBuffer<vscode.Uri, vscode.Diagnostic>
+    | undefined;
+let pendingAutoSuggestRequest:
+    | ReturnType<typeof createAutoSuggestRequest>
     | undefined;
 
 const DIAGNOSTIC_DISPLAY_DELAY_MS = 180;
@@ -107,6 +115,12 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
                 return;
             }
 
+            pendingAutoSuggestRequest = createAutoSuggestRequest(
+                event.document.uri.toString(),
+                event.document.version,
+                insertedOffset,
+                Date.now(),
+            );
             void vscode.commands.executeCommand("editor.action.triggerSuggest");
         }),
     );
@@ -160,6 +174,7 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     const server = resolution;
     fileWatchers = createLanguageServerWatchers();
     diagnosticBuffer = new DiagnosticBuffer(DIAGNOSTIC_DISPLAY_DELAY_MS);
+    pendingAutoSuggestRequest = undefined;
     appendOutput(
         `Starting kern-lsp (${server.source}): ${server.command} ${server.args.join(" ")}`.trim(),
     );
@@ -227,6 +242,36 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
             },
         },
         middleware: {
+            provideCompletionItem: async (document, position, context, token, next) => {
+                const result = await Promise.resolve(
+                    next(document, position, context, token),
+                );
+                const offset = document.offsetAt(position);
+                const autoSuggestMatched = matchesAutoSuggestRequest(
+                    pendingAutoSuggestRequest,
+                    document.uri.toString(),
+                    document.version,
+                    offset,
+                    Date.now(),
+                );
+
+                if (autoSuggestMatched) {
+                    pendingAutoSuggestRequest = undefined;
+                }
+
+                if (
+                    shouldHideAutoTriggeredSuggest(
+                        result,
+                        context.triggerKind,
+                        context.triggerCharacter,
+                        autoSuggestMatched,
+                    )
+                ) {
+                    void vscode.commands.executeCommand("hideSuggestWidget");
+                }
+
+                return result;
+            },
             handleDiagnostics: (uri, diagnostics, next) => {
                 diagnosticBuffer?.schedule(
                     uri.toString(),
@@ -279,6 +324,7 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
 }
 
 async function stopLanguageServer(): Promise<void> {
+    pendingAutoSuggestRequest = undefined;
     disposeWatchers();
     diagnosticBuffer?.clear();
     diagnosticBuffer = undefined;

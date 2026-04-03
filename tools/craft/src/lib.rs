@@ -1,6 +1,7 @@
 pub mod analysis_context;
 pub mod cli;
 pub mod discover;
+pub mod doc;
 pub mod error;
 pub mod graph;
 pub mod manifest;

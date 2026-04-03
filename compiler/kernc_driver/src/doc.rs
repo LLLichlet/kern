@@ -320,7 +320,6 @@ pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {
 
         for section in &item.docs.sections {
             out.push_str("[[item.section]]\n");
-            out.push_str(&format!("path = {}\n", toml_quote(&item.path)));
             out.push_str(&format!("kind = {}\n", toml_quote(section.kind.as_str())));
             out.push_str(&format!("title = {}\n", toml_quote(&section.title)));
             out.push_str(&format!("body = {}\n", toml_quote(&section.body)));
@@ -328,8 +327,6 @@ pub fn render_kmeta_docs_toml(items: &[KmetaDocItem]) -> String {
 
             for entry in &section.entries {
                 out.push_str("[[item.section.entry]]\n");
-                out.push_str(&format!("path = {}\n", toml_quote(&item.path)));
-                out.push_str(&format!("section = {}\n", toml_quote(&section.title)));
                 if let Some(name) = &entry.name {
                     out.push_str(&format!("name = {}\n", toml_quote(name)));
                 }

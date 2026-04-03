@@ -1,6 +1,7 @@
 use crate::analysis_context;
 use crate::build_plan;
 use crate::discover;
+use crate::doc;
 use crate::elaborate;
 use crate::error::{Error, Result};
 use crate::execute;
@@ -29,6 +30,11 @@ pub enum Command {
         ui: UiOptions,
     },
     Fetch {
+        path: Option<PathBuf>,
+        feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
+    },
+    Doc {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
@@ -509,6 +515,80 @@ pub fn run() -> Result<()> {
             let execution = execute::build(&build_plan, &action_plan)?;
             render.ok(format!(
                 "build completed (compile {}, link {})",
+                execution.compile_actions, execution.link_actions
+            ));
+
+            Ok(())
+        }
+        Command::Doc {
+            path,
+            feature_selection,
+            ui,
+        } => {
+            let render = Renderer::new(ui);
+            let loaded = load_package_graph(
+                path.as_deref(),
+                crate::script::ScriptCommand::Build,
+                &feature_selection,
+            )?;
+            let build_plan =
+                build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+            let _ = analysis_context::sync_analysis_context(
+                &loaded.manifest_path,
+                &loaded.elaboration,
+                &build_plan,
+                &feature_selection,
+            );
+            let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+            render.header_with_path(
+                "doc",
+                &loaded.manifest,
+                &loaded.manifest_path,
+                &feature_selection,
+            );
+            render.summary(
+                "plan",
+                format!(
+                    "{} unit(s), {} compile action(s), {} link action(s)",
+                    build_plan.unit_count(),
+                    action_plan.compile_count(),
+                    action_plan.link_count()
+                ),
+            );
+            if render.verbose
+                && (build_plan.generated_file_count() > 0
+                    || action_plan.compile_count() > 0
+                    || action_plan.link_count() > 0)
+            {
+                render.section("actions");
+            }
+            print_generated_files(&render, &build_plan);
+            print_compile_actions(&render, &action_plan);
+            print_link_actions(&render, &action_plan);
+            let execution = execute::build(&build_plan, &action_plan)?;
+            let docs = doc::sync_workspace_docs(&build_plan, &action_plan)?;
+            render.summary(
+                "docs",
+                format!(
+                    "{} package(s), {} documented item(s), output {}",
+                    docs.len(),
+                    docs.iter().map(|doc| doc.item_count).sum::<usize>(),
+                    build_plan.workspace_root.join(".craft/docs").display()
+                ),
+            );
+            if render.verbose {
+                for doc in &docs {
+                    render.action(
+                        Tone::Generate,
+                        "doc",
+                        &doc.package_label,
+                        format!("-> {}", doc.markdown_path.display()),
+                    );
+                }
+            }
+            render.ok(format!(
+                "doc generation completed (compile {}, link {})",
                 execution.compile_actions, execution.link_actions
             ));
 
@@ -1207,6 +1287,11 @@ where
             feature_selection,
             ui,
         }),
+        "doc" => Ok(Command::Doc {
+            path,
+            feature_selection,
+            ui,
+        }),
         "build" => Ok(Command::Build {
             path,
             feature_selection,
@@ -1347,6 +1432,7 @@ commands
   check  Validate `Craft.toml`, scripts, sources, and derived analysis inputs
   lock   Write a deterministic `Craft.lock` for the current package graph
   fetch  Materialize external package sources into the local `.craft` cache
+  doc    Build library metadata and render native package docs to Markdown
   build  Build the selected package graph and print the derived action plan
   run    Build and run the single runnable `bin` target in the package graph
   test   Build and run all discovered `test` targets
@@ -1362,6 +1448,7 @@ options
 examples
   craft check
   craft build path/to/pkg --release
+  craft doc --verbose
   craft run --features tls,simd
   craft build --verbose --color always
 "
@@ -1492,6 +1579,26 @@ mod tests {
                 assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected fetch command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_doc_with_verbose_output() {
+        let cmd = parse_args(["doc".to_string(), "--verbose".to_string()]).unwrap();
+
+        match cmd {
+            Command::Doc {
+                path,
+                feature_selection,
+                ui,
+            } => {
+                assert!(path.is_none());
+                assert!(feature_selection.enable_default);
+                assert!(feature_selection.explicit.is_empty());
+                assert!(ui.verbose);
+                assert_eq!(ui.color, ColorChoice::Auto);
+            }
+            other => panic!("expected doc command, got {other:?}"),
         }
     }
 

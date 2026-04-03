@@ -1,4 +1,7 @@
-use crate::doc::{collect_kmeta_doc_items, render_kmeta_docs_toml};
+use crate::doc::{
+    KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem,
+    collect_kmeta_doc_items, render_kmeta_docs_toml,
+};
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
 use std::collections::BTreeMap;
@@ -138,6 +141,17 @@ pub fn load_manifest(metadata_root: &Path) -> Result<Option<KmetaManifest>, Stri
     parse_manifest(&contents).map(Some)
 }
 
+pub fn load_docs(metadata_root: &Path) -> Result<Option<Vec<KmetaDocItem>>, String> {
+    let docs_path = metadata_root.join(KMETA_DOCS_FILE);
+    if !docs_path.is_file() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(&docs_path)
+        .map_err(|err| format!("failed to read `{}`: {err}", docs_path.display()))?;
+    parse_docs(&contents).map(Some)
+}
+
 fn module_def<'a>(ctx: &'a SemaContext<'_>, id: DefId) -> Option<&'a ModuleDef> {
     match ctx.defs.get(id.0 as usize) {
         Some(Def::Module(module)) => Some(module),
@@ -240,6 +254,176 @@ fn parse_manifest(contents: &str) -> Result<KmetaManifest, String> {
     })
 }
 
+fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
+    enum SectionKind {
+        Item,
+        ItemSection,
+        ItemSectionEntry,
+    }
+
+    let mut items = Vec::new();
+    let mut current_item: Option<KmetaDocItem> = None;
+    let mut current_section: Option<KernDocSection> = None;
+    let mut active = None;
+    let mut seen_format_version = false;
+
+    for (index, raw_line) in contents.lines().enumerate() {
+        let line = raw_line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        match line {
+            "[[item]]" => {
+                flush_section(&mut current_item, &mut current_section)?;
+                flush_item(&mut items, &mut current_item);
+                current_item = Some(KmetaDocItem {
+                    path: String::new(),
+                    kind: String::new(),
+                    signature: None,
+                    docs: KernDoc {
+                        summary: String::new(),
+                        details: String::new(),
+                        sections: Vec::new(),
+                        raw_text: String::new(),
+                    },
+                });
+                active = Some(SectionKind::Item);
+                continue;
+            }
+            "[[item.section]]" => {
+                flush_section(&mut current_item, &mut current_section)?;
+                ensure_item(index + 1, &current_item)?;
+                current_section = Some(KernDocSection {
+                    kind: KernDocSectionKind::Custom,
+                    title: String::new(),
+                    body: String::new(),
+                    entries: Vec::new(),
+                });
+                active = Some(SectionKind::ItemSection);
+                continue;
+            }
+            "[[item.section.entry]]" => {
+                ensure_section(index + 1, &current_section)?;
+                if let Some(section) = current_section.as_mut() {
+                    section.entries.push(KernDocEntry {
+                        name: None,
+                        body: String::new(),
+                    });
+                }
+                active = Some(SectionKind::ItemSectionEntry);
+                continue;
+            }
+            _ => {}
+        }
+
+        let Some((key, value)) = line.split_once('=') else {
+            return Err(format!(
+                "invalid docs line {}: expected `key = value` or a table header",
+                index + 1
+            ));
+        };
+        let key = key.trim();
+
+        if key == "format_version" {
+            let version = value.trim().parse::<u32>().map_err(|_| {
+                format!(
+                    "invalid docs line {}: expected an integer `format_version`",
+                    index + 1
+                )
+            })?;
+            if version != 1 {
+                return Err(format!("unsupported docs format version `{version}`"));
+            }
+            seen_format_version = true;
+            continue;
+        }
+
+        let value = parse_quoted(value.trim()).ok_or_else(|| {
+            format!(
+                "invalid docs line {}: expected a quoted string value for `{}`",
+                index + 1,
+                key
+            )
+        })?;
+
+        match active {
+            Some(SectionKind::Item) => {
+                let item = current_item
+                    .as_mut()
+                    .ok_or_else(|| format!("docs line {} appears outside `[[item]]`", index + 1))?;
+                match key {
+                    "path" => item.path = value,
+                    "kind" => item.kind = value,
+                    "signature" => item.signature = Some(value),
+                    "summary" => item.docs.summary = value,
+                    "details" => item.docs.details = value,
+                    "raw" => item.docs.raw_text = value,
+                    _ => {
+                        return Err(format!(
+                            "unknown docs item field `{}` on line {}",
+                            key,
+                            index + 1
+                        ));
+                    }
+                }
+            }
+            Some(SectionKind::ItemSection) => {
+                let section = current_section.as_mut().ok_or_else(|| {
+                    format!("docs line {} appears outside `[[item.section]]`", index + 1)
+                })?;
+                match key {
+                    "kind" => section.kind = parse_section_kind(&value),
+                    "title" => section.title = value,
+                    "body" => section.body = value,
+                    _ => {
+                        return Err(format!(
+                            "unknown docs section field `{}` on line {}",
+                            key,
+                            index + 1
+                        ));
+                    }
+                }
+            }
+            Some(SectionKind::ItemSectionEntry) => {
+                let section = current_section.as_mut().ok_or_else(|| {
+                    format!("docs line {} appears outside `[[item.section.entry]]`", index + 1)
+                })?;
+                let entry = section.entries.last_mut().ok_or_else(|| {
+                    format!(
+                        "docs line {} appears before an active `[[item.section.entry]]`",
+                        index + 1
+                    )
+                })?;
+                match key {
+                    "name" => entry.name = Some(value),
+                    "body" => entry.body = value,
+                    _ => {
+                        return Err(format!(
+                            "unknown docs section entry field `{}` on line {}",
+                            key,
+                            index + 1
+                        ));
+                    }
+                }
+            }
+            None => {
+                return Err(format!(
+                    "docs line {} appears before any docs table header",
+                    index + 1
+                ));
+            }
+        }
+    }
+
+    flush_section(&mut current_item, &mut current_section)?;
+    flush_item(&mut items, &mut current_item);
+    if !seen_format_version {
+        return Err("docs metadata is missing `format_version`".to_string());
+    }
+    Ok(items)
+}
+
 fn parse_quoted_field(fields: &mut BTreeMap<String, String>, key: &str) -> Result<String, String> {
     let raw = fields
         .remove(key)
@@ -259,6 +443,64 @@ fn parse_optional_quoted_field(
         .ok_or_else(|| format!("kmeta manifest has invalid `{}`", key))
 }
 
+fn flush_section(
+    current_item: &mut Option<KmetaDocItem>,
+    current_section: &mut Option<KernDocSection>,
+) -> Result<(), String> {
+    let Some(section) = current_section.take() else {
+        return Ok(());
+    };
+    let item = current_item
+        .as_mut()
+        .ok_or_else(|| "doc section appeared without an owning item".to_string())?;
+    item.docs.sections.push(section);
+    Ok(())
+}
+
+fn flush_item(items: &mut Vec<KmetaDocItem>, current_item: &mut Option<KmetaDocItem>) {
+    if let Some(item) = current_item.take() {
+        items.push(item);
+    }
+}
+
+fn ensure_item(line: usize, current_item: &Option<KmetaDocItem>) -> Result<(), String> {
+    if current_item.is_none() {
+        return Err(format!("docs line {} starts a section before any item", line));
+    }
+    Ok(())
+}
+
+fn ensure_section(line: usize, current_section: &Option<KernDocSection>) -> Result<(), String> {
+    if current_section.is_none() {
+        return Err(format!(
+            "docs line {} starts a section entry before any section",
+            line
+        ));
+    }
+    Ok(())
+}
+
+fn parse_section_kind(raw: &str) -> KernDocSectionKind {
+    match raw {
+        "args" => KernDocSectionKind::Args,
+        "returns" => KernDocSectionKind::Returns,
+        "errors" => KernDocSectionKind::Errors,
+        "safety" => KernDocSectionKind::Safety,
+        "effects" => KernDocSectionKind::Effects,
+        "requires" => KernDocSectionKind::Requires,
+        "ensures" => KernDocSectionKind::Ensures,
+        "state" => KernDocSectionKind::State,
+        "boundary" => KernDocSectionKind::Boundary,
+        "design" => KernDocSectionKind::Design,
+        "rationale" => KernDocSectionKind::Rationale,
+        "example" => KernDocSectionKind::Example,
+        "see" => KernDocSectionKind::See,
+        "note" => KernDocSectionKind::Note,
+        "warning" => KernDocSectionKind::Warning,
+        _ => KernDocSectionKind::Custom,
+    }
+}
+
 fn quote(value: &str) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
@@ -271,6 +513,47 @@ fn quote(value: &str) -> String {
     }
     out.push('"');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_docs;
+
+    #[test]
+    fn parses_native_docs_toml_with_nested_sections() {
+        let contents = r#"
+format_version = 1
+
+[[item]]
+path = "root::uart::Uart::read"
+kind = "function"
+signature = "fn read: fn(u16) u8"
+summary = "Read one byte."
+details = ""
+raw = "Read one byte."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = ""
+
+[[item.section.entry]]
+name = "self"
+body = "must point to a mapped UART object."
+"#;
+
+        let docs = parse_docs(contents).expect("expected docs to parse");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].path, "root::uart::Uart::read");
+        assert_eq!(docs[0].docs.summary, "Read one byte.");
+        assert_eq!(docs[0].docs.sections.len(), 1);
+        assert_eq!(docs[0].docs.sections[0].title, "Safety");
+        assert_eq!(docs[0].docs.sections[0].entries.len(), 1);
+        assert_eq!(
+            docs[0].docs.sections[0].entries[0].name.as_deref(),
+            Some("self")
+        );
+    }
 }
 
 fn parse_quoted(raw: &str) -> Option<String> {

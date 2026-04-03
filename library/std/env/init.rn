@@ -20,8 +20,11 @@ extern {
 
 #[if(os == "windows")]
 extern {
+    /// Reads one environment variable as an ANSI byte string.
     pub fn GetEnvironmentVariableA(lpName: *u8, lpBuffer: *mut u8, nSize: u32) u32;
+    /// Returns the process environment block as a sequence of zero-terminated strings.
     pub fn GetEnvironmentStringsA() *mut u8;
+    /// Releases the block returned by `GetEnvironmentStringsA`.
     pub fn FreeEnvironmentStringsA(penv: *mut u8) i32;
 }
 
@@ -204,6 +207,8 @@ pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
 }
 
 /// Returns `true` when an environment variable exists.
+///
+/// This avoids cloning the value and only checks for presence.
 pub fn has(alloc: *mut Allocator, name: []u8) bool {
     if (#name == 0) {
         return false;
@@ -225,6 +230,9 @@ pub fn has(alloc: *mut Allocator, name: []u8) bool {
 }
 
 /// Returns the environment variable or a cloned fallback string.
+///
+/// Returns:
+/// `None` when allocation fails for either the real value or the fallback.
 pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[String] {
     match (get(alloc, name)) {
         .{ Some: value } => return .{ Some: value },
@@ -245,6 +253,9 @@ pub fn get_or_empty(alloc: *mut Allocator, name: []u8) Option[String] {
 }
 
 /// Visits every environment variable until the visitor returns `false`.
+///
+/// Returns:
+/// the number of entries observed, including the last one passed to the visitor.
 pub fn visit(visitor: *Fn(Var) bool) usize {
     #[if(libc and (os == "linux" or os == "darwin"))]
     {

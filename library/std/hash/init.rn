@@ -5,6 +5,7 @@
 
 /// A type that can produce a stable 64-bit hash value.
 pub type Hash[T] = trait {
+    /// Computes a deterministic 64-bit hash for `self`.
     hash: fn() u64,
 };
 

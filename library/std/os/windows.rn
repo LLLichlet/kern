@@ -162,6 +162,7 @@ pub fn get_stderr_handle() Handle {
     return GetStdHandle(-12);
 }
 
+/// Returns the number of UTF-16 code units before the terminating zero.
 pub fn utf16_z_len(str: *u16) usize {
     let mut len = 0;
     for (;;) {
@@ -278,6 +279,7 @@ pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) Result[usize, Error] {
     return .{ Ok: written as usize };
 }
 
+/// Converts a zero-terminated UTF-16 string into an owned zero-terminated UTF-8 buffer.
 pub fn wide_z_to_utf8_alloc(ptr: *u16) Result[*mut u8, Error] {
     let len = utf16_z_len(ptr);
     if (len == 0) {
@@ -309,6 +311,7 @@ pub fn wide_z_to_utf8_alloc(ptr: *u16) Result[*mut u8, Error] {
     return .{ Ok: out };
 }
 
+/// Reads up to `len` bytes from `handle` into `ptr`.
 pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
     let mut read = u32.{0};
     if (ReadFile(handle, ptr, len as u32, read..&, 0) == 0) {
@@ -317,6 +320,7 @@ pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] 
     return .{ Ok: read as usize };
 }
 
+/// Writes up to `len` bytes from `ptr` into `handle`.
 pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
     let mut written = u32.{0};
     if (WriteFile(handle, ptr, len as u32, written..&, 0) == 0) {
@@ -325,6 +329,7 @@ pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
     return .{ Ok: written as usize };
 }
 
+/// Closes an open file handle.
 pub fn close_file(handle: Handle) Result[bool, Error] {
     if (CloseHandle(handle) == 0) {
         return .{ Err: last_error() };
@@ -332,6 +337,7 @@ pub fn close_file(handle: Handle) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Returns metadata for a filesystem entry.
 pub fn metadata(path: *u8) Result[Metadata, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
@@ -434,6 +440,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
     }
 }
 
+/// Opens a file handle using the platform `OpenOptions` flags.
 pub fn open_file(
     path: *u8,
     options: *OpenOptions,
@@ -477,6 +484,7 @@ pub fn open_file(
     return .{ Ok: handle };
 }
 
+/// Creates one directory.
 pub fn create_dir(path: *u8) Result[bool, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
@@ -490,6 +498,7 @@ pub fn create_dir(path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Removes one empty directory.
 pub fn remove_dir(path: *u8) Result[bool, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
@@ -503,6 +512,7 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Removes one file.
 pub fn remove_file(path: *u8) Result[bool, Error] {
     let wide_path = match (utf8_z_to_wide(path)) {
         .{ Ok: ptr } => ptr,
@@ -516,6 +526,7 @@ pub fn remove_file(path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Renames or moves a filesystem entry.
 pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
     let wide_old_path = match (utf8_z_to_wide(old_path)) {
         .{ Ok: ptr } => ptr,
@@ -535,6 +546,7 @@ pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Best-effort write helper that collapses errors to `0`.
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     match (write_file(handle, ptr, len)) {
         .{ Ok: written } => return written,
@@ -543,7 +555,9 @@ pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
 }
 
 extern {
+    /// Reserves or commits page-backed virtual memory.
     pub fn VirtualAlloc(lpAddress: *mut u8, dwSize: usize, flAllocationType: u32, flProtect: u32) *mut u8;
+    /// Releases memory previously returned by `VirtualAlloc`.
     pub fn VirtualFree(lpAddress: *mut u8, dwSize: usize, dwFreeType: u32) i32;
 }
 

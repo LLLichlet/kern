@@ -15,11 +15,13 @@ pub const GREATER = Ordering.{1};
 
 /// Equality comparison for a type.
 pub type Eq[T] = trait {
+    /// Returns `true` when `self` and the argument should be treated as equal.
     eq: fn(T) bool,
 };
 
 /// Total or partial ordering comparison for a type.
 pub type Comparable[T] = trait {
+    /// Compares `self` with another value and returns an `Ordering`.
     cmp: fn(T) Ordering,
 };
 

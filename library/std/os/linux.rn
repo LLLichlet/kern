@@ -299,6 +299,9 @@ pub fn metadata(path: *u8) Result[Metadata, Error] {
     };
 }
 
+/// Scans one directory and invokes `visitor` for each non-dot entry.
+///
+/// `search_path` is ignored on Linux because the scan operates directly on `path`.
 pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) Result[usize, Error] {
     let _ = search_path;
     let options = OpenOptions.{ read: true };
@@ -353,6 +356,7 @@ pub fn scan_dir(path: *u8, search_path: *u8, visitor: *Fn([]u8, FileType) bool) 
     }
 }
 
+/// Opens a file handle using the platform `OpenOptions` flags.
 pub fn open_file(
     path: *u8,
     options: *OpenOptions,
@@ -371,6 +375,7 @@ pub fn open_file(
     return .{ Ok: ret as usize };
 }
 
+/// Creates one directory.
 pub fn create_dir(path: *u8) Result[bool, Error] {
     let ret = syscall3_raw(MKDIRAT, AT_FDCWD, path as usize, MODE_DIR);
     if (ret < 0) {
@@ -379,6 +384,7 @@ pub fn create_dir(path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Removes one empty directory.
 pub fn remove_dir(path: *u8) Result[bool, Error] {
     let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, AT_REMOVEDIR);
     if (ret < 0) {
@@ -387,6 +393,7 @@ pub fn remove_dir(path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Removes one file.
 pub fn remove_file(path: *u8) Result[bool, Error] {
     let ret = syscall3_raw(UNLINKAT, AT_FDCWD, path as usize, 0);
     if (ret < 0) {
@@ -395,6 +402,7 @@ pub fn remove_file(path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Renames or moves a filesystem entry.
 pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
     let ret = syscall4_raw(RENAMEAT, AT_FDCWD, old_path as usize, AT_FDCWD, new_path as usize);
     if (ret < 0) {
@@ -403,6 +411,7 @@ pub fn rename(old_path: *u8, new_path: *u8) Result[bool, Error] {
     return .{ Ok: true };
 }
 
+/// Best-effort write helper that collapses errors to `0`.
 pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
     match (write_file(handle, ptr, len)) {
         .{ Ok: written } => return written,

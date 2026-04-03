@@ -1584,30 +1584,27 @@ fn rebind_decl_sequence<'a>(
                     return false;
                 };
                 match (&mut ctx.defs[def_id.0 as usize], &target.kind) {
-                    (
-                        kernc_sema::def::Def::Struct(struct_def),
-                        ast::TypeKind::Struct { fields, .. },
-                    ) => {
+                    (kernc_sema::def::Def::Struct(struct_def), ast::TypeKind::Struct { .. }) => {
+                        // Keep the clean structure-phase type nodes. Rebinding parsed type
+                        // fields here would mix dirty-session NodeIds into a clean semantic
+                        // snapshot, invalidating cached node_types/layout data.
                         struct_def.span = decl.span;
-                        struct_def.fields = fields.clone();
                     }
-                    (
-                        kernc_sema::def::Def::Union(union_def),
-                        ast::TypeKind::Union { fields, .. },
-                    ) => {
+                    (kernc_sema::def::Def::Union(union_def), ast::TypeKind::Union { .. }) => {
                         union_def.span = decl.span;
-                        union_def.fields = fields.clone();
                     }
-                    (kernc_sema::def::Def::Enum(enum_def), _) => {
+                    (kernc_sema::def::Def::Enum(enum_def), ast::TypeKind::Enum { .. }) => {
                         enum_def.span = decl.span;
                     }
-                    (kernc_sema::def::Def::Trait(trait_def), _) => {
+                    (kernc_sema::def::Def::Trait(trait_def), ast::TypeKind::Trait { .. }) => {
                         trait_def.span = decl.span;
                     }
                     (kernc_sema::def::Def::TypeAlias(alias_def), _) => {
                         alias_def.span = decl.span;
                     }
-                    _ => return false,
+                    _ => {
+                        return false;
+                    }
                 }
             }
             ast::DeclKind::ExternBlock { decls, .. } => {

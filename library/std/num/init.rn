@@ -1,4 +1,7 @@
 //! Numeric limits and small arithmetic constants.
+//!
+//! This module collects target-dependent integer bounds that other low-level
+//! modules reuse when checking overflow or sentinel values.
 
 /// The minimum representable `i8`.
 pub const I8_MIN  = i8.{-128};

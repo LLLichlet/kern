@@ -1,3 +1,8 @@
+//! Runtime diagnostics and fail-fast helpers.
+//!
+//! Design:
+//! keep failure reporting small, explicit, and available even before richer runtime services exist.
+
 use std.io.{Printable, Writer, format_to, stderr};
 
 fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
@@ -18,6 +23,9 @@ pub fn trap() ! {
 
 /// Prints a panic message to standard error and traps.
 ///
+/// This is the intended boundary for unrecoverable user-visible failures in
+/// low-level code that still wants a formatted diagnostic.
+///
 /// Note:
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
@@ -27,6 +35,9 @@ pub fn panic(fmt: []u8, args: []*Printable) ! {
 }
 
 /// Traps when `ok` is false after printing a diagnostic message.
+///
+/// `assert` is for internal invariants. Recoverable conditions should be
+/// modeled with `Result` or `Option` instead.
 ///
 /// Note:
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
@@ -40,6 +51,8 @@ pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
 
 /// Writes a log line to standard error.
 ///
+/// This is a lightweight diagnostic channel intended for ad hoc runtime output.
+///
 /// Note:
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still
 /// require the trailing comma.
@@ -48,6 +61,9 @@ pub fn log(fmt: []u8, args: []*Printable) void {
 }
 
 /// Writes a debug line to standard error.
+///
+/// `debug` uses the same output path as `log`, but keeps a separate prefix so
+/// tooling and humans can distinguish intent.
 ///
 /// Note:
 /// formatting arguments are passed as `.{ value, }`. Single-element lists still

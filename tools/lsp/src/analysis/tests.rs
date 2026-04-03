@@ -80,6 +80,50 @@ fn close_document_clears_open_state_and_returns_empty_bundle() {
 }
 
 #[test]
+fn diagnostics_include_native_doc_lints_as_warnings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "///\n",
+        "/// Strange:\n",
+        "/// - x: described in an unknown section.\n",
+        "/// Args:\n",
+        "/// - y: does not exist.\n",
+        "fn helper(x: i32) i32 { return x; }\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let uri = temp_file_uri("doc_lints", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().all(|diagnostic| diagnostic.severity == 2));
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("missing a summary paragraph")
+    }));
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic.message.contains("unknown doc section `Strange`")
+    }));
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("unknown documented argument `y`")
+    }));
+}
+
+#[test]
 fn incremental_sync_inserts_text() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri("incremental_insert", "let value = 1;");
@@ -1160,6 +1204,80 @@ fn hover_renders_native_docs_after_signature() {
         .contents
         .value
         .contains("`self` must point to a mapped UART object."));
+}
+
+#[test]
+fn hover_reuses_docs_from_imported_kmeta_packages() {
+    let root = unique_temp_dir("hover_imported_kmeta_docs");
+    let dep_meta = root.join("dep-meta");
+    fs::create_dir_all(dep_meta.join("src")).unwrap();
+
+    fs::write(
+        dep_meta.join("Kmeta.toml"),
+        concat!(
+            "format_version = 2\n",
+            "kind = \"source_snapshot\"\n",
+            "package_name = \"dep\"\n",
+            "package_version = \"0.1.0\"\n",
+            "root_module_name = \"dep\"\n",
+            "entry_module_path = \"src/init.rn\"\n",
+        ),
+    )
+    .unwrap();
+    fs::write(
+        dep_meta.join("src/init.rn"),
+        concat!(
+            "/// Imported helper from a kmeta package.\n",
+            "///\n",
+            "/// Safety:\n",
+            "/// - Pure helper with no hidden runtime policy.\n",
+            "pub fn helper() i32 { return 1; }\n",
+        ),
+    )
+    .unwrap();
+
+    let app_source = "use dep.{helper};\nfn main() i32 { return helper(); }\n";
+    let app_path = root.join("app.rn");
+    fs::write(&app_path, app_source).unwrap();
+
+    let mut options = CompileOptions {
+        use_std: true,
+        ..CompileOptions::default()
+    };
+    options.module_interface_aliases.insert(
+        "dep".to_string(),
+        dep_meta.to_string_lossy().to_string(),
+    );
+
+    let mut analysis = AnalysisEngine::new(AnalysisSettings {
+        compile_options: options,
+    });
+    let uri = file_path_to_uri(&app_path).unwrap();
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: app_source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(app_source, "helper", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("fn helper: fn() i32"));
+    assert!(hover
+        .contents
+        .value
+        .contains("Imported helper from a kmeta package."));
+    assert!(hover.contents.value.contains("**Safety**"));
+    assert!(hover
+        .contents
+        .value
+        .contains("Pure helper with no hidden runtime policy."));
 }
 
 #[test]

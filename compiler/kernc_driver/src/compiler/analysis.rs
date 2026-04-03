@@ -6,7 +6,7 @@ use super::{
     AnalysisSymbol, AnalysisSymbolKind, CompilerDriver, ParsedModule, ParsedModuleArtifact,
     SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
-use crate::doc::render_hover_markdown;
+use crate::doc::{lint_docs, render_hover_markdown};
 use crate::loader::ModuleLoader;
 use kernc_ast as ast;
 use kernc_sema::checker::TypeckDriver;
@@ -312,7 +312,8 @@ impl CompilerDriver {
             return false;
         }
 
-        let _ctx = type_resolver.into_context();
+        let ctx = type_resolver.into_context();
+        lint_docs(ctx);
         true
     }
 
@@ -653,9 +654,30 @@ impl CompilerDriver {
             .filter(|entry| entry.role == AnalysisSemanticRole::Definition)
             .map(|entry| (entry.definition_span, entry.clone()))
             .collect::<std::collections::BTreeMap<_, _>>();
+        let scoped_definition_by_span = ctx
+            .scopes
+            .all_symbols()
+            .filter_map(|(_name, info)| {
+                let def_id = info.def_id?;
+                Some((
+                    info.span,
+                    AnalysisSemanticEntry {
+                        span: info.span,
+                        definition_span: info.span,
+                        kind: self.semantic_kind_from_scope_symbol_kind(info.kind, def_id, ctx),
+                        role: AnalysisSemanticRole::Definition,
+                        is_mut: info.is_mut,
+                        is_pub: info.is_pub,
+                    },
+                ))
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
 
         for reference in references {
-            let Some(definition) = definition_by_span.get(&reference.definition_span) else {
+            let Some(definition) = definition_by_span
+                .get(&reference.definition_span)
+                .or_else(|| scoped_definition_by_span.get(&reference.definition_span))
+            else {
                 continue;
             };
             entries.push(AnalysisSemanticEntry {
@@ -677,6 +699,37 @@ impl CompilerDriver {
             )
         });
         entries
+    }
+
+    fn semantic_kind_from_scope_symbol_kind(
+        &self,
+        kind: kernc_sema::scope::SymbolKind,
+        def_id: DefId,
+        ctx: &SemaContext<'_>,
+    ) -> AnalysisSemanticKind {
+        match kind {
+            kernc_sema::scope::SymbolKind::Function => {
+                if matches!(
+                    &ctx.defs[def_id.0 as usize],
+                    kernc_sema::def::Def::Function(function) if function.parent.is_some()
+                ) {
+                    AnalysisSemanticKind::Method
+                } else {
+                    AnalysisSemanticKind::Function
+                }
+            }
+            kernc_sema::scope::SymbolKind::Const => AnalysisSemanticKind::Constant,
+            kernc_sema::scope::SymbolKind::Static => AnalysisSemanticKind::Static,
+            kernc_sema::scope::SymbolKind::Var => AnalysisSemanticKind::Variable,
+            kernc_sema::scope::SymbolKind::Struct | kernc_sema::scope::SymbolKind::Union => {
+                AnalysisSemanticKind::Struct
+            }
+            kernc_sema::scope::SymbolKind::Enum => AnalysisSemanticKind::Enum,
+            kernc_sema::scope::SymbolKind::Trait => AnalysisSemanticKind::Interface,
+            kernc_sema::scope::SymbolKind::Module => AnalysisSemanticKind::Module,
+            kernc_sema::scope::SymbolKind::TypeAlias => AnalysisSemanticKind::Type,
+            kernc_sema::scope::SymbolKind::TypeParam => AnalysisSemanticKind::TypeParameter,
+        }
     }
 
     fn collect_symbol_semantic_entries(

@@ -1,6 +1,8 @@
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef};
+use kernc_utils::Span;
+use std::collections::BTreeSet;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KernDoc {
@@ -99,6 +101,154 @@ pub fn normalize_doc(block: &ast::DocBlock) -> KernDoc {
         details,
         sections,
         raw_text,
+    }
+}
+
+pub fn lint_docs(ctx: &mut SemaContext<'_>) {
+    let mut warnings = Vec::new();
+
+    for def in &ctx.defs {
+        match def {
+            Def::Module(module) if !module.is_imported => {
+                if let Some(docs) = &module.docs {
+                    lint_doc_block(
+                        docs,
+                        &format!("module `{}`", module_path(ctx, module.id)),
+                        None,
+                        &mut warnings,
+                    );
+                }
+            }
+            Def::Function(function) if !function.is_imported => {
+                if let Some(docs) = &function.docs {
+                    let valid_args = function
+                        .params
+                        .iter()
+                        .map(|param| ctx.resolve(param.pattern.name).to_string())
+                        .collect::<BTreeSet<_>>();
+                    let target = format!("function `{}`", function_path(ctx, function));
+                    lint_doc_block(docs, &target, Some(&valid_args), &mut warnings);
+                }
+            }
+            Def::Struct(def) if !def.is_imported => {
+                if let Some(docs) = &def.docs {
+                    lint_doc_block(
+                        docs,
+                        &format!("struct `{}`", def_path(ctx, def.id)),
+                        None,
+                        &mut warnings,
+                    );
+                }
+                for field in &def.fields {
+                    if let Some(docs) = &field.docs {
+                        lint_doc_block(
+                            docs,
+                            &format!("field `{}::{}`", def_path(ctx, def.id), ctx.resolve(field.name)),
+                            None,
+                            &mut warnings,
+                        );
+                    }
+                }
+            }
+            Def::Union(def) if !def.is_imported => {
+                if let Some(docs) = &def.docs {
+                    lint_doc_block(
+                        docs,
+                        &format!("union `{}`", def_path(ctx, def.id)),
+                        None,
+                        &mut warnings,
+                    );
+                }
+                for field in &def.fields {
+                    if let Some(docs) = &field.docs {
+                        lint_doc_block(
+                            docs,
+                            &format!("field `{}::{}`", def_path(ctx, def.id), ctx.resolve(field.name)),
+                            None,
+                            &mut warnings,
+                        );
+                    }
+                }
+            }
+            Def::Enum(def) if !def.is_imported => {
+                if let Some(docs) = &def.docs {
+                    lint_doc_block(
+                        docs,
+                        &format!("enum `{}`", def_path(ctx, def.id)),
+                        None,
+                        &mut warnings,
+                    );
+                }
+                for variant in &def.variants {
+                    if let Some(docs) = &variant.docs {
+                        lint_doc_block(
+                            docs,
+                            &format!(
+                                "variant `{}::{}`",
+                                def_path(ctx, def.id),
+                                ctx.resolve(variant.name)
+                            ),
+                            None,
+                            &mut warnings,
+                        );
+                    }
+                }
+            }
+            Def::Trait(def) if !def.is_imported => {
+                if let Some(docs) = &def.docs {
+                    lint_doc_block(
+                        docs,
+                        &format!("trait `{}`", def_path(ctx, def.id)),
+                        None,
+                        &mut warnings,
+                    );
+                }
+                for method in &def.methods {
+                    if let Some(docs) = &method.docs {
+                        lint_doc_block(
+                            docs,
+                            &format!(
+                                "trait method `{}::{}`",
+                                def_path(ctx, def.id),
+                                ctx.resolve(method.name)
+                            ),
+                            None,
+                            &mut warnings,
+                        );
+                    }
+                }
+            }
+            Def::Global(def) if !def.is_imported => {
+                if let Some(docs) = &def.docs {
+                    let kind = if def.is_static { "static" } else { "const" };
+                    lint_doc_block(
+                        docs,
+                        &format!("{kind} `{}`", def_path(ctx, def.id)),
+                        None,
+                        &mut warnings,
+                    );
+                }
+            }
+            Def::TypeAlias(def) if !def.is_imported => {
+                if let Some(docs) = &def.docs {
+                    lint_doc_block(
+                        docs,
+                        &format!("type `{}`", def_path(ctx, def.id)),
+                        None,
+                        &mut warnings,
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
+    for warning in warnings {
+        let mut builder = ctx.struct_warning(warning.span, warning.message);
+        if let Some(hint) = warning.hint {
+            builder = builder.with_hint(hint);
+        }
+        builder.emit();
     }
 }
 
@@ -435,6 +585,99 @@ fn finalize_section(mut section: KernDocSection) -> KernDocSection {
         entry.body = entry.body.trim().to_string();
     }
     section
+}
+
+#[derive(Debug, Clone)]
+struct DocLint {
+    span: Span,
+    message: String,
+    hint: Option<String>,
+}
+
+fn lint_doc_block(
+    block: &ast::DocBlock,
+    target: &str,
+    valid_args: Option<&BTreeSet<String>>,
+    warnings: &mut Vec<DocLint>,
+) {
+    let doc = normalize_doc(block);
+    if doc.summary.trim().is_empty() {
+        warnings.push(DocLint {
+            span: block.span,
+            message: format!("doc block for {target} is missing a summary paragraph"),
+            hint: Some(
+                "start the doc block with a short first paragraph that states what the item means or guarantees"
+                    .to_string(),
+            ),
+        });
+    }
+
+    let mut current_section = None::<String>;
+    for line in &block.lines {
+        if let Some(title) = parse_section_title(&line.text) {
+            if classify_section(&title) == KernDocSectionKind::Custom {
+                warnings.push(DocLint {
+                    span: line.span,
+                    message: format!("unknown doc section `{title}` in {target}"),
+                    hint: Some(
+                        "supported sections: Args, Returns, Errors, Safety, Effects, Requires, Ensures, State, Boundary, Design, Rationale, Example, See, Note, Warning".to_string(),
+                    ),
+                });
+            }
+            current_section = Some(title);
+            continue;
+        }
+
+        if current_section.as_deref() == Some("Args") {
+            lint_args_line(line, target, valid_args, warnings);
+        }
+    }
+}
+
+fn lint_args_line(
+    line: &ast::DocLine,
+    target: &str,
+    valid_args: Option<&BTreeSet<String>>,
+    warnings: &mut Vec<DocLint>,
+) {
+    let trimmed = line.text.trim();
+    if trimmed.is_empty() || !trimmed.starts_with("- ") {
+        return;
+    }
+
+    let entry = trimmed.trim_start_matches("- ").trim();
+    let Some((name, body)) = entry.split_once(':') else {
+        warnings.push(DocLint {
+            span: line.span,
+            message: format!("malformed `Args` entry in {target}"),
+            hint: Some("write argument docs as `- name: description`".to_string()),
+        });
+        return;
+    };
+
+    let name = name.trim();
+    let body = body.trim();
+    if name.is_empty() || body.is_empty() {
+        warnings.push(DocLint {
+            span: line.span,
+            message: format!("malformed `Args` entry in {target}"),
+            hint: Some("write argument docs as `- name: description`".to_string()),
+        });
+        return;
+    }
+
+    if let Some(valid_args) = valid_args
+        && !valid_args.contains(name)
+    {
+        warnings.push(DocLint {
+            span: line.span,
+            message: format!("unknown documented argument `{name}` in {target}"),
+            hint: Some(format!(
+                "documented arguments must match the real parameter list: {}",
+                valid_args.iter().cloned().collect::<Vec<_>>().join(", ")
+            )),
+        });
+    }
 }
 
 fn push_item(

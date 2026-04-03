@@ -1108,7 +1108,7 @@ mod tests {
         );
         assert_eq!(
             result["capabilities"]["completionProvider"]["triggerCharacters"],
-            json!([".", ":"])
+            json!(["."])
         );
         assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
         assert_eq!(

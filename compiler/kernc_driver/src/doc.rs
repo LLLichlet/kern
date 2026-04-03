@@ -55,7 +55,11 @@ pub struct KmetaDocItem {
 }
 
 pub fn normalize_doc(block: &ast::DocBlock) -> KernDoc {
-    let raw_lines = block.lines.iter().map(|line| line.text.clone()).collect::<Vec<_>>();
+    let raw_lines = block
+        .lines
+        .iter()
+        .map(|line| line.text.clone())
+        .collect::<Vec<_>>();
     let raw_text = raw_lines.join("\n");
     let mut summary = String::new();
     let mut details = String::new();
@@ -143,7 +147,11 @@ pub fn lint_docs(ctx: &mut SemaContext<'_>) {
                     if let Some(docs) = &field.docs {
                         lint_doc_block(
                             docs,
-                            &format!("field `{}::{}`", def_path(ctx, def.id), ctx.resolve(field.name)),
+                            &format!(
+                                "field `{}::{}`",
+                                def_path(ctx, def.id),
+                                ctx.resolve(field.name)
+                            ),
                             None,
                             &mut warnings,
                         );
@@ -163,7 +171,11 @@ pub fn lint_docs(ctx: &mut SemaContext<'_>) {
                     if let Some(docs) = &field.docs {
                         lint_doc_block(
                             docs,
-                            &format!("field `{}::{}`", def_path(ctx, def.id), ctx.resolve(field.name)),
+                            &format!(
+                                "field `{}::{}`",
+                                def_path(ctx, def.id),
+                                ctx.resolve(field.name)
+                            ),
                             None,
                             &mut warnings,
                         );
@@ -305,7 +317,11 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                 push_item(
                     &mut items,
                     def_path(ctx, function.id),
-                    if function.parent.is_some() { "method" } else { "function" },
+                    if function.parent.is_some() {
+                        "method"
+                    } else {
+                        "function"
+                    },
                     function_signature(ctx, function),
                     function.docs.as_ref(),
                 );
@@ -495,7 +511,11 @@ fn parse_section_title(line: &str) -> Option<String> {
         return None;
     }
     let title = trimmed[..trimmed.len() - 1].trim();
-    if title.is_empty() || !title.chars().all(|ch| ch.is_ascii_alphabetic() || ch == ' ') {
+    if title.is_empty()
+        || !title
+            .chars()
+            .all(|ch| ch.is_ascii_alphabetic() || ch == ' ')
+    {
         return None;
     }
     Some(title.to_string())
@@ -722,12 +742,24 @@ fn def_path(ctx: &SemaContext<'_>, def_id: DefId) -> String {
     match &ctx.defs[def_id.0 as usize] {
         Def::Module(module) => module_path(ctx, module.id),
         Def::Function(function) => function_path(ctx, function),
-        Def::Struct(def) => module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id)),
-        Def::Union(def) => module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id)),
-        Def::Enum(def) => module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id)),
-        Def::Trait(def) => module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id)),
-        Def::TypeAlias(def) => module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id)),
-        Def::Global(def) => module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id)),
+        Def::Struct(def) => {
+            module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
+        }
+        Def::Union(def) => {
+            module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
+        }
+        Def::Enum(def) => {
+            module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
+        }
+        Def::Trait(def) => {
+            module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
+        }
+        Def::TypeAlias(def) => {
+            module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
+        }
+        Def::Global(def) => {
+            module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
+        }
         Def::Impl(def) => impl_path(ctx, def),
     }
 }
@@ -735,7 +767,11 @@ fn def_path(ctx: &SemaContext<'_>, def_id: DefId) -> String {
 fn function_path(ctx: &SemaContext<'_>, function: &FunctionDef) -> String {
     if let Some(parent) = function.parent {
         match &ctx.defs[parent.0 as usize] {
-            Def::Impl(impl_def) => format!("{}::{}", impl_path(ctx, impl_def), ctx.resolve(function.name)),
+            Def::Impl(impl_def) => format!(
+                "{}::{}",
+                impl_path(ctx, impl_def),
+                ctx.resolve(function.name)
+            ),
             Def::Module(module) => module_owned_path(ctx, function.name, Some(module.id)),
             _ => ctx.resolve(function.name).to_string(),
         }
@@ -745,7 +781,11 @@ fn function_path(ctx: &SemaContext<'_>, function: &FunctionDef) -> String {
 }
 
 fn impl_path(ctx: &SemaContext<'_>, impl_def: &ImplDef) -> String {
-    let target = type_node_label(ctx, &impl_def.target_type);
+    let mut target = type_node_label(ctx, &impl_def.target_type);
+    if let Some(trait_type) = &impl_def.trait_type {
+        target.push_str(" as ");
+        target.push_str(&type_node_label(ctx, trait_type));
+    }
     if let Some(module_id) = impl_def.parent_module {
         format!("{}::{}", module_path(ctx, module_id), target)
     } else {
@@ -816,7 +856,10 @@ fn type_node_label(ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
     if let Some(ty) = ctx.node_types.get(&type_node.id).copied() {
         return ctx.ty_to_string(ty);
     }
-    ctx.sess.source_manager.slice_source(type_node.span).to_string()
+    ctx.sess
+        .source_manager
+        .slice_source(type_node.span)
+        .to_string()
 }
 
 impl KernDocSectionKind {
@@ -857,4 +900,167 @@ fn toml_quote(value: &str) -> String {
     }
     out.push('"');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_kmeta_doc_items;
+    use kernc_ast as ast;
+    use kernc_sema::SemaContext;
+    use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef, ModuleDef, Visibility};
+    use kernc_sema::scope::ScopeId;
+    use kernc_utils::{NodeId, Session, Span};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    #[test]
+    fn collect_kmeta_doc_items_distinguishes_trait_impl_methods() {
+        let mut session = Session::new();
+        let source = "Device Service";
+        let file_id = session
+            .source_manager
+            .add_file("doc_test.rn".to_string(), source.to_string());
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_name = ctx.intern("root");
+        let read_name = ctx.intern("read");
+
+        let module_id = ctx.add_def(Def::Module(ModuleDef {
+            id: DefId(0),
+            name: root_name,
+            parent: None,
+            is_imported: false,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+
+        let target_type = path_type(file_id, 0, 6, ctx.intern("Device"));
+        let trait_type = path_type(file_id, 7, 14, ctx.intern("Service"));
+
+        let inherent_impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: DefId(1),
+            parent_module: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            target_type: target_type.clone(),
+            trait_type: None,
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+
+        let trait_impl_id = ctx.add_def(Def::Impl(ImplDef {
+            id: DefId(2),
+            parent_module: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            target_type: target_type.clone(),
+            trait_type: Some(trait_type),
+            methods: Vec::new(),
+            span: Span::default(),
+        }));
+
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(3),
+            name: read_name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent: Some(inherent_impl_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: void_type(),
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: Some(doc_block("Read from the inherent implementation.")),
+            attributes: Vec::new(),
+        }));
+
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(4),
+            name: read_name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent: Some(trait_impl_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: void_type(),
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: Some(doc_block("Read from the trait implementation.")),
+            attributes: Vec::new(),
+        }));
+
+        let items = collect_kmeta_doc_items(&ctx);
+        let paths = items
+            .iter()
+            .map(|item| item.path.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(paths.contains(&"root::Device::read"));
+        assert!(paths.contains(&"root::Device as Service::read"));
+    }
+
+    fn doc_block(text: &str) -> ast::DocBlock {
+        ast::DocBlock {
+            span: Span::default(),
+            lines: vec![ast::DocLine {
+                span: Span::default(),
+                text: text.to_string(),
+            }],
+        }
+    }
+
+    fn path_type(
+        file_id: kernc_utils::FileId,
+        start: usize,
+        end: usize,
+        segment: kernc_utils::SymbolId,
+    ) -> ast::TypeNode {
+        ast::TypeNode {
+            id: NodeId(0),
+            span: Span {
+                file: file_id,
+                start,
+                end,
+            },
+            kind: ast::TypeKind::Path {
+                segments: vec![segment],
+                segment_spans: vec![Span {
+                    file: file_id,
+                    start,
+                    end,
+                }],
+                generics: Vec::new(),
+            },
+        }
+    }
+
+    fn void_type() -> ast::TypeNode {
+        ast::TypeNode {
+            id: NodeId(0),
+            span: Span::default(),
+            kind: ast::TypeKind::Void,
+        }
+    }
 }

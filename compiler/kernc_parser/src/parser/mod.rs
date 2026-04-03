@@ -147,6 +147,121 @@ impl<'a> Parser<'a> {
         Some(kernc_ast::DocBlock { span, lines })
     }
 
+    fn append_doc_block(docs: &mut Option<kernc_ast::DocBlock>, mut block: kernc_ast::DocBlock) {
+        if let Some(existing) = docs {
+            existing.span = existing.span.to(block.span);
+            existing.lines.append(&mut block.lines);
+        } else {
+            *docs = Some(block);
+        }
+    }
+
+    fn parse_module_leading_meta(
+        &mut self,
+    ) -> (Option<kernc_ast::DocBlock>, Vec<kernc_ast::Attribute>) {
+        let mut docs = None;
+        let mut attributes = Vec::new();
+
+        loop {
+            if self.check(TokenType::DocCommentInner) {
+                if let Some(block) = self.parse_doc_block(true) {
+                    Self::append_doc_block(&mut docs, block);
+                }
+                continue;
+            }
+
+            if self.is_at_attribute_with_level(true) {
+                attributes.extend(self.parse_attributes(true).unwrap_or_default());
+                continue;
+            }
+
+            break;
+        }
+
+        (docs, attributes)
+    }
+
+    fn parse_item_leading_meta(
+        &mut self,
+        item_kind: &str,
+    ) -> (Option<kernc_ast::DocBlock>, Vec<kernc_ast::Attribute>) {
+        let mut docs = None;
+        let mut attributes = Vec::new();
+
+        loop {
+            if self.check(TokenType::DocCommentOuter) {
+                if let Some(block) = self.parse_doc_block(false) {
+                    Self::append_doc_block(&mut docs, block);
+                }
+                continue;
+            }
+
+            if self.is_at_attribute_with_level(false) {
+                attributes.extend(self.parse_attributes(false).unwrap_or_default());
+                continue;
+            }
+
+            if self.check(TokenType::DocCommentInner) {
+                let span = self.peek().span;
+                self.session
+                    .struct_error(
+                        span,
+                        "inner doc comments (`//!`) are only allowed at module scope",
+                    )
+                    .with_hint(format!("use `///` to document this {item_kind}"))
+                    .emit();
+                let _ = self.parse_doc_block(true);
+                continue;
+            }
+
+            break;
+        }
+
+        (docs, attributes)
+    }
+
+    fn parse_item_doc_block(&mut self, item_kind: &str) -> Option<kernc_ast::DocBlock> {
+        let mut docs = None;
+
+        loop {
+            if self.check(TokenType::DocCommentOuter) {
+                if let Some(block) = self.parse_doc_block(false) {
+                    Self::append_doc_block(&mut docs, block);
+                }
+                continue;
+            }
+
+            if self.check(TokenType::DocCommentInner) {
+                let span = self.peek().span;
+                self.session
+                    .struct_error(
+                        span,
+                        "inner doc comments (`//!`) are only allowed at module scope",
+                    )
+                    .with_hint(format!("use `///` to document this {item_kind}"))
+                    .emit();
+                let _ = self.parse_doc_block(true);
+                continue;
+            }
+
+            break;
+        }
+
+        docs
+    }
+
+    fn emit_dangling_doc_error(&mut self, docs: &kernc_ast::DocBlock, expected_item: &str) {
+        self.session
+            .struct_error(
+                docs.span,
+                format!("doc comments must document a following {expected_item}"),
+            )
+            .with_hint(format!(
+                "place the doc block directly above the {expected_item} it describes"
+            ))
+            .emit();
+    }
+
     fn doc_text_for_token(&self, token: Token, is_inner: bool) -> String {
         let source = self.session.source_manager.slice_source(token.span);
         let prefix = if is_inner { "//!" } else { "///" };

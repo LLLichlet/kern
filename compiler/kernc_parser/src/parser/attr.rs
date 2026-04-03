@@ -4,18 +4,22 @@ use kernc_ast::*;
 use kernc_lexer::TokenType;
 
 impl<'a> Parser<'a> {
+    pub(super) fn is_at_attribute_with_level(&mut self, expect_module_level: bool) -> bool {
+        if !self.check(TokenType::Hash) {
+            return false;
+        }
+
+        if expect_module_level {
+            self.stream.peek_nth(1).tag == TokenType::Bang
+                && self.stream.peek_nth(2).tag == TokenType::LBracket
+        } else {
+            self.stream.peek_nth(1).tag == TokenType::LBracket
+        }
+    }
+
     /// Check whether the current lookahead starts an attribute rather than `#arr`.
     fn is_at_attribute(&mut self) -> bool {
-        if self.check(TokenType::Hash) {
-            let next = self.stream.peek_nth(1).tag;
-            if next == TokenType::LBracket {
-                return true; // #[
-            }
-            if next == TokenType::Bang && self.stream.peek_nth(2).tag == TokenType::LBracket {
-                return true; // #![
-            }
-        }
-        false
+        self.is_at_attribute_with_level(false) || self.is_at_attribute_with_level(true)
     }
 
     /// Parse a contiguous sequence of attribute blocks.

@@ -266,7 +266,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let docs = self.parse_doc_block(false);
+            let docs = self.parse_item_doc_block("field");
             let is_pub = self.match_token(&[TokenType::Pub]);
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
@@ -326,7 +326,7 @@ impl<'a> Parser<'a> {
         let mut variants = Vec::new();
 
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let docs = self.parse_doc_block(false);
+            let docs = self.parse_item_doc_block("variant");
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
 
@@ -382,7 +382,7 @@ impl<'a> Parser<'a> {
 
         let mut fields = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let docs = self.parse_doc_block(false);
+            let docs = self.parse_item_doc_block("trait method");
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
             self.expect(TokenType::Colon)?;

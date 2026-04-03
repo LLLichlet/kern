@@ -107,19 +107,69 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
         .iter()
         .find(|bundle| bundle.uri == uri)
         .expect("expected diagnostics bundle");
-    assert!(bundle.diagnostics.iter().all(|diagnostic| diagnostic.severity == 2));
-    assert!(bundle.diagnostics.iter().any(|diagnostic| {
-        diagnostic
-            .message
-            .contains("missing a summary paragraph")
-    }));
-    assert!(bundle.diagnostics.iter().any(|diagnostic| {
-        diagnostic.message.contains("unknown doc section `Strange`")
-    }));
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == 2)
+    );
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("missing a summary paragraph") })
+    );
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("unknown doc section `Strange`") })
+    );
     assert!(bundle.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .message
             .contains("unknown documented argument `y`")
+    }));
+}
+
+#[test]
+fn diagnostics_include_native_doc_lints_for_impl_methods() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "impl Counter {\n",
+        "    /// Read the counter.\n",
+        "    /// Args:\n",
+        "    /// - missing: not a real parameter.\n",
+        "    fn get() i32 { return self.value; }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("doc_lints_impl_method", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == 2)
+    );
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("unknown documented argument `missing`")
     }));
 }
 
@@ -1195,15 +1245,19 @@ fn hover_renders_native_docs_after_signature() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn helper: fn(i32) i32"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Read one byte from the receiver register."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Read one byte from the receiver register.")
+    );
     assert!(hover.contents.value.contains("**Safety**"));
-    assert!(hover
-        .contents
-        .value
-        .contains("`self` must point to a mapped UART object."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("`self` must point to a mapped UART object.")
+    );
 }
 
 #[test]
@@ -1244,10 +1298,9 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
         use_std: true,
         ..CompileOptions::default()
     };
-    options.module_interface_aliases.insert(
-        "dep".to_string(),
-        dep_meta.to_string_lossy().to_string(),
-    );
+    options
+        .module_interface_aliases
+        .insert("dep".to_string(), dep_meta.to_string_lossy().to_string());
 
     let mut analysis = AnalysisEngine::new(AnalysisSettings {
         compile_options: options,
@@ -1269,15 +1322,19 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn helper: fn() i32"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Imported helper from a kmeta package."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Imported helper from a kmeta package.")
+    );
     assert!(hover.contents.value.contains("**Safety**"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Pure helper with no hidden runtime policy."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Pure helper with no hidden runtime policy.")
+    );
 }
 
 #[test]
@@ -1310,6 +1367,55 @@ fn hover_resolves_impl_method_signature_from_reference() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn get: fn(Counter) i32"));
+}
+
+#[test]
+fn hover_renders_doc_comments_for_impl_method_reference() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Counter = struct { value: i32 };\n",
+        "impl Counter {\n",
+        "    /// Read the current counter value.\n",
+        "    ///\n",
+        "    /// Safety:\n",
+        "    /// - keep `self` bound to a live counter object.\n",
+        "    fn get() i32 { return self.value; }\n",
+        "}\n",
+        "fn main() i32 {\n",
+        "    let counter = Counter.{ value: i32.{1} };\n",
+        "    return counter.get();\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_impl_method_docs", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "get", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("fn get: fn(Counter) i32"));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Read the current counter value.")
+    );
+    assert!(hover.contents.value.contains("**Safety**"));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("keep `self` bound to a live counter object.")
+    );
 }
 
 #[test]

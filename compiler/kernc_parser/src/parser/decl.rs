@@ -109,9 +109,7 @@ impl<'a> Parser<'a> {
 
     // Top Level
     pub fn parse_module(&mut self) -> ParseResult<Module> {
-        let docs = self.parse_doc_block(true);
-        // Parse file-level `#![...]` attributes before any declarations.
-        let attributes = self.parse_attributes(true).unwrap_or_default();
+        let (docs, attributes) = self.parse_module_leading_meta();
 
         let mut decls = Vec::new();
         while !self.check(TokenType::Eof) {
@@ -132,11 +130,12 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_decl(&mut self) -> ParseResult<Option<Decl>> {
-        let docs = self.parse_doc_block(false);
-        // Attributes syntactically precede every declaration.
-        let attributes = self.parse_attributes(false).unwrap_or_default();
+        let (docs, attributes) = self.parse_item_leading_meta("item");
 
         if self.check(TokenType::Eof) {
+            if let Some(docs) = &docs {
+                self.emit_dangling_doc_error(docs, "item");
+            }
             if !attributes.is_empty() {
                 self.add_error(
                     attributes[0].span,
@@ -320,7 +319,20 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let attributes = self.parse_attributes(false).unwrap_or_default();
+            let (docs, attributes) = self.parse_item_leading_meta("extern item");
+            if self.check(TokenType::RBrace) || self.check(TokenType::Eof) {
+                if let Some(docs) = &docs {
+                    self.emit_dangling_doc_error(docs, "extern item");
+                }
+                if !attributes.is_empty() {
+                    self.add_error(
+                        attributes[0].span,
+                        "Attributes inside `extern` blocks must apply to a following item"
+                            .to_string(),
+                    );
+                }
+                break;
+            }
             let is_pub = self.match_token(&[TokenType::Pub]);
             let d_start = if is_pub {
                 self.stream.prev_span()
@@ -332,10 +344,12 @@ impl<'a> Parser<'a> {
                 || (self.check(TokenType::Const) && self.stream.peek_nth(1).tag == TokenType::Fn)
             {
                 let mut d = self.parse_fn_decl(d_start, is_pub, true)?;
+                d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
             } else if self.check(TokenType::Static) {
                 let mut d = self.parse_global_var_decl(d_start, is_pub, true)?;
+                d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
             } else {
@@ -372,7 +386,20 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let attributes = self.parse_attributes(false).unwrap_or_default();
+            let (docs, attributes) = self.parse_item_leading_meta("impl method");
+            if self.check(TokenType::RBrace) || self.check(TokenType::Eof) {
+                if let Some(docs) = &docs {
+                    self.emit_dangling_doc_error(docs, "impl method");
+                }
+                if !attributes.is_empty() {
+                    self.add_error(
+                        attributes[0].span,
+                        "Attributes inside `impl` blocks must apply to a following method"
+                            .to_string(),
+                    );
+                }
+                break;
+            }
             let is_pub = self.match_token(&[TokenType::Pub]);
             let d_start = if is_pub {
                 self.stream.prev_span()
@@ -383,6 +410,7 @@ impl<'a> Parser<'a> {
                 || (self.check(TokenType::Const) && self.stream.peek_nth(1).tag == TokenType::Fn)
             {
                 let mut d = self.parse_fn_decl(d_start, is_pub, false)?;
+                d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
             } else {

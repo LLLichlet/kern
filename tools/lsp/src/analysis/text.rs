@@ -17,6 +17,7 @@ const VALUE_KEYWORD_COMPLETIONS: &[&str] = &[
     "mut",
     "const",
     "static",
+    "type",
     "return",
     "if",
     "else",
@@ -40,7 +41,9 @@ const VALUE_KEYWORD_COMPLETIONS: &[&str] = &[
     "Self",
 ];
 
-const TYPE_KEYWORD_COMPLETIONS: &[&str] = &["Self", "void", "fn", "Fn"];
+const TYPE_KEYWORD_COMPLETIONS: &[&str] = &[
+    "Self", "void", "fn", "Fn", "struct", "union", "enum", "trait",
+];
 
 pub(super) fn apply_content_change(
     path: &Path,

@@ -1218,12 +1218,18 @@ fn keyword_completion_insert_text(label: &str) -> Option<String> {
         "let" => Some("let ${1:name} = ${0};".to_string()),
         "const" => Some("const ${1:name}: ${2:Type} = ${0};".to_string()),
         "static" => Some("static ${1:name}: ${2:Type} = ${0};".to_string()),
+        "type" => Some("type ${1:Name} = ${0};".to_string()),
         "if" => Some("if (${1:cond}) {\n    $0\n}".to_string()),
         "for" => Some("for (${1:item}) {\n    $0\n}".to_string()),
         "match" => Some("match (${1:value}) {\n    $0\n}".to_string()),
         "use" => Some("use ${1:path};".to_string()),
         "impl" => Some("impl ${1:Type} {\n    $0\n}".to_string()),
+        "mod" => Some("mod ${1:name};".to_string()),
         "defer" => Some("defer {\n    $0\n}".to_string()),
+        "struct" => Some("struct {\n    $0\n}".to_string()),
+        "union" => Some("union {\n    $0\n}".to_string()),
+        "enum" => Some("enum {\n    $0\n}".to_string()),
+        "trait" => Some("trait {\n    $0\n}".to_string()),
         _ => None,
     }
 }

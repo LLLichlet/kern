@@ -2079,6 +2079,58 @@ fn completion_includes_top_level_keyword_suggestions() {
 }
 
 #[test]
+fn completion_includes_top_level_type_keyword_snippet() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "ty\n";
+    let uri = temp_file_uri("completion_top_level_type_keyword", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "ty", 0, 2))
+        .unwrap();
+    let labels = completion_labels(&items);
+    let type_item = items.iter().find(|item| item.label == "type").unwrap();
+
+    assert!(labels.contains(&"type".to_string()));
+    assert_eq!(type_item.insert_text.as_deref(), Some("type ${1:Name} = ${0};"));
+    assert_eq!(type_item.insert_text_format, Some(2));
+}
+
+#[test]
+fn completion_in_type_context_includes_struct_keyword_snippet() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "type Packet = st\n";
+    let uri = temp_file_uri("completion_type_context_struct_keyword", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "st", 0, 2))
+        .unwrap();
+    let labels = completion_labels(&items);
+    let struct_item = items.iter().find(|item| item.label == "struct").unwrap();
+
+    assert!(labels.contains(&"struct".to_string()));
+    assert_eq!(struct_item.insert_text.as_deref(), Some("struct {\n    $0\n}"));
+    assert_eq!(struct_item.insert_text_format, Some(2));
+}
+
+#[test]
 fn completion_does_not_offer_keywords_after_member_access() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(

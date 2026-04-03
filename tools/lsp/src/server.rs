@@ -2195,6 +2195,68 @@ mod tests {
     }
 
     #[test]
+    fn completion_request_returns_top_level_type_snippet() {
+        let mut state = initialized_state();
+        let source = "ty\n";
+        let uri = temp_file_uri("server_completion_type_keyword", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(38)),
+                method: Some("textDocument/completion".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 0, "character": 2 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(38));
+        let type_item = response["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["label"] == json!("type"))
+            .unwrap();
+        assert_eq!(type_item["insertText"], json!("type ${1:Name} = ${0};"));
+        assert_eq!(type_item["insertTextFormat"], json!(2));
+    }
+
+    #[test]
+    fn completion_request_returns_type_context_struct_snippet() {
+        let mut state = initialized_state();
+        let source = "type Packet = st\n";
+        let uri = temp_file_uri("server_completion_struct_keyword", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(39)),
+                method: Some("textDocument/completion".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 0, "character": 16 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(39));
+        let struct_item = response["result"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["label"] == json!("struct"))
+            .unwrap();
+        assert_eq!(struct_item["insertText"], json!("struct {\n    $0\n}"));
+        assert_eq!(struct_item["insertTextFormat"], json!(2));
+    }
+
+    #[test]
     fn completion_request_does_not_offer_keywords_after_member_access() {
         let mut state = initialized_state();
         let source = concat!(

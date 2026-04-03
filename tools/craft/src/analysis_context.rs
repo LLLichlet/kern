@@ -751,10 +751,49 @@ fn resolve_source_root_path(
 fn resolve_context_path(workspace_root: &Path, stored_path: &str) -> PathBuf {
     let path = Path::new(stored_path);
     if path.is_absolute() {
-        path.to_path_buf()
+        normalize_platform_path(path.to_path_buf())
     } else {
-        workspace_root.join(path)
+        normalize_platform_path(workspace_root.join(path))
     }
+}
+
+fn normalize_platform_path(path: PathBuf) -> PathBuf {
+    let path = strip_windows_verbatim_prefix(path);
+    strip_macos_private_var_prefix(path)
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
+        return PathBuf::from(format!("\\\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(target_os = "macos")]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("/private/var/") {
+        return PathBuf::from(format!("/var/{stripped}"));
+    }
+    if raw == "/private/var" {
+        return PathBuf::from("/var");
+    }
+    path
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    path
 }
 
 fn path_and_digest_current(

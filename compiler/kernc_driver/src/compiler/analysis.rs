@@ -1275,7 +1275,46 @@ fn module_file_id(defs: &[kernc_sema::def::Def], module_id: DefId) -> kernc_util
 }
 
 fn normalize_driver_path(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    normalize_platform_path(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+fn normalize_platform_path(path: PathBuf) -> PathBuf {
+    let path = strip_windows_verbatim_prefix(path);
+    strip_macos_private_var_prefix(path)
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
+        return PathBuf::from(format!("\\\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(target_os = "macos")]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("/private/var/") {
+        return PathBuf::from(format!("/var/{stripped}"));
+    }
+    if raw == "/private/var" {
+        return PathBuf::from("/var");
+    }
+    path
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    path
 }
 
 fn module_source_changed(

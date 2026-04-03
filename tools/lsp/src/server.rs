@@ -13,8 +13,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io::{self, BufReader, BufWriter};
 
+const PARSE_ERROR: i64 = -32700;
 const METHOD_NOT_FOUND: i64 = -32601;
 const INVALID_REQUEST: i64 = -32600;
+const INVALID_PARAMS: i64 = -32602;
 const SERVER_NOT_INITIALIZED: i64 = -32002;
 
 #[derive(Debug)]
@@ -263,21 +265,80 @@ pub fn run_with_analysis(analysis: AnalysisEngine) -> Result<(), ServerError> {
     let mut writer = MessageWriter::new(BufWriter::new(stdout.lock()));
     let mut state = ServerState::with_analysis(analysis);
 
+    run_message_loop(&mut state, &mut reader, &mut writer)
+}
+
+fn run_message_loop<R, W>(
+    state: &mut ServerState,
+    reader: &mut MessageReader<R>,
+    writer: &mut MessageWriter<W>,
+) -> Result<(), ServerError>
+where
+    R: io::BufRead,
+    W: io::Write,
+{
     while let Some(payload) = reader.read_message()? {
-        let message = serde_json::from_slice::<IncomingMessage>(&payload)?;
+        let message = match serde_json::from_slice::<IncomingMessage>(&payload) {
+            Ok(message) => message,
+            Err(err) => {
+                writer.write_json(&error_response(
+                    Value::Null,
+                    PARSE_ERROR,
+                    format!("failed to parse LSP message: {err}"),
+                ))?;
+                continue;
+            }
+        };
+        let request_id = message.id.clone();
         if message.jsonrpc != crate::protocol::JSONRPC_VERSION {
-            return Err(ServerError::Protocol(format!(
-                "unsupported jsonrpc version `{}`",
-                message.jsonrpc
-            )));
+            report_message_error(
+                state,
+                writer,
+                request_id,
+                INVALID_REQUEST,
+                format!("unsupported jsonrpc version `{}`", message.jsonrpc),
+            )?;
+            continue;
         }
 
-        let should_exit = handle_message(&mut state, &mut writer, message)?;
-        if should_exit {
-            break;
+        match handle_message(state, writer, message) {
+            Ok(true) => break,
+            Ok(false) => {}
+            Err(ServerError::Io(err)) => return Err(ServerError::Io(err)),
+            Err(ServerError::Json(err)) => {
+                report_message_error(
+                    state,
+                    writer,
+                    request_id,
+                    INVALID_PARAMS,
+                    format!("invalid request params: {err}"),
+                )?;
+            }
+            Err(ServerError::Protocol(message)) => {
+                report_message_error(state, writer, request_id, INVALID_REQUEST, message)?;
+            }
         }
     }
 
+    Ok(())
+}
+
+fn report_message_error(
+    state: &ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Option<Value>,
+    code: i64,
+    message: impl Into<String>,
+) -> Result<(), ServerError> {
+    let message = message.into();
+    if let Some(id) = id {
+        writer.write_json(&error_response(id, code, message))?;
+        return Ok(());
+    }
+
+    if state.initialized {
+        writer.write_json(&log_message(2, message))?;
+    }
     Ok(())
 }
 
@@ -1044,6 +1105,10 @@ mod tests {
         assert_eq!(
             result["capabilities"]["completionProvider"]["resolveProvider"],
             false
+        );
+        assert_eq!(
+            result["capabilities"]["completionProvider"]["triggerCharacters"],
+            json!([".", ":"])
         );
         assert_eq!(result["capabilities"]["documentHighlightProvider"], true);
         assert_eq!(
@@ -2132,6 +2197,31 @@ mod tests {
     }
 
     #[test]
+    fn completion_request_on_broken_document_returns_empty_result_instead_of_error() {
+        let mut state = initialized_state();
+        let source = "fn main() i32 {\n    return \n";
+        let uri = temp_file_uri("server_completion_broken", source);
+
+        let _ = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let response = dispatch_single_response(
+            &mut state,
+            IncomingMessage {
+                jsonrpc: JSONRPC_VERSION.to_string(),
+                id: Some(json!(34)),
+                method: Some("textDocument/completion".to_string()),
+                params: Some(json!({
+                    "textDocument": { "uri": uri },
+                    "position": { "line": 1, "character": 11 }
+                })),
+            },
+        );
+
+        assert_eq!(response["id"], json!(34));
+        assert!(response.get("error").is_none());
+        assert_eq!(response["result"], json!([]));
+    }
+
+    #[test]
     fn semantic_tokens_request_returns_encoded_token_data() {
         let mut state = initialized_state();
         let source = concat!(
@@ -2159,6 +2249,32 @@ mod tests {
         let data = response["result"]["data"].as_array().unwrap();
         assert!(!data.is_empty());
         assert_eq!(data.len() % 5, 0);
+    }
+
+    #[test]
+    fn run_loop_reports_parse_errors_and_keeps_processing_messages() {
+        let invalid = "{\"oops\":1";
+        let valid = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"shutdown\",\"params\":{}}";
+        let payload = format!(
+            "Content-Length: {}\r\n\r\n{}Content-Length: {}\r\n\r\n{}",
+            invalid.len(),
+            invalid,
+            valid.len(),
+            valid
+        );
+        let mut reader = MessageReader::new(Cursor::new(payload.as_bytes()));
+        let mut output = Vec::new();
+        let mut writer = MessageWriter::new(&mut output);
+        let mut state = initialized_state();
+
+        run_message_loop(&mut state, &mut reader, &mut writer).unwrap();
+
+        let messages = read_all_messages(&output);
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[0]["error"]["code"], json!(PARSE_ERROR));
+        assert_eq!(messages[0]["id"], json!(null));
+        assert_eq!(messages[1]["id"], json!(1));
+        assert_eq!(messages[1]["result"], json!(null));
     }
 
     fn initialized_state() -> ServerState {

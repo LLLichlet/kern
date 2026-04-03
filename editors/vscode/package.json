@@ -128,7 +128,7 @@
     "compile": "tsc -p ./ && node ./scripts/build-extension.mjs",
     "watch": "tsc -watch -p ./",
     "check": "tsc -p ./ --noEmit",
-    "test": "npm run compile && node --test out/test/serverResolution.test.js out/test/craftContext.test.js",
+    "test": "npm run compile && node --test out/test/*.test.js",
     "sync:icons": "node ./scripts/sync-icons.mjs",
     "stage:server": "node ./scripts/stage-server.mjs",
     "package:vsix": "npm run sync:icons && node ./scripts/package-vsix.mjs"

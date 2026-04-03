@@ -335,6 +335,36 @@ fn incremental_sync_respects_utf16_positions() {
 }
 
 #[test]
+fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
+    let mut analysis = AnalysisEngine::default();
+    let uri = temp_file_uri("semantic_tokens_dirty_fallback", "fn main() i32 { return 1; }\n");
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: "fn main() i32 { return 1; }\n".to_string(),
+        },
+    });
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "fn main() i32 { return \n".to_string(),
+        }],
+    });
+
+    let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
+    assert!(!decoded.is_empty());
+    assert!(decoded.iter().any(|token| token.2 == SemanticTokenTypes::KEYWORD));
+}
+
+#[test]
 fn invalid_incremental_sync_range_keeps_previous_text() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri("incremental_invalid", "let value = 1;");

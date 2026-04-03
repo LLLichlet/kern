@@ -2,8 +2,11 @@ import * as fs from "node:fs";
 import { spawn } from "node:child_process";
 import * as vscode from "vscode";
 import {
+    CloseAction,
+    ErrorAction,
     LanguageClient,
     LanguageClientOptions,
+    RevealOutputChannelOn,
     ServerOptions,
     State,
 } from "vscode-languageclient/node";
@@ -16,6 +19,7 @@ import {
     discoverCraftWorkspaceFolders,
     resolveCraftCommand,
 } from "./craftContext";
+import { shouldAutoTriggerSuggest } from "./clientBehavior";
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
@@ -64,6 +68,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             ) {
                 void restartLanguageServer(context, false);
             }
+        }),
+    );
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeTextDocument((event) => {
+            if (!client || client.state !== State.Running) {
+                return;
+            }
+
+            const editor = vscode.window.activeTextEditor;
+            if (!editor || editor.document !== event.document) {
+                return;
+            }
+            if (event.document.languageId !== "kern") {
+                return;
+            }
+            if (event.contentChanges.length !== 1) {
+                return;
+            }
+
+            const change = event.contentChanges[0];
+            if (!shouldAutoTriggerSuggest(change.text, change.rangeLength ?? 0)) {
+                return;
+            }
+
+            void vscode.commands.executeCommand("editor.action.triggerSuggest");
         }),
     );
 
@@ -140,6 +169,47 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
     const clientOptions: LanguageClientOptions = {
         documentSelector: [{ scheme: "file", language: "kern" }],
         outputChannel,
+        revealOutputChannelOn: RevealOutputChannelOn.Never,
+        initializationFailedHandler: (error) => {
+            appendOutput(`kern-lsp initialization failed: ${formatError(error)}`);
+            setStatus(
+                "init-failed",
+                "kern-lsp initialization failed",
+                vscode.LanguageStatusSeverity.Error,
+            );
+            return false;
+        },
+        errorHandler: {
+            error: (error, message, count) => {
+                appendOutput(
+                    `kern-lsp transport error${count ? ` #${count}` : ""}: ${formatError(error)}`,
+                );
+                if (message) {
+                    appendOutput(`last protocol message: ${JSON.stringify(message)}`);
+                }
+                setStatus(
+                    "io-error",
+                    "kern-lsp transport error",
+                    vscode.LanguageStatusSeverity.Warning,
+                );
+                return {
+                    action: ErrorAction.Continue,
+                    handled: true,
+                };
+            },
+            closed: () => {
+                appendOutput("kern-lsp connection closed. Restarting.");
+                setStatus(
+                    "reconnecting",
+                    "Restarting kern-lsp",
+                    vscode.LanguageStatusSeverity.Warning,
+                );
+                return {
+                    action: CloseAction.Restart,
+                    handled: true,
+                };
+            },
+        },
         synchronize: {
             configurationSection: "kern",
             fileEvents: fileWatchers,

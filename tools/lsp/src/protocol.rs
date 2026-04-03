@@ -502,7 +502,7 @@ pub fn initialize_result(options: InitializeResultOptions) -> Value {
         "completionProvider".to_string(),
         json!({
             "resolveProvider": false,
-            "triggerCharacters": ["."]
+            "triggerCharacters": [".", ":"]
         }),
     );
     if options.semantic_tokens {

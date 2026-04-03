@@ -402,9 +402,10 @@ impl AnalysisEngine {
     }
 
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
-        let outline = self
-            .analyze_outline(uri)
-            .map_err(|message| format!("document symbol analysis failed: {message}"))?;
+        let outline = match self.analyze_outline(uri) {
+            Ok(outline) => outline,
+            Err(_) => return Ok(Vec::new()),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested document symbols for a document that is not open".to_string());
         };
@@ -437,9 +438,10 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<Location>, String> {
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("definition analysis failed: {message}"))?;
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(None),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested definition for a document that is not open".to_string());
         };
@@ -461,9 +463,10 @@ impl AnalysisEngine {
         position: Position,
         include_declaration: bool,
     ) -> Result<Vec<Location>, String> {
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("reference analysis failed: {message}"))?;
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(Vec::new()),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested references for a document that is not open".to_string());
         };
@@ -485,9 +488,10 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Vec<DocumentHighlight>, String> {
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("document highlight analysis failed: {message}"))?;
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(Vec::new()),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err(
                 "requested document highlights for a document that is not open".to_string(),
@@ -505,9 +509,10 @@ impl AnalysisEngine {
     }
 
     pub fn hover(&self, uri: &str, position: Position) -> Result<Option<Hover>, String> {
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("hover analysis failed: {message}"))?;
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(None),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested hover for a document that is not open".to_string());
         };
@@ -527,9 +532,10 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<SignatureHelp>, String> {
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("signature help analysis failed: {message}"))?;
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(None),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested signature help for a document that is not open".to_string());
         };
@@ -561,20 +567,22 @@ impl AnalysisEngine {
             if !parsed.requires_body_completion(&target_path, offset) {
                 match self.analyze_structure_artifact(uri) {
                     Ok(structure) => structure.completion_items(&target_path, offset),
-                    Err(_) => self
-                        .analyze_artifact(uri)
-                        .map_err(|message| format!("completion analysis failed: {message}"))?
-                        .completion_items(&target_path, offset),
+                    Err(_) => match self.analyze_artifact(uri) {
+                        Ok(artifact) => artifact.completion_items(&target_path, offset),
+                        Err(_) => Vec::new(),
+                    },
                 }
             } else {
-                self.analyze_artifact(uri)
-                    .map_err(|message| format!("completion analysis failed: {message}"))?
-                    .completion_items(&target_path, offset)
+                match self.analyze_artifact(uri) {
+                    Ok(artifact) => artifact.completion_items(&target_path, offset),
+                    Err(_) => Vec::new(),
+                }
             }
         } else {
-            self.analyze_artifact(uri)
-                .map_err(|message| format!("completion analysis failed: {message}"))?
-                .completion_items(&target_path, offset)
+            match self.analyze_artifact(uri) {
+                Ok(artifact) => artifact.completion_items(&target_path, offset),
+                Err(_) => Vec::new(),
+            }
         };
         if !prefix.is_empty() {
             items.retain(|item| item.label.starts_with(prefix));
@@ -602,9 +610,10 @@ impl AnalysisEngine {
         uri: &str,
         position: Position,
     ) -> Result<Option<PrepareRenameResult>, String> {
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("rename analysis failed: {message}"))?;
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(None),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested prepareRename for a document that is not open".to_string());
         };
@@ -668,6 +677,14 @@ impl AnalysisEngine {
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested semantic tokens for a document that is not open".to_string());
         };
+        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        if target_doc.is_dirty {
+            // Semantic tokens are requested frequently while the user types.
+            // Prefer a cheap lexical pass for dirty buffers so highlighting
+            // stays responsive even when compiler analysis would be transient.
+            return Ok(semantic::lexical_semantic_tokens(&file));
+        }
+
         let resolved = self.resolve_analysis(uri)?;
         let dirty_documents = self.dirty_documents_snapshot();
         let analysis_key =
@@ -682,10 +699,10 @@ impl AnalysisEngine {
             return Ok(tokens.clone());
         }
 
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("semantic token analysis failed: {message}"))?;
-        let file = kernc_utils::SourceFile::new(target_doc.path.clone(), target_doc.text.clone());
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(semantic::lexical_semantic_tokens(&file)),
+        };
         let tokens = semantic::semantic_tokens(&artifact, &file, &target_path);
         self.semantic_tokens_cache
             .borrow_mut()
@@ -694,9 +711,10 @@ impl AnalysisEngine {
     }
 
     pub fn code_actions(&self, uri: &str, range: Range) -> Result<Vec<CodeAction>, String> {
-        let artifact = self
-            .analyze_artifact(uri)
-            .map_err(|message| format!("code action analysis failed: {message}"))?;
+        let artifact = match self.analyze_artifact(uri) {
+            Ok(artifact) => artifact,
+            Err(_) => return Ok(Vec::new()),
+        };
         let Some(target_doc) = self.documents.get(uri) else {
             return Err("requested code actions for a document that is not open".to_string());
         };

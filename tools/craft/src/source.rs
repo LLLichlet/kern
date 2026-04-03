@@ -1069,6 +1069,8 @@ rev = "{}"
 
     fn run_git<const N: usize>(cwd: &PathBuf, args: [&str; N]) -> Result<(), String> {
         let output = Command::new("git")
+            .args(["-c", "commit.gpgsign=false"])
+            .args(["-c", "tag.gpgSign=false"])
             .args(args)
             .current_dir(cwd)
             .output()

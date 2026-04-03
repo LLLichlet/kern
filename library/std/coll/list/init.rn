@@ -15,7 +15,7 @@ mod fmt;
 /// A growable contiguous collection of `T`.
 pub type List[T] = struct {
     ptr: *mut T = 0,
-    //// The number of initialized elements in the list.
+    /// The number of initialized elements in the list.
     pub len: usize = 0,
     cap: usize = 0,
 };
@@ -37,10 +37,12 @@ impl[T] *mut List[T] {
         return array_layout_of[T](count);
     }
 
+    /// Ensures the backing buffer can store at least `required_cap` items.
     fn ensure_capacity(alloc: *mut Allocator, required_cap: usize) bool {
         if (self.cap >= required_cap) return true;
 
         if (self.is_zst()) {
+            // Zero-sized elements never require a real backing allocation.
             self.ptr = self.zst_ptr();
             self.cap = USIZE_MAX;
             return true;
@@ -169,6 +171,8 @@ impl[T] *mut List[T] {
         let end_addr = (self.ptr + old_len) as usize;
         let src_addr = src_ptr as usize;
         if (src_addr >= base_addr and src_addr < end_addr) {
+            // `slice` aliases the current list storage. Reserve may move the
+            // buffer, so materialize the source range before shifting data.
             temp_layout = match (self.buffer_layout(additional)) {
                 .{ Some: layout } => layout,
                 .None => return false,
@@ -188,6 +192,7 @@ impl[T] *mut List[T] {
 
         let moved = old_len - index;
         if (moved > 0) {
+            // `memmove` keeps insertion correct even when source and target overlap.
             let move_bytes = moved * elem_size;
             let _ = memmove((self.ptr + index + additional) as *mut u8, (self.ptr + index) as *u8, move_bytes);
         }
@@ -288,6 +293,8 @@ impl[T] *mut List[T] {
         let end_addr = (self.ptr + old_len) as usize;
         let src_addr = src_ptr as usize;
         if (src_addr >= base_addr and src_addr < end_addr) {
+            // Reserve may relocate the backing store, so remap aliasing slices
+            // into the new buffer before copying.
             let src_offset = (src_addr - base_addr) / self.elem_layout().size;
             src_ptr = self.ptr + src_offset;
         }

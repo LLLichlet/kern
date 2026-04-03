@@ -1,3 +1,8 @@
+//! B-tree insertion, mutation, and teardown.
+//!
+//! Design:
+//! split full nodes on the way down so insertion always lands in a node with spare capacity.
+
 use std.Option;
 use std.cmp.Ord;
 use std.mem.layout_of;
@@ -26,6 +31,7 @@ impl[K, V] *mut Tree[K, V]
         return lhs.cmp(rhs);
     }
 
+    /// Allocates an empty node and clears every child pointer slot.
     fn alloc_node(alloc: *mut Allocator, is_leaf: bool) Option[*mut Node[K, V]] {
         let .{ Some: node_raw } = alloc.alloc(layout_of[Node[K, V]]()) else return .{ None };
 
@@ -41,10 +47,12 @@ impl[K, V] *mut Tree[K, V]
         return .{ Some: node };
     }
 
+    /// Releases one node allocation.
     fn free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
         alloc.free(node as *mut u8, layout_of[Node[K, V]]());
     }
 
+    /// Returns the first slot whose key is greater than or equal to `key`.
     fn search_slot(node: *mut Node[K, V], key: K) usize {
         let mut index = 0;
         for (; index < node.len; index += 1) {
@@ -55,12 +63,14 @@ impl[K, V] *mut Tree[K, V]
         return index;
     }
 
+    /// Splits a full child into two siblings and promotes the median key.
     fn split_child(alloc: *mut Allocator, parent: *mut Node[K, V], index: usize) bool {
         let child = child_at[K, V](parent, index);
         let .{ Some: right } = self.alloc_node(alloc, child.is_leaf) else return false;
 
         right.len = MIN_DEGREE - 1;
 
+        // The upper half moves into the newly allocated right sibling.
         let mut j = 0;
         for (; j < MIN_DEGREE - 1; j += 1) {
             set_key[K, V](right, j, key_at[K, V](child, j + MIN_DEGREE));
@@ -68,6 +78,7 @@ impl[K, V] *mut Tree[K, V]
         }
 
         if (!child.is_leaf) {
+            // Internal node splits carry the trailing child range with them.
             let mut c = 0;
             for (; c < MIN_DEGREE; c += 1) {
                 set_child[K, V](right, c, child_at[K, V](child, c + MIN_DEGREE));
@@ -94,6 +105,7 @@ impl[K, V] *mut Tree[K, V]
         return true;
     }
 
+    /// Inserts into a node that is known not to be full.
     fn insert_non_full(alloc: *mut Allocator, node: *mut Node[K, V], key: K, value: V) bool {
         let slot = self.search_slot(node, key);
 
@@ -123,6 +135,7 @@ impl[K, V] *mut Tree[K, V]
                 return false;
             }
 
+            // Recompute the descent side against the promoted median key.
             let cmp_mid = self.compare(key_at[K, V](node, child_index), key);
             if (cmp_mid == 0) {
                 set_value[K, V](node, child_index, value);
@@ -136,6 +149,7 @@ impl[K, V] *mut Tree[K, V]
         return self.insert_non_full(alloc, child_at[K, V](node, child_index), key, value);
     }
 
+    /// Recursively releases a subtree.
     fn deinit_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
         if ((node as usize) == 0) return;
 
@@ -149,6 +163,7 @@ impl[K, V] *mut Tree[K, V]
         self.free_node(alloc, node);
     }
 
+    /// Visits every key-value pair in sorted order with mutable value access.
     fn for_each_mut_node(node: *mut Node[K, V], visitor: *Fn(K, *mut V) void) void {
         if ((node as usize) == 0) {
             return;
@@ -181,6 +196,8 @@ impl[K, V] *mut Tree[K, V]
         }
 
         if (self.root.len == MAX_KEYS) {
+            // Grow the tree height before descending so the recursive insert
+            // still receives a non-full root.
             let old_root = self.root;
             let .{ Some: new_root } = self.alloc_node(alloc, false) else return false;
 

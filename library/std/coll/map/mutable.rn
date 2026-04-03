@@ -1,3 +1,8 @@
+//! Hash-map allocation and mutation routines.
+//!
+//! Design:
+//! keep rebuilds explicit so growth, compaction, and tombstone reuse all follow the same probing rules.
+
 use std.Option;
 use std.cmp.Eq;
 use std.hash.Hash;
@@ -45,6 +50,7 @@ impl[K, V] *mut Map[K, V]
         return .{ Some: target };
     }
 
+    /// Allocates a raw table with empty control bytes.
     fn alloc_table(alloc: *mut Allocator, capacity: usize) Option[Table[K, V]] {
         let ctrl_layout = match (array_layout_of[u8](capacity)) {
             .{ Some: layout } => layout,
@@ -79,6 +85,7 @@ impl[K, V] *mut Map[K, V]
         };
     }
 
+    /// Releases one raw table allocation.
     fn free_table(alloc: *mut Allocator, ctrl: *mut u8, entries: *mut Entry[K, V], capacity: usize) void {
         if (capacity == 0) return;
 
@@ -95,6 +102,10 @@ impl[K, V] *mut Map[K, V]
         alloc.free(entries as *mut u8, entries_layout);
     }
 
+    /// Inserts directly into a raw table during rebuild.
+    ///
+    /// This path never observes duplicates and treats every non-`FULL` slot as
+    /// writable because fresh tables contain no tombstones.
     fn insert_into_raw(
         ctrl: *mut u8,
         entries: *mut Entry[K, V],
@@ -122,6 +133,7 @@ impl[K, V] *mut Map[K, V]
         return false;
     }
 
+    /// Rebuilds the table into a new allocation and drops tombstones.
     fn rebuild(alloc: *mut Allocator, requested_capacity: usize) bool {
         let new_capacity = if (requested_capacity < MIN_CAPACITY) MIN_CAPACITY else requested_capacity;
         let table = match (self.alloc_table(alloc, new_capacity)) {
@@ -147,6 +159,9 @@ impl[K, V] *mut Map[K, V]
         return true;
     }
 
+    /// Ensures room for `additional` new live entries.
+    ///
+    /// Passing `0` means "keep the current length but compact tombstones away".
     fn reserve_internal(alloc: *mut Allocator, additional: usize) bool {
         if (additional == 0) {
             if (self.capacity == 0) return true;
@@ -172,6 +187,10 @@ impl[K, V] *mut Map[K, V]
         return self.rebuild(alloc, target);
     }
 
+    /// Finds the best slot for a new key in the current probe sequence.
+    ///
+    /// The first tombstone is remembered, but probing continues until `EMPTY`
+    /// so existing keys later in the cluster would still be found first.
     fn find_insert_slot(hash: u64) Option[usize] {
         let mask = self.capacity - 1;
         let mut index = (hash as usize) & mask;
@@ -199,6 +218,7 @@ impl[K, V] *mut Map[K, V]
         return .{ None };
     }
 
+    /// Writes one entry and updates live-entry and tombstone counts consistently.
     fn write_slot(slot: usize, hash: u64, key: K, value: V) *mut V {
         let entry = entry_ptr[K, V](self.entries, slot);
         let prev_state = ctrl_at(self.ctrl, slot);
@@ -260,6 +280,7 @@ impl[K, V] *mut Map[K, V]
             return false;
         }
 
+        // Reserve may rebuild, so the insertion slot must be chosen afterwards.
         let slot = match (self.find_insert_slot(hash)) {
             .{ Some: slot } => slot,
             .None => return false,
@@ -285,6 +306,7 @@ impl[K, V] *mut Map[K, V]
             return .{ None };
         }
 
+        // The table shape may have changed during reserve.
         let slot = match (self.find_insert_slot(hash)) {
             .{ Some: slot } => slot,
             .None => return .{ None },
@@ -310,6 +332,7 @@ impl[K, V] *mut Map[K, V]
         }
 
         let value = make_value();
+        // The lazily produced value is written only after capacity is secured.
         let slot = match (self.find_insert_slot(hash)) {
             .{ Some: slot } => slot,
             .None => return .{ None },

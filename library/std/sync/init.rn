@@ -2,6 +2,9 @@
 //!
 //! The current standard library exposes the memory ordering vocabulary used by
 //! atomics and low-level runtime code.
+//!
+//! Design:
+//! keep the public surface small and let low-level code speak in explicit ordering terms.
 
 /// Encodes the ordering used by an atomic operation.
 pub type MemOrder = u8;

@@ -1,4 +1,7 @@
 //! Directory creation, traversal, and removal.
+//!
+//! Design:
+//! keep traversal explicit, return visited counts, and leave path ownership with the caller.
 
 use std.Result;
 use std.Option;
@@ -101,6 +104,9 @@ pub fn create_dir_if_missing(alloc: *mut Allocator, path: []u8) Result[bool, Err
 }
 
 /// Recursively creates every missing directory component in `path`.
+///
+/// Returns:
+/// `Ok(true)` when the call succeeds, even if some or all components already existed.
 pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     if (#path == 0) {
         return .{ Err: .{ InvalidPath } };
@@ -139,6 +145,11 @@ pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
 }
 
 /// Visits the direct children of a directory.
+///
+/// The visitor receives borrowed entry names relative to `path`.
+///
+/// Returns:
+/// the number of delivered child entries.
 pub fn read_dir(alloc: *mut Allocator, path: []u8, visitor: *Fn(DirEntry) bool) Result[usize, Error] {
     let c_path = match (alloc_c_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
@@ -221,6 +232,9 @@ fn walk_dir_inner(
 
 /// Walks a directory tree depth-first.
 ///
+/// The root path itself is validated but is not passed to the visitor. Depth
+/// starts at `1` for direct children of `path`.
+///
 /// Returns:
 /// the number of visited entries.
 pub fn walk_dir(
@@ -248,6 +262,8 @@ pub fn walk_dir(
 }
 
 /// Walks only file entries in a directory tree.
+///
+/// Directory entries are still traversed internally so recursion can continue.
 pub fn walk_files(
     alloc: *mut Allocator,
     path: []u8,
@@ -263,6 +279,8 @@ pub fn walk_files(
 }
 
 /// Walks only directory entries in a directory tree.
+///
+/// File entries are skipped, but nested directories are still explored.
 pub fn walk_dirs(
     alloc: *mut Allocator,
     path: []u8,
@@ -309,6 +327,8 @@ pub fn remove_dir_if_exists(alloc: *mut Allocator, path: []u8) Result[bool, Erro
 }
 
 /// Recursively removes a directory tree.
+///
+/// Children are removed depth-first before the final directory itself.
 ///
 /// Errors:
 /// returns `NotDirectory` when `path` exists but is not a directory.

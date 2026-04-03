@@ -270,6 +270,12 @@ pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) Result[String, Error
 }
 
 /// Normalizes `.` and `..` segments and collapses repeated separators.
+///
+/// Design:
+/// keep normalization lexical and preserve the original root prefix semantics.
+///
+/// This function does not consult the filesystem, so symbolic links and missing
+/// path segments are left uninterpreted.
 pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
     let prefix_len = root_prefix_len(path);
     let sep = preferred_separator_byte(path);
@@ -342,6 +348,9 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
 }
 
 /// Returns `path` with its final component replaced by `name`.
+///
+/// Errors:
+/// returns `InvalidPath` when `name` is empty.
 pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) Result[String, Error] {
     if (#name == 0) {
         return .{ Err: .{ InvalidPath } };
@@ -362,6 +371,8 @@ pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) Result[Stri
 }
 
 /// Returns `path` with its extension replaced by `ext`.
+///
+/// An empty `ext` removes the extension entirely.
 pub fn with_extension(alloc: *mut Allocator, path: []u8, ext: []u8) Result[String, Error] {
     let stem = match (file_stem(path)) {
         .{ Some: stem } => stem,

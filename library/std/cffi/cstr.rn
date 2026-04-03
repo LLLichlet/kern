@@ -31,6 +31,9 @@ fn z_string_layout(bytes: []u8) Option[std.mem.Layout] {
 }
 
 /// Allocates a zero-terminated copy of `bytes`.
+///
+/// Returns:
+/// `None` when layout computation or allocation fails.
 pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) Option[*mut u8] {
     let layout = match (z_string_layout(bytes)) {
         .{ Some: layout } => layout,
@@ -52,7 +55,8 @@ pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) Option[*mut u8] {
 /// Frees a pointer previously returned by `alloc_z`.
 ///
 /// Safety:
-/// `bytes` must be the same slice length that was used for allocation.
+/// `bytes` must be the same slice length that was used for allocation, and
+/// `ptr` must come from `alloc_z` with the same allocator.
 pub fn free_z(alloc: *mut Allocator, bytes: []u8, ptr: *mut u8) void {
     let layout = match (z_string_layout(bytes)) {
         .{ Some: layout } => layout,

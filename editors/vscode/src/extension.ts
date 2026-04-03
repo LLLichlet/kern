@@ -20,11 +20,17 @@ import {
     resolveCraftCommand,
 } from "./craftContext";
 import { shouldAutoTriggerSuggest } from "./clientBehavior";
+import { DiagnosticBuffer } from "./diagnosticBuffer";
 
 let client: LanguageClient | undefined;
 let outputChannel: vscode.OutputChannel | undefined;
 let statusItem: vscode.LanguageStatusItem | undefined;
 let fileWatchers: vscode.FileSystemWatcher[] = [];
+let diagnosticBuffer:
+    | DiagnosticBuffer<vscode.Uri, vscode.Diagnostic>
+    | undefined;
+
+const DIAGNOSTIC_DISPLAY_DELAY_MS = 180;
 
 type WorkspaceRoot = {
     fsPath: string;
@@ -144,6 +150,7 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
 
     const server = resolution;
     fileWatchers = createLanguageServerWatchers();
+    diagnosticBuffer = new DiagnosticBuffer(DIAGNOSTIC_DISPLAY_DELAY_MS);
     appendOutput(
         `Starting kern-lsp (${server.source}): ${server.command} ${server.args.join(" ")}`.trim(),
     );
@@ -210,6 +217,17 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
                 };
             },
         },
+        middleware: {
+            handleDiagnostics: (uri, diagnostics, next) => {
+                diagnosticBuffer?.schedule(
+                    uri.toString(),
+                    { uri, diagnostics },
+                    ({ uri: nextUri, diagnostics: nextDiagnostics }) => {
+                        next(nextUri, [...nextDiagnostics]);
+                    },
+                );
+            },
+        },
         synchronize: {
             configurationSection: "kern",
             fileEvents: fileWatchers,
@@ -253,6 +271,8 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
 
 async function stopLanguageServer(): Promise<void> {
     disposeWatchers();
+    diagnosticBuffer?.clear();
+    diagnosticBuffer = undefined;
     if (!client) {
         return;
     }

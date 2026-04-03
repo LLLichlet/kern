@@ -609,7 +609,11 @@ extern fn main(args: [][]u8) i32 {
     );
     let symbols = String::from_utf8_lossy(&nm_output.stdout);
     assert!(
-        symbols.lines().any(|line| line.ends_with(" main")),
+        symbols.lines().any(|line| {
+            line.split_whitespace()
+                .last()
+                .is_some_and(|symbol| symbol.trim_start_matches('_') == "main")
+        }),
         "expected exported `main`, got:\n{}",
         symbols
     );

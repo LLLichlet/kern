@@ -74,6 +74,36 @@ fn is_windows_cmd_whitespace(ch: u16) bool {
     return ch == u16.{32} or ch == u16.{9};
 }
 
+#[if(os == "windows" and arch == "x86_64")]
+#[export_name("__chkstk")]
+#[naked]
+extern fn _chkstk_windows() void {
+    // Windows x86_64 stack growth relies on page probing even in -nostdlib mode.
+    @asm(.{
+        asm: .{
+            "push rcx",
+            "push rax",
+            "cmp rax, 0x1000",
+            "lea rcx, [rsp + 24]",
+            "jb chkstk_tail",
+            "chkstk_loop:",
+            "sub rcx, 0x1000",
+            "test qword ptr [rcx], rcx",
+            "sub rax, 0x1000",
+            "cmp rax, 0x1000",
+            "ja chkstk_loop",
+            "chkstk_tail:",
+            "sub rcx, rax",
+            "test qword ptr [rcx], rcx",
+            "pop rax",
+            "pop rcx",
+            "ret",
+        },
+        clobbers: .{ "memory", "rax", "rcx" },
+        volatile: true
+    });
+}
+
 #[if(os == "windows")]
 #[export_name("mainCRTStartup")]
 extern fn _start_windows() void {

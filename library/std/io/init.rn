@@ -19,7 +19,7 @@ pub type File = struct {
 };
 
 impl *mut File : Writer {
-    // Writes the provided bytes to the underlying file handle.
+    /// Writes the provided bytes to the underlying file handle.
     pub fn write(buf: []u8) usize {
         let len = #buf;
         if (len == 0) return 0;

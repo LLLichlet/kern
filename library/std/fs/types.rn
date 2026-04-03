@@ -19,18 +19,18 @@ pub type Metadata = os.Metadata;
 
 /// A single directory entry yielded by directory traversal.
 pub type DirEntry = struct {
-    /// The entry name without the parent path.
+    //// The entry name without the parent path.
     pub name: []u8,
     file_type: FileType,
 };
 
 impl DirEntry {
-    // Returns `true` when the entry is a regular file.
+    /// Returns `true` when the entry is a regular file.
     pub fn is_file() bool {
         return self.file_type == .File;
     }
 
-    // Returns `true` when the entry is a directory.
+    /// Returns `true` when the entry is a directory.
     pub fn is_dir() bool {
         return self.file_type == .Directory;
     }
@@ -38,22 +38,22 @@ impl DirEntry {
 
 /// Options controlling how a file is opened.
 pub type OpenOptions = struct {
-    /// Opens the file for reading.
+    //// Opens the file for reading.
     pub read: bool = false,
-    /// Opens the file for writing.
+    //// Opens the file for writing.
     pub write: bool = false,
-    /// Creates the file when it does not already exist.
+    //// Creates the file when it does not already exist.
     pub create: bool = false,
-    /// Creates the file and fails when it already exists.
+    //// Creates the file and fails when it already exists.
     pub create_new: bool = false,
-    /// Truncates the file when it is opened.
+    //// Truncates the file when it is opened.
     pub truncate: bool = false,
-    /// Forces writes to append at end of file.
+    //// Forces writes to append at end of file.
     pub append: bool = false,
 };
 
 /// An owned filesystem handle.
 pub type File = struct {
-    /// The underlying OS handle.
+    //// The underlying OS handle.
     pub handle: os.Handle,
 };

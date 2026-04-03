@@ -3,7 +3,7 @@
 use std.Option;
 
 impl []u8 {
-    // Returns the first index of `byte`.
+    /// Returns the first index of `byte`.
     pub fn find_byte(byte: u8) Option[usize] {
         for (let mut i = 0; i < #self; i += 1) {
             if (self.[i] == byte) {
@@ -13,7 +13,7 @@ impl []u8 {
         return .{ None };
     }
 
-    // Returns the last index of `byte`.
+    /// Returns the last index of `byte`.
     pub fn rfind_byte(byte: u8) Option[usize] {
         for (let mut i = #self; i > 0; ) {
             i -= 1;
@@ -24,12 +24,12 @@ impl []u8 {
         return .{ None };
     }
 
-    // Returns `true` when the slice contains `byte`.
+    /// Returns `true` when the slice contains `byte`.
     pub fn contains_byte(byte: u8) bool {
         return self.find_byte(byte).is_some();
     }
 
-    // Trims ASCII whitespace from the start of the slice.
+    /// Trims ASCII whitespace from the start of the slice.
     pub fn trim_ascii_start() []u8 {
         for (let mut start = 0; start < #self; start += 1) {
             let b = self.[start];
@@ -47,7 +47,7 @@ impl []u8 {
         return self.[#self .. #self];
     }
 
-    // Trims ASCII whitespace from the end of the slice.
+    /// Trims ASCII whitespace from the end of the slice.
     pub fn trim_ascii_end() []u8 {
         for (let mut end = #self; end > 0; ) {
             let b = self.[end - 1];
@@ -66,7 +66,7 @@ impl []u8 {
         return self.[0 .. 0];
     }
 
-    // Trims ASCII whitespace from both ends of the slice.
+    /// Trims ASCII whitespace from both ends of the slice.
     pub fn trim_ascii() []u8 {
         return self.trim_ascii_start().trim_ascii_end();
     }

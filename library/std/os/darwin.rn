@@ -1,14 +1,15 @@
 #![if(os == "darwin")]
 
-// Darwin-specific operating-system shims.
-//
-// Design:
-// keep libc-backed OS calls explicit and close to the platform ABI.
+//! Darwin-specific operating-system shims.
+//!
+//! Design:
+//! keep libc-backed OS calls explicit and close to the platform ABI.
 
 use std.Result;
 use std.os.{FileType, Metadata};
 use std.os.OpenOptions;
 
+/// Imports the libc-backed OS entry points used by the Darwin runtime layer.
 extern {
     #[export_name("write")]
     fn system_write(fd: i32, ptr: *u8, len: usize) isize;
@@ -144,6 +145,7 @@ const S_IFREG = u16.{32768};
 const DT_DIR = u8.{4};
 const DT_REG = u8.{8};
 
+/// Returns the sentinel value used for invalid Darwin handles.
 pub fn invalid_handle() Handle {
     return INVALID_HANDLE;
 }
@@ -152,26 +154,32 @@ fn last_error() Error {
     return .{ code: system_errno().* as isize };
 }
 
+/// Returns `true` when `err` represents a missing path or file.
 pub fn is_not_found(err: Error) bool {
     return err.code == ENOENT;
 }
 
+/// Returns `true` when `err` reports that a path already exists.
 pub fn is_already_exists(err: Error) bool {
     return err.code == EEXIST;
 }
 
+/// Returns the process handle for standard input.
 pub fn get_stdin_handle() Handle {
     return 0;
 }
 
+/// Returns the process handle for standard output.
 pub fn get_stdout_handle() Handle {
     return 1;
 }
 
+/// Returns the process handle for standard error.
 pub fn get_stderr_handle() Handle {
     return 2;
 }
 
+/// Reads up to `len` bytes from `handle` into `ptr`.
 pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] {
     let ret = system_read(handle, ptr, len);
     if (ret < 0) {
@@ -180,6 +188,7 @@ pub fn read_file(handle: Handle, ptr: *mut u8, len: usize) Result[usize, Error] 
     return .{ Ok: ret as usize };
 }
 
+/// Writes up to `len` bytes from `ptr` into `handle`.
 pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
     let ret = system_write(handle, ptr, len);
     if (ret < 0) {
@@ -188,6 +197,7 @@ pub fn write_file(handle: Handle, ptr: *u8, len: usize) Result[usize, Error] {
     return .{ Ok: ret as usize };
 }
 
+/// Closes an open file handle.
 pub fn close_file(handle: Handle) Result[bool, Error] {
     let ret = system_close(handle);
     if (ret < 0) {

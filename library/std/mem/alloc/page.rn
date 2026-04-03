@@ -23,7 +23,7 @@ fn dangling_ptr(align: usize) *mut u8 {
 }
 
 impl *mut Page : Allocator{
-    // Allocates a region directly from the operating system.
+    /// Allocates a region directly from the operating system.
     pub fn alloc(layout: Layout) Option[*mut u8] {
         if (layout.size == 0) {
             return .{ Some: dangling_ptr(layout.align) };
@@ -70,10 +70,10 @@ impl *mut Page : Allocator{
         };
     }
 
-    // Releases a region previously allocated by `Page`.
-    //
-    // Safety:
-    // `ptr` and `layout` must come from this allocator.
+    /// Releases a region previously allocated by `Page`.
+    ///
+    /// Safety:
+    /// `ptr` and `layout` must come from this allocator.
     pub fn free(ptr: *mut u8, layout: Layout) void {
         if ((ptr as usize) == 0 or layout.size == 0) {
             return;

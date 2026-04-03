@@ -15,17 +15,17 @@ use ..base.{
 impl[K, V] *Map[K, V]
     where K: Eq[K] + Hash[K],
 {
-    // Returns `true` when the map contains no entries.
+    /// Returns `true` when the map contains no entries.
     pub fn is_empty() bool {
         return self.len == 0;
     }
 
-    // Returns `true` when the map contains `key`.
+    /// Returns `true` when the map contains `key`.
     pub fn contains(key: K) bool {
         return self.get(key).is_some();
     }
 
-    // Visits every key-value pair in arbitrary table order.
+    /// Visits every key-value pair in arbitrary table order.
     pub fn for_each(visitor: *Fn(K, V) void) void {
         let visit = .[visitor](entry: *mut Entry[K, V]) bool {
             visitor(entry.key, entry.value);
@@ -34,7 +34,7 @@ impl[K, V] *Map[K, V]
         let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
     }
 
-    // Returns `true` when any key-value pair satisfies `pred`.
+    /// Returns `true` when any key-value pair satisfies `pred`.
     pub fn any(pred: *Fn(K, V) bool) bool {
         let mut matched = false;
         let visit = .[pred, matched = matched..&](entry: *mut Entry[K, V]) bool {
@@ -48,7 +48,7 @@ impl[K, V] *Map[K, V]
         return matched;
     }
 
-    // Returns `true` when every key-value pair satisfies `pred`.
+    /// Returns `true` when every key-value pair satisfies `pred`.
     pub fn all(pred: *Fn(K, V) bool) bool {
         let mut all_match = true;
         let visit = .[pred, all_match = all_match..&](entry: *mut Entry[K, V]) bool {
@@ -62,7 +62,7 @@ impl[K, V] *Map[K, V]
         return all_match;
     }
 
-    // Counts how many entries satisfy `pred`.
+    /// Counts how many entries satisfy `pred`.
     pub fn count(pred: *Fn(K, V) bool) usize {
         let mut total = usize.{0};
         let visit = .[pred, total = total..&](entry: *mut Entry[K, V]) bool {
@@ -75,7 +75,7 @@ impl[K, V] *Map[K, V]
         return total;
     }
 
-    // Folds entries in arbitrary table order.
+    /// Folds entries in arbitrary table order.
     pub fn fold[U](init: U, step: *Fn(U, K, V) U) U {
         let mut accum = init;
         let visit = .[step, accum = accum..&](entry: *mut Entry[K, V]) bool {
@@ -86,7 +86,7 @@ impl[K, V] *Map[K, V]
         return accum;
     }
 
-    // Returns the first mapped value produced by `visit`.
+    /// Returns the first mapped value produced by `visit`.
     pub fn find_map[U](visit: *Fn(K, V) Option[U]) Option[U] {
         let mut found = Option[U].{ None };
         let visit_entry = .[visit, found = found..&](entry: *mut Entry[K, V]) bool {
@@ -103,7 +103,7 @@ impl[K, V] *Map[K, V]
         return found;
     }
 
-    // Appends every key into `out`.
+    /// Appends every key into `out`.
     pub fn append_keys(alloc: *mut Allocator, out: *mut List[K]) bool {
         if (!out.reserve(alloc, self.len)) {
             return false;
@@ -121,7 +121,7 @@ impl[K, V] *Map[K, V]
         return ok;
     }
 
-    // Appends every value into `out`.
+    /// Appends every value into `out`.
     pub fn append_values(alloc: *mut Allocator, out: *mut List[V]) bool {
         if (!out.reserve(alloc, self.len)) {
             return false;
@@ -139,7 +139,7 @@ impl[K, V] *Map[K, V]
         return ok;
     }
 
-    // Collects all keys into a new list.
+    /// Collects all keys into a new list.
     pub fn keys(alloc: *mut Allocator) Option[List[K]] {
         let mut out = List[K].{};
         if (!self.append_keys(alloc, out..&)) {
@@ -149,7 +149,7 @@ impl[K, V] *Map[K, V]
         return .{ Some: out };
     }
 
-    // Collects all values into a new list.
+    /// Collects all values into a new list.
     pub fn values(alloc: *mut Allocator) Option[List[V]] {
         let mut out = List[V].{};
         if (!self.append_values(alloc, out..&)) {
@@ -159,7 +159,7 @@ impl[K, V] *Map[K, V]
         return .{ Some: out };
     }
 
-    // Returns the value stored for `key`.
+    /// Returns the value stored for `key`.
     pub fn get(key: K) Option[V] {
         if (self.capacity == 0) return .{ None };
 

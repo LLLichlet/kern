@@ -15,7 +15,7 @@ mod fmt;
 /// A growable contiguous collection of `T`.
 pub type List[T] = struct {
     ptr: *mut T = 0,
-    /// The number of initialized elements in the list.
+    //// The number of initialized elements in the list.
     pub len: usize = 0,
     cap: usize = 0,
 };
@@ -92,7 +92,7 @@ impl[T] *mut List[T] {
         return true;
     }
 
-    // Reserves space for at least `additional` more items.
+    /// Reserves space for at least `additional` more items.
     pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
         if (additional > USIZE_MAX - self.len) {
             return false;
@@ -100,7 +100,7 @@ impl[T] *mut List[T] {
         return self.ensure_capacity(alloc, self.len + additional);
     }
 
-    // Appends one item to the end of the list.
+    /// Appends one item to the end of the list.
     pub fn push(alloc: *mut Allocator, item: T) bool {
         if (!self.reserve(alloc, 1)) return false;
         if (!self.is_zst()) {
@@ -111,14 +111,14 @@ impl[T] *mut List[T] {
         return true;
     }
 
-    // Removes and returns the last item.
+    /// Removes and returns the last item.
     pub fn pop() Option[T] {
         if (self.len == 0) return .{ None };
         self.len -= 1;
         return .{ Some: (self.ptr + self.len).* };
     }
 
-    // Inserts one item at `index`.
+    /// Inserts one item at `index`.
     pub fn insert(alloc: *mut Allocator, index: usize, item: T) bool {
         if (index > self.len) return false;
         if (!self.reserve(alloc, 1)) return false;
@@ -139,7 +139,7 @@ impl[T] *mut List[T] {
         return true;
     }
 
-    // Inserts every item from `slice` at `index`.
+    /// Inserts every item from `slice` at `index`.
     pub fn insert_slice(alloc: *mut Allocator, index: usize, slice: []T) bool {
         if (index > self.len) {
             return false;
@@ -198,7 +198,7 @@ impl[T] *mut List[T] {
         return true;
     }
 
-    // Removes and returns the item at `index`, shifting later items left.
+    /// Removes and returns the item at `index`, shifting later items left.
     pub fn remove(index: usize) Option[T] {
         if (index >= self.len) return .{ None };
 
@@ -216,19 +216,19 @@ impl[T] *mut List[T] {
         return .{ Some: removed_val };
     }
 
-    // Shortens the list to `new_len`.
+    /// Shortens the list to `new_len`.
     pub fn truncate(new_len: usize) void {
         if (new_len < self.len) {
             self.len = new_len;
         }
     }
 
-    // Removes every element without releasing capacity.
+    /// Removes every element without releasing capacity.
     pub fn clear() void {
         self.len = 0;
     }
 
-    // Releases the backing allocation.
+    /// Releases the backing allocation.
     pub fn deinit(alloc: *mut Allocator) void {
         if (self.is_zst()) {
             self.ptr = *mut T.{0};
@@ -249,13 +249,13 @@ impl[T] *mut List[T] {
         }
     }
 
-    // Returns a mutable pointer to the element at `index`.
+    /// Returns a mutable pointer to the element at `index`.
     pub fn get_ptr(index: usize) Option[*mut T] {
         if (index >= self.len) return .{ None };
         return .{ Some: self.ptr + index };
     }
 
-    // Removes an element by swapping in the last element.
+    /// Removes an element by swapping in the last element.
     pub fn swap_remove(index: usize) Option[T] {
         if (index >= self.len) return .{ None };
 
@@ -270,7 +270,7 @@ impl[T] *mut List[T] {
         return .{ Some: removed_val };
     }
 
-    // Appends every element from `slice`.
+    /// Appends every element from `slice`.
     pub fn append_slice(alloc: *mut Allocator, slice: []T) bool {
         let additional = #slice;
         if (additional == 0) return true;
@@ -299,17 +299,17 @@ impl[T] *mut List[T] {
         return true;
     }
 
-    // Alias for `append_slice`.
+    /// Alias for `append_slice`.
     pub fn extend(alloc: *mut Allocator, items: []T) bool {
         return self.append_slice(alloc, items);
     }
 
-    // Appends every element from another list.
+    /// Appends every element from another list.
     pub fn extend_from_list(alloc: *mut Allocator, other: *List[T]) bool {
         return self.append_slice(alloc, other.as_slice());
     }
 
-    // Appends `count` copies of `item`.
+    /// Appends `count` copies of `item`.
     pub fn append_repeat(alloc: *mut Allocator, item: T, count: usize) bool {
         if (!self.reserve(alloc, count)) {
             return false;
@@ -328,7 +328,7 @@ impl[T] *mut List[T] {
         return true;
     }
 
-    // Changes the list length, filling new elements with `fill`.
+    /// Changes the list length, filling new elements with `fill`.
     pub fn resize(alloc: *mut Allocator, new_len: usize, fill: T) bool {
         if (new_len <= self.len) {
             self.truncate(new_len);
@@ -338,13 +338,13 @@ impl[T] *mut List[T] {
         return self.append_repeat(alloc, fill, new_len - self.len);
     }
 
-    // Replaces the contents of the list with `items`.
+    /// Replaces the contents of the list with `items`.
     pub fn clone_from(alloc: *mut Allocator, items: []T) bool {
         self.clear();
         return self.append_slice(alloc, items);
     }
 
-    // Shrinks capacity down to the current length.
+    /// Shrinks capacity down to the current length.
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
         if (self.cap == self.len) return true;
         if (self.len == 0) {
@@ -379,22 +379,22 @@ impl[T] *mut List[T] {
         return true;
     }
 
-    // Reverses the element order in place.
+    /// Reverses the element order in place.
     pub fn reverse() void {
         self.as_mut_slice().reverse();
     }
 
-    // Overwrites every element with `value`.
+    /// Overwrites every element with `value`.
     pub fn fill(value: T) void {
         self.as_mut_slice().fill(value);
     }
 
-    // Visits every element mutably.
+    /// Visits every element mutably.
     pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
         self.as_mut_slice().for_each_mut(visitor);
     }
 
-    // Retains only the elements accepted by `pred`.
+    /// Retains only the elements accepted by `pred`.
     pub fn retain(pred: *Fn(T) bool) void {
         if (self.len == 0) {
             return;
@@ -426,7 +426,7 @@ impl[T] *mut List[T] {
         self.len = write;
     }
 
-    // Retains only the elements whose mutable references are accepted by `pred`.
+    /// Retains only the elements whose mutable references are accepted by `pred`.
     pub fn retain_mut(pred: *Fn(*mut T) bool) void {
         if (self.len == 0) {
             return;

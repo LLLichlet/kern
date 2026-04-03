@@ -121,7 +121,7 @@ impl *mut Arena : Allocator {
         return true;
     }
 
-    // Allocates from the current chunk or grows the arena when needed.
+    /// Allocates from the current chunk or grows the arena when needed.
     pub fn alloc(layout: Layout) Option[*mut u8] {
         if (layout.size == 0) {
             return .{ Some: arena_dangling_ptr(layout.align) };
@@ -138,16 +138,16 @@ impl *mut Arena : Allocator {
         return self.alloc_from_chunk(self.current, layout);
     }
 
-    // Ignores individual frees.
-    //
-    // Design:
-    // keep arena allocation fast and make reclamation an explicit bulk action.
+    /// Ignores individual frees.
+    ///
+    /// Design:
+    /// keep arena allocation fast and make reclamation an explicit bulk action.
     pub fn free(ptr: *mut u8, layout: Layout) void {
         let _ = ptr;
         let _ = layout;
     }
 
-    // Releases every chunk except the current one and rewinds allocation state.
+    /// Releases every chunk except the current one and rewinds allocation state.
     pub fn reset() void {
         if ((self.current as usize) == 0) {
             self.next_chunk_size = arena_default_chunk_size(self.chunk_size);
@@ -166,14 +166,14 @@ impl *mut Arena : Allocator {
         );
     }
 
-    // Releases every chunk owned by the arena.
+    /// Releases every chunk owned by the arena.
     pub fn deinit() void {
         self.release_chain(self.current);
         self.current = 0;
         self.next_chunk_size = arena_default_chunk_size(self.chunk_size);
     }
 
-    // Alias for `reset`.
+    /// Alias for `reset`.
     pub fn clear() void {
         self.reset();
     }

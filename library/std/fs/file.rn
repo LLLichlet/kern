@@ -282,20 +282,20 @@ pub fn copy(alloc: *mut Allocator, from_path: []u8, to_path: []u8) Result[usize,
 }
 
 impl *mut File {
-    // Wraps a raw OS handle in a `File`.
-    //
-    // Safety:
-    // the handle must obey the ownership rules expected by `close`.
+    /// Wraps a raw OS handle in a `File`.
+    ///
+    /// Safety:
+    /// the handle must obey the ownership rules expected by `close`.
     pub fn from_handle(handle: os.Handle) File {
         return .{ handle: handle };
     }
 
-    // Returns the underlying OS handle.
+    /// Returns the underlying OS handle.
     pub fn raw_handle() os.Handle {
         return self.handle;
     }
 
-    // Reads bytes into the provided mutable slice.
+    /// Reads bytes into the provided mutable slice.
     pub fn read(buf: []mut u8) Result[usize, Error] {
         let len = #buf;
         if (len == 0) {
@@ -308,7 +308,7 @@ impl *mut File {
         }
     }
 
-    // Writes bytes from the provided slice.
+    /// Writes bytes from the provided slice.
     pub fn write(buf: []u8) Result[usize, Error] {
         let len = #buf;
         if (len == 0) {
@@ -321,7 +321,7 @@ impl *mut File {
         }
     }
 
-    // Repeatedly writes until the full buffer has been flushed.
+    /// Repeatedly writes until the full buffer has been flushed.
     pub fn write_all(buf: []u8) Result[usize, Error] {
         let mut total = 0;
         for (; total < #buf; ) {
@@ -337,7 +337,7 @@ impl *mut File {
         return .{ Ok: total };
     }
 
-    // Copies all remaining bytes from this file into another file.
+    /// Copies all remaining bytes from this file into another file.
     pub fn copy_to(other: *mut File) Result[usize, Error] {
         let chunk = [1024]mut u8.{undef};
         let mut total = 0;
@@ -360,7 +360,7 @@ impl *mut File {
         }
     }
 
-    // Closes the file handle if it is still open.
+    /// Closes the file handle if it is still open.
     pub fn close() Result[bool, Error] {
         if (self.handle == os.invalid_handle()) {
             return .{ Ok: true };
@@ -375,12 +375,12 @@ impl *mut File {
         return .{ Ok: true };
     }
 
-    // Best-effort destructor for the file handle.
+    /// Best-effort destructor for the file handle.
     pub fn deinit() void {
         let _ = self.close();
     }
 
-    // Reads the remainder of the file into an owned string.
+    /// Reads the remainder of the file into an owned string.
     pub fn read_to_string(alloc: *mut Allocator) Result[String, Error] {
         let mut out = String.{};
         let chunk = [1024]mut u8.{undef};

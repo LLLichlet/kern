@@ -5,17 +5,17 @@
 
 /// Low-level flags used when opening a file through the OS layer.
 pub type OpenOptions = struct {
-    /// Allows reads from the opened handle.
+    //// Allows reads from the opened handle.
     pub read: bool = false,
-    /// Allows writes to the opened handle.
+    //// Allows writes to the opened handle.
     pub write: bool = false,
-    /// Creates the file when it does not already exist.
+    //// Creates the file when it does not already exist.
     pub create: bool = false,
-    /// Creates the file and fails when it already exists.
+    //// Creates the file and fails when it already exists.
     pub create_new: bool = false,
-    /// Truncates the file to zero length on open.
+    //// Truncates the file to zero length on open.
     pub truncate: bool = false,
-    /// Appends writes to the end of the file.
+    //// Appends writes to the end of the file.
     pub append: bool = false,
 };
 
@@ -29,17 +29,17 @@ pub type FileType = enum {
 /// Low-level filesystem metadata.
 pub type Metadata = struct {
     file_type: FileType,
-    /// File length in bytes when the platform provides it.
+    //// File length in bytes when the platform provides it.
     pub size: usize,
 };
 
 impl Metadata {
-    // Returns `true` when the metadata describes a regular file.
+    /// Returns `true` when the metadata describes a regular file.
     pub fn is_file() bool {
         return self.file_type == .File;
     }
 
-    // Returns `true` when the metadata describes a directory.
+    /// Returns `true` when the metadata describes a directory.
     pub fn is_dir() bool {
         return self.file_type == .Directory;
     }

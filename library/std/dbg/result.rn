@@ -12,7 +12,7 @@ pub type Result[T, E] = enum {
 };
 
 impl[T, E] Result[T, E] {
-    // Returns `true` when the result is `Ok`.
+    /// Returns `true` when the result is `Ok`.
     pub fn is_ok() bool {
         match (self) {
             .{ Ok: _ } => true,
@@ -20,7 +20,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Returns `true` when the result is `Err`.
+    /// Returns `true` when the result is `Err`.
     pub fn is_err() bool {
         match (self) {
             .{ Ok: _ } => false,
@@ -28,7 +28,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Converts `Ok(T)` into `Some(T)` and drops the error.
+    /// Converts `Ok(T)` into `Some(T)` and drops the error.
     pub fn ok() Option[T] {
         match (self) {
             .{ Ok: a } => .{Some: a},
@@ -36,7 +36,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Converts `Err(E)` into `Some(E)` and drops the success value.
+    /// Converts `Err(E)` into `Some(E)` and drops the success value.
     pub fn err() Option[E] {
         match (self) {
             .{ Ok: _ } => .{None},
@@ -44,7 +44,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Maps the success value while preserving the error type.
+    /// Maps the success value while preserving the error type.
     pub fn map[U](call_back: *Fn(T) U) Result[U, E] {
         match (self) {
             .{ Ok: a } => .{Ok: call_back(a)},
@@ -52,7 +52,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Maps the success value or returns `default` when the result is `Err`.
+    /// Maps the success value or returns `default` when the result is `Err`.
     pub fn map_or[U](default: U, call_back: *Fn(T) U) U {
         match (self) {
             .{ Ok: a } => call_back(a),
@@ -60,7 +60,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Lazily computes either branch into a common output type.
+    /// Lazily computes either branch into a common output type.
     pub fn map_or_else[U](default: *Fn(E) U, f: *Fn(T) U) U {
         match (self) {
             .{ Ok: a } => f(a),
@@ -68,7 +68,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Maps the error value while preserving the success type.
+    /// Maps the error value while preserving the success type.
     pub fn map_err[F](call_back: *Fn(E) F) Result[T, F] {
         match (self) {
             .{ Ok: a } => .{Ok: a},
@@ -76,7 +76,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Chains another fallible computation after `Ok(T)`.
+    /// Chains another fallible computation after `Ok(T)`.
     pub fn and_then[U](call_back: *Fn(T) Result[U, E]) Result[U, E] {
         match (self) {
             .{ Ok: a } => call_back(a),
@@ -84,7 +84,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Recovers from `Err(E)` by running another fallible computation.
+    /// Recovers from `Err(E)` by running another fallible computation.
     pub fn or_else[F](call_back: *Fn(E) Result[T, F]) Result[T, F] {
         match (self) {
             .{ Ok: a } => .{ Ok: a },
@@ -92,7 +92,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Runs a side effect on `Ok(T)` and returns the original result.
+    /// Runs a side effect on `Ok(T)` and returns the original result.
     pub fn inspect(call_back: *Fn(T) void) Result[T, E] {
         match (self) {
             .{ Ok: a } => {
@@ -103,7 +103,7 @@ impl[T, E] Result[T, E] {
         }
     }
 
-    // Runs a side effect on `Err(E)` and returns the original result.
+    /// Runs a side effect on `Err(E)` and returns the original result.
     pub fn inspect_err(call_back: *Fn(E) void) Result[T, E] {
         match (self) {
             .{ Ok: _ } => self,

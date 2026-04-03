@@ -1,16 +1,16 @@
 #![if(os == "windows")]
 
-// Windows-specific operating-system shims.
-//
-// Design:
-// keep UTF-16 conversion and Win32 handle management explicit.
+//! Windows-specific operating-system shims.
+//!
+//! Design:
+//! keep UTF-16 conversion and Win32 handle management explicit.
 
 use std.Result;
 use std.cffi;
 use std.os.{FileType, Metadata};
 use std.os.OpenOptions;
 
-// Imports the required Win32 APIs from `kernel32.dll`.
+/// Imports the required Win32 APIs from `kernel32.dll`.
 extern {
     pub fn GetStdHandle(nStdHandle: i32) *mut u8;
     pub fn CreateFileW(
@@ -124,6 +124,7 @@ const ERROR_INVALID_PARAMETER = isize.{87};
 const ERROR_FILE_EXISTS = isize.{80};
 const ERROR_ALREADY_EXISTS = isize.{183};
 
+/// Returns the sentinel value used for invalid Win32 handles.
 pub fn invalid_handle() Handle {
     return (~usize.{0}) as *mut u8;
 }
@@ -136,22 +137,27 @@ fn conversion_error() Error {
     return .{ code: ERROR_INVALID_PARAMETER };
 }
 
+/// Returns `true` when `err` represents a missing path or file.
 pub fn is_not_found(err: Error) bool {
     return err.code == ERROR_FILE_NOT_FOUND or err.code == ERROR_PATH_NOT_FOUND;
 }
 
+/// Returns `true` when `err` reports that a path already exists.
 pub fn is_already_exists(err: Error) bool {
     return err.code == ERROR_FILE_EXISTS or err.code == ERROR_ALREADY_EXISTS;
 }
 
+/// Returns the process handle for standard input.
 pub fn get_stdin_handle() Handle {
     return GetStdHandle(-10);
 }
 
+/// Returns the process handle for standard output.
 pub fn get_stdout_handle() Handle {
     return GetStdHandle(-11); // `STD_OUTPUT_HANDLE`
 }
 
+/// Returns the process handle for standard error.
 pub fn get_stderr_handle() Handle {
     return GetStdHandle(-12);
 }
@@ -181,6 +187,7 @@ fn alloc_wide_units(units: usize) Result[*mut u16, Error] {
     return .{ Ok: ptr as *mut u16 };
 }
 
+/// Releases a page-backed UTF-16 buffer previously allocated by this module.
 pub fn free_wide_units(ptr: *mut u16) void {
     if ((ptr as usize) == 0) {
         return;
@@ -201,6 +208,7 @@ fn alloc_utf8_units(bytes: usize) Result[*mut u8, Error] {
     return .{ Ok: ptr };
 }
 
+/// Releases a page-backed UTF-8 buffer previously allocated by this module.
 pub fn free_utf8_units(ptr: *mut u8) void {
     if ((ptr as usize) == 0) {
         return;
@@ -208,6 +216,7 @@ pub fn free_utf8_units(ptr: *mut u8) void {
     let _ = VirtualFree(ptr, 0, MEM_RELEASE as u32);
 }
 
+/// Converts a zero-terminated UTF-8 path into an owned zero-terminated UTF-16 buffer.
 pub fn utf8_z_to_wide(path: *u8) Result[*mut u16, Error] {
     let bytes = cffi.cstr.len(path);
     let required = MultiByteToWideChar(CP_UTF8, 0, path, bytes as i32, 0, 0);
@@ -230,6 +239,7 @@ pub fn utf8_z_to_wide(path: *u8) Result[*mut u16, Error] {
     return .{ Ok: wide };
 }
 
+/// Converts a UTF-16 slice into UTF-8 bytes written into `out`.
 pub fn wide_to_utf8_into(wide: []u16, out: []mut u8) Result[usize, Error] {
     if (#wide == 0) {
         return .{ Ok: 0 };

@@ -1,7 +1,14 @@
+//! Hashing traits and helpers.
+//!
+//! The standard library keeps hashing simple and deterministic. Containers rely
+//! on these routines instead of embedding their own ad hoc mixers.
+
+/// A type that can produce a stable 64-bit hash value.
 pub type Hash[T] = trait {
     hash: fn() u64,
 };
 
+/// Mixes a 64-bit value into a well-distributed 64-bit hash.
 pub const fn mix_u64(value: u64) u64 {
     let mut z = value + u64.{11400714819323198485};
     z = (z ^ (z >> 30)) * u64.{13787848793156543929};
@@ -9,12 +16,14 @@ pub const fn mix_u64(value: u64) u64 {
     return z ^ (z >> 31);
 }
 
+/// Mixes a 128-bit value into a 64-bit hash.
 pub const fn mix_u128(value: u128) u64 {
     let lo = value as u64;
     let hi = (value >> 64) as u64;
     return mix_u64(lo ^ mix_u64(hi + u64.{14029467366897019727}));
 }
 
+/// Hashes an arbitrary byte slice.
 pub fn hash_bytes(bytes: []u8) u64 {
     let mut acc = u64.{14695981039346656037};
     let len = #bytes;
@@ -26,6 +35,7 @@ pub fn hash_bytes(bytes: []u8) u64 {
     return mix_u64(acc ^ (len as u64));
 }
 
+/// Hashes a value through the `Hash` trait.
 pub fn hash_of[T](value: T) u64
     where T: Hash[T],
 {

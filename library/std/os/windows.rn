@@ -1,11 +1,16 @@
 #![if(os == "windows")]
 
+// Windows-specific operating-system shims.
+//
+// Design:
+// keep UTF-16 conversion and Win32 handle management explicit.
+
 use std.Result;
 use std.cffi;
 use std.os.{FileType, Metadata};
 use std.os.OpenOptions;
 
-// 链接 kernel32.dll 中的函数
+// Imports the required Win32 APIs from `kernel32.dll`.
 extern {
     pub fn GetStdHandle(nStdHandle: i32) *mut u8;
     pub fn CreateFileW(
@@ -47,23 +52,27 @@ extern {
     pub fn WideCharToMultiByte(CodePage: u32, dwFlags: u32, lpWideCharStr: *u16, cchWideChar: i32, lpMultiByteStr: *mut u8, cbMultiByte: i32, lpDefaultChar: *u8, lpUsedDefaultChar: *mut u8) i32;
 }
 
+/// Writes raw bytes to standard output through the Win32 console handle.
 pub fn write_stdout(ptr: *u8, len: usize) usize {
-    // STD_OUTPUT_HANDLE 是 -11
+    // `STD_OUTPUT_HANDLE` is `-11`.
     let handle = GetStdHandle(-11);
     let mut written = u32.{0};
     
-    // Windows API 要求传入 32 位长度
+    // The Win32 API expects a 32-bit length parameter.
     let _ = WriteFile(handle, ptr, len as u32, written..&, 0);
     return written as usize;
 }
 
+/// Terminates the current process.
 pub fn exit(code: i32) ! {
     ExitProcess(code as u32);
     @unreachable()
 }
 
 // *void
+/// A raw Win32 handle.
 pub type Handle = *mut u8;
+/// A Windows OS error code.
 pub type Error = struct {
     code: isize,
 };
@@ -140,7 +149,7 @@ pub fn get_stdin_handle() Handle {
 }
 
 pub fn get_stdout_handle() Handle {
-    return GetStdHandle(-11); // STD_OUTPUT_HANDLE
+    return GetStdHandle(-11); // `STD_OUTPUT_HANDLE`
 }
 
 pub fn get_stderr_handle() Handle {
@@ -528,7 +537,11 @@ extern {
     pub fn VirtualFree(lpAddress: *mut u8, dwSize: usize, dwFreeType: u32) i32;
 }
 
+/// Allocation flag for committed pages.
 pub const MEM_COMMIT  = 4096;  // 0x1000
+/// Allocation flag for reserved pages.
 pub const MEM_RESERVE = 8192;  // 0x2000
+/// Page protection for readable and writable memory.
 pub const PAGE_READWRITE = 4;  // 0x04
+/// Release flag used with `VirtualFree`.
 pub const MEM_RELEASE = 32768; // 0x8000

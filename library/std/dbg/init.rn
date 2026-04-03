@@ -1,3 +1,8 @@
+//! Debugging and control-flow helpers.
+//!
+//! This module defines `Option`, `Result`, and the runtime-facing helpers used
+//! for assertions, traps, and lightweight diagnostic output.
+
 mod option;
 mod result;
 mod runtime;

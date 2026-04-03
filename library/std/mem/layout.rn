@@ -1,17 +1,24 @@
+//! Memory layout descriptions.
+
 use std.Option;
 use std.num.USIZE_MAX;
 
+/// The size and alignment required for an allocation.
 pub type Layout = struct {
+    /// The number of bytes required by the allocation.
     pub size: usize,
+    /// The byte alignment required by the allocation.
     pub align: usize,
 };
 
 impl Layout {
+    // Returns `true` when the layout describes a zero-sized value.
     pub const fn is_zst() bool {
         return self.size == 0;
     }
 }
 
+/// Returns the layout of a single `T`.
 pub const fn layout_of[T]() Layout {
     return .{
         size: @sizeOf[T](),
@@ -19,6 +26,10 @@ pub const fn layout_of[T]() Layout {
     };
 }
 
+/// Returns the layout of an array of `count` elements.
+///
+/// Returns:
+/// `None` when the total size would overflow `usize`.
 pub const fn array_layout_of[T](count: usize) Option[Layout] {
     let elem = layout_of[T]();
     if (elem.size == 0) {

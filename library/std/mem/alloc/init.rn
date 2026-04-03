@@ -1,3 +1,9 @@
+//! Standard allocators.
+//!
+//! The standard library ships a thin page allocator together with reusable
+//! general-purpose and arena allocators layered on top of an arbitrary backing
+//! allocator.
+
 mod allocator;
 mod page;
 mod gpa;

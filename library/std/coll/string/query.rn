@@ -4,66 +4,82 @@ use std.hash.{Hash, hash_bytes};
 use ..String;
 
 impl *String {
+    // Compares the string contents against a byte slice.
     pub fn eq(other: []u8) bool {
         return self.as_str().eq(other);
     }
 
+    // Returns `true` when the string begins with `prefix`.
     pub fn starts_with(prefix: []u8) bool {
         return self.as_str().starts_with(prefix);
     }
 
+    // Returns `true` when the string ends with `suffix`.
     pub fn ends_with(suffix: []u8) bool {
         return self.as_str().ends_with(suffix);
     }
 
+    // Returns the first position of `needle`.
     pub fn find(needle: []u8) Option[usize] {
         return self.as_str().find(needle);
     }
 
+    // Returns `true` when `needle` appears as a contiguous subsequence.
     pub fn contains(needle: []u8) bool {
         return self.as_str().contains(needle);
     }
 
+    // Visits every byte in order.
     pub fn for_each_byte(visitor: *Fn(u8) void) void {
         self.as_str().for_each(visitor);
     }
 
+    // Folds the bytes from left to right.
     pub fn fold_bytes[U](init: U, step: *Fn(U, u8) U) U {
         return self.as_str().fold(init, step);
     }
 
+    // Removes `prefix` from the front when present.
     pub fn strip_prefix(prefix: []u8) Option[[]u8] {
         return self.as_str().strip_prefix(prefix);
     }
 
+    // Removes `suffix` from the end when present.
     pub fn strip_suffix(suffix: []u8) Option[[]u8] {
         return self.as_str().strip_suffix(suffix);
     }
 
+    // Returns the first index of `byte`.
     pub fn find_byte(byte: u8) Option[usize] {
         return self.as_str().find_byte(byte);
     }
 
+    // Returns the last index of `byte`.
     pub fn rfind_byte(byte: u8) Option[usize] {
         return self.as_str().rfind_byte(byte);
     }
 
+    // Returns `true` when the string contains `byte`.
     pub fn contains_byte(byte: u8) bool {
         return self.as_str().contains_byte(byte);
     }
 
+    // Trims ASCII whitespace from the start of the string.
     pub fn trim_ascii_start() []u8 {
         return self.as_str().trim_ascii_start();
     }
 
+    // Trims ASCII whitespace from the end of the string.
     pub fn trim_ascii_end() []u8 {
         return self.as_str().trim_ascii_end();
     }
 
+    // Trims ASCII whitespace from both ends of the string.
     pub fn trim_ascii() []u8 {
         return self.as_str().trim_ascii();
     }
 
+    // Performs lexicographic comparison against `other`.
     pub fn lex_cmp(other: []u8) Ordering {
         return self.as_str().lex_cmp(other);
     }

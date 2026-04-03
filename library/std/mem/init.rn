@@ -1,3 +1,8 @@
+//! Memory layout and allocation primitives.
+//!
+//! This module exposes layout calculation and allocator traits without hiding
+//! ownership or lifetime decisions behind implicit runtime services.
+
 mod layout;
 pub mod alloc;
 

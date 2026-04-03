@@ -1,25 +1,39 @@
+//! Comparison traits and ordering helpers.
+//!
+//! This module defines the vocabulary used by ordered containers and generic
+//! algorithms.
+
+/// The relative ordering between two values.
 pub type Ordering = i32;
 
+/// Indicates that the left-hand value is smaller than the right-hand value.
 pub const LESS = Ordering.{-1};
+/// Indicates that both values compare as equal.
 pub const EQUAL = Ordering.{0};
+/// Indicates that the left-hand value is greater than the right-hand value.
 pub const GREATER = Ordering.{1};
 
+/// Equality comparison for a type.
 pub type Eq[T] = trait {
     eq: fn(T) bool,
 };
 
+/// Total or partial ordering comparison for a type.
 pub type Comparable[T] = trait {
     cmp: fn(T) Ordering,
 };
 
+/// A type that supports both equality and ordering.
 pub type Ord[T]: Eq[T] + Comparable[T] = trait {};
 
+/// Compares two values for equality through the `Eq` trait.
 pub fn eq[T](lhs: T, rhs: T) bool
     where T: Eq[T],
 {
     return lhs.eq(rhs);
 }
 
+/// Compares two values through the `Ord` trait.
 pub fn ord_cmp[T](lhs: T, rhs: T) Ordering
     where T: Ord[T],
 {

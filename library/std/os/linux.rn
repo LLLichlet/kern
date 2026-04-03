@@ -1,13 +1,20 @@
 #![if(os == "linux")]
 
+// Linux-specific operating-system shims.
+//
+// Design:
+// keep the syscall boundary direct and typed.
+
 use std.Result;
 use std.os.{FileType, Metadata};
 use std.os.OpenOptions;
 
+/// A Linux OS error code.
 pub type Error = struct {
     code: isize,
 };
 
+/// A raw Linux file descriptor or handle-like integer.
 pub type Handle = usize;
 
 const INVALID_HANDLE = ~usize.{0};
@@ -81,7 +88,7 @@ fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     return ret;
 }
 
-// 基础的 3 参数系统调用封装
+/// Performs a raw 3-argument syscall.
 pub fn syscall3(sys_num: usize, arg1: usize, arg2: usize, arg3: usize) usize {
     let ret = syscall3_raw(sys_num, arg1, arg2, arg3);
     return ret as usize;
@@ -126,13 +133,13 @@ fn syscall4_raw(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usi
     return ret;
 }
 
-// 封装 exit (Linux syscall number 60)
+/// Terminates the current process.
 pub fn exit(code: i32) ! {
-    // sys_exit 的参数是 int，需要将其转换为 usize
+    // `sys_exit` takes an `int`, but the syscall wrapper uses `usize`.
     let sys_exit_num = 60;
     let _ = syscall3(sys_exit_num, code as usize, 0, 0);
     
-    // exit 永不返回
+    // `exit` never returns.
     @unreachable()
 }
 
@@ -153,7 +160,7 @@ pub fn get_stdin_handle() Handle {
 }
 
 pub fn get_stdout_handle() Handle {
-    return 1; // Linux 的 stdout fd 是 1
+    return 1; // Linux stdout uses file descriptor 1.
 }
 
 pub fn get_stderr_handle() Handle {
@@ -171,7 +178,7 @@ pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usi
             rdi: arg1, 
             rsi: arg2, 
             rdx: arg3, 
-            r10: arg4, // Linux syscall 独有: r10 而不是 rcx
+            r10: arg4, // Linux syscalls use `r10` rather than `rcx`.
             r8:  arg5, 
             r9:  arg6 
         },
@@ -182,21 +189,25 @@ pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usi
     return ret;
 }
 
-// 导出 mmap 和 munmap 参数所需的常量 
+/// Page protection flag for readable memory mappings.
 pub const PROT_READ   = 1;
+/// Page protection flag for writable memory mappings.
 pub const PROT_WRITE  = 2;
+/// Mapping flag for a private copy-on-write mapping.
 pub const MAP_PRIVATE = 2;
+/// Mapping flag for an anonymous mapping.
 pub const MAP_ANONYMOUS = 32;
+/// Sentinel value returned by `mmap` on failure.
 pub const MAP_FAILED  = std.num.USIZE_MAX; 
 
-// sys_mmap 是 9
+/// Performs the Linux `mmap` syscall.
 pub fn mmap(addr: usize, len: usize, prot: usize, flags: usize, fd: usize, offset: usize) usize {
     return syscall6(9, addr, len, prot, flags, fd, offset);
 }
 
-// sys_munmap 是 11
+/// Performs the Linux `munmap` syscall.
 pub fn munmap(addr: usize, len: usize) usize {
-    // 补齐缺少的参数用 0
+    // Pads the unused syscall arguments with zero.
     return syscall6(11, addr, len, 0, 0, 0, 0); 
 }
 

@@ -213,14 +213,17 @@ impl[K, V] *mut Map[K, V]
         return entry.value..&;
     }
 
+    // Reserves space for at least `additional` new entries.
     pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
         return self.reserve_internal(alloc, additional);
     }
 
+    // Rebuilds the table to remove tombstones without changing the target length.
     pub fn compact(alloc: *mut Allocator) bool {
         return self.reserve_internal(alloc, 0);
     }
 
+    // Shrinks table capacity toward the current number of entries.
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
         if (self.len == 0) {
             self.deinit(alloc);
@@ -239,6 +242,7 @@ impl[K, V] *mut Map[K, V]
         return self.rebuild(alloc, target);
     }
 
+    // Inserts or replaces a key-value pair.
     pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
         let hash = key_hash(key);
         if (self.capacity > 0) {
@@ -264,6 +268,7 @@ impl[K, V] *mut Map[K, V]
         return true;
     }
 
+    // Returns a mutable pointer to the existing value or inserts `value`.
     pub fn get_or_insert(alloc: *mut Allocator, key: K, value: V) Option[*mut V] {
         let hash = key_hash(key);
         if (self.capacity > 0) {
@@ -287,6 +292,7 @@ impl[K, V] *mut Map[K, V]
         return .{ Some: self.write_slot(slot, hash, key, value) };
     }
 
+    // Returns a mutable pointer to the existing value or inserts a lazily created one.
     pub fn get_or_insert_with(alloc: *mut Allocator, key: K, make_value: *Fn() V) Option[*mut V] {
         let hash = key_hash(key);
         if (self.capacity > 0) {
@@ -311,6 +317,7 @@ impl[K, V] *mut Map[K, V]
         return .{ Some: self.write_slot(slot, hash, key, value) };
     }
 
+    // Returns a mutable pointer to the value stored for `key`.
     pub fn get_ptr(key: K) Option[*mut V] {
         if (self.capacity == 0) return .{ None };
 
@@ -323,6 +330,7 @@ impl[K, V] *mut Map[K, V]
         return .{ Some: entry.value..& };
     }
 
+    // Visits every entry mutably in arbitrary table order.
     pub fn for_each_mut(visitor: *Fn(K, *mut V) void) void {
         let visit = .[visitor](entry: *mut Entry[K, V]) bool {
             visitor(entry.key, entry.value..&);
@@ -331,6 +339,7 @@ impl[K, V] *mut Map[K, V]
         let _ = visit_full[K, V](self.ctrl, self.entries, self.capacity, visit);
     }
 
+    // Retains only the entries accepted by `pred`.
     pub fn retain_mut(pred: *Fn(K, *mut V) bool) void {
         for (let mut i = 0; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
@@ -346,6 +355,7 @@ impl[K, V] *mut Map[K, V]
         }
     }
 
+    // Removes the value stored for `key`.
     pub fn remove(key: K) Option[V] {
         if (self.capacity == 0) return .{ None };
 
@@ -362,6 +372,7 @@ impl[K, V] *mut Map[K, V]
         return .{ Some: removed };
     }
 
+    // Removes and returns the first value whose key-value pair satisfies `pred`.
     pub fn remove_where(pred: *Fn(K, V) bool) Option[V] {
         for (let mut i = 0; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
@@ -380,6 +391,7 @@ impl[K, V] *mut Map[K, V]
         return .{ None };
     }
 
+    // Retains only the entries accepted by `pred`.
     pub fn retain(pred: *Fn(K, V) bool) void {
         for (let mut i = 0; i < self.capacity; i += 1) {
             if (ctrl_at(self.ctrl, i) != FULL) {
@@ -395,6 +407,7 @@ impl[K, V] *mut Map[K, V]
         }
     }
 
+    // Removes every entry without releasing capacity.
     pub fn clear() void {
         if (self.capacity == 0) return;
         @memset(self.ctrl, EMPTY, self.capacity);
@@ -402,6 +415,7 @@ impl[K, V] *mut Map[K, V]
         self.tombstones = 0;
     }
 
+    // Releases the backing table allocation.
     pub fn deinit(alloc: *mut Allocator) void {
         self.free_table(alloc, self.ctrl, self.entries, self.capacity);
         self.ctrl = 0;

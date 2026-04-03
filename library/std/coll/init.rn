@@ -1,3 +1,8 @@
+//! Collection types and slice helpers.
+//!
+//! The standard collections stay allocation-explicit and favor simple,
+//! inspectable representations over hidden policy.
+
 mod list;
 mod map;
 mod slice;

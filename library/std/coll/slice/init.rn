@@ -1,3 +1,5 @@
+//! Slice-oriented helper routines.
+
 mod query;
 mod mutable;
 mod bytes;

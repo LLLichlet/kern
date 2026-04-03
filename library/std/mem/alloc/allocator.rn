@@ -1,9 +1,18 @@
+//! Allocator trait.
+//!
+//! Kern allocators are explicit objects. Callers pass `Layout` on allocation
+//! and must return the same layout when freeing.
+
 use std.Option;
 use std.mem.Layout;
 
+/// The interface implemented by allocation backends.
 pub type Allocator = trait {
-    // 传入所需的内存布局信息
+    /// Allocates memory for the requested layout.
     alloc: fn(Layout) Option[*mut u8],
-    // 释放内存，必须传回原始布局
+    /// Frees a block previously returned from `alloc`.
+    ///
+    /// Safety:
+    /// callers must pass the original pointer and the original layout.
     free: fn(*mut u8, Layout) void,
 };

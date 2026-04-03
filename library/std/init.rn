@@ -1,3 +1,11 @@
+//! Kern standard library.
+//!
+//! The standard library provides the minimal runtime, containers, memory,
+//! filesystem, formatting, and platform shims used by ordinary Kern programs.
+//!
+//! Design:
+//! keep ownership, allocation, and platform boundaries explicit.
+
 pub mod io;
 pub mod fs;
 pub mod rt;

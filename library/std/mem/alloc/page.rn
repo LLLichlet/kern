@@ -1,8 +1,15 @@
+//! Page-backed allocator.
+//!
+//! This allocator maps and unmaps memory directly through the operating system.
+//! It is simple and predictable, but it does not attempt to recycle or compact
+//! allocations.
+
 use std.os;
 use std.Option;
 use std.mem.Layout;
 use ..Allocator;
 
+/// An allocator that requests memory directly from the OS page system.
 pub type Page = struct {};
 
 const WINDOWS_PAGE_READWRITE = u32.{4};
@@ -16,6 +23,7 @@ fn dangling_ptr(align: usize) *mut u8 {
 }
 
 impl *mut Page : Allocator{
+    // Allocates a region directly from the operating system.
     pub fn alloc(layout: Layout) Option[*mut u8] {
         if (layout.size == 0) {
             return .{ Some: dangling_ptr(layout.align) };
@@ -62,6 +70,10 @@ impl *mut Page : Allocator{
         };
     }
 
+    // Releases a region previously allocated by `Page`.
+    //
+    // Safety:
+    // `ptr` and `layout` must come from this allocator.
     pub fn free(ptr: *mut u8, layout: Layout) void {
         if ((ptr as usize) == 0 or layout.size == 0) {
             return;

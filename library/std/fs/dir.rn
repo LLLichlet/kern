@@ -1,3 +1,5 @@
+//! Directory creation, traversal, and removal.
+
 use std.Result;
 use std.Option;
 use std.os;
@@ -59,6 +61,7 @@ fn free_dir_search_path(alloc: *mut Allocator, path: []u8, ptr: *mut u8) void {
     alloc.free(ptr, layout);
 }
 
+/// Creates a single directory.
 pub fn create_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     let c_path = match (alloc_c_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
@@ -73,6 +76,7 @@ pub fn create_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     return result;
 }
 
+/// Creates a single directory and treats an existing directory as `Ok(false)`.
 pub fn create_dir_if_missing(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     match (create_dir(alloc, path)) {
         .{ Ok: created } => return .{ Ok: created },
@@ -96,6 +100,7 @@ pub fn create_dir_if_missing(alloc: *mut Allocator, path: []u8) Result[bool, Err
     }
 }
 
+/// Recursively creates every missing directory component in `path`.
 pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     if (#path == 0) {
         return .{ Err: .{ InvalidPath } };
@@ -133,6 +138,7 @@ pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     return .{ Ok: any_created or created };
 }
 
+/// Visits the direct children of a directory.
 pub fn read_dir(alloc: *mut Allocator, path: []u8, visitor: *Fn(DirEntry) bool) Result[usize, Error] {
     let c_path = match (alloc_c_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
@@ -213,6 +219,10 @@ fn walk_dir_inner(
     }
 }
 
+/// Walks a directory tree depth-first.
+///
+/// Returns:
+/// the number of visited entries.
 pub fn walk_dir(
     alloc: *mut Allocator,
     path: []u8,
@@ -237,6 +247,7 @@ pub fn walk_dir(
     }
 }
 
+/// Walks only file entries in a directory tree.
 pub fn walk_files(
     alloc: *mut Allocator,
     path: []u8,
@@ -251,6 +262,7 @@ pub fn walk_files(
     return walk_dir(alloc, path, only_files);
 }
 
+/// Walks only directory entries in a directory tree.
 pub fn walk_dirs(
     alloc: *mut Allocator,
     path: []u8,
@@ -265,6 +277,7 @@ pub fn walk_dirs(
     return walk_dir(alloc, path, only_dirs);
 }
 
+/// Removes a single empty directory.
 pub fn remove_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     let c_path = match (alloc_c_path(alloc, path)) {
         .{ Ok: ptr } => ptr,
@@ -279,6 +292,7 @@ pub fn remove_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     return result;
 }
 
+/// Removes a single empty directory and treats a missing path as `Ok(false)`.
 pub fn remove_dir_if_exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     match (remove_dir(alloc, path)) {
         .{ Ok: removed } => return .{ Ok: removed },
@@ -294,6 +308,10 @@ pub fn remove_dir_if_exists(alloc: *mut Allocator, path: []u8) Result[bool, Erro
     }
 }
 
+/// Recursively removes a directory tree.
+///
+/// Errors:
+/// returns `NotDirectory` when `path` exists but is not a directory.
 pub fn remove_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     let meta = match (metadata(alloc, path)) {
         .{ Ok: meta } => meta,

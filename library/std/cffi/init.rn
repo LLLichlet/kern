@@ -1,2 +1,6 @@
-pub mod cstr;
+//! Helpers for interoperating with C ABIs.
+//!
+//! Design:
+//! keep the boundary narrow and byte-oriented.
 
+pub mod cstr;

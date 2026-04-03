@@ -1,8 +1,16 @@
+//! C string helpers.
+//!
+//! These helpers allocate and inspect zero-terminated byte buffers for foreign
+//! function interfaces.
 
 use std.Option;
 use std.mem.array_layout_of;
 use std.mem.alloc.Allocator;
 
+/// Returns the length of a zero-terminated C string.
+///
+/// Safety:
+/// `str` must point to a valid zero-terminated byte sequence.
 pub fn len(str: *u8) usize {
     let mut len = 0;
     for (;;) {
@@ -22,6 +30,7 @@ fn z_string_layout(bytes: []u8) Option[std.mem.Layout] {
     return array_layout_of[u8](#bytes + 1);
 }
 
+/// Allocates a zero-terminated copy of `bytes`.
 pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) Option[*mut u8] {
     let layout = match (z_string_layout(bytes)) {
         .{ Some: layout } => layout,
@@ -40,6 +49,10 @@ pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) Option[*mut u8] {
     return .{ Some: ptr };
 }
 
+/// Frees a pointer previously returned by `alloc_z`.
+///
+/// Safety:
+/// `bytes` must be the same slice length that was used for allocation.
 pub fn free_z(alloc: *mut Allocator, bytes: []u8, ptr: *mut u8) void {
     let layout = match (z_string_layout(bytes)) {
         .{ Some: layout } => layout,

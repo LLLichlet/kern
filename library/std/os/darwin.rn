@@ -1,5 +1,10 @@
 #![if(os == "darwin")]
 
+// Darwin-specific operating-system shims.
+//
+// Design:
+// keep libc-backed OS calls explicit and close to the platform ABI.
+
 use std.Result;
 use std.os.{FileType, Metadata};
 use std.os.OpenOptions;
@@ -69,7 +74,9 @@ extern {
     fn system_readdir(dir: *mut u8) *mut Dirent;
 }
 
+/// A raw Darwin file descriptor.
 pub type Handle = i32;
+/// A Darwin OS error code.
 pub type Error = struct {
     code: isize,
 };
@@ -109,10 +116,15 @@ extern type Dirent = struct {
     d_name: [1024]u8,
 };
 
+/// Page protection flag for readable memory mappings.
 pub const PROT_READ = 0x01;
+/// Page protection flag for writable memory mappings.
 pub const PROT_WRITE = 0x02;
+/// Mapping flag for a private copy-on-write mapping.
 pub const MAP_PRIVATE = 0x0002;
+/// Mapping flag for an anonymous mapping.
 pub const MAP_ANONYMOUS = 0x1000;
+/// Sentinel value returned by `mmap` on failure.
 pub const MAP_FAILED = ~usize.{0};
 const INVALID_HANDLE = i32.{-1};
 const ENOENT = isize.{2};

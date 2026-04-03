@@ -8,38 +8,50 @@ fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
     let _ = writer.write("\n");
 }
 
+/// Triggers a non-recoverable trap.
+///
+/// Safety:
+/// this function does not return and immediately aborts execution.
 pub fn trap() ! {
     @trap();
 }
 
+/// Prints a panic message to standard error and traps.
+///
+/// Note:
+/// formatting arguments are passed as `.{ value, }`. Single-element lists still
+/// require the trailing comma.
 pub fn panic(fmt: []u8, args: []*Printable) ! {
-    // Formatting arguments must be passed as `.{ value, }`.
-    // The trailing comma is required for single-element argument lists.
-    // Without it, Kern parses `.{ value }` as scalar initialization.
     write_stderr("panic: ", fmt, args);
     trap();
 }
 
+/// Traps when `ok` is false after printing a diagnostic message.
+///
+/// Note:
+/// formatting arguments are passed as `.{ value, }`. Single-element lists still
+/// require the trailing comma.
 pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
     if (!ok) {
-        // Formatting arguments must be passed as `.{ value, }`.
-        // The trailing comma is required for single-element argument lists.
-        // Without it, Kern parses `.{ value }` as scalar initialization.
         write_stderr("assertion failed: ", fmt, args);
         trap();
     }
 }
 
+/// Writes a log line to standard error.
+///
+/// Note:
+/// formatting arguments are passed as `.{ value, }`. Single-element lists still
+/// require the trailing comma.
 pub fn log(fmt: []u8, args: []*Printable) void {
-    // Formatting arguments must be passed as `.{ value, }`.
-    // The trailing comma is required for single-element argument lists.
-    // Without it, Kern parses `.{ value }` as scalar initialization.
     write_stderr("log: ", fmt, args);
 }
 
+/// Writes a debug line to standard error.
+///
+/// Note:
+/// formatting arguments are passed as `.{ value, }`. Single-element lists still
+/// require the trailing comma.
 pub fn debug(fmt: []u8, args: []*Printable) void {
-    // Formatting arguments must be passed as `.{ value, }`.
-    // The trailing comma is required for single-element argument lists.
-    // Without it, Kern parses `.{ value }` as scalar initialization.
     write_stderr("debug: ", fmt, args);
 }

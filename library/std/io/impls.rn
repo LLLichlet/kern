@@ -1,21 +1,23 @@
 use ..traits.Writer;
 use ..traits.Printable;
 
-/// 字符串字面量
+/// Built-in `Printable` implementations.
+
+/// Formats a byte slice as raw text.
 impl *[]u8 : Printable {
     pub fn fmt(writer: *mut Writer) void {
         let _ = writer.write(self.*);
     }
 }
 
-/// 整数格式化辅助函数
+/// Writes an unsigned integer in base 10.
 fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
     if (val == 0) {
         let _ = writer.write("0");
         return;
     }
 
-    // u64 最大 20 位字符，使用 undef 避免初始化开销
+    // `u64` uses at most 20 decimal digits and avoids zero-initialization here.
     let buf = [20]mut u8.{undef};
     let mut i = 20;
     let mut curr = u64.{val};
@@ -23,22 +25,23 @@ fn write_u64_to_writer(val: u64, writer: *mut Writer) void {
     for (; curr > 0; ) {
         i -= 1;
         let digit = curr % 10;
-        // 提取最后一位，转为 u8，加上 ASCII '0' (48)
+        // Emits the last digit as its ASCII byte.
         buf.[i] = digit as u8 + 48;
         curr /= 10;
     }
 
-    // 构造有效切片并写入
+    // Writes only the populated suffix.
     let valid_slice = buf.[i .. 20];
     let _ = writer.write(valid_slice);
 }
 
+/// Writes a signed integer in base 10.
 fn write_i64_to_writer(val: i64, writer: *mut Writer) void {
     if (val < i64.{0}) {
         let _ = writer.write("-");
-        // 保持二进制 bit-pattern 不变，强转为 u64
+        // Preserves the bit-pattern while converting to the unsigned domain.
         let unsigned_val = val as u64;
-        // 在无符号空间内执行补码的取反加一，处理 i64::MIN
+        // Computes the two's-complement magnitude and handles `i64::MIN`.
         let pos_val = (~unsigned_val) + 1;
         write_u64_to_writer(pos_val, writer);
     } else {
@@ -72,7 +75,7 @@ impl *u8 : Printable {
 
 impl *usize : Printable {
     pub fn fmt(writer: *mut Writer) void {
-        //TODO: 在 32 位和 64 位系统上，usize 转换为 u64 都是安全的
+        // `usize` always fits into `u64` on the currently supported targets.
         write_u64_to_writer(self.* as u64, writer);
     }
 }

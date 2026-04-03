@@ -1,3 +1,8 @@
+//! Process environment access.
+//!
+//! Public APIs in this module keep names and values as UTF-8 byte slices or
+//! owned `String` values while platform-specific enumeration stays internal.
+
 use std.Option;
 use std.cffi;
 use std.coll.String;
@@ -20,8 +25,11 @@ extern {
     pub fn FreeEnvironmentStringsA(penv: *mut u8) i32;
 }
 
+/// A borrowed environment variable entry.
 pub type Var = struct {
+    /// The variable name.
     pub name: []u8,
+    /// The variable value.
     pub value: []u8,
 };
 
@@ -171,6 +179,10 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
     }
 }
 
+/// Reads an environment variable into an owned `String`.
+///
+/// Returns:
+/// `None` when the variable does not exist or allocation fails.
 pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
     if (#name == 0) {
         return .{ None };
@@ -191,6 +203,7 @@ pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
     return .{ None };
 }
 
+/// Returns `true` when an environment variable exists.
 pub fn has(alloc: *mut Allocator, name: []u8) bool {
     if (#name == 0) {
         return false;
@@ -211,6 +224,7 @@ pub fn has(alloc: *mut Allocator, name: []u8) bool {
     return false;
 }
 
+/// Returns the environment variable or a cloned fallback string.
 pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[String] {
     match (get(alloc, name)) {
         .{ Some: value } => return .{ Some: value },
@@ -225,10 +239,12 @@ pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[St
     }
 }
 
+/// Returns the environment variable or an empty owned string.
 pub fn get_or_empty(alloc: *mut Allocator, name: []u8) Option[String] {
     return get_or_clone(alloc, name, "");
 }
 
+/// Visits every environment variable until the visitor returns `false`.
 pub fn visit(visitor: *Fn(Var) bool) usize {
     #[if(libc and (os == "linux" or os == "darwin"))]
     {

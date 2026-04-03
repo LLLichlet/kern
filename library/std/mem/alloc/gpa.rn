@@ -1,3 +1,11 @@
+//! General-purpose allocator.
+//!
+//! `GPA` serves varied allocation sizes by carving blocks from backing chunks
+//! and tracking frees in a coalescing free list.
+//!
+//! Design:
+//! keep corruption checks cheap and fail loudly on invalid frees.
+
 use std.Option;
 use std.mem.Layout;
 use ..Allocator;
@@ -33,6 +41,7 @@ const GPA_ALLOC_HEADER_SIZE = @sizeOf[AllocationHeader]();
 const GPA_CHUNK_ALIGN = @alignOf[BackingChunk]();
 const GPA_CHUNK_HEADER_SIZE = @sizeOf[BackingChunk]();
 
+/// A reusable allocator with free-list recycling and generation checks.
 pub type GPA = struct {
     backing: *mut Allocator,
     free_list: *mut FreeBlock = 0,
@@ -277,6 +286,7 @@ impl *mut GPA : Allocator {
         return true;
     }
 
+    // Allocates a block that satisfies `layout`.
     pub fn alloc(layout: Layout) Option[*mut u8] {
         if (layout.size == 0) {
             return .{ Some: gpa_dangling_ptr(layout.align) };
@@ -294,6 +304,10 @@ impl *mut GPA : Allocator {
         return self.alloc_from_free_list(layout);
     }
 
+    // Frees a block previously allocated by this allocator.
+    //
+    // Safety:
+    // `ptr` and `layout` must match the original allocation.
     pub fn free(ptr: *mut u8, layout: Layout) void {
         if ((ptr as usize) == 0 or layout.size == 0) {
             return;
@@ -333,6 +347,10 @@ impl *mut GPA : Allocator {
         self.insert_free_block(block);
     }
 
+    // Marks every chunk as free without releasing them back to the backing allocator.
+    //
+    // Warning:
+    // pointers handed out before `reset` become invalid.
     pub fn reset() void {
         self.generation += 1;
         self.free_list = 0;
@@ -345,6 +363,7 @@ impl *mut GPA : Allocator {
         }
     }
 
+    // Releases every backing chunk owned by the allocator.
     pub fn deinit() void {
         let mut chunk = self.chunks;
         let chunk_layout_align = GPA_CHUNK_ALIGN;

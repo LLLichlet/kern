@@ -1,7 +1,18 @@
+//! Synchronization primitives and memory ordering constants.
+//!
+//! The current standard library exposes the memory ordering vocabulary used by
+//! atomics and low-level runtime code.
+
+/// Encodes the ordering used by an atomic operation.
 pub type MemOrder = u8;
 
+/// No synchronization with other operations.
 pub const RELAXED = MemOrder.{0};
+/// Acquire semantics for loads and read-modify-write operations.
 pub const ACQUIRE = MemOrder.{1};
+/// Release semantics for stores and read-modify-write operations.
 pub const RELEASE = MemOrder.{2};
+/// Combined acquire and release semantics.
 pub const ACQ_REL = MemOrder.{3};
+/// Sequentially consistent ordering.
 pub const SEQ_CST = MemOrder.{4};

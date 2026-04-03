@@ -49,9 +49,9 @@ impl<'a> Parser<'a> {
             }
 
             TokenType::Extern => {
-                let ext_span = self.advance().span; // 消费 'extern'
+                let ext_span = self.advance().span; // Consume `extern`.
                 if self.check(TokenType::Struct) {
-                    // is_union = false, is_extern = true
+                    // Parse an inline extern struct type.
                     let mut struct_ty = self.parse_struct_type(false, true)?;
                     struct_ty.span = ext_span.to(struct_ty.span);
                     Ok(struct_ty)
@@ -93,8 +93,8 @@ impl<'a> Parser<'a> {
     // --- Type Parsing Sub-Routines ---
 
     fn parse_pointer_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // 消费 '*'
-        let is_mut = self.match_token(&[TokenType::Mut]); // 核心：拦截 mut
+        let start_span = self.advance().span; // Consume `*`.
+        let is_mut = self.match_token(&[TokenType::Mut]);
         let elem = self.parse_type()?;
 
         Ok(TypeNode {
@@ -108,7 +108,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_volatile_pointer_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // 消费 '^'
+        let start_span = self.advance().span; // Consume `^`.
         let is_mut = self.match_token(&[TokenType::Mut]);
         let elem = self.parse_type()?;
 
@@ -123,9 +123,9 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_array_or_slice_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // 消费 '['
+        let start_span = self.advance().span; // Consume `[`.
 
-        // A. 切片 []T
+        // Form A: slice types, `[]T` or `[]mut T`.
         if self.match_token(&[TokenType::RBracket]) {
             let is_mut = self.match_token(&[TokenType::Mut]);
             let elem = self.parse_type()?;
@@ -138,7 +138,7 @@ impl<'a> Parser<'a> {
                 },
             })
         }
-        // B. 数组推导 [_]T
+        // Form B: length-inferred arrays, `[_]T`.
         else if self.match_token(&[TokenType::Underscore]) {
             self.expect(TokenType::RBracket)?;
             let is_mut = self.match_token(&[TokenType::Mut]);
@@ -152,7 +152,7 @@ impl<'a> Parser<'a> {
                 },
             })
         }
-        // C. 数组 [expr]T
+        // Form C: fixed-length arrays, `[expr]T`.
         else {
             let len_expr = self.parse_expression(Precedence::Lowest)?;
             self.expect(TokenType::RBracket)?;
@@ -172,7 +172,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_fn_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // 消费 'fn'
+        let start_span = self.advance().span; // Consume `fn`.
         self.expect(TokenType::LParen)?;
 
         let mut params = Vec::new();
@@ -180,10 +180,10 @@ impl<'a> Parser<'a> {
 
         if !self.check(TokenType::RParen) {
             loop {
-                // 拦截可变参数 ...
+                // Variadic `...` must appear in the final parameter slot.
                 if self.match_token(&[TokenType::Ellipsis]) {
                     is_variadic = true;
-                    break; // ... 必须是最后一个参数
+                    break;
                 }
 
                 params.push(self.parse_type()?);
@@ -210,7 +210,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_path_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance(); // 消费第一个 ident
+        let start_token = self.advance(); // Consume the first identifier.
         let first_id = self.intern_token(start_token);
         let mut span = start_token.span;
 
@@ -224,7 +224,7 @@ impl<'a> Parser<'a> {
             span = span.to(id_token.span);
         }
 
-        // 泛型参数 List[T]
+        // Parse optional type arguments such as `List[T]`.
         let mut generics = Vec::new();
         if self.check(TokenType::LBracket) {
             generics = self.parse_type_args()?;
@@ -261,7 +261,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_struct_type(&mut self, is_union: bool, is_extern: bool) -> ParseResult<TypeNode> {
-        let start_token = self.advance(); // struct / union
+        let start_token = self.advance(); // Consume `struct` or `union`.
         self.expect(TokenType::LBrace)?;
 
         let mut fields = Vec::new();
@@ -312,9 +312,9 @@ impl<'a> Parser<'a> {
     }
 
     pub(super) fn parse_enum_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance(); // 消费 'data'
+        let start_token = self.advance(); // Consume `enum`.
 
-        // 解析可选的底层存储类型
+        // Parse an optional explicit backing type.
         let mut backing_type = None;
         if self.match_token(&[TokenType::Colon]) {
             backing_type = Some(Box::new(self.parse_type()?));
@@ -330,11 +330,11 @@ impl<'a> Parser<'a> {
             let mut payload_type = None;
             let mut value = None;
 
-            // 1. 嗅探数据负载: `Variant: Type`
+            // Form 1: payload-carrying variants, `Variant: Type`.
             if self.match_token(&[TokenType::Colon]) {
                 payload_type = Some(Box::new(self.parse_type()?));
             }
-            // 2. 嗅探显式赋值: `Variant = Expr`
+            // Form 2: explicitly assigned discriminants, `Variant = Expr`.
             else if self.match_token(&[TokenType::Assign]) {
                 value = Some(Box::new(self.parse_expression(Precedence::Lowest)?));
             }
@@ -381,13 +381,13 @@ impl<'a> Parser<'a> {
             let name_token = self.expect(TokenType::Identifier)?;
             let name_id = self.intern_token(name_token);
             self.expect(TokenType::Colon)?;
-            // 1. 解析后面的签名，比如 fn() i32
+            // Trait members must parse as function signatures such as `fn() i32`.
             let mut method_type = self.parse_type()?;
             if let TypeKind::Function { ref mut params, .. } = method_type.kind {
-                // 构造一个隐式的 Self 类型节点
+                // Traits implicitly prepend `Self` to the method parameter list.
                 let implicit_self = TypeNode {
                     id: self.new_id(),
-                    span: name_token.span, // 使用方法名的位置作为 span
+                    span: name_token.span, // Reuse the method name span for the synthetic node.
                     kind: TypeKind::SelfType,
                 };
                 params.insert(0, implicit_self);
@@ -403,7 +403,7 @@ impl<'a> Parser<'a> {
                     "Trait methods cannot have default implementations here.".to_string(),
                 );
                 self.advance();
-                let _ = self.parse_expression(Precedence::Lowest)?; // consume expr
+                let _ = self.parse_expression(Precedence::Lowest)?; // Consume the rejected body.
             }
 
             fields.push(StructFieldDef {
@@ -429,14 +429,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_intrinsic_type(&mut self) -> ParseResult<TypeNode> {
-        let at_span = self.advance().span; // 消费 '@'
+        let at_span = self.advance().span; // Consume `@`.
         let id_token = self.expect(TokenType::Identifier)?;
         let sym = self.intern_token(id_token);
         let name = self.session.resolve(sym);
 
         if name == "typeOf" {
             self.expect(TokenType::LParen)?;
-            // @typeOf 内部包含的是一个完整的表达式
+            // `@typeOf(...)` wraps a full expression.
             let expr = self.parse_expression(Precedence::Lowest)?;
             let end_token = self.expect(TokenType::RParen)?;
 
@@ -455,7 +455,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_closure_interface_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // 消费 'Fn' 
+        let start_span = self.advance().span; // Consume `Fn`.
         self.expect(TokenType::LParen)?;
 
         let mut params = Vec::new();

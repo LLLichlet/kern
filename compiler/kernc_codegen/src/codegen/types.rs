@@ -58,20 +58,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             },
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.type_registry.normalize(elem);
-                // 特判：指向 Trait Object 或 ClosureInterface 的指针，物理布局是一个胖指针结构体
+                // Special-case pointers to trait objects or closure interfaces: they lower as fat-pointer structs.
                 if matches!(
                     self.type_registry.get(elem_norm),
                     TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
                 ) {
                     let ptr_ty = self.context.ptr_type(AddressSpace::default());
-                    let meta_ty = self.context.i64_type(); // 虚表指针 / 代码指针 统一用 i64 (usize)
+                    let meta_ty = self.context.i64_type(); // Vtable and code pointers are represented as `usize`.
                     return self
                         .context
                         .struct_type(&[ptr_ty.into(), meta_ty.into()], false)
                         .into();
                 }
 
-                // 普通指针，正常降级为单指针
+                // Ordinary pointers lower to a single raw pointer.
                 self.context.ptr_type(AddressSpace::default()).into()
             }
             TypeKind::Function { .. } | TypeKind::FnDef(..) => {
@@ -251,7 +251,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 辅助函数：统一为 LLVM 基础类型取 undef 值
+    /// Return an `undef` value for any LLVM basic type.
     pub(crate) fn get_undef_val(&self, llvm_ty: BasicTypeEnum<'ctx>) -> BasicValueEnum<'ctx> {
         match llvm_ty {
             BasicTypeEnum::ArrayType(t) => t.get_undef().into(),
@@ -264,7 +264,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 判断当前类型是否在物理上是 Void
+    /// Return whether the normalized type is physically `void`.
     pub(crate) fn is_void_type(&self, ty: TypeId) -> bool {
         let norm = self.type_registry.normalize(ty);
         matches!(

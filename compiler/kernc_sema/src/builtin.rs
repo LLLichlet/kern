@@ -15,12 +15,12 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub fn inject(&mut self) {
-        // 1. 注册内置 Traits: Integer, Float, Add 等
+        // 1. Register builtin marker traits such as Integer and Float.
         let int_trait_id = self.inject_builtin_trait("Integer");
         let float_trait_id = self.inject_builtin_trait("Float");
         // let add_trait_id = self.inject_builtin_trait("Add");
 
-        // 2. 为原始类型注入 Impl 块 (e.g., impl i32 : Integer)
+        // 2. Inject builtin impls for primitive types.
         let int_types = [
             TypeId::I8,
             TypeId::I16,
@@ -44,7 +44,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             self.inject_primitive_impl(ty, float_trait_id);
         }
 
-        // 3. 注册内置函数 (Intrinsics)
+        // 3. Register builtin intrinsic functions.
         self.inject_size_of();
         self.inject_align_of();
         self.inject_unreachable();
@@ -75,7 +75,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     // ==========================================
-    //          注入逻辑细节
+    // Injection helpers
     // ==========================================
 
     fn inject_builtin_trait(&mut self, name: &str) -> DefId {
@@ -91,7 +91,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             where_clauses: vec![],
             supertraits: vec![],
             resolved_supertraits: vec![],
-            methods: vec![], // 内置特征仅作约束，可以没有方法 (Marker Trait)
+            methods: vec![], // Builtin traits act as pure bounds and need no methods.
             resolved_methods: vec![],
             is_builtin: true,
             span: Span::default(),
@@ -119,7 +119,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     fn inject_primitive_impl(&mut self, target_ty_id: TypeId, trait_def_id: DefId) {
         let def_id = DefId(self.ctx.defs.len() as u32);
 
-        // 伪造 AST 节点以适应现有的统一逻辑
+        // Fabricate AST nodes so the existing semantic machinery can reuse them.
         let target_id = self.ctx.next_node_id();
         let trait_id = self.ctx.next_node_id();
 
@@ -134,7 +134,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             kind: ast::TypeKind::Infer,
         };
 
-        // 直接在 node_types 缓存中写入它们真实的语义类型
+        // Seed the real semantic types directly into the node-type cache.
         self.ctx.node_types.insert(target_node.id, target_ty_id);
 
         let trait_ty = self
@@ -157,18 +157,18 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.ctx.add_def(Def::Impl(impl_def));
     }
 
-    // 注入 @sizeOf[T]() -> usize
+    // Inject `@sizeOf[T]() -> usize`.
     fn inject_size_of(&mut self) {
         let name_id = self.ctx.intern("@sizeOf");
         let def_id = DefId(self.ctx.defs.len() as u32);
 
-        // 泛型参数 T (没有任何约束)
+        // Generic parameter `T` with no additional bounds.
         let param_t = GenericParam {
             name: self.ctx.intern("T"),
             span: Default::default(),
         };
 
-        // 构造类型签名: fn[T]() -> usize
+        // Build the semantic signature `fn[T]() -> usize`.
         let ret_type_id = self.ctx.next_node_id();
         let sig_ty = {
             let _ = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
@@ -218,13 +218,13 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 .intern(TypeKind::FnDef(def_id, vec![])),
             def_id: Some(def_id),
             span: Span::default(),
-            is_pub: true, // 全局内置函数都是 Public
+            is_pub: true, // All builtin intrinsics are globally visible.
             is_mut: false,
         };
         let _ = self.ctx.scopes.define(name_id, info);
     }
 
-    // 注入 @alignOf[T]() -> usize
+    // Inject `@alignOf[T]() -> usize`.
     fn inject_align_of(&mut self) {
         let name_id = self.ctx.intern("@alignOf");
         let def_id = DefId(self.ctx.defs.len() as u32);
@@ -288,7 +288,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let _ = self.ctx.scopes.define(name_id, info);
     }
 
-    // 注入 @unreachable() -> !
+    // Inject `@unreachable() -> !`.
     fn inject_unreachable(&mut self) {
         let name_id = self.ctx.intern("@unreachable");
         let def_id = DefId(self.ctx.defs.len() as u32);
@@ -316,7 +316,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             ret_type: TypeNode {
                 id: ret_id,
                 span: Default::default(),
-                kind: ast::TypeKind::Never, // 直接映射到 Never 类型
+                kind: ast::TypeKind::Never, // Map directly to the semantic `Never` type.
             },
             body: None,
             is_const: false,
@@ -436,7 +436,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let _ = self.ctx.scopes.define(name_id, info);
     }
 
-    // 注入无需参数的硬件级指令 (is_divergent 决定返回 ! 还是 void)
+    // Inject zero-argument hardware-style intrinsics.
     fn inject_void_intrinsic(&mut self, name: &str, is_divergent: bool) {
         let name_id = self.ctx.intern(name);
         let def_id = DefId(self.ctx.defs.len() as u32);
@@ -451,7 +451,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             ast::TypeKind::Never
         } else {
             ast::TypeKind::Infer
-        }; // void没有专属AST节点，用Infer代替，靠缓存命中
+        }; // `void` has no dedicated AST node, so `Infer` hits the cached semantic type.
 
         let sig_ty = {
             self.ctx.node_types.insert(ret_id, ret_type);
@@ -509,7 +509,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let name_id = self.ctx.intern(name);
         let def_id = DefId(self.ctx.defs.len() as u32);
 
-        // 类型准备：dest: *mut u8, src: *u8, val: u8, len: usize
+        // Shared memory intrinsic parameter types: dest, src/val, and len.
         let ptr_mut_u8 = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: true,
             elem: TypeId::U8,
@@ -551,7 +551,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vis: Visibility::Public,
             parent: None,
             is_imported: false,
-            generics: vec![], // 内存函数不需要泛型，强制按字节(u8)操作
+            generics: vec![], // Memory intrinsics always operate on raw bytes.
             where_clauses: vec![],
             params: vec![
                 ast::FuncParam {

@@ -5,15 +5,16 @@ use kernc_sema::ty::TypeId;
 use kernc_utils::SymbolId;
 use std::collections::HashMap;
 
-/// MAST 模块 (编译单元的最终扁平化表示)
-/// 一切都被平铺，没有嵌套模块，没有 Impl 块，没有泛型。
+/// Final flattened compilation unit produced by lowering.
+/// At this stage there are no nested modules, impl blocks, or unresolved generics.
 #[derive(Debug, Clone)]
 pub struct MastModule {
     pub name: String,
     pub structs: Vec<MastStruct>,
-    pub globals: Vec<MastGlobal>, // 所有 static (含全局和局部) 都被提升到这里
+    /// All statics, including lowered local statics.
+    pub globals: Vec<MastGlobal>,
     pub functions: Vec<MastFunction>,
-    // 记录前端抽象实体到后端物理实体的映射
+    /// Maps frontend abstract entities to concrete backend monomorphizations.
     pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pub pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
     pub adt_union_map: HashMap<MonoId, MonoId>,
@@ -31,9 +32,11 @@ pub enum MastLinkage {
 #[derive(Debug, Clone)]
 pub struct MastStruct {
     pub id: MonoId,
-    pub name: String, // 扁平化后的全限定名，例如 "std_collections_ArrayList_i32"
+    /// Flattened fully qualified name such as `std_collections_ArrayList_i32`.
+    pub name: String,
     pub fields: Vec<MastField>,
-    pub is_extern: bool, // 用于对接 C 的 struct
+    /// Preserves source layout for ABI-facing structs.
+    pub is_extern: bool,
     pub is_union: bool,
     pub largest_field_idx: usize,
     pub union_size: usize,
@@ -44,17 +47,21 @@ pub struct MastStruct {
 #[derive(Debug, Clone)]
 pub struct MastField {
     pub name: SymbolId,
-    pub ty: TypeId, // 保证是绝对具体的类型，绝不含 Param
+    /// Always fully concrete and never contains `Param`.
+    pub ty: TypeId,
 }
 
 #[derive(Debug, Clone)]
 pub struct MastGlobal {
     pub id: MonoId,
-    pub name: String, // 扁平化的全局符号名
+    /// Flattened global symbol name.
+    pub name: String,
     pub linkage: MastLinkage,
     pub ty: TypeId,
-    pub is_mut: bool,           // 对应 static mut
-    pub init: Option<MastExpr>, // extern 的时候为 None。初始化必须是常量表达式。
+    /// Mirrors `static mut`.
+    pub is_mut: bool,
+    /// `None` for extern declarations. Initializers must be constant expressions.
+    pub init: Option<MastExpr>,
     pub is_extern: bool,
     pub attributes: Vec<MetaItem>,
 }
@@ -62,11 +69,13 @@ pub struct MastGlobal {
 #[derive(Debug, Clone)]
 pub struct MastFunction {
     pub id: MonoId,
-    pub name: String, // 例如 "Point_i32_move_by" (方法被扁平化为普通函数)
+    /// Flattened symbol name, for example `Point_i32_move_by`.
+    pub name: String,
     pub linkage: MastLinkage,
     pub params: Vec<MastParam>,
     pub ret_ty: TypeId,
-    pub body: Option<MastBlock>, // extern 时为 None
+    /// `None` for extern declarations.
+    pub body: Option<MastBlock>,
     pub is_extern: bool,
     pub is_variadic: bool,
     pub attributes: Vec<MetaItem>,

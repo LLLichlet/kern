@@ -1,11 +1,11 @@
 //! # kernc_lexer
-//! 
-//! kernc 的 lexer 模块
+//!
+//! Lexer support for the Kern compiler frontend.
 
-/// Token 的存在形式和类型
+/// Token data structures and token kinds.
 mod token;
 
-/// 从字符串到 Token
+/// Source-to-token conversion.
 mod tokenizer;
 
 pub use token::{Token, TokenType};

@@ -32,7 +32,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
 
-        // 1. 允许指针视角转换 (例如 *i32 as *u8)
+        // 1. Allow pointer reinterpretation such as `*i32 as *u8`.
         if is_f_ptr && is_t_ptr {
             let t_inner = self.ctx.type_registry.get_elem_type(t_norm).unwrap();
             let t_inner_id = self.resolve_tv(t_inner);
@@ -53,21 +53,21 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         }
 
-        // 2. 允许指针与底层整数互转 (usize / isize)
+        // 2. Allow casts between pointers and their integer carrier types.
         let is_f_ptr_int = f_norm == TypeId::USIZE || f_norm == TypeId::ISIZE;
         let is_t_ptr_int = t_norm == TypeId::USIZE || t_norm == TypeId::ISIZE;
         if (is_f_ptr && is_t_ptr_int) || (is_f_ptr_int && is_t_ptr) {
             return;
         }
 
-        // 3. 全面放开数值类型的转换 (包括 int <-> int, float <-> float, int <-> float, bool -> int)
+        // 3. Allow all numeric casts, including int/float cross-casts and `bool -> int`.
         let is_f_numeric = is_f_int || is_f_float || f_norm == TypeId::BOOL;
         let is_t_numeric = is_t_int || is_t_float;
         if is_f_numeric && is_t_numeric {
             return;
         }
 
-        // 4. 兜底报错：依然拦截非法转换 (如 struct 转 int，或 int 强转 data enum)
+        // 4. Reject everything else with a proper diagnostic.
         let from_str = self.ctx.ty_to_string(from);
         let to_str = self.ctx.ty_to_string(to);
         self.ctx

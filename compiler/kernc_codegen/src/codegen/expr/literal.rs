@@ -46,7 +46,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap()
     }
 
-    /// 编译带有负载的 Enum (等同于 Tagged Union)
+    /// Compile a payload-carrying enum, which lowers like a tagged union.
     pub(crate) fn compile_data_init(
         &mut self,
         data_struct_id: MonoId,
@@ -64,19 +64,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let union_llvm_ty = struct_llvm_ty.get_field_type_at_index(1).unwrap();
         let union_alloca = self.create_entry_block_alloca(union_llvm_ty, "data_union_init");
 
-        // 将负载写入 Union 内存
+        // Store the payload into the union storage.
         if payload.ty != TypeId::VOID && payload.ty != TypeId::ERROR {
             let payload_val = self.compile_expr(payload);
             self.builder.build_store(union_alloca, payload_val).unwrap();
         }
 
-        // 把 Union 的内容作为整体加载出来
+        // Reload the union as a whole value.
         let union_val = self
             .builder
             .build_load(union_llvm_ty, union_alloca, "data_union_load")
             .unwrap();
 
-        // 组装最终的 { Tag, Union } 结构体
+        // Assemble the final `{ tag, union }` struct.
         let mut data_struct = struct_llvm_ty.const_zero();
         data_struct = self
             .builder

@@ -225,7 +225,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let id = self.new_mono_id();
         self.mono_cache.insert(key, id);
 
-        // 如果是 Union，转交处理
+        // Delegate union-like lowering to the dedicated path.
         if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
             return self.instantiate_union(def_id, args, id);
         }
@@ -617,7 +617,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return wrapper_id;
         };
 
-        // 1. 构建内部的 Payload Union
+        // 1. Build the inner payload union.
         let mut union_fields = Vec::new();
         let mut largest_idx = 0;
         let mut max_size = 0;
@@ -636,7 +636,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     subst.substitute(raw_ty)
                 }
             } else {
-                TypeId::VOID // LLVM 中对于空 Union 的处理可以是 i8 或者忽略
+                TypeId::VOID // Empty unions can be modeled as `void` here.
             };
 
             union_fields.push(MastField {
@@ -674,8 +674,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             attributes: vec![],
         });
 
-        // 2. 构建外部的 Wrapper Struct (Tag + Union)
-        // 动态获取并泛型替换 ADT 的 Tag 类型
+        // 2. Build the outer wrapper struct `(tag + union)` and substitute the tag type.
         let tag_ty = if let Some(bt) = &def.backing_type {
             let raw_tag_ty = self
                 .ctx
@@ -686,7 +685,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
             subst.substitute(raw_tag_ty)
         } else {
-            TypeId::U32 // 如果没有指定，默认退化为 u32
+            TypeId::U32 // Fall back to `u32` when no explicit backing type is present.
         };
 
         let union_ty = self
@@ -742,7 +741,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.track_pure_enum_repr_in_type(ty);
         let is_mut = g.is_mut;
 
-        // 常量折叠
+        // Perform constant folding.
         let init = if !g.is_extern {
             let prev_scope = self.ctx.scopes.current_scope_id();
             if let Some(owner_scope) = self.global_owner_scope(g.id) {

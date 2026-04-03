@@ -441,7 +441,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     {
                         for reg in regs {
                             let reg_name = self.ctx.resolve(reg.name);
-                            // LLVM 约束：reg -> "=r", freg -> "=f", eax -> "={eax}"
+                            // LLVM constraint mapping: `reg -> "=r"`, `freg -> "=f"`, `eax -> "={eax}"`.
                             let constraint = if reg_name == "reg" {
                                 "=r".to_string()
                             } else if reg_name == "freg" {
@@ -468,7 +468,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     {
                         for reg in regs {
                             let reg_name = self.ctx.resolve(reg.name);
-                            // LLVM 约束：reg -> "r", freg -> "f", eax -> "{eax}"
+                            // LLVM constraint mapping: `reg -> "r"`, `freg -> "f"`, `eax -> "{eax}"`.
                             let constraint = if reg_name == "reg" {
                                 "r".to_string()
                             } else if reg_name == "freg" {
@@ -499,7 +499,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 组装最终的 LLVM 约束字符串 (顺序必须是: outputs, inputs, clobbers)
+        // Build the final LLVM constraint string in output/input/clobber order.
         let mut all_constraints = Vec::new();
         let mut output_ptrs = Vec::new();
         let mut output_tys = Vec::new();
@@ -538,11 +538,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         norm_callee: TypeId,
         span: Span,
     ) -> MastExprKind {
-        // 方法在哪种类型上实现，就严格按该类型去查。
+        // Resolve methods against the type that actually owns the implementation.
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
 
-        // Trait Object 在 Kern 中永远作为胖指针存在 (比如 *mut Allocator)。
-        // 因此 recv.ty 实际上是 TypeKind::Pointer。我们需要探查其内部元素。
+        // Trait objects are always fat pointers in Kern, so inspect the pointee rather than the outer pointer.
         let mut inner_ty = norm_base;
         if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
             self.ctx.type_registry.get(norm_base).clone()
@@ -557,9 +556,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(inner_ty);
 
-        // 2. 根据探查到的类型，决定是动态分发(VTable)还是静态分发
+        // 2. Choose dynamic (vtable) or static dispatch based on the recovered type.
         if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
-            // 将完整的胖指针 recv 交给动态分发器提取 VTable
+            // Hand the full fat pointer to the dynamic dispatcher so it can extract the vtable.
             self.lower_dynamic_method_dispatch(
                 recv,
                 field,
@@ -581,8 +580,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 span,
             )
         } else {
-            // SEMA 传来的只是抽象的 TypeKind::Function，说明它来源于泛型约束。
-            // 此时 T 已单态化，我们需要在全局寻找具体实现。
+            // A plain `TypeKind::Function` here means Sema only knew a generic bound.
+            // After monomorphization, find the concrete impl globally.
             let mut target_func_id = None;
             let mut resolved_impl_args = Vec::new();
 
@@ -596,15 +595,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         .unwrap_or(TypeId::ERROR);
                     let norm_impl_target = self.ctx.type_registry.normalize(impl_target_raw);
 
-                    // 无泛型 Impl
+                    // Non-generic impl.
                     if impl_def.generics.is_empty() {
                         let mut matched = false;
 
-                        // 精确匹配：*mut i32 == *mut i32，或者 *i32 == *i32
+                        // Exact match: `*mut i32 == *mut i32` or `*i32 == *i32`.
                         if norm_base == norm_impl_target {
                             matched = true;
                         }
-                        // 安全降级匹配：允许 *mut i32 调用挂载在 impl *i32 上的方法
+                        // Safe downgrade: allow `*mut i32` to use methods defined on `impl *i32`.
                         else if let TypeKind::Pointer { is_mut: true, elem } =
                             self.ctx.type_registry.get(norm_base).clone()
                         {
@@ -628,15 +627,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         }
                     }
-                    // 带泛型 Impl 的匹配
+                    // Generic impl matching.
                     else {
-                        // 核心修复 1：穿透指针。如果是泛型结构体的指针调用，
-                        // 需要剥离指针，暴露出底层的 Def，才能正确提取泛型实参。
+                        // Strip matching pointer layers so generic arguments can be recovered from the underlying `Def`.
                         let mut check_base = norm_base;
                         let mut check_impl = norm_impl_target;
                         let mut matched_ptr = false;
 
-                        // 同步处理指针降级与指针剥离
+                        // Handle pointer downgrade and pointer peeling together.
                         if let TypeKind::Pointer {
                             is_mut: base_mut,
                             elem: base_elem,
@@ -647,7 +645,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 elem: impl_elem,
                             } = self.ctx.type_registry.get(check_impl).clone()
                             {
-                                // 允许精确匹配，或者 *mut T 安全降级为 *T
+                                // Allow exact matches and safe `*mut T -> *T` downgrades.
                                 if base_mut == impl_mut || (base_mut && !impl_mut) {
                                     check_base = base_elem;
                                     check_impl = impl_elem;
@@ -655,7 +653,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 }
                             }
                         } else {
-                            matched_ptr = true; // 都不是指针的情况，直接继续往下判断
+                            matched_ptr = true; // If neither side is a pointer, keep checking normally.
                         }
 
                         if matched_ptr
@@ -688,8 +686,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let expected_params = self.get_callee_expected_params(norm_callee);
                 let mut final_recv = recv;
 
-                // 核心修复 2：为 LLVM 后端抹平类型差异。
-                // 如果发生了安全降级 (*mut -> *)，在此刻主动插入一个 Bitcast 节点。
+                // Normalize pointer-type differences for LLVM by inserting a bitcast after safe downgrades.
                 if let Some(&exp_self) = expected_params.first()
                     && final_recv.ty != exp_self
                 {
@@ -725,7 +722,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 辅助：构建静态方法调用 (泛型实例化)
+    /// Helper: build a statically dispatched method call.
     pub(crate) fn lower_static_method_dispatch(
         &mut self,
         mut recv: MastExpr,
@@ -758,7 +755,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 辅助：构建动态方法调用 (从 VTable 提取函数指针)
+    /// Helper: build a dynamically dispatched method call by loading from the vtable.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn lower_dynamic_method_dispatch(
         &mut self,
@@ -775,7 +772,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             elem: TypeId::VOID,
         });
 
-        // 数据指针 (传递给方法的 self)
+        // Data pointer passed as the method's `self`.
         let data_ptr = MastExpr::new(
             void_ptr_ty,
             MastExprKind::ExtractFatPtrData(Box::new(recv.clone())),
@@ -783,7 +780,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         );
         arg_masts.insert(0, data_ptr);
 
-        // 虚表指针提取与转换
+        // Extract and cast the vtable pointer.
         let vtable_meta = MastExpr::new(
             TypeId::USIZE,
             MastExprKind::ExtractFatPtrMeta(Box::new(recv)),
@@ -857,7 +854,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExprKind::Trap;
         };
 
-        // 获取函数指针
+        // Load the function pointer from the vtable slot.
         let func_ptr = MastExpr::new(
             void_ptr_ty,
             MastExprKind::IndexAccess {
@@ -871,7 +868,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             span,
         );
 
-        // 拼接签名
+        // Rebuild the exact callable signature.
         let (ret_ty, is_variadic, mut patched_params) = if let TypeKind::Function {
             ret,
             is_variadic,
@@ -924,7 +921,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let callee_mast = self.lower_expr(callee, subst_map, None);
         let norm_callee = self.ctx.type_registry.normalize(callee_mast.ty);
 
-        // 拦截并处理闭包胖指针的动态调用
+        // Intercept dynamic calls through closure fat pointers.
         if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
             self.ctx.type_registry.get(norm_callee).clone()
         {
@@ -1028,7 +1025,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             elem: TypeId::VOID,
         });
 
-        // 1. 提取 data_ptr，强行插入为 arg[0]
+        // 1. Extract `data_ptr` and inject it as argument 0.
         let data_ptr = MastExpr::new(
             void_ptr_ty,
             MastExprKind::ExtractFatPtrData(Box::new(callee_mast.clone())),
@@ -1036,14 +1033,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         );
         arg_masts.insert(0, data_ptr);
 
-        // 2. 提取 meta_ptr (code_ptr)
+        // 2. Extract `meta_ptr`, which stores the code pointer.
         let code_ptr = MastExpr::new(
             TypeId::USIZE,
             MastExprKind::ExtractFatPtrMeta(Box::new(callee_mast.clone())),
             span,
         );
 
-        // 3. 构建确切的底层函数签名，并将 USIZE 代码指针 IntToPtr 转换过去
+        // 3. Build the exact lowered function signature and cast the `usize` code pointer to it.
         let (params, ret) = if let TypeKind::ClosureInterface { params, ret } =
             self.ctx.type_registry.get(closure_interface_ty).clone()
         {
@@ -1061,7 +1058,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         let mut patched_params = params.clone();
-        patched_params.insert(0, void_ptr_ty); // 补上对应的 env 参数
+        patched_params.insert(0, void_ptr_ty); // Prepend the hidden environment parameter.
 
         let patched_fn_ty = self.ctx.type_registry.intern(TypeKind::Function {
             params: patched_params,
@@ -1078,7 +1075,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             span,
         );
 
-        // 4. 间接调用函数指针
+        // 4. Emit the indirect call through the function pointer.
         MastExprKind::Call {
             callee: Box::new(typed_code_ptr),
             args: arg_masts,

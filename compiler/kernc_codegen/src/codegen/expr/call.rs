@@ -197,7 +197,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 
     pub(crate) fn compile_inline_asm(&mut self, asm_block: &MastAsmBlock) -> BasicValueEnum<'ctx> {
-        // 1. 准备传入给汇编块的参数类型和对应的值
+        // 1. Prepare argument types and values for the inline-assembly block.
         let mut param_types = Vec::new();
         let mut arg_values = Vec::new();
 
@@ -209,7 +209,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let asm_fn_type = self.inline_asm_fn_type(asm_block, &param_types);
 
-        // 4. 创建 InlineAsm 实例
+        // 4. Create the LLVM `InlineAsm` value.
         let has_side_effects = asm_block.is_volatile || asm_block.output_tys.is_empty();
         let inline_asm = self.context.create_inline_asm(
             asm_fn_type,
@@ -223,13 +223,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             },
         );
 
-        // 5. 调用汇编指令
+        // 5. Emit the assembly call.
         let call_site = self
             .builder
             .build_indirect_call(asm_fn_type, inline_asm, &arg_values, "asm_call")
             .unwrap();
 
-        // 6. 将 LLVM 返回的值提取并 Store 到用户的指针中
+        // 6. Unpack LLVM results and store them through the user-provided output pointers.
         if !asm_block.output_tys.is_empty() {
             let asm_result = call_site.try_as_basic_value().unwrap_basic();
 

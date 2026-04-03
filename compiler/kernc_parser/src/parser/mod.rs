@@ -15,7 +15,7 @@ pub type ParseResult<T> = Result<T, ParseError>;
 pub struct Parser<'a> {
     stream: TokenStream<'a>,
     session: &'a mut Session,
-    // 状态标记
+    // Parser-level error recovery state.
     panic_mode: bool,
 }
 
@@ -64,7 +64,7 @@ impl<'a> Parser<'a> {
         false
     }
 
-    /// 消费一个 Token，如果类型不对则报错 (Sync 入口)
+    /// Consume one token and report a synchronized parse error on mismatch.
     fn expect(&mut self, tag: TokenType) -> ParseResult<Token> {
         if self.check(tag) {
             Ok(self.advance())
@@ -77,7 +77,7 @@ impl<'a> Parser<'a> {
                 format!("expected `{:?}`, found `{}`", tag, found_text),
             );
 
-            // 针对特定的缺失提供智能提示
+            // Attach targeted recovery hints for common delimiter mistakes.
             match tag {
                 TokenType::Semicolon => diag = diag.with_hint("consider adding a `;` here"),
                 TokenType::RBrace => diag = diag.with_hint("unclosed block"),
@@ -141,7 +141,7 @@ impl<'a> Parser<'a> {
         }
 
         while !self.check(TokenType::Eof) {
-            // 如果碰到了分号，很可能上一个语句结束了
+            // A semicolon usually marks the end of the previous statement.
             if self.stream.peek_nth(0).tag == TokenType::Semicolon {
                 self.advance();
                 return;

@@ -2,51 +2,37 @@ use kernc_utils::Span;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Token {
-    ///  Token 的类型
+    /// Token kind.
     pub tag: TokenType,
 
-    /// Token 所在的文件，以及它在文件中的具体位置
+    /// File-relative source span for this token.
     pub span: Span,
 }
 
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TokenType {
-    // === 标识符与字面量 ===
+    // === Identifiers and literals ===
     
-    /// 标识符。
-    /// 
-    /// 例如 `abc`，`my_var`。
+    /// Identifier token, for example `abc` or `my_var`.
     Identifier,
 
-    /// 整型字面量。
-    /// 
-    /// 例如 `123`，`0xFF`。
+    /// Integer literal, for example `123` or `0xFF`.
     IntLiteral,
 
-    /// 浮点字面量。
-    /// 
-    /// 例如 `3.14`。
+    /// Floating-point literal, for example `3.14`.
     FloatLiteral,
 
-    /// 字符串字面量。
-    /// 
-    /// "hello" or Zig-style \\ multiline
+    /// String literal, including Zig-style `\\` multiline strings.
     StringLiteral,
 
-    /// 字符字面量。
-    /// 
-    /// 例如 `'a'`。
-    /// 
-    /// 注意此处使用单引号（`'...'`）。
+    /// Character literal delimited by single quotes, for example `'a'`.
     CharLiteral,
 
-    /// 字节字符字面量
-    /// 
-    /// 例如 `b'a'`。
+    /// Byte character literal, for example `b'a'`.
     ByteCharLiteral,
 
-    // === 关键字 ===
+    // === Keywords ===
     
     Fn, 
     Let,
@@ -84,9 +70,9 @@ pub enum TokenType {
     CapitalFn,
     Void,
 
-    // === 运算符 ===
+    // === Operators ===
 
-    // 算术
+    // Arithmetic
 
     /// `+`
     Plus,
@@ -96,7 +82,7 @@ pub enum TokenType {
 
     /// `*`
     /// 
-    /// 同时用于指针解引用/类型 *T
+    /// Also used for pointer dereference and pointer types such as `*T`.
     Star,
 
     /// `/`
@@ -105,32 +91,32 @@ pub enum TokenType {
     /// `%`
     Percent,
 
-    // 特殊前缀
+    // Special prefixes
 
-    /// #arr (长度)
+    /// `#arr` length operator.
     Hash,
     
-    /// @intToFloat (内置函数)
+    /// `@intToFloat`-style intrinsic prefix.
     At,
 
-    /// ^T (易失性指针) / Bitwise XOR 
+    /// Volatile pointer syntax `^T` or bitwise XOR.
     Caret,
 
-    // 逻辑/位运算
+    // Logical and bitwise operators
 
-    /// ! (宏调用 / 逻辑非)
+    /// `!` for macro-style calls or logical negation.
     Bang,
 
-    /// & (取地址 / 按位与)
+    /// `&` for address-of or bitwise AND.
     Ampersand,
     
-    /// | (按位或)
+    /// `|` bitwise OR.
     Pipe,
 
-    /// ~ (按位取反)
+    /// `~` bitwise NOT.
     Tilde,
 
-    // 比较
+    // Comparisons
 
     /// `==`
     EqualEqual,
@@ -150,7 +136,7 @@ pub enum TokenType {
     /// `>=`
     GreaterEqual,
 
-    // 移位
+    // Shifts
 
     /// `<<`
     LShift,
@@ -158,7 +144,7 @@ pub enum TokenType {
     /// `>>`
     RShift,
 
-    // 赋值
+    // Assignments
 
     /// `=`
     Assign,
@@ -193,33 +179,33 @@ pub enum TokenType {
     /// `>>=`
     RShiftAssign,
 
-    // === 标点 ===
+    // === Punctuation ===
 
-    /// `.` (字段访问)
+    /// `.` field access.
     Dot,
 
-    /// `..` (Range)
+    /// `..` range.
     DotDot,
 
-    /// `..=` (Range Inclusive)
+    /// `..=` inclusive range.
     DotDotEqual,
 
-    /// `.&` (不可变取地址)
+    /// `.&` immutable address-of.
     DotAmpersand,
 
-    /// `.*` (指针解引用)
+    /// `.*` pointer dereference.
     DotStar,
 
-    /// `.[` (不可变切片/数组索引)
+    /// `.[` immutable slice or array indexing.
     DotLBracket,
 
-    /// `.{` (匿名结构体初始化)
+    /// `.{` anonymous aggregate construction.
     DotLBrace,
 
-    /// `..&` (可变取地址)
+    /// `..&` mutable address-of.
     DotDotAmpersand,
 
-    /// ``..[` (可变切片)
+    /// `..[` mutable slicing.
     DotDotLBracket,
 
     /// ...
@@ -255,15 +241,15 @@ pub enum TokenType {
     /// =>
     Arrow,
 
-    // === 特殊 ===
+    // === Special ===
 
-    /// 解析错误
+    /// End of file sentinel.
     Eof,
     
-    /// 非法解析
+    /// Invalid token produced after recovery.
     #[default]
     Illegal,
 
-    /// 专门用于携带词法错误信息的 Token
+    /// Token carrying a lexer error message.
     LexError(&'static str),
 }

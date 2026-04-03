@@ -115,11 +115,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 降级入口：寻找所有非泛型的根节点向下递归单态化
+    /// Entry point for lowering: recursively monomorphize every non-generic root item.
     pub fn lower_all(&mut self) -> MastModule {
         let def_ids: Vec<_> = (0..self.ctx.defs.len()).map(|i| DefId(i as u32)).collect();
 
-        // Phase 1: 预分配全局变量的 MonoId
+        // Phase 1: preallocate `MonoId`s for globals.
         for &id in &def_ids {
             let global_name = if let Def::Global(g) = &self.ctx.defs[id.0 as usize] {
                 Some(g.name)
@@ -130,12 +130,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Some(name) = global_name {
                 let mono_id = self.new_mono_id();
                 self.global_map.insert(id, mono_id);
-                // 预注册顶层全局变量的名字
+                // Pre-register top-level global names.
                 self.global_symbol_map.insert(name, mono_id);
             }
         }
 
-        // Phase 2: 执行真正的实体降级
+        // Phase 2: lower concrete entities for real.
         for id in def_ids {
             let def = self.ctx.defs[id.0 as usize].clone();
             match def {
@@ -143,12 +143,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     if f.is_imported {
                         continue;
                     }
-                    // 内置函数没有物理实体，直接跳过，不进入 MAST
+                    // Builtin intrinsics have no physical body and do not enter MAST.
                     if f.is_intrinsic {
                         continue;
                     }
-                    // 检查函数自身和其父级（Impl块）是否包含泛型
-                    // 只有自己没泛型，且爹也没泛型的函数，才是真正的“自由函数”，才能在此刻被实例化
+                    // A function is only a free concrete item when neither it nor its parent impl is generic.
                     let mut is_generic = !f.generics.is_empty();
                     if let Some(parent_id) = f.parent
                         && let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize]
@@ -190,7 +189,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         meta
     }
 
-    /// 纯数据探测器：如果所有的变体都没有负载，那么它在内存中就完全等价于一个整数。
+    /// Detect pure-data enums whose payload-free layout is equivalent to an integer.
     pub(crate) fn is_pure_enum(&self, def: &EnumDef) -> bool {
         def.variants.iter().all(|v| v.payload_type.is_none())
     }
@@ -271,12 +270,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 通过闭包结构体的 AST 节点 ID，获取对应的执行包装函数的 MonoId
+    /// Look up the wrapper function `MonoId` associated with a closure-state AST node.
     pub(crate) fn get_closure_func_mono_id(&mut self, closure_node_id: NodeId) -> MonoId {
         match self.closure_fn_map.get(&closure_node_id) {
             Some(&id) => id,
             None => {
-                // 如果找不到，说明存在编译器内部错误 (比如 Sema 生成了匿名状态，但 Lowering 还没处理到那个闭包表达式就被提前引用了)
+                // Missing entries here indicate an internal lowering-order bug.
                 self.ctx.emit_ice(
                     Span::default(),
                     format!("Kern ICE (Lowering): Attempted to resolve a closure function ID before the closure expression (NodeId {}) was lowered.", closure_node_id.0)

@@ -54,7 +54,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let conc_kind = self.ctx.type_registry.get(conc_base).clone();
         let exp_kind = self.ctx.type_registry.get(exp_base).clone();
 
-        // 1. Array 到 Slice 的隐式转换
+        // 1. Implicit array-to-slice conversion.
         if let TypeKind::Slice { .. } = exp_kind
             && let TypeKind::Array { .. } = conc_kind
         {
@@ -65,7 +65,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExpr::new(exp_ty, mast_kind, span);
         }
 
-        // 2. 指针隐式转换为 Trait Object 胖指针
+        // 2. Implicit pointer-to-trait-object packing.
         if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(e_inner_norm)
@@ -108,7 +108,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 3. 裸值隐式取址并打包为 Trait Object 胖指针 (BNC: T -> *Trait / T -> *mut Trait)
+        // 3. Implicitly take the address of bare values and pack them as trait objects.
         if let TypeKind::Pointer {
             is_mut: e_mut,
             elem: e_inner,
@@ -126,14 +126,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     elem: concrete_ty,
                 });
 
-                // 核心：无中生有，原地包装一个取址操作 (AddressOf)
+                // Synthesize an address-of operation in place.
                 let data_ptr_expr = MastExpr::new(
                     ptr_ty,
                     MastExprKind::AddressOf(Box::new(MastExpr::new(concrete_ty, mast_kind, span))),
                     span,
                 );
 
-                // 剩下的逻辑和普通指针打包完全一样，提取 VTable
+                // After materialization, trait-object packing is identical to the pointer path.
                 let vtable_id = self.get_or_create_vtable(concrete_ty, e_inner_norm);
                 let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
                     return MastExpr::new(exp_ty, MastExprKind::Trap, span);
@@ -150,13 +150,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 4. 闭包 BNC: 函数/匿名状态 -> 闭包胖指针 (*Fn)
+        // 4. Closure BNC: functions or anonymous state to closure fat pointers.
         if let TypeKind::Pointer { elem: e_inner, .. } = exp_kind {
             let e_inner_norm = self.ctx.type_registry.normalize(e_inner);
             if let TypeKind::ClosureInterface { .. } = self.ctx.type_registry.get(e_inner_norm) {
-                // 4.1 普通无状态函数 (FnDef / Function) -> 闭包胖指针
+                // 4.1 Stateless functions become closure fat pointers.
                 if matches!(conc_kind, TypeKind::FnDef(..) | TypeKind::Function { .. }) {
-                    // 数据指针 (data_ptr) 为 NULL
+                    // The data pointer is null for stateless functions.
                     let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                         is_mut: false,
                         elem: TypeId::VOID,
@@ -174,7 +174,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         span,
                     );
 
-                    // 元数据 (meta) 为函数指针，转为 usize
+                    // Metadata stores the function pointer cast to `usize`.
                     let fn_ptr_expr = MastExpr::new(concrete_ty, mast_kind, span);
                     let meta_expr = MastExpr::new(
                         TypeId::USIZE,
@@ -195,14 +195,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     );
                 }
 
-                // 4.2 匿名闭包状态结构体 (AnonymousState) -> 闭包胖指针
+                // 4.2 Anonymous closure state becomes a closure fat pointer.
                 if let TypeKind::AnonymousState {
                     closure_node_id, ..
                 } = conc_kind
                 {
-                    // 数据指针 (data_ptr) 为 隐式取址 (AddressOf)
+                    // The data pointer comes from an implicit address-of.
                     let ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
-                        is_mut: true, // 闭包状态通常需要修改
+                        is_mut: true, // Closure state is usually mutated by the callee.
                         elem: concrete_ty,
                     });
                     let data_ptr_expr = MastExpr::new(
@@ -215,12 +215,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         span,
                     );
 
-                    // 元数据 (meta) 为闭包实际执行函数的指针
-                    // 注: 这里调用 lower_closure_expr 生成/缓存的包装函数 MonoId
+                    // Metadata stores the generated closure entry function pointer.
                     let func_mono_id = self.get_closure_func_mono_id(closure_node_id);
-                    // 我们只需构造出 FuncRef 即可
+                    // A plain `FuncRef` is enough here.
                     let fn_ptr_expr = MastExpr::new(
-                        TypeId::VOID, // 此时由于只需强转 usize，随便塞个虚假类型也可以过 codegen，不过最好保持规范
+                        TypeId::VOID, // Any placeholder works for the cast, but keeping it tidy helps maintenance.
                         MastExprKind::FuncRef(func_mono_id),
                         span,
                     );
@@ -246,7 +245,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 兜底返回原样 (如果遇到其他类型在 Sema 被判合法，但 Lowering 不需要干预)
+        // Otherwise leave the expression unchanged.
         MastExpr::new(exp_ty, mast_kind, span)
     }
 
@@ -350,7 +349,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let f_norm = self.ctx.type_registry.normalize(from);
         let t_norm = self.ctx.type_registry.normalize(to);
 
-        // bool 在底层可以视同整数进行转换
+        // `bool` lowers like an integer for cast purposes.
         let f_int = self.ctx.type_registry.is_integer(f_norm) || f_norm == TypeId::BOOL;
         let t_int = self.ctx.type_registry.is_integer(t_norm);
 
@@ -366,7 +365,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
 
-        // 1. 指针与整数的相互转换 (Bit-pattern preserving)
+        // 1. Pointer/integer casts preserve raw bit patterns.
         if f_ptr && t_ptr {
             return MastCastKind::Bitcast;
         }
@@ -377,17 +376,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastCastKind::PtrToInt;
         }
 
-        // 2. 整数到整数的精细转换
+        // 2. Refined integer-to-integer conversion.
         if f_int && t_int {
             return self.determine_int_cast_kind(f_norm, t_norm);
         }
 
-        // 3. 浮点数之间的精度转换 (f32 <-> f64)
+        // 3. Floating-point precision conversions (`f32 <-> f64`).
         if f_float && t_float {
             return MastCastKind::FloatCast;
         }
 
-        // 4. 整数 到 浮点数 (sitofp / uitofp)
+        // 4. Integer-to-float conversion.
         if f_int && t_float {
             let is_signed = matches!(
                 self.ctx.type_registry.get(f_norm),
@@ -407,7 +406,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
         }
 
-        // 5. 浮点数 到 整数 (fptosi / fptoui)
+        // 5. Float-to-integer conversion.
         if f_float && t_int {
             let is_signed = matches!(
                 self.ctx.type_registry.get(t_norm),
@@ -427,11 +426,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
         }
 
-        // 兜底
+        // Conservative fallback.
         MastCastKind::Bitcast
     }
 
-    /// 专门处理整数之间的转换逻辑 (未来应由 @zext, @truncate 等内置函数直接调用此逻辑)
+    /// Handle integer-to-integer conversion details.
     pub(crate) fn determine_int_cast_kind(&mut self, from: TypeId, to: TypeId) -> MastCastKind {
         let mut le = LayoutEngine::new(self.ctx);
         let f_size = le.compute_type_size(from);
@@ -440,7 +439,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if f_size > t_size {
             MastCastKind::Trunc
         } else if f_size < t_size {
-            // 判断目标类型是否为有符号整数
+            // Detect whether the destination integer type is signed.
             let is_signed = matches!(
                 self.ctx.type_registry.get(to),
                 TypeKind::Primitive(
@@ -458,7 +457,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 MastCastKind::ZeroExt
             }
         } else {
-            // 大小相等 (例如 i32 到 u32，或者 i64 到 usize 在 64位机器上)
+            // Equal-width casts simply reinterpret the same bit width.
             MastCastKind::Bitcast
         }
     }

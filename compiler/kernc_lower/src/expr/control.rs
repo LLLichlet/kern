@@ -747,7 +747,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let popped_defers = self.pop_defer_scope(block_expr.span);
         let mut defers = Vec::new();
         for d in popped_defers.into_iter().rev() {
-            defers.push(d); // 保持 LIFO 顺序存入单独的数组
+            defers.push(d); // Preserve LIFO order in a dedicated array.
         }
 
         self.local_types.pop();
@@ -756,7 +756,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             stmts,
             result,
             defers,
-        } // 将 defers 独立传递给后端
+        } // Pass defers to the backend separately.
     }
 
     pub(super) fn lower_closure_expr(&mut self, spec: ClosureLowerSpec<'_>) -> MastExprKind {
@@ -764,7 +764,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let func_id = self.new_mono_id();
         self.closure_fn_map.insert(spec.node_id, func_id);
 
-        // 0. ================= 嗅探 Decay (退化) 上下文 =================
+        // 0. ================= Detect decay context =================
         let is_decay = spec.captures.is_empty()
             && matches!(
                 self.ctx
@@ -774,12 +774,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 TypeKind::Function { .. } | TypeKind::FnDef(..)
             );
 
-        // 1. ================= 构建捕获状态结构体 =================
+        // 1. ================= Build the capture-state struct =================
         let (env_struct_fields, cap_exprs) =
             self.lower_closure_captures(spec.captures, spec.subst_map);
         self.register_closure_state_struct(struct_id, env_struct_fields.clone());
 
-        // 2. ================= 构建闭包执行函数 =================
+        // 2. ================= Build the closure entry function =================
         let env_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: true,
             elem: spec.concrete_ty,
@@ -788,7 +788,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut mast_params = Vec::new();
         let env_sym = self.ctx.intern("__env");
 
-        // 如果是 Decay 退化为 C ABI 静态函数，不生成隐藏的上下文指针
+        // Decayed closures become plain C ABI functions with no hidden context pointer.
         if !is_decay {
             mast_params.push(MastParam {
                 name: env_sym,
@@ -821,7 +821,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             self.bind_local_type(spec.body.span, p.name, p.ty, p.is_mut, "closure parameter");
         }
 
-        // 还原捕获的值 (只有在非退化时才需要)
+        // Restore captured values when the closure was not decayed away.
         let mut injected_stmts = Vec::new();
         if !is_decay {
             let env_var_expr =
@@ -882,7 +882,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             attributes: vec![],
         });
 
-        // 3. ================= 组装当前位置的表达式 =================
+        // 3. ================= Assemble the expression at the current site =================
         let struct_init = MastExpr::new(
             spec.concrete_ty,
             MastExprKind::StructInit {
@@ -892,9 +892,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             Span::default(),
         );
 
-        // 4. ================= 处理 BNC 和 退化规则 =================
+        // 4. ================= Apply BNC and decay rules =================
         if is_decay {
-            // 直接返回生成的静态 C 函数指针
+            // Return the generated static C function pointer directly.
             return MastExprKind::FuncRef(func_id);
         }
 
@@ -983,9 +983,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             )));
         }
 
-        // 记录进入循环体前 defer_stack 的高度
+        // Record the defer-stack height before entering the loop body.
         self.loop_frames.push(self.defer_stack.len());
-        // 仅仅降级循环体，不包含 post
+        // Lower the loop body without the post expression.
         loop_stmts.push(MastStmt::Expr(self.lower_expr(body, subst_map, None)));
 
         let body_block = MastBlock {
@@ -994,19 +994,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             defers: vec![],
         };
 
-        // 独立降级 post 语句，将其作为 Latch 块
+        // Lower the post statement separately as the latch block.
         let latch_block = post.map(|p| MastBlock {
             stmts: vec![MastStmt::Expr(self.lower_expr(p, subst_map, None))],
             result: None,
             defers: vec![],
         });
 
-        // 退出循环体，弹出边界
+        // Leave the loop body and pop its control-flow boundary.
         self.loop_frames.pop();
 
         let loop_expr = MastExpr::new(
             TypeId::VOID,
-            // 采用新的 AST 结构
+            // Handle the newer AST representation.
             MastExprKind::Loop {
                 body: body_block,
                 latch: latch_block,
@@ -1193,7 +1193,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         )
     }
 
-    /// 辅助方法：生成临时 Let 绑定，隔离作用域
+    /// Helper: synthesize a temporary `let` binding to isolate scope effects.
     fn build_match_target_binding(
         &mut self,
         target_ty: TypeId,
@@ -1219,7 +1219,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         (let_stmt, target_var_expr)
     }
 
-    /// 辅助方法：解析目标类型的 ADT 元数据
+    /// Helper: recover ADT metadata for a target type.
     fn resolve_match_adt(&mut self, target_ty: TypeId, span: Span) -> Option<MatchAdtInfo> {
         let norm_target_ty = self.ctx.type_registry.normalize(target_ty);
 
@@ -1257,7 +1257,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let v = val.map(|e| self.lower_expr(e, subst_map, None));
         let mut defer_stmts = Vec::new();
 
-        // 倒序展开当前作用域栈中所有的 defer
+        // Expand all defers in the current scope stack in reverse order.
         for stack in self.defer_stack.iter().rev() {
             for d in stack.iter().rev() {
                 defer_stmts.push(MastStmt::Expr(d.clone()));
@@ -1316,11 +1316,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 专门处理 Break 和 Continue 的 Defer 展开
+    /// Expand defers specifically for `break` and `continue`.
     pub(crate) fn lower_jump(&mut self, jump_kind: MastExprKind, span: Span) -> MastExprKind {
         let mut defer_stmts = Vec::new();
 
-        // 获取当前所属循环的起始栈深度
+        // Find the defer-stack depth at the start of the current loop.
         let boundary = match self.loop_frames.last().copied() {
             Some(b) => b,
             None => {
@@ -1332,7 +1332,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         };
 
-        // 从当前栈顶一路向下倒序提取 defer，直到达到循环的边界
+        // Walk backward through the defer stack until the loop boundary is reached.
         if boundary > self.defer_stack.len() {
             self.ctx.emit_ice(
                 span,
@@ -1350,7 +1350,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if defer_stmts.is_empty() {
             jump_kind
         } else {
-            // 将实际的跳转指令放在所有清理工作之后
+            // Emit the real jump only after all cleanup work has run.
             defer_stmts.push(MastStmt::Expr(MastExpr::new(
                 TypeId::NEVER,
                 jump_kind,

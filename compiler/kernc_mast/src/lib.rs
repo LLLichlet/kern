@@ -6,6 +6,6 @@ pub use expr::*;
 pub use item::*;
 pub use stmt::*;
 
-/// 单态化 ID
+/// Monomorphized item identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct MonoId(pub u32);

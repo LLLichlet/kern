@@ -384,7 +384,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> TypeId {
-        // 1. 拦截 @asm 宏调用
+        // 1. Intercept `@asm` macro invocations.
         if let ExprKind::Identifier(sym) = &callee.kind
             && self.ctx.resolve(*sym) == "@asm"
         {
@@ -396,19 +396,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let norm_callee = self.resolve_tv(callee_ty);
 
         if norm_callee == TypeId::ERROR {
-            // 防止 AST 产生洞
+            // Keep the AST type cache structurally complete.
             for arg in args {
                 self.check_expr(arg, None);
             }
             return TypeId::ERROR;
         }
 
-        // 2. 探查是否是方法调用，提取接收者 (Receiver) 信息
+        // 2. Detect method calls and extract receiver information.
         let (is_method, receiver_ty) = self.resolve_method_context(callee);
         let has_user_explicit_generics =
             matches!(callee.kind, ExprKind::GenericInstantiation { .. });
 
-        // 3. 智能推导泛型参数，获取解析后的签名与修复后的 Callee 类型
+        // 3. Infer generic arguments and recover the final callee signature.
         let (sig_ty, inferred_callee_ty) = self.deduce_and_resolve_signature(
             norm_callee,
             args,
@@ -418,31 +418,30 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             has_user_explicit_generics,
         );
 
-        // 4. 如果推导成功，将补全了泛型参数的类型重新写入 AST 节点
-        // 这样 LLVM 降级层就能拿到具体的泛型实参
+        // 4. Write inferred generic arguments back into the AST-visible callee type.
         if let Some(fixed_ty) = inferred_callee_ty {
             self.ctx.node_types.insert(callee.id, fixed_ty);
         }
 
-        // 5. 校验最终签名并执行分发
+        // 5. Validate the final signature and dispatch strategy.
         let sig_kind = self.ctx.type_registry.get(sig_ty).clone();
 
-        // 提取调用参数、返回值和可变参数标志
+        // Extract call parameters, return type, and varargs metadata.
         let (params, ret, is_variadic) = match sig_kind {
-            // A. 普通函数
+            // A. Plain functions.
             TypeKind::Function {
                 params,
                 ret,
                 is_variadic,
             } => (params, ret, is_variadic),
 
-            // B. 闭包胖指针 (*Fn)
+            // B. Closure fat pointers (`*Fn`).
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let inner_norm = self.ctx.type_registry.normalize(elem);
                 if let TypeKind::ClosureInterface { params, ret } =
                     self.ctx.type_registry.get(inner_norm).clone()
                 {
-                    (params, ret, false) // 闭包不支持可变参数
+                    (params, ret, false) // Closures never support varargs.
                 } else {
                     let callee_str = self.ctx.ty_to_string(callee_ty);
                     self.ctx
@@ -453,7 +452,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
 
-            // C. 其它类型一律不准调用
+            // C. Everything else is not callable.
             _ => {
                 let callee_str = self.ctx.ty_to_string(callee_ty);
                 self.ctx
@@ -501,7 +500,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         ret
     }
 
-    /// 助手：智能泛型推导与签名解析
+    /// Helper: infer generic arguments and resolve the instantiated signature.
     pub(crate) fn deduce_and_resolve_signature(
         &mut self,
         norm_callee: TypeId,
@@ -521,7 +520,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             let generics_count = generics.len();
 
-            // 如果没有泛型，直接返回原始签名
+            // Monomorphic callees can return their original signature directly.
             if generics_count == 0 {
                 return (raw_sig, None);
             }
@@ -540,7 +539,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None);
             }
 
-            // 规则 A：用户显式提供了完整的泛型参数
+            // Rule A: the user supplied a complete explicit generic argument list.
             if explicit_args.len() == generics_count {
                 let mut map = HashMap::new();
                 for (i, param) in generics.iter().enumerate() {
@@ -550,9 +549,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (subst.substitute(raw_sig), None);
             }
 
-            // 规则 B：不允许用户手写部分泛型参数。
-            // 方法查找阶段可能已经为 `impl`/trait 的宿主泛型预绑定了一个前缀；
-            // 这种前缀实参不是用户显式写出的，允许继续推导剩余泛型。
+            // Rule B: partial user-written generic lists are rejected, except for receiver-bound prefixes.
             if has_user_explicit_generics && !explicit_args.is_empty() {
                 let name_str = self.ctx.resolve(fn_name_id).to_string();
                 self.ctx.struct_error(span, format!("function `{}` requires exactly {} generic arguments, but {} were provided", name_str, generics_count, explicit_args.len()))
@@ -561,7 +558,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None);
             }
 
-            // 规则 C：泛型完全省略，启动单向参数推导
+            // Rule C: if generics are omitted entirely, infer them from usage.
             let mut map = HashMap::new();
             for (i, explicit_arg) in explicit_args.iter().enumerate() {
                 map.insert(generics[i].name, *explicit_arg);
@@ -572,7 +569,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             let param_offset = if is_method { 1 } else { 0 };
 
-            // 1. 优先从 Receiver (比如 list.push) 推导
+            // 1. Infer from the receiver first, for example in `list.push(...)`.
             if is_method && !raw_params.is_empty() {
                 let mut stripped_recv = self.resolve_tv(receiver_ty);
                 let expected_recv = self.resolve_tv(raw_params[0]);
@@ -601,7 +598,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.unify(expected_recv, stripped_recv, &mut map);
             }
 
-            // 2. 从实参推导
+            // 2. Infer from positional arguments.
             for (i, arg) in args.iter().enumerate() {
                 let sig_idx = i + param_offset;
                 if sig_idx < raw_params.len() {
@@ -613,7 +610,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
 
-            // 3. 检查是否所有泛型参数都被成功推导
+            // 3. Ensure every generic parameter was inferred.
             let mut missing_generics = Vec::new();
             let mut resolved_args = Vec::new();
             for param in &generics {
@@ -624,7 +621,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
 
-            // 规则 D：存在无法推导的泛型参数，报错
+            // Rule D: report an error if any generic parameter remains unknown.
             if !missing_generics.is_empty() {
                 let name_str = self.ctx.resolve(fn_name_id).to_string();
                 self.ctx
@@ -643,7 +640,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             self.check_generic_bounds(span, def_id, &generics, &resolved_args);
 
-            // 构造包含具体参数的 FnDef 类型，以便稍后写入 AST
+            // Build the instantiated `FnDef` type for later AST updates.
             let inferred_callee_ty = self
                 .ctx
                 .type_registry
@@ -656,10 +653,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         (norm_callee, None)
     }
 
-    /// 助手 2：判断这是否是一个方法调用，如果是，提取它的 Receiver 类型 (LHS)
+    /// Helper 2: detect method-call syntax and extract the receiver type.
     pub(crate) fn resolve_method_context(&self, callee: &Expr) -> (bool, TypeId) {
         if let ExprKind::FieldAccess { lhs, .. } = &callee.kind {
-            // 使用类型来判断 lhs 是否为模块
+            // Use the resolved type to distinguish modules from real receivers.
             let callee_node_ty = self
                 .ctx
                 .node_types
@@ -676,7 +673,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             let norm_lhs = self.ctx.type_registry.normalize(lhs_node_ty);
 
-            // 如果 lhs 解析出是一个模块，显然它不是面向类型的方法调用
+            // Module-qualified syntax is not a value receiver.
             if matches!(self.ctx.type_registry.get(norm_lhs), TypeKind::Module(..)) {
                 return (false, TypeId::ERROR);
             }
@@ -693,7 +690,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         (false, TypeId::ERROR)
     }
 
-    /// 助手 3：校验参数个数 (Arity)
+    /// Helper 3: validate call arity.
     pub(crate) fn check_call_arity(
         &mut self,
         arg_count: usize,
@@ -733,7 +730,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 助手 4：Kern 专属校验 - 方法调用的接收者类型匹配
+    /// Helper 4: enforce Kern-specific receiver compatibility rules.
     fn check_method_receiver(&mut self, expected_self: TypeId, receiver_ty: TypeId, expr: &Expr) {
         let norm_expected = self.resolve_tv(expected_self);
 
@@ -752,7 +749,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 助手 5：逐一检查参数的类型转换，并处理 C ABI 可变参数 (Varargs) 的类型提升规则
+    /// Helper 5: check argument coercions, including C ABI varargs promotions.
     fn check_call_arguments(
         &mut self,
         args: &[Expr],
@@ -766,11 +763,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let sig_param_idx = i + param_offset;
 
             if sig_param_idx < params.len() {
-                // 1. 常规参数校验
+                // 1. Check a regular fixed parameter.
                 let arg_ty = self.check_expr(arg, Some(params[sig_param_idx]));
                 self.check_coercion(arg, params[sig_param_idx], arg_ty);
             } else {
-                // 2. Variadic 额外参数校验 (C ABI Rules)
+                // 2. Check trailing variadic arguments under C ABI rules.
                 let arg_ty = self.check_expr(arg, None);
                 let norm_arg = self.resolve_tv(arg_ty);
 
@@ -778,7 +775,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     continue;
                 }
 
-                // C ABI 整型提升规则：传入可变参数的整型不能小于 32位
+                // C ABI integral promotion requires at least 32 bits for variadic integers.
                 let is_small_int = matches!(
                     norm_arg,
                     TypeId::I8 | TypeId::I16 | TypeId::U8 | TypeId::U16
@@ -789,7 +786,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .with_hint("please cast it explicitly (e.g., `as i32` or `as u32`)")
                         .emit();
                 } else if norm_arg == TypeId::F32 {
-                    // C ABI 浮点型提升规则：传入可变参数的浮点数必须被提升为 64位 (double)
+                    // C ABI floating-point promotion upgrades variadic floats to `f64`.
                     self.ctx
                         .struct_error(
                             arg.span,
@@ -880,7 +877,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         generics: &[ast::GenericParam],
         arg_tys: &[TypeId],
     ) {
-        // 1. 提取实体的 Where 子句
+        // 1. Extract the callee's where-clauses.
         let where_clauses = match &self.ctx.defs[def_id.0 as usize] {
             Def::Function(f) => f.where_clauses.clone(),
             Def::Struct(s) => s.where_clauses.clone(),
@@ -896,7 +893,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return;
         }
 
-        // 2. 构建泛型实参映射表 (T -> Allocator)
+        // 2. Build the generic argument substitution map.
         let mut map = std::collections::HashMap::new();
         for (i, param) in generics.iter().enumerate() {
             if i < arg_tys.len() {
@@ -904,7 +901,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 3. 收集需要检查的类型对
+        // 3. Collect the type pairs that must satisfy the bounds.
         let mut pairs_to_check = Vec::new();
         {
             let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
@@ -932,7 +929,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 4. 执行特征检查
+        // 4. Check the required trait obligations.
         for (sub_target, sub_bound) in pairs_to_check {
             if sub_target != TypeId::ERROR
                 && sub_bound != TypeId::ERROR
@@ -957,7 +954,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         body: &ast::Expr,
         span: Span,
     ) -> TypeId {
-        // 推导所有的捕获表达式
+        // Infer all captured expressions first.
         let mut state_fields = Vec::new();
         let mut capture_env = Vec::new();
 
@@ -978,8 +975,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        // 在父作用域解析参数类型和返回类型
-        // (类型签名必须在外部环境解析，因为可能会用到外部引入的别名)
+        // Resolve parameter and return types in the parent scope so aliases remain visible.
         let (param_tys, expected_ret) = {
             let mut param_tys = Vec::new();
             let mut type_resolver = TypeResolver::new(self.ctx);
@@ -998,14 +994,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ret: expected_ret,
         });
 
-        // 进入闭包内部的作用域
+        // Enter the closure's body scope.
         let _ = self.ctx.scopes.enter_scope();
 
-        // 将捕获值注入闭包作用域 (Pure Value Semantics，强制不可变)
+        // Inject captures by value into the closure scope.
         for (name, ty, cap_span) in capture_env {
             let info = SymbolInfo {
                 kind: SymbolKind::Var,
-                node_id, // 捕获环境暂时借用闭包表达式的 ID
+                node_id, // Reuse the closure expression ID for the synthetic capture binding.
                 type_id: ty,
                 def_id: None,
                 span: cap_span,
@@ -1022,7 +1018,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 注入闭包参数
+        // Inject explicit closure parameters.
         for (i, param) in params.iter().enumerate() {
             let param_node_id = self.ctx.next_node_id();
             let info = SymbolInfo {
@@ -1049,14 +1045,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 推导函数体
+        // Check the closure body.
         let (actual_ret_ty, has_returned) = {
             let mut sub_checker = ExprChecker::new(self.ctx, Some(expected_ret));
             let ty = sub_checker.check_expr(body, Some(expected_ret));
             (ty, sub_checker.has_returned)
         };
 
-        // 类型兼容性校验
+        // Validate body-vs-signature compatibility.
         if actual_ret_ty != TypeId::ERROR
             && expected_ret != TypeId::ERROR
             && actual_ret_ty != TypeId::NEVER
@@ -1064,12 +1060,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let norm_actual = self.ctx.type_registry.normalize(actual_ret_ty);
             let norm_expected = self.ctx.type_registry.normalize(expected_ret);
 
-            // 如果实际返回是 VOID，但预期不是 VOID，说明缺少了尾随表达式
+            // A `void` body for a non-void signature usually means the tail expression is missing.
             let is_missing_tail = norm_actual == TypeId::VOID && norm_expected != TypeId::VOID;
 
-            // 如果缺少尾随表达式，但函数内部有合法的 `return` 语句，暂时放行
+            // Explicit `return` statements can still satisfy the contract.
             if is_missing_tail && has_returned {
-                // Safe: 至少有一条路径合法返回了
+                // Safe: at least one path returns explicitly.
             } else if norm_actual != norm_expected {
                 let expected_str = self.ctx.ty_to_string(expected_ret);
                 let actual_str = self.ctx.ty_to_string(actual_ret_ty);
@@ -1083,14 +1079,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 9. 退出作用域并记录
+        // 9. Leave the closure scope and record the resulting type.
         self.ctx.scopes.exit_scope();
         self.ctx.node_types.insert(node_id, closure_state_ty);
 
         closure_state_ty
     }
 
-    /// 专门校验 @asm(.{ ... }) 结构
+    /// Validate the special `@asm(.{ ... })` input form.
     fn check_asm_call(&mut self, args: &[Expr], span: Span) -> TypeId {
         if args.len() != 1 {
             self.ctx
@@ -1113,7 +1109,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         "`@asm` argument must be an untyped anonymous struct `.{ ... }`",
                     )
                     .emit();
-                // 继续推导内部可能的错误以防止级联，但标记外层为 ERROR
+                // Continue checking nested expressions to reduce cascades, but mark the outer node as invalid.
                 self.check_expr(config_arg, None);
                 return TypeId::ERROR;
             }
@@ -1222,14 +1218,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
         }
 
-        // 绑定 config_arg 的类型为 VOID，防止 AST 树产生洞
+        // Bind `config_arg` as `void` so the AST cache stays complete.
         self.ctx.node_types.insert(config_arg.id, TypeId::VOID);
 
-        // 内联汇编不返回值，通过 outputs 的指针写入状态
+        // Inline assembly returns through output pointers instead of a direct value.
         TypeId::VOID
     }
 
-    /// 辅助方法：判断内联汇编 output 绑定的类型是否为可变指针 (`*mut T` 或 `^mut T`)
+    /// Return whether an inline-assembly output binding is a mutable pointer.
     fn is_mut_pointer(&mut self, ty: TypeId) -> bool {
         let norm = self.resolve_tv(ty);
         match self.ctx.type_registry.get(norm).clone() {

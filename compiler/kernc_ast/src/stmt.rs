@@ -11,9 +11,9 @@ pub struct Stmt {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum StmtKind {
-    /// 表达式语句: `expr;`
+    /// Expression statement: `expr;`
     ExprStmt(Expr),
 
-    /// 块末尾的表达式: `expr`
+    /// Trailing block expression: `expr`
     ExprValue(Expr),
 }

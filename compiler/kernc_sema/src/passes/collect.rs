@@ -60,7 +60,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx
     }
 
-    /// 收集特定模块 AST 的内部成员
+    /// Collect all top-level members from a module AST into semantic definitions.
     pub fn collect_ast(&mut self, mod_id: DefId, module: &ast::Module) {
         let (scope_id, submodules) =
             if let Some(Def::Module(m)) = self.ctx.defs.get(mod_id.0 as usize) {
@@ -93,7 +93,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         let mut item_ids = Vec::new();
         let mut imports = Vec::new();
 
-        // 将模块注册与常规收集融为一体
+        // Collect imports, submodule declarations, and regular items in one pass.
         for decl in &module.decls {
             match &decl.kind {
                 DeclKind::Use {
@@ -150,9 +150,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.current_module_imported = parent_module_imported;
     }
 
-    /// 收集单个声明
-    /// `parent_impl`: 如果当前声明位于 impl 块内，传入 impl 的 DefId
-    /// `force_extern`: 如果当前声明位于 extern 块内，强制标记为 extern
+    /// Collect a single declaration.
+    /// `parent_impl` identifies the enclosing impl block, if any.
+    /// `force_extern` marks declarations originating from an `extern` block.
     fn collect_decl(
         &mut self,
         decl: &Decl,
@@ -173,7 +173,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 is_extern,
                 is_variadic,
             } => {
-                // 合并 impl 块的泛型和函数自身的泛型
+                // Impl methods see both impl-level and method-level generic parameters.
                 let mut combined_generics = impl_generics.to_vec();
                 combined_generics.extend_from_slice(generics);
 
@@ -238,15 +238,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 decls,
             ),
             DeclKind::ExternBlock { .. } => {
-                // Extern 块是一种特殊的顶层容器，必须在 collect_ast 级别被展开平铺。
-                // 如果走到这里，说明出现了非法的嵌套（例如 impl 块内部嵌套了 extern 块）。
+                // Extern blocks must be flattened by `collect_ast` before reaching here.
+                // Arriving here means the AST contains an invalid nesting.
                 self.ctx.emit_error(
                     decl.span,
                     "`extern` blocks are only allowed at the module top-level",
                 );
                 None
             }
-            // 已在 collect_ast 处理
+            // Already handled by `collect_ast`.
             DeclKind::Use { .. } => None,
             DeclKind::ModDecl { .. } => None,
         }
@@ -303,7 +303,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
 
         self.ctx.add_def(Def::Function(func_def));
 
-        // 如果不是 impl 块中的方法，则将其注册到当前词法作用域
+        // Only free functions are inserted into the surrounding lexical scope.
         if spec.parent_impl.is_none() {
             self.define_symbol(SymbolDefSpec {
                 name: decl.name,
@@ -365,7 +365,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
-    /// 核心逻辑：将 `type Name = Target` 解包为对应的实体定义
+    /// Lower `type Name = Target` into the corresponding semantic definition kind.
     fn collect_type_alias_or_struct(
         &mut self,
         decl: &Decl,
@@ -452,8 +452,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 })
             }
             _ => {
-                // 真正的类型别名，例如 `type MyInt = i32;`
-                // 或者是带泛型和 where 的别名: `type SafePtr[T] where T: Alloc = *mut T;`
+                // True type aliases preserve the aliased target rather than becoming a new nominal type.
                 Def::TypeAlias(TypeAliasDef {
                     id: def_id,
                     name: decl.name,
@@ -534,23 +533,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     //               Helpers
     // ==========================================
 
-    /// 向当前作用域注册符号，处理重定义错误并提供极其友好的诊断信息
+    /// Register a symbol in the current scope and surface duplicate-definition diagnostics.
     fn define_symbol(&mut self, spec: SymbolDefSpec) {
-        // 如果是 `_`，直接忽略，不存入作用域
+        // `_` is intentionally not entered into the symbol table.
         if self.ctx.resolve(spec.name) == "_" {
             return;
         }
         let info = SymbolInfo {
             kind: spec.kind,
             node_id: spec.node_id,
-            type_id: TypeId::ERROR, // Collect 阶段尚未推导类型
+            type_id: TypeId::ERROR, // Types are resolved later.
             def_id: spec.def_id,
-            span: spec.span, // 记录符号的诞生位置
+            span: spec.span, // Preserve the definition site for diagnostics.
             is_pub: spec.is_pub,
             is_mut: spec.is_mut,
         };
 
-        // 利用 DiagnosticBuilder 提供多 Span 的关联报错
+        // Emit a multi-span diagnostic that points at both definitions.
         if let Err(old_info) = self.ctx.scopes.define(spec.name, info) {
             let name_str = self.ctx.resolve(spec.name).to_string();
 

@@ -171,7 +171,7 @@ fn parse_args() -> CompileOptions {
 
     let mut options = CompileOptions::default();
 
-    // 在解析 CLI 参数之前读取环境变量。
+    // Read environment variables before parsing CLI arguments.
     if let Ok(cc_env) = env::var("CC") {
         options.linker_cmd = cc_env;
     }

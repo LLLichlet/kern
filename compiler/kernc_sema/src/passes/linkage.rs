@@ -18,16 +18,16 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
     }
 
     pub fn check_all(&mut self) {
-        // 记录: 导出名 -> (是否是具体定义, 签名类型, 是否有extern修饰, 声明位置)
+        // Track: export name -> (is concrete definition, signature, extern flag, declaration span).
         let mut symbols: HashMap<String, (bool, TypeId, bool, Span)> = HashMap::new();
 
         for i in 0..self.ctx.defs.len() {
             let def_id = DefId(i as u32);
-            let def = self.ctx.defs[i].clone(); // Clone 解决借用冲突
+            let def = self.ctx.defs[i].clone(); // Clone to avoid borrow conflicts.
 
             let (is_definition, is_extern, sig_ty, span) = match def {
                 Def::Function(f) => {
-                    // 检查是否是泛型函数（自身带泛型，或身处泛型 impl 块中）
+                    // Check whether this is a generic template, either directly or through its impl.
                     let mut is_generic = !f.generics.is_empty();
                     if let Some(parent_id) = f.parent
                         && let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize]
@@ -36,7 +36,7 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                         is_generic = true;
                     }
 
-                    // 泛型模板不产生实际的 C ABI 链接符号，直接跳过
+                    // Generic templates do not produce concrete C ABI symbols.
                     if is_generic {
                         continue;
                     }
@@ -56,7 +56,7 @@ impl<'a, 'ctx> LinkageChecker<'a, 'ctx> {
                 _ => continue,
             };
 
-            // 如果之前的阶段类型推导失败，跳过
+            // Skip items whose types failed to resolve in earlier passes.
             if sig_ty == TypeId::ERROR {
                 continue;
             }

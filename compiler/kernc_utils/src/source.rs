@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use std::{fs, io};
 
 /// =========================================================
-/// 基础类型定义
+/// Basic source location types
 /// =========================================================
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -18,12 +18,12 @@ impl FileId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Location {
     pub file_id: FileId,
-    pub line: usize, // 1-based 行号
-    pub col: usize,  // 1-based 列号
+    pub line: usize, // 1-based line number.
+    pub col: usize,  // 1-based column number.
 }
 
 /// =========================================================
-/// SourceFile: 单个文件的底层管理者
+/// SourceFile: backing storage for one loaded source file
 /// =========================================================
 
 #[derive(Debug, Clone)]
@@ -50,7 +50,7 @@ impl SourceFile {
         }
     }
 
-    /// 核心算法：二分查找行号 (1-based)
+    /// Map a byte offset to a 1-based line number via binary search.
     pub fn lookup_line(&self, offset: usize) -> usize {
         match self.line_starts.binary_search(&offset) {
             Ok(line) => line + 1,
@@ -58,7 +58,7 @@ impl SourceFile {
         }
     }
 
-    /// 计算 (Line, Col)，不涉及 Location 结构体，纯数学运算
+    /// Compute the 1-based line and column for a byte offset.
     pub fn lookup_line_col(&self, offset: usize) -> (usize, usize) {
         let line = self.lookup_line(offset);
         let line_start = self.line_starts[line - 1];
@@ -66,34 +66,32 @@ impl SourceFile {
         (line, col)
     }
 
-    /// 获取指定行的文本内容 (用于报错显示)
-    /// 这里的 line 是 1-based
+    /// Return the full text of a 1-based line for diagnostics.
     pub fn get_line_text(&self, line: usize) -> Option<&str> {
         if line == 0 || line > self.line_starts.len() {
             return None;
         }
 
-        let line_idx = line - 1; // 转为 0-based 索引
+        let line_idx = line - 1; // Convert to a 0-based index.
         let start = self.line_starts[line_idx];
 
         let end = if line_idx + 1 < self.line_starts.len() {
-            self.line_starts[line_idx + 1] - 1 // -1 是为了去掉换行符
+            self.line_starts[line_idx + 1] - 1 // Trim the trailing newline.
         } else {
             self.src.len()
         };
 
-        // 防御性切片
+        // Guard against inconsistent spans in recovery paths.
         if start <= end && end <= self.src.len() {
             Some(&self.src[start..end])
         } else {
-            Some("") // 处理空行或异常情况
+            Some("") // Treat invalid slices as an empty line.
         }
     }
 
-    /// [LSP 必需] 将 (行号, 列号) 转换为字节偏移量
+    /// Convert a 1-based line/column pair back into a byte offset.
     pub fn offset_at(&self, line: usize, col: usize) -> Option<usize> {
-        // line 必须是 1-based ? 通常 LSP 是 0-based，这里假设你使用内部统一的 1-based
-        // 如果这里 line 是 0-based，请去掉下面的 -1
+        // The compiler uses 1-based coordinates internally.
         if line == 0 || line > self.line_starts.len() {
             return None;
         }
@@ -101,11 +99,11 @@ impl SourceFile {
         let line_idx = line - 1;
         let start = self.line_starts[line_idx];
 
-        // 计算当前行结束位置（包含换行符）
+        // Compute the exclusive end of the current line, including the newline if present.
         let end_limit = if line_idx + 1 < self.line_starts.len() {
             self.line_starts[line_idx + 1]
         } else {
-            self.src.len() + 1 // +1 允许指向 EOF
+            self.src.len() + 1 // Allow callers to point at EOF.
         };
         let target = start + col;
         if target >= end_limit {
@@ -117,7 +115,7 @@ impl SourceFile {
 }
 
 /// =========================================================
-/// SourceManager: 全局资源中心
+/// SourceManager: global registry for loaded source files
 /// =========================================================
 
 #[derive(Debug, Default, Clone)]
@@ -130,12 +128,12 @@ impl SourceManager {
         Self { files: Vec::new() }
     }
 
-    /// 加载文件（带去重逻辑）
+    /// Load a file, deduplicating identical canonical paths.
     pub fn load_file<P: AsRef<Path>>(&mut self, path: P) -> io::Result<FileId> {
         let path = path.as_ref();
         let abs_path = fs::canonicalize(path)?;
 
-        // 简单查重 O(N)，文件多时可优化为 HashMap
+        // Linear deduplication is sufficient for now; upgrade to a map if needed.
         if let Some((id, _)) = self
             .files
             .iter()
@@ -152,7 +150,7 @@ impl SourceManager {
         Ok(id)
     }
 
-    /// 添加虚拟文件（用于测试或 REPL）
+    /// Register an in-memory file, typically for tests or REPL usage.
     pub fn add_file(&mut self, name: String, src: String) -> FileId {
         let file = SourceFile::new(PathBuf::from(name), src);
         let id = FileId(self.files.len());
@@ -160,8 +158,7 @@ impl SourceManager {
         id
     }
 
-    /// 核心查询 1: 将 Span 转换为坐标 (Location)
-    /// 返回纯数据，无生命周期
+    /// Query 1: convert a span into a concrete source location.
     pub fn lookup_location(&self, span: Span) -> Option<Location> {
         let file = self.files.get(span.file.get())?;
         let (line, col) = file.lookup_line_col(span.start);
@@ -173,11 +170,10 @@ impl SourceManager {
         })
     }
 
-    /// 核心查询 2: 获取 Span 对应的源码切片
-    /// 需要生命周期，因为它返回的是 self 中字符串的借用
+    /// Query 2: borrow the source text covered by a span.
     pub fn slice_source(&self, span: Span) -> &str {
         if let Some(file) = self.files.get(span.file.get()) {
-            // 简单的边界检查
+            // Keep recovery code from slicing beyond file bounds.
             if span.start <= span.end && span.end <= file.src.len() {
                 return &file.src[span.start..span.end];
             }
@@ -185,14 +181,13 @@ impl SourceManager {
         ""
     }
 
-    /// 核心查询 3: 获取 Location 所在行的完整文本
-    /// 用于错误报告
+    /// Query 3: fetch the full line text that contains a location.
     pub fn get_line_text(&self, location: Location) -> Option<&str> {
         let file = self.files.get(location.file_id.get())?;
         file.get_line_text(location.line)
     }
 
-    // --- 辅助方法 ---
+    // --- Helpers ---
 
     pub fn get_file(&self, id: FileId) -> Option<&SourceFile> {
         self.files.get(id.get())
@@ -208,7 +203,7 @@ impl SourceManager {
 
     pub fn update_file(&mut self, id: FileId, new_src: String) {
         if let Some(file) = self.files.get_mut(id.get()) {
-            // 直接覆盖旧文件，保持 path 不变
+            // Replace the contents while preserving the logical path.
             *file = SourceFile::new(file.path.clone(), new_src);
         }
     }

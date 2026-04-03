@@ -9,19 +9,19 @@ use std::path::Path;
 
 #[derive(Clone)]
 pub struct Session {
-    // --- 1. 基础工具 ---
+    // --- 1. Core utilities ---
     pub interner: Interner,
     pub source_manager: SourceManager,
 
-    // --- 2. 诊断系统 ---
+    // --- 2. Diagnostic state ---
     pub diagnostics: Vec<Diagnostic>,
     pub error_count: usize,
     pub use_color: bool,
 
-    // --- 3. 全局状态 ---
+    // --- 3. Global compiler state ---
     pub next_node_id: u32,
 
-    // --- 4. 编译选项  ---
+    // --- 4. Effective compile options ---
     pub target: TargetMachine,
     pub custom_defines: HashMap<String, String>,
 }
@@ -74,7 +74,7 @@ impl Session {
     pub fn emit_ice(&mut self, span: Span, msg: impl Into<String>) {
         DiagnosticBuilder::new(self, DiagnosticLevel::Ice, span, msg.into())
             .with_hint("This is a bug in the Kern compiler. Please report it!")
-            .emit(); // emit 内部会处理直接退出
+            .emit(); // `emit` prints and exits for ICE diagnostics.
     }
 
     pub fn struct_error(&mut self, span: Span, msg: impl Into<String>) -> DiagnosticBuilder<'_> {
@@ -161,7 +161,7 @@ impl Session {
             eprintln!(" {} | {}", line_num_str, line_text.trim_end());
             eprint!(" {} | ", padding);
 
-            // 安全截断：波浪线长度不能超过当前行的物理剩余长度
+            // Clamp the underline so it never extends past the physical line.
             let text_len = line_text.trim_end().len();
             let col_offset = loc.col.saturating_sub(1);
             let max_possible_carets = text_len.saturating_sub(col_offset);

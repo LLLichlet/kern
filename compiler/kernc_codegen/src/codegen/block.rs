@@ -55,18 +55,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         };
 
         // ==========================================
-        // 1. 现场保护 (Save Caller Context)
-        // 完美解决泛型单态化和按需编译导致的重入污染问题
+        // 1. Save the caller's codegen context.
         // ==========================================
         let saved_locals = std::mem::take(&mut self.locals);
         let saved_loop_targets = std::mem::take(&mut self.loop_targets);
         let saved_insert_block = self.builder.get_insert_block();
 
-        // 2. 建立新函数的环境
+        // 2. Set up the new function environment.
         let entry_block = self.context.append_basic_block(llvm_func, "entry");
         self.builder.position_at_end(entry_block);
 
-        // 分配参数
+        // Materialize parameters into allocas.
         for (i, param) in func.params.iter().enumerate() {
             let Some(param_val) = self.function_param_value(llvm_func, i, &func.name) else {
                 self.restore_codegen_context(saved_locals, saved_loop_targets, saved_insert_block);
@@ -79,7 +78,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.locals.insert(param.name, alloca);
         }
 
-        // 3. 编译函数体 (Block)
+        // 3. Compile the function body block.
         if let Some(body) = &func.body {
             let block_res = self.compile_block(body);
 
@@ -95,7 +94,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 return;
             };
             if current_block.get_terminator().is_none() {
-                // 自动生成 ret 指令 (拦截虚假的 Void 返回值)
+                // Emit an implicit `ret` when the body did not terminate explicitly.
                 if self.is_void_type(func.ret_ty) {
                     self.builder.build_return(None).unwrap();
                 } else if let Some(val) = block_res {
@@ -107,8 +106,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
 
         // ==========================================
-        // 4. 现场恢复 (Restore Caller Context)
-        // 保证宿主函数的 defer、break 和后续 IR 生成完全正常
+        // 4. Restore the caller's codegen context.
         // ==========================================
         self.restore_codegen_context(saved_locals, saved_loop_targets, saved_insert_block);
     }
@@ -118,7 +116,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         // Inner bindings, especially enum payload names, must not leak after block exit.
         let saved_locals = self.locals.clone();
 
-        // 1. 执行普通语句
+        // 1. Emit ordinary statements.
         for stmt in &block.stmts {
             let Some(current_block) = self.current_insert_block("block statement") else {
                 self.locals = saved_locals;
@@ -138,7 +136,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 } => {
                     let init_val = self.compile_expr(init);
                     let llvm_ty = self.get_llvm_type(*ty);
-                    // 无论可不可变，统一 alloca，交给 LLVM 的 mem2reg pass 去做寄存器提升优化
+                    // Always alloca first and let LLVM's mem2reg pass promote when possible.
                     let alloca =
                         self.create_entry_block_alloca(llvm_ty, &format!("let_{}", name.0));
                     self.builder.build_store(alloca, init_val).unwrap();
@@ -159,25 +157,25 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return None;
         }
 
-        // 2. 求出返回值，用 SSA 寄存器暂存
+        // 2. Compute the block result before running defers.
         let mut result_val = None;
         if let Some(result_expr) = &block.result {
             result_val = Some(self.compile_expr(result_expr));
         }
 
-        // 3. 在求出返回值之后，块退出之前，执行所有的 defer
+        // 3. Run defers after computing the result but before leaving the block.
         for defer_expr in &block.defers {
             self.compile_expr(defer_expr);
         }
 
-        // 4. Yield 这个在 defer 执行前就已经算好的值
+        // 4. Yield the value captured before defer execution.
         // Restore the outer local map so later lookups cannot resolve to stale shadowing slots.
         self.locals = saved_locals;
         result_val
     }
 
-    /// 在当前函数的 entry block 首部安全地分配局部变量内存。
-    /// 这样可以避免在循环内部调用 alloca 导致的栈溢出。
+    /// Safely allocate local storage at the beginning of the current function's entry block.
+    /// This avoids repeated loop-local `alloca` growth.
     pub(crate) fn create_entry_block_alloca(
         &mut self,
         llvm_ty: BasicTypeEnum<'ctx>,
@@ -185,7 +183,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     ) -> PointerValue<'ctx> {
         let builder = self.context.create_builder();
 
-        // 获取当前正在构建的函数
+        // Recover the function currently being built.
         let Some(current_block) = self.current_insert_block("entry alloca") else {
             return self.context.ptr_type(Default::default()).const_zero();
         };
@@ -200,7 +198,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return self.context.ptr_type(Default::default()).const_zero();
         };
 
-        // 获取该函数的 entry block
+        // Find the function's entry block.
         let Some(entry_block) = current_func.get_first_basic_block() else {
             self.sess.emit_ice(
                 kernc_utils::Span::default(),
@@ -212,7 +210,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return self.context.ptr_type(Default::default()).const_zero();
         };
 
-        // 将插入点设置在 entry block 的第一条指令之前
+        // Insert before the first entry instruction when possible.
         match entry_block.get_first_instruction() {
             Some(first_instr) => builder.position_before(&first_instr),
             None => builder.position_at_end(entry_block),

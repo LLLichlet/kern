@@ -111,17 +111,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap()
                 .into(),
 
-            // ArrayDecay: [N]T -> []T (将数组隐式转换为带长度的胖指针)
+            // Array decay: `[N]T -> []T` by constructing a fat pointer.
             MastCastKind::ArrayToSlice => {
-                // 临时变量具象化 (Materialize Temporary)
+                // Materialize a temporary when the operand is not already addressable.
                 let array_ptr = match &operand.kind {
-                    // 如果本身就是合法的左值（比如变量名），直接取它的地址，避免无意义的拷贝
+                    // Addressable lvalues can reuse their existing storage.
                     MastExprKind::Var(_)
                     | MastExprKind::GlobalRef(_)
                     | MastExprKind::FieldAccess { .. }
                     | MastExprKind::IndexAccess { .. }
                     | MastExprKind::Deref(_) => self.compile_lvalue(operand),
-                    // 如果是右值（比如 ArrayInit 临时数组），在栈上开辟临时空间存进去
+                    // Rvalues need stack storage before they can decay.
                     _ => {
                         let array_val = self.compile_expr(operand);
                         let array_llvm_ty = self.get_llvm_type(operand.ty);
@@ -132,7 +132,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     }
                 };
 
-                // 获取长度
+                // Recover the compile-time array length.
                 let array_len = if let TypeKind::Array { len, .. } = self
                     .type_registry
                     .get(self.type_registry.normalize(operand.ty))
@@ -150,7 +150,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     0
                 };
 
-                // 组装 Slice 胖指针
+                // Assemble the resulting slice fat pointer.
                 let slice_llvm_ty = target_llvm_ty.into_struct_type();
                 let mut slice_val = slice_llvm_ty.get_undef();
 

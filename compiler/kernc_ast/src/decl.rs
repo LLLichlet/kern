@@ -16,7 +16,8 @@ pub struct Decl {
 pub struct WhereClause {
     pub span: Span,
     pub target_ty: TypeNode,
-    pub bounds: Vec<TypeNode>, // 通常是 TypeKind::Path (Trait的路径)
+    /// Usually trait paths such as `Ord` or `Iterator[T]`.
+    pub bounds: Vec<TypeNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -27,13 +28,14 @@ pub enum DeclKind {
         where_clauses: Vec<WhereClause>,
         params: Vec<FuncParam>,
         ret_type: TypeNode,
-        body: Option<Box<Expr>>, // Block
+        /// Function body block, when present.
+        body: Option<Box<Expr>>,
         is_const: bool,
         is_extern: bool,
         is_variadic: bool,
     },
 
-    /// `const x = ...` 或 `static x = ...`
+    /// `const x = ...` or `static x = ...`
     Var {
         value: Expr,
         is_static: bool,
@@ -50,10 +52,10 @@ pub enum DeclKind {
         is_extern: bool,
     },
 
-    /// 模块声明：`mod name;`
+    /// Module declaration: `mod name;`
     ModDecl { is_pub: bool },
 
-    /// 模块引入
+    /// Import declaration.
     Use {
         kind: UsePathKind,
         path: Vec<SymbolId>,
@@ -61,13 +63,13 @@ pub enum DeclKind {
         is_reexport: bool,
     },
 
-    /// Extern 块
+    /// Extern block.
     ExternBlock {
         abi: Option<String>,
         decls: Vec<Decl>,
     },
 
-    /// Impl 块
+    /// Impl block.
     Impl {
         generics: Vec<GenericParam>,
         where_clauses: Vec<WhereClause>,
@@ -79,11 +81,11 @@ pub enum DeclKind {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UsePathKind {
-    /// 绝对路径，从根模块 (Root/Crate) 开始找：`use std.io`
+    /// Absolute path starting from the root module, for example `use std.io`.
     Root,
-    /// 相对路径，从当前模块开始找：`use .utils`
+    /// Relative path starting from the current module, for example `use .utils`.
     Current,
-    /// 相对路径，仅支持从父级模块开始找：`use ..common`
+    /// Relative path starting from the parent module, for example `use ..common`.
     Parent,
 }
 

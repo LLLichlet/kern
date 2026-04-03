@@ -9,7 +9,7 @@ pub enum DiagnosticLevel {
 }
 
 impl DiagnosticLevel {
-    /// 纯文本名称，用于日志重定向
+    /// Plain-text name used in non-colored output and logs.
     pub fn name(&self) -> &'static str {
         match self {
             DiagnosticLevel::Error => "error",
@@ -19,13 +19,13 @@ impl DiagnosticLevel {
         }
     }
 
-    /// ANSI 颜色控制码前缀
+    /// ANSI color prefix for terminal rendering.
     pub fn color_prefix(&self) -> &'static str {
         match self {
-            DiagnosticLevel::Error => "\x1b[31;1m",   // 红色粗体
-            DiagnosticLevel::Warning => "\x1b[33;1m", // 黄色粗体
-            DiagnosticLevel::Note => "\x1b[36;1m",    // 青色粗体
-            DiagnosticLevel::Ice => "\x1b[35;1m",     // 紫色粗体
+            DiagnosticLevel::Error => "\x1b[31;1m",   // Bold red.
+            DiagnosticLevel::Warning => "\x1b[33;1m", // Bold yellow.
+            DiagnosticLevel::Note => "\x1b[36;1m",    // Bold cyan.
+            DiagnosticLevel::Ice => "\x1b[35;1m",     // Bold magenta.
         }
     }
 }
@@ -87,7 +87,7 @@ impl<'a> DiagnosticBuilder<'a> {
         }
         self.sess.diagnostics.push(self.diag.clone());
 
-        // 遇到编译器崩溃，打印现场后立即熔断
+        // ICE diagnostics abort immediately after printing the captured context.
         if is_ice {
             self.sess.print_single_diagnostic(&self.diag);
 

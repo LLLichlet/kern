@@ -16,7 +16,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn lower_identifier(&mut self, name: SymbolId) -> MastExprKind {
-        // 常量内联
+        // Inline constant values when possible.
         if let Some(info) = self.ctx.scopes.resolve(name).cloned()
             && info.kind == SymbolKind::Const
             && let Some(def_id) = info.def_id
@@ -67,7 +67,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 优先检查是否是顶层全局变量 (静态数组、全局字符串等)
+        // First check whether this resolves to a top-level global.
         if let Some(info) = self.ctx.scopes.resolve(name).cloned()
             && matches!(info.kind, SymbolKind::Const | SymbolKind::Static)
             && let Some(def_id) = info.def_id
@@ -78,15 +78,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        // 其次检查是否是局部作用域内的 static 变量
+        // Then check for a local-scope static.
         for scope in self.local_statics.iter().rev() {
             if let Some(&mono_id) = scope.get(&name) {
                 return MastExprKind::GlobalRef(mono_id);
             }
         }
 
-        // 因为在外层 (mod.rs) 已经通过 node_types 拦截了 FnDef (函数引用)
-        // 走到这里，它一定是一个普通的局部变量 (let 绑定或函数参数)
+        // Function references were already intercepted in `mod.rs`, so this must be a normal local binding.
         MastExprKind::Var(name)
     }
 
@@ -218,7 +217,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         }
                     }
 
-                    // 如果无法内联（比如是个数组常量），从全局映射表获取
+                    // Fall back to the global map when the value cannot be inlined.
                     if let Some(def_id) = target_info.def_id {
                         self.ensure_global_lowered(def_id);
                         if let Some(&mono_id) = self.global_map.get(&def_id) {

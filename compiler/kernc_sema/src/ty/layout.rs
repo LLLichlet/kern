@@ -15,8 +15,8 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         Self { ctx }
     }
 
-    /// 计算具名结构体的物理排布
-    /// 返回: (ast_to_physical, physical_to_ast)
+    /// Compute the physical layout of a named struct.
+    /// Returns `(ast_to_physical, physical_to_ast)`.
     pub fn get_struct_mapping(
         &mut self,
         def_id: DefId,
@@ -37,12 +37,12 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             field_metas.push((ast_idx, f_align, f_size));
         }
 
-        // 除非标记了 extern，否则强行优化内存布局
+        // Optimize layout unless the type is explicitly marked `extern`.
         if !struct_def.is_extern {
             field_metas.sort_by(|a, b| {
-                b.1.cmp(&a.1) // 1. 对齐要求降序 (Alignment)
-                    .then_with(|| b.2.cmp(&a.2)) // 2. 大小降序 (Size)
-                    .then_with(|| a.0.cmp(&b.0)) // 3. AST 原始索引升序 (稳定排序)
+                b.1.cmp(&a.1) // 1. Higher alignment first.
+                    .then_with(|| b.2.cmp(&a.2)) // 2. Then larger size.
+                    .then_with(|| a.0.cmp(&b.0)) // 3. Finally preserve AST order for stability.
             });
         }
 
@@ -57,7 +57,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         (ast_to_physical, physical_to_ast)
     }
 
-    /// 计算匿名结构体的物理排布 (匿名结构体永远被优化)
+    /// Compute the physical layout of an anonymous struct.
     pub fn get_anon_struct_mapping(
         &mut self,
         is_extern: bool,
@@ -71,7 +71,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             field_metas.push((ast_idx, f_align, f_size));
         }
 
-        // 只有原生的匿名结构体，才执行内存体积压缩优化
+        // Only native anonymous structs participate in layout compaction.
         if !is_extern {
             field_metas.sort_by(|a, b| {
                 b.1.cmp(&a.1)
@@ -233,7 +233,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 self.ctx.sess.target.pointer_size * 2
             }
 
-            // 处理定长数组，ArrayInfer 属于未知长度，暂时返回 0
+            // Fixed-size arrays have known size; `ArrayInfer` still counts as unknown here.
             TypeKind::Array { elem, len, .. } => {
                 self.compute_type_size_inner(elem, depth + 1) * len
             }
@@ -256,11 +256,11 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     if f_align > max_align {
                         max_align = f_align;
                     }
-                    // 将当前偏移量对齐到该字段的要求
+                    // Align the running offset to the field's requirement.
                     offset = Self::align_to(offset, f_align);
                     offset += f_size;
                 }
-                // 最后将结构体的总大小对齐到最大对齐要求 (Tail Padding)
+                // Apply final tail padding up to the maximum alignment.
                 Self::align_to(offset, max_align)
             }
             TypeKind::ClosureInterface { .. } => 0,
@@ -565,7 +565,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 Self::align_to(max_size, max_align)
             }
             Def::Enum(a) => {
-                // C-ABI Tagged Union 布局: struct { TagType tag; union { ... } payload; }
+                // C-ABI tagged-union layout: `struct { TagType tag; union { ... } payload; }`.
                 let tag_ty = a.backing_type.as_ref().map_or(TypeId::U32, |bt| {
                     self.ctx
                         .node_types
@@ -579,7 +579,7 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
 
                 let map = self.prepare_generic_subst(&a.generics, generic_args);
 
-                // 追踪 Payload Union 的最大尺寸和最大对齐要求
+                // Track the maximum payload-union size and alignment.
                 let mut max_payload_size = 0;
                 let mut max_payload_align = 1;
 
@@ -598,18 +598,18 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                     }
                 }
 
-                // 1. 整体 Enum 的对齐要求
+                // 1. Compute the enum's overall alignment.
                 let enum_align = tag_align.max(max_payload_align);
 
-                // 如果是纯枚举 (无 payload)，其大小直接就是 Tag 对齐后的大小
+                // Pure enums with no payload occupy only the aligned tag.
                 if max_payload_size == 0 {
                     return Self::align_to(tag_size, enum_align);
                 }
 
-                // 2. 计算 Payload Union 的内存偏移起点 (受 Union 自身对齐要求约束)
+                // 2. Compute the payload start offset under union alignment rules.
                 let payload_offset = Self::align_to(tag_size, max_payload_align);
 
-                // 3. 计算总大小并应用尾部填充 (Tail Padding)
+                // 3. Compute the final size and apply tail padding.
                 let total_size = payload_offset + max_payload_size;
                 Self::align_to(total_size, enum_align)
             }

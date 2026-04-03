@@ -4,8 +4,8 @@ use kernc_utils::{FileId, Span};
 pub struct Tokenizer<'a> {
     source: &'a [u8],
     file_id: FileId,
-    start: usize,   // 当前 Token 的起始位置
-    current: usize, // 扫描探针的当前位置
+    start: usize,   // Start byte offset of the current token.
+    current: usize, // Current scan cursor.
 }
 
 impl<'a> Tokenizer<'a> {
@@ -29,7 +29,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    /// 获取下一个 Token
+    /// Produce the next token from the input stream.
     pub fn next_token(&mut self) -> Token {
         if let Some(err_token) = self.skip_whitespace_and_comments() {
             return err_token;
@@ -44,9 +44,9 @@ impl<'a> Tokenizer<'a> {
 
         match c {
             b'a'..=b'z' | b'A'..=b'Z' | b'_' => {
-                // 嗅探是否是字节字符前缀: b'
+                // Detect the byte-character prefix `b'`.
                 if c == b'b' && self.peek() == b'\'' {
-                    self.advance(); // 吃掉单引号 '\''
+                    self.advance(); // Consume the quote after `b`.
                     return self.scan_char(TokenType::ByteCharLiteral);
                 }
                 self.scan_identifier()
@@ -81,10 +81,10 @@ impl<'a> Tokenizer<'a> {
                     } else if self.match_char(b'=') {
                         self.make_token(TokenType::DotDotEqual)
                     } else if self.match_char(b'&') {
-                        // 解析为 ..& (可变取地址)
+                        // Parse `..&` as mutable address-of.
                         self.make_token(TokenType::DotDotAmpersand)
                     } else if self.match_char(b'[') {
-                        // 解析为 ..[ (可变切片)
+                        // Parse `..[` as mutable slicing.
                         self.make_token(TokenType::DotDotLBracket)
                     } else {
                         self.make_token(TokenType::DotDot)
@@ -165,7 +165,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    // === 核心扫描逻辑 ===
+    // === Core scanning logic ===
 
     fn scan_identifier(&mut self) -> Token {
         while is_alpha_numeric(self.peek()) {
@@ -173,69 +173,65 @@ impl<'a> Tokenizer<'a> {
         }
 
         let text = &self.source[self.start..self.current];
-        // 查表
+        // Resolve identifiers against the keyword table.
         let tag = resolve_keyword(text);
         self.make_token(tag)
     }
 
     fn scan_number(&mut self) -> Token {
-        // 1. 处理进制前缀 (0x, 0b, 0o)
-        // source[start] 一定是数字，因为进入此函数前已经判断过
+        // 1. Handle radix prefixes such as `0x`, `0b`, and `0o`.
         if self.source[self.start] == b'0' {
             let next_char = self.peek();
             match next_char {
                 b'x' | b'X' => {
-                    self.advance(); // 吃掉 'x'
+                    self.advance(); // Consume `x`.
                     self.consume_digits(16);
                     return self.make_token(TokenType::IntLiteral);
                 }
                 b'b' | b'B' => {
-                    self.advance(); // 吃掉 'b'
+                    self.advance(); // Consume `b`.
                     self.consume_digits(2);
                     return self.make_token(TokenType::IntLiteral);
                 }
                 b'o' | b'O' => {
-                    self.advance(); // 吃掉 'o'
+                    self.advance(); // Consume `o`.
                     self.consume_digits(8);
                     return self.make_token(TokenType::IntLiteral);
                 }
                 _ => {
-                    // 只是一个普通的 0，或者 0.xxxx，或者 0123
-                    // 继续往下走，进入十进制逻辑
+                    // Fall through for plain `0`, decimals like `0.1`, or legacy `0123`.
                 }
             }
         }
 
-        // 2. 扫描整数部分 (十进制)
+        // 2. Scan the decimal integer part.
         self.consume_digits(10);
 
-        // 3. 处理小数部分 (Float)
-        // 如果是 '.'，必须确认 '.' 后面紧跟着数字，才算是浮点数。
-        // 否则可能是 1.method() 或者是 1..10 (Range)
+        // 3. Parse the fractional part only when `.` is followed by a digit.
         if self.peek() == b'.' && is_digit(self.peek_next()) {
-            self.advance(); // 吃掉 '.'
-            self.consume_digits(10); // 扫描小数部分
+            self.advance(); // Consume `.`.
+            self.consume_digits(10); // Scan the fractional digits.
 
-            // 扫描完小数后，还可以继续跟指数部分，如 1.2e10
+            // Floats may still carry an exponent suffix such as `1.2e10`.
             self.try_scan_exponent();
             return self.make_token(TokenType::FloatLiteral);
         }
 
-        // 4. 处理没有小数点的指数部分 (如 1e10)
+        // 4. Parse exponent-only floats such as `1e10`.
         if self.try_scan_exponent() {
             return self.make_token(TokenType::FloatLiteral);
         }
 
-        // 既没有小数点，也没有指数，就是普通的整数
+        // Otherwise this is a plain integer literal.
         self.make_token(TokenType::IntLiteral)
     }
 
     fn try_scan_exponent(&mut self) -> bool {
         let c = self.peek();
         if c == b'e' || c == b'E' {
-            self.advance(); // 吃掉 'e'
+            self.advance(); // Consume `e`.
 
-            // 指数部分可以有正负号
+            // Exponents may carry an explicit sign.
             let next_c = self.peek();
             if next_c == b'+' || next_c == b'-' {
                 self.advance();
@@ -276,18 +272,18 @@ impl<'a> Tokenizer<'a> {
 
         loop {
             if self.is_eof() {
-                // 遇到真实的 EOF，说明字符串未闭合
+                // EOF before the closing quote means the string is unterminated.
                 return self.emit_lex_error("Unterminated string literal");
             }
 
             let char = self.peek();
             match char {
                 b'"' => {
-                    self.advance(); // 吞掉右引号
+                    self.advance(); // Consume the closing quote.
                     break;
                 }
                 b'\\' => {
-                    self.advance(); // 跳过转义符
+                    self.advance(); // Consume the backslash.
                     if self.is_eof() {
                         return self
                             .emit_lex_error("Unterminated string literal at escape sequence");
@@ -295,11 +291,11 @@ impl<'a> Tokenizer<'a> {
 
                     let escaped = self.peek();
                     match escaped {
-                        // 合法的单字符转义
+                        // Simple one-character escape.
                         b'n' | b'r' | b't' | b'\\' | b'\'' | b'\"' | b'0' => {
                             self.advance();
                         }
-                        // 十六进制转义 \xNN
+                        // Hex escape `\xNN`.
                         b'x' => {
                             self.advance();
                             if !self.consume_hex_digits(2) {
@@ -309,7 +305,7 @@ impl<'a> Tokenizer<'a> {
                                 );
                             }
                         }
-                        // Unicode 转义 \u{...}
+                        // Unicode escape `\u{...}`.
                         b'u' => {
                             self.advance();
                             if self.peek() != b'{' {
@@ -319,7 +315,7 @@ impl<'a> Tokenizer<'a> {
                                 );
                                 continue;
                             }
-                            self.advance(); // 吃掉 '{'
+                            self.advance(); // Consume `{`.
 
                             let mut length = 0;
                             while is_hex_digit(self.peek()) {
@@ -338,14 +334,14 @@ impl<'a> Tokenizer<'a> {
                                 has_error = true;
                                 self.emit_lex_error("Invalid Unicode escape: expected '}'");
                             } else {
-                                self.advance(); // 吃掉 '}'
+                                self.advance(); // Consume `}`.
                             }
                         }
-                        // 未知的转义字符
+                        // Unknown escape sequence.
                         _ => {
                             has_error = true;
                             self.emit_lex_error("Unknown escape sequence in string literal");
-                            self.advance(); // 跳过未知的转义字符，继续解析
+                            self.advance(); // Skip the invalid escape and continue scanning.
                         }
                     }
                 }
@@ -356,8 +352,7 @@ impl<'a> Tokenizer<'a> {
         }
 
         if has_error {
-            // 虽然有错误，但已经报过错了，且游标已经推进到了正确的引号后。
-            // 返回 Illegal 可以阻止后续的 AST 生成。
+            // Preserve the consumed span but prevent later stages from using it as a value.
             Token {
                 tag: TokenType::Illegal,
                 span: Span {
@@ -400,13 +395,13 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn scan_char(&mut self, tag: TokenType) -> Token {
-        // 刚吃掉了左边的单引号 '，现在处于字符内容的第一个字节
+        // The opening quote has already been consumed.
         let c = self.peek();
         let mut has_error = false;
 
-        // 1. 处理转义字符 (以 \ 开头)
+        // 1. Handle escape sequences.
         if c == b'\\' {
-            self.advance(); // 吃掉反斜杠 '\'
+            self.advance(); // Consume `\`.
 
             if self.is_eof() {
                 return self.emit_lex_error("Unterminated character literal");
@@ -414,26 +409,26 @@ impl<'a> Tokenizer<'a> {
 
             let escaped = self.peek();
             match escaped {
-                // 简单单字符转义
+                // Simple one-character escape.
                 b'n' | b'r' | b't' | b'\\' | b'\'' | b'\"' | b'0' => {
                     self.advance();
                 }
-                // 十六进制转义: \xNN
+                // Hex escape: `\xNN`.
                 b'x' => {
-                    self.advance(); // 吃掉 'x'
+                    self.advance(); // Consume `x`.
                     if !self.consume_hex_digits(2) {
                         has_error = true;
                         self.emit_lex_error("Invalid hex escape in char: expected 2 hex digits");
                     }
                 }
-                // Unicode 转义: \u{...}
+                // Unicode escape: `\u{...}`.
                 b'u' => {
-                    self.advance(); // 吃掉 'u'
+                    self.advance(); // Consume `u`.
                     if self.peek() != b'{' {
                         has_error = true;
                         self.emit_lex_error("Invalid Unicode escape: expected '{'");
                     } else {
-                        self.advance(); // 吃掉 '{'
+                        self.advance(); // Consume `{`.
 
                         let mut length = 0;
                         while is_hex_digit(self.peek()) {
@@ -452,7 +447,7 @@ impl<'a> Tokenizer<'a> {
                             has_error = true;
                             self.emit_lex_error("Invalid Unicode escape: expected '}'");
                         } else {
-                            self.advance(); // 吃掉 '}'
+                            self.advance(); // Consume `}`.
                         }
                     }
                 }
@@ -463,20 +458,20 @@ impl<'a> Tokenizer<'a> {
                 }
             }
         }
-        // 2. 处理普通字符 (包括 UTF-8 多字节字符)
+        // 2. Handle a normal codepoint, including multibyte UTF-8.
         else if c != b'\'' && c != 0 {
             let len = utf8_byte_sequence_length(c);
             if len == 0 {
                 has_error = true;
                 self.emit_lex_error("Invalid UTF-8 sequence in character literal");
-                self.advance(); // 象征性前进，防止死循环
+                self.advance(); // Make forward progress to avoid an infinite loop.
             } else {
                 for _ in 0..len {
                     self.advance();
                 }
             }
         }
-        // 3. 空字符 '' 或者直接遇到 EOF
+        // 3. Reject empty character literals and unexpected EOF.
         else {
             has_error = true;
             if c == b'\'' {
@@ -486,10 +481,10 @@ impl<'a> Tokenizer<'a> {
             }
         }
 
-        // 4. 必须以单引号闭合
+        // 4. Character literals must end with a closing quote.
         if self.match_char(b'\'') {
             if has_error {
-                // 已经发过错误了，组装一个带 span 的 Illegal token
+                // Preserve the full span for diagnostics after recovery.
                 Token {
                     tag: TokenType::Illegal,
                     span: Span {
@@ -502,8 +497,7 @@ impl<'a> Tokenizer<'a> {
                 self.make_token(tag)
             }
         } else {
-            // 如果遇到别的字符，说明这个 char 包含多个字符但没有引号闭合，或者没写引号
-            // 错误恢复：吃掉直到下一个单引号或空格
+            // Recover from multi-codepoint literals by skipping until a likely boundary.
             while !self.is_eof()
                 && self.peek() != b'\''
                 && self.peek() != b' '
@@ -511,7 +505,7 @@ impl<'a> Tokenizer<'a> {
             {
                 self.advance();
             }
-            // 尝试吃掉那个引号
+            // Consume a trailing quote if one is present.
             self.match_char(b'\'');
 
             self.emit_lex_error(
@@ -531,7 +525,7 @@ impl<'a> Tokenizer<'a> {
         true
     }
 
-    // === 辅助工具 ===
+    // === Helpers ===
 
     fn advance(&mut self) -> Option<u8> {
         if self.current >= self.source.len() {
@@ -606,17 +600,17 @@ impl<'a> Tokenizer<'a> {
                 }
                 b'/' => {
                     if self.peek_next() == b'/' {
-                        // 单行注释
+                        // Skip a line comment.
                         while !self.is_eof() && self.peek() != b'\n' {
                             self.advance();
                         }
                     } else if self.peek_next() == b'*' {
-                        let start_pos = self.current; // 记录 /* 的起始位置
-                        self.advance(); // 吃掉 '/'
-                        self.advance(); // 吃掉 '*'
+                        let start_pos = self.current; // Remember the start of `/*`.
+                        self.advance(); // Consume `/`.
+                        self.advance(); // Consume `*`.
 
                         if !self.skip_comment_block() {
-                            // 返回词法错误
+                            // Surface unterminated block comments as lexer errors.
                             return Some(Token {
                                 tag: TokenType::LexError("Unterminated multi-line comment"),
                                 span: Span {
@@ -633,7 +627,7 @@ impl<'a> Tokenizer<'a> {
                 _ => break,
             }
         }
-        None // 正常结束，没有发生错误
+        None // Completed normally with no lexer error.
     }
 
     fn skip_comment_block(&mut self) -> bool {
@@ -670,7 +664,7 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-// === 字符判断辅助函数 ===
+// === Character classification helpers ===
 
 fn is_alpha_numeric(c: u8) -> bool {
     is_alpha(c) || is_digit(c)
@@ -704,7 +698,7 @@ fn is_oct_digit(c: u8) -> bool {
     (b'0'..=b'7').contains(&c)
 }
 
-// 根据 UTF-8 首字节判断字符长度
+// Determine the UTF-8 sequence length from the leading byte.
 fn utf8_byte_sequence_length(c: u8) -> usize {
     if c & 0x80 == 0 {
         1 // 0xxxxxxx
@@ -719,7 +713,7 @@ fn utf8_byte_sequence_length(c: u8) -> usize {
     }
 }
 
-// 关键字映射
+// Keyword lookup table.
 fn resolve_keyword(text: &[u8]) -> TokenType {
     match text {
         b"fn" => TokenType::Fn,

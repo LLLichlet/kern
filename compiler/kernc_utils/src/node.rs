@@ -1,4 +1,4 @@
-/// 节点 ID，用于在 AST 列表中索引
+/// Stable node identifier used to index compiler-side AST tables.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct NodeId(pub u32);
 

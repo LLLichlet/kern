@@ -46,7 +46,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 核心 Match 检查逻辑：环境提取与详尽性检查
+    /// Core match-checking logic, including environment extraction and exhaustiveness.
     pub(crate) fn check_match_expr(
         &mut self,
         target: &Expr,
@@ -64,7 +64,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        // 尝试判断 Target 是否为 ADT (Enum)
+        // Detect whether the matched target is an ADT-backed enum.
         let is_adt = matches!(
             self.ctx.type_registry.get(norm_target),
             TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
@@ -93,7 +93,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // --- 详尽性检查 (Exhaustiveness) ---
+        // --- Exhaustiveness checking ---
         if !has_catch_all {
             if is_adt {
                 let missing: Vec<_> = match self.ctx.type_registry.get(norm_target).clone() {
@@ -124,7 +124,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                 }
             } else {
-                // 对于非 ADT 类型 (整数, 字符串等)，如果不带 catch-all 必须报错
+                // Non-ADT matches require a catch-all arm.
                 self.ctx
                     .struct_error(span, "match expression must be exhaustive")
                     .with_hint("for non-ADT types (like integers or strings), consider adding an `else =>` catch-all branch")
@@ -135,7 +135,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         common_ret_ty.unwrap_or(TypeId::VOID)
     }
 
-    /// 单独抽离的分支检查逻辑
+    /// Check a single match arm in isolation.
     fn check_match_arm(
         &mut self,
         arm: &ast::MatchArm,
@@ -153,7 +153,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     let v_ty = self.check_expr(v, Some(norm_target));
                     self.check_coercion(v, norm_target, v_ty);
 
-                    // 尝试从值匹配中回收 EnumLiteral 以辅助穷尽性检查
+                    // Recover enum-literal information from value patterns for exhaustiveness checks.
                     if is_adt && let ExprKind::EnumLiteral { variant, .. } = &v.kind {
                         handled_variants.insert(*variant);
                     }
@@ -190,8 +190,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let expected_ret = self.current_return_type.unwrap_or(TypeId::VOID);
 
         if let Some(v) = val {
-            // 将当前函数期待的类型 (expected_ret) 传给要 return 的表达式
-            // 如果是 `return .{ Some: 1 }`，这里 expected_ret 就会传进 DataInit 中
+            // Thread the function's expected return type into the returned expression.
             let val_ty = self.check_expr(v, Some(expected_ret));
 
             if let Some(ret_ty) = self.current_return_type {
@@ -230,12 +229,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         TypeId::VOID
     }
 
-    /// 检查一个独立执行的表达式，其返回值是否被非法隐式丢弃
+    /// Check whether a standalone expression illegally discards a non-void value.
     fn check_discarded_expr(&mut self, expr: &Expr) -> TypeId {
         let ty = self.check_expr(expr, None);
         let norm_ty = self.resolve_tv(ty);
 
-        // 如果既不是 void，也不是发散的 never，更不是已经报错的 error，那就是非法丢弃
+        // Only `void`, `never`, or already-invalid expressions may be dropped implicitly.
         if norm_ty != TypeId::VOID && norm_ty != TypeId::NEVER && norm_ty != TypeId::ERROR {
             let ty_str = self.ctx.ty_to_string(ty);
             self.ctx
@@ -296,7 +295,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if let Some(else_expr) = else_branch {
             let else_ty = self.check_expr(else_expr, expected_ty);
 
-            // 如果有一边发散(NEVER)，类型以另一边为准
+            // If one branch diverges, use the other branch's type.
             if then_ty == TypeId::NEVER {
                 return else_ty;
             } else if else_ty == TypeId::NEVER {

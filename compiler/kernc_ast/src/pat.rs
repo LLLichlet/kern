@@ -1,7 +1,7 @@
 use super::{Expr, TypeNode};
 use kernc_utils::{Span, SymbolId};
 
-/// 局部绑定模式，处理类似 `mut a` 或 `a` 的逻辑
+/// Local binding pattern such as `mut a` or `a`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct BindingPattern {
     pub name: SymbolId,

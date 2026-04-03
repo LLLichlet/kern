@@ -29,7 +29,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if exp_ty == TypeId::ERROR {
             self.ctx
                 .emit_ice(expr.span, "Lowering encountered an unresolved ERROR type.");
-            // 立即打印并终止降级，防止带着污染数据进入 LLVM 导致玄学 Panic
+            // Abort lowering immediately so corrupted data never reaches LLVM.
             self.ctx.sess.print_diagnostics();
             std::process::exit(1);
         }
@@ -50,13 +50,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         MastExprKind::FuncRef(mono_id)
                     }
                     TypeKind::Module(_) => {
-                        // 模块 (Module) 属于全局绝对命名空间，不存在闭包逃逸问题，直接放行
+                        // Modules live in the global namespace and never participate in closure capture.
                         self.lower_identifier(*name)
                     }
                     _ => {
                         let kind = self.lower_identifier(*name);
 
-                        // 对于普通变量，继续执行闭包捕获安全检测
+                        // Ordinary variables still need closure-capture safety checks.
                         if let MastExprKind::Var(v) = kind {
                             let mut found = false;
                             for scope in self.local_types.iter().rev() {
@@ -110,7 +110,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             ExprKind::Call { callee, args } => self.lower_call(callee, args, subst_map, expr.span),
             ExprKind::FieldAccess { lhs, field, .. } => {
-                // 必须使用代换后的 concrete_ty，避免在泛型函数体里提前以 Param 实参实例化 FnDef。
+                // Use the substituted concrete type to avoid instantiating `FnDef` with raw generic params.
                 let norm_ty = self.ctx.type_registry.normalize(concrete_ty);
 
                 if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(norm_ty).clone()
@@ -119,7 +119,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     return MastExpr::new(exp_ty, MastExprKind::FuncRef(mono_id), expr.span);
                 }
 
-                // 老老实实走普通的结构体/联合体字段访问
+                // Fall back to normal struct or union field access lowering.
                 self.lower_field_access(lhs, *field, subst_map, expr.span)
             }
             ExprKind::IndexAccess { lhs, index, .. } => {

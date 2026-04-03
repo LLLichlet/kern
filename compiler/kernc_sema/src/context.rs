@@ -21,25 +21,24 @@ pub struct SemaStructureSnapshot {
 }
 
 pub struct SemaContext<'a> {
-    // 1. 底层设施：持有全局 Session 的可变借用
-    // 通过它报错、分配新 ID、查询字符串
+    // 1. Shared compiler services.
     pub sess: &'a mut Session,
 
-    // 2. 类型系统核心
+    // 2. Type-system state.
     pub type_registry: TypeRegistry,
-    // 记录每个 AST 节点推导出的最终类型
+    // Final inferred type for each AST node.
     pub node_types: HashMap<NodeId, TypeId>,
     pub atomic_orderings: HashMap<NodeId, AtomicOrdering>,
     pub trait_method_owners: HashMap<NodeId, TypeId>,
-    // 用于临时存储当前作用域下泛型参数的 Trait 约束 (Bounds)
+    // Active trait bounds introduced by the current generic scope.
     pub active_bounds: Vec<(TypeId, Vec<TypeId>)>,
 
-    // 3. 符号与作用域系统
+    // 3. Symbol and scope state.
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
     pub global_impls: Vec<DefId>,
 
-    // 4. 模块与包管理
+    // 4. Module and package resolution state.
     pub module_aliases: HashMap<String, String>,
     pub module_interface_aliases: HashMap<String, String>,
     pub alias_roots: HashMap<SymbolId, DefId>,
@@ -49,7 +48,7 @@ pub struct SemaContext<'a> {
 }
 
 impl<'a> SemaContext<'a> {
-    /// 初始化 SemaContext 需要传入已经存在的 Session
+    /// Build semantic-analysis state around an existing session.
     pub fn new(sess: &'a mut Session) -> Self {
         Self {
             sess,
@@ -71,7 +70,7 @@ impl<'a> SemaContext<'a> {
     }
 
     // ==========================================
-    // 核心操作
+    // Core operations
     // ==========================================
 
     pub fn add_def(&mut self, def: Def) -> DefId {
@@ -113,17 +112,17 @@ impl<'a> SemaContext<'a> {
         self.semantic_definitions.clear();
     }
 
-    /// 将所有通过 -M 传入的模块别名（如 std）注入到全局的根作用域中。
-    /// 这样可以直接在任何地方使用 `std.io`，而无需 `use std;`
+    /// Inject CLI-provided module aliases such as `std` into the root scope.
+    /// This lets code refer to `std.io` directly without an explicit `use std;`.
     pub fn inject_alias_roots(&mut self) {
-        // 获取当前的 Scope (为了注入后能恢复)
+        // Save and restore the current scope around the root-scope injection.
         let prev_scope = self.scopes.current_scope_id();
 
-        // SymbolTable 初始化时创建的第一个 ScopeId(0) 就是全局 Builtin 作用域
+        // Scope 0 is the global builtin scope created by the symbol table.
         let global_scope = ScopeId(0);
         self.scopes.set_current_scope(global_scope);
 
-        // 克隆一份 alias_roots 的键值对，避免和 scopes 产生借用冲突
+        // Clone aliases up front to avoid borrow conflicts with `scopes`.
         let aliases: Vec<(SymbolId, DefId)> = self
             .alias_roots
             .iter()
@@ -142,18 +141,18 @@ impl<'a> SemaContext<'a> {
                 is_mut: false,
             };
 
-            // 忽略重复定义的错误（如果有同名的全局变量，在后续的 Collect 阶段会报出冲突）
+            // Ignore duplicates here; later collection reports real conflicts.
             let _ = self.scopes.define(name, info);
         }
 
-        // 恢复之前的上下文
+        // Restore the caller's scope.
         if let Some(prev) = prev_scope {
             self.scopes.set_current_scope(prev);
         }
     }
 
     // ==========================================
-    // 代理便捷方法
+    // Convenience forwarders
     // ==========================================
 
     pub fn report(&mut self, span: Span, level: DiagnosticLevel, msg: String) {
@@ -230,7 +229,7 @@ impl<'a> SemaContext<'a> {
         self.semantic_definitions.values()
     }
 
-    /// 为类型生成确定性且唯一的修饰后缀
+    /// Generate a deterministic mangling suffix for a semantic type.
     pub fn mangle_type(&self, ty: TypeId) -> String {
         let norm_ty = self.type_registry.normalize(ty);
         match self.type_registry.get(norm_ty).clone() {
@@ -345,7 +344,7 @@ impl<'a> SemaContext<'a> {
                 format!("ClosureState{}", closure_node_id.0)
             }
             crate::ty::TypeKind::AnonymousStruct(is_extern, fields) => {
-                // 格式：AStr + (字段名长度+字段名) + (字段类型长度+字段类型) + E
+                // Encoding: `AStr` + (field name len + name) + (type len + type) + `E`.
                 let mut s = if is_extern {
                     String::from("EStr")
                 } else {
@@ -406,7 +405,7 @@ impl<'a> SemaContext<'a> {
         }
     }
 
-    /// 获取实体的最终全局链接符号名
+    /// Compute the final exported linker symbol for a definition instance.
     pub fn get_export_name(&self, def_id: DefId, args: &[TypeId]) -> String {
         let def = &self.defs[def_id.0 as usize];
         let name_str = def
@@ -414,7 +413,7 @@ impl<'a> SemaContext<'a> {
             .map(|name_sym| self.resolve(name_sym).to_string())
             .unwrap_or_else(|| format!("AnonDef{}", def_id.0));
 
-        let empty_attrs: &[kernc_ast::Attribute] = &[]; // 静态空切片
+        let empty_attrs: &[kernc_ast::Attribute] = &[]; // Reusable empty attribute slice.
         let (is_extern, attrs, parent_id) = match def {
             Def::Function(f) => (f.is_extern, f.attributes.as_slice(), f.parent),
             Def::Global(g) => (g.is_extern, g.attributes.as_slice(), None),
@@ -424,7 +423,7 @@ impl<'a> SemaContext<'a> {
             _ => return name_str,
         };
 
-        // 1. export_name 属性覆盖 (仅限无泛型)
+        // 1. `export_name` overrides the default symbol for monomorphic items.
         if args.is_empty() {
             for attr in attrs {
                 if let kernc_ast::AttributeKind::Meta(items) = &attr.kind {
@@ -440,12 +439,12 @@ impl<'a> SemaContext<'a> {
             }
         }
 
-        // 2. extern 函数保持原样
+        // 2. Plain extern items keep their source name.
         if is_extern && args.is_empty() {
             return name_str;
         }
 
-        // 3. 构建 Itanium 风格路径
+        // 3. Build an Itanium-like path prefix.
         let mut mangled = String::from("_K");
         let mut path_components = Vec::new();
 
@@ -473,7 +472,7 @@ impl<'a> SemaContext<'a> {
             mangled.push_str(&format!("{}{}", comp.len(), comp));
         }
 
-        // 4. 压入本体名字与泛型参数
+        // 4. Append the item name and instantiated generic arguments.
         mangled.push_str(&format!("{}{}", name_str.len(), name_str));
 
         if !args.is_empty() {

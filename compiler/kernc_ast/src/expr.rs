@@ -12,7 +12,7 @@ pub struct Expr {
 }
 
 impl Expr {
-    /// 判断该表达式在视觉上是否自带块级闭合边界 (即以 `}` 结尾)
+    /// Returns true when the expression already ends with a block-like visual boundary.
     pub fn is_block_like(&self) -> bool {
         matches!(
             self.kind,
@@ -26,7 +26,7 @@ impl Expr {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ExprKind {
-    /// `let mut x = v` 或 `let x = v`
+    /// `let mut x = v` or `let x = v`
     Let {
         pattern: LetPattern,
         init: Box<Expr>,
@@ -75,16 +75,15 @@ pub enum ExprKind {
         args: Vec<Expr>,
     },
     // --- Constructors ---
-    /// 统一的数据字面量初始化，支持 Type.{ ... } 和 .{ ... }
+    /// Unified data-initialization syntax supporting both `Type.{ ... }` and `.{ ... }`.
     DataInit {
-        /// 如果是 `.{ ... }`，此字段为 None；
-        /// 如果是 `Point.{ ... }`，此字段就是 `Point` 对应的 TypeNode。
+        /// `None` for `.{ ... }`, or the explicit type prefix for `Point.{ ... }`.
         type_node: Option<Box<TypeNode>>,
-        /// 具体的数据负载
+        /// The literal payload to initialize.
         literal: DataLiteralKind,
     },
 
-    /// 枚举/上下文简写: .Red, .Ok
+    /// Contextual enum shorthand such as `.Red` or `.Ok`.
     EnumLiteral {
         variant: SymbolId,
         variant_span: Span,
@@ -101,7 +100,7 @@ pub enum ExprKind {
         arms: Vec<MatchArm>,
     },
 
-    /// 块表达式: `{ stmt; stmt; expr }`
+    /// Block expression: `{ stmt; stmt; expr }`
     Block {
         stmts: Vec<Stmt>,
         result: Option<Box<Expr>>,
@@ -115,7 +114,7 @@ pub enum ExprKind {
         body: Box<Expr>,
     },
 
-    /// 切片构造: arr.[start..end]
+    /// Slice construction: `arr.[start..end]`
     SliceOp {
         lhs: Box<Expr>,
         start: Option<Box<Expr>>,
@@ -124,7 +123,7 @@ pub enum ExprKind {
         is_mut: bool,
     },
 
-    /// 延迟执行: defer expr
+    /// Deferred execution: `defer expr`
     Defer {
         expr: Box<Expr>,
     },
@@ -133,7 +132,7 @@ pub enum ExprKind {
     Continue,
     Return(Option<Box<Expr>>),
 
-    // 赋值表达式
+    /// Assignment expression.
     Assign {
         lhs: Box<Expr>,
         op: AssignmentOperator,
@@ -149,37 +148,38 @@ pub enum ExprKind {
     Undef,
     Infer,
 
-    /// 泛型实例化: target[T, U]
+    /// Generic instantiation: `target[T, U]`
     GenericInstantiation {
         target: Box<Expr>,
         types: Vec<TypeNode>,
     },
 
-    /// 代表 `self`
+    /// The `self` value inside methods.
     SelfValue,
 
-    /// 闭包表达式
-    /// 语法: `[a, ptr = b..&](x: i32) bool { return x > a; }`
+    /// Closure expression.
+    /// Example: `[a, ptr = b..&](x: i32) bool { return x > a; }`
     Closure {
         captures: Vec<CapturePattern>,
         params: Vec<FuncParam>,
         ret_type: Box<TypeNode>,
-        body: Box<Expr>, // 必定是一个 Block 表达式
+        /// Always a block expression.
+        body: Box<Expr>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum DataLiteralKind {
-    /// 结构体模式: `.{ x: 1, y: 2 }`
+    /// Struct-style payload: `.{ x: 1, y: 2 }`
     Struct(Vec<StructFieldInit>),
 
-    /// 数组列表模式: `.{ 1, 2, 3 }`
+    /// Array element list: `.{ 1, 2, 3 }`
     Array(Vec<Expr>),
 
-    /// 数组重复模式: `.{ 0; 1024 }`
+    /// Array repeat literal: `.{ 0; 1024 }`
     Repeat { value: Box<Expr>, count: Box<Expr> },
 
-    /// 标量/单值构造模式: `.{ 10 }`
+    /// Scalar payload: `.{ 10 }`
     Scalar(Box<Expr>),
 }
 
@@ -193,17 +193,17 @@ pub struct StructFieldInit {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CapturePattern {
-    /// 闭包内部绑定的局部名字
+    /// Local binding name visible inside the closure body.
     pub name: SymbolId,
     pub name_span: Span,
-    /// 捕获目标的值表达式 (例如 `counter..&` 或省略简写时的自身变量引用)
+    /// Value expression to capture, such as `counter..&` or an implicit self-reference.
     pub value: Expr,
     pub span: Span,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
-    /// 一个 Arm 可以有多个 Pattern，比如: 11, 12, 13 =>
+    /// One arm may contain multiple patterns, for example `11, 12, 13 =>`.
     pub patterns: Vec<MatchPattern>,
     pub body: Expr,
     pub span: Span,

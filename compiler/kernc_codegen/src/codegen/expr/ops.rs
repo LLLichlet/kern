@@ -43,7 +43,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    // 辅助方法判断是否为有符号整数
+    // Helper for determining whether an integer type is signed.
     pub(crate) fn is_signed_int(&self, ty: TypeId) -> bool {
         let norm = self.type_registry.normalize(ty);
         if let TypeKind::Primitive(p) = self.type_registry.get(norm) {
@@ -61,7 +61,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 二元运算主路由
+    /// Main dispatch for binary operators.
     pub(crate) fn compile_binary(
         &mut self,
         op: ast::BinaryOperator,
@@ -94,7 +94,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 辅助方法：指针算术
+    /// Helper: lower pointer arithmetic and pointer comparisons.
     fn compile_ptr_math(
         &mut self,
         op: ast::BinaryOperator,
@@ -186,9 +186,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
 
-            // 处理 ptr == 0 或 ptr1 > ptr2
+            // Handle cases such as `ptr == 0` or `ptr1 > ptr2`.
             Equal | NotEqual | LessThan | LessOrEqual | GreaterThan | GreaterOrEqual => {
-                // 将左右操作数统一转换为 i64 (usize) 来进行纯数字的内存地址比较
+                // Compare memory addresses numerically by converting both operands to `usize`.
                 let l_int = if l_val.is_pointer_value() {
                     self.builder
                         .build_ptr_to_int(
@@ -213,7 +213,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     r_val.into_int_value()
                 };
 
-                // 指针比较一律按无符号整数 (Unsigned) 处理
+                // Pointer comparisons are always unsigned.
                 let Some(pred) = Self::pointer_compare_pred(op) else {
                     self.sess.emit_ice(
                         span,
@@ -244,7 +244,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 辅助方法：整数算术
+    /// Helper: lower integer arithmetic and comparisons.
     fn compile_int_math(
         &mut self,
         op: ast::BinaryOperator,
@@ -373,7 +373,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 辅助方法：浮点数算术
+    /// Helper: lower floating-point arithmetic and comparisons.
     fn compile_float_math(
         &mut self,
         op: ast::BinaryOperator,
@@ -454,7 +454,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         operand: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
         let op_val = self.compile_expr(operand);
-        let span = operand.span; // ✨ 提取源码位置用于报错
+        let span = operand.span; // Preserve source location for diagnostics.
 
         match op {
             ast::UnaryOperator::Negate => {
@@ -494,7 +494,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 }
             }
             ast::UnaryOperator::MetaOf => {
-                // MAST 保证了此时的类型已经是纯物理类型
+                // By this stage MAST guarantees the operand type is already a physical type.
                 let norm_ty = self.type_registry.normalize(operand.ty);
                 match self.type_registry.get(norm_ty) {
                     TypeKind::Array { len, .. } => {

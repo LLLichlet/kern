@@ -28,10 +28,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 核心入口：检查表达式类型
+    /// Main entry point for expression type checking.
     pub(crate) fn check_expr(&mut self, expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
         let ty = match &expr.kind {
-            // === 1. 基础字面量 ===
+            // === 1. Primitive literals ===
             ExprKind::Integer(_) => self.check_integer(expr, expected_ty),
             ExprKind::Float(_) => self.check_float(expr, expected_ty),
             ExprKind::Bool(_) => TypeId::BOOL,
@@ -42,11 +42,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 elem: TypeId::U8,
             }),
 
-            // === 2. 标识符与变量 ===
+            // === 2. Identifiers and variables ===
             ExprKind::Identifier(name) => self.check_identifier(*name, expr.span),
             ExprKind::SelfValue => self.check_self_value(expr.span),
 
-            // === 3. 声明与绑定 ===
+            // === 3. Declarations and bindings ===
             ExprKind::Let {
                 pattern,
                 init,
@@ -63,20 +63,20 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.check_static(expr.id, pattern, init, expected_ty, expr.span)
             }
 
-            // === 4. 运算与赋值 ===
+            // === 4. Operators and assignment ===
             ExprKind::Binary { lhs, op, rhs } => self.check_binary(lhs, *op, rhs, expected_ty),
             ExprKind::Unary { op, operand } => {
                 self.check_unary(*op, operand, expr.span, expected_ty)
             }
             ExprKind::Assign { lhs, rhs, .. } => self.check_assign(lhs, rhs),
 
-            // === 5. 转换 ===
+            // === 5. Casts and coercions ===
             ExprKind::As { lhs, target } => {
                 let actual_target_ty = self.evaluate_dynamic_typeof(target);
                 self.check_as_expr(lhs, actual_target_ty)
             }
 
-            // === 6. 内存访问 ===
+            // === 6. Memory access ===
             ExprKind::IndexAccess { lhs, index, is_mut } => {
                 self.check_index_access(lhs, index, *is_mut, expr.span)
             }
@@ -100,7 +100,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 expr.span,
             ),
 
-            // === 7. 函数/宏调用 ===
+            // === 7. Calls and macros ===
             ExprKind::Call { callee, args } => self.check_call(callee, args, expr.span),
             ExprKind::GenericInstantiation { target, types } => {
                 for ty_node in types {
@@ -115,7 +115,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 body,
             } => self.check_closure(expr.id, captures, params, ret_type, body, expr.span),
 
-            // === 8. 复杂字面量 ===
+            // === 8. Aggregate literals ===
             ExprKind::DataInit { type_node, literal } => {
                 if let Some(t_node) = type_node {
                     self.evaluate_dynamic_typeof(t_node);
@@ -128,7 +128,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             } => self.check_enum_literal(*variant, *variant_span, expected_ty, expr.span),
             ExprKind::Undef => self.check_undef(expected_ty, expr.span),
 
-            // === 9. 控制流 ===
+            // === 9. Control flow ===
             ExprKind::Block { stmts, result } => {
                 self.check_block(stmts, result.as_deref(), expected_ty)
             }
@@ -165,7 +165,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         ty
     }
 
-    /// 递归深度扫描 AST 类型节点，推导所有 @typeOf，并自下而上重组真实类型
+    /// Recursively scan AST type nodes, resolve every `@typeOf`, and rebuild the final type bottom-up.
     pub(crate) fn evaluate_dynamic_typeof(&mut self, ty_node: &kernc_ast::TypeNode) -> TypeId {
         let ty_id = match &ty_node.kind {
             ast::TypeKind::TypeOf(inner_expr) => self.check_expr(inner_expr, None),
@@ -240,8 +240,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     ret: ret_ty,
                 })
             }
-            // 普通的静态类型（如 Path, SelfType 等）内部不可能包含 @typeOf
-            // 直接借用 TypeResolver 的能力即可
+            // Plain static types such as `Path` or `SelfType` cannot contain nested `@typeOf`.
+            // Delegate them directly to the type resolver.
             _ => {
                 let mut resolver = TypeResolver::new(self.ctx);
                 let scope = resolver.current_scope_id().unwrap();
@@ -249,7 +249,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        // 强行覆盖缓存
+        // Overwrite the cached node type with the freshly resolved result.
         self.ctx.node_types.insert(ty_node.id, ty_id);
         ty_id
     }

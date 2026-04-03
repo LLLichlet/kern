@@ -344,7 +344,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let llvm_ty = self.get_llvm_type(g.ty);
             let global_val = self.module.add_global(llvm_ty, None, &llvm_symbol_name);
 
-            // 只有当 "绑定本身不可变" 且 "物理类型也没有要求可变内存" 时，才能作为 LLVM 物理常量
+            // A global is physically constant only when both the binding and its storage semantics are immutable.
             let is_binding_mut = g.is_mut;
             let is_memory_mut = self.requires_mutable_memory(g.ty);
             global_val.set_constant(!(is_binding_mut || is_memory_mut));
@@ -462,13 +462,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    /// 探测一个类型是否在物理内存上要求可写 (内部可变性)
+    /// Detect whether a type requires writable physical storage.
     fn requires_mutable_memory(&self, ty: TypeId) -> bool {
         let norm_ty = self.type_registry.normalize(ty);
         match self.type_registry.get(norm_ty).clone() {
-            // 如果是数组，且明确标记了 is_mut，物理内存必须可写
+            // Mutable arrays require writable storage.
             TypeKind::Array { is_mut, .. } => is_mut,
-            // 如果是切片或指针本身作为全局变量被直接分配内存，且携带 mut，物理上也放行
+            // Mutable slices and pointers also require writable storage when materialized globally.
             TypeKind::Slice { is_mut, .. } => is_mut,
             TypeKind::Pointer { is_mut, .. } | TypeKind::VolatilePtr { is_mut, .. } => is_mut,
             _ => false,

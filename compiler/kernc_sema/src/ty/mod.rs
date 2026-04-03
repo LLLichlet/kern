@@ -10,12 +10,12 @@ use crate::def::DefId;
 use kernc_utils::{NodeId, Span, SymbolId};
 use std::hash::{Hash, Hasher};
 
-/// 类型的唯一 ID (轻量级 Handle)
+/// Compact handle for an interned semantic type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct TypeId(pub u32);
 
 impl TypeId {
-    // 预留前 20 个 ID 给基础类型，方便快速访问
+    // Reserve the lowest IDs for builtin primitive types.
     pub const VOID: Self = Self(0);
     pub const BOOL: Self = Self(1);
     pub const I8: Self = Self(2);
@@ -32,74 +32,71 @@ impl TypeId {
     pub const F64: Self = Self(13);
     pub const ISIZE: Self = Self(14);
     pub const USIZE: Self = Self(15);
-    // 字符串字面量类型 (只读切片)
+    // String literal type, represented as an immutable slice.
     pub const STR: Self = Self(16);
     pub const NEVER: Self = Self(17);
-    // 错误占位符 (防止级联报错)
+    // Error placeholder used to suppress cascaded diagnostics.
     pub const ERROR: Self = Self(18);
 }
 
-/// 类型的具体结构
-/// 注意：这里不包含 field/variant 的具体信息，只包含“形状”。
-/// 具体定义存储在 Context 的 Decl 表中。
+/// Canonical semantic type representation.
+/// Rich field and variant data lives in the definition tables; this enum stores shape and identity.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum TypeKind {
-    /// 基础类型 (i32, bool, void...)
+    /// Primitive builtin type such as `i32`, `bool`, or `void`.
     Primitive(PrimitiveType),
 
-    /// 普通指针: *T 或 *mut T
+    /// Raw pointer, `*T` or `*mut T`.
     Pointer {
         is_mut: bool,
         elem: TypeId,
     },
 
-    /// 易失指针: ^T 或 ^mut T
+    /// Volatile pointer, `^T` or `^mut T`.
     VolatilePtr {
         is_mut: bool,
         elem: TypeId,
     },
 
-    /// 数组: [N]T 或 [N]mut T
+    /// Fixed-size array, `[N]T` or `[N]mut T`.
     Array {
         is_mut: bool,
         elem: TypeId,
         len: u64,
     },
 
-    /// 长度待推导的数组 `[_]T` 或 `[_]mut T`
+    /// Array whose length is inferred later, `[_]T`.
     ArrayInfer {
         is_mut: bool,
         elem: TypeId,
     },
 
-    /// 切片: []T 或 []mut T
+    /// Slice type, `[]T` or `[]mut T`.
     Slice {
         is_mut: bool,
         elem: TypeId,
     },
 
-    /// 引用具体的定义 (Struct/Union)
-    /// 这里只存 ID。具体字段信息去 Context 里查。
-    /// 这样设计是为了处理递归类型 (e.g., struct Node { next: *Node })
+    /// Reference to a named struct or union definition.
+    /// Only the `DefId` is stored here so recursive types remain representable.
     Def(DefId, Vec<TypeId>),
 
-    /// 代数数据类型 (Enum，融合 Enum 和 ADT)
+    /// Algebraic data type backed by an enum definition.
     Enum(DefId, Vec<TypeId>),
 
-    /// 专门用于表示 Enum 在底层的物理 Union 负载 (Tag 之后的部分)
+    /// Physical payload union used by a lowered enum representation.
     EnumPayload(DefId, Vec<TypeId>),
 
-    /// 特征对象 (Trait Object)
-    /// 内存布局：胖指针 { data_ptr: *mut void, vtable: *mut VTable }
+    /// Trait object fat pointer `{ data_ptr, vtable }`.
     TraitObject(DefId, Vec<TypeId>),
 
-    /// 闭包动态胖指针接口: Fn(Args) Ret
+    /// Closure call interface, `Fn(Args) Ret`.
     ClosureInterface {
         params: Vec<TypeId>,
         ret: TypeId,
     },
 
-    /// 闭包内部捕获状态的物理结构
+    /// Physical state structure that stores captured closure values.
     AnonymousState {
         closure_node_id: NodeId,
         captures: Vec<TypeId>,
@@ -107,12 +104,10 @@ pub enum TypeKind {
         ret: TypeId,
     },
 
-    /// 类型别名: type A = B;
-    /// 记录了 "A" 这个名字，以及它指向的 "B"
+    /// Named type alias `type A = B`.
     Alias(SymbolId, TypeId),
 
-    /// 泛型参数占位符 (impl[T] 中的 T)
-    /// 在单态化之前，它只是一个名字。
+    /// Generic parameter placeholder such as `T` in `impl[T]`.
     Param(SymbolId),
 
     Function {
@@ -121,30 +116,29 @@ pub enum TypeKind {
         is_variadic: bool,
     },
 
-    /// 具体的函数定义项 (Function Item)
-    /// 带有其 DefId 和已绑定的泛型实参。例如 `ArrayList.new[i32]`
+    /// Function item paired with its bound generic arguments.
     FnDef(DefId, Vec<TypeId>),
 
-    /// 未知/错误类型
+    /// Unknown or invalid type.
     Error,
 
-    /// 专门用于表示这是一个模块（Namespace），防止与普通值混淆
+    /// Namespace marker used when a path resolves to a module.
     Module(DefId),
 
-    // 类型变量，用于 let a = 10; 的局部推导 (Hindley-Milner 合一引擎使用)
+    // Local inference variable used by the unification engine.
     TypeVar(u32),
 
-    /// 匿名结构体 (结构等价)
-    /// 为了保证 Hash 和 PartialEq 稳定，这里的 Vec 必须在构造前按字段名排序
+    /// Anonymous struct type compared by structural equivalence.
+    /// Fields must be sorted by name before construction to keep hashing stable.
     AnonymousStruct(bool, Vec<AnonymousField>),
 
-    /// 匿名联合体
+    /// Anonymous union type.
     AnonymousUnion(bool, Vec<AnonymousField>),
 
-    /// 匿名枚举/ADT
+    /// Anonymous enum or algebraic data type.
     AnonymousEnum(AnonymousEnum),
 
-    /// 匿名枚举的底层 payload union
+    /// Payload union used by an anonymous enum layout.
     AnonymousEnumPayload(TypeId),
 }
 
@@ -166,7 +160,7 @@ pub enum PrimitiveType {
     USize,
     F32,
     F64,
-    Str, // 内部使用的字符串字面量类型
+    Str, // Internal string-literal primitive.
     Never,
 }
 

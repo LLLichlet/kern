@@ -11,7 +11,7 @@ impl<'a> Pruner<'a> {
         Self { sess }
     }
 
-    /// 遍历所有模块，进行条件剪枝
+    /// Walk every module and prune declarations gated by conditional attributes.
     pub fn prune_all(&mut self, asts: &mut [(DefId, Module)]) {
         for (_, module) in asts.iter_mut() {
             self.prune_module(module);
@@ -19,25 +19,25 @@ impl<'a> Pruner<'a> {
     }
 
     pub fn prune_module(&mut self, module: &mut Module) {
-        // 处理模块级属性 #![if(...)]
+        // Handle module-level `#![if(...)]` attributes first.
         if !self.eval_attributes(&module.attributes) {
-            // 如果模块级别的条件为 false，直接清空整个模块的内容
+            // A false module-level condition drops the entire module body.
             module.decls.clear();
             return;
         }
 
-        // 过滤顶级声明
+        // Filter top-level declarations in place.
         module.decls.retain_mut(|decl| self.prune_decl(decl));
     }
 
-    /// 如果该声明应该保留，返回 true；如果应该被剪枝，返回 false
+    /// Return whether a declaration survives conditional pruning.
     fn prune_decl(&mut self, decl: &mut Decl) -> bool {
-        // 1. 评估当前声明的生存条件
+        // 1. Evaluate the declaration's own condition.
         if !self.eval_attributes(&decl.attributes) {
             return false;
         }
 
-        // 2. 如果保留下来了，且它是包含子项的块（Impl 或 Extern），递归剪枝内部项
+        // 2. Recurse into nested item containers such as impl and extern blocks.
         match &mut decl.kind {
             DeclKind::Impl { decls, .. } | DeclKind::ExternBlock { decls, .. } => {
                 decls.retain_mut(|d| self.prune_decl(d));
@@ -52,7 +52,7 @@ impl<'a> Pruner<'a> {
 
     fn prune_expr(&mut self, expr: &mut Expr) {
         match &mut expr.kind {
-            // 核心：处理 Block 并过滤 Stmt
+            // Recurse into blocks and filter their statements.
             ExprKind::Block { stmts, result } => {
                 stmts.retain_mut(|stmt| {
                     if !self.eval_attributes(&stmt.attributes) {
@@ -71,7 +71,7 @@ impl<'a> Pruner<'a> {
                 }
             }
 
-            // 递归遍历所有包含子表达式的结构
+            // Recursively visit every expression form that owns child expressions.
             ExprKind::If {
                 cond,
                 then_branch,
@@ -86,7 +86,7 @@ impl<'a> Pruner<'a> {
             ExprKind::Match { target, arms } => {
                 self.prune_expr(target);
                 for arm in arms {
-                    // 遍历处理 Pattern 中包含的表达式 (值匹配和范围匹配)
+                    // Visit expressions embedded inside patterns such as values and ranges.
                     for pat in &mut arm.patterns {
                         match &mut pat.kind {
                             MatchPatternKind::Value(e) => self.prune_expr(e),
@@ -94,7 +94,7 @@ impl<'a> Pruner<'a> {
                                 self.prune_expr(start);
                                 self.prune_expr(end);
                             }
-                            _ => {} // Variant 和 CatchAll 不包含独立的表达式 AST 节点
+                            _ => {} // `Variant` and `CatchAll` contain no standalone expression nodes.
                         }
                     }
                     self.prune_expr(&mut arm.body);
@@ -175,26 +175,25 @@ impl<'a> Pruner<'a> {
             ExprKind::Return(Some(e)) => self.prune_expr(e),
             ExprKind::GenericInstantiation { target, .. } => self.prune_expr(target),
 
-            // 叶子节点 (如 Int, Float, Bool, Identifier, Break, Continue, Error 等) 无需递归
+            // Leaf nodes such as literals and control markers need no recursion.
             _ => {}
         }
     }
 
-    /// 检查属性列表，如果有 #[if(expr)] 且求值为 false，则返回 false (应被剪枝)
+    /// Return `false` when any `#[if(expr)]` attribute evaluates to false.
     fn eval_attributes(&mut self, attributes: &[Attribute]) -> bool {
         for attr in attributes {
             if let AttributeKind::If(cond_expr) = &attr.kind {
-                // 调用轻量级求值器
+                // Evaluate the condition with the lightweight attribute evaluator.
                 let mut evaluator = ConditionEvaluator::new(self.sess);
                 match evaluator.eval(cond_expr) {
                     Ok(val) => {
                         if !val {
-                            return false; // 只要有一个条件为 false，立刻短路剪枝
+                            return false; // One false condition is enough to prune the item.
                         }
                     }
                     Err(_) => {
-                        // 求值失败（比如遇到了未知的变量或类型不匹配），已经报过错了
-                        // 为了防止产生更多级联错误，我们将其视为 false 剪掉
+                        // Treat evaluation failures as false to avoid cascading errors.
                         return false;
                     }
                 }
@@ -204,8 +203,8 @@ impl<'a> Pruner<'a> {
     }
 }
 
-/// 专门用于 `#[if(...)]` 的轻量级求值器。
-/// 只能处理布尔逻辑、字符串比较和环境变量注入。完全不依赖 Sema 的类型系统。
+/// Lightweight evaluator used specifically for `#[if(...)]`.
+/// It supports boolean logic, string comparison, and injected environment variables without full type checking.
 struct ConditionEvaluator<'a> {
     sess: &'a mut Session,
 }
@@ -233,11 +232,11 @@ impl<'a> ConditionEvaluator<'a> {
             ExprKind::Bool(b) => Ok(CondValue::Bool(*b)),
             ExprKind::String(s) => Ok(CondValue::String(s.clone())),
 
-            // 核心：将标识符解析为环境变量
+            // Resolve bare identifiers as injected environment variables.
             ExprKind::Identifier(sym) => {
                 let name = self.sess.resolve(*sym);
 
-                // 1. 尝试匹配内置平台变量
+                // 1. Check builtin platform keys first.
                 if name == "os" {
                     let raw_os = self.sess.target.triple.operating_system.to_string();
                     let os_str = if raw_os.starts_with("darwin") || raw_os.starts_with("macosx") {
@@ -252,7 +251,7 @@ impl<'a> ConditionEvaluator<'a> {
                     return Ok(CondValue::String(arch_str));
                 }
 
-                // 2. 尝试从 CLI 传入的 -D 变量中读取
+                // 2. Fall back to user-provided `-D` variables.
                 if let Some(val) = self.sess.custom_defines.get(name) {
                     if val == "true" {
                         return Ok(CondValue::Bool(true));
@@ -263,7 +262,7 @@ impl<'a> ConditionEvaluator<'a> {
                     return Ok(CondValue::String(val.clone()));
                 }
 
-                // 找不到变量
+                // Unknown variables are rejected.
                 self.sess.struct_error(expr.span, format!("unknown environment variable `{}` in compilation condition", name))
                     .with_hint("available variables: `os`, `arch`, or custom defines via CLI (e.g., `-D feature=true`)")
                     .emit();
@@ -287,21 +286,21 @@ impl<'a> ConditionEvaluator<'a> {
 
             ExprKind::Binary { lhs, op, rhs } => {
                 let left = self.eval_inner(lhs)?;
-                // 为了支持短路求值，如果是 And/Or，先不求右边
+                // Support short-circuit evaluation for `and` and `or`.
                 if *op == BinaryOperator::LogicalAnd {
                     if let CondValue::Bool(false) = left {
                         return Ok(CondValue::Bool(false));
                     }
-                    return self.eval_inner(rhs); // 左边是 true，结果取决于右边
+                    return self.eval_inner(rhs); // Left side is true, so the right side decides.
                 }
                 if *op == BinaryOperator::LogicalOr {
                     if let CondValue::Bool(true) = left {
                         return Ok(CondValue::Bool(true));
                     }
-                    return self.eval_inner(rhs); // 左边是 false，结果取决于右边
+                    return self.eval_inner(rhs); // Left side is false, so the right side decides.
                 }
 
-                // 其他比较操作 (如 ==, !=)
+                // Other comparison operators such as `==` and `!=`.
                 let right = self.eval_inner(rhs)?;
                 match op {
                     BinaryOperator::Equal => Ok(CondValue::Bool(left == right)),

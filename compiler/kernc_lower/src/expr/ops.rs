@@ -66,7 +66,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 } else if op == ast::BinaryOperator::NotEqual {
                     return MastExprKind::Bool(false);
                 }
-                // TODO: unreachable() + 报错 ICE
+                // TODO: turn this into `unreachable()` plus an ICE.
             }
 
             let is_l_ptr = matches!(
@@ -74,7 +74,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
             );
 
-            // 获取 Sema 阶段缓存的真实右侧类型
+            // Read the real right-hand type cached by Sema.
             let r_sema_ty = self
                 .ctx
                 .node_types
@@ -87,8 +87,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
             );
 
-            // 核心修改：如果是由于指针算术 (ptr + int, int + ptr, ptr - ptr) 导致的两侧类型不对等，
-            // 就不强行用左侧的类型去约束右侧，直接放行 (None) 交给节点原类型去解析。
+            // Pointer arithmetic can legitimately mix pointer and integer operands, so do not force RHS to LHS type.
             let expected_r = if is_l_ptr || is_r_ptr {
                 None
             } else {
@@ -123,25 +122,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let op_kind = self.ctx.type_registry.get(op_norm).clone();
 
                 match op_kind {
-                    // 1. 切片类型 (Slice)：胖指针，元数据是长度 (len)
+                    // 1. Slices are fat pointers whose metadata stores the length.
                     TypeKind::Slice { .. } => {
                         return MastExprKind::ExtractFatPtrMeta(Box::new(op_mast));
                     }
 
-                    // 2. 定长数组 (Array) 或 推导数组 (ArrayInfer)：
-                    // 它们在内存中不是胖指针，而是一个连续的内存块，长度在编译期已知。
-                    // 所以这里的 # 操作符直接被编译器折叠为一个整数常量。
+                    // 2. Arrays have a compile-time-known length, so `#` folds to a constant.
                     TypeKind::Array { len, .. } => {
                         return MastExprKind::Integer(len as u128);
                     }
                     TypeKind::ArrayInfer { .. } => {
-                        // 如果到了 Lowering 阶段 ArrayInfer 还没有被定长（通常在 constexpr 阶段就被处理了），
-                        // 这里作为兜底，发出一个 ICE 错误。
+                        // Reaching lowering with `ArrayInfer` still unresolved is an internal compiler bug.
                         self.ctx.emit_ice(operand.span, "Kern ICE (Lowering): Array length still inferred during MetaOf lowering.");
                         return MastExprKind::Trap;
                     }
 
-                    // 3. 闭包和 Trait 胖指针：提取底层的匿名状态指针 (Data)
+                    // 3. Closure and trait fat pointers expose their underlying data pointer.
                     TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                         let elem_norm = self.ctx.type_registry.normalize(elem);
                         let inner_kind = self.ctx.type_registry.get(elem_norm);
@@ -150,7 +146,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             inner_kind,
                             TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)
                         ) {
-                            // 闭包和 Trait 胖指针调用 `#` 是为了拿回堆上的内存地址以便 free，所以提取 Data
+                            // For closure and trait fat pointers, `#` recovers the heap data address.
                             return MastExprKind::ExtractFatPtrData(Box::new(op_mast));
                         }
                     }

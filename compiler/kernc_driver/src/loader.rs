@@ -16,9 +16,9 @@ struct ResolvedRootModule {
 
 pub struct ModuleLoader<'a, 'ctx> {
     pub ctx: &'a mut SemaContext<'ctx>,
-    // 避免循环依赖：物理绝对路径 -> 模块 ID
+    // Prevent import cycles: physical absolute path -> module ID.
     pub loaded_files: HashMap<PathBuf, DefId>,
-    // 暂存所有解析好的 AST，等待下一阶段 Collector 提取符号
+    // Cache parsed ASTs until the collector extracts semantic symbols.
     pub asts: Vec<(DefId, ast::Module)>,
     source_overrides: HashMap<PathBuf, String>,
 }

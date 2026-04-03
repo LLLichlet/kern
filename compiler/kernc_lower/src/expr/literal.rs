@@ -162,7 +162,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let global_id = self.new_mono_id();
         let len = s.len() as u64;
         let array_ty = self.ctx.type_registry.intern(TypeKind::Array {
-            is_mut: false, // 字符串常量不可变
+            is_mut: false, // String constants are immutable.
             elem: TypeId::U8,
             len,
         });
@@ -254,11 +254,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     _ => None,
                 };
 
-                // 只有提取成功，才进入降级生成流程
+                // Only lower through this path after successful extraction.
                 if let Some(raw_expr) = raw_expr_opt {
                     let raw_mast = self.lower_expr(raw_expr, subst_map, None);
 
-                    // 从 raw_mast 的类型中解析出底层 AnonymousState，提取出 NodeId
+                    // Recover the underlying `AnonymousState` and its `NodeId` from the raw MAST type.
                     let raw_norm = self.ctx.type_registry.normalize(raw_mast.ty);
                     if let TypeKind::Pointer { elem: raw_elem, .. }
                     | TypeKind::VolatilePtr { elem: raw_elem, .. } =
@@ -270,10 +270,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             closure_node_id, ..
                         } = self.ctx.type_registry.get(raw_inner_norm)
                         {
-                            // 查表获取对应的函数 MonoId (代码指针)
+                            // Look up the corresponding function `MonoId`.
                             let func_mono_id = self.get_closure_func_mono_id(*closure_node_id);
 
-                            // 组装胖指针
+                            // Assemble the fat pointer payload.
                             let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
                                 is_mut: false,
                                 elem: TypeId::VOID,
@@ -310,7 +310,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                 }
 
-                // 如果提取失败，再抛出错误
+                // If extraction fails, rethrow the original error.
                 self.ctx.struct_error(span, "invalid closure fat pointer construction")
                 .with_hint("expected syntax: `*mut Fn(...).{ raw_pointer }`")
                 .with_hint("the raw pointer must explicitly be a pointer to the closure's anonymous state")
@@ -329,7 +329,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } | TypeKind::Slice { .. }
                 );
                 if elems.is_empty() && !is_target_array_like {
-                    // 当作空结构体/联合体/ADT处理，确保它们被正确 Instantiate
+                    // Treat these as empty aggregates so they are still instantiated correctly.
                     self.lower_struct_union_data_init(&[], subst_map, concrete_ty)
                 } else {
                     self.lower_array_init(elems, subst_map, concrete_ty)
@@ -344,7 +344,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 统一聚合数据初始化路由
+    /// Unified routing entry for aggregate data initialization.
     pub(crate) fn lower_struct_union_data_init(
         &mut self,
         fields: &[ast::StructFieldInit],
@@ -396,7 +396,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 辅助 1：处理带有负载的 Enum 变体初始化
+    /// Helper 1: lower payload-carrying enum variant initialization.
     pub(crate) fn lower_data_payload_init(
         &mut self,
         fields: &[ast::StructFieldInit],
@@ -453,7 +453,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 辅助 2：处理普通 Struct 初始化
+    /// Helper 2: lower ordinary struct initialization.
     pub(crate) fn lower_struct_init(
         &mut self,
         fields: &[ast::StructFieldInit],
@@ -505,7 +505,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 辅助 3：处理 Union 初始化
+    /// Helper 3: lower union initialization.
     pub(crate) fn lower_union_init(
         &mut self,
         fields: &[ast::StructFieldInit],
@@ -740,7 +740,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.lower_data_scalar_init(inner, def_id, &gen_args)
             }
             TypeKind::AnonymousEnum(..) => self.lower_anon_enum_scalar_init(inner, concrete_ty),
-            // 拦截胖指针降级
+            // Intercept fat-pointer decay.
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.ctx.type_registry.normalize(elem);
                 if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(elem_norm) {
@@ -752,14 +752,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         span,
                     );
                 }
-                // 如果不是 Trait，当做普通单值
+                // Non-trait targets behave like ordinary scalar values.
                 self.lower_expr(inner, subst_map, Some(concrete_ty)).kind
             }
             _ => self.lower_expr(inner, subst_map, Some(concrete_ty)).kind,
         }
     }
 
-    /// 辅助：构建没有负载的 Enum (例如 Option.None)
+    /// Helper: build a payload-free enum variant such as `Option.None`.
     pub(crate) fn lower_data_scalar_init(
         &mut self,
         inner: &Expr,
@@ -781,7 +781,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return MastExprKind::Trap;
         };
 
-        // 纯数据优化：如果没有任何负载，直接降级为硬编码整数
+        // Pure-data enums with no payload can lower directly to an integer constant.
         if self.is_pure_enum(&def) {
             self.record_pure_enum_tag_ty(def_id, gen_args);
             MastExprKind::Integer(tag_val)
@@ -838,7 +838,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    /// 辅助：构建 Trait Object 胖指针
+    /// Helper: build a trait-object fat pointer.
     pub(crate) fn lower_trait_object_init(
         &mut self,
         inner: &Expr,
@@ -876,13 +876,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .kind;
         }
 
-        // 查找或生成 VTable
+        // Look up or synthesize the vtable.
         let vtable_id = self.get_or_create_vtable(l.ty, trait_norm);
         let Some(meta_expr) = self.vtable_global_meta_expr(vtable_id, span) else {
             return MastExprKind::Trap;
         };
 
-        // 生成底层构造器
+        // Build the low-level constructor payload.
         MastExprKind::ConstructFatPointer {
             data_ptr: Box::new(l),
             meta: Box::new(meta_expr),
@@ -951,7 +951,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
             if v.name == variant_name {
-                // 直接返回整数。如果不是，包进 DataInit
+                // Return the raw integer when possible; otherwise wrap it in `DataInit`.
                 if self.is_pure_enum(&data_def) {
                     self.record_pure_enum_tag_ty(def_id, &gen_args);
                     return MastExprKind::Integer(current_val as u128);

@@ -4,26 +4,28 @@ use kernc_utils::{Span, SymbolId};
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attribute {
     pub span: Span,
-    pub is_module_level: bool, // 区分 #![...] 和 #[...]
+    /// Distinguishes `#![...]` from `#[...]`.
+    pub is_module_level: bool,
     pub kind: AttributeKind,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttributeKind {
-    /// 条件编译: `#[if(os == "linux" and arch == "x86")]`
-    /// 括号内部直接是一个标准的 Expr 树
+    /// Conditional compilation such as `#[if(os == "linux" and arch == "x86")]`.
+    /// The payload is stored as a regular expression AST.
     If(Box<Expr>),
 
-    /// 元数据集合: `#[cold, export_name("NtCreateFile")]`
+    /// Metadata items such as `#[cold, export_name("NtCreateFile")]`.
     Meta(Vec<MetaItem>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum MetaItem {
-    /// 仅标记，如 `cold`, `packed`
+    /// Marker-only metadata such as `cold` or `packed`.
     Marker(SymbolId),
 
-    /// 传参标记，如 `export_name("foo")`, `align(4)`
-    /// 这里统一把括号内的东西当作 Expr 处理，Sema 阶段再校验它是不是字符串或整数
+    /// Metadata with an argument such as `export_name("foo")` or `align(4)`.
+    /// The parser keeps the payload as an expression and semantic analysis
+    /// validates the expected literal form later.
     Call(SymbolId, Box<Expr>),
 }

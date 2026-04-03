@@ -98,7 +98,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_integer(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
-        // 默认 fallback 为 usize
+        // Default integer fallback is `usize`.
         let mut res_ty = self
             .ctx
             .type_registry
@@ -108,7 +108,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let norm = self.resolve_tv(exp);
             let kind = self.ctx.type_registry.get(norm).clone();
 
-            // 如果上下文期望一个整数或浮点数，直接复用期望的类型
+            // Reuse the expected numeric type when the context already constrained it.
             if self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm) {
                 res_ty = exp;
             } else if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } = kind
@@ -131,7 +131,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_float(&mut self, _expr: &Expr, expected_ty: Option<TypeId>) -> TypeId {
-        // 默认 fallback 为 f64
+        // Default floating-point fallback is `f64`.
         let mut res_ty = self
             .ctx
             .type_registry
@@ -139,7 +139,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if let Some(exp) = expected_ty {
             let norm = self.resolve_tv(exp);
-            // 如果上下文期望一个浮点数，直接复用
+            // Reuse the expected float type when available.
             if self.ctx.type_registry.is_float(norm) {
                 res_ty = exp;
             }
@@ -172,13 +172,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let exp_norm = self.resolve_tv(expected);
         let kind_enum = self.ctx.type_registry.get(exp_norm).clone();
 
-        // 拦截胖指针构造（Trait Object 和 Closure Object）
+        // Intercept fat-pointer construction for trait objects and closure objects.
         if let TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } =
             kind_enum
         {
             let elem_norm = self.resolve_tv(elem);
             let target_inner_kind = self.ctx.type_registry.get(elem_norm).clone();
-            // 提取唯一参数
+            // Extract the single payload argument.
             let inner_expr_opt: Option<&Expr> = match kind {
                 ast::DataLiteralKind::Scalar(inner) => Some(inner.as_ref()),
                 ast::DataLiteralKind::Struct(fields) if fields.len() == 1 => Some(&fields[0].value),
@@ -213,14 +213,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return TypeId::ERROR;
                     }
                 }
-                _ => {} // 如果只是普通指针 (比如 *i32)，则放行往下走普通的结构体/数组检查
+                _ => {} // Plain pointers continue through the normal aggregate checks.
             }
         }
 
-        // 拦截 void.{} 构造
+        // Handle `void.{}` specially.
         if self.ctx.type_registry.is_void(exp_norm) {
             match kind {
-                // 空数组 fallback 或空结构体 fallback 都是合法的
+                // Empty array and empty struct fallbacks are both valid here.
                 ast::DataLiteralKind::Array(elems) if elems.is_empty() => return expected,
                 ast::DataLiteralKind::Struct(fields) if fields.is_empty() => return expected,
                 _ => {
@@ -230,7 +230,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 统一识别 Enum 类型
+        // Normalize enum detection across named and anonymous forms.
         let is_data = matches!(kind_enum, TypeKind::Enum(..) | TypeKind::AnonymousEnum(..));
 
         match kind {
@@ -284,7 +284,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 统一处理 `.Variant` 简写和 `.{ Variant }` 无负载初始化的校验
+    /// Validate `.Variant` shorthand and payload-free `.{ Variant }` enum construction.
     pub(crate) fn check_enum_literal(
         &mut self,
         variant_name: SymbolId,
@@ -302,7 +302,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         let requires_payload = v.payload_type.is_some();
                         self.ctx
                             .record_identifier_reference(variant_span, definition_span);
-                        // 如果有 payload，必须使用 Struct() 初始化，不能用这种标量形式
+                        // Payload-carrying variants must use structured initialization.
                         if requires_payload {
                             let v_str = self.ctx.resolve(variant_name).to_string();
                             self.ctx
@@ -391,7 +391,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         res_ty
     }
 
-    /// 专门处理带有负载的 Enum 初始化，例如 `Result.{ Ok: 10 }`
+    /// Handle payload-carrying enum initialization such as `Result.{ Ok: 10 }`.
     fn check_enum_payload_literal(
         &mut self,
         init_fields: &[ast::StructFieldInit],
@@ -493,7 +493,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected
     }
 
-    /// 辅助方法 1：校验普通数组字面量 `.{ 1, 2, 3 }`
+    /// Helper 1: validate standard array literals like `.{ 1, 2, 3 }`.
     fn check_array_literal(
         &mut self,
         elems: &[Expr],
@@ -501,7 +501,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_norm: TypeId,
         span: Span,
     ) -> TypeId {
-        // 1. 动态剥离类型信息
+        // 1. Peel aliases and wrappers to inspect the real container type.
         let (exp_elem_ty, expected_len, exp_is_mut) = match self.ctx.type_registry.get(exp_norm) {
             TypeKind::Array { elem, len, is_mut } => (*elem, Some(*len), *is_mut),
             TypeKind::ArrayInfer { elem, is_mut } => (*elem, None, *is_mut),
@@ -519,7 +519,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        // 2. 如果是定长数组，校验长度
+        // 2. Check the length when the target is a fixed-size array.
         if let Some(len) = expected_len
             && elems.len() as u64 != len
         {
@@ -535,13 +535,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
         }
 
-        // 3. 校验所有元素的类型
+        // 3. Check the type of every element.
         for e in elems {
             let act_ty = self.check_expr(e, Some(exp_elem_ty));
             self.check_coercion(e, exp_elem_ty, act_ty);
         }
 
-        // 4. 返回最终确定的类型
+        // 4. Return the final inferred array type.
         if expected_len.is_none() {
             let actual_len = elems.len() as u64;
             if actual_len > u32::MAX as u64 {
@@ -566,12 +566,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 len: actual_len,
             })
         } else {
-            // 原本就是 [N]T
+            // Already a concrete `[N]T`.
             expected
         }
     }
 
-    /// 辅助方法 2：校验重复数组字面量 `.{ 0; 1024 }`
+    /// Helper 2: validate repeated array literals like `.{ 0; 1024 }`.
     fn check_repeat_literal(
         &mut self,
         value: &Expr,
@@ -580,7 +580,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_norm: TypeId,
         span: Span,
     ) -> TypeId {
-        // 1. 动态剥离类型信息
+        // 1. Peel aliases and wrappers to inspect the real container type.
         let (exp_elem_ty, is_infer, exp_is_mut) = match self.ctx.type_registry.get(exp_norm) {
             TypeKind::Array { elem, is_mut, .. } => (*elem, false, *is_mut),
             TypeKind::ArrayInfer { elem, is_mut } => (*elem, true, *is_mut),
@@ -598,11 +598,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        // 2. 校验重复的元素值
+        // 2. Check the repeated element value.
         let val_ty = self.check_expr(value, Some(exp_elem_ty));
         self.check_coercion(value, exp_elem_ty, val_ty);
 
-        // 3. 校验重复次数
+        // 3. Check the repeat count.
         let c_ty = self.check_expr(count, Some(TypeId::USIZE));
         let c_ty_id = self.resolve_tv(c_ty);
         if !self.ctx.type_registry.is_integer(c_ty_id) {
@@ -611,7 +611,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .emit();
         }
 
-        // 4. 返回最终类型
+        // 4. Return the final array type.
         if is_infer {
             let mut ce = ConstEvaluator::new(self.ctx);
             let Ok(actual_len) = ce.eval_usize(count) else {
@@ -644,7 +644,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 辅助方法 3：校验结构体或联合体初始化 `.{ x: 10, y: 20 }` 或 Union `.{ as_int: 123 }`
+    /// Helper 3: validate struct and union initialization.
     fn check_struct_or_union_literal(
         &mut self,
         init_fields: &[ast::StructFieldInit],
@@ -652,7 +652,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         exp_norm: TypeId,
         span: Span,
     ) -> TypeId {
-        // 1. 提取定义信息与泛型实参，同时识别是 Struct 还是 Union
+        // 1. Extract definition metadata and bound generics, then identify struct vs. union.
         let (def_fields, def_name, def_generics, generic_args, is_union): StructLiteralDefInfo =
             if let TypeKind::Def(def_id, args) = self.ctx.type_registry.get(exp_norm) {
                 match &self.ctx.defs[def_id.0 as usize] {
@@ -753,7 +753,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let mut initialized = std::collections::HashSet::new();
 
-        // 2. 校验用户提供的初始化字段的类型
+        // 2. Check the types of user-provided field initializers.
         for init_f in init_fields {
             if let Some(def_f) = def_fields.iter().find(|f| f.0 == init_f.name) {
                 let mut f_ty = def_f.1;
@@ -776,7 +776,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let val_ty = self.check_expr(&init_f.value, Some(f_ty));
                 self.check_coercion(&init_f.value, f_ty, val_ty);
 
-                // 检查重复初始化的字段（对 struct 和 union 都有效）
+                // Reject duplicate field initialization for both structs and unions.
                 if !initialized.insert(init_f.name) {
                     let name_str = self.ctx.resolve(init_f.name);
                     self.ctx
@@ -797,9 +797,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 3. 校验 Kern 核心规则：针对 Struct 和 Union 分别处理
+        // 3. Enforce Kern-specific construction rules for structs and unions.
         if is_union {
-            // Kern Union 规则：必须且只能初始化 1 个字段
+            // Unions must initialize exactly one field.
             if initialized.len() != 1 {
                 self.ctx
                     .struct_error(
@@ -816,7 +816,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .emit();
             }
         } else {
-            // Kern Struct 规则：无隐式零初始化。漏掉字段必须显式使用 undef 或具有默认值
+            // Structs do not get implicit zero initialization.
             for def_f in &def_fields {
                 if !initialized.contains(&def_f.0) && !def_f.2 {
                     let name_str = self.ctx.resolve(def_f.0).to_string();
@@ -831,7 +831,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected
     }
 
-    /// 辅助方法 4：校验标量构造 `.{ 10 }`
+    /// Helper 4: validate scalar construction forms like `.{ 10 }`.
     fn check_scalar_literal(
         &mut self,
         inner: &Expr,
@@ -890,7 +890,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let inner_ty_id = self.resolve_tv(inner_ty);
 
-        // 1. 必须传入指针
+        // 1. Trait-object construction requires a pointer input.
         let (is_inner_ptr_mut, inner_elem_ty) = match self.ctx.type_registry.get(inner_ty_id) {
             TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
                 (*is_mut, *elem)
@@ -906,7 +906,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         };
 
-        // 2. 不允许把不可变指针塞进可变胖指针
+        // 2. Immutable pointers cannot populate mutable fat pointers.
         if is_mut_expected && !is_inner_ptr_mut {
             self.ctx
                 .struct_error(
@@ -922,7 +922,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let inner_elem_norm = self.resolve_tv(inner_elem_ty);
 
-        // 3. trait object 上转型
+        // 3. Support trait-object upcasts.
         if matches!(
             self.ctx.type_registry.get(inner_elem_norm),
             TypeKind::TraitObject(..)
@@ -931,7 +931,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return expected_ptr_ty;
         }
 
-        // 4. 校验方法契约
+        // 4. Verify method obligations on the target trait.
         if !self.check_trait_impl(inner_ty_id, trait_norm) {
             self.ctx
                 .struct_error(
@@ -942,7 +942,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
-        // 5. 返回构造好的胖指针类型
+        // 5. Return the constructed fat-pointer type.
         expected_ptr_ty
     }
 

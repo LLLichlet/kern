@@ -147,10 +147,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             MastExprKind::Deref(operand) => self.compile_expr(operand).into_pointer_value(),
 
-            // 当编译器需要一个左值（内存地址），但遇到的是一个纯右值
-            // （比如函数调用 `Call` 返回的结构体，或者是字面量）时，
-            // 我们在当前函数的栈帧上开辟一块临时内存，将右值存进去，并返回这个内存地址。
-            // 这完美解决了“动态派发后的连缀访问”引发的崩溃问题。
+            // Materialize pure rvalues into temporary stack storage whenever an lvalue address is required.
             _ => {
                 let rval = self.compile_expr(expr);
                 let llvm_ty = self.get_llvm_type(expr.ty);
@@ -325,7 +322,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .unwrap()
     }
 
-    /// 专门处理切片构造 [start..end] 的底层 LLVM 生成
+    /// Lower slice construction `[start..end]` to the underlying LLVM fat-pointer form.
     pub(crate) fn compile_slice_op(
         &mut self,
         lhs: &MastExpr,
@@ -346,14 +343,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return expected_llvm_ty.const_zero();
         };
 
-        // 2. 计算 start (缺省为 0)
+        // 2. Compute `start`, defaulting to zero.
         let start_val = if let Some(s) = start {
             self.compile_expr(s).into_int_value()
         } else {
             self.context.i64_type().const_zero()
         };
 
-        // 3. 计算 end (缺省为基底长度)
+        // 3. Compute `end`, defaulting to the base length.
         let end_val = if let Some(e) = end {
             self.compile_expr(e).into_int_value()
         } else {
@@ -367,7 +364,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             len
         };
 
-        // 4. 计算新切片的长度: len = end - start + (1 if inclusive)
+        // 4. Compute the new length: `end - start + 1` when inclusive.
         let mut slice_len = self
             .builder
             .build_int_sub(end_val, start_val, "slice_len")
@@ -380,7 +377,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap();
         }
 
-        // 5. 偏移基底指针: ptr = base_ptr + start
+        // 5. Offset the base pointer by `start`.
         let llvm_elem_ty = self.get_llvm_type(elem_ty);
 
         let slice_ptr = unsafe {
@@ -389,7 +386,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap()
         };
 
-        // 6. 组装并返回新的胖指针结构体
+        // 6. Assemble and return the new fat-pointer struct.
         let struct_ty = expected_llvm_ty.into_struct_type();
         let mut slice_struct = struct_ty.get_undef();
         slice_struct = self

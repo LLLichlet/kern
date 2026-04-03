@@ -37,17 +37,17 @@ impl<'a> Parser<'a> {
 
         let mut clauses = Vec::new();
 
-        // 解析类似于: `where *T: TraitA + TraitB, U: TraitC`
+        // Parse clauses such as `where *T: TraitA + TraitB, U: TraitC`.
         loop {
             let start_span = self.peek().span;
 
-            // 1. 左侧：目标类型 (e.g., *mut T)
+            // 1. Left-hand side: constrained target type, for example `*mut T`.
             let target_ty = self.parse_type()?;
 
-            // 2. 约束冒号
+            // 2. Constraint separator.
             self.expect(TokenType::Colon)?;
 
-            // 3. 右侧：约束列表 (e.g., TraitA + TraitB)
+            // 3. Right-hand side: one or more trait bounds.
             let mut bounds = Vec::new();
             loop {
                 bounds.push(self.parse_type()?);
@@ -63,12 +63,12 @@ impl<'a> Parser<'a> {
                 bounds,
             });
 
-            // 如果没有逗号分隔，则说明 where 子句结束
+            // Without a comma, the where-clause list is complete.
             if !self.match_token(&[TokenType::Comma]) {
                 break;
             }
 
-            // 兼容尾逗号 (Trailing comma)，如果紧接着是 { 或 ; 就退出
+            // Accept a trailing comma before `{` or `;`.
             if self.check(TokenType::LBrace) || self.check(TokenType::Semicolon) {
                 break;
             }
@@ -109,7 +109,7 @@ impl<'a> Parser<'a> {
 
     // Top Level
     pub fn parse_module(&mut self) -> ParseResult<Module> {
-        // 先解析文件最顶部的 #![...]
+        // Parse file-level `#![...]` attributes before any declarations.
         let attributes = self.parse_attributes(true).unwrap_or_default();
 
         let mut decls = Vec::new();
@@ -130,7 +130,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_decl(&mut self) -> ParseResult<Option<Decl>> {
-        // 拦截 attributes
+        // Attributes syntactically precede every declaration.
         let attributes = self.parse_attributes(false).unwrap_or_default();
 
         if self.check(TokenType::Eof) {
@@ -233,7 +233,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_mod_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
-        self.advance(); // 消费 `mod`
+        self.advance(); // Consume `mod`.
 
         let name_token = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name_token);
@@ -313,7 +313,7 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let attributes = self.parse_attributes(false).unwrap_or_default(); // 拦截
+            let attributes = self.parse_attributes(false).unwrap_or_default();
             let is_pub = self.match_token(&[TokenType::Pub]);
             let d_start = if is_pub {
                 self.stream.prev_span()
@@ -325,11 +325,11 @@ impl<'a> Parser<'a> {
                 || (self.check(TokenType::Const) && self.stream.peek_nth(1).tag == TokenType::Fn)
             {
                 let mut d = self.parse_fn_decl(d_start, is_pub, true)?;
-                d.attributes = attributes; // 注入
+                d.attributes = attributes;
                 decls.push(d);
             } else if self.check(TokenType::Static) {
                 let mut d = self.parse_global_var_decl(d_start, is_pub, true)?;
-                d.attributes = attributes; // 注入
+                d.attributes = attributes;
                 decls.push(d);
             } else {
                 self.error_at_current("Only fn and static allowed in extern".to_string());
@@ -410,7 +410,7 @@ impl<'a> Parser<'a> {
         let kw = self.advance();
         let is_static = kw.tag == TokenType::Static;
 
-        // 嗅探是否带有 mut (仅对 static 有效，const 不能 mut)
+        // Only `static` items may carry a mutability marker.
         let mut is_mut = false;
         if self.match_token(&[TokenType::Mut]) {
             if !is_static {
@@ -427,7 +427,7 @@ impl<'a> Parser<'a> {
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
-        // 全局变量同样拦截左侧冒号
+        // Left-side global type annotations are intentionally rejected.
         if self.match_token(&[TokenType::Colon]) {
             let err_span = self.stream.prev_span();
             self.add_error(err_span, "Global variables no longer support left-side type annotations. Use explicit constructors: `static X = Type.{ value };`".to_string());
@@ -438,7 +438,7 @@ impl<'a> Parser<'a> {
         let value = if self.match_token(&[TokenType::Assign]) {
             self.parse_expression(Precedence::Lowest)?
         } else {
-            // 无论是 extern 还是普通全局变量，都必须带 =
+            // All globals, including extern imports, require an initializer form.
             self.add_error(
                 start,
                 "Global/extern vars must be initialized (use `= Type.{undef};` for externs)"
@@ -471,14 +471,14 @@ impl<'a> Parser<'a> {
         is_pub: bool,
         is_extern: bool,
     ) -> ParseResult<Decl> {
-        self.advance(); // 消费 `type`
+        self.advance(); // Consume `type`.
         let name = self.expect(TokenType::Identifier)?;
         let name_id = self.intern_token(name);
 
-        // 1. 解析泛型参数 [T]
+        // 1. Parse generic parameters such as `[T]`.
         let generics = self.parse_generic_params()?;
 
-        // 2. 解析约束界限/底层类型 `: Reader + Writer` 或 `: u8`
+        // 2. Parse optional bounds or an explicit backing type after `:`.
         let mut bounds = Vec::new();
         if self.match_token(&[TokenType::Colon]) {
             loop {
@@ -489,10 +489,10 @@ impl<'a> Parser<'a> {
             }
         }
 
-        // 3. 解析 where 子句 `where *mut T: TraitT`
+        // 3. Parse an optional `where` clause.
         let where_clauses = self.parse_where_clauses()?;
 
-        // 4. 解析目标类型 `= trait { ... }`
+        // 4. Parse the aliased target type after `=`.
         self.expect(TokenType::Assign)?;
         let target = self.parse_type()?;
         match &target.kind {
@@ -552,9 +552,9 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_use_decl(&mut self, start: Span, is_pub: bool) -> ParseResult<Decl> {
-        self.advance(); // 消费 `use`
+        self.advance(); // Consume `use`.
 
-        // 1. 精确且极简的起始路径解析
+        // 1. Parse the import root marker, if any.
         let mut kind = UsePathKind::Root;
 
         if self.match_token(&[TokenType::Dot]) {
@@ -566,7 +566,7 @@ impl<'a> Parser<'a> {
         let mut path = Vec::new();
         let target: UseTarget;
 
-        // 2. 循环读取路径段和目标
+        // 2. Consume path segments until the target form is known.
         loop {
             if self.match_token(&[TokenType::LBrace]) {
                 target = self.parse_use_members()?;
@@ -623,26 +623,26 @@ impl<'a> Parser<'a> {
         })
     }
 
-    // 辅助方法：专门解析大括号里的重导出成员 `{ Point, env.Args, new_point as np }`
+    // Helper for brace member imports such as `{ Point, env.Args, new_point as np }`.
     fn parse_use_members(&mut self) -> ParseResult<UseTarget> {
         let mut members = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
             let start_span = self.peek().span;
             let mut member_path = Vec::new();
 
-            // 1. 内部循环：解析像 `env.Args` 这样的多段路径
+            // 1. Parse a dotted member path such as `env.Args`.
             loop {
                 let m_tok = self.expect(TokenType::Identifier)?;
                 member_path.push(self.intern_token(m_tok));
 
                 if self.match_token(&[TokenType::Dot]) {
-                    continue; // 遇到点号，继续解析下一个 Identifier
+                    continue;
                 } else {
-                    break; // 不是点号，当前路径解析结束
+                    break;
                 }
             }
 
-            // 2. 解析别名
+            // 2. Parse an optional alias.
             let mut alias = None;
             if self.match_token(&[TokenType::As]) {
                 let a_tok = self.expect(TokenType::Identifier)?;
@@ -651,14 +651,14 @@ impl<'a> Parser<'a> {
 
             let end_span = self.stream.prev_span();
 
-            // 3. 压入解析结果
+            // 3. Record the parsed member.
             members.push(UseMember {
                 path: member_path,
                 alias,
                 span: start_span.to(end_span),
             });
 
-            // 4. 逗号分隔逻辑
+            // 4. Consume the member separator.
             if !self.match_token(&[TokenType::Comma]) {
                 break;
             }
@@ -667,7 +667,8 @@ impl<'a> Parser<'a> {
         Ok(UseTarget::Members(members))
     }
 
-    /// 将一个路径表达式强制转换为 TypeNode（用于处理 Type.{...} 的左侧）
+    /// Convert a parsed path expression into a type node.
+    /// This is used for the left-hand side of constructs such as `Type.{...}`.
     pub fn expr_to_type(&mut self, expr: Expr) -> ParseResult<TypeNode> {
         match expr.kind {
             ExprKind::Identifier(id) => Ok(TypeNode {

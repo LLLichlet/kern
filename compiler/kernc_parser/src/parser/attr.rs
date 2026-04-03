@@ -4,7 +4,7 @@ use kernc_ast::*;
 use kernc_lexer::TokenType;
 
 impl<'a> Parser<'a> {
-    /// 判断当前是否处于属性标记的起始位置，避免与 `#arr` (取长度) 冲突
+    /// Check whether the current lookahead starts an attribute rather than `#arr`.
     fn is_at_attribute(&mut self) -> bool {
         if self.check(TokenType::Hash) {
             let next = self.stream.peek_nth(1).tag;
@@ -18,20 +18,19 @@ impl<'a> Parser<'a> {
         false
     }
 
-    /// 解析连续的属性块
+    /// Parse a contiguous sequence of attribute blocks.
     pub fn parse_attributes(&mut self, expect_module_level: bool) -> ParseResult<Vec<Attribute>> {
         let mut attrs = Vec::new();
 
         while self.is_at_attribute() {
             let is_bang = self.stream.peek_nth(1).tag == TokenType::Bang;
 
-            // 如果期望解析模块级 #![...]，但遇到了 #[...]，立刻跳出循环，留给下一级去吃
-            // 或者期望解析 #[...]，但遇到了 #![...]，也跳出
+            // Stop as soon as the attribute level no longer matches the caller's expectation.
             if is_bang != expect_module_level {
                 break;
             }
 
-            let hash_span = self.advance().span; // 消费 `#`
+            let hash_span = self.advance().span; // Consume `#`.
 
             let mut is_module_level = false;
             if self.match_token(&[TokenType::Bang]) {
@@ -41,7 +40,7 @@ impl<'a> Parser<'a> {
             self.expect(TokenType::LBracket)?;
 
             let kind = if self.match_token(&[TokenType::If]) {
-                // 模式 1: 条件编译 #[if(expr)]
+                // Form 1: conditional attributes, for example `#[if(expr)]`.
                 self.expect(TokenType::LParen)?;
                 let expr = self.parse_expression(Precedence::Lowest)?;
                 self.expect(TokenType::RParen)?;
@@ -52,7 +51,7 @@ impl<'a> Parser<'a> {
 
                 AttributeKind::If(Box::new(expr))
             } else {
-                // 模式 2: 元数据 #[cold, export_name("foo")]
+                // Form 2: metadata attributes such as `#[cold, export_name("foo")]`.
                 let mut items = Vec::new();
                 while !self.check(TokenType::RBracket) && !self.check(TokenType::Eof) {
                     let ident_tok = self.expect(TokenType::Identifier)?;

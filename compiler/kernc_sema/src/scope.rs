@@ -3,43 +3,43 @@ use crate::ty::TypeId;
 use kernc_utils::{NodeId, Span, SymbolId};
 use std::collections::HashMap;
 
-/// 全局唯一的作用域 ID
+/// Globally unique scope identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ScopeId(pub usize);
 
-/// 符号种类
+/// Kinds of symbols stored in scopes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolKind {
-    Var,       // 变量 (let, param)
-    Const,     // 常量
-    Static,    // 静态变量
-    Function,  // 函数
-    Struct,    // 结构体定义
-    Union,     // 联合体定义
-    Enum,      // 代数数据类型定义
-    Trait,     // 特征定义
-    Module,    // 模块
-    TypeAlias, // 类型别名
+    Var,       // Local variable, including `let` bindings and parameters.
+    Const,     // Immutable constant item.
+    Static,    // Static storage item.
+    Function,  // Function item.
+    Struct,    // Struct definition.
+    Union,     // Union definition.
+    Enum,      // Enum or algebraic data type definition.
+    Trait,     // Trait definition.
+    Module,    // Module namespace.
+    TypeAlias, // Type alias.
     TypeParam,
 }
 
-/// 符号信息
+/// Semantic information tracked for one scoped symbol.
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
     pub kind: SymbolKind,
-    pub node_id: NodeId,       // 对应的 AST 节点
-    pub type_id: TypeId,       // 语义类型
-    pub def_id: Option<DefId>, // 指向具体的定义表
+    pub node_id: NodeId,       // Owning AST node.
+    pub type_id: TypeId,       // Semantic type assigned to the symbol.
+    pub def_id: Option<DefId>, // Optional backing definition-table entry.
     pub span: Span,
     pub is_pub: bool,
     pub is_mut: bool,
 }
 
-/// 单层作用域 (持久化结构)
+/// One lexical scope node stored in the persistent scope arena.
 #[derive(Debug, Clone)]
 pub struct Scope {
     pub id: ScopeId,
-    /// 指向父作用域。对于模块的顶层作用域，可能是 None 或者指向全局 Builtin 作用域
+    /// Parent scope. Module roots may point to the builtin scope or be absent.
     pub parent: Option<ScopeId>,
     pub symbols: HashMap<SymbolId, SymbolInfo>,
 }
@@ -54,12 +54,12 @@ impl Scope {
     }
 }
 
-/// 符号表 (Arena & 执行上下文)
+/// Scope arena plus the active traversal cursor.
 #[derive(Clone)]
 pub struct SymbolTable {
-    /// 所有的作用域都永久存储在这里 (Arena)
+    /// All allocated scopes live here permanently.
     scopes: Vec<Scope>,
-    /// 当前正在遍历的作用域节点
+    /// Scope currently active for resolution and insertion.
     current_scope: Option<ScopeId>,
 }
 
@@ -75,51 +75,50 @@ impl SymbolTable {
             scopes: Vec::new(),
             current_scope: None,
         };
-        // 默认初始化一个全局根作用域 (可以放内置类型、函数)
+        // Start with a single root scope for builtins and global aliases.
         let root_id = table.create_scope(None);
         table.current_scope = Some(root_id);
         table
     }
 
-    /// 在底层的 Arena 中创建一个新的作用域，但不改变当前上下文
+    /// Allocate a new scope node without changing the active scope.
     fn create_scope(&mut self, parent: Option<ScopeId>) -> ScopeId {
         let id = ScopeId(self.scopes.len());
         self.scopes.push(Scope::new(id, parent));
         id
     }
 
-    /// 进入一个新的块级作用域（将其父节点设为当前作用域）
-    /// 返回创建的 ScopeId，方便在 Collect 阶段将其绑定到模块上
+    /// Enter a new child scope and make it current.
+    /// The returned `ScopeId` can be attached to modules during collection.
     pub fn enter_scope(&mut self) -> ScopeId {
         let new_id = self.create_scope(self.current_scope);
         self.current_scope = Some(new_id);
         new_id
     }
 
-    /// 离开当前作用域，回退到父作用域
+    /// Leave the current scope and restore its parent.
     pub fn exit_scope(&mut self) {
         if let Some(current) = self.current_scope {
-            // 获取当前作用域的父节点，并将其设为 current
+            // Follow the lexical parent link.
             self.current_scope = self.scopes[current.0].parent;
         } else {
-            // 保底恢复：作用域栈已经失衡时，重新指回根作用域，避免后续阶段直接崩溃。
+            // Recover to the root scope if the stack has become unbalanced.
             self.current_scope = self.scopes.first().map(|scope| scope.id);
         }
     }
 
-    /// 强制跳转到指定的作用域 (在 Typecheck 阶段查阅模块时非常有用)
+    /// Force the active scope to a known scope node.
     pub fn set_current_scope(&mut self, scope_id: ScopeId) {
         self.current_scope = Some(scope_id);
     }
 
-    /// 获取当前作用域的 ID
+    /// Return the currently active scope, if any.
     pub fn current_scope_id(&self) -> Option<ScopeId> {
         self.current_scope
     }
 
-    /// 在当前作用域定义符号。
-    /// 如果成功，返回 Ok(())。
-    /// 如果失败（发生同名冲突），返回 Err(旧的 SymbolInfo)，以便调用者可以报出极具建设性的错误
+    /// Define a symbol in the current scope.
+    /// On conflicts, return the previous symbol info so callers can build diagnostics.
     pub fn define(&mut self, name: SymbolId, info: SymbolInfo) -> Result<(), SymbolInfo> {
         let current_id = if let Some(scope_id) = self.current_scope {
             scope_id
@@ -135,14 +134,14 @@ impl SymbolTable {
         let current_scope = &mut self.scopes[current_id.0];
 
         if let Some(existing) = current_scope.symbols.get(&name) {
-            // 返回旧变量的信息，方便报错时指出 "previous definition was here"
+            // Preserve the previous symbol for "previous definition is here" diagnostics.
             return Err(existing.clone());
         }
         current_scope.symbols.insert(name, info);
         Ok(())
     }
 
-    /// 查找符号 (沿 Scope Tree 向上追溯)
+    /// Resolve a symbol by walking outward through lexical parents.
     pub fn resolve(&self, name: SymbolId) -> Option<&SymbolInfo> {
         let mut curr = self.current_scope;
 
@@ -151,7 +150,7 @@ impl SymbolTable {
             if let Some(info) = scope.symbols.get(&name) {
                 return Some(info);
             }
-            curr = scope.parent; // 向上找
+            curr = scope.parent; // Continue searching outward.
         }
         None
     }
@@ -170,14 +169,14 @@ impl SymbolTable {
         None
     }
 
-    /// 仅在当前作用域查找 (用于检查重定义)
+    /// Resolve only within the current scope.
     pub fn resolve_local(&self, name: SymbolId) -> Option<&SymbolInfo> {
         let current_id = self.current_scope?;
         self.scopes[current_id.0].symbols.get(&name)
     }
 
-    /// 跨模块查询：直接在指定的 Scope 中查找符号 (不向上追溯)
-    /// 用于解析 `use std.math.add` 时，在 `math` 模块的 Scope 中精准查找 `add`
+    /// Resolve a symbol directly inside the specified scope without walking parents.
+    /// This is used for imports such as `use std.math.add`.
     pub fn resolve_in(&self, scope_id: ScopeId, name: SymbolId) -> Option<&SymbolInfo> {
         self.scopes[scope_id.0].symbols.get(&name)
     }
@@ -208,11 +207,11 @@ impl SymbolTable {
         None
     }
 
-    /// 更新已存在符号的类型 (用于 let 绑定的类型推导回填)
+    /// Update the type of an existing symbol after inference.
     pub fn update_type(&mut self, name: SymbolId, ty: TypeId) {
         let mut curr = self.current_scope;
 
-        // 沿作用域链向上找，找到在哪定义的，就更新哪里的 info
+        // Update the scope where the symbol was originally defined.
         while let Some(id) = curr {
             let scope = &mut self.scopes[id.0];
             if let Some(info) = scope.symbols.get_mut(&name) {

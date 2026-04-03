@@ -53,7 +53,7 @@ pub struct TargetMachine {
 }
 
 impl TargetMachine {
-    /// 从字符串解析目标架构 (例如 "x86_64-unknown-linux-gnu")
+    /// Parse a target machine description such as `x86_64-unknown-linux-gnu`.
     pub fn new(triple_str: &str) -> Result<Self, String> {
         let triple = Triple::from_str(triple_str).map_err(|e| e.to_string())?;
 
@@ -61,7 +61,7 @@ impl TargetMachine {
             Ok(PointerWidth::U16) => 2,
             Ok(PointerWidth::U32) => 4,
             Ok(PointerWidth::U64) => 8,
-            Err(_) => 8, // 默认 fallback 到 64-bit
+            Err(_) => 8, // Default to 64-bit on unknown pointer widths.
         };
 
         Ok(Self {
@@ -77,7 +77,7 @@ impl TargetMachine {
 
 impl Default for TargetMachine {
     fn default() -> Self {
-        // 默认使用当前宿主机的架构
+        // Default to the host architecture.
         let triple = Triple::host();
         let pointer_size = match triple.pointer_width() {
             Ok(PointerWidth::U16) => 2,
@@ -110,14 +110,14 @@ pub struct CompileOptions {
     pub target: TargetMachine,
     pub opt_level: OptLevel,
     pub driver_mode: DriverMode,
-    /// 允许通过 CLI 传入自定义环境变量，例如 kernc -D my_feature=true
+    /// User-defined compile-time configuration injected from the CLI, for example `-D feature=true`.
     pub custom_defines: HashMap<String, String>,
     /// `craft` project analysis feature selection used by tools such as `kern-lsp`.
     pub craft_features: Vec<String>,
     pub craft_default_features: bool,
-    // 模块别名映射表
+    // Module alias mapping table.
     pub module_aliases: HashMap<String, String>,
-    // 模块接口别名映射表（指向 kmeta 根目录）
+    // Interface alias mapping table rooted at the `kmeta` directory.
     pub module_interface_aliases: HashMap<String, String>,
     pub asm_dialect: AsmDialect,
     pub link_profile: LinkProfile,

@@ -25,7 +25,7 @@ impl<'a> Substituter<'a> {
             | TypeKind::Module(_)
             | TypeKind::TypeVar(_) => ty,
 
-            // 命中泛型参数，执行替换
+            // Replace matching generic parameters with their instantiated types.
             TypeKind::Param(name) => {
                 if let Some(&new_ty) = self.map.get(&name) {
                     new_ty

@@ -11,36 +11,35 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         rhs: &Expr,
         expected_ty: Option<TypeId>,
     ) -> TypeId {
-        // 1. 先检查左操作数，并解析它的真实类型
+        // 1. Check the left operand first and recover its concrete type.
         let lhs_ty = self.check_expr(lhs, expected_ty);
         let l_norm = self.resolve_tv(lhs_ty);
 
-        // 2. 提前判断左边是不是指针
+        // 2. Detect pointer arithmetic up front.
         let is_l_ptr = matches!(
             self.ctx.type_registry.get(l_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
         );
 
-        // 3. 计算右操作数的期望类型
-        // 如果左边是指针，并且正在进行加减法，右边大概率是 usize/isize 偏移量（或另一个指针）。
-        // 此时不能把左边的“指针类型”作为上下文硬塞给右边，否则右边的整型字面量（比如 + 1）会被错误地吸化成指针
+        // 3. Derive the expected type for the right operand.
+        // Pointer addition and subtraction must not force integer literals to become pointers.
         let rhs_expected =
             if is_l_ptr && (op == BinaryOperator::Add || op == BinaryOperator::Subtract) {
-                None // 切断上下文感染，让右侧自然推导为整数
+                None // Let the right-hand side infer naturally as an integer offset.
             } else {
-                Some(lhs_ty) // 对于其他操作（如 Equal, ptr == 0），依然需要上下文让 0 化身为指针
+                Some(lhs_ty) // Other operators still benefit from pointer-aware context.
             };
 
-        // 4. 使用修复后的期望类型去检查右操作数
+        // 4. Check the right operand with the repaired expectation.
         let rhs_ty = self.check_expr(rhs, rhs_expected);
         let r_norm = self.resolve_tv(rhs_ty);
 
-        // 5. 错误冒泡
+        // 5. Propagate earlier errors.
         if l_norm == TypeId::ERROR || r_norm == TypeId::ERROR {
             return TypeId::ERROR;
         }
 
-        // 6. 判断右边是不是指针
+        // 6. Detect whether the right operand is also a pointer.
         let is_r_ptr = matches!(
             self.ctx.type_registry.get(r_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
@@ -51,7 +50,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Add | Subtract => {
                 if is_l_ptr || is_r_ptr {
                     if op == Add {
-                        // ptr + int 或 int + ptr
+                        // `ptr + int` or `int + ptr`.
                         if is_l_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
                             return l_norm;
                         }
@@ -63,10 +62,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         if is_l_ptr && (r_norm == TypeId::USIZE || r_norm == TypeId::ISIZE) {
                             return l_norm;
                         }
-                        // ptr - ptr (偏移量)
+                        // `ptr - ptr` yields an offset.
                         if is_l_ptr && is_r_ptr {
                             if l_norm == r_norm {
-                                return TypeId::ISIZE; // 指针相减返回有符号整数
+                                return TypeId::ISIZE; // Pointer subtraction yields a signed offset.
                             } else {
                                 self.ctx
                                     .struct_error(
@@ -80,14 +79,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         }
                     }
 
-                    // 拒绝非法的指针运算（如加上 i32 等隐式提升）
+                    // Reject invalid pointer arithmetic combinations.
                     self.ctx.struct_error(lhs.span, "invalid pointer arithmetic")
                         .with_hint("pointer arithmetic requires `usize` or `isize` offsets, or subtraction between identical pointer types")
                         .emit();
                     return TypeId::ERROR;
                 }
 
-                // 拦截 void 运算
+                // Reject arithmetic on `void`.
                 if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
                 {
                     self.ctx
@@ -100,7 +99,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::ERROR;
                 }
 
-                // 常规数值加减法
+                // Normal numeric arithmetic.
                 if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }
@@ -132,14 +131,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 l_norm
             }
             Equal | NotEqual => {
-                // 允许 void == void，这将在编译期被常量折叠为 true
+                // Allow `void == void`; constexpr will fold it to `true`.
                 if !self.check_coercion(rhs, l_norm, r_norm) {
                     return TypeId::ERROR;
                 }
                 TypeId::BOOL
             }
             LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
-                // === 不允许对 void 比较大小 ===
+                // Ordering comparisons on `void` are never valid.
                 if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
                 {
                     self.ctx
@@ -184,7 +183,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> TypeId {
         let inner_expected = match op {
             UnaryOperator::Negate | UnaryOperator::BitwiseNot => expected_ty,
-            // 兼容不可变取址和可变取址
+            // Support both immutable and mutable address-of forms.
             UnaryOperator::AddressOf | UnaryOperator::MutAddressOf => {
                 if let Some(exp) = expected_ty {
                     let norm = self.resolve_tv(exp);
@@ -210,7 +209,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             UnaryOperator::AddressOf | UnaryOperator::MutAddressOf => {
                 let is_mut = op == UnaryOperator::MutAddressOf;
 
-                // 不允许对不可变的左值使用 `..&` 获取可变指针
+                // Mutable address-of requires a mutable lvalue.
                 if is_mut && !self.is_lvalue_mutable(operand) {
                     self.ctx
                         .struct_error(
@@ -244,25 +243,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             UnaryOperator::MetaOf => {
                 let norm = self.resolve_tv(op_ty);
-                let kind = self.ctx.type_registry.get(norm).clone(); // Clone 一下方便 match
+                let kind = self.ctx.type_registry.get(norm).clone(); // Clone to simplify matching.
 
                 match kind {
-                    // 1. 传统的切片和数组：返回 usize 长度
+                    // 1. Slices and arrays produce their logical length.
                     TypeKind::Array { .. }
                     | TypeKind::Slice { .. }
                     | TypeKind::ArrayInfer { .. } => TypeId::USIZE,
 
-                    // 2. 闭包与 Trait 胖指针：提取底层的数据状态指针 (*mut void 或 *void)
+                    // 2. Closure and trait fat pointers expose their underlying data pointer.
                     TypeKind::Pointer { is_mut, elem } | TypeKind::VolatilePtr { is_mut, elem } => {
                         let elem_norm = self.resolve_tv(elem);
                         let inner_kind = self.ctx.type_registry.get(elem_norm);
 
-                        // 闭包接口和 Trait Object 都是标准的 { data_ptr, meta_ptr } 胖指针
+                        // Both closure interfaces and trait objects use `{ data_ptr, meta_ptr }`.
                         if matches!(
                             inner_kind,
                             TypeKind::ClosureInterface { .. } | TypeKind::TraitObject(..)
                         ) {
-                            // 构造并返回 *mut void 或 *void，以便用于底层的显式 free 或 unsafe 转换
+                            // Return a raw data pointer for explicit frees or low-level unsafe casts.
                             self.ctx.type_registry.intern(TypeKind::Pointer {
                                 is_mut,
                                 elem: TypeId::VOID,
@@ -320,7 +319,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub fn check_assign(&mut self, lhs: &Expr, rhs: &Expr) -> TypeId {
         let lhs_ty = self.check_expr(lhs, None);
 
-        // 使用继承可变性分析器
+        // Defer to the inherited-mutability analysis.
         if !self.is_lvalue_mutable(lhs) && lhs_ty != TypeId::ERROR {
             self.ctx
                 .struct_error(

@@ -21,7 +21,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         self.ctx
     }
 
-    /// 执行完整的导入解析 Pass (支持不动点迭代)
+    /// Resolve all imports, repeating until the graph reaches a fixed point.
     pub fn resolve_all(&mut self) {
         let module_ids: Vec<DefId> = self
             .ctx
@@ -45,24 +45,24 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             }
         }
 
-        // 不动点迭代算法
+        // Fixed-point iteration handles imports whose dependencies resolve later.
         let mut progress = true;
         while progress && !pending_imports.is_empty() {
             progress = false;
             let mut unresolved = Vec::new();
 
             for (mod_id, import) in pending_imports {
-                // 在迭代期间保持静默 (emit_errors = false)
+                // Stay quiet during speculative iterations.
                 if self.resolve_single_import(mod_id, &import, false) {
                     progress = true;
                 } else {
-                    unresolved.push((mod_id, import)); // 没找到，等下一轮
+                    unresolved.push((mod_id, import)); // Defer unresolved imports to the next round.
                 }
             }
             pending_imports = unresolved;
         }
 
-        // 如果还有没解析完的，开启报错开关进行最后一次解析
+        // Run one final pass with diagnostics enabled for anything still unresolved.
         for (mod_id, failed_import) in pending_imports {
             self.resolve_single_import(mod_id, &failed_import, true);
         }
@@ -78,9 +78,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
         match &import.target {
             UseTarget::Module(alias) => {
-                // 分离父路径和目标名
-                // 对于 `use .utils.print_point;`，path 是 [utils, print_point]
-                // parent_path 是 [utils]，target_name 是 print_point
+                // Split `use .utils.print_point;` into parent path `[utils]` and target `print_point`.
                 let (parent_path, last_segment) = import.path.split_at(import.path.len() - 1);
                 let target_name = last_segment[0];
 
@@ -133,7 +131,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                 }
             }
             UseTarget::Members(members) => {
-                // 1. 先解析基础路径，比如 `use std.{env.Args};`，这里 target_mod_id 解析到了 `std` 模块
+                // 1. Resolve the base module path first, for example `std` in `use std.{env.Args};`.
                 let (target_mod_id, _) = match self.resolve_path(
                     current_mod_id,
                     import.path_kind,
@@ -147,15 +145,13 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
 
                 let mut all_resolved = true;
 
-                // 2. 遍历大括号里的每一个成员
+                // 2. Resolve each brace member relative to that base module.
                 for member in members {
-                    // 分离成员路径的前缀和最终目标
-                    // 对于 `env.Args` -> prefix = [env], target = Args
-                    // 对于普通的 `io` -> prefix = [], target = io
+                    // Split each member path into its prefix and final symbol.
                     let (member_prefix, last_segment) = member.path.split_at(member.path.len() - 1);
                     let target_name = last_segment[0];
 
-                    // 复用 resolve_path：把刚才解析出的基础模块当作起点 (Current) 往下找
+                    // Reuse `resolve_path` starting from the already resolved base module.
                     let (mem_mod_id, mem_scope) = match self.resolve_path(
                         target_mod_id,
                         UsePathKind::Current,
@@ -170,9 +166,9 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
                         }
                     };
 
-                    // 在最终指向的作用域中查找符号
+                    // Look up the final symbol in the resolved scope.
                     if let Some(symbol_info) = self.ctx.scopes.resolve_in(mem_scope, target_name) {
-                        // 注意这里可见性检查的目标模块换成了 mem_mod_id
+                        // Visibility must be checked against the member's effective parent module.
                         if !self.check_visibility(symbol_info, current_mod_id, mem_mod_id) {
                             if emit_errors {
                                 let name_str = self.ctx.resolve(target_name).to_string();
@@ -221,41 +217,41 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
     //               Core Resolution
     // ==========================================
 
-    /// 解析路径，返回目标模块的 (DefId, ScopeId)
+    /// Resolve an import path to its target module definition and scope.
     fn resolve_path(
         &mut self,
         current_mod_id: DefId,
         kind: UsePathKind,
         path: &[SymbolId],
         span: Span,
-        emit_errors: bool, // 静默开关
+        emit_errors: bool, // Silence speculative failures during fixed-point iteration.
     ) -> Option<(DefId, ScopeId)> {
         let mut actual_path = path;
         let (mut curr_mod_id, mut curr_scope) = match kind {
             UsePathKind::Root => {
                 if let Some(&first_seg) = actual_path.first() {
-                    // 第一优先级：检查是否请求了外部包 (如 `use std.io;` 中的 `std`)
+                    // First try external package aliases such as `std` in `use std.io;`.
                     if let Some(&alias_root_id) = self.ctx.alias_roots.get(&first_seg) {
-                        // 命中外部包,将路径缩短，抛弃 'std'，剩下 '[io]' 给后续遍历
+                        // Strip the alias head and continue with the remaining segments.
                         actual_path = &actual_path[1..];
                         (alias_root_id, self.get_module_scope(alias_root_id))
                     } else {
-                        // 第二优先级：回退到本地主项目根目录
+                        // Otherwise fall back to the local root module.
                         let root_id = self.root_module_id(current_mod_id)?;
                         (root_id, self.get_module_scope(root_id))
                     }
                 } else {
-                    // 空路径容错
+                    // Defensive handling for empty paths.
                     let root_id = self.root_module_id(current_mod_id)?;
                     (root_id, self.get_module_scope(root_id))
                 }
             }
             UsePathKind::Current => {
-                // 当前模块
+                // Start from the current module.
                 (current_mod_id, self.get_module_scope(current_mod_id))
             }
             UsePathKind::Parent => {
-                // 直接跳向父模块
+                // Climb directly to the parent module.
                 if let Some(module) = self.module_def(current_mod_id).cloned() {
                     if let Some(pid) = module.parent {
                         (pid, self.get_module_scope(pid))
@@ -280,12 +276,12 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             }
         };
 
-        // 如果路径是空的，说明目标就是起始模块自己 (例如 `use .{ A, B }` 或者 `use ..{ C }`)
+        // An empty path means the start module itself is the target.
         if actual_path.is_empty() {
             return Some((curr_mod_id, curr_scope));
         }
 
-        // 常规路径遍历
+        // Resolve the remaining path segments normally.
         for &segment in actual_path {
             if let Some(symbol) = self.ctx.scopes.resolve_in(curr_scope, segment) {
                 if symbol.kind == SymbolKind::Module
@@ -320,26 +316,24 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         Some((curr_mod_id, curr_scope))
     }
 
-    /// 检查符号是否对当前模块可见
+    /// Check whether a resolved symbol is visible from the importing module.
     fn check_visibility(
         &self,
         symbol_info: &SymbolInfo,
         current_mod: DefId,
         target_mod: DefId,
     ) -> bool {
-        // 1. 如果是从当前模块自身导入（或者是它的子模块向父模块索取），直接放行
+        // 1. Imports from the same module family are always visible.
         if current_mod == target_mod {
             return true;
         }
 
-        // 2. 检查这个符号在目标作用域里的可见性
-        // 如果这里是 false，说明它是目标的私有财产，不管是模块还是变量，一律拦截
+        // 2. Respect the symbol's immediate visibility flag in the target scope.
         if !symbol_info.is_pub {
             return false;
         }
 
-        // 3. 如果 symbol_info 说是 public 的（比如通过 pub use，或者 pub fn），
-        // 我们再去检查它的底层实体是否真的是公开的。
+        // 3. Reexports still require the underlying definition to be public.
         let def_id = match symbol_info.def_id {
             Some(id) => id,
             None => return true,
@@ -354,7 +348,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             Def::Trait(d) => d.vis,
             Def::Global(d) => d.vis,
             Def::TypeAlias(d) => d.vis,
-            // 模块本体视为公开，它的真正可见性已经被上面的 `!symbol_info.is_pub` 控制了
+            // Module visibility has already been handled by the scope entry itself.
             Def::Module(_) => Visibility::Public,
             Def::Impl(_) => return true,
         };
@@ -403,7 +397,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
         }
     }
 
-    /// 将解析好的符号注入到当前模块的作用域
+    /// Inject a resolved import into the current module scope.
     fn define_import(
         &mut self,
         target_scope: ScopeId,
@@ -423,9 +417,9 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             && emit_errors
             && old_info.span != span
         {
-            // 容忍特判：如果是导入同一个东西（比如显式的 use 和隐式的子模块同名），直接放行
+            // Allow no-op duplicate imports of the exact same target.
             if old_info.def_id == info.def_id && old_info.kind == info.kind {
-                // 一切正常，它本来就在这里
+                // Nothing to do: the same symbol is already present.
             } else {
                 let name_str = self.ctx.resolve(name).to_string();
                 self.ctx

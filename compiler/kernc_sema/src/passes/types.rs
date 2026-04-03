@@ -28,7 +28,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.current_scope_id()
     }
 
-    /// 执行完整的类型解析 Pass (Two-Pass 架构)
+    /// Run the full type-resolution pass in two stages.
     pub fn resolve_all(&mut self) {
         let module_ids = self.collect_module_ids();
         self.resolve_module_pass(&module_ids, true);
@@ -301,13 +301,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     // ==========================================
-    //          核心类型转换逻辑
+    //          Core type conversion logic
     // ==========================================
 
-    /// 将 AST TypeNode 转换为语义 TypeId
+    /// Convert an AST `TypeNode` into a semantic `TypeId`.
     pub fn resolve_type(&mut self, ty_node: &ast::TypeNode, env_scope: ScopeId) -> TypeId {
-        // 优先检查是否已被 ExprChecker 现场推导过
-        // 用于实现 @typeOf 的动态求类型
+        // Prefer types already inferred by the expression checker, especially for `@typeOf`.
         if let Some(&cached_ty) = self.ctx.node_types.get(&ty_node.id)
             && cached_ty != TypeId::ERROR
         {
@@ -320,7 +319,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             } => self.resolve_path_type(segments, generics, env_scope, ty_node.span),
             ast::TypeKind::Void => TypeId::VOID,
 
-            // 内联的匿名结构体
+            // Inline anonymous struct.
             ast::TypeKind::Struct { is_extern, fields } => {
                 let mut anon_fields =
                     self.resolve_anonymous_fields(fields, env_scope, ty_node.span, "struct", true);
@@ -504,11 +503,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
 
             ast::TypeKind::TypeOf(expr) => {
-                // 占位
+                // Placeholder until anonymous unions are fully modeled here.
                 self.resolve_expr(expr, env_scope);
                 TypeId::ERROR
             }
-            // Struct/Enum/Union/Trait 在这里不会直接作为匿名类型出现 (已被 Collect 提取)
+            // Named nominal types are collected earlier and should not appear as anonymous shapes here.
             _ => {
                 self.ctx
                     .emit_error(ty_node.span, "Invalid or unsupported type construction");
@@ -596,7 +595,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    // 递归查找并解析表达式内部的所有 TypeNode
+    // Recursively resolve every nested `TypeNode` inside an expression tree.
     fn resolve_pattern(&mut self, pattern: &ast::Pattern, scope: ScopeId) {
         match &pattern.kind {
             ast::PatternKind::Binding(_)
@@ -637,7 +636,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
             ast::ExprKind::As { lhs, target } => {
                 self.resolve_expr(lhs, scope);
-                self.resolve_type(target, scope); // 捕获 TypeNode
+                self.resolve_type(target, scope); // Resolve captured type nodes.
             }
             ast::ExprKind::Block { stmts, result } => {
                 for stmt in stmts {
@@ -734,13 +733,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
             ast::ExprKind::GenericInstantiation { target, types } => {
                 self.resolve_expr(target, scope);
-                // 捕获泛型实参
+                // Resolve generic arguments.
                 for ty in types {
                     self.resolve_type(ty, scope);
                 }
             }
             ast::ExprKind::DataInit { type_node, literal } => {
-                // 捕获 Elided Initialization 的前缀类型
+                // Resolve the elided-initialization prefix type.
                 if let Some(ty) = type_node {
                     self.resolve_type(ty, scope);
                 }
@@ -778,12 +777,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Defer { expr: e } => self.resolve_expr(e, scope),
             ast::ExprKind::Return(Some(e)) => self.resolve_expr(e, scope),
 
-            // 所有叶子节点 (Identifier, Int, EnumLiteral, Break 等) 直接忽略
+            // Leaf nodes such as identifiers and literals contain no nested type nodes.
             _ => {}
         }
     }
 
-    /// 严格的路径类型解析 (支持 `module.submodule.Type[Generic]`)
+    /// Strict path-based type resolution, including `module.submodule.Type[Generic]`.
     fn resolve_path_type(
         &mut self,
         segments: &[SymbolId],
@@ -798,10 +797,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let mut curr_scope = env_scope;
         let mut target_symbol = None;
 
-        // 逐级解析路径
+        // Resolve the path segment by segment.
         for (i, &segment) in segments.iter().enumerate() {
             if i == 0 {
-                // 第一段：如果只有一段，优先检查内置基础类型
+                // First segment: a single identifier may refer to a builtin primitive.
                 if segments.len() == 1 {
                     let name_str = self.ctx.resolve(segment);
                     if let Some(prim_id) = self.resolve_builtin_primitive(name_str) {
@@ -813,11 +812,11 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     }
                 }
 
-                // 沿着作用域树向上查找
+                // Walk outward through lexical scopes.
                 self.ctx.scopes.set_current_scope(curr_scope);
                 target_symbol = self.ctx.scopes.resolve(segment).cloned();
             } else {
-                // 后续段：严格只在前一个模块的内部作用域中查找
+                // Later segments must resolve inside the previous module scope only.
                 target_symbol = self.ctx.scopes.resolve_in(curr_scope, segment).cloned();
             }
 
@@ -838,7 +837,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
             };
 
-            // 如果还没到最后一段，当前符号必须是个模块
+            // Intermediate segments must resolve to modules.
             if i < segments.len() - 1 {
                 if sym.kind == SymbolKind::Module {
                     let Some(mod_def_id) =
@@ -868,13 +867,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return TypeId::ERROR;
         };
 
-        // 解析附带的泛型参数 (在原始的作用域中解析)
+        // Resolve attached generic arguments in the original lookup scope.
         let mut resolved_generics = Vec::with_capacity(generics.len());
         for gen_ast in generics {
             resolved_generics.push(self.resolve_type(gen_ast, env_scope));
         }
 
-        // 验证最终符号的类型
+        // Validate the kind of the final resolved symbol.
         match final_sym.kind {
             SymbolKind::Struct | SymbolKind::Union => {
                 let Some(def_id) = self.required_def_id(&final_sym, span, "type", segments[0])
@@ -918,11 +917,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     self.ctx
                         .emit_error(span, "Type parameters cannot take generic arguments");
                 }
-                final_sym.type_id // 直接返回 Param(SymbolId)
+                final_sym.type_id // Type parameters already carry their final `TypeId`.
             }
             SymbolKind::TypeAlias => {
-                // 如果是编译器虚拟注入的泛型参数 T 或者 Self，它们没有物理 Def
-                // 直接返回在注入时就准备好的 type_id即可
+                // Compiler-injected `T` or `Self` entries have no physical def and already store the right type.
                 if final_sym.def_id.is_none() {
                     return final_sym.type_id;
                 }
@@ -935,7 +933,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     return TypeId::ERROR;
                 }
 
-                // 动态获取最新解析的 AST 类型，不要用 Import 克隆带来的陈旧 final_sym.type_id
+                // Re-read the latest target type instead of trusting a stale imported clone.
                 let target_ty = if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
                     self.ctx
                         .node_types
@@ -946,7 +944,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     TypeId::ERROR
                 };
 
-                // 防止因循环依赖或解析顺序导致的静默 ERROR 污染 AST
+                // Avoid silently propagating stale `ERROR` types back into the AST.
                 if target_ty == TypeId::ERROR {
                     let name = self.last_segment_name(segments);
                     self.ctx.struct_error(span, format!("type alias `{}` could not be resolved", name))
@@ -956,10 +954,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
 
                 if resolved_generics.is_empty() {
-                    // 没有传入泛型，直接穿透返回
+                    // No generic arguments were supplied, so forward the alias target directly.
                     target_ty
                 } else {
-                    // 获取别名的定义以提取泛型名字
+                    // Load the alias definition to recover its generic parameter names.
                     if let Def::TypeAlias(t_def) = &self.ctx.defs[def_id.0 as usize] {
                         if t_def.generics.len() != resolved_generics.len() {
                             self.ctx.emit_error(
@@ -974,7 +972,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                             return TypeId::ERROR;
                         }
 
-                        // 构造映射字典并执行替换
+                        // Build the substitution map and apply it.
                         let mut map = std::collections::HashMap::new();
                         for (i, param) in t_def.generics.iter().enumerate() {
                             map.insert(param.name, resolved_generics[i]);
@@ -1272,7 +1270,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     fn bind_generics(&mut self, generics: &[ast::GenericParam], scope: ScopeId) {
         self.ctx.scopes.set_current_scope(scope);
 
-        // 把所有的泛型参数名注入作用域
+        // Inject every generic parameter name into the current scope.
         for param in generics {
             let param_ty = self.ctx.type_registry.intern(TypeKind::Param(param.name));
             let info = SymbolInfo {
@@ -1288,12 +1286,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    /// 解析 where 子句中的所有 TypeNode，确保它们被注册到 ctx.node_types 中
+    /// Resolve every type node in where-clauses so they are cached in `ctx.node_types`.
     fn resolve_where_clauses(&mut self, clauses: &[ast::WhereClause], scope: ScopeId) {
         for clause in clauses {
-            // 解析左侧目标类型 (例如 *mut T)
+            // Resolve the constrained target type on the left-hand side.
             self.resolve_type(&clause.target_ty, scope);
-            // 解析右侧的所有 Trait 约束
+            // Resolve every trait bound on the right-hand side.
             for bound in &clause.bounds {
                 self.resolve_type(bound, scope);
             }
@@ -1312,7 +1310,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             is_pub: false,
             is_mut: false,
         };
-        // 允许重复定义（覆盖外部可能存在的同名绑定）
+        // Allow shadowing here so generic bindings can override outer names.
         let _ = self.ctx.scopes.define(self_sym, info);
     }
 

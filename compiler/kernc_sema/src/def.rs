@@ -5,11 +5,11 @@ use kernc_utils::{FileId, Span, SymbolId};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// 定义 ID (指向 struct/enum/union/trait 的声明)
+/// Identifier for a semantic definition collected from the AST.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DefId(pub u32);
 
-/// 定义的可见性
+/// Public visibility marker for top-level semantic items.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Visibility {
     Public,
@@ -26,8 +26,8 @@ impl From<bool> for Visibility {
     }
 }
 
-/// 全局顶层定义的聚合枚举
-/// 语义分析的 Collect 阶段会将 AST 转换为这些定义对象。
+/// Unified representation for every top-level semantic definition.
+/// The collect pass lowers AST declarations into these records.
 #[derive(Debug, Clone)]
 pub enum Def {
     Module(ModuleDef),
@@ -52,7 +52,7 @@ impl Def {
             Def::Trait(d) => Some(d.name),
             Def::Global(d) => Some(d.name),
             Def::TypeAlias(d) => Some(d.name),
-            Def::Impl(_) => None, // Impl 块没有直接的名字
+            Def::Impl(_) => None, // Impl blocks are anonymous containers.
         }
     }
 }
@@ -65,20 +65,16 @@ impl Def {
 pub struct ModuleDef {
     pub id: DefId,
     pub name: SymbolId,
-    pub parent: Option<DefId>, // 记录父模块 (例如 std.io 的父模块是 std)
+    pub parent: Option<DefId>, // Parent module, for example `std` is the parent of `std.io`.
     pub is_imported: bool,
     pub scope_id: ScopeId,
-    // 物理路径信息。
-    // 用于处理相对导入 `use .xxx` 时，作为基准路径
-    // 如果该模块是 a/b.rn，dir_path 就是 a/
-    // 如果该模块是 a/b/init.rn，dir_path 就是 a/b/
+    // Physical directory used as the anchor for relative imports like `use .foo`.
     pub dir_path: PathBuf,
     pub file_id: FileId,
-    // 子模块注册表
-    // 只有真正在文件系统中被按需加载的子模块，才会存在这里
+    // On-demand registry of filesystem-backed submodules.
     pub submodules: HashMap<SymbolId, DefId>,
-    pub items: Vec<DefId>,       // 模块内定义的成员
-    pub imports: Vec<ImportDef>, // 记录所有的 use 声明，留给下一阶段解析
+    pub items: Vec<DefId>,       // Definitions owned by this module.
+    pub imports: Vec<ImportDef>, // Deferred `use` declarations resolved by a later pass.
     pub is_init: bool,
 }
 
@@ -97,12 +93,12 @@ pub struct FunctionDef {
     pub name: SymbolId,
     pub name_span: Span,
     pub vis: Visibility,
-    pub parent: Option<DefId>, // 所属的 Module 或 Impl 块
+    pub parent: Option<DefId>, // Enclosing module or impl block.
     pub is_imported: bool,
     pub generics: Vec<ast::GenericParam>,
     pub where_clauses: Vec<ast::WhereClause>,
     pub params: Vec<ast::FuncParam>,
-    pub ret_type: ast::TypeNode, // AST 类型，等待 Resolve Pass 转换为 TypeId
+    pub ret_type: ast::TypeNode, // AST return type before semantic resolution.
     pub body: Option<Box<ast::Expr>>,
     pub is_const: bool,
     pub is_extern: bool,
@@ -163,7 +159,7 @@ pub struct TraitDef {
     pub where_clauses: Vec<ast::WhereClause>,
     pub supertraits: Vec<ast::TypeNode>,
     pub resolved_supertraits: Vec<TypeId>,
-    // 特征中定义的方法契约
+    // Method contracts declared by the trait.
     pub methods: Vec<ast::StructFieldDef>,
     pub resolved_methods: Vec<(SymbolId, TypeId)>,
     pub span: Span,
@@ -191,7 +187,7 @@ pub struct ImplDef {
     pub where_clauses: Vec<ast::WhereClause>,
     pub target_type: ast::TypeNode,
     pub trait_type: Option<ast::TypeNode>,
-    // 收集属于该 impl 块的所有方法的 DefId
+    // Methods collected under this impl block.
     pub methods: Vec<DefId>,
     pub span: Span,
 }

@@ -3,11 +3,12 @@ use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
 use kernc_sema::ty::TypeId;
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
 
-/// 每一个 MAST 表达式都必须显式携带它的具体类型。
+/// Every MAST expression carries its fully resolved type explicitly.
 #[derive(Debug, Clone)]
 pub struct MastExpr {
     pub ty: TypeId,
-    pub span: Span, // 仅用于报错或生成 Debug Info (DWARF)
+    /// Used for diagnostics and optional debug info generation.
+    pub span: Span,
     pub kind: MastExprKind,
 }
 
@@ -19,7 +20,7 @@ impl MastExpr {
 
 #[derive(Debug, Clone)]
 pub enum MastExprKind {
-    // --- 1. 基本字面量 ---
+    // --- 1. Basic literals ---
     Undef,
     Unreachable,
     Trap,
@@ -27,23 +28,26 @@ pub enum MastExprKind {
     Integer(u128),
     Float(f64),
     Bool(bool),
-    /// 字符串在 LLVM 中通常生成一个全局常量数组。
-    /// 保留 StringLiteral 方便 Codegen 时自动生成 Global Variable 并返回指针。
+    /// Strings are typically emitted as global constant arrays in LLVM.
+    /// Keeping this variant lets codegen materialize the backing global lazily.
     StringLiteral(String),
 
-    // --- 2. 引用 ---
-    Var(SymbolId),     // 局部变量/函数参数引用
-    GlobalRef(MonoId), // 引用 static 全局变量 (返回的是指针)
-    FuncRef(MonoId),   // 引用具体的函数 (返回函数指针)
+    // --- 2. References ---
+    /// Local variable or parameter reference.
+    Var(SymbolId),
+    /// Reference to a static global, producing a pointer value.
+    GlobalRef(MonoId),
+    /// Reference to a concrete function, producing a function pointer.
+    FuncRef(MonoId),
 
-    // --- 3. 内存操作 ---
+    // --- 3. Memory operations ---
     AddressOf(Box<MastExpr>),
     Deref(Box<MastExpr>),
 
-    // --- 4. 聚合数据访问与构造 ---
+    // --- 4. Aggregate construction and access ---
     StructInit {
         struct_id: MonoId,
-        /// 已经按照结构体内存布局排序好的字段初始化值
+        /// Field initializers already ordered in physical layout order.
         fields: Vec<MastExpr>,
     },
     UnionInit {
@@ -53,21 +57,22 @@ pub enum MastExprKind {
     },
     ArrayInit(Vec<MastExpr>),
 
-    /// 结构体字段访问
+    /// Struct field access.
     FieldAccess {
         lhs: Box<MastExpr>,
-        struct_id: MonoId, // 显式记录所属结构体的具体 MonoId
+        /// Concrete owner struct used for layout lookup.
+        struct_id: MonoId,
         field_idx: usize,
     },
 
-    /// 数组或切片索引
+    /// Array or slice indexing.
     IndexAccess {
         lhs: Box<MastExpr>,
         index: Box<MastExpr>,
     },
 
-    // --- 5. 执行与控制流 ---
-    /// 统一的调用接口 (方法调用、泛型调用均已被 Lowerer 转换为普通的 FuncRef 或 Var 调用)
+    // --- 5. Execution and control flow ---
+    /// Unified call form used after methods and generics are lowered to plain callees.
     Call {
         callee: Box<MastExpr>,
         args: Vec<MastExpr>,
@@ -79,14 +84,15 @@ pub enum MastExprKind {
         else_branch: Option<MastBlock>,
     },
 
-    /// 包含循环体和一个专门的 Latch (锁存) 块，用于执行 `i += 1` 等 post 语句。
-    /// 遇到 continue 时，会直接跳转到 latch 块执行，然后再判断是否进入下一轮。
+    /// Loop body plus an optional latch block for lowered `for`-loop post expressions.
+    /// `continue` jumps to the latch before reevaluating the loop.
     Loop {
         body: MastBlock,
-        latch: Option<MastBlock>, // 对应 for 循环的 post 语句
+        /// Lowered `for` post clause.
+        latch: Option<MastBlock>,
     },
 
-    /// Switch 被保留，因为 LLVM 有原生的 `switch` 指令，比 if-else 链快得多。
+    /// Switch is preserved because LLVM has a native `switch` instruction.
     Switch {
         target: Box<MastExpr>,
         cases: Vec<MastSwitchCase>,
@@ -95,9 +101,10 @@ pub enum MastExprKind {
 
     Break,
     Continue,
-    Return(Option<Box<MastExpr>>), // 包含的表达式已经过 Coercion 类型转换
+    /// Return expression after coercions have already been applied.
+    Return(Option<Box<MastExpr>>),
 
-    // --- 6. 运算 ---
+    // --- 6. Operators ---
     Binary {
         op: BinaryOperator,
         lhs: Box<MastExpr>,
@@ -113,43 +120,44 @@ pub enum MastExprKind {
         rhs: Box<MastExpr>,
     },
 
-    // --- 7. 类型转换 (细化，讨好 LLVM) ---
-    /// 在前端，一切转换都是 `as`。但在 MAST，必须拆分成 LLVM 级别的具体操作。
+    // --- 7. Casts ---
+    /// Frontend `as` casts are lowered into LLVM-oriented cast categories here.
     Cast {
         kind: MastCastKind,
         operand: Box<MastExpr>,
     },
 
-    // --- 8. 胖指针 / Trait Object 构建 ---
-    /// `let r = p as mut Reader;` 降级为手动拼装一个包含两个指针的 Struct
+    // --- 8. Fat pointers / trait objects ---
+    /// Manual construction of a two-field fat pointer struct.
     ConstructFatPointer {
         data_ptr: Box<MastExpr>,
-        /// 如果是 Trait Object，这是 vtable_ptr；
-        /// 如果是 Slice/String，这是一个常量 Integer 表示长度！
+        /// Vtable pointer for trait objects, or immediate metadata such as slice length.
         meta: Box<MastExpr>,
     },
 
-    /// 提取胖指针的数据指针 (相当于 llvm extractvalue 0)
+    /// Extracts the data pointer from a fat pointer (`extractvalue 0`).
     ExtractFatPtrData(Box<MastExpr>),
-    /// 提取胖指针的元数据 (vtable_ptr 或 slice_len，相当于 extractvalue 1)
+    /// Extracts fat-pointer metadata (`extractvalue 1`).
     ExtractFatPtrMeta(Box<MastExpr>),
 
-    // --- 9. 执行块 ---
-    /// 作为一个整体表达式执行的代码块 (用于嵌套作用域和 Defer 展开)
+    // --- 9. Executable blocks ---
+    /// A block executed as a standalone expression value.
     Block(MastBlock),
 
-    // --- 10. Enum 原语 (背后是 Struct+Union 或 纯整数 布局) ---
-    /// 构建一个带负载的 Enum 实例。
-    /// 在物理上，LLVM 把它当作一个 `{ TagType, UnionType }` 的结构体。
+    // --- 10. Enum primitives ---
+    /// Constructs a payload-carrying enum value.
+    /// Physically this is emitted as a `{ TagType, UnionType }` struct.
     DataInit {
-        data_struct_id: MonoId, // 降级后的包装结构体 ID
-        tag_value: u128,        // 具体的枚举鉴别器
-        /// 变体的具体负载，如果没有负载就是 Undef
+        /// Wrapper struct generated during lowering.
+        data_struct_id: MonoId,
+        /// Concrete enum discriminant value.
+        tag_value: u128,
+        /// Variant payload, or `Undef` when the variant is payload-free.
         payload: Box<MastExpr>,
     },
 
-    // --- 11. LLVM Inline Assembly ---
-    /// 经过 Lowering 降级后，完美契合 LLVM `call asm` 指令的数据结构
+    // --- 11. LLVM inline assembly ---
+    /// Lowered representation tailored to LLVM `call asm`.
     Asm(MastAsmBlock),
 
     BitIntrinsic {
@@ -194,7 +202,7 @@ pub enum MastExprKind {
         len: Box<MastExpr>,
     },
 
-    /// 底层切片组装指令
+    /// Primitive slice assembly operation.
     SliceOp {
         lhs: Box<MastExpr>,
         start: Option<Box<MastExpr>>,
@@ -205,26 +213,26 @@ pub enum MastExprKind {
 
 #[derive(Debug, Clone)]
 pub struct MastSwitchCase {
-    // 经过 Const Eval 后，所有的 case pattern 都变成了确定的整数值
+    // After const-eval, every case pattern becomes a concrete integer.
     pub values: Vec<u128>,
     pub body: MastBlock,
 }
 
-/// 详尽的类型转换分类，与 LLVM IR 指令一一对应
+/// Detailed cast categories chosen to map cleanly onto LLVM IR operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MastCastKind {
-    Bitcast,      // 相同大小的位模式转换 (如 *i32 到 *u8)
-    PtrToInt,     // 指针转整数 (如 *u8 到 usize)
-    IntToPtr,     // 整数转指针 (如 usize 到 *u8)
-    SignExt,      // 有符号整数扩展 (如 i8 到 i32)
-    ZeroExt,      // 无符号整数扩展 (如 u8 到 u32)
-    Trunc,        // 整数截断 (如 i32 到 i8)
+    Bitcast,      // Same-size bit reinterpretation, e.g. `*i32` to `*u8`.
+    PtrToInt,     // Pointer to integer, e.g. `*u8` to `usize`.
+    IntToPtr,     // Integer to pointer, e.g. `usize` to `*u8`.
+    SignExt,      // Signed integer extension, e.g. `i8` to `i32`.
+    ZeroExt,      // Unsigned integer extension, e.g. `u8` to `u32`.
+    Trunc,        // Integer truncation, e.g. `i32` to `i8`.
     SIntToFloat,  // sitofp
     UIntToFloat,  // uitofp
     FloatToSInt,  // fptosi
     FloatToUInt,  // fptoui
-    FloatCast,    // 浮点数精度转换 (f32 <=> f64)
-    ArrayToSlice, // 隐式降级：构造切片胖指针
+    FloatCast,    // Floating-point precision conversion, e.g. `f32` <=> `f64`.
+    ArrayToSlice, // Implicit decay that constructs a slice fat pointer.
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -237,20 +245,20 @@ pub enum BitIntrinsicKind {
 
 #[derive(Debug, Clone)]
 pub struct MastAsmBlock {
-    /// 经过合并的汇编模板字符串，例如 "out dx, al \n in al, dx"
+    /// Merged assembly template, for example `"out dx, al \n in al, dx"`.
     pub asm_template: String,
 
-    /// LLVM 标准约束字符串，例如 "={al},{dx},{al},~{memory}"
+    /// LLVM constraint string, for example `"={al},{dx},{al},~{memory}"`.
     pub constraints: String,
 
-    /// 传给内联汇编的实参 (仅包含 inputs)
+    /// Runtime input operands passed to the asm call.
     pub input_args: Vec<MastExpr>,
 
-    /// 接收返回值的指针 (对应 outputs)
-    /// Codegen 阶段会自动将汇编返回的结果 Store 到这些指针里
+    /// Pointers that receive asm outputs.
+    /// Codegen stores the returned values into these locations automatically.
     pub output_ptrs: Vec<MastExpr>,
 
-    /// 输出变量的基础类型 (用于 Codegen 生成正确的接收和提取指令)
+    /// Base output types used by codegen to materialize correct receive logic.
     pub output_tys: Vec<TypeId>,
 
     pub is_volatile: bool,

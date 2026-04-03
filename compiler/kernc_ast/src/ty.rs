@@ -10,92 +10,93 @@ pub struct TypeNode {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeKind {
-    /// 路径类型引用: `i32`, `std.io.File`, `Map[K, V]`
+    /// Path type reference such as `i32`, `std.io.File`, or `Map[K, V]`.
     Path {
         segments: Vec<SymbolId>,
         segment_spans: Vec<Span>,
         generics: Vec<TypeNode>,
     },
 
-    /// 指针: `*T`, `*mut T`
+    /// Pointer type: `*T` or `*mut T`.
     Pointer {
         is_mut: bool,
         elem: Box<TypeNode>,
     },
 
-    /// 易失指针: `^T`, `^mut T`
+    /// Volatile pointer type: `^T` or `^mut T`.
     VolatilePtr {
         is_mut: bool,
         elem: Box<TypeNode>,
     },
 
-    /// 数组: `[N]T`
+    /// Array type: `[N]T`.
     Array {
         is_mut: bool,
         elem: Box<TypeNode>,
-        len: Box<Expr>, // 必须是常量表达式
+        /// Must evaluate successfully in a constant context.
+        len: Box<Expr>,
     },
 
-    // 长度推导数组: `[_]T` (用于 .{ 1, 2, 3 } 赋值时的类型推导)
+    /// Array with inferred length, `[_]T`.
     ArrayInfer {
         is_mut: bool,
         elem: Box<TypeNode>,
     },
 
-    /// 切片: `[]T`
+    /// Slice type: `[]T`.
     Slice {
         is_mut: bool,
         elem: Box<TypeNode>,
     },
 
-    /// 函数指针类型: `fn(i32) bool`
+    /// Function pointer type: `fn(i32) bool`.
     Function {
         params: Vec<TypeNode>,
         ret: Option<Box<TypeNode>>,
         is_variadic: bool,
     },
 
-    // === 匿名/内联类型定义 (Structural Types) ===
-    /// 结构体定义
+    // === Anonymous / inline structural types ===
+    /// Struct type definition.
     Struct {
         is_extern: bool,
         fields: Vec<StructFieldDef>,
     },
 
-    /// 联合体定义
+    /// Union type definition.
     Union {
         is_extern: bool,
         fields: Vec<StructFieldDef>,
     },
 
-    /// 代数数据类型
-    /// type Result[T]: u8 = enum { Ok: T, Err, None = 0xFF }
+    /// Algebraic enum type.
+    /// Example: `type Result[T]: u8 = enum { Ok: T, Err, None = 0xFF }`.
     Enum {
         backing_type: Option<Box<TypeNode>>,
         variants: Vec<EnumVariant>,
     },
 
-    /// 特征定义 (Trait)
+    /// Trait definition.
     Trait {
         fields: Vec<StructFieldDef>,
     },
 
-    /// 推导占位符 `_`
+    /// Inference placeholder `_`.
     Infer,
 
-    /// 代表当前 impl 块的目标类型
+    /// The target type of the current impl block.
     SelfType,
 
-    /// Never 类型 `!`，代表永远不会返回的控制流
+    /// Never type `!`.
     Never,
 
-    /// Void 类型，大小严格为 0 的 ZST (Zero-Sized Type)
+    /// Void type, a zero-sized type with no payload.
     Void,
 
-    /// 编译期类型求值 `@typeOf(expr)`
+    /// Compile-time type query `@typeOf(expr)`.
     TypeOf(Box<Expr>),
 
-    /// 闭包动态胖指针接口: `Fn(i32) bool`
+    /// Dynamic closure fat-pointer interface such as `Fn(i32) bool`.
     ClosureInterface {
         params: Vec<TypeNode>,
         ret: Option<Box<TypeNode>>,
@@ -116,9 +117,9 @@ pub struct StructFieldDef {
 pub struct EnumVariant {
     pub name: SymbolId,
     pub name_span: Span,
-    /// 负载类型。例如 `Ok: i32`
+    /// Optional payload type, for example `Ok: i32`.
     pub payload_type: Option<Box<TypeNode>>,
-    /// 显式赋值鉴别器。例如 `Red = 0`
+    /// Explicit discriminant value, for example `Red = 0`.
     pub value: Option<Box<Expr>>,
     pub span: Span,
 }

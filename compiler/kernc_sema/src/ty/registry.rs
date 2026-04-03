@@ -1,13 +1,13 @@
 use super::{PrimitiveType, TypeId, TypeKind};
 use std::collections::HashMap;
 
-/// 类型仓库
+/// Interning table for semantic types.
 #[derive(Clone)]
 pub struct TypeRegistry {
-    /// 存储具体的类型结构
+    /// Dense storage for type structures.
     types: Vec<TypeKind>,
 
-    /// 去重表：保证相同的类型 (如 *i32) 永远拥有相同的 TypeId
+    /// Deduplication map that guarantees identical types share one `TypeId`.
     interner: HashMap<TypeKind, TypeId>,
 }
 
@@ -28,7 +28,7 @@ impl TypeRegistry {
     }
 
     fn init_primitives(&mut self) {
-        // 顺序必须与 TypeId 中的常量对应
+        // Keep this order in sync with the reserved `TypeId` constants.
         self.add_primitive(PrimitiveType::Void); // 0
         self.add_primitive(PrimitiveType::Bool); // 1
         self.add_primitive(PrimitiveType::I8); // 2
@@ -59,8 +59,7 @@ impl TypeRegistry {
         self.interner.insert(kind, id);
     }
 
-    /// 获取或创建类型的 ID
-    /// 如果请求 *i32 且之前创建过，直接返回旧 ID
+    /// Return the canonical ID for a type, creating it if needed.
     pub fn intern(&mut self, kind: TypeKind) -> TypeId {
         if let Some(&id) = self.interner.get(&kind) {
             return id;
@@ -72,13 +71,12 @@ impl TypeRegistry {
         id
     }
 
-    /// 通过 ID 获取类型结构
+    /// Borrow the type structure referenced by an ID.
     pub fn get(&self, id: TypeId) -> &TypeKind {
         &self.types[id.0 as usize]
     }
 
-    /// 规范化类型 (穿透 Alias)
-    /// 用于类型检查： check(A) == check(B) 应使用 normalize(A) == normalize(B)
+    /// Normalize a type by following aliases to their final target.
     pub fn normalize(&self, mut id: TypeId) -> TypeId {
         loop {
             match self.get(id) {
@@ -90,7 +88,7 @@ impl TypeRegistry {
         }
     }
 
-    /// 判断是否是整数 (辅助函数)
+    /// Return whether a type is an integer after normalization.
     pub fn is_integer(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
             TypeKind::Primitive(p) => matches!(
@@ -119,7 +117,7 @@ impl TypeRegistry {
         }
     }
 
-    /// 检查一个类型是否是可变引用/指针
+    /// Return whether the normalized type carries mutable reference semantics.
     pub fn is_mut_reference(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
             TypeKind::Pointer { is_mut, .. }
@@ -149,19 +147,18 @@ impl TypeRegistry {
         )
     }
 
-    /// 检查一个类型是否是严格的 void (穿透别名)
+    /// Return whether the normalized type is exactly `void`.
     pub fn is_void(&self, id: TypeId) -> bool {
         let norm = self.normalize(id);
         norm == TypeId::VOID
     }
 
-    /// 检查一个类型是否是任意指针 (*T 或 *mut T)
-    /// 用于判断该类型是否可以参与到 *void 的 BNC 边界转换
+    /// Return whether the normalized type is any raw pointer.
     pub fn is_any_pointer(&self, id: TypeId) -> bool {
         matches!(self.get(self.normalize(id)), TypeKind::Pointer { .. })
     }
 
-    /// 检查一个类型是否是万能指针 (*void 或 *mut void)
+    /// Return whether the normalized type is `*void` or `*mut void`.
     pub fn is_pointer_to_void(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
             TypeKind::Pointer { elem, .. } => self.is_void(*elem),
@@ -169,7 +166,7 @@ impl TypeRegistry {
         }
     }
 
-    /// 检查一个类型是否是可变万能指针 (*mut void)
+    /// Return whether the normalized type is specifically `*mut void`.
     pub fn is_mut_pointer_to_void(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
             TypeKind::Pointer { is_mut: true, elem } => self.is_void(*elem),

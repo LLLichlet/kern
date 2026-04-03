@@ -7,7 +7,7 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
-    /// 检查表达式能否隐式转换为目标类型，包含指针降级与 BNC
+    /// Check whether an expression can be implicitly coerced to the target type.
     pub(crate) fn check_coercion(&mut self, expr: &Expr, expected: TypeId, actual: TypeId) -> bool {
         let exp = self.resolve_tv(expected);
         let act = self.resolve_tv(actual);
@@ -22,37 +22,37 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let exp_kind = self.ctx.type_registry.get(exp).clone();
         let act_kind = self.ctx.type_registry.get(act).clone();
 
-        // 1. 触发类型合一
+        // 1. Try plain unification first.
         if self.check_type_var(exp, act, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 2. 值语义的匿名聚合降级 (具名 -> 匿名) ===
+        // 2. Allow named-to-anonymous aggregate decay under value semantics.
         if self.is_anonymous_aggregate_equivalent(exp, act) {
             return true;
         }
 
-        // 3. 指针降级与 Trait Object 处理
+        // 3. Handle pointer decay and trait-object packing.
         if self.check_pointer_coercions(expr, exp, act, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 4. 易失指针降级与 Trait Object 处理
+        // 4. Handle volatile-pointer decay and trait-object packing.
         if self.check_volatile_coercions(expr, exp, act, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 5. 切片降级与数组退化
+        // 5. Handle slice coercions and array decay.
         if self.check_slice_and_array_decay(expr, exp, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 6. 闭包相关的退化与边界自然转换
+        // 6. Handle closure-related decay and boundary natural conversions.
         if self.check_closure_coercions(expr, &exp_kind, &act_kind) {
             return true;
         }
 
-        // 如果所有规则都匹配失败，输出不匹配错误
+        // If no rule matched, emit the final mismatch diagnostic.
         self.emit_mismatch_error(expr.span, expected, actual);
         false
     }
@@ -270,7 +270,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.check_trait_impl(virtual_ptr_ty, expected_elem)
     }
 
-    /// 核心辅助方法：检查一个具名聚合类型能否降级为匿名聚合类型
+    /// Core helper for checking named-to-anonymous aggregate decay.
     pub(crate) fn is_anonymous_aggregate_equivalent(
         &mut self,
         exp_anon: TypeId,
@@ -629,7 +629,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.unify(expected_ret, actual_ret, &mut map)
     }
 
-    /// 提取函数定义项 (FnDef) 的确切签名，处理泛型代入
+    /// Resolve the concrete signature of a function item after generic substitution.
     fn extract_fn_sig_for_bnc(
         &mut self,
         act_kind: &TypeKind,
@@ -816,7 +816,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     true
                 }
             }
-            // 指针和切片的 Unify 必须同时匹配其 mut 属性
+            // Pointer and slice unification must respect mutability.
             (
                 TypeKind::Pointer {
                     is_mut: g_m,
@@ -965,7 +965,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 左值 (LValue) 可变性推导
+    /// Infer whether an expression can be treated as a mutable lvalue.
     pub(crate) fn is_lvalue_mutable(&mut self, expr: &Expr) -> bool {
         match &expr.kind {
             ExprKind::Identifier(name) => {
@@ -1017,7 +1017,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             ExprKind::SliceOp { is_mut, .. } => *is_mut,
 
-            // 右值实体化 (R-value Materialization) 的栈内存默认可变
+            // Materialized rvalues become mutable stack temporaries by default.
             ExprKind::DataInit { .. }
             | ExprKind::Integer(_)
             | ExprKind::Float(_)
@@ -1025,17 +1025,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | ExprKind::Char(_)
             | ExprKind::ByteChar(_)
             | ExprKind::Call { .. } => {
-                true // 纯右值被实体化为临时栈变量后，完全归当前作用域所有，允许就地可变借用
+                true // Materialized temporaries are owned by the current scope.
             }
             ExprKind::String(_) => {
-                false // 字符串字面量硬编码在 .rodata 中，不能获取它的可变指针
+                false // String literals live in `.rodata` and cannot be mutably borrowed.
             }
 
             _ => false,
         }
     }
 
-    /// 循环并找出类型变量 `?T` 最终绑定的真实类型
+    /// Follow inference variables until reaching their final concrete binding.
     pub(crate) fn resolve_tv(&mut self, ty: TypeId) -> TypeId {
         let mut curr = ty;
         loop {
@@ -1044,7 +1044,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if let Some(target) = self.type_vars[*vid as usize] {
                     curr = target;
                 } else {
-                    return norm; // 没被推导出来，原样返回 `?T`
+                    return norm; // Unresolved inference variables remain as-is.
                 }
             } else {
                 return norm;
@@ -1052,7 +1052,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// 数组到切片的退化
+    /// Decay an array into a slice when the element types are compatible.
     fn check_array_decay(
         &mut self,
         exp_is_mut: bool,
@@ -1086,8 +1086,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        // 如果可变指针/切片没有直接实现特征，尝试检查其不可变版本。
-        // 因为方法调用时接收者可以安全降权，不可变版本实现的特征，可变版本理应兼容。
+        // If a mutable pointer or slice lacks a direct impl, try its immutable form.
         let source_norm = self.resolve_tv(source_ty);
         let downgraded = match self.ctx.type_registry.get(source_norm).clone() {
             TypeKind::Pointer { is_mut: true, elem } => {
@@ -1112,7 +1111,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         if let Some(down_ty) = downgraded {
-            let mut visited = HashSet::new(); // 清空 visited 重新查
+            let mut visited = HashSet::new(); // Restart the search with a fresh visited set.
             return self.check_trait_impl_inner(down_ty, target_trait_ty, &mut visited);
         }
 
@@ -1125,12 +1124,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_trait_ty: TypeId,
         visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
-        // === 1. 优先检查当前环境上下文中的 Where 约束 (active_bounds) ===
+        // === 1. Check active where-bounds from the current environment first ===
         if self.check_trait_impl_in_env_bounds(source_ty, target_trait_ty, visited) {
             return true;
         }
 
-        // === 2. 检查全局的 impl 块  ===
+        // === 2. Fall back to globally collected impl blocks ===
         if self.check_trait_impl_in_global_impls(source_ty, target_trait_ty, visited) {
             return true;
         }
@@ -1138,7 +1137,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    /// 子方法 1：检查环境上下文中 active_bounds 提供的约束
+    /// Helper 1: check constraints supplied by the current `active_bounds` context.
     fn check_trait_impl_in_env_bounds(
         &mut self,
         source_ty: TypeId,
@@ -1149,9 +1148,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let (env_target, env_bounds) = self.ctx.active_bounds[i].clone();
             let mut map = HashMap::new();
 
-            // 如果查询的 source_ty (比如 *T) 匹配了环境里的 target (比如 *T)
+            // If the queried source type matches the contextual target type, inspect its bounds.
             if self.unify(env_target, source_ty, &mut map) {
-                // 利用临时块隔离可变借用
+                // Use a temporary block to keep mutable borrows isolated.
                 let instantiated_bounds: Vec<TypeId> = {
                     let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
                     env_bounds
@@ -1168,7 +1167,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         return true;
                     }
 
-                    // 环境约束自身也可能继承自某个 Supertrait，递归检查
+                    // Contextual bounds may themselves inherit supertraits.
                     if let TypeKind::TraitObject(inst_def_id, _) =
                         self.ctx.type_registry.get(inst_norm)
                         && visited.insert(*inst_def_id)
@@ -1182,7 +1181,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    /// 子方法 2：检查全局的 Impl 块
+    /// Helper 2: scan globally registered impl blocks.
     fn check_trait_impl_in_global_impls(
         &mut self,
         source_ty: TypeId,
@@ -1241,7 +1240,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         && visited.insert(*inst_def_id)
                         && let Def::Trait(trait_def) = self.ctx.defs[inst_def_id.0 as usize].clone()
                     {
-                        // 检查父特征 (Supertraits)
+                        // Check inherited supertraits recursively.
                         for &super_ty in &trait_def.resolved_supertraits {
                             let inst_super_ty = {
                                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
@@ -1261,7 +1260,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    /// 助手 格式化并输出类型不匹配错误
+    /// Format and emit a user-facing type mismatch diagnostic.
     pub fn emit_mismatch_error(&mut self, span: Span, expected: TypeId, actual: TypeId) {
         let exp_str = self.ctx.ty_to_string(expected);
         let act_str = self.ctx.ty_to_string(actual);

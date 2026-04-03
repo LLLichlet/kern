@@ -26,13 +26,21 @@ test("craft refresh args include no-default-features when configured", () => {
 
 test("configured relative craft path resolves against workspace root", () => {
     assert.equal(
-        resolveCraftCommand("bin/craft", "/workspace"),
+        resolveCraftCommand("bin/craft", "/workspace", "linux"),
         path.posix.resolve("/workspace", "bin/craft"),
     );
 });
 
 test("empty craft path falls back to PATH executable name", () => {
-    assert.equal(resolveCraftCommand(""), "craft");
+    assert.equal(resolveCraftCommand("", undefined, "linux"), "craft");
+});
+
+test("windows craft command uses win32 path resolution and executable name", () => {
+    assert.equal(
+        resolveCraftCommand("bin\\craft", "D:\\workspace", "win32"),
+        path.win32.resolve("D:\\workspace", "bin\\craft"),
+    );
+    assert.equal(resolveCraftCommand("", undefined, "win32"), "craft.exe");
 });
 
 test("discover craft workspace folders keeps only folders with Craft.toml", () => {

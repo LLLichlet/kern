@@ -45,7 +45,7 @@ extern fn _start_darwin() void {
             "mov rdi, [rsp]",
             "lea rsi, [rsp + 8]",
             "and rsp, -16",
-            "call kern_entry",
+            "call _kern_entry",
         },
         clobbers: .{ "memory", "rdi", "rsi" },
         volatile: true

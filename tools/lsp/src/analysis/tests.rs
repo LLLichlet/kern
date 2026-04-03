@@ -1368,6 +1368,78 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
 }
 
 #[test]
+fn hover_resolves_std_module_docs_from_use_alias() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "use std.io;\n",
+        "\n",
+        "extern fn main(args: [][]u8) i32 {\n",
+        "    io.println(\"hello\", .{});\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_std_module_alias", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "io", 1, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("module io"));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Text and byte-oriented output helpers.")
+    );
+}
+
+#[test]
+fn hover_resolves_std_reexported_function_docs_from_member_access() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "use std.io;\n",
+        "\n",
+        "extern fn main(args: [][]u8) i32 {\n",
+        "    io.println(\"hello\", .{});\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("hover_std_member_function", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let hover = analysis
+        .hover(&uri, position_of_nth(source, "println", 0, 1))
+        .unwrap()
+        .unwrap();
+
+    assert!(hover.contents.value.contains("fn println:"));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Formats into standard output and appends a newline.")
+    );
+}
+
+#[test]
 fn hover_resolves_impl_method_signature_from_reference() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
@@ -1949,6 +2021,52 @@ fn completion_filters_and_sorts_items_by_typed_prefix() {
     let labels = completion_labels(&items);
 
     assert_eq!(labels, vec!["help".to_string(), "helper".to_string()]);
+}
+
+#[test]
+fn completion_includes_keyword_suggestions_for_prefixes() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "extern fn main(args: [][]u8) i32 {\n    le\n    return 0;\n}\n";
+    let uri = temp_file_uri("completion_keywords", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "le", 0, 2))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"let".to_string()));
+}
+
+#[test]
+fn completion_includes_top_level_keyword_suggestions() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "ex\n";
+    let uri = temp_file_uri("completion_top_level_keywords", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "ex", 0, 2))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"extern".to_string()));
 }
 
 #[test]

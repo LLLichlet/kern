@@ -94,7 +94,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
             }
 
             const change = event.contentChanges[0];
-            if (!shouldAutoTriggerSuggest(change.text, change.rangeLength ?? 0)) {
+            const insertedOffset =
+                event.document.offsetAt(change.range.start) + change.text.length;
+            if (
+                !shouldAutoTriggerSuggest(
+                    change.text,
+                    change.rangeLength ?? 0,
+                    event.document.getText(),
+                    insertedOffset,
+                )
+            ) {
                 return;
             }
 

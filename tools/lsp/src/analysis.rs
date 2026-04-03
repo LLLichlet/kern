@@ -15,9 +15,11 @@ use self::navigation::{
 };
 use self::text::{
     CompletionContext, apply_content_change, byte_offset_to_position, completion_context,
-    completion_prefix, file_path_to_uri, has_following_call_paren, is_valid_identifier,
-    match_position_in_file, normalize_path, position_to_byte_offset, single_server_diagnostic,
-    span_contains_offset, span_to_range, trim_line_ending, uri_to_file_path,
+    completion_is_member_access, completion_prefix, file_path_to_uri,
+    has_following_call_paren, is_valid_identifier, keyword_completion_labels,
+    match_position_in_file, normalize_path, position_to_byte_offset,
+    single_server_diagnostic, span_contains_offset, span_to_range, trim_line_ending,
+    uri_to_file_path,
 };
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -562,6 +564,7 @@ impl AnalysisEngine {
         let prefix = completion_prefix(&target_doc.text, offset);
         let has_call_paren = has_following_call_paren(&target_doc.text, offset);
         let context = completion_context(&target_doc.text, offset);
+        let member_access = completion_is_member_access(&target_doc.text, offset);
 
         let mut items = if let Ok((parsed, _driver)) = self.parse_modules(uri) {
             if !parsed.requires_body_completion(&target_path, offset) {
@@ -599,10 +602,21 @@ impl AnalysisEngine {
                 .cmp(&completion_sort_key(right, prefix, context))
         });
 
-        Ok(items
+        let mut completions = items
             .into_iter()
             .map(analysis_completion_to_lsp_item)
-            .collect())
+            .collect::<Vec<_>>();
+        let mut seen_labels = completions
+            .iter()
+            .map(|item| item.label.clone())
+            .collect::<BTreeSet<_>>();
+        for keyword in keyword_completion_labels(prefix, context, member_access) {
+            if seen_labels.insert(keyword.to_string()) {
+                completions.push(keyword_completion_item(keyword));
+            }
+        }
+
+        Ok(completions)
     }
 
     pub fn prepare_rename(
@@ -1179,6 +1193,16 @@ fn completion_context_rank(
                     | kernc_driver::AnalysisCompletionKind::Static
             )) as u8
         }
+    }
+}
+
+fn keyword_completion_item(label: &str) -> CompletionItem {
+    CompletionItem {
+        label: label.to_string(),
+        kind: 14,
+        detail: Some("keyword".to_string()),
+        insert_text: None,
+        insert_text_format: None,
     }
 }
 

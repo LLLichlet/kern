@@ -12,6 +12,36 @@ pub(super) enum CompletionContext {
     Type,
 }
 
+const VALUE_KEYWORD_COMPLETIONS: &[&str] = &[
+    "let",
+    "mut",
+    "const",
+    "static",
+    "return",
+    "if",
+    "else",
+    "for",
+    "break",
+    "continue",
+    "defer",
+    "match",
+    "pub",
+    "extern",
+    "use",
+    "impl",
+    "mod",
+    "true",
+    "false",
+    "undef",
+    "as",
+    "and",
+    "or",
+    "self",
+    "Self",
+];
+
+const TYPE_KEYWORD_COMPLETIONS: &[&str] = &["Self", "void", "fn", "Fn"];
+
 pub(super) fn apply_content_change(
     path: &Path,
     text: &mut String,
@@ -366,6 +396,35 @@ pub(super) fn completion_context(text: &str, offset: usize) -> CompletionContext
     }
 
     classify_completion_context(&tokens)
+}
+
+pub(super) fn completion_is_member_access(text: &str, offset: usize) -> bool {
+    let start = completion_prefix_start(text, offset);
+    if start == 0 {
+        return false;
+    }
+    text.as_bytes().get(start - 1) == Some(&b'.')
+}
+
+pub(super) fn keyword_completion_labels(
+    prefix: &str,
+    context: CompletionContext,
+    member_access: bool,
+) -> Vec<&'static str> {
+    if prefix.is_empty() || member_access {
+        return Vec::new();
+    }
+
+    let keywords = match context {
+        CompletionContext::Value => VALUE_KEYWORD_COMPLETIONS,
+        CompletionContext::Type => TYPE_KEYWORD_COMPLETIONS,
+    };
+
+    keywords
+        .iter()
+        .copied()
+        .filter(|keyword| keyword.starts_with(prefix))
+        .collect()
 }
 
 fn classify_completion_context(tokens: &[Token]) -> CompletionContext {

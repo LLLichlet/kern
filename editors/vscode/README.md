@@ -96,6 +96,10 @@ The packaged extension also declares the PNG logo as its Marketplace icon, so
 the published listing and installed extension entry stay visually aligned with
 the language/file icon assets.
 
+`../../logo.svg` and `../../logo.png` are the canonical repository logo assets.
+Run `npm run sync:icons` in `editors/vscode/` after updating them to refresh
+`icons/kern.svg` and `icons/kern.png` before packaging or publishing.
+
 If your current file icon theme already overrides language/file icons, switch
 VS Code's File Icon Theme to `Kern Icons` to guarantee that `.rn` files use the
 bundled logo.

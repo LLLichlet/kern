@@ -124,13 +124,14 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run compile && npm run stage:server",
+    "vscode:prepublish": "npm run sync:icons && npm run compile && npm run stage:server",
     "compile": "tsc -p ./ && node ./scripts/build-extension.mjs",
     "watch": "tsc -watch -p ./",
     "check": "tsc -p ./ --noEmit",
     "test": "npm run compile && node --test out/test/serverResolution.test.js out/test/craftContext.test.js",
+    "sync:icons": "node ./scripts/sync-icons.mjs",
     "stage:server": "node ./scripts/stage-server.mjs",
-    "package:vsix": "node ./scripts/package-vsix.mjs"
+    "package:vsix": "npm run sync:icons && node ./scripts/package-vsix.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.14.12",

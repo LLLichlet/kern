@@ -768,6 +768,24 @@ mod tests {
         )
     }
 
+    fn normalize_test_optional_path(path: Option<&String>) -> Option<PathBuf> {
+        path.map(|path| normalize_test_path(Path::new(path)))
+    }
+
+    fn normalize_test_alias_map(
+        aliases: &std::collections::BTreeMap<PathBuf, PathBuf>,
+    ) -> std::collections::BTreeMap<PathBuf, PathBuf> {
+        aliases
+            .iter()
+            .map(|(source, generated)| {
+                (
+                    normalize_test_path(source.as_path()),
+                    normalize_test_path(generated.as_path()),
+                )
+            })
+            .collect()
+    }
+
     fn temp_dir(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -863,7 +881,7 @@ root = \"src/lib.rn\"
                 .compile_options
                 .module_aliases
                 .get("util")
-                .map(PathBuf::from),
+                .and_then(|path| normalize_test_optional_path(Some(path))),
             Some(normalize_test_path(&util_dir.join("src/lib.rn")))
         );
     }
@@ -1015,14 +1033,15 @@ root = \"src/lib.rn\"
                 .compile_options
                 .module_aliases
                 .get("craft")
-                .map(PathBuf::from),
+                .and_then(|path| normalize_test_optional_path(Some(path))),
             Some(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("sdk")
-                    .join("init.rn")
-                    .parent()
-                    .unwrap()
-                    .to_path_buf()
+                normalize_test_path(
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("sdk")
+                        .join("init.rn")
+                        .parent()
+                        .unwrap(),
+                )
             )
         );
         assert_eq!(resolved.compile_options.root_module_name, None);
@@ -1075,14 +1094,15 @@ root = \"src/main.rn\"
                 .compile_options
                 .module_aliases
                 .get("craft")
-                .map(PathBuf::from),
+                .and_then(|path| normalize_test_optional_path(Some(path))),
             Some(
-                Path::new(env!("CARGO_MANIFEST_DIR"))
-                    .join("sdk")
-                    .join("init.rn")
-                    .parent()
-                    .unwrap()
-                    .to_path_buf()
+                normalize_test_path(
+                    Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("sdk")
+                        .join("init.rn")
+                        .parent()
+                        .unwrap(),
+                )
             )
         );
     }
@@ -1436,12 +1456,10 @@ pub fn build(b: *mut builder.Builder) void {
             normalize_test_path(&resolved.input_file),
             normalize_test_path(&generated_main)
         );
+        let normalized_aliases = normalize_test_alias_map(&resolved.source_path_aliases);
         assert_eq!(
-            resolved
-                .source_path_aliases
-                .get(&normalize_test_path(&root.join("src/main.rn")))
-                .map(|path| normalize_test_path(path)),
-            Some(normalize_test_path(&generated_main))
+            normalized_aliases.get(&normalize_test_path(&root.join("src/main.rn"))),
+            Some(&normalize_test_path(&generated_main))
         );
         assert!(generated_info.is_file());
         assert_eq!(

@@ -1223,7 +1223,7 @@ fn hover_resolves_match_variant_pattern_from_reference() {
         "    let value = Result.{ Err };\n",
         "    return match (value) {\n",
         "        .Err => 0,\n",
-        "        .Ok: payload => payload,\n",
+        "        .{ Ok: payload } => payload,\n",
         "    };\n",
         "}\n",
     );
@@ -1239,7 +1239,7 @@ fn hover_resolves_match_variant_pattern_from_reference() {
     });
 
     let hover = analysis
-        .hover(&uri, position_of_nth(source, "Err", 1, 1))
+        .hover(&uri, position_of_nth(source, "Err", 2, 1))
         .unwrap()
         .unwrap();
 
@@ -1254,7 +1254,7 @@ fn hover_resolves_typed_match_variant_path_from_reference() {
         "fn main() i32 {\n",
         "    let value = Result.{ Ok: i32.{1} };\n",
         "    return match (value) {\n",
-        "        Result.Ok: payload => payload,\n",
+        "        Result.{ Ok: payload } => payload,\n",
         "        .Err => 0,\n",
         "    };\n",
         "}\n",
@@ -1271,7 +1271,7 @@ fn hover_resolves_typed_match_variant_path_from_reference() {
     });
 
     let hover = analysis
-        .hover(&uri, position_of_nth(source, "Ok", 1, 1))
+        .hover(&uri, position_of_nth(source, "Ok", 2, 1))
         .unwrap()
         .unwrap();
 
@@ -3265,7 +3265,7 @@ fn semantic_tokens_classify_variant_let_else_payload_bindings() {
         "};\n",
         "\n",
         "fn unwrap_or_zero(value: Option[i32]) i32 {\n",
-        "    let .Some: inner = value else return 0;\n",
+        "    let .{ Some: inner } = value else return 0;\n",
         "    return inner;\n",
         "}\n",
     );

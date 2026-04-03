@@ -2,22 +2,53 @@ use kernc_utils::Span;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Token {
+    ///  Token 的类型
     pub tag: TokenType,
+
+    /// Token 所在的文件，以及它在文件中的具体位置
     pub span: Span,
 }
+
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TokenType {
     // === 标识符与字面量 ===
-    Identifier,      // abc, my_var
-    IntLiteral,      // 123, 0xFF
-    FloatLiteral,    // 3.14
-    StringLiteral,   // "hello" or Zig-style \\ multiline
-    CharLiteral,     // 'a'
-    ByteCharLiteral, // b'a'
+    
+    /// 标识符。
+    /// 
+    /// 例如 `abc`，`my_var`。
+    Identifier,
+
+    /// 整型字面量。
+    /// 
+    /// 例如 `123`，`0xFF`。
+    IntLiteral,
+
+    /// 浮点字面量。
+    /// 
+    /// 例如 `3.14`。
+    FloatLiteral,
+
+    /// 字符串字面量。
+    /// 
+    /// "hello" or Zig-style \\ multiline
+    StringLiteral,
+
+    /// 字符字面量。
+    /// 
+    /// 例如 `'a'`。
+    /// 
+    /// 注意此处使用单引号（`'...'`）。
+    CharLiteral,
+
+    /// 字节字符字面量
+    /// 
+    /// 例如 `b'a'`。
+    ByteCharLiteral,
 
     // === 关键字 ===
-    Fn,
+    
+    Fn, 
     Let,
     Mut,
     Const,
@@ -47,7 +78,7 @@ pub enum TokenType {
     Underscore,
     SelfType,
     SelfValue,
-    Match, // match
+    Match,
     Mod,
     Where,
     CapitalFn,
@@ -55,88 +86,184 @@ pub enum TokenType {
 
     // === 运算符 ===
 
-    // 算术: + - * / %
+    // 算术
+
+    /// `+`
     Plus,
+
+    /// `-`
     Minus,
-    Star, // 同时用于指针解引用/类型 *T
+
+    /// `*`
+    /// 
+    /// 同时用于指针解引用/类型 *T
+    Star,
+
+    /// `/`
     Slash,
+
+    /// `%`
     Percent,
 
     // 特殊前缀
-    Hash,  // #arr (长度)
-    At,    // @intToFloat (内置函数)
-    Caret, // ^T (易失性指针) / Bitwise XOR
+
+    /// #arr (长度)
+    Hash,
+    
+    /// @intToFloat (内置函数)
+    At,
+
+    /// ^T (易失性指针) / Bitwise XOR 
+    Caret,
 
     // 逻辑/位运算
-    Bang,      // ! (宏调用 / 逻辑非)
-    Ampersand, // & (取地址 / 按位与)
-    Pipe,      // | (按位或)
-    Tilde,     // ~ (按位取反)
 
-    // 比较: == != < <= > >=
+    /// ! (宏调用 / 逻辑非)
+    Bang,
+
+    /// & (取地址 / 按位与)
+    Ampersand,
+    
+    /// | (按位或)
+    Pipe,
+
+    /// ~ (按位取反)
+    Tilde,
+
+    // 比较
+
+    /// `==`
     EqualEqual,
+
+    /// `!=`
     NotEqual,
+    
+    /// `<`
     LessThan,
+    
+    /// `<=`
     LessEqual,
+    
+    /// `>`
     GreaterThan,
+    
+    /// `>=`
     GreaterEqual,
 
-    // 移位: << >>
+    // 移位
+
+    /// `<<`
     LShift,
+
+    /// `>>`
     RShift,
 
-    // 赋值: = += -= ...
+    // 赋值
+
+    /// `=`
     Assign,
+
+    /// `+=`
     PlusAssign,
+
+    /// `-=`
     MinusAssign,
+
+    /// `*=`
     StarAssign,
+
+    /// `/=`
     SlashAssign,
+
+    /// `%=`
     PercentAssign,
+
+    /// `&=`
     AmpersandAssign,
+
+    /// `|=`
     PipeAssign,
+    
+    /// `^=`
     CaretAssign,
+
+    /// `<<=`
     LShiftAssign,
+    
+    /// `>>=`
     RShiftAssign,
 
     // === 标点 ===
-    Dot,          // . (字段访问)
-    DotDot,       // .. (Range)
-    DotDotEqual,  // ..= (Range Inclusive)
-    DotAmpersand, // .& (不可变取地址)
-    DotStar,      // .* (指针解引用)
 
-    DotLBracket, // .[ (不可变切片/数组索引)
-    DotLBrace,   // .{ (匿名结构体初始化)
+    /// `.` (字段访问)
+    Dot,
 
-    DotDotAmpersand, // ..& (可变取地址)
-    DotDotLBracket,  // ..[ (可变切片)
+    /// `..` (Range)
+    DotDot,
 
-    Ellipsis, // ...
+    /// `..=` (Range Inclusive)
+    DotDotEqual,
 
-    Comma,     // ,
-    Colon,     // :
-    Semicolon, // ;
+    /// `.&` (不可变取地址)
+    DotAmpersand,
 
-    // ( )
+    /// `.*` (指针解引用)
+    DotStar,
+
+    /// `.[` (不可变切片/数组索引)
+    DotLBracket,
+
+    /// `.{` (匿名结构体初始化)
+    DotLBrace,
+
+    /// `..&` (可变取地址)
+    DotDotAmpersand,
+
+    /// ``..[` (可变切片)
+    DotDotLBracket,
+
+    /// ...
+    Ellipsis,
+
+    /// ,
+    Comma,
+
+    /// :
+    Colon,
+
+    /// ;
+    Semicolon,
+
+    /// (
     LParen,
+
+    /// )
     RParen,
 
-    // { }
+    /// {
     LBrace,
+    
+    /// }
     RBrace,
 
-    // [ ]
+    /// [
     LBracket,
+    
+    /// ]
     RBracket,
 
-    // =>
+    /// =>
     Arrow,
 
     // === 特殊 ===
+
+    /// 解析错误
     Eof,
+    
+    /// 非法解析
     #[default]
     Illegal,
 
-    // 专门用于携带词法错误信息的 Token
+    /// 专门用于携带词法错误信息的 Token
     LexError(&'static str),
 }

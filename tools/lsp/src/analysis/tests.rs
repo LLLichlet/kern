@@ -2042,8 +2042,11 @@ fn completion_includes_keyword_suggestions_for_prefixes() {
         .completion(&uri, position_of_nth(source, "le", 0, 2))
         .unwrap();
     let labels = completion_labels(&items);
+    let let_item = items.iter().find(|item| item.label == "let").unwrap();
 
     assert!(labels.contains(&"let".to_string()));
+    assert_eq!(let_item.insert_text.as_deref(), Some("let ${1:name} = ${0};"));
+    assert_eq!(let_item.insert_text_format, Some(2));
 }
 
 #[test]
@@ -2065,8 +2068,43 @@ fn completion_includes_top_level_keyword_suggestions() {
         .completion(&uri, position_of_nth(source, "ex", 0, 2))
         .unwrap();
     let labels = completion_labels(&items);
+    let extern_item = items.iter().find(|item| item.label == "extern").unwrap();
 
     assert!(labels.contains(&"extern".to_string()));
+    assert_eq!(
+        extern_item.insert_text.as_deref(),
+        Some("extern fn ${1:name}(${2:args}) ${3:i32} {\n    $0\n}")
+    );
+    assert_eq!(extern_item.insert_text_format, Some(2));
+}
+
+#[test]
+fn completion_does_not_offer_keywords_after_member_access() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Console = struct { len: i32 };\n",
+        "fn main() i32 {\n",
+        "    let console = Console.{ len: i32.{1} };\n",
+        "    return console.le;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_member_keywords", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(&uri, position_of_nth(source, "console.le", 0, 10))
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(!labels.contains(&"let".to_string()));
 }
 
 #[test]

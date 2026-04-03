@@ -93,9 +93,10 @@ pub(super) fn quick_fix_for_diagnostic(
     }
     if diagnostic.message == "irrefutable `let` bindings cannot use `else`"
         || diagnostic.message == "irrefutable `let` patterns cannot use `else`"
-        || diagnostic.hints.iter().any(|hint| {
-            hint.contains("remove the `else` block") && hint.contains("refutable")
-        })
+        || diagnostic
+            .hints
+            .iter()
+            .any(|hint| hint.contains("remove the `else` block") && hint.contains("refutable"))
     {
         return remove_irrefutable_let_else_code_action(artifact, diagnostic, lsp_diagnostic);
     }

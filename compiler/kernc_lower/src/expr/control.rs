@@ -42,6 +42,16 @@ struct PatternBindingPlan {
     init: MastExpr,
 }
 
+type MatchVariantPayloadInfo = (usize, TypeId, MonoId);
+
+struct MatchLowerContext<'a> {
+    arms: &'a [ast::MatchArm],
+    target_var_expr: &'a MastExpr,
+    target_ty: TypeId,
+    subst_map: &'a HashMap<SymbolId, TypeId>,
+    exp_ty: TypeId,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn push_defer_in_current_scope(&mut self, span: Span, deferred: MastExpr) {
         if let Some(scope) = self.defer_stack.last_mut() {
@@ -313,7 +323,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     return None;
                 };
 
-                let ast_idx = def.fields.iter().position(|field| field.name == field_name)?;
+                let ast_idx = def
+                    .fields
+                    .iter()
+                    .position(|field| field.name == field_name)?;
                 let mut field_ty = self
                     .ctx
                     .node_types
@@ -380,7 +393,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         target_expr: &MastExpr,
         target_ty: TypeId,
         variant_name: SymbolId,
-    ) -> Option<(MastExpr, Option<(usize, TypeId, MonoId)>)> {
+    ) -> Option<(MastExpr, Option<MatchVariantPayloadInfo>)> {
         let adt_info = self.resolve_match_adt(target_ty, span)?;
         let (variant_idx, tag_value) = self.resolve_match_variant(&adt_info, variant_name, span)?;
         let tag_expr = self.build_match_tag_expr(target_expr, &Some(adt_info.clone()), span);
@@ -389,7 +402,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             MastExprKind::Binary {
                 op: ast::BinaryOperator::Equal,
                 lhs: Box::new(tag_expr.clone()),
-                rhs: Box::new(MastExpr::new(tag_expr.ty, MastExprKind::Integer(tag_value), span)),
+                rhs: Box::new(MastExpr::new(
+                    tag_expr.ty,
+                    MastExprKind::Integer(tag_value),
+                    span,
+                )),
             },
             span,
         );
@@ -405,24 +422,26 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if is_pure {
                     None
                 } else {
-                    def.variants[variant_idx].payload_type.as_ref().map(|payload_ast| {
-                        let mut payload_ty = self
-                            .ctx
-                            .node_types
-                            .get(&payload_ast.id)
-                            .copied()
-                            .unwrap_or(TypeId::ERROR);
-                        if !def.generics.is_empty() && !gen_args.is_empty() {
-                            let mut map = HashMap::new();
-                            for (i, param) in def.generics.iter().enumerate() {
-                                map.insert(param.name, gen_args[i]);
+                    def.variants[variant_idx]
+                        .payload_type
+                        .as_ref()
+                        .map(|payload_ast| {
+                            let mut payload_ty = self
+                                .ctx
+                                .node_types
+                                .get(&payload_ast.id)
+                                .copied()
+                                .unwrap_or(TypeId::ERROR);
+                            if !def.generics.is_empty() && !gen_args.is_empty() {
+                                let mut map = HashMap::new();
+                                for (i, param) in def.generics.iter().enumerate() {
+                                    map.insert(param.name, gen_args[i]);
+                                }
+                                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                                payload_ty = subst.substitute(payload_ty);
                             }
-                            let mut subst =
-                                Substituter::new(&mut self.ctx.type_registry, &map);
-                            payload_ty = subst.substitute(payload_ty);
-                        }
-                        (variant_idx, payload_ty, mono_id)
-                    })
+                            (variant_idx, payload_ty, mono_id)
+                        })
                 }
             }
             MatchAdtInfo::Anonymous {
@@ -1020,8 +1039,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let target_ty = lowered_target.ty;
         let (let_stmt, target_var_expr) =
             self.build_match_target_binding(target_ty, lowered_target, target.span);
-        let match_expr =
-            self.lower_match_arm_chain(arms, 0, &target_var_expr, target_ty, subst_map, exp_ty);
+        let match_context = MatchLowerContext {
+            arms,
+            target_var_expr: &target_var_expr,
+            target_ty,
+            subst_map,
+            exp_ty,
+        };
+        let match_expr = self.lower_match_arm_chain(&match_context, 0);
 
         MastExprKind::Block(MastBlock {
             stmts: vec![let_stmt],
@@ -1032,52 +1057,31 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn lower_match_arm_chain(
         &mut self,
-        arms: &[ast::MatchArm],
+        match_context: &MatchLowerContext<'_>,
         arm_index: usize,
-        target_var_expr: &MastExpr,
-        target_ty: TypeId,
-        subst_map: &HashMap<SymbolId, TypeId>,
-        exp_ty: TypeId,
     ) -> MastExpr {
-        if arm_index >= arms.len() {
-            return MastExpr::new(exp_ty, MastExprKind::Trap, target_var_expr.span);
+        if arm_index >= match_context.arms.len() {
+            return MastExpr::new(
+                match_context.exp_ty,
+                MastExprKind::Trap,
+                match_context.target_var_expr.span,
+            );
         }
 
-        let arm = &arms[arm_index];
-        self.lower_match_pattern_chain(
-            &arm.patterns,
-            0,
-            arm,
-            arms,
-            arm_index,
-            target_var_expr,
-            target_ty,
-            subst_map,
-            exp_ty,
-        )
+        let arm = &match_context.arms[arm_index];
+        self.lower_match_pattern_chain(match_context, &arm.patterns, 0, arm, arm_index)
     }
 
     fn lower_match_pattern_chain(
         &mut self,
+        match_context: &MatchLowerContext<'_>,
         patterns: &[ast::MatchPattern],
         pattern_index: usize,
         arm: &ast::MatchArm,
-        arms: &[ast::MatchArm],
         arm_index: usize,
-        target_var_expr: &MastExpr,
-        target_ty: TypeId,
-        subst_map: &HashMap<SymbolId, TypeId>,
-        exp_ty: TypeId,
     ) -> MastExpr {
         if pattern_index >= patterns.len() {
-            return self.lower_match_arm_chain(
-                arms,
-                arm_index + 1,
-                target_var_expr,
-                target_ty,
-                subst_map,
-                exp_ty,
-            );
+            return self.lower_match_arm_chain(match_context, arm_index + 1);
         }
 
         let pattern = &patterns[pattern_index];
@@ -1086,19 +1090,23 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let cond = if let ExprKind::EnumLiteral { variant, .. } = value.kind {
                     self.build_enum_variant_condition(
                         pattern.span,
-                        target_var_expr,
-                        target_ty,
+                        match_context.target_var_expr,
+                        match_context.target_ty,
                         variant,
                     )
                     .map(|(cond, _)| cond)
                     .unwrap_or_else(|| self.bool_expr(pattern.span, false))
                 } else {
-                    let value_expr = self.lower_expr(value, subst_map, Some(target_ty));
+                    let value_expr = self.lower_expr(
+                        value,
+                        match_context.subst_map,
+                        Some(match_context.target_ty),
+                    );
                     MastExpr::new(
                         TypeId::BOOL,
                         MastExprKind::Binary {
                             op: ast::BinaryOperator::Equal,
-                            lhs: Box::new(target_var_expr.clone()),
+                            lhs: Box::new(match_context.target_var_expr.clone()),
                             rhs: Box::new(value_expr),
                         },
                         pattern.span,
@@ -1111,14 +1119,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 end,
                 inclusive,
             } => {
-                let start_expr = self.lower_expr(start, subst_map, Some(target_ty));
-                let end_expr = self.lower_expr(end, subst_map, Some(target_ty));
+                let start_expr = self.lower_expr(
+                    start,
+                    match_context.subst_map,
+                    Some(match_context.target_ty),
+                );
+                let end_expr =
+                    self.lower_expr(end, match_context.subst_map, Some(match_context.target_ty));
                 let lower = MastExpr::new(
                     TypeId::BOOL,
                     MastExprKind::Binary {
                         op: ast::BinaryOperator::LessOrEqual,
                         lhs: Box::new(start_expr),
-                        rhs: Box::new(target_var_expr.clone()),
+                        rhs: Box::new(match_context.target_var_expr.clone()),
                     },
                     pattern.span,
                 );
@@ -1131,7 +1144,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     TypeId::BOOL,
                     MastExprKind::Binary {
                         op: upper_op,
-                        lhs: Box::new(target_var_expr.clone()),
+                        lhs: Box::new(match_context.target_var_expr.clone()),
                         rhs: Box::new(end_expr),
                     },
                     pattern.span,
@@ -1143,29 +1156,30 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let cond = self.collect_pattern_plan(
                     pattern.span,
                     inner,
-                    target_var_expr,
-                    target_ty,
+                    match_context.target_var_expr,
+                    match_context.target_ty,
                     &mut bindings,
                 );
                 (cond, bindings)
             }
         };
 
-        let then_branch = self.lower_match_pattern_body(&arm.body, bindings, subst_map, exp_ty);
+        let then_branch = self.lower_match_pattern_body(
+            &arm.body,
+            bindings,
+            match_context.subst_map,
+            match_context.exp_ty,
+        );
         let fallback = self.lower_match_pattern_chain(
+            match_context,
             patterns,
             pattern_index + 1,
             arm,
-            arms,
             arm_index,
-            target_var_expr,
-            target_ty,
-            subst_map,
-            exp_ty,
         );
 
         MastExpr::new(
-            exp_ty,
+            match_context.exp_ty,
             MastExprKind::If {
                 cond: Box::new(cond),
                 then_branch,
@@ -1233,7 +1247,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             _ => None,
         }
     }
-
 
     pub(crate) fn lower_return(
         &mut self,

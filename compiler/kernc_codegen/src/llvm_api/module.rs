@@ -124,7 +124,7 @@ impl<'ctx> Module<'ctx> {
 
         #[cfg(not(windows))]
         {
-            return self.ir_string_via_llvm_string();
+            self.ir_string_via_llvm_string()
         }
     }
 

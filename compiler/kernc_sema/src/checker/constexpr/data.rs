@@ -1,4 +1,4 @@
-﻿use super::*;
+use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
     fn is_discard_name(&self, name: SymbolId) -> bool {
@@ -26,7 +26,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         match self.ctx.type_registry.get(norm).clone() {
             TypeKind::Def(def_id, generic_args) => match self.ctx.defs.get(def_id.0 as usize) {
                 Some(Def::Struct(def)) => {
-                    let Some(field) = def.fields.iter().find(|field| field.name == field_name) else {
+                    let Some(field) = def.fields.iter().find(|field| field.name == field_name)
+                    else {
                         return Ok(None);
                     };
 
@@ -63,9 +64,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
                 _ => Ok(None),
             },
-            TypeKind::AnonymousStruct(_, fields) => {
-                Ok(fields.iter().find(|field| field.name == field_name).map(|field| field.ty))
-            }
+            TypeKind::AnonymousStruct(_, fields) => Ok(fields
+                .iter()
+                .find(|field| field.name == field_name)
+                .map(|field| field.ty)),
             TypeKind::AnonymousUnion(_, _) => {
                 self.ctx
                     .struct_error(span, "destructuring patterns are not supported for anonymous unions")
@@ -114,10 +116,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                             pattern.span,
                             format!("variant `{}` requires payload destructuring", variant_name),
                         )
-                        .with_hint(format!(
-                            "write this as `.{{ {}: value }}`",
-                            variant_name
-                        ))
+                        .with_hint(format!("write this as `.{{ {}: value }}`", variant_name))
                         .emit();
                     return Err(ConstEvalError);
                 }
@@ -145,11 +144,15 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                         }
 
                         let field = &destructure.fields[0];
-                        let expected_tag =
-                            match self.variant_tag(target_ty, field.name, depth, field.name_span)? {
-                                Some(tag) => tag,
-                                None => return Ok(None),
-                            };
+                        let expected_tag = match self.variant_tag(
+                            target_ty,
+                            field.name,
+                            depth,
+                            field.name_span,
+                        )? {
+                            Some(tag) => tag,
+                            None => return Ok(None),
+                        };
 
                         let payload_ty =
                             self.variant_payload_ty(target_ty, field.name, depth, field.span)?;
@@ -158,7 +161,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                 match payload_ty {
                                     Some(payload_ty) => {
                                         if self.is_pattern_field_pun(field) {
-                                            let field_name = self.ctx.resolve(field.name).to_string();
+                                            let field_name =
+                                                self.ctx.resolve(field.name).to_string();
                                             self.ctx
                                                 .struct_error(
                                                     field.span,
@@ -190,7 +194,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                         self.ctx
                                             .struct_error(
                                                 field.span,
-                                                format!("variant `{}` does not take a payload", field_name),
+                                                format!(
+                                                    "variant `{}` does not take a payload",
+                                                    field_name
+                                                ),
                                             )
                                             .with_hint(format!(
                                                 "use `.{}` for the payload-less form",
@@ -208,7 +215,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                     self.ctx
                                         .struct_error(
                                             field.span,
-                                            format!("variant `{}` does not take a payload", field_name),
+                                            format!(
+                                                "variant `{}` does not take a payload",
+                                                field_name
+                                            ),
                                         )
                                         .with_hint(format!(
                                             "use `.{}` for the payload-less form",
@@ -273,7 +283,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                                 field_value,
                                 field_ty,
                                 depth + 1,
-                            )? else {
+                            )?
+                            else {
                                 return Ok(None);
                             };
 

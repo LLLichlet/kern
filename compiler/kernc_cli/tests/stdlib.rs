@@ -203,8 +203,16 @@ extern fn main() i32 {
     );
 
     let stderr = String::from_utf8_lossy(&run_output.stderr);
-    assert!(stderr.contains("log: boot 1"), "unexpected stderr:\n{}", stderr);
-    assert!(stderr.contains("debug: trace ok"), "unexpected stderr:\n{}", stderr);
+    assert!(
+        stderr.contains("log: boot 1"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("debug: trace ok"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);

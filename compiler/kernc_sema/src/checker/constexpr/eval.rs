@@ -1,12 +1,33 @@
 use super::*;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    fn check_pattern_recursion_depth(
+        &mut self,
+        depth: usize,
+        span: kernc_utils::Span,
+    ) -> ConstEvalResult<()> {
+        if depth > 100 {
+            self.ctx
+                .struct_error(
+                    span,
+                    "constant pattern evaluation exceeded maximum recursion depth",
+                )
+                .with_hint("check for excessively nested destructuring in constant evaluation")
+                .emit();
+            return Err(ConstEvalError);
+        }
+
+        Ok(())
+    }
+
     fn pattern_is_irrefutable(
         &mut self,
         pattern: &ast::Pattern,
         target_ty: TypeId,
         depth: usize,
     ) -> ConstEvalResult<bool> {
+        self.check_pattern_recursion_depth(depth, pattern.span)?;
+
         match &pattern.kind {
             ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => Ok(true),
             ast::PatternKind::Variant(_) => Ok(false),
@@ -42,6 +63,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         target_ty: TypeId,
         depth: usize,
     ) -> ConstEvalResult<()> {
+        self.check_pattern_recursion_depth(depth, pattern.span)?;
+
         match &pattern.kind {
             ast::PatternKind::Binding(binding) => {
                 if self.ctx.resolve(binding.name) != "_" {
@@ -183,7 +206,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 }
                 if !is_irrefutable && else_branch.is_none() {
                     self.ctx
-                        .struct_error(expr.span, "refutable `let` patterns require an `else` branch")
+                        .struct_error(
+                            expr.span,
+                            "refutable `let` patterns require an `else` branch",
+                        )
                         .emit();
                     return Err(ConstEvalError);
                 }
@@ -193,7 +219,10 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 else {
                     let Some(else_expr) = else_branch else {
                         self.ctx
-                            .struct_error(expr.span, "refutable `let` patterns require an `else` branch")
+                            .struct_error(
+                                expr.span,
+                                "refutable `let` patterns require an `else` branch",
+                            )
                             .emit();
                         return Err(ConstEvalError);
                     };

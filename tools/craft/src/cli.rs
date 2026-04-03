@@ -576,7 +576,7 @@ pub fn run() -> Result<()> {
                 ),
             );
             if render.verbose
-                && (run_unit.generated_files.len() > 0
+                && (!run_unit.generated_files.is_empty()
                     || action_plan.compile_count() > 0
                     || action_plan.link_count() > 0)
             {

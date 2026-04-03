@@ -93,8 +93,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let adt_def = self.match_enum_def(def_id, span, "inspect a pattern variant")?;
                 let variant = adt_def.variants.iter().find(|v| v.name == variant_name)?;
                 let definition_span = variant.name_span;
-                self.ctx
-                    .record_identifier_reference(span, definition_span);
+                self.ctx.record_identifier_reference(span, definition_span);
 
                 let payload_ty = variant.payload_type.as_ref().map(|payload_ast| {
                     let mut payload_ty = self
@@ -252,11 +251,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 );
                 let norm_target = self.resolve_tv(actual_ty);
 
-                let Some(payload_ty) =
-                    self.variant_payload_type(norm_target, variant.variant_name, variant.variant_span)
-                else {
+                let Some(payload_ty) = self.variant_payload_type(
+                    norm_target,
+                    variant.variant_name,
+                    variant.variant_span,
+                ) else {
                     self.ctx
-                        .struct_error(pattern.span, "variant pattern is only allowed on enum values")
+                        .struct_error(
+                            pattern.span,
+                            "variant pattern is only allowed on enum values",
+                        )
                         .emit();
                     return;
                 };
@@ -374,8 +378,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 continue;
                             }
 
-                            let Some(resolved_field) =
-                                field_defs.iter().find(|candidate| candidate.name == field.name)
+                            let Some(resolved_field) = field_defs
+                                .iter()
+                                .find(|candidate| candidate.name == field.name)
                             else {
                                 self.ctx
                                     .struct_error(

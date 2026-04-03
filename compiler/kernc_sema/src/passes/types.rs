@@ -599,7 +599,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     // 递归查找并解析表达式内部的所有 TypeNode
     fn resolve_pattern(&mut self, pattern: &ast::Pattern, scope: ScopeId) {
         match &pattern.kind {
-            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore | ast::PatternKind::Variant(_) => {
+            ast::PatternKind::Binding(_)
+            | ast::PatternKind::Ignore
+            | ast::PatternKind::Variant(_) => {
                 if let ast::PatternKind::Variant(variant) = &pattern.kind
                     && let Some(ty) = &variant.target_type
                 {

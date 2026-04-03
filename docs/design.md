@@ -605,7 +605,7 @@ Pattern matching is the only way to access the payload of a `enum` variant. Bind
 
 ```kern
 match (opt) {
-    .Some: mut val => { 
+    .{ Some: mut val } => {
         val += 1; 
         printf("%d\n\0", val);
     },

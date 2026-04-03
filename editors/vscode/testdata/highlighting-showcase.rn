@@ -19,7 +19,7 @@ extern fn start() ! {
     });
 
     let _ = match (state) {
-        .Some: value => callback(value),
+        .{ Some: value } => callback(value),
         .None => @trap(),
     };
 
@@ -53,7 +53,7 @@ type Printable = trait {
 impl[T] *Option[T] : Printable {
     pub fn render() void {
         let _ = match (self.*) {
-            .Some: value => value,
+            .{ Some: value } => value,
             .None => 0,
         };
     }

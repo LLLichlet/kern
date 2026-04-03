@@ -5,7 +5,7 @@ this repository.
 
 - [`docs/design.md`](../design.md) is the language design and semantics document.
 - [`docs/kernc.md`](../kernc.md) is the compiler driver guide.
-- [`docs/craft.md`](../craft.md) is the package-manager architecture draft.
+- [`docs/craft.md`](../craft.md) is the package-manager architecture and behavior guide.
 
 This tutorial answers a different question: "How do I actually become productive
 in Kern and in this repository?"
@@ -26,15 +26,15 @@ The current `v0.6.6` tree already has a fairly solid core:
 - the standard library layout under `library/std`
 - the current `kern-lsp` editor loop
 
-`craft` is further along than a pure sketch, but it still needs to be read with
-more care:
+`craft` is already usable, but its policy and ecosystem surface still need to be
+read with more care:
 
 - the command surface exists: `check`, `lock`, `fetch`, `build`, `run`, `test`
 - lockfiles, sources, workspace discovery, and script hooks are implemented
 - the long-term package ecosystem and policy surface are still evolving
 
 Treat `kernc` as the "must know" path and `craft` as the "usable but still
-shaping up" path.
+evolving" path.
 
 ## Recommended Reading Order
 

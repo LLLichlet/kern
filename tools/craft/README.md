@@ -1,6 +1,6 @@
 # `craft`
 
-`craft` is the planned Kern package manager and build orchestrator.
+`craft` is the Kern package manager and build orchestrator.
 
 This directory intentionally lives under `tools/` rather than `compiler/`.
 
@@ -57,4 +57,4 @@ release smoke checks should exercise both allowed and rejected source fixtures.
 The gate defaults to `enforce`, but `[craft]` may explicitly downgrade it or
 allow specific source names for floating git or insecure transport cases.
 
-See [docs/craft.md](../../docs/craft.md) for the V1 design draft.
+See [docs/craft.md](../../docs/craft.md) for the current design and behavior guide.

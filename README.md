@@ -2,7 +2,7 @@
 
 ![Kern logo](./logo.svg)
 
-> **Status:** v0.6.4 (Experimental)
+> **Status:** v0.6.6 (Experimental)
 > *High Abstraction, Low Policy.*
 
 Kern is a systems-level programming language explicitly designed for operating system kernels, embedded firmware, and high-performance infrastructure.
@@ -29,7 +29,7 @@ The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. 
 * `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
 * `kernc_utils`: Handles rigorous internal diagnostics, span tracking, and ICE (Internal Compiler Error) reporting.
 
-## A Taste of Kern (v0.6.4)
+## A Taste of Kern (v0.6.6)
 
 Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 
@@ -75,8 +75,8 @@ extern fn start() ! {
     
     // 5. Exhaustive Pattern Matching & Explicit Discards
     let _ = match (device.init()) {
-        .Ok: _ => io.print("Serial ready\n\0", .{}),
-        .Err: code => @trap(), // Compiler intrinsic for llvm.trap
+        .{ Ok: _ } => io.print("Serial ready\n\0", .{}),
+        .{ Err: code } => @trap(), // Compiler intrinsic for llvm.trap
     };
     
     // Infinite loop

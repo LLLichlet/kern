@@ -859,14 +859,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         self.check_generic_bounds(span, def_id, &generics, &arg_tys);
 
-        if matches!(self.ctx.type_registry.get(target_norm), TypeKind::FnDef(..)) {
-            self.ctx
+        match self.ctx.type_registry.get(target_norm) {
+            TypeKind::FnDef(..) => self
+                .ctx
                 .type_registry
-                .intern(TypeKind::FnDef(def_id, arg_tys))
-        } else {
-            self.ctx
+                .intern(TypeKind::FnDef(def_id, arg_tys)),
+            TypeKind::Enum(..) => self
+                .ctx
                 .type_registry
-                .intern(TypeKind::Def(def_id, arg_tys))
+                .intern(TypeKind::Enum(def_id, arg_tys)),
+            TypeKind::TraitObject(..) => self
+                .ctx
+                .type_registry
+                .intern(TypeKind::TraitObject(def_id, arg_tys)),
+            _ => self
+                .ctx
+                .type_registry
+                .intern(TypeKind::Def(def_id, arg_tys)),
         }
     }
 

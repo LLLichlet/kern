@@ -17,6 +17,18 @@ struct ResolvedPatternField {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn symbol_is_type_namespace(kind: SymbolKind) -> bool {
+        matches!(
+            kind,
+            SymbolKind::Struct
+                | SymbolKind::Union
+                | SymbolKind::Enum
+                | SymbolKind::Trait
+                | SymbolKind::TypeAlias
+                | SymbolKind::TypeParam
+        )
+    }
+
     fn is_discard_name(&self, name: SymbolId) -> bool {
         self.ctx.resolve(name) == "_"
     }
@@ -459,6 +471,42 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .type_registry
                     .intern(TypeKind::Module(info.def_id.unwrap()));
             }
+            if let Some(def_id) = info.def_id {
+                match info.kind {
+                    SymbolKind::Struct | SymbolKind::Union => {
+                        return self.ctx.type_registry.intern(TypeKind::Def(def_id, vec![]));
+                    }
+                    SymbolKind::Enum => {
+                        return self
+                            .ctx
+                            .type_registry
+                            .intern(TypeKind::Enum(def_id, vec![]));
+                    }
+                    SymbolKind::Trait => {
+                        return self
+                            .ctx
+                            .type_registry
+                            .intern(TypeKind::TraitObject(def_id, vec![]));
+                    }
+                    _ => {}
+                }
+            }
+            if info.kind == SymbolKind::TypeAlias {
+                if let Some(def_id) = info.def_id
+                    && let Def::TypeAlias(alias_def) = &self.ctx.defs[def_id.0 as usize]
+                {
+                    let resolved_ty = self
+                        .ctx
+                        .node_types
+                        .get(&alias_def.target.id)
+                        .copied()
+                        .unwrap_or(info.type_id);
+                    if resolved_ty != TypeId::ERROR {
+                        return resolved_ty;
+                    }
+                }
+                return info.type_id;
+            }
 
             // Lazily infer imported or forward-declared globals when their type is still unknown.
             if info.type_id == TypeId::ERROR
@@ -661,6 +709,162 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ast::ExprKind::Identifier(name) => self
+                .ctx
+                .scopes
+                .resolve(*name)
+                .map(|info| Self::symbol_is_type_namespace(info.kind))
+                .unwrap_or(false),
+            ast::ExprKind::GenericInstantiation { target, .. } => {
+                self.expr_is_type_namespace(target)
+            }
+            ast::ExprKind::FieldAccess { lhs, field, .. } => {
+                let lhs_ty = self
+                    .ctx
+                    .node_types
+                    .get(&lhs.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                let lhs_norm = self.resolve_tv(lhs_ty);
+
+                let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(lhs_norm).clone()
+                else {
+                    return false;
+                };
+                let Def::Module(module) = &self.ctx.defs[mod_def_id.0 as usize] else {
+                    self.ctx.emit_ice(
+                        expr.span,
+                        format!(
+                            "Kern ICE (Typeck): Expected module definition while classifying namespace access for DefId {}.",
+                            mod_def_id.0
+                        ),
+                    );
+                    return false;
+                };
+
+                self.ctx
+                    .scopes
+                    .resolve_in(module.scope_id, *field)
+                    .map(|info| Self::symbol_is_type_namespace(info.kind))
+                    .unwrap_or(false)
+            }
+            _ => false,
+        }
+    }
+
+    fn check_payloadless_enum_variant_access(
+        &mut self,
+        target_ty: TypeId,
+        field: SymbolId,
+        field_span: Span,
+        span: Span,
+    ) -> Option<TypeId> {
+        let norm_target = self.resolve_tv(target_ty);
+
+        match self.ctx.type_registry.get(norm_target).clone() {
+            TypeKind::Enum(def_id, _) => {
+                let adt_def = self.match_enum_def(def_id, span, "access an enum variant")?;
+                let Some(variant) = adt_def
+                    .variants
+                    .iter()
+                    .find(|variant| variant.name == field)
+                else {
+                    let available_variants: Vec<String> = adt_def
+                        .variants
+                        .iter()
+                        .map(|variant| format!(".{}", self.ctx.resolve(variant.name)))
+                        .collect();
+                    let mut diag = self.ctx.struct_error(
+                        span,
+                        format!(
+                            "variant `{}` not found in enum type `{}`",
+                            self.ctx.resolve(field),
+                            self.ctx.ty_to_string(target_ty)
+                        ),
+                    );
+
+                    if !available_variants.is_empty() {
+                        diag = diag.with_hint(format!(
+                            "available variants: {}",
+                            available_variants.join(", ")
+                        ));
+                    }
+                    diag.emit();
+                    return Some(TypeId::ERROR);
+                };
+
+                self.ctx
+                    .record_identifier_reference(field_span, variant.name_span);
+
+                if variant.payload_type.is_some() {
+                    let target_str = self.ctx.ty_to_string(target_ty);
+                    let field_str = self.ctx.resolve(field).to_string();
+                    self.ctx
+                        .struct_error(span, format!("variant `{}` requires a payload", field_str))
+                        .with_hint(format!(
+                            "initialize it as `{}.{{ {}: value }}`",
+                            target_str, field_str
+                        ))
+                        .emit();
+                    return Some(TypeId::ERROR);
+                }
+
+                Some(target_ty)
+            }
+            TypeKind::AnonymousEnum(enum_def) => {
+                let Some(variant) = enum_def
+                    .variants
+                    .iter()
+                    .find(|variant| variant.name == field)
+                else {
+                    let available_variants: Vec<String> = enum_def
+                        .variants
+                        .iter()
+                        .map(|variant| format!(".{}", self.ctx.resolve(variant.name)))
+                        .collect();
+                    let mut diag = self.ctx.struct_error(
+                        span,
+                        format!(
+                            "variant `{}` not found in enum type `{}`",
+                            self.ctx.resolve(field),
+                            self.ctx.ty_to_string(target_ty)
+                        ),
+                    );
+
+                    if !available_variants.is_empty() {
+                        diag = diag.with_hint(format!(
+                            "available variants: {}",
+                            available_variants.join(", ")
+                        ));
+                    }
+                    diag.emit();
+                    return Some(TypeId::ERROR);
+                };
+
+                self.ctx
+                    .record_identifier_reference(field_span, variant.name_span);
+
+                if variant.payload_ty.is_some() {
+                    let target_str = self.ctx.ty_to_string(target_ty);
+                    let field_str = self.ctx.resolve(field).to_string();
+                    self.ctx
+                        .struct_error(span, format!("variant `{}` requires a payload", field_str))
+                        .with_hint(format!(
+                            "initialize it as `{}.{{ {}: value }}`",
+                            target_str, field_str
+                        ))
+                        .emit();
+                    return Some(TypeId::ERROR);
+                }
+
+                Some(target_ty)
+            }
+            _ => None,
+        }
+    }
+
     pub(crate) fn check_field_access(
         &mut self,
         expr_id: NodeId,
@@ -752,6 +956,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .emit();
                 return TypeId::ERROR;
             }
+        }
+
+        if self.expr_is_type_namespace(lhs)
+            && let Some(enum_ty) =
+                self.check_payloadless_enum_variant_access(lhs_ty, field, field_span, span)
+        {
+            return enum_ty;
         }
 
         if let Some(resolution) = self.try_find_field_or_method_silent(lhs_ty, field, span) {

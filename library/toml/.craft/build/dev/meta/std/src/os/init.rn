@@ -1,0 +1,82 @@
+//! Platform operating-system shims.
+//!
+//! This module normalizes file handles, metadata, and process exit across the
+//! supported operating systems while still exposing the low-level boundary.
+
+/// Low-level flags used when opening a file through the OS layer.
+pub type OpenOptions = struct {
+    //// Allows reads from the opened handle.
+    pub read: bool = false,
+    //// Allows writes to the opened handle.
+    pub write: bool = false,
+    //// Creates the file when it does not already exist.
+    pub create: bool = false,
+    //// Creates the file and fails when it already exists.
+    pub create_new: bool = false,
+    //// Truncates the file to zero length on open.
+    pub truncate: bool = false,
+    //// Appends writes to the end of the file.
+    pub append: bool = false,
+};
+
+/// The coarse file kind reported by the platform layer.
+pub type FileType = enum {
+    File,
+    Directory,
+    Other,
+};
+
+/// Low-level filesystem metadata.
+pub type Metadata = struct {
+    file_type: FileType,
+    //// File length in bytes when the platform provides it.
+    pub size: usize,
+};
+
+impl Metadata {
+    /// Returns `true` when the metadata describes a regular file.
+    pub fn is_file() bool {
+        return self.file_type == .File;
+    }
+
+    /// Returns `true` when the metadata describes a directory.
+    pub fn is_dir() bool {
+        return self.file_type == .Directory;
+    }
+}
+
+#[if(os == "linux")]
+mod linux;
+#[if(os == "linux")]
+pub use .linux.{
+    Error, 
+    Handle, 
+    invalid_handle, 
+    get_stdin_handle, 
+    get_stdout_handle, 
+    get_stderr_handle, 
+    open_file, 
+    read_file, 
+    write_file, 
+    close_file, 
+    metadata, 
+    scan_dir, 
+    create_dir, 
+    remove_dir, 
+    remove_file,
+    rename, 
+    is_not_found, 
+    is_already_exists, 
+    write, 
+    exit
+};
+
+#[if(os == "darwin")]
+mod darwin;
+#[if(os == "darwin")]
+pub use .darwin.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};
+
+#[if(os == "windows")]
+mod windows;
+#[if(os == "windows")]
+pub use .windows.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};

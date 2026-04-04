@@ -1,0 +1,4214 @@
+format_version = 1
+
+[[item]]
+path = "std"
+kind = "module"
+signature = "module std"
+summary = "Kern standard library."
+details = "The standard library provides the minimal runtime, containers, memory,\nfilesystem, formatting, and platform shims used by ordinary Kern programs."
+raw = "Kern standard library.\n\nThe standard library provides the minimal runtime, containers, memory,\nfilesystem, formatting, and platform shims used by ordinary Kern programs.\n\nDesign:\nkeep ownership, allocation, and platform boundaries explicit."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep ownership, allocation, and platform boundaries explicit."
+
+[[item]]
+path = "std::cffi"
+kind = "module"
+signature = "module cffi"
+summary = "Helpers for interoperating with C ABIs."
+details = ""
+raw = "Helpers for interoperating with C ABIs.\n\nDesign:\nkeep the boundary narrow and byte-oriented."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep the boundary narrow and byte-oriented."
+
+[[item]]
+path = "std::cffi::cstr"
+kind = "module"
+signature = "module cstr"
+summary = "C string helpers."
+details = "These helpers allocate and inspect zero-terminated byte buffers for foreign\nfunction interfaces."
+raw = "C string helpers.\n\nThese helpers allocate and inspect zero-terminated byte buffers for foreign\nfunction interfaces."
+
+[[item]]
+path = "std::cffi::cstr::alloc_z"
+kind = "method"
+signature = "fn alloc_z: fn(*mut Allocator, []u8) Option[*mut u8]"
+summary = "Allocates a zero-terminated copy of `bytes`."
+details = ""
+raw = "Allocates a zero-terminated copy of `bytes`.\n\nReturns:\n`None` when layout computation or allocation fails."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`None` when layout computation or allocation fails."
+
+[[item]]
+path = "std::cffi::cstr::free_z"
+kind = "method"
+signature = "fn free_z: fn(*mut Allocator, []u8, *mut u8) void"
+summary = "Frees a pointer previously returned by `alloc_z`."
+details = ""
+raw = "Frees a pointer previously returned by `alloc_z`.\n\nSafety:\n`bytes` must be the same slice length that was used for allocation, and\n`ptr` must come from `alloc_z` with the same allocator."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = "`bytes` must be the same slice length that was used for allocation, and\n`ptr` must come from `alloc_z` with the same allocator."
+
+[[item]]
+path = "std::cffi::cstr::len"
+kind = "method"
+signature = "fn len: fn(*u8) usize"
+summary = "Returns the length of a zero-terminated C string."
+details = ""
+raw = "Returns the length of a zero-terminated C string.\n\nSafety:\n`str` must point to a valid zero-terminated byte sequence."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = "`str` must point to a valid zero-terminated byte sequence."
+
+[[item]]
+path = "std::cmp"
+kind = "module"
+signature = "module cmp"
+summary = "Comparison traits and ordering helpers."
+details = "This module defines the vocabulary used by ordered containers and generic\nalgorithms."
+raw = "Comparison traits and ordering helpers.\n\nThis module defines the vocabulary used by ordered containers and generic\nalgorithms."
+
+[[item]]
+path = "std::cmp::Comparable"
+kind = "trait"
+signature = "trait Comparable"
+summary = "Total or partial ordering comparison for a type."
+details = ""
+raw = "Total or partial ordering comparison for a type."
+
+[[item]]
+path = "std::cmp::Comparable::cmp"
+kind = "trait_method"
+signature = "fn cmp: fn(Comparable, T) i32"
+summary = "Compares `self` with another value and returns an `Ordering`."
+details = ""
+raw = "Compares `self` with another value and returns an `Ordering`."
+
+[[item]]
+path = "std::cmp::EQUAL"
+kind = "const"
+signature = "const EQUAL: i32"
+summary = "Indicates that both values compare as equal."
+details = ""
+raw = "Indicates that both values compare as equal."
+
+[[item]]
+path = "std::cmp::Eq"
+kind = "trait"
+signature = "trait Eq"
+summary = "Equality comparison for a type."
+details = ""
+raw = "Equality comparison for a type."
+
+[[item]]
+path = "std::cmp::Eq::eq"
+kind = "trait_method"
+signature = "fn eq: fn(Eq, T) bool"
+summary = "Returns `true` when `self` and the argument should be treated as equal."
+details = ""
+raw = "Returns `true` when `self` and the argument should be treated as equal."
+
+[[item]]
+path = "std::cmp::GREATER"
+kind = "const"
+signature = "const GREATER: i32"
+summary = "Indicates that the left-hand value is greater than the right-hand value."
+details = ""
+raw = "Indicates that the left-hand value is greater than the right-hand value."
+
+[[item]]
+path = "std::cmp::LESS"
+kind = "const"
+signature = "const LESS: i32"
+summary = "Indicates that the left-hand value is smaller than the right-hand value."
+details = ""
+raw = "Indicates that the left-hand value is smaller than the right-hand value."
+
+[[item]]
+path = "std::cmp::Ord"
+kind = "trait"
+signature = "trait Ord"
+summary = "A type that supports both equality and ordering."
+details = ""
+raw = "A type that supports both equality and ordering."
+
+[[item]]
+path = "std::cmp::Ordering"
+kind = "type"
+signature = "type Ordering = i32"
+summary = "The relative ordering between two values."
+details = ""
+raw = "The relative ordering between two values."
+
+[[item]]
+path = "std::cmp::eq"
+kind = "method"
+signature = "fn eq: fn(T, T) bool"
+summary = "Compares two values for equality through the `Eq` trait."
+details = ""
+raw = "Compares two values for equality through the `Eq` trait."
+
+[[item]]
+path = "std::cmp::ord_cmp"
+kind = "method"
+signature = "fn ord_cmp: fn(T, T) i32"
+summary = "Compares two values through the `Ord` trait."
+details = ""
+raw = "Compares two values through the `Ord` trait."
+
+[[item]]
+path = "std::coll"
+kind = "module"
+signature = "module coll"
+summary = "Collection types and slice helpers."
+details = "The standard collections stay allocation-explicit and favor simple,\ninspectable representations over hidden policy."
+raw = "Collection types and slice helpers.\n\nThe standard collections stay allocation-explicit and favor simple,\ninspectable representations over hidden policy."
+
+[[item]]
+path = "std::coll::list"
+kind = "module"
+signature = "module list"
+summary = "Growable contiguous lists."
+details = "`List[T]` is the standard owned sequence type. It stores elements in a\ncontiguous buffer and grows geometrically."
+raw = "Growable contiguous lists.\n\n`List[T]` is the standard owned sequence type. It stores elements in a\ncontiguous buffer and grows geometrically."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::append_repeat"
+kind = "method"
+signature = "fn append_repeat: fn(*mut List[T], *mut Allocator, T, usize) bool"
+summary = "Appends `count` copies of `item`."
+details = ""
+raw = "Appends `count` copies of `item`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::append_slice"
+kind = "method"
+signature = "fn append_slice: fn(*mut List[T], *mut Allocator, []T) bool"
+summary = "Appends every element from `slice`."
+details = ""
+raw = "Appends every element from `slice`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::clear"
+kind = "method"
+signature = "fn clear: fn(*mut List[T]) void"
+summary = "Removes every element without releasing capacity."
+details = ""
+raw = "Removes every element without releasing capacity."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::clone_from"
+kind = "method"
+signature = "fn clone_from: fn(*mut List[T], *mut Allocator, []T) bool"
+summary = "Replaces the contents of the list with `items`."
+details = ""
+raw = "Replaces the contents of the list with `items`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::deinit"
+kind = "method"
+signature = "fn deinit: fn(*mut List[T], *mut Allocator) void"
+summary = "Releases the backing allocation."
+details = ""
+raw = "Releases the backing allocation."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::ensure_capacity"
+kind = "method"
+signature = "fn ensure_capacity: fn(*mut List[T], *mut Allocator, usize) bool"
+summary = "Ensures the backing buffer can store at least `required_cap` items."
+details = ""
+raw = "Ensures the backing buffer can store at least `required_cap` items."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::extend"
+kind = "method"
+signature = "fn extend: fn(*mut List[T], *mut Allocator, []T) bool"
+summary = "Alias for `append_slice`."
+details = ""
+raw = "Alias for `append_slice`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::extend_from_list"
+kind = "method"
+signature = "fn extend_from_list: fn(*mut List[T], *mut Allocator, *List[T]) bool"
+summary = "Appends every element from another list."
+details = ""
+raw = "Appends every element from another list."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::fill"
+kind = "method"
+signature = "fn fill: fn(*mut List[T], T) void"
+summary = "Overwrites every element with `value`."
+details = ""
+raw = "Overwrites every element with `value`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::for_each_mut"
+kind = "method"
+signature = "fn for_each_mut: fn(*mut List[T], *Fn(*mut T) void) void"
+summary = "Visits every element mutably."
+details = ""
+raw = "Visits every element mutably."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::get_ptr"
+kind = "method"
+signature = "fn get_ptr: fn(*mut List[T], usize) Option[*mut T]"
+summary = "Returns a mutable pointer to the element at `index`."
+details = ""
+raw = "Returns a mutable pointer to the element at `index`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::insert"
+kind = "method"
+signature = "fn insert: fn(*mut List[T], *mut Allocator, usize, T) bool"
+summary = "Inserts one item at `index`."
+details = ""
+raw = "Inserts one item at `index`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::insert_slice"
+kind = "method"
+signature = "fn insert_slice: fn(*mut List[T], *mut Allocator, usize, []T) bool"
+summary = "Inserts every item from `slice` at `index`."
+details = ""
+raw = "Inserts every item from `slice` at `index`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::pop"
+kind = "method"
+signature = "fn pop: fn(*mut List[T]) Option[T]"
+summary = "Removes and returns the last item."
+details = ""
+raw = "Removes and returns the last item."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::push"
+kind = "method"
+signature = "fn push: fn(*mut List[T], *mut Allocator, T) bool"
+summary = "Appends one item to the end of the list."
+details = ""
+raw = "Appends one item to the end of the list."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::remove"
+kind = "method"
+signature = "fn remove: fn(*mut List[T], usize) Option[T]"
+summary = "Removes and returns the item at `index`, shifting later items left."
+details = ""
+raw = "Removes and returns the item at `index`, shifting later items left."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::reserve"
+kind = "method"
+signature = "fn reserve: fn(*mut List[T], *mut Allocator, usize) bool"
+summary = "Reserves space for at least `additional` more items."
+details = ""
+raw = "Reserves space for at least `additional` more items."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::resize"
+kind = "method"
+signature = "fn resize: fn(*mut List[T], *mut Allocator, usize, T) bool"
+summary = "Changes the list length, filling new elements with `fill`."
+details = ""
+raw = "Changes the list length, filling new elements with `fill`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::retain"
+kind = "method"
+signature = "fn retain: fn(*mut List[T], *Fn(T) bool) void"
+summary = "Retains only the elements accepted by `pred`."
+details = ""
+raw = "Retains only the elements accepted by `pred`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::retain_mut"
+kind = "method"
+signature = "fn retain_mut: fn(*mut List[T], *Fn(*mut T) bool) void"
+summary = "Retains only the elements whose mutable references are accepted by `pred`."
+details = ""
+raw = "Retains only the elements whose mutable references are accepted by `pred`."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::reverse"
+kind = "method"
+signature = "fn reverse: fn(*mut List[T]) void"
+summary = "Reverses the element order in place."
+details = ""
+raw = "Reverses the element order in place."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::shrink_to_fit"
+kind = "method"
+signature = "fn shrink_to_fit: fn(*mut List[T], *mut Allocator) bool"
+summary = "Shrinks capacity down to the current length."
+details = ""
+raw = "Shrinks capacity down to the current length."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::swap_remove"
+kind = "method"
+signature = "fn swap_remove: fn(*mut List[T], usize) Option[T]"
+summary = "Removes an element by swapping in the last element."
+details = ""
+raw = "Removes an element by swapping in the last element."
+
+[[item]]
+path = "std::coll::list::*mut List[T]::truncate"
+kind = "method"
+signature = "fn truncate: fn(*mut List[T], usize) void"
+summary = "Shortens the list to `new_len`."
+details = ""
+raw = "Shortens the list to `new_len`."
+
+[[item]]
+path = "std::coll::list::List"
+kind = "struct"
+signature = "struct List"
+summary = "A growable contiguous collection of `T`."
+details = ""
+raw = "A growable contiguous collection of `T`."
+
+[[item]]
+path = "std::coll::list::List::len"
+kind = "field"
+signature = "field len: usize"
+summary = "The number of initialized elements in the list."
+details = ""
+raw = "The number of initialized elements in the list."
+
+[[item]]
+path = "std::coll::list::fmt"
+kind = "module"
+signature = "module fmt"
+summary = "`Printable` integration for lists."
+details = ""
+raw = "`Printable` integration for lists."
+
+[[item]]
+path = "std::coll::list::fmt::*List[T] as Printable::fmt"
+kind = "method"
+signature = "fn fmt: fn(*List[T], *mut Writer) void"
+summary = "Writes a structural debug view of the list contents."
+details = ""
+raw = "Writes a structural debug view of the list contents."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::all"
+kind = "method"
+signature = "fn all: fn(*List[T], *Fn(T) bool) bool"
+summary = "Returns `true` when every element satisfies `pred`."
+details = ""
+raw = "Returns `true` when every element satisfies `pred`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::any"
+kind = "method"
+signature = "fn any: fn(*List[T], *Fn(T) bool) bool"
+summary = "Returns `true` when any element satisfies `pred`."
+details = ""
+raw = "Returns `true` when any element satisfies `pred`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::binary_search"
+kind = "method"
+signature = "fn binary_search: fn(*List[T], T) Option[usize]"
+summary = "Performs binary search on a sorted list."
+details = ""
+raw = "Performs binary search on a sorted list."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::contains"
+kind = "method"
+signature = "fn contains: fn(*List[T], []T) bool"
+summary = "Returns `true` when `needle` appears as a contiguous subsequence."
+details = ""
+raw = "Returns `true` when `needle` appears as a contiguous subsequence."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::count"
+kind = "method"
+signature = "fn count: fn(*List[T], *Fn(T) bool) usize"
+summary = "Counts how many elements satisfy `pred`."
+details = ""
+raw = "Counts how many elements satisfy `pred`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::ends_with"
+kind = "method"
+signature = "fn ends_with: fn(*List[T], []T) bool"
+summary = "Returns `true` when the list ends with `suffix`."
+details = ""
+raw = "Returns `true` when the list ends with `suffix`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::eq"
+kind = "method"
+signature = "fn eq: fn(*List[T], []T) bool"
+summary = "Compares the list contents against a slice for equality."
+details = ""
+raw = "Compares the list contents against a slice for equality."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::find"
+kind = "method"
+signature = "fn find: fn(*List[T], []T) Option[usize]"
+summary = "Returns the first position of `needle`."
+details = ""
+raw = "Returns the first position of `needle`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::find_map"
+kind = "method"
+signature = "fn find_map: fn(*List[T], *Fn(T) Option[U]) Option[U]"
+summary = "Returns the first mapped value produced by `call_back`."
+details = ""
+raw = "Returns the first mapped value produced by `call_back`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::fold"
+kind = "method"
+signature = "fn fold: fn(*List[T], U, *Fn(U, T) U) U"
+summary = "Folds the list from left to right."
+details = ""
+raw = "Folds the list from left to right."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::for_each"
+kind = "method"
+signature = "fn for_each: fn(*List[T], *Fn(T) void) void"
+summary = "Visits each element in order."
+details = ""
+raw = "Visits each element in order."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::lex_cmp"
+kind = "method"
+signature = "fn lex_cmp: fn(*List[T], []T) i32"
+summary = "Performs lexicographic comparison against `other`."
+details = ""
+raw = "Performs lexicographic comparison against `other`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::partition_point"
+kind = "method"
+signature = "fn partition_point: fn(*List[T], *Fn(T) bool) usize"
+summary = "Returns the partition point for a list already partitioned by `pred`."
+details = ""
+raw = "Returns the partition point for a list already partitioned by `pred`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::position"
+kind = "method"
+signature = "fn position: fn(*List[T], *Fn(T) bool) Option[usize]"
+summary = "Returns the first index that satisfies `pred`."
+details = ""
+raw = "Returns the first index that satisfies `pred`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::rposition"
+kind = "method"
+signature = "fn rposition: fn(*List[T], *Fn(T) bool) Option[usize]"
+summary = "Returns the last index that satisfies `pred`."
+details = ""
+raw = "Returns the last index that satisfies `pred`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::starts_with"
+kind = "method"
+signature = "fn starts_with: fn(*List[T], []T) bool"
+summary = "Returns `true` when the list begins with `prefix`."
+details = ""
+raw = "Returns `true` when the list begins with `prefix`."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::strip_prefix"
+kind = "method"
+signature = "fn strip_prefix: fn(*List[T], []T) Option[[]T]"
+summary = "Removes `prefix` from the front when present."
+details = ""
+raw = "Removes `prefix` from the front when present."
+
+[[item]]
+path = "std::coll::list::query::*List[T]::strip_suffix"
+kind = "method"
+signature = "fn strip_suffix: fn(*List[T], []T) Option[[]T]"
+summary = "Removes `suffix` from the end when present."
+details = ""
+raw = "Removes `suffix` from the end when present."
+
+[[item]]
+path = "std::coll::map"
+kind = "module"
+signature = "module map"
+summary = "Hash-map storage."
+details = "`Map[K, V]` uses open addressing and explicit allocation through a caller\nsupplied allocator."
+raw = "Hash-map storage.\n\n`Map[K, V]` uses open addressing and explicit allocation through a caller\nsupplied allocator."
+
+[[item]]
+path = "std::coll::map::base"
+kind = "module"
+signature = "module base"
+summary = "Core hash-map storage primitives."
+details = ""
+raw = "Core hash-map storage primitives.\n\nDesign:\nkeep probing, tombstones, and load-factor policy visible so higher layers stay predictable."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep probing, tombstones, and load-factor policy visible so higher layers stay predictable."
+
+[[item]]
+path = "std::coll::map::base::DELETED"
+kind = "const"
+signature = "const DELETED: u8"
+summary = "Control byte for a deleted slot."
+details = ""
+raw = "Control byte for a deleted slot."
+
+[[item]]
+path = "std::coll::map::base::EMPTY"
+kind = "const"
+signature = "const EMPTY: u8"
+summary = "Control byte for an unused slot."
+details = ""
+raw = "Control byte for an unused slot."
+
+[[item]]
+path = "std::coll::map::base::Entry"
+kind = "struct"
+signature = "struct Entry"
+summary = "A single occupied hash-map slot."
+details = ""
+raw = "A single occupied hash-map slot."
+
+[[item]]
+path = "std::coll::map::base::Entry::hash64"
+kind = "field"
+signature = "field hash64: u64"
+summary = "The cached 64-bit hash of `key`."
+details = ""
+raw = "The cached 64-bit hash of `key`."
+
+[[item]]
+path = "std::coll::map::base::Entry::key"
+kind = "field"
+signature = "field key: K"
+summary = "The stored key."
+details = ""
+raw = "The stored key."
+
+[[item]]
+path = "std::coll::map::base::Entry::value"
+kind = "field"
+signature = "field value: V"
+summary = "The stored value."
+details = ""
+raw = "The stored value."
+
+[[item]]
+path = "std::coll::map::base::FULL"
+kind = "const"
+signature = "const FULL: u8"
+summary = "Control byte for an occupied slot."
+details = ""
+raw = "Control byte for an occupied slot."
+
+[[item]]
+path = "std::coll::map::base::MIN_CAPACITY"
+kind = "const"
+signature = "const MIN_CAPACITY: usize"
+summary = "The minimum table capacity."
+details = ""
+raw = "The minimum table capacity."
+
+[[item]]
+path = "std::coll::map::base::Map"
+kind = "struct"
+signature = "struct Map"
+summary = "An open-addressed hash map."
+details = "`Map` stores keys and values in parallel slot arrays and uses linear probing\nwith tombstones for deletions."
+raw = "An open-addressed hash map.\n\n`Map` stores keys and values in parallel slot arrays and uses linear probing\nwith tombstones for deletions."
+
+[[item]]
+path = "std::coll::map::base::Map::capacity"
+kind = "field"
+signature = "field capacity: usize"
+summary = "The number of allocated slots."
+details = ""
+raw = "The number of allocated slots."
+
+[[item]]
+path = "std::coll::map::base::Map::len"
+kind = "field"
+signature = "field len: usize"
+summary = "The number of live entries."
+details = ""
+raw = "The number of live entries."
+
+[[item]]
+path = "std::coll::map::base::Map::tombstones"
+kind = "field"
+signature = "field tombstones: usize"
+summary = "The number of deleted tombstone slots."
+details = ""
+raw = "The number of deleted tombstone slots."
+
+[[item]]
+path = "std::coll::map::base::Table"
+kind = "struct"
+signature = "struct Table"
+summary = "A raw table allocation used during rebuilds."
+details = ""
+raw = "A raw table allocation used during rebuilds."
+
+[[item]]
+path = "std::coll::map::base::Table::capacity"
+kind = "field"
+signature = "field capacity: usize"
+summary = "The total number of addressable slots."
+details = ""
+raw = "The total number of addressable slots."
+
+[[item]]
+path = "std::coll::map::base::Table::ctrl"
+kind = "field"
+signature = "field ctrl: *mut u8"
+summary = "Control bytes describing whether each slot is empty, deleted, or full."
+details = ""
+raw = "Control bytes describing whether each slot is empty, deleted, or full."
+
+[[item]]
+path = "std::coll::map::base::Table::entries"
+kind = "field"
+signature = "field entries: *mut Entry[K, V]"
+summary = "Entry storage parallel to `ctrl`."
+details = ""
+raw = "Entry storage parallel to `ctrl`."
+
+[[item]]
+path = "std::coll::map::base::ctrl_at"
+kind = "method"
+signature = "fn ctrl_at: fn(*u8, usize) u8"
+summary = "Reads a control byte."
+details = ""
+raw = "Reads a control byte."
+
+[[item]]
+path = "std::coll::map::base::entry_ptr"
+kind = "method"
+signature = "fn entry_ptr: fn(*mut Entry[K, V], usize) *mut Entry[K, V]"
+summary = "Returns a pointer to the entry slot at `index`."
+details = ""
+raw = "Returns a pointer to the entry slot at `index`."
+
+[[item]]
+path = "std::coll::map::base::find_index_with_hash"
+kind = "method"
+signature = "fn find_index_with_hash: fn(*u8, *mut Entry[K, V], usize, K, u64) Option[usize]"
+summary = "Finds the slot index for a key and precomputed hash."
+details = "The search stops at the first `EMPTY` slot, so deleted tombstones do not\nterminate probing."
+raw = "Finds the slot index for a key and precomputed hash.\n\nThe search stops at the first `EMPTY` slot, so deleted tombstones do not\nterminate probing."
+
+[[item]]
+path = "std::coll::map::base::key_hash"
+kind = "method"
+signature = "fn key_hash: fn(K) u64"
+summary = "Computes the hash for a key."
+details = ""
+raw = "Computes the hash for a key."
+
+[[item]]
+path = "std::coll::map::base::keys_equal"
+kind = "method"
+signature = "fn keys_equal: fn(K, K) bool"
+summary = "Compares two keys for equality."
+details = ""
+raw = "Compares two keys for equality."
+
+[[item]]
+path = "std::coll::map::base::max_occupied"
+kind = "method"
+signature = "fn max_occupied: fn(usize) usize"
+summary = "Returns the maximum number of occupied slots allowed before growing."
+details = "This keeps the steady-state load factor at or below 75%."
+raw = "Returns the maximum number of occupied slots allowed before growing.\n\nThis keeps the steady-state load factor at or below 75%."
+
+[[item]]
+path = "std::coll::map::base::set_ctrl"
+kind = "method"
+signature = "fn set_ctrl: fn(*mut u8, usize, u8) void"
+summary = "Writes a control byte."
+details = ""
+raw = "Writes a control byte."
+
+[[item]]
+path = "std::coll::map::base::visit_full"
+kind = "method"
+signature = "fn visit_full: fn(*u8, *mut Entry[K, V], usize, *Fn(*mut Entry[K, V]) bool) usize"
+summary = "Visits every occupied entry in a raw table."
+details = ""
+raw = "Visits every occupied entry in a raw table.\n\nReturns:\nthe number of occupied entries observed, including the last delivered one."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "the number of occupied entries observed, including the last delivered one."
+
+[[item]]
+path = "std::coll::map::mutable"
+kind = "module"
+signature = "module mutable"
+summary = "Hash-map allocation and mutation routines."
+details = ""
+raw = "Hash-map allocation and mutation routines.\n\nDesign:\nkeep rebuilds explicit so growth, compaction, and tombstone reuse all follow the same probing rules."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep rebuilds explicit so growth, compaction, and tombstone reuse all follow the same probing rules."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::alloc_table"
+kind = "method"
+signature = "fn alloc_table: fn(*mut Map[K, V], *mut Allocator, usize) Option[Table[K, V]]"
+summary = "Allocates a raw table with empty control bytes."
+details = ""
+raw = "Allocates a raw table with empty control bytes."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::clear"
+kind = "method"
+signature = "fn clear: fn(*mut Map[K, V]) void"
+summary = "Removes every entry without releasing capacity."
+details = ""
+raw = "Removes every entry without releasing capacity."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::compact"
+kind = "method"
+signature = "fn compact: fn(*mut Map[K, V], *mut Allocator) bool"
+summary = "Rebuilds the table to remove tombstones without changing the target length."
+details = ""
+raw = "Rebuilds the table to remove tombstones without changing the target length."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::deinit"
+kind = "method"
+signature = "fn deinit: fn(*mut Map[K, V], *mut Allocator) void"
+summary = "Releases the backing table allocation."
+details = ""
+raw = "Releases the backing table allocation."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::find_insert_slot"
+kind = "method"
+signature = "fn find_insert_slot: fn(*mut Map[K, V], u64) Option[usize]"
+summary = "Finds the best slot for a new key in the current probe sequence."
+details = "The first tombstone is remembered, but probing continues until `EMPTY`\nso existing keys later in the cluster would still be found first."
+raw = "Finds the best slot for a new key in the current probe sequence.\n\nThe first tombstone is remembered, but probing continues until `EMPTY`\nso existing keys later in the cluster would still be found first."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::for_each_mut"
+kind = "method"
+signature = "fn for_each_mut: fn(*mut Map[K, V], *Fn(K, *mut V) void) void"
+summary = "Visits every entry mutably in arbitrary table order."
+details = ""
+raw = "Visits every entry mutably in arbitrary table order."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::free_table"
+kind = "method"
+signature = "fn free_table: fn(*mut Map[K, V], *mut Allocator, *mut u8, *mut Entry[K, V], usize) void"
+summary = "Releases one raw table allocation."
+details = ""
+raw = "Releases one raw table allocation."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::get_or_insert"
+kind = "method"
+signature = "fn get_or_insert: fn(*mut Map[K, V], *mut Allocator, K, V) Option[*mut V]"
+summary = "Returns a mutable pointer to the existing value or inserts `value`."
+details = ""
+raw = "Returns a mutable pointer to the existing value or inserts `value`."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::get_or_insert_with"
+kind = "method"
+signature = "fn get_or_insert_with: fn(*mut Map[K, V], *mut Allocator, K, *Fn() V) Option[*mut V]"
+summary = "Returns a mutable pointer to the existing value or inserts a lazily created one."
+details = ""
+raw = "Returns a mutable pointer to the existing value or inserts a lazily created one."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::get_ptr"
+kind = "method"
+signature = "fn get_ptr: fn(*mut Map[K, V], K) Option[*mut V]"
+summary = "Returns a mutable pointer to the value stored for `key`."
+details = ""
+raw = "Returns a mutable pointer to the value stored for `key`."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::insert"
+kind = "method"
+signature = "fn insert: fn(*mut Map[K, V], *mut Allocator, K, V) bool"
+summary = "Inserts or replaces a key-value pair."
+details = ""
+raw = "Inserts or replaces a key-value pair."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::insert_into_raw"
+kind = "method"
+signature = "fn insert_into_raw: fn(*mut Map[K, V], *mut u8, *mut Entry[K, V], usize, u64, K, V) bool"
+summary = "Inserts directly into a raw table during rebuild."
+details = "This path never observes duplicates and treats every non-`FULL` slot as\nwritable because fresh tables contain no tombstones."
+raw = "Inserts directly into a raw table during rebuild.\n\nThis path never observes duplicates and treats every non-`FULL` slot as\nwritable because fresh tables contain no tombstones."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::rebuild"
+kind = "method"
+signature = "fn rebuild: fn(*mut Map[K, V], *mut Allocator, usize) bool"
+summary = "Rebuilds the table into a new allocation and drops tombstones."
+details = ""
+raw = "Rebuilds the table into a new allocation and drops tombstones."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::remove"
+kind = "method"
+signature = "fn remove: fn(*mut Map[K, V], K) Option[V]"
+summary = "Removes the value stored for `key`."
+details = ""
+raw = "Removes the value stored for `key`."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::remove_where"
+kind = "method"
+signature = "fn remove_where: fn(*mut Map[K, V], *Fn(K, V) bool) Option[V]"
+summary = "Removes and returns the first value whose key-value pair satisfies `pred`."
+details = ""
+raw = "Removes and returns the first value whose key-value pair satisfies `pred`."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::reserve"
+kind = "method"
+signature = "fn reserve: fn(*mut Map[K, V], *mut Allocator, usize) bool"
+summary = "Reserves space for at least `additional` new entries."
+details = ""
+raw = "Reserves space for at least `additional` new entries."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::reserve_internal"
+kind = "method"
+signature = "fn reserve_internal: fn(*mut Map[K, V], *mut Allocator, usize) bool"
+summary = "Ensures room for `additional` new live entries."
+details = "Passing `0` means \"keep the current length but compact tombstones away\"."
+raw = "Ensures room for `additional` new live entries.\n\nPassing `0` means \"keep the current length but compact tombstones away\"."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::retain"
+kind = "method"
+signature = "fn retain: fn(*mut Map[K, V], *Fn(K, V) bool) void"
+summary = "Retains only the entries accepted by `pred`."
+details = ""
+raw = "Retains only the entries accepted by `pred`."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::retain_mut"
+kind = "method"
+signature = "fn retain_mut: fn(*mut Map[K, V], *Fn(K, *mut V) bool) void"
+summary = "Retains only the entries accepted by `pred`."
+details = ""
+raw = "Retains only the entries accepted by `pred`."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::shrink_to_fit"
+kind = "method"
+signature = "fn shrink_to_fit: fn(*mut Map[K, V], *mut Allocator) bool"
+summary = "Shrinks table capacity toward the current number of entries."
+details = ""
+raw = "Shrinks table capacity toward the current number of entries."
+
+[[item]]
+path = "std::coll::map::mutable::*mut Map[K, V]::write_slot"
+kind = "method"
+signature = "fn write_slot: fn(*mut Map[K, V], usize, u64, K, V) *mut V"
+summary = "Writes one entry and updates live-entry and tombstone counts consistently."
+details = ""
+raw = "Writes one entry and updates live-entry and tombstone counts consistently."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::all"
+kind = "method"
+signature = "fn all: fn(*Map[K, V], *Fn(K, V) bool) bool"
+summary = "Returns `true` when every key-value pair satisfies `pred`."
+details = ""
+raw = "Returns `true` when every key-value pair satisfies `pred`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::any"
+kind = "method"
+signature = "fn any: fn(*Map[K, V], *Fn(K, V) bool) bool"
+summary = "Returns `true` when any key-value pair satisfies `pred`."
+details = ""
+raw = "Returns `true` when any key-value pair satisfies `pred`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::append_keys"
+kind = "method"
+signature = "fn append_keys: fn(*Map[K, V], *mut Allocator, *mut List[K]) bool"
+summary = "Appends every key into `out`."
+details = ""
+raw = "Appends every key into `out`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::append_values"
+kind = "method"
+signature = "fn append_values: fn(*Map[K, V], *mut Allocator, *mut List[V]) bool"
+summary = "Appends every value into `out`."
+details = ""
+raw = "Appends every value into `out`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::contains"
+kind = "method"
+signature = "fn contains: fn(*Map[K, V], K) bool"
+summary = "Returns `true` when the map contains `key`."
+details = ""
+raw = "Returns `true` when the map contains `key`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::count"
+kind = "method"
+signature = "fn count: fn(*Map[K, V], *Fn(K, V) bool) usize"
+summary = "Counts how many entries satisfy `pred`."
+details = ""
+raw = "Counts how many entries satisfy `pred`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::find_map"
+kind = "method"
+signature = "fn find_map: fn(*Map[K, V], *Fn(K, V) Option[U]) Option[U]"
+summary = "Returns the first mapped value produced by `visit`."
+details = ""
+raw = "Returns the first mapped value produced by `visit`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::fold"
+kind = "method"
+signature = "fn fold: fn(*Map[K, V], U, *Fn(U, K, V) U) U"
+summary = "Folds entries in arbitrary table order."
+details = ""
+raw = "Folds entries in arbitrary table order."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::for_each"
+kind = "method"
+signature = "fn for_each: fn(*Map[K, V], *Fn(K, V) void) void"
+summary = "Visits every key-value pair in arbitrary table order."
+details = ""
+raw = "Visits every key-value pair in arbitrary table order."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::get"
+kind = "method"
+signature = "fn get: fn(*Map[K, V], K) Option[V]"
+summary = "Returns the value stored for `key`."
+details = ""
+raw = "Returns the value stored for `key`."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::is_empty"
+kind = "method"
+signature = "fn is_empty: fn(*Map[K, V]) bool"
+summary = "Returns `true` when the map contains no entries."
+details = ""
+raw = "Returns `true` when the map contains no entries."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::keys"
+kind = "method"
+signature = "fn keys: fn(*Map[K, V], *mut Allocator) Option[List[K]]"
+summary = "Collects all keys into a new list."
+details = ""
+raw = "Collects all keys into a new list."
+
+[[item]]
+path = "std::coll::map::query::*Map[K, V]::values"
+kind = "method"
+signature = "fn values: fn(*Map[K, V], *mut Allocator) Option[List[V]]"
+summary = "Collects all values into a new list."
+details = ""
+raw = "Collects all values into a new list."
+
+[[item]]
+path = "std::coll::slice"
+kind = "module"
+signature = "module slice"
+summary = "Slice-oriented helper routines."
+details = ""
+raw = "Slice-oriented helper routines."
+
+[[item]]
+path = "std::coll::slice::bytes"
+kind = "module"
+signature = "module bytes"
+summary = "Byte-slice search and trimming helpers."
+details = ""
+raw = "Byte-slice search and trimming helpers."
+
+[[item]]
+path = "std::coll::slice::bytes::[]u8::contains_byte"
+kind = "method"
+signature = "fn contains_byte: fn([]u8, u8) bool"
+summary = "Returns `true` when the slice contains `byte`."
+details = ""
+raw = "Returns `true` when the slice contains `byte`."
+
+[[item]]
+path = "std::coll::slice::bytes::[]u8::find_byte"
+kind = "method"
+signature = "fn find_byte: fn([]u8, u8) Option[usize]"
+summary = "Returns the first index of `byte`."
+details = ""
+raw = "Returns the first index of `byte`."
+
+[[item]]
+path = "std::coll::slice::bytes::[]u8::rfind_byte"
+kind = "method"
+signature = "fn rfind_byte: fn([]u8, u8) Option[usize]"
+summary = "Returns the last index of `byte`."
+details = ""
+raw = "Returns the last index of `byte`."
+
+[[item]]
+path = "std::coll::slice::bytes::[]u8::trim_ascii"
+kind = "method"
+signature = "fn trim_ascii: fn([]u8) []u8"
+summary = "Trims ASCII whitespace from both ends of the slice."
+details = ""
+raw = "Trims ASCII whitespace from both ends of the slice."
+
+[[item]]
+path = "std::coll::slice::bytes::[]u8::trim_ascii_end"
+kind = "method"
+signature = "fn trim_ascii_end: fn([]u8) []u8"
+summary = "Trims ASCII whitespace from the end of the slice."
+details = ""
+raw = "Trims ASCII whitespace from the end of the slice."
+
+[[item]]
+path = "std::coll::slice::bytes::[]u8::trim_ascii_start"
+kind = "method"
+signature = "fn trim_ascii_start: fn([]u8) []u8"
+summary = "Trims ASCII whitespace from the start of the slice."
+details = ""
+raw = "Trims ASCII whitespace from the start of the slice."
+
+[[item]]
+path = "std::coll::slice::bytes::contains_byte"
+kind = "method"
+signature = "fn contains_byte: fn([]u8, u8) bool"
+summary = "Returns `true` when `text` contains `byte`."
+details = ""
+raw = "Returns `true` when `text` contains `byte`."
+
+[[item]]
+path = "std::coll::slice::bytes::find_byte"
+kind = "method"
+signature = "fn find_byte: fn([]u8, u8) Option[usize]"
+summary = "Returns the first index of `byte` in `text`."
+details = ""
+raw = "Returns the first index of `byte` in `text`."
+
+[[item]]
+path = "std::coll::slice::bytes::rfind_byte"
+kind = "method"
+signature = "fn rfind_byte: fn([]u8, u8) Option[usize]"
+summary = "Returns the last index of `byte` in `text`."
+details = ""
+raw = "Returns the last index of `byte` in `text`."
+
+[[item]]
+path = "std::coll::slice::bytes::trim_ascii"
+kind = "method"
+signature = "fn trim_ascii: fn([]u8) []u8"
+summary = "Trims ASCII whitespace from both ends of `text`."
+details = ""
+raw = "Trims ASCII whitespace from both ends of `text`."
+
+[[item]]
+path = "std::coll::slice::bytes::trim_ascii_end"
+kind = "method"
+signature = "fn trim_ascii_end: fn([]u8) []u8"
+summary = "Trims ASCII whitespace from the end of `text`."
+details = ""
+raw = "Trims ASCII whitespace from the end of `text`."
+
+[[item]]
+path = "std::coll::slice::bytes::trim_ascii_start"
+kind = "method"
+signature = "fn trim_ascii_start: fn([]u8) []u8"
+summary = "Trims ASCII whitespace from the start of `text`."
+details = ""
+raw = "Trims ASCII whitespace from the start of `text`."
+
+[[item]]
+path = "std::coll::slice::mutable"
+kind = "module"
+signature = "module mutable"
+summary = "Mutable slice helpers."
+details = ""
+raw = "Mutable slice helpers.\n\nDesign:\nkeep in-place sequence mutation small and explicit."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep in-place sequence mutation small and explicit."
+
+[[item]]
+path = "std::coll::slice::mutable::[]mut T::copy_from"
+kind = "method"
+signature = "fn copy_from: fn([]mut T, []T) bool"
+summary = "Copies all elements from `source` into `self`."
+details = ""
+raw = "Copies all elements from `source` into `self`."
+
+[[item]]
+path = "std::coll::slice::mutable::[]mut T::fill"
+kind = "method"
+signature = "fn fill: fn([]mut T, T) void"
+summary = "Overwrites every element with `value`."
+details = ""
+raw = "Overwrites every element with `value`."
+
+[[item]]
+path = "std::coll::slice::mutable::[]mut T::for_each_mut"
+kind = "method"
+signature = "fn for_each_mut: fn([]mut T, *Fn(*mut T) void) void"
+summary = "Visits every element mutably."
+details = ""
+raw = "Visits every element mutably."
+
+[[item]]
+path = "std::coll::slice::mutable::[]mut T::reverse"
+kind = "method"
+signature = "fn reverse: fn([]mut T) void"
+summary = "Reverses the slice in place."
+details = ""
+raw = "Reverses the slice in place."
+
+[[item]]
+path = "std::coll::slice::mutable::[]mut T::swap"
+kind = "method"
+signature = "fn swap: fn([]mut T, usize, usize) bool"
+summary = "Swaps the elements at `lhs` and `rhs`."
+details = ""
+raw = "Swaps the elements at `lhs` and `rhs`."
+
+[[item]]
+path = "std::coll::slice::mutable::[]mut T::swap_with_slice"
+kind = "method"
+signature = "fn swap_with_slice: fn([]mut T, []mut T) bool"
+summary = "Swaps every element with the matching position in `other`."
+details = ""
+raw = "Swaps every element with the matching position in `other`."
+
+[[item]]
+path = "std::coll::slice::query"
+kind = "module"
+signature = "module query"
+summary = "Read-only slice query helpers."
+details = ""
+raw = "Read-only slice query helpers.\n\nDesign:\nkeep borrowed sequence queries allocation-free and composable."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep borrowed sequence queries allocation-free and composable."
+
+[[item]]
+path = "std::coll::slice::query::[]T::all"
+kind = "method"
+signature = "fn all: fn([]T, *Fn(T) bool) bool"
+summary = "Returns `true` when every element satisfies `pred`."
+details = ""
+raw = "Returns `true` when every element satisfies `pred`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::any"
+kind = "method"
+signature = "fn any: fn([]T, *Fn(T) bool) bool"
+summary = "Returns `true` when any element satisfies `pred`."
+details = ""
+raw = "Returns `true` when any element satisfies `pred`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::binary_search"
+kind = "method"
+signature = "fn binary_search: fn([]T, T) Option[usize]"
+summary = "Performs binary search on a sorted slice."
+details = ""
+raw = "Performs binary search on a sorted slice."
+
+[[item]]
+path = "std::coll::slice::query::[]T::contains"
+kind = "method"
+signature = "fn contains: fn([]T, []T) bool"
+summary = "Returns `true` when `needle` appears as a contiguous subsequence."
+details = ""
+raw = "Returns `true` when `needle` appears as a contiguous subsequence."
+
+[[item]]
+path = "std::coll::slice::query::[]T::count"
+kind = "method"
+signature = "fn count: fn([]T, *Fn(T) bool) usize"
+summary = "Counts how many elements satisfy `pred`."
+details = ""
+raw = "Counts how many elements satisfy `pred`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::ends_with"
+kind = "method"
+signature = "fn ends_with: fn([]T, []T) bool"
+summary = "Returns `true` when the slice ends with `suffix`."
+details = ""
+raw = "Returns `true` when the slice ends with `suffix`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::eq"
+kind = "method"
+signature = "fn eq: fn([]T, []T) bool"
+summary = "Compares the slice contents against another slice for equality."
+details = ""
+raw = "Compares the slice contents against another slice for equality."
+
+[[item]]
+path = "std::coll::slice::query::[]T::find"
+kind = "method"
+signature = "fn find: fn([]T, []T) Option[usize]"
+summary = "Returns the first position of `needle`."
+details = ""
+raw = "Returns the first position of `needle`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::find_map"
+kind = "method"
+signature = "fn find_map: fn([]T, *Fn(T) Option[U]) Option[U]"
+summary = "Returns the first mapped value produced by `call_back`."
+details = ""
+raw = "Returns the first mapped value produced by `call_back`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::first"
+kind = "method"
+signature = "fn first: fn([]T) Option[T]"
+summary = "Returns the first element."
+details = ""
+raw = "Returns the first element."
+
+[[item]]
+path = "std::coll::slice::query::[]T::fold"
+kind = "method"
+signature = "fn fold: fn([]T, U, *Fn(U, T) U) U"
+summary = "Folds the slice from left to right."
+details = ""
+raw = "Folds the slice from left to right."
+
+[[item]]
+path = "std::coll::slice::query::[]T::for_each"
+kind = "method"
+signature = "fn for_each: fn([]T, *Fn(T) void) void"
+summary = "Visits each element in order."
+details = ""
+raw = "Visits each element in order."
+
+[[item]]
+path = "std::coll::slice::query::[]T::get"
+kind = "method"
+signature = "fn get: fn([]T, usize) Option[T]"
+summary = "Returns the element at `index`."
+details = ""
+raw = "Returns the element at `index`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::is_empty"
+kind = "method"
+signature = "fn is_empty: fn([]T) bool"
+summary = "Returns `true` when the slice has no elements."
+details = ""
+raw = "Returns `true` when the slice has no elements."
+
+[[item]]
+path = "std::coll::slice::query::[]T::last"
+kind = "method"
+signature = "fn last: fn([]T) Option[T]"
+summary = "Returns the last element."
+details = ""
+raw = "Returns the last element."
+
+[[item]]
+path = "std::coll::slice::query::[]T::lex_cmp"
+kind = "method"
+signature = "fn lex_cmp: fn([]T, []T) i32"
+summary = "Performs lexicographic comparison against `other`."
+details = ""
+raw = "Performs lexicographic comparison against `other`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::partition_point"
+kind = "method"
+signature = "fn partition_point: fn([]T, *Fn(T) bool) usize"
+summary = "Returns the partition point for a slice already partitioned by `pred`."
+details = ""
+raw = "Returns the partition point for a slice already partitioned by `pred`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::position"
+kind = "method"
+signature = "fn position: fn([]T, *Fn(T) bool) Option[usize]"
+summary = "Returns the first index accepted by `pred`."
+details = ""
+raw = "Returns the first index accepted by `pred`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::rposition"
+kind = "method"
+signature = "fn rposition: fn([]T, *Fn(T) bool) Option[usize]"
+summary = "Returns the last index accepted by `pred`."
+details = ""
+raw = "Returns the last index accepted by `pred`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::starts_with"
+kind = "method"
+signature = "fn starts_with: fn([]T, []T) bool"
+summary = "Returns `true` when the slice begins with `prefix`."
+details = ""
+raw = "Returns `true` when the slice begins with `prefix`."
+
+[[item]]
+path = "std::coll::slice::query::[]T::strip_prefix"
+kind = "method"
+signature = "fn strip_prefix: fn([]T, []T) Option[[]T]"
+summary = "Removes `prefix` from the front when present."
+details = ""
+raw = "Removes `prefix` from the front when present."
+
+[[item]]
+path = "std::coll::slice::query::[]T::strip_suffix"
+kind = "method"
+signature = "fn strip_suffix: fn([]T, []T) Option[[]T]"
+summary = "Removes `suffix` from the end when present."
+details = ""
+raw = "Removes `suffix` from the end when present."
+
+[[item]]
+path = "std::coll::string"
+kind = "module"
+signature = "module string"
+summary = "Owned byte strings."
+details = "`String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`."
+raw = "Owned byte strings.\n\n`String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`."
+
+[[item]]
+path = "std::coll::string::*String::as_bytes"
+kind = "method"
+signature = "fn as_bytes: fn(*String) []u8"
+summary = "Alias for `as_str`."
+details = ""
+raw = "Alias for `as_str`."
+
+[[item]]
+path = "std::coll::string::*String::as_str"
+kind = "method"
+signature = "fn as_str: fn(*String) []u8"
+summary = "Returns the string as an immutable byte slice."
+details = ""
+raw = "Returns the string as an immutable byte slice."
+
+[[item]]
+path = "std::coll::string::*String::capacity"
+kind = "method"
+signature = "fn capacity: fn(*String) usize"
+summary = "Returns the current byte capacity."
+details = ""
+raw = "Returns the current byte capacity."
+
+[[item]]
+path = "std::coll::string::*String::is_empty"
+kind = "method"
+signature = "fn is_empty: fn(*String) bool"
+summary = "Returns `true` when the string is empty."
+details = ""
+raw = "Returns `true` when the string is empty."
+
+[[item]]
+path = "std::coll::string::*String::len"
+kind = "method"
+signature = "fn len: fn(*String) usize"
+summary = "Returns the current byte length."
+details = ""
+raw = "Returns the current byte length."
+
+[[item]]
+path = "std::coll::string::*mut String::as_mut_bytes"
+kind = "method"
+signature = "fn as_mut_bytes: fn(*mut String) []mut u8"
+summary = "Returns a mutable byte slice view."
+details = ""
+raw = "Returns a mutable byte slice view."
+
+[[item]]
+path = "std::coll::string::*mut String::clear"
+kind = "method"
+signature = "fn clear: fn(*mut String) void"
+summary = "Removes all bytes without releasing capacity."
+details = ""
+raw = "Removes all bytes without releasing capacity."
+
+[[item]]
+path = "std::coll::string::*mut String::clone_from"
+kind = "method"
+signature = "fn clone_from: fn(*mut String, *mut Allocator, []u8) bool"
+summary = "Replaces the contents of the string with `text`."
+details = ""
+raw = "Replaces the contents of the string with `text`."
+
+[[item]]
+path = "std::coll::string::*mut String::clone_from_string"
+kind = "method"
+signature = "fn clone_from_string: fn(*mut String, *mut Allocator, *String) bool"
+summary = "Replaces the contents of the string with another string."
+details = ""
+raw = "Replaces the contents of the string with another string."
+
+[[item]]
+path = "std::coll::string::*mut String::deinit"
+kind = "method"
+signature = "fn deinit: fn(*mut String, *mut Allocator) void"
+summary = "Releases the backing allocation."
+details = ""
+raw = "Releases the backing allocation."
+
+[[item]]
+path = "std::coll::string::*mut String::insert_char"
+kind = "method"
+signature = "fn insert_char: fn(*mut String, *mut Allocator, usize, u8) bool"
+summary = "Inserts a single byte at `index`."
+details = ""
+raw = "Inserts a single byte at `index`."
+
+[[item]]
+path = "std::coll::string::*mut String::insert_str"
+kind = "method"
+signature = "fn insert_str: fn(*mut String, *mut Allocator, usize, []u8) bool"
+summary = "Inserts a byte slice at `index`."
+details = ""
+raw = "Inserts a byte slice at `index`."
+
+[[item]]
+path = "std::coll::string::*mut String::insert_string"
+kind = "method"
+signature = "fn insert_string: fn(*mut String, *mut Allocator, usize, *String) bool"
+summary = "Inserts another string at `index`."
+details = ""
+raw = "Inserts another string at `index`."
+
+[[item]]
+path = "std::coll::string::*mut String::pop_char"
+kind = "method"
+signature = "fn pop_char: fn(*mut String) Option[u8]"
+summary = "Removes and returns the final byte."
+details = ""
+raw = "Removes and returns the final byte."
+
+[[item]]
+path = "std::coll::string::*mut String::push_char"
+kind = "method"
+signature = "fn push_char: fn(*mut String, *mut Allocator, u8) bool"
+summary = "Appends a single byte."
+details = ""
+raw = "Appends a single byte."
+
+[[item]]
+path = "std::coll::string::*mut String::push_repeat"
+kind = "method"
+signature = "fn push_repeat: fn(*mut String, *mut Allocator, u8, usize) bool"
+summary = "Appends `count` copies of `byte`."
+details = ""
+raw = "Appends `count` copies of `byte`."
+
+[[item]]
+path = "std::coll::string::*mut String::push_str"
+kind = "method"
+signature = "fn push_str: fn(*mut String, *mut Allocator, []u8) bool"
+summary = "Appends a byte slice."
+details = ""
+raw = "Appends a byte slice."
+
+[[item]]
+path = "std::coll::string::*mut String::push_string"
+kind = "method"
+signature = "fn push_string: fn(*mut String, *mut Allocator, *String) bool"
+summary = "Appends another string."
+details = ""
+raw = "Appends another string."
+
+[[item]]
+path = "std::coll::string::*mut String::reserve"
+kind = "method"
+signature = "fn reserve: fn(*mut String, *mut Allocator, usize) bool"
+summary = "Reserves space for at least `additional` more bytes."
+details = ""
+raw = "Reserves space for at least `additional` more bytes."
+
+[[item]]
+path = "std::coll::string::*mut String::retain_bytes"
+kind = "method"
+signature = "fn retain_bytes: fn(*mut String, *Fn(u8) bool) void"
+summary = "Retains only the bytes accepted by `pred`."
+details = ""
+raw = "Retains only the bytes accepted by `pred`."
+
+[[item]]
+path = "std::coll::string::*mut String::reverse_bytes"
+kind = "method"
+signature = "fn reverse_bytes: fn(*mut String) void"
+summary = "Reverses the byte order in place."
+details = ""
+raw = "Reverses the byte order in place."
+
+[[item]]
+path = "std::coll::string::*mut String::shrink_to_fit"
+kind = "method"
+signature = "fn shrink_to_fit: fn(*mut String, *mut Allocator) bool"
+summary = "Shrinks capacity down to the current length."
+details = ""
+raw = "Shrinks capacity down to the current length."
+
+[[item]]
+path = "std::coll::string::*mut String::truncate"
+kind = "method"
+signature = "fn truncate: fn(*mut String, usize) void"
+summary = "Shortens the string to `new_len` bytes."
+details = ""
+raw = "Shortens the string to `new_len` bytes."
+
+[[item]]
+path = "std::coll::string::String"
+kind = "struct"
+signature = "struct String"
+summary = "An owned growable string buffer."
+details = ""
+raw = "An owned growable string buffer."
+
+[[item]]
+path = "std::coll::string::fmt"
+kind = "module"
+signature = "module fmt"
+summary = "`Printable` integration for strings."
+details = ""
+raw = "`Printable` integration for strings."
+
+[[item]]
+path = "std::coll::string::fmt::*String as Printable::fmt"
+kind = "method"
+signature = "fn fmt: fn(*String, *mut Writer) void"
+summary = "Writes the raw string bytes into `writer`."
+details = ""
+raw = "Writes the raw string bytes into `writer`."
+
+[[item]]
+path = "std::coll::string::query::*String::contains"
+kind = "method"
+signature = "fn contains: fn(*String, []u8) bool"
+summary = "Returns `true` when `needle` appears as a contiguous subsequence."
+details = ""
+raw = "Returns `true` when `needle` appears as a contiguous subsequence."
+
+[[item]]
+path = "std::coll::string::query::*String::contains_byte"
+kind = "method"
+signature = "fn contains_byte: fn(*String, u8) bool"
+summary = "Returns `true` when the string contains `byte`."
+details = ""
+raw = "Returns `true` when the string contains `byte`."
+
+[[item]]
+path = "std::coll::string::query::*String::ends_with"
+kind = "method"
+signature = "fn ends_with: fn(*String, []u8) bool"
+summary = "Returns `true` when the string ends with `suffix`."
+details = ""
+raw = "Returns `true` when the string ends with `suffix`."
+
+[[item]]
+path = "std::coll::string::query::*String::eq"
+kind = "method"
+signature = "fn eq: fn(*String, []u8) bool"
+summary = "Compares the string contents against a byte slice."
+details = ""
+raw = "Compares the string contents against a byte slice."
+
+[[item]]
+path = "std::coll::string::query::*String::find"
+kind = "method"
+signature = "fn find: fn(*String, []u8) Option[usize]"
+summary = "Returns the first position of `needle`."
+details = ""
+raw = "Returns the first position of `needle`."
+
+[[item]]
+path = "std::coll::string::query::*String::find_byte"
+kind = "method"
+signature = "fn find_byte: fn(*String, u8) Option[usize]"
+summary = "Returns the first index of `byte`."
+details = ""
+raw = "Returns the first index of `byte`."
+
+[[item]]
+path = "std::coll::string::query::*String::fold_bytes"
+kind = "method"
+signature = "fn fold_bytes: fn(*String, U, *Fn(U, u8) U) U"
+summary = "Folds the bytes from left to right."
+details = ""
+raw = "Folds the bytes from left to right."
+
+[[item]]
+path = "std::coll::string::query::*String::for_each_byte"
+kind = "method"
+signature = "fn for_each_byte: fn(*String, *Fn(u8) void) void"
+summary = "Visits every byte in order."
+details = ""
+raw = "Visits every byte in order."
+
+[[item]]
+path = "std::coll::string::query::*String::lex_cmp"
+kind = "method"
+signature = "fn lex_cmp: fn(*String, []u8) i32"
+summary = "Performs lexicographic comparison against `other`."
+details = ""
+raw = "Performs lexicographic comparison against `other`."
+
+[[item]]
+path = "std::coll::string::query::*String::rfind_byte"
+kind = "method"
+signature = "fn rfind_byte: fn(*String, u8) Option[usize]"
+summary = "Returns the last index of `byte`."
+details = ""
+raw = "Returns the last index of `byte`."
+
+[[item]]
+path = "std::coll::string::query::*String::starts_with"
+kind = "method"
+signature = "fn starts_with: fn(*String, []u8) bool"
+summary = "Returns `true` when the string begins with `prefix`."
+details = ""
+raw = "Returns `true` when the string begins with `prefix`."
+
+[[item]]
+path = "std::coll::string::query::*String::strip_prefix"
+kind = "method"
+signature = "fn strip_prefix: fn(*String, []u8) Option[[]u8]"
+summary = "Removes `prefix` from the front when present."
+details = ""
+raw = "Removes `prefix` from the front when present."
+
+[[item]]
+path = "std::coll::string::query::*String::strip_suffix"
+kind = "method"
+signature = "fn strip_suffix: fn(*String, []u8) Option[[]u8]"
+summary = "Removes `suffix` from the end when present."
+details = ""
+raw = "Removes `suffix` from the end when present."
+
+[[item]]
+path = "std::coll::string::query::*String::trim_ascii"
+kind = "method"
+signature = "fn trim_ascii: fn(*String) []u8"
+summary = "Trims ASCII whitespace from both ends of the string."
+details = ""
+raw = "Trims ASCII whitespace from both ends of the string."
+
+[[item]]
+path = "std::coll::string::query::*String::trim_ascii_end"
+kind = "method"
+signature = "fn trim_ascii_end: fn(*String) []u8"
+summary = "Trims ASCII whitespace from the end of the string."
+details = ""
+raw = "Trims ASCII whitespace from the end of the string."
+
+[[item]]
+path = "std::coll::string::query::*String::trim_ascii_start"
+kind = "method"
+signature = "fn trim_ascii_start: fn(*String) []u8"
+summary = "Trims ASCII whitespace from the start of the string."
+details = ""
+raw = "Trims ASCII whitespace from the start of the string."
+
+[[item]]
+path = "std::coll::tree"
+kind = "module"
+signature = "module tree"
+summary = "Ordered tree storage."
+details = "`Tree[K, V]` is a B-tree keyed by `Ord[K]`."
+raw = "Ordered tree storage.\n\n`Tree[K, V]` is a B-tree keyed by `Ord[K]`."
+
+[[item]]
+path = "std::coll::tree::base"
+kind = "module"
+signature = "module base"
+summary = "Core B-tree storage primitives."
+details = ""
+raw = "Core B-tree storage primitives.\n\nDesign:\nkeep node capacity fixed and surface search hits explicitly so higher layers can compose inserts and deletes."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep node capacity fixed and surface search hits explicitly so higher layers can compose inserts and deletes."
+
+[[item]]
+path = "std::coll::tree::base::MAX_CHILDREN"
+kind = "const"
+signature = "const MAX_CHILDREN: usize"
+summary = "The maximum number of child pointers stored in one node."
+details = ""
+raw = "The maximum number of child pointers stored in one node."
+
+[[item]]
+path = "std::coll::tree::base::MAX_KEYS"
+kind = "const"
+signature = "const MAX_KEYS: usize"
+summary = "The maximum number of keys stored in one node."
+details = ""
+raw = "The maximum number of keys stored in one node."
+
+[[item]]
+path = "std::coll::tree::base::MIN_DEGREE"
+kind = "const"
+signature = "const MIN_DEGREE: usize"
+summary = "The minimum branching factor of the tree."
+details = ""
+raw = "The minimum branching factor of the tree."
+
+[[item]]
+path = "std::coll::tree::base::Node"
+kind = "struct"
+signature = "struct Node"
+summary = "A B-tree node."
+details = ""
+raw = "A B-tree node."
+
+[[item]]
+path = "std::coll::tree::base::Node::children"
+kind = "field"
+signature = "field children: [16]*mut Node[K, V]"
+summary = "Child pointers between key ranges."
+details = ""
+raw = "Child pointers between key ranges."
+
+[[item]]
+path = "std::coll::tree::base::Node::is_leaf"
+kind = "field"
+signature = "field is_leaf: bool"
+summary = "Indicates whether the node has no children."
+details = ""
+raw = "Indicates whether the node has no children."
+
+[[item]]
+path = "std::coll::tree::base::Node::keys"
+kind = "field"
+signature = "field keys: [15]K"
+summary = "Sorted keys stored in this node."
+details = ""
+raw = "Sorted keys stored in this node."
+
+[[item]]
+path = "std::coll::tree::base::Node::len"
+kind = "field"
+signature = "field len: usize"
+summary = "The number of initialized keys in the node."
+details = ""
+raw = "The number of initialized keys in the node."
+
+[[item]]
+path = "std::coll::tree::base::Node::values"
+kind = "field"
+signature = "field values: [15]V"
+summary = "Values parallel to `keys`."
+details = ""
+raw = "Values parallel to `keys`."
+
+[[item]]
+path = "std::coll::tree::base::SearchHit"
+kind = "struct"
+signature = "struct SearchHit"
+summary = "The location of a matched or neighboring key inside the tree."
+details = ""
+raw = "The location of a matched or neighboring key inside the tree."
+
+[[item]]
+path = "std::coll::tree::base::SearchHit::index"
+kind = "field"
+signature = "field index: usize"
+summary = "The index inside `node`."
+details = ""
+raw = "The index inside `node`."
+
+[[item]]
+path = "std::coll::tree::base::SearchHit::node"
+kind = "field"
+signature = "field node: *mut Node[K, V]"
+summary = "The node containing the hit."
+details = ""
+raw = "The node containing the hit."
+
+[[item]]
+path = "std::coll::tree::base::Tree"
+kind = "struct"
+signature = "struct Tree"
+summary = "An ordered map backed by a B-tree."
+details = "The mutable layer owns balancing and node allocation; this base type only\nstores the root pointer and entry count."
+raw = "An ordered map backed by a B-tree.\n\nThe mutable layer owns balancing and node allocation; this base type only\nstores the root pointer and entry count."
+
+[[item]]
+path = "std::coll::tree::base::Tree::len"
+kind = "field"
+signature = "field len: usize"
+summary = "The number of key-value pairs stored in the tree."
+details = ""
+raw = "The number of key-value pairs stored in the tree."
+
+[[item]]
+path = "std::coll::tree::base::Tree::root"
+kind = "field"
+signature = "field root: *mut Node[K, V]"
+summary = "The root node pointer, or null when the tree is empty."
+details = ""
+raw = "The root node pointer, or null when the tree is empty."
+
+[[item]]
+path = "std::coll::tree::base::ceil_hit"
+kind = "method"
+signature = "fn ceil_hit: fn(*mut Node[K, V], K) Option[SearchHit[K, V]]"
+summary = "Returns the first key position whose key is greater than or equal to `key`."
+details = "This is the lower-bound search primitive used by ordered queries."
+raw = "Returns the first key position whose key is greater than or equal to `key`.\n\nThis is the lower-bound search primitive used by ordered queries."
+
+[[item]]
+path = "std::coll::tree::base::child_at"
+kind = "method"
+signature = "fn child_at: fn(*mut Node[K, V], usize) *mut Node[K, V]"
+summary = "Returns the child pointer at `index`."
+details = ""
+raw = "Returns the child pointer at `index`."
+
+[[item]]
+path = "std::coll::tree::base::first_hit"
+kind = "method"
+signature = "fn first_hit: fn(*mut Node[K, V]) Option[SearchHit[K, V]]"
+summary = "Returns the first key position in the tree."
+details = ""
+raw = "Returns the first key position in the tree.\n\nReturns:\n`None` when the tree is empty."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`None` when the tree is empty."
+
+[[item]]
+path = "std::coll::tree::base::floor_hit"
+kind = "method"
+signature = "fn floor_hit: fn(*mut Node[K, V], K) Option[SearchHit[K, V]]"
+summary = "Returns the last key position whose key is less than or equal to `key`."
+details = "This is the upper-bound search primitive used by ordered queries."
+raw = "Returns the last key position whose key is less than or equal to `key`.\n\nThis is the upper-bound search primitive used by ordered queries."
+
+[[item]]
+path = "std::coll::tree::base::key_at"
+kind = "method"
+signature = "fn key_at: fn(*mut Node[K, V], usize) K"
+summary = "Returns the key at `index`."
+details = ""
+raw = "Returns the key at `index`."
+
+[[item]]
+path = "std::coll::tree::base::last_hit"
+kind = "method"
+signature = "fn last_hit: fn(*mut Node[K, V]) Option[SearchHit[K, V]]"
+summary = "Returns the last key position in the tree."
+details = ""
+raw = "Returns the last key position in the tree.\n\nReturns:\n`None` when the tree is empty."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`None` when the tree is empty."
+
+[[item]]
+path = "std::coll::tree::base::set_child"
+kind = "method"
+signature = "fn set_child: fn(*mut Node[K, V], usize, *mut Node[K, V]) void"
+summary = "Writes the child pointer at `index`."
+details = ""
+raw = "Writes the child pointer at `index`."
+
+[[item]]
+path = "std::coll::tree::base::set_key"
+kind = "method"
+signature = "fn set_key: fn(*mut Node[K, V], usize, K) void"
+summary = "Writes the key at `index`."
+details = ""
+raw = "Writes the key at `index`."
+
+[[item]]
+path = "std::coll::tree::base::set_value"
+kind = "method"
+signature = "fn set_value: fn(*mut Node[K, V], usize, V) void"
+summary = "Writes the value at `index`."
+details = ""
+raw = "Writes the value at `index`."
+
+[[item]]
+path = "std::coll::tree::base::value_at"
+kind = "method"
+signature = "fn value_at: fn(*mut Node[K, V], usize) V"
+summary = "Returns the value at `index`."
+details = ""
+raw = "Returns the value at `index`."
+
+[[item]]
+path = "std::coll::tree::delete"
+kind = "module"
+signature = "module delete"
+summary = "B-tree deletion and rebalancing."
+details = ""
+raw = "B-tree deletion and rebalancing.\n\nDesign:\ndescend only through children that already satisfy the minimum occupancy rule so the recursive remove path never has to backtrack."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "descend only through children that already satisfy the minimum occupancy rule so the recursive remove path never has to backtrack."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_borrow_from_next"
+kind = "method"
+signature = "fn delete_borrow_from_next: fn(*mut Tree[K, V], *mut Node[K, V], usize) void"
+summary = "Rotates one key from the right sibling through `parent` into `child`."
+details = ""
+raw = "Rotates one key from the right sibling through `parent` into `child`."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_borrow_from_prev"
+kind = "method"
+signature = "fn delete_borrow_from_prev: fn(*mut Tree[K, V], *mut Node[K, V], usize) void"
+summary = "Rotates one key from the left sibling through `parent` into `child`."
+details = "This restores one missing key without changing subtree order."
+raw = "Rotates one key from the left sibling through `parent` into `child`.\n\nThis restores one missing key without changing subtree order."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_free_node"
+kind = "method"
+signature = "fn delete_free_node: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V]) void"
+summary = "Releases one node allocation."
+details = ""
+raw = "Releases one node allocation."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_merge_children"
+kind = "method"
+signature = "fn delete_merge_children: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V], usize) *mut Node[K, V]"
+summary = "Merges the children around `parent[index]` into the left child."
+details = "After the merge the separator key lives in the left subtree, so callers\ncan continue descending into the returned node."
+raw = "Merges the children around `parent[index]` into the left child.\n\nAfter the merge the separator key lives in the left subtree, so callers\ncan continue descending into the returned node."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_remove_from_internal"
+kind = "method"
+signature = "fn delete_remove_from_internal: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V], usize, K, *mut Option[V]) bool"
+summary = "Removes a key that is stored directly in an internal node."
+details = "The delete path prefers borrowing a predecessor or successor from a\nchild that already has spare capacity. Only when both sides are at the\nminimum size do we merge and continue recursively."
+raw = "Removes a key that is stored directly in an internal node.\n\nThe delete path prefers borrowing a predecessor or successor from a\nchild that already has spare capacity. Only when both sides are at the\nminimum size do we merge and continue recursively."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_remove_from_leaf"
+kind = "method"
+signature = "fn delete_remove_from_leaf: fn(*mut Tree[K, V], *mut Node[K, V], usize) V"
+summary = "Removes one key-value pair from a leaf and compacts the tail."
+details = ""
+raw = "Removes one key-value pair from a leaf and compacts the tail."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_remove_from_node"
+kind = "method"
+signature = "fn delete_remove_from_node: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V], K, *mut Option[V]) bool"
+summary = "Removes `key` from `node`, preserving the B-tree occupancy invariant."
+details = ""
+raw = "Removes `key` from `node`, preserving the B-tree occupancy invariant."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::delete_search_slot"
+kind = "method"
+signature = "fn delete_search_slot: fn(*mut Tree[K, V], *mut Node[K, V], K) usize"
+summary = "Returns the first slot whose key is greater than or equal to `key`."
+details = ""
+raw = "Returns the first slot whose key is greater than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::delete::*mut Tree[K, V]::remove"
+kind = "method"
+signature = "fn remove: fn(*mut Tree[K, V], *mut Allocator, K) Option[V]"
+summary = "Removes the value stored for `key`."
+details = ""
+raw = "Removes the value stored for `key`."
+
+[[item]]
+path = "std::coll::tree::delete::MIN_KEYS"
+kind = "const"
+signature = "const MIN_KEYS: usize"
+summary = "The minimum number of keys a non-root node may keep."
+details = ""
+raw = "The minimum number of keys a non-root node may keep."
+
+[[item]]
+path = "std::coll::tree::mutable"
+kind = "module"
+signature = "module mutable"
+summary = "B-tree insertion, mutation, and teardown."
+details = ""
+raw = "B-tree insertion, mutation, and teardown.\n\nDesign:\nsplit full nodes on the way down so insertion always lands in a node with spare capacity."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "split full nodes on the way down so insertion always lands in a node with spare capacity."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::alloc_node"
+kind = "method"
+signature = "fn alloc_node: fn(*mut Tree[K, V], *mut Allocator, bool) Option[*mut Node[K, V]]"
+summary = "Allocates an empty node and clears every child pointer slot."
+details = ""
+raw = "Allocates an empty node and clears every child pointer slot."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::ceil_ptr"
+kind = "method"
+signature = "fn ceil_ptr: fn(*mut Tree[K, V], K) Option[*mut V]"
+summary = "Returns a mutable pointer to the value at the smallest key greater than or equal to `key`."
+details = ""
+raw = "Returns a mutable pointer to the value at the smallest key greater than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::clear"
+kind = "method"
+signature = "fn clear: fn(*mut Tree[K, V], *mut Allocator) void"
+summary = "Removes every entry from the tree."
+details = ""
+raw = "Removes every entry from the tree."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::deinit"
+kind = "method"
+signature = "fn deinit: fn(*mut Tree[K, V], *mut Allocator) void"
+summary = "Releases every node in the tree."
+details = ""
+raw = "Releases every node in the tree."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::deinit_node"
+kind = "method"
+signature = "fn deinit_node: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V]) void"
+summary = "Recursively releases a subtree."
+details = ""
+raw = "Recursively releases a subtree."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::first_ptr"
+kind = "method"
+signature = "fn first_ptr: fn(*mut Tree[K, V]) Option[*mut V]"
+summary = "Returns a mutable pointer to the first value in key order."
+details = ""
+raw = "Returns a mutable pointer to the first value in key order."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::floor_ptr"
+kind = "method"
+signature = "fn floor_ptr: fn(*mut Tree[K, V], K) Option[*mut V]"
+summary = "Returns a mutable pointer to the value at the largest key less than or equal to `key`."
+details = ""
+raw = "Returns a mutable pointer to the value at the largest key less than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::for_each_mut"
+kind = "method"
+signature = "fn for_each_mut: fn(*mut Tree[K, V], *Fn(K, *mut V) void) void"
+summary = "Visits every value mutably in sorted key order."
+details = ""
+raw = "Visits every value mutably in sorted key order."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::for_each_mut_node"
+kind = "method"
+signature = "fn for_each_mut_node: fn(*mut Tree[K, V], *mut Node[K, V], *Fn(K, *mut V) void) void"
+summary = "Visits every key-value pair in sorted order with mutable value access."
+details = ""
+raw = "Visits every key-value pair in sorted order with mutable value access."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::free_node"
+kind = "method"
+signature = "fn free_node: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V]) void"
+summary = "Releases one node allocation."
+details = ""
+raw = "Releases one node allocation."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::get_or_insert"
+kind = "method"
+signature = "fn get_or_insert: fn(*mut Tree[K, V], *mut Allocator, K, V) Option[*mut V]"
+summary = "Returns a mutable pointer to the existing value or inserts `value`."
+details = ""
+raw = "Returns a mutable pointer to the existing value or inserts `value`."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::get_or_insert_with"
+kind = "method"
+signature = "fn get_or_insert_with: fn(*mut Tree[K, V], *mut Allocator, K, *Fn() V) Option[*mut V]"
+summary = "Returns a mutable pointer to the existing value or inserts a lazily created one."
+details = ""
+raw = "Returns a mutable pointer to the existing value or inserts a lazily created one."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::get_ptr"
+kind = "method"
+signature = "fn get_ptr: fn(*mut Tree[K, V], K) Option[*mut V]"
+summary = "Returns a mutable pointer to the value stored for `key`."
+details = ""
+raw = "Returns a mutable pointer to the value stored for `key`."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::insert"
+kind = "method"
+signature = "fn insert: fn(*mut Tree[K, V], *mut Allocator, K, V) bool"
+summary = "Inserts or replaces a key-value pair."
+details = ""
+raw = "Inserts or replaces a key-value pair."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::insert_non_full"
+kind = "method"
+signature = "fn insert_non_full: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V], K, V) bool"
+summary = "Inserts into a node that is known not to be full."
+details = ""
+raw = "Inserts into a node that is known not to be full."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::last_ptr"
+kind = "method"
+signature = "fn last_ptr: fn(*mut Tree[K, V]) Option[*mut V]"
+summary = "Returns a mutable pointer to the last value in key order."
+details = ""
+raw = "Returns a mutable pointer to the last value in key order."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::search_slot"
+kind = "method"
+signature = "fn search_slot: fn(*mut Tree[K, V], *mut Node[K, V], K) usize"
+summary = "Returns the first slot whose key is greater than or equal to `key`."
+details = ""
+raw = "Returns the first slot whose key is greater than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::mutable::*mut Tree[K, V]::split_child"
+kind = "method"
+signature = "fn split_child: fn(*mut Tree[K, V], *mut Allocator, *mut Node[K, V], usize) bool"
+summary = "Splits a full child into two siblings and promotes the median key."
+details = ""
+raw = "Splits a full child into two siblings and promotes the median key."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::ceil"
+kind = "method"
+signature = "fn ceil: fn(*Tree[K, V], K) Option[V]"
+summary = "Returns the value at the smallest key greater than or equal to `key`."
+details = ""
+raw = "Returns the value at the smallest key greater than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::ceil_key"
+kind = "method"
+signature = "fn ceil_key: fn(*Tree[K, V], K) Option[K]"
+summary = "Returns the smallest key greater than or equal to `key`."
+details = ""
+raw = "Returns the smallest key greater than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::contains"
+kind = "method"
+signature = "fn contains: fn(*Tree[K, V], K) bool"
+summary = "Returns `true` when the tree contains `key`."
+details = ""
+raw = "Returns `true` when the tree contains `key`."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::first"
+kind = "method"
+signature = "fn first: fn(*Tree[K, V]) Option[V]"
+summary = "Returns the value stored at the smallest key."
+details = ""
+raw = "Returns the value stored at the smallest key."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::first_key"
+kind = "method"
+signature = "fn first_key: fn(*Tree[K, V]) Option[K]"
+summary = "Returns the smallest key in the tree."
+details = ""
+raw = "Returns the smallest key in the tree."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::floor"
+kind = "method"
+signature = "fn floor: fn(*Tree[K, V], K) Option[V]"
+summary = "Returns the value at the largest key less than or equal to `key`."
+details = ""
+raw = "Returns the value at the largest key less than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::floor_key"
+kind = "method"
+signature = "fn floor_key: fn(*Tree[K, V], K) Option[K]"
+summary = "Returns the largest key less than or equal to `key`."
+details = ""
+raw = "Returns the largest key less than or equal to `key`."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::fold"
+kind = "method"
+signature = "fn fold: fn(*Tree[K, V], U, *Fn(U, K, V) U) U"
+summary = "Folds the tree in sorted key order."
+details = ""
+raw = "Folds the tree in sorted key order."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::for_each"
+kind = "method"
+signature = "fn for_each: fn(*Tree[K, V], *Fn(K, V) void) void"
+summary = "Visits every key-value pair in sorted key order."
+details = ""
+raw = "Visits every key-value pair in sorted key order."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::get"
+kind = "method"
+signature = "fn get: fn(*Tree[K, V], K) Option[V]"
+summary = "Returns the value stored for `key`."
+details = ""
+raw = "Returns the value stored for `key`."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::is_empty"
+kind = "method"
+signature = "fn is_empty: fn(*Tree[K, V]) bool"
+summary = "Returns `true` when the tree contains no entries."
+details = ""
+raw = "Returns `true` when the tree contains no entries."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::last"
+kind = "method"
+signature = "fn last: fn(*Tree[K, V]) Option[V]"
+summary = "Returns the value stored at the largest key."
+details = ""
+raw = "Returns the value stored at the largest key."
+
+[[item]]
+path = "std::coll::tree::query::*Tree[K, V]::last_key"
+kind = "method"
+signature = "fn last_key: fn(*Tree[K, V]) Option[K]"
+summary = "Returns the largest key in the tree."
+details = ""
+raw = "Returns the largest key in the tree."
+
+[[item]]
+path = "std::dbg"
+kind = "module"
+signature = "module dbg"
+summary = "Debugging and control-flow helpers."
+details = "This module defines `Option`, `Result`, and the runtime-facing helpers used\nfor assertions, traps, and lightweight diagnostic output."
+raw = "Debugging and control-flow helpers.\n\nThis module defines `Option`, `Result`, and the runtime-facing helpers used\nfor assertions, traps, and lightweight diagnostic output."
+
+[[item]]
+path = "std::dbg::option"
+kind = "module"
+signature = "module option"
+summary = "Optional values."
+details = "`Option[T]` models the presence or absence of a value without relying on\nsentinel values or out-of-band error codes."
+raw = "Optional values.\n\n`Option[T]` models the presence or absence of a value without relying on\nsentinel values or out-of-band error codes."
+
+[[item]]
+path = "std::dbg::option::Option"
+kind = "enum"
+signature = "enum Option"
+summary = "A value that is either present as `Some` or absent as `None`."
+details = ""
+raw = "A value that is either present as `Some` or absent as `None`."
+
+[[item]]
+path = "std::dbg::option::Option[T]::and_then"
+kind = "method"
+signature = "fn and_then: fn(Option[T], *Fn(T) Option[U]) Option[U]"
+summary = "Chains another optional computation after `Some(T)`."
+details = ""
+raw = "Chains another optional computation after `Some(T)`."
+
+[[item]]
+path = "std::dbg::option::Option[T]::filter"
+kind = "method"
+signature = "fn filter: fn(Option[T], *Fn(T) bool) Option[T]"
+summary = "Keeps the value only when the predicate returns `true`."
+details = ""
+raw = "Keeps the value only when the predicate returns `true`."
+
+[[item]]
+path = "std::dbg::option::Option[T]::inspect"
+kind = "method"
+signature = "fn inspect: fn(Option[T], *Fn(T) void) Option[T]"
+summary = "Runs a side effect on `Some(T)` and returns the original option."
+details = ""
+raw = "Runs a side effect on `Some(T)` and returns the original option."
+
+[[item]]
+path = "std::dbg::option::Option[T]::is_none"
+kind = "method"
+signature = "fn is_none: fn(Option[T]) bool"
+summary = "Returns `true` when the option does not contain a value."
+details = ""
+raw = "Returns `true` when the option does not contain a value."
+
+[[item]]
+path = "std::dbg::option::Option[T]::is_none_or"
+kind = "method"
+signature = "fn is_none_or: fn(Option[T], *Fn(T) bool) bool"
+summary = "Returns `true` when the option is empty or the predicate accepts the value."
+details = ""
+raw = "Returns `true` when the option is empty or the predicate accepts the value."
+
+[[item]]
+path = "std::dbg::option::Option[T]::is_some"
+kind = "method"
+signature = "fn is_some: fn(Option[T]) bool"
+summary = "Returns `true` when the option contains a value."
+details = ""
+raw = "Returns `true` when the option contains a value."
+
+[[item]]
+path = "std::dbg::option::Option[T]::is_some_and"
+kind = "method"
+signature = "fn is_some_and: fn(Option[T], *Fn(T) bool) bool"
+summary = "Returns `true` when the option contains a value accepted by the predicate."
+details = ""
+raw = "Returns `true` when the option contains a value accepted by the predicate."
+
+[[item]]
+path = "std::dbg::option::Option[T]::map"
+kind = "method"
+signature = "fn map: fn(Option[T], *Fn(T) U) Option[U]"
+summary = "Maps `Some(T)` to `Some(U)` and leaves `None` unchanged."
+details = ""
+raw = "Maps `Some(T)` to `Some(U)` and leaves `None` unchanged."
+
+[[item]]
+path = "std::dbg::option::Option[T]::map_or"
+kind = "method"
+signature = "fn map_or: fn(Option[T], U, *Fn(T) U) U"
+summary = "Maps the value when present and otherwise returns `default`."
+details = ""
+raw = "Maps the value when present and otherwise returns `default`."
+
+[[item]]
+path = "std::dbg::option::Option[T]::map_or_else"
+kind = "method"
+signature = "fn map_or_else: fn(Option[T], *Fn() U, *Fn(T) U) U"
+summary = "Lazily computes the fallback value when the option is empty."
+details = ""
+raw = "Lazily computes the fallback value when the option is empty."
+
+[[item]]
+path = "std::dbg::option::Option[T]::or_else"
+kind = "method"
+signature = "fn or_else: fn(Option[T], *Fn() Option[T]) Option[T]"
+summary = "Computes a replacement option only when the receiver is `None`."
+details = ""
+raw = "Computes a replacement option only when the receiver is `None`."
+
+[[item]]
+path = "std::dbg::result"
+kind = "module"
+signature = "module result"
+summary = "Fallible computations."
+details = "`Result[T, E]` carries either a successful value or a typed error and is the\nstandard carrier for explicit failure in Kern APIs."
+raw = "Fallible computations.\n\n`Result[T, E]` carries either a successful value or a typed error and is the\nstandard carrier for explicit failure in Kern APIs."
+
+[[item]]
+path = "std::dbg::result::Result"
+kind = "enum"
+signature = "enum Result"
+summary = "The outcome of a computation that may fail."
+details = ""
+raw = "The outcome of a computation that may fail."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::and_then"
+kind = "method"
+signature = "fn and_then: fn(Result[T, E], *Fn(T) Result[U, E]) Result[U, E]"
+summary = "Chains another fallible computation after `Ok(T)`."
+details = ""
+raw = "Chains another fallible computation after `Ok(T)`."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::err"
+kind = "method"
+signature = "fn err: fn(Result[T, E]) Option[E]"
+summary = "Converts `Err(E)` into `Some(E)` and drops the success value."
+details = ""
+raw = "Converts `Err(E)` into `Some(E)` and drops the success value."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::inspect"
+kind = "method"
+signature = "fn inspect: fn(Result[T, E], *Fn(T) void) Result[T, E]"
+summary = "Runs a side effect on `Ok(T)` and returns the original result."
+details = ""
+raw = "Runs a side effect on `Ok(T)` and returns the original result."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::inspect_err"
+kind = "method"
+signature = "fn inspect_err: fn(Result[T, E], *Fn(E) void) Result[T, E]"
+summary = "Runs a side effect on `Err(E)` and returns the original result."
+details = ""
+raw = "Runs a side effect on `Err(E)` and returns the original result."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::is_err"
+kind = "method"
+signature = "fn is_err: fn(Result[T, E]) bool"
+summary = "Returns `true` when the result is `Err`."
+details = ""
+raw = "Returns `true` when the result is `Err`."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::is_ok"
+kind = "method"
+signature = "fn is_ok: fn(Result[T, E]) bool"
+summary = "Returns `true` when the result is `Ok`."
+details = ""
+raw = "Returns `true` when the result is `Ok`."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::map"
+kind = "method"
+signature = "fn map: fn(Result[T, E], *Fn(T) U) Result[U, E]"
+summary = "Maps the success value while preserving the error type."
+details = ""
+raw = "Maps the success value while preserving the error type."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::map_err"
+kind = "method"
+signature = "fn map_err: fn(Result[T, E], *Fn(E) F) Result[T, F]"
+summary = "Maps the error value while preserving the success type."
+details = ""
+raw = "Maps the error value while preserving the success type."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::map_or"
+kind = "method"
+signature = "fn map_or: fn(Result[T, E], U, *Fn(T) U) U"
+summary = "Maps the success value or returns `default` when the result is `Err`."
+details = ""
+raw = "Maps the success value or returns `default` when the result is `Err`."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::map_or_else"
+kind = "method"
+signature = "fn map_or_else: fn(Result[T, E], *Fn(E) U, *Fn(T) U) U"
+summary = "Lazily computes either branch into a common output type."
+details = ""
+raw = "Lazily computes either branch into a common output type."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::ok"
+kind = "method"
+signature = "fn ok: fn(Result[T, E]) Option[T]"
+summary = "Converts `Ok(T)` into `Some(T)` and drops the error."
+details = ""
+raw = "Converts `Ok(T)` into `Some(T)` and drops the error."
+
+[[item]]
+path = "std::dbg::result::Result[T, E]::or_else"
+kind = "method"
+signature = "fn or_else: fn(Result[T, E], *Fn(E) Result[T, F]) Result[T, F]"
+summary = "Recovers from `Err(E)` by running another fallible computation."
+details = ""
+raw = "Recovers from `Err(E)` by running another fallible computation."
+
+[[item]]
+path = "std::dbg::runtime"
+kind = "module"
+signature = "module runtime"
+summary = "Runtime diagnostics and fail-fast helpers."
+details = ""
+raw = "Runtime diagnostics and fail-fast helpers.\n\nDesign:\nkeep failure reporting small, explicit, and available even before richer runtime services exist."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep failure reporting small, explicit, and available even before richer runtime services exist."
+
+[[item]]
+path = "std::dbg::runtime::assert"
+kind = "method"
+signature = "fn assert: fn(bool, []u8, []*Printable) void"
+summary = "Traps when `ok` is false after printing a diagnostic message."
+details = "`assert` is for internal invariants. Recoverable conditions should be\nmodeled with `Result` or `Option` instead."
+raw = "Traps when `ok` is false after printing a diagnostic message.\n\n`assert` is for internal invariants. Recoverable conditions should be\nmodeled with `Result` or `Option` instead.\n\nNote:\nformatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "formatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item]]
+path = "std::dbg::runtime::debug"
+kind = "method"
+signature = "fn debug: fn([]u8, []*Printable) void"
+summary = "Writes a debug line to standard error."
+details = "`debug` uses the same output path as `log`, but keeps a separate prefix so\ntooling and humans can distinguish intent."
+raw = "Writes a debug line to standard error.\n\n`debug` uses the same output path as `log`, but keeps a separate prefix so\ntooling and humans can distinguish intent.\n\nNote:\nformatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "formatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item]]
+path = "std::dbg::runtime::log"
+kind = "method"
+signature = "fn log: fn([]u8, []*Printable) void"
+summary = "Writes a log line to standard error."
+details = "This is a lightweight diagnostic channel intended for ad hoc runtime output."
+raw = "Writes a log line to standard error.\n\nThis is a lightweight diagnostic channel intended for ad hoc runtime output.\n\nNote:\nformatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "formatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item]]
+path = "std::dbg::runtime::panic"
+kind = "method"
+signature = "fn panic: fn([]u8, []*Printable) !"
+summary = "Prints a panic message to standard error and traps."
+details = "This is the intended boundary for unrecoverable user-visible failures in\nlow-level code that still wants a formatted diagnostic."
+raw = "Prints a panic message to standard error and traps.\n\nThis is the intended boundary for unrecoverable user-visible failures in\nlow-level code that still wants a formatted diagnostic.\n\nNote:\nformatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "formatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item]]
+path = "std::dbg::runtime::trap"
+kind = "method"
+signature = "fn trap: fn() !"
+summary = "Triggers a non-recoverable trap."
+details = ""
+raw = "Triggers a non-recoverable trap.\n\nSafety:\nthis function does not return and immediately aborts execution."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = "this function does not return and immediately aborts execution."
+
+[[item]]
+path = "std::env"
+kind = "module"
+signature = "module env"
+summary = "Process environment access."
+details = "Public APIs in this module keep names and values as UTF-8 byte slices or\nowned `String` values while platform-specific enumeration stays internal."
+raw = "Process environment access.\n\nPublic APIs in this module keep names and values as UTF-8 byte slices or\nowned `String` values while platform-specific enumeration stays internal."
+
+[[item]]
+path = "std::env::Var"
+kind = "struct"
+signature = "struct Var"
+summary = "A borrowed environment variable entry."
+details = ""
+raw = "A borrowed environment variable entry."
+
+[[item]]
+path = "std::env::Var::name"
+kind = "field"
+signature = "field name: []u8"
+summary = "The variable name."
+details = ""
+raw = "The variable name."
+
+[[item]]
+path = "std::env::Var::value"
+kind = "field"
+signature = "field value: []u8"
+summary = "The variable value."
+details = ""
+raw = "The variable value."
+
+[[item]]
+path = "std::env::get"
+kind = "method"
+signature = "fn get: fn(*mut Allocator, []u8) Option[String]"
+summary = "Reads an environment variable into an owned `String`."
+details = ""
+raw = "Reads an environment variable into an owned `String`.\n\nReturns:\n`None` when the variable does not exist or allocation fails."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`None` when the variable does not exist or allocation fails."
+
+[[item]]
+path = "std::env::get_or_clone"
+kind = "method"
+signature = "fn get_or_clone: fn(*mut Allocator, []u8, []u8) Option[String]"
+summary = "Returns the environment variable or a cloned fallback string."
+details = ""
+raw = "Returns the environment variable or a cloned fallback string.\n\nReturns:\n`None` when allocation fails for either the real value or the fallback."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`None` when allocation fails for either the real value or the fallback."
+
+[[item]]
+path = "std::env::get_or_empty"
+kind = "method"
+signature = "fn get_or_empty: fn(*mut Allocator, []u8) Option[String]"
+summary = "Returns the environment variable or an empty owned string."
+details = ""
+raw = "Returns the environment variable or an empty owned string."
+
+[[item]]
+path = "std::env::has"
+kind = "method"
+signature = "fn has: fn(*mut Allocator, []u8) bool"
+summary = "Returns `true` when an environment variable exists."
+details = "This avoids cloning the value and only checks for presence."
+raw = "Returns `true` when an environment variable exists.\n\nThis avoids cloning the value and only checks for presence."
+
+[[item]]
+path = "std::env::visit"
+kind = "method"
+signature = "fn visit: fn(*Fn(Var) bool) usize"
+summary = "Visits every environment variable until the visitor returns `false`."
+details = ""
+raw = "Visits every environment variable until the visitor returns `false`.\n\nReturns:\nthe number of entries observed, including the last one passed to the visitor."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "the number of entries observed, including the last one passed to the visitor."
+
+[[item]]
+path = "std::fs"
+kind = "module"
+signature = "module fs"
+summary = "Filesystem operations."
+details = "This module keeps path handling, directory walking, and file I/O in UTF-8\nslice form while delegating platform translation to `std.os`."
+raw = "Filesystem operations.\n\nThis module keeps path handling, directory walking, and file I/O in UTF-8\nslice form while delegating platform translation to `std.os`.\n\nDesign:\nkeep allocation and OS conversion explicit at the public boundary."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep allocation and OS conversion explicit at the public boundary."
+
+[[item]]
+path = "std::fs::c_path"
+kind = "module"
+signature = "module c_path"
+summary = "Conversion between UTF-8 paths and C strings."
+details = "These helpers isolate the small amount of zero-terminated path handling\nneeded by the OS shims."
+raw = "Conversion between UTF-8 paths and C strings.\n\nThese helpers isolate the small amount of zero-terminated path handling\nneeded by the OS shims."
+
+[[item]]
+path = "std::fs::c_path::alloc_c_path"
+kind = "method"
+signature = "fn alloc_c_path: fn(*mut Allocator, []u8) Result[*mut u8, Error]"
+summary = "Allocates a zero-terminated path buffer for OS calls."
+details = ""
+raw = "Allocates a zero-terminated path buffer for OS calls."
+
+[[item]]
+path = "std::fs::c_path::free_c_path"
+kind = "method"
+signature = "fn free_c_path: fn(*mut Allocator, []u8, *mut u8) void"
+summary = "Frees a path buffer previously returned by `alloc_c_path`."
+details = ""
+raw = "Frees a path buffer previously returned by `alloc_c_path`."
+
+[[item]]
+path = "std::fs::dir"
+kind = "module"
+signature = "module dir"
+summary = "Directory creation, traversal, and removal."
+details = ""
+raw = "Directory creation, traversal, and removal.\n\nDesign:\nkeep traversal explicit, return visited counts, and leave path ownership with the caller."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep traversal explicit, return visited counts, and leave path ownership with the caller."
+
+[[item]]
+path = "std::fs::dir::create_dir"
+kind = "method"
+signature = "fn create_dir: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Creates a single directory."
+details = ""
+raw = "Creates a single directory."
+
+[[item]]
+path = "std::fs::dir::create_dir_all"
+kind = "method"
+signature = "fn create_dir_all: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Recursively creates every missing directory component in `path`."
+details = ""
+raw = "Recursively creates every missing directory component in `path`.\n\nReturns:\n`Ok(true)` when the call succeeds, even if some or all components already existed."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`Ok(true)` when the call succeeds, even if some or all components already existed."
+
+[[item]]
+path = "std::fs::dir::create_dir_if_missing"
+kind = "method"
+signature = "fn create_dir_if_missing: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Creates a single directory and treats an existing directory as `Ok(false)`."
+details = ""
+raw = "Creates a single directory and treats an existing directory as `Ok(false)`."
+
+[[item]]
+path = "std::fs::dir::read_dir"
+kind = "method"
+signature = "fn read_dir: fn(*mut Allocator, []u8, *Fn(DirEntry) bool) Result[usize, Error]"
+summary = "Visits the direct children of a directory."
+details = "The visitor receives borrowed entry names relative to `path`."
+raw = "Visits the direct children of a directory.\n\nThe visitor receives borrowed entry names relative to `path`.\n\nReturns:\nthe number of delivered child entries."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "the number of delivered child entries."
+
+[[item]]
+path = "std::fs::dir::remove_dir"
+kind = "method"
+signature = "fn remove_dir: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Removes a single empty directory."
+details = ""
+raw = "Removes a single empty directory."
+
+[[item]]
+path = "std::fs::dir::remove_dir_all"
+kind = "method"
+signature = "fn remove_dir_all: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Recursively removes a directory tree."
+details = "Children are removed depth-first before the final directory itself."
+raw = "Recursively removes a directory tree.\n\nChildren are removed depth-first before the final directory itself.\n\nErrors:\nreturns `NotDirectory` when `path` exists but is not a directory."
+
+[[item.section]]
+kind = "errors"
+title = "Errors"
+body = "returns `NotDirectory` when `path` exists but is not a directory."
+
+[[item]]
+path = "std::fs::dir::remove_dir_if_exists"
+kind = "method"
+signature = "fn remove_dir_if_exists: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Removes a single empty directory and treats a missing path as `Ok(false)`."
+details = ""
+raw = "Removes a single empty directory and treats a missing path as `Ok(false)`."
+
+[[item]]
+path = "std::fs::dir::walk_dir"
+kind = "method"
+signature = "fn walk_dir: fn(*mut Allocator, []u8, *Fn([]u8, DirEntry, usize) bool) Result[usize, Error]"
+summary = "Walks a directory tree depth-first."
+details = "The root path itself is validated but is not passed to the visitor. Depth\nstarts at `1` for direct children of `path`."
+raw = "Walks a directory tree depth-first.\n\nThe root path itself is validated but is not passed to the visitor. Depth\nstarts at `1` for direct children of `path`.\n\nReturns:\nthe number of visited entries."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "the number of visited entries."
+
+[[item]]
+path = "std::fs::dir::walk_dirs"
+kind = "method"
+signature = "fn walk_dirs: fn(*mut Allocator, []u8, *Fn([]u8, DirEntry, usize) bool) Result[usize, Error]"
+summary = "Walks only directory entries in a directory tree."
+details = "File entries are skipped, but nested directories are still explored."
+raw = "Walks only directory entries in a directory tree.\n\nFile entries are skipped, but nested directories are still explored."
+
+[[item]]
+path = "std::fs::dir::walk_files"
+kind = "method"
+signature = "fn walk_files: fn(*mut Allocator, []u8, *Fn([]u8, DirEntry, usize) bool) Result[usize, Error]"
+summary = "Walks only file entries in a directory tree."
+details = "Directory entries are still traversed internally so recursion can continue."
+raw = "Walks only file entries in a directory tree.\n\nDirectory entries are still traversed internally so recursion can continue."
+
+[[item]]
+path = "std::fs::file"
+kind = "module"
+signature = "module file"
+summary = "File operations and owned file handles."
+details = ""
+raw = "File operations and owned file handles."
+
+[[item]]
+path = "std::fs::file::*mut File::close"
+kind = "method"
+signature = "fn close: fn(*mut File) Result[bool, Error]"
+summary = "Closes the file handle if it is still open."
+details = ""
+raw = "Closes the file handle if it is still open."
+
+[[item]]
+path = "std::fs::file::*mut File::copy_to"
+kind = "method"
+signature = "fn copy_to: fn(*mut File, *mut File) Result[usize, Error]"
+summary = "Copies all remaining bytes from this file into another file."
+details = ""
+raw = "Copies all remaining bytes from this file into another file."
+
+[[item]]
+path = "std::fs::file::*mut File::deinit"
+kind = "method"
+signature = "fn deinit: fn(*mut File) void"
+summary = "Best-effort destructor for the file handle."
+details = ""
+raw = "Best-effort destructor for the file handle."
+
+[[item]]
+path = "std::fs::file::*mut File::from_handle"
+kind = "method"
+signature = "fn from_handle: fn(*mut File, usize) File"
+summary = "Wraps a raw OS handle in a `File`."
+details = ""
+raw = "Wraps a raw OS handle in a `File`.\n\nSafety:\nthe handle must obey the ownership rules expected by `close`."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = "the handle must obey the ownership rules expected by `close`."
+
+[[item]]
+path = "std::fs::file::*mut File::raw_handle"
+kind = "method"
+signature = "fn raw_handle: fn(*mut File) usize"
+summary = "Returns the underlying OS handle."
+details = ""
+raw = "Returns the underlying OS handle."
+
+[[item]]
+path = "std::fs::file::*mut File::read"
+kind = "method"
+signature = "fn read: fn(*mut File, []mut u8) Result[usize, Error]"
+summary = "Reads bytes into the provided mutable slice."
+details = ""
+raw = "Reads bytes into the provided mutable slice."
+
+[[item]]
+path = "std::fs::file::*mut File::read_to_string"
+kind = "method"
+signature = "fn read_to_string: fn(*mut File, *mut Allocator) Result[String, Error]"
+summary = "Reads the remainder of the file into an owned string."
+details = ""
+raw = "Reads the remainder of the file into an owned string."
+
+[[item]]
+path = "std::fs::file::*mut File::write"
+kind = "method"
+signature = "fn write: fn(*mut File, []u8) Result[usize, Error]"
+summary = "Writes bytes from the provided slice."
+details = ""
+raw = "Writes bytes from the provided slice."
+
+[[item]]
+path = "std::fs::file::*mut File::write_all"
+kind = "method"
+signature = "fn write_all: fn(*mut File, []u8) Result[usize, Error]"
+summary = "Repeatedly writes until the full buffer has been flushed."
+details = ""
+raw = "Repeatedly writes until the full buffer has been flushed."
+
+[[item]]
+path = "std::fs::file::append_all"
+kind = "method"
+signature = "fn append_all: fn(*mut Allocator, []u8, []u8) Result[usize, Error]"
+summary = "Appends the entire buffer to a file, creating it when needed."
+details = ""
+raw = "Appends the entire buffer to a file, creating it when needed."
+
+[[item]]
+path = "std::fs::file::copy"
+kind = "method"
+signature = "fn copy: fn(*mut Allocator, []u8, []u8) Result[usize, Error]"
+summary = "Copies the contents of one file into another."
+details = ""
+raw = "Copies the contents of one file into another."
+
+[[item]]
+path = "std::fs::file::create"
+kind = "method"
+signature = "fn create: fn(*mut Allocator, []u8) Result[File, Error]"
+summary = "Creates or truncates a file for writing."
+details = ""
+raw = "Creates or truncates a file for writing."
+
+[[item]]
+path = "std::fs::file::create_new"
+kind = "method"
+signature = "fn create_new: fn(*mut Allocator, []u8) Result[File, Error]"
+summary = "Creates a new file and fails when it already exists."
+details = ""
+raw = "Creates a new file and fails when it already exists."
+
+[[item]]
+path = "std::fs::file::exists"
+kind = "method"
+signature = "fn exists: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Returns `true` when a path exists."
+details = ""
+raw = "Returns `true` when a path exists."
+
+[[item]]
+path = "std::fs::file::is_dir"
+kind = "method"
+signature = "fn is_dir: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Returns `true` when a path exists and refers to a directory."
+details = ""
+raw = "Returns `true` when a path exists and refers to a directory."
+
+[[item]]
+path = "std::fs::file::is_file"
+kind = "method"
+signature = "fn is_file: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Returns `true` when a path exists and refers to a regular file."
+details = ""
+raw = "Returns `true` when a path exists and refers to a regular file."
+
+[[item]]
+path = "std::fs::file::metadata"
+kind = "method"
+signature = "fn metadata: fn(*mut Allocator, []u8) Result[Metadata, Error]"
+summary = "Returns metadata for a filesystem entry."
+details = ""
+raw = "Returns metadata for a filesystem entry."
+
+[[item]]
+path = "std::fs::file::open"
+kind = "method"
+signature = "fn open: fn(*mut Allocator, []u8, *OpenOptions) Result[File, Error]"
+summary = "Opens a file using the provided options."
+details = ""
+raw = "Opens a file using the provided options.\n\nErrors:\nreturns `InvalidOptions` when neither reading nor writing is requested."
+
+[[item.section]]
+kind = "errors"
+title = "Errors"
+body = "returns `InvalidOptions` when neither reading nor writing is requested."
+
+[[item]]
+path = "std::fs::file::open_append"
+kind = "method"
+signature = "fn open_append: fn(*mut Allocator, []u8) Result[File, Error]"
+summary = "Opens a file for appending, creating it when needed."
+details = ""
+raw = "Opens a file for appending, creating it when needed."
+
+[[item]]
+path = "std::fs::file::open_read"
+kind = "method"
+signature = "fn open_read: fn(*mut Allocator, []u8) Result[File, Error]"
+summary = "Opens a file for reading."
+details = ""
+raw = "Opens a file for reading."
+
+[[item]]
+path = "std::fs::file::open_write"
+kind = "method"
+signature = "fn open_write: fn(*mut Allocator, []u8) Result[File, Error]"
+summary = "Opens a file for writing without creating it."
+details = ""
+raw = "Opens a file for writing without creating it."
+
+[[item]]
+path = "std::fs::file::read_to_string"
+kind = "method"
+signature = "fn read_to_string: fn(*mut Allocator, []u8) Result[String, Error]"
+summary = "Reads an entire file into an owned string."
+details = ""
+raw = "Reads an entire file into an owned string."
+
+[[item]]
+path = "std::fs::file::remove_file"
+kind = "method"
+signature = "fn remove_file: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Removes a file."
+details = ""
+raw = "Removes a file."
+
+[[item]]
+path = "std::fs::file::remove_file_if_exists"
+kind = "method"
+signature = "fn remove_file_if_exists: fn(*mut Allocator, []u8) Result[bool, Error]"
+summary = "Removes a file and treats a missing path as `Ok(false)`."
+details = ""
+raw = "Removes a file and treats a missing path as `Ok(false)`."
+
+[[item]]
+path = "std::fs::file::rename"
+kind = "method"
+signature = "fn rename: fn(*mut Allocator, []u8, []u8) Result[bool, Error]"
+summary = "Renames or moves a filesystem entry."
+details = ""
+raw = "Renames or moves a filesystem entry."
+
+[[item]]
+path = "std::fs::file::stderr"
+kind = "method"
+signature = "fn stderr: fn() File"
+summary = "Returns a borrowed wrapper around standard error."
+details = ""
+raw = "Returns a borrowed wrapper around standard error."
+
+[[item]]
+path = "std::fs::file::stdin"
+kind = "method"
+signature = "fn stdin: fn() File"
+summary = "Returns a borrowed wrapper around standard input."
+details = ""
+raw = "Returns a borrowed wrapper around standard input."
+
+[[item]]
+path = "std::fs::file::stdout"
+kind = "method"
+signature = "fn stdout: fn() File"
+summary = "Returns a borrowed wrapper around standard output."
+details = ""
+raw = "Returns a borrowed wrapper around standard output."
+
+[[item]]
+path = "std::fs::file::write_all"
+kind = "method"
+signature = "fn write_all: fn(*mut Allocator, []u8, []u8) Result[usize, Error]"
+summary = "Writes the entire buffer to a file, creating or truncating it first."
+details = ""
+raw = "Writes the entire buffer to a file, creating or truncating it first."
+
+[[item]]
+path = "std::fs::path"
+kind = "module"
+signature = "module path"
+summary = "Pure path manipulation helpers."
+details = ""
+raw = "Pure path manipulation helpers.\n\nDesign:\nkeep normalization lexical and avoid hidden filesystem queries."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep normalization lexical and avoid hidden filesystem queries."
+
+[[item]]
+path = "std::fs::path::build_child_path"
+kind = "method"
+signature = "fn build_child_path: fn(*mut Allocator, []u8, []u8) Result[String, Error]"
+summary = "Builds `base/name` using the preferred separator for `base`."
+details = ""
+raw = "Builds `base/name` using the preferred separator for `base`."
+
+[[item]]
+path = "std::fs::path::extension"
+kind = "method"
+signature = "fn extension: fn([]u8) Option[[]u8]"
+summary = "Returns the extension of the final path component without the dot."
+details = ""
+raw = "Returns the extension of the final path component without the dot."
+
+[[item]]
+path = "std::fs::path::file_name"
+kind = "method"
+signature = "fn file_name: fn([]u8) Option[[]u8]"
+summary = "Returns the final path component."
+details = ""
+raw = "Returns the final path component."
+
+[[item]]
+path = "std::fs::path::file_stem"
+kind = "method"
+signature = "fn file_stem: fn([]u8) Option[[]u8]"
+summary = "Returns the final path component without its extension."
+details = ""
+raw = "Returns the final path component without its extension."
+
+[[item]]
+path = "std::fs::path::is_path_separator"
+kind = "method"
+signature = "fn is_path_separator: fn(u8) bool"
+summary = "Returns `true` when `byte` is treated as a path separator on the current platform."
+details = ""
+raw = "Returns `true` when `byte` is treated as a path separator on the current platform."
+
+[[item]]
+path = "std::fs::path::join"
+kind = "method"
+signature = "fn join: fn(*mut Allocator, []u8, []u8) Result[String, Error]"
+summary = "Joins `base` and `child`."
+details = ""
+raw = "Joins `base` and `child`.\n\nNote:\nabsolute `child` paths replace `base`."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "absolute `child` paths replace `base`."
+
+[[item]]
+path = "std::fs::path::normalize"
+kind = "method"
+signature = "fn normalize: fn(*mut Allocator, []u8) Result[String, Error]"
+summary = "Normalizes `.` and `..` segments and collapses repeated separators."
+details = ""
+raw = "Normalizes `.` and `..` segments and collapses repeated separators.\n\nDesign:\nkeep normalization lexical and preserve the original root prefix semantics.\n\nThis function does not consult the filesystem, so symbolic links and missing\npath segments are left uninterpreted."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep normalization lexical and preserve the original root prefix semantics.\n\nThis function does not consult the filesystem, so symbolic links and missing\npath segments are left uninterpreted."
+
+[[item]]
+path = "std::fs::path::parent"
+kind = "method"
+signature = "fn parent: fn([]u8) Option[[]u8]"
+summary = "Returns the parent directory of a path."
+details = ""
+raw = "Returns the parent directory of a path."
+
+[[item]]
+path = "std::fs::path::path_separator_byte"
+kind = "method"
+signature = "fn path_separator_byte: fn() u8"
+summary = "Returns the preferred path separator for the current platform."
+details = ""
+raw = "Returns the preferred path separator for the current platform."
+
+[[item]]
+path = "std::fs::path::root_prefix_len"
+kind = "method"
+signature = "fn root_prefix_len: fn([]u8) usize"
+summary = "Returns the length of the root prefix of `path`."
+details = ""
+raw = "Returns the length of the root prefix of `path`.\n\nNote:\non Windows this includes drive prefixes and UNC roots."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "on Windows this includes drive prefixes and UNC roots."
+
+[[item]]
+path = "std::fs::path::trim_trailing_separators"
+kind = "method"
+signature = "fn trim_trailing_separators: fn([]u8) []u8"
+summary = "Removes trailing separators while preserving the root prefix."
+details = ""
+raw = "Removes trailing separators while preserving the root prefix."
+
+[[item]]
+path = "std::fs::path::with_extension"
+kind = "method"
+signature = "fn with_extension: fn(*mut Allocator, []u8, []u8) Result[String, Error]"
+summary = "Returns `path` with its extension replaced by `ext`."
+details = "An empty `ext` removes the extension entirely."
+raw = "Returns `path` with its extension replaced by `ext`.\n\nAn empty `ext` removes the extension entirely."
+
+[[item]]
+path = "std::fs::path::with_file_name"
+kind = "method"
+signature = "fn with_file_name: fn(*mut Allocator, []u8, []u8) Result[String, Error]"
+summary = "Returns `path` with its final component replaced by `name`."
+details = ""
+raw = "Returns `path` with its final component replaced by `name`.\n\nErrors:\nreturns `InvalidPath` when `name` is empty."
+
+[[item.section]]
+kind = "errors"
+title = "Errors"
+body = "returns `InvalidPath` when `name` is empty."
+
+[[item]]
+path = "std::fs::types"
+kind = "module"
+signature = "module types"
+summary = "Common filesystem types."
+details = ""
+raw = "Common filesystem types."
+
+[[item]]
+path = "std::fs::types::DirEntry"
+kind = "struct"
+signature = "struct DirEntry"
+summary = "A single directory entry yielded by directory traversal."
+details = ""
+raw = "A single directory entry yielded by directory traversal."
+
+[[item]]
+path = "std::fs::types::DirEntry::is_dir"
+kind = "method"
+signature = "fn is_dir: fn(DirEntry) bool"
+summary = "Returns `true` when the entry is a directory."
+details = ""
+raw = "Returns `true` when the entry is a directory."
+
+[[item]]
+path = "std::fs::types::DirEntry::is_file"
+kind = "method"
+signature = "fn is_file: fn(DirEntry) bool"
+summary = "Returns `true` when the entry is a regular file."
+details = ""
+raw = "Returns `true` when the entry is a regular file."
+
+[[item]]
+path = "std::fs::types::Error"
+kind = "enum"
+signature = "enum Error"
+summary = "Filesystem errors used by `std.fs`."
+details = ""
+raw = "Filesystem errors used by `std.fs`."
+
+[[item]]
+path = "std::fs::types::File"
+kind = "struct"
+signature = "struct File"
+summary = "An owned filesystem handle."
+details = ""
+raw = "An owned filesystem handle."
+
+[[item]]
+path = "std::fs::types::FileType"
+kind = "type"
+signature = "type FileType = FileType"
+summary = "The coarse type of a filesystem entry."
+details = ""
+raw = "The coarse type of a filesystem entry."
+
+[[item]]
+path = "std::fs::types::Metadata"
+kind = "type"
+signature = "type Metadata = Metadata"
+summary = "Metadata returned for a filesystem entry."
+details = ""
+raw = "Metadata returned for a filesystem entry."
+
+[[item]]
+path = "std::fs::types::OpenOptions"
+kind = "struct"
+signature = "struct OpenOptions"
+summary = "Options controlling how a file is opened."
+details = ""
+raw = "Options controlling how a file is opened."
+
+[[item]]
+path = "std::hash"
+kind = "module"
+signature = "module hash"
+summary = "Hashing traits and helpers."
+details = "The standard library keeps hashing simple and deterministic. Containers rely\non these routines instead of embedding their own ad hoc mixers."
+raw = "Hashing traits and helpers.\n\nThe standard library keeps hashing simple and deterministic. Containers rely\non these routines instead of embedding their own ad hoc mixers."
+
+[[item]]
+path = "std::hash::Hash"
+kind = "trait"
+signature = "trait Hash"
+summary = "A type that can produce a stable 64-bit hash value."
+details = ""
+raw = "A type that can produce a stable 64-bit hash value."
+
+[[item]]
+path = "std::hash::Hash::hash"
+kind = "trait_method"
+signature = "fn hash: fn(Hash) u64"
+summary = "Computes a deterministic 64-bit hash for `self`."
+details = ""
+raw = "Computes a deterministic 64-bit hash for `self`."
+
+[[item]]
+path = "std::hash::hash_bytes"
+kind = "method"
+signature = "fn hash_bytes: fn([]u8) u64"
+summary = "Hashes an arbitrary byte slice."
+details = ""
+raw = "Hashes an arbitrary byte slice."
+
+[[item]]
+path = "std::hash::hash_of"
+kind = "method"
+signature = "fn hash_of: fn(T) u64"
+summary = "Hashes a value through the `Hash` trait."
+details = ""
+raw = "Hashes a value through the `Hash` trait."
+
+[[item]]
+path = "std::hash::mix_u128"
+kind = "method"
+signature = "fn mix_u128: fn(u128) u64"
+summary = "Mixes a 128-bit value into a 64-bit hash."
+details = ""
+raw = "Mixes a 128-bit value into a 64-bit hash."
+
+[[item]]
+path = "std::hash::mix_u64"
+kind = "method"
+signature = "fn mix_u64: fn(u64) u64"
+summary = "Mixes a 64-bit value into a well-distributed 64-bit hash."
+details = ""
+raw = "Mixes a 64-bit value into a well-distributed 64-bit hash."
+
+[[item]]
+path = "std::io"
+kind = "module"
+signature = "module io"
+summary = "Text and byte-oriented output helpers."
+details = "This module exposes the `Writer` and `Printable` traits, formatting helpers,\nand lightweight wrappers around standard output streams."
+raw = "Text and byte-oriented output helpers.\n\nThis module exposes the `Writer` and `Printable` traits, formatting helpers,\nand lightweight wrappers around standard output streams."
+
+[[item]]
+path = "std::io::*mut File as Writer::write"
+kind = "method"
+signature = "fn write: fn(*mut File, []u8) usize"
+summary = "Writes the provided bytes to the underlying file handle."
+details = ""
+raw = "Writes the provided bytes to the underlying file handle."
+
+[[item]]
+path = "std::io::File"
+kind = "struct"
+signature = "struct File"
+summary = "A writable handle backed by `std.fs.File`."
+details = ""
+raw = "A writable handle backed by `std.fs.File`."
+
+[[item]]
+path = "std::io::fmt::format_to"
+kind = "method"
+signature = "fn format_to: fn(*mut Writer, []u8, []*Printable) void"
+summary = "Formats text and placeholders into the given writer."
+details = ""
+raw = "Formats text and placeholders into the given writer.\n\nDesign:\nkeep formatting small, predictable, and allocation-free."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep formatting small, predictable, and allocation-free."
+
+[[item]]
+path = "std::io::fmt::print"
+kind = "method"
+signature = "fn print: fn([]u8, []*Printable) void"
+summary = "Formats into standard output without appending a newline."
+details = ""
+raw = "Formats into standard output without appending a newline.\n\nNote:\nformatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "formatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item]]
+path = "std::io::fmt::println"
+kind = "method"
+signature = "fn println: fn([]u8, []*Printable) void"
+summary = "Formats into standard output and appends a newline."
+details = ""
+raw = "Formats into standard output and appends a newline.\n\nNote:\nformatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item.section]]
+kind = "note"
+title = "Note"
+body = "formatting arguments are passed as `.{ value, }`. Single-element lists still\nrequire the trailing comma."
+
+[[item]]
+path = "std::io::impls::write_i64_to_writer"
+kind = "method"
+signature = "fn write_i64_to_writer: fn(i64, *mut Writer) void"
+summary = "Writes a signed integer in base 10."
+details = ""
+raw = "Writes a signed integer in base 10."
+
+[[item]]
+path = "std::io::impls::write_u64_to_writer"
+kind = "method"
+signature = "fn write_u64_to_writer: fn(u64, *mut Writer) void"
+summary = "Writes an unsigned integer in base 10."
+details = ""
+raw = "Writes an unsigned integer in base 10."
+
+[[item]]
+path = "std::io::stderr"
+kind = "method"
+signature = "fn stderr: fn() File"
+summary = "Returns a writer for standard error."
+details = ""
+raw = "Returns a writer for standard error."
+
+[[item]]
+path = "std::io::stdout"
+kind = "method"
+signature = "fn stdout: fn() File"
+summary = "Returns a writer for standard output."
+details = ""
+raw = "Returns a writer for standard output."
+
+[[item]]
+path = "std::io::traits"
+kind = "module"
+signature = "module traits"
+summary = "Formatting traits."
+details = ""
+raw = "Formatting traits."
+
+[[item]]
+path = "std::io::traits::Printable"
+kind = "trait"
+signature = "trait Printable"
+summary = "A value that knows how to render itself into a `Writer`."
+details = ""
+raw = "A value that knows how to render itself into a `Writer`."
+
+[[item]]
+path = "std::io::traits::Writer"
+kind = "trait"
+signature = "trait Writer"
+summary = "A byte sink used by the formatting subsystem."
+details = ""
+raw = "A byte sink used by the formatting subsystem."
+
+[[item]]
+path = "std::mem"
+kind = "module"
+signature = "module mem"
+summary = "Memory layout and allocation primitives."
+details = "This module exposes layout calculation and allocator traits without hiding\nownership or lifetime decisions behind implicit runtime services."
+raw = "Memory layout and allocation primitives.\n\nThis module exposes layout calculation and allocator traits without hiding\nownership or lifetime decisions behind implicit runtime services."
+
+[[item]]
+path = "std::mem::alloc"
+kind = "module"
+signature = "module alloc"
+summary = "Standard allocators."
+details = "The standard library ships a thin page allocator together with reusable\ngeneral-purpose and arena allocators layered on top of an arbitrary backing\nallocator."
+raw = "Standard allocators.\n\nThe standard library ships a thin page allocator together with reusable\ngeneral-purpose and arena allocators layered on top of an arbitrary backing\nallocator."
+
+[[item]]
+path = "std::mem::alloc::allocator"
+kind = "module"
+signature = "module allocator"
+summary = "Allocator trait."
+details = "Kern allocators are explicit objects. Callers pass `Layout` on allocation\nand must return the same layout when freeing."
+raw = "Allocator trait.\n\nKern allocators are explicit objects. Callers pass `Layout` on allocation\nand must return the same layout when freeing.\n\nDesign:\nkeep allocation policy outside the type system and force layout bookkeeping to stay explicit."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep allocation policy outside the type system and force layout bookkeeping to stay explicit."
+
+[[item]]
+path = "std::mem::alloc::allocator::Allocator"
+kind = "trait"
+signature = "trait Allocator"
+summary = "The interface implemented by allocation backends."
+details = ""
+raw = "The interface implemented by allocation backends."
+
+[[item]]
+path = "std::mem::alloc::allocator::Allocator::alloc"
+kind = "trait_method"
+signature = "fn alloc: fn(Allocator, Layout) Option[*mut u8]"
+summary = "Allocates memory for the requested layout."
+details = ""
+raw = "Allocates memory for the requested layout.\n\nReturns:\n`None` when the allocator cannot satisfy the request."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`None` when the allocator cannot satisfy the request."
+
+[[item]]
+path = "std::mem::alloc::allocator::Allocator::free"
+kind = "trait_method"
+signature = "fn free: fn(Allocator, *mut u8, Layout) void"
+summary = "Frees a block previously returned from `alloc`."
+details = ""
+raw = "Frees a block previously returned from `alloc`.\n\nSafety:\ncallers must pass the original pointer and the original layout."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = "callers must pass the original pointer and the original layout."
+
+[[item]]
+path = "std::mem::alloc::arena"
+kind = "module"
+signature = "module arena"
+summary = "Arena allocator."
+details = "`Arena` trades individual frees for very fast bump allocation and bulk reset.\nIt is suited to short-lived phases, parsing, and scratch storage."
+raw = "Arena allocator.\n\n`Arena` trades individual frees for very fast bump allocation and bulk reset.\nIt is suited to short-lived phases, parsing, and scratch storage."
+
+[[item]]
+path = "std::mem::alloc::arena::*mut Arena as Allocator::alloc"
+kind = "method"
+signature = "fn alloc: fn(*mut Arena, Layout) Option[*mut u8]"
+summary = "Allocates from the current chunk or grows the arena when needed."
+details = ""
+raw = "Allocates from the current chunk or grows the arena when needed."
+
+[[item]]
+path = "std::mem::alloc::arena::*mut Arena as Allocator::clear"
+kind = "method"
+signature = "fn clear: fn(*mut Arena) void"
+summary = "Alias for `reset`."
+details = ""
+raw = "Alias for `reset`."
+
+[[item]]
+path = "std::mem::alloc::arena::*mut Arena as Allocator::deinit"
+kind = "method"
+signature = "fn deinit: fn(*mut Arena) void"
+summary = "Releases every chunk owned by the arena."
+details = ""
+raw = "Releases every chunk owned by the arena."
+
+[[item]]
+path = "std::mem::alloc::arena::*mut Arena as Allocator::free"
+kind = "method"
+signature = "fn free: fn(*mut Arena, *mut u8, Layout) void"
+summary = "Ignores individual frees."
+details = ""
+raw = "Ignores individual frees.\n\nDesign:\nkeep arena allocation fast and make reclamation an explicit bulk action."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep arena allocation fast and make reclamation an explicit bulk action."
+
+[[item]]
+path = "std::mem::alloc::arena::*mut Arena as Allocator::reset"
+kind = "method"
+signature = "fn reset: fn(*mut Arena) void"
+summary = "Releases every chunk except the current one and rewinds allocation state."
+details = ""
+raw = "Releases every chunk except the current one and rewinds allocation state."
+
+[[item]]
+path = "std::mem::alloc::arena::Arena"
+kind = "struct"
+signature = "struct Arena"
+summary = "A bump allocator that grows in chunks from a backing allocator."
+details = ""
+raw = "A bump allocator that grows in chunks from a backing allocator."
+
+[[item]]
+path = "std::mem::alloc::gpa"
+kind = "module"
+signature = "module gpa"
+summary = "General-purpose allocator."
+details = "`GPA` serves varied allocation sizes by carving blocks from backing chunks\nand tracking frees in a coalescing free list."
+raw = "General-purpose allocator.\n\n`GPA` serves varied allocation sizes by carving blocks from backing chunks\nand tracking frees in a coalescing free list.\n\nDesign:\nkeep corruption checks cheap and fail loudly on invalid frees."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep corruption checks cheap and fail loudly on invalid frees."
+
+[[item]]
+path = "std::mem::alloc::gpa::*mut GPA as Allocator::alloc"
+kind = "method"
+signature = "fn alloc: fn(*mut GPA, Layout) Option[*mut u8]"
+summary = "Allocates a block that satisfies `layout`."
+details = ""
+raw = "Allocates a block that satisfies `layout`."
+
+[[item]]
+path = "std::mem::alloc::gpa::*mut GPA as Allocator::deinit"
+kind = "method"
+signature = "fn deinit: fn(*mut GPA) void"
+summary = "Releases every backing chunk owned by the allocator."
+details = ""
+raw = "Releases every backing chunk owned by the allocator."
+
+[[item]]
+path = "std::mem::alloc::gpa::*mut GPA as Allocator::free"
+kind = "method"
+signature = "fn free: fn(*mut GPA, *mut u8, Layout) void"
+summary = "Frees a block previously allocated by this allocator."
+details = ""
+raw = "Frees a block previously allocated by this allocator.\n\nSafety:\n`ptr` and `layout` must match the original allocation."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = "`ptr` and `layout` must match the original allocation."
+
+[[item]]
+path = "std::mem::alloc::gpa::*mut GPA as Allocator::reset"
+kind = "method"
+signature = "fn reset: fn(*mut GPA) void"
+summary = "Marks every chunk as free without releasing them back to the backing allocator."
+details = ""
+raw = "Marks every chunk as free without releasing them back to the backing allocator.\n\nWarning:\npointers handed out before `reset` become invalid."
+
+[[item.section]]
+kind = "warning"
+title = "Warning"
+body = "pointers handed out before `reset` become invalid."
+
+[[item]]
+path = "std::mem::alloc::gpa::GPA"
+kind = "struct"
+signature = "struct GPA"
+summary = "A reusable allocator with free-list recycling and generation checks."
+details = ""
+raw = "A reusable allocator with free-list recycling and generation checks."
+
+[[item]]
+path = "std::mem::alloc::page"
+kind = "module"
+signature = "module page"
+summary = "Page-backed allocator."
+details = "This allocator maps and unmaps memory directly through the operating system.\nIt is simple and predictable, but it does not attempt to recycle or compact\nallocations."
+raw = "Page-backed allocator.\n\nThis allocator maps and unmaps memory directly through the operating system.\nIt is simple and predictable, but it does not attempt to recycle or compact\nallocations."
+
+[[item]]
+path = "std::mem::alloc::page::*mut Page as Allocator::alloc"
+kind = "method"
+signature = "fn alloc: fn(*mut Page, Layout) Option[*mut u8]"
+summary = "Allocates a region directly from the operating system."
+details = ""
+raw = "Allocates a region directly from the operating system."
+
+[[item]]
+path = "std::mem::alloc::page::*mut Page as Allocator::free"
+kind = "method"
+signature = "fn free: fn(*mut Page, *mut u8, Layout) void"
+summary = "Releases a region previously allocated by `Page`."
+details = ""
+raw = "Releases a region previously allocated by `Page`.\n\nSafety:\n`ptr` and `layout` must come from this allocator."
+
+[[item.section]]
+kind = "safety"
+title = "Safety"
+body = "`ptr` and `layout` must come from this allocator."
+
+[[item]]
+path = "std::mem::alloc::page::Page"
+kind = "struct"
+signature = "struct Page"
+summary = "An allocator that requests memory directly from the OS page system."
+details = ""
+raw = "An allocator that requests memory directly from the OS page system."
+
+[[item]]
+path = "std::mem::layout"
+kind = "module"
+signature = "module layout"
+summary = "Memory layout descriptions."
+details = ""
+raw = "Memory layout descriptions.\n\nDesign:\nkeep allocation requirements as plain data so allocators and containers can share one vocabulary."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep allocation requirements as plain data so allocators and containers can share one vocabulary."
+
+[[item]]
+path = "std::mem::layout::Layout"
+kind = "struct"
+signature = "struct Layout"
+summary = "The size and alignment required for an allocation."
+details = ""
+raw = "The size and alignment required for an allocation."
+
+[[item]]
+path = "std::mem::layout::Layout::align"
+kind = "field"
+signature = "field align: usize"
+summary = "The byte alignment required by the allocation."
+details = ""
+raw = "The byte alignment required by the allocation."
+
+[[item]]
+path = "std::mem::layout::Layout::is_zst"
+kind = "method"
+signature = "fn is_zst: fn(Layout) bool"
+summary = "Returns `true` when the layout describes a zero-sized value."
+details = ""
+raw = "Returns `true` when the layout describes a zero-sized value."
+
+[[item]]
+path = "std::mem::layout::Layout::size"
+kind = "field"
+signature = "field size: usize"
+summary = "The number of bytes required by the allocation."
+details = ""
+raw = "The number of bytes required by the allocation."
+
+[[item]]
+path = "std::mem::layout::array_layout_of"
+kind = "method"
+signature = "fn array_layout_of: fn(usize) Option[Layout]"
+summary = "Returns the layout of an array of `count` elements."
+details = ""
+raw = "Returns the layout of an array of `count` elements.\n\nReturns:\n`None` when the total size would overflow `usize`."
+
+[[item.section]]
+kind = "returns"
+title = "Returns"
+body = "`None` when the total size would overflow `usize`."
+
+[[item]]
+path = "std::mem::layout::layout_of"
+kind = "method"
+signature = "fn layout_of: fn() Layout"
+summary = "Returns the layout of a single `T`."
+details = "This is a compile-time query and does not allocate."
+raw = "Returns the layout of a single `T`.\n\nThis is a compile-time query and does not allocate."
+
+[[item]]
+path = "std::num"
+kind = "module"
+signature = "module num"
+summary = "Numeric limits and small arithmetic constants."
+details = "This module collects target-dependent integer bounds that other low-level\nmodules reuse when checking overflow or sentinel values."
+raw = "Numeric limits and small arithmetic constants.\n\nThis module collects target-dependent integer bounds that other low-level\nmodules reuse when checking overflow or sentinel values."
+
+[[item]]
+path = "std::num::I8_MAX"
+kind = "const"
+signature = "const I8_MAX: i8"
+summary = "The maximum representable `i8`."
+details = ""
+raw = "The maximum representable `i8`."
+
+[[item]]
+path = "std::num::I8_MIN"
+kind = "const"
+signature = "const I8_MIN: i8"
+summary = "The minimum representable `i8`."
+details = ""
+raw = "The minimum representable `i8`."
+
+[[item]]
+path = "std::num::ISIZE_MAX"
+kind = "const"
+signature = "const ISIZE_MAX: isize"
+summary = "The maximum representable `isize`."
+details = ""
+raw = "The maximum representable `isize`."
+
+[[item]]
+path = "std::num::USIZE_MAX"
+kind = "const"
+signature = "const USIZE_MAX: usize"
+summary = "The maximum representable `usize`."
+details = ""
+raw = "The maximum representable `usize`."
+
+[[item]]
+path = "std::num::USIZE_MIN"
+kind = "const"
+signature = "const USIZE_MIN: usize"
+summary = "The minimum representable `usize`."
+details = ""
+raw = "The minimum representable `usize`."
+
+[[item]]
+path = "std::os"
+kind = "module"
+signature = "module os"
+summary = "Platform operating-system shims."
+details = "This module normalizes file handles, metadata, and process exit across the\nsupported operating systems while still exposing the low-level boundary."
+raw = "Platform operating-system shims.\n\nThis module normalizes file handles, metadata, and process exit across the\nsupported operating systems while still exposing the low-level boundary."
+
+[[item]]
+path = "std::os::FileType"
+kind = "enum"
+signature = "enum FileType"
+summary = "The coarse file kind reported by the platform layer."
+details = ""
+raw = "The coarse file kind reported by the platform layer."
+
+[[item]]
+path = "std::os::Metadata"
+kind = "struct"
+signature = "struct Metadata"
+summary = "Low-level filesystem metadata."
+details = ""
+raw = "Low-level filesystem metadata."
+
+[[item]]
+path = "std::os::Metadata::is_dir"
+kind = "method"
+signature = "fn is_dir: fn(Metadata) bool"
+summary = "Returns `true` when the metadata describes a directory."
+details = ""
+raw = "Returns `true` when the metadata describes a directory."
+
+[[item]]
+path = "std::os::Metadata::is_file"
+kind = "method"
+signature = "fn is_file: fn(Metadata) bool"
+summary = "Returns `true` when the metadata describes a regular file."
+details = ""
+raw = "Returns `true` when the metadata describes a regular file."
+
+[[item]]
+path = "std::os::OpenOptions"
+kind = "struct"
+signature = "struct OpenOptions"
+summary = "Low-level flags used when opening a file through the OS layer."
+details = ""
+raw = "Low-level flags used when opening a file through the OS layer."
+
+[[item]]
+path = "std::os::linux"
+kind = "module"
+signature = "module linux"
+summary = "Linux-specific operating-system shims."
+details = ""
+raw = "Linux-specific operating-system shims.\n\nDesign:\nkeep the syscall boundary direct and typed."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep the syscall boundary direct and typed."
+
+[[item]]
+path = "std::os::linux::Error"
+kind = "struct"
+signature = "struct Error"
+summary = "A Linux OS error code."
+details = ""
+raw = "A Linux OS error code."
+
+[[item]]
+path = "std::os::linux::Handle"
+kind = "type"
+signature = "type Handle = usize"
+summary = "A raw Linux file descriptor or handle-like integer."
+details = ""
+raw = "A raw Linux file descriptor or handle-like integer."
+
+[[item]]
+path = "std::os::linux::MAP_ANONYMOUS"
+kind = "const"
+signature = "const MAP_ANONYMOUS: usize"
+summary = "Mapping flag for an anonymous mapping."
+details = ""
+raw = "Mapping flag for an anonymous mapping."
+
+[[item]]
+path = "std::os::linux::MAP_FAILED"
+kind = "const"
+signature = "const MAP_FAILED: usize"
+summary = "Sentinel value returned by `mmap` on failure."
+details = ""
+raw = "Sentinel value returned by `mmap` on failure."
+
+[[item]]
+path = "std::os::linux::MAP_PRIVATE"
+kind = "const"
+signature = "const MAP_PRIVATE: usize"
+summary = "Mapping flag for a private copy-on-write mapping."
+details = ""
+raw = "Mapping flag for a private copy-on-write mapping."
+
+[[item]]
+path = "std::os::linux::PROT_READ"
+kind = "const"
+signature = "const PROT_READ: usize"
+summary = "Page protection flag for readable memory mappings."
+details = ""
+raw = "Page protection flag for readable memory mappings."
+
+[[item]]
+path = "std::os::linux::PROT_WRITE"
+kind = "const"
+signature = "const PROT_WRITE: usize"
+summary = "Page protection flag for writable memory mappings."
+details = ""
+raw = "Page protection flag for writable memory mappings."
+
+[[item]]
+path = "std::os::linux::close_file"
+kind = "method"
+signature = "fn close_file: fn(usize) Result[bool, Error]"
+summary = "Closes an open file handle."
+details = ""
+raw = "Closes an open file handle."
+
+[[item]]
+path = "std::os::linux::create_dir"
+kind = "method"
+signature = "fn create_dir: fn(*u8) Result[bool, Error]"
+summary = "Creates one directory."
+details = ""
+raw = "Creates one directory."
+
+[[item]]
+path = "std::os::linux::exit"
+kind = "method"
+signature = "fn exit: fn(i32) !"
+summary = "Terminates the current process."
+details = ""
+raw = "Terminates the current process."
+
+[[item]]
+path = "std::os::linux::get_stderr_handle"
+kind = "method"
+signature = "fn get_stderr_handle: fn() usize"
+summary = "Returns the process handle for standard error."
+details = ""
+raw = "Returns the process handle for standard error."
+
+[[item]]
+path = "std::os::linux::get_stdin_handle"
+kind = "method"
+signature = "fn get_stdin_handle: fn() usize"
+summary = "Returns the process handle for standard input."
+details = ""
+raw = "Returns the process handle for standard input."
+
+[[item]]
+path = "std::os::linux::get_stdout_handle"
+kind = "method"
+signature = "fn get_stdout_handle: fn() usize"
+summary = "Returns the process handle for standard output."
+details = ""
+raw = "Returns the process handle for standard output."
+
+[[item]]
+path = "std::os::linux::invalid_handle"
+kind = "method"
+signature = "fn invalid_handle: fn() usize"
+summary = "Returns the sentinel value used for invalid Linux handles."
+details = ""
+raw = "Returns the sentinel value used for invalid Linux handles."
+
+[[item]]
+path = "std::os::linux::is_already_exists"
+kind = "method"
+signature = "fn is_already_exists: fn(Error) bool"
+summary = "Returns `true` when `err` reports that a path already exists."
+details = ""
+raw = "Returns `true` when `err` reports that a path already exists."
+
+[[item]]
+path = "std::os::linux::is_not_found"
+kind = "method"
+signature = "fn is_not_found: fn(Error) bool"
+summary = "Returns `true` when `err` represents a missing path or file."
+details = ""
+raw = "Returns `true` when `err` represents a missing path or file."
+
+[[item]]
+path = "std::os::linux::mmap"
+kind = "method"
+signature = "fn mmap: fn(usize, usize, usize, usize, usize, usize) usize"
+summary = "Performs the Linux `mmap` syscall."
+details = ""
+raw = "Performs the Linux `mmap` syscall."
+
+[[item]]
+path = "std::os::linux::munmap"
+kind = "method"
+signature = "fn munmap: fn(usize, usize) usize"
+summary = "Performs the Linux `munmap` syscall."
+details = ""
+raw = "Performs the Linux `munmap` syscall."
+
+[[item]]
+path = "std::os::linux::open_file"
+kind = "method"
+signature = "fn open_file: fn(*u8, *OpenOptions) Result[usize, Error]"
+summary = "Opens a file handle using the platform `OpenOptions` flags."
+details = ""
+raw = "Opens a file handle using the platform `OpenOptions` flags."
+
+[[item]]
+path = "std::os::linux::read_file"
+kind = "method"
+signature = "fn read_file: fn(usize, *mut u8, usize) Result[usize, Error]"
+summary = "Reads up to `len` bytes from `handle` into `ptr`."
+details = ""
+raw = "Reads up to `len` bytes from `handle` into `ptr`."
+
+[[item]]
+path = "std::os::linux::remove_dir"
+kind = "method"
+signature = "fn remove_dir: fn(*u8) Result[bool, Error]"
+summary = "Removes one empty directory."
+details = ""
+raw = "Removes one empty directory."
+
+[[item]]
+path = "std::os::linux::remove_file"
+kind = "method"
+signature = "fn remove_file: fn(*u8) Result[bool, Error]"
+summary = "Removes one file."
+details = ""
+raw = "Removes one file."
+
+[[item]]
+path = "std::os::linux::rename"
+kind = "method"
+signature = "fn rename: fn(*u8, *u8) Result[bool, Error]"
+summary = "Renames or moves a filesystem entry."
+details = ""
+raw = "Renames or moves a filesystem entry."
+
+[[item]]
+path = "std::os::linux::scan_dir"
+kind = "method"
+signature = "fn scan_dir: fn(*u8, *u8, *Fn([]u8, FileType) bool) Result[usize, Error]"
+summary = "Scans one directory and invokes `visitor` for each non-dot entry."
+details = "`search_path` is ignored on Linux because the scan operates directly on `path`."
+raw = "Scans one directory and invokes `visitor` for each non-dot entry.\n\n`search_path` is ignored on Linux because the scan operates directly on `path`."
+
+[[item]]
+path = "std::os::linux::syscall3"
+kind = "method"
+signature = "fn syscall3: fn(usize, usize, usize, usize) usize"
+summary = "Performs a raw 3-argument syscall."
+details = ""
+raw = "Performs a raw 3-argument syscall."
+
+[[item]]
+path = "std::os::linux::write"
+kind = "method"
+signature = "fn write: fn(usize, *u8, usize) usize"
+summary = "Best-effort write helper that collapses errors to `0`."
+details = ""
+raw = "Best-effort write helper that collapses errors to `0`."
+
+[[item]]
+path = "std::os::linux::write_file"
+kind = "method"
+signature = "fn write_file: fn(usize, *u8, usize) Result[usize, Error]"
+summary = "Writes up to `len` bytes from `ptr` into `handle`."
+details = ""
+raw = "Writes up to `len` bytes from `ptr` into `handle`."
+
+[[item]]
+path = "std::rt"
+kind = "module"
+signature = "module rt"
+summary = "Runtime support used by the compiler and start-up sequence."
+details = "Most user code should prefer higher-level modules. This module exists so the\nruntime boundary stays explicit."
+raw = "Runtime support used by the compiler and start-up sequence.\n\nMost user code should prefer higher-level modules. This module exists so the\nruntime boundary stays explicit."
+
+[[item]]
+path = "std::rt::mem"
+kind = "module"
+signature = "module mem"
+summary = "Minimal runtime memory intrinsics."
+details = ""
+raw = "Minimal runtime memory intrinsics."
+
+[[item]]
+path = "std::sync"
+kind = "module"
+signature = "module sync"
+summary = "Synchronization primitives and memory ordering constants."
+details = "The current standard library exposes the memory ordering vocabulary used by\natomics and low-level runtime code."
+raw = "Synchronization primitives and memory ordering constants.\n\nThe current standard library exposes the memory ordering vocabulary used by\natomics and low-level runtime code.\n\nDesign:\nkeep the public surface small and let low-level code speak in explicit ordering terms."
+
+[[item.section]]
+kind = "design"
+title = "Design"
+body = "keep the public surface small and let low-level code speak in explicit ordering terms."
+
+[[item]]
+path = "std::sync::ACQUIRE"
+kind = "const"
+signature = "const ACQUIRE: u8"
+summary = "Acquire semantics for loads and read-modify-write operations."
+details = ""
+raw = "Acquire semantics for loads and read-modify-write operations."
+
+[[item]]
+path = "std::sync::ACQ_REL"
+kind = "const"
+signature = "const ACQ_REL: u8"
+summary = "Combined acquire and release semantics."
+details = ""
+raw = "Combined acquire and release semantics."
+
+[[item]]
+path = "std::sync::MemOrder"
+kind = "type"
+signature = "type MemOrder = u8"
+summary = "Encodes the ordering used by an atomic operation."
+details = ""
+raw = "Encodes the ordering used by an atomic operation."
+
+[[item]]
+path = "std::sync::RELAXED"
+kind = "const"
+signature = "const RELAXED: u8"
+summary = "No synchronization with other operations."
+details = ""
+raw = "No synchronization with other operations."
+
+[[item]]
+path = "std::sync::RELEASE"
+kind = "const"
+signature = "const RELEASE: u8"
+summary = "Release semantics for stores and read-modify-write operations."
+details = ""
+raw = "Release semantics for stores and read-modify-write operations."
+
+[[item]]
+path = "std::sync::SEQ_CST"
+kind = "const"
+signature = "const SEQ_CST: u8"
+summary = "Sequentially consistent ordering."
+details = ""
+raw = "Sequentially consistent ordering."
+

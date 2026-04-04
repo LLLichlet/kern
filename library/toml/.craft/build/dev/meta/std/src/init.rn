@@ -1,0 +1,25 @@
+//! Kern standard library.
+//!
+//! The standard library provides the minimal runtime, containers, memory,
+//! filesystem, formatting, and platform shims used by ordinary Kern programs.
+//!
+//! Design:
+//! keep ownership, allocation, and platform boundaries explicit.
+
+pub mod io;
+pub mod fs;
+pub mod rt;
+pub mod os;
+pub mod env;
+pub mod dbg;
+pub mod cffi;
+pub mod mem;
+pub mod coll;
+pub mod num;
+pub mod sync;
+pub mod cmp;
+pub mod hash;
+
+pub use .dbg.{Result, Option};
+pub use .cmp.{Eq, eq, Ordering, LESS, EQUAL, GREATER, Comparable, Ord, ord_cmp};
+pub use .hash.{Hash, hash_of, hash_bytes, mix_u64, mix_u128};

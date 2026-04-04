@@ -1,0 +1,66 @@
+//! C string helpers.
+//!
+//! These helpers allocate and inspect zero-terminated byte buffers for foreign
+//! function interfaces.
+
+use std.Option;
+use std.mem.array_layout_of;
+use std.mem.alloc.Allocator;
+
+/// Returns the length of a zero-terminated C string.
+///
+/// Safety:
+/// `str` must point to a valid zero-terminated byte sequence.
+pub fn len(str: *u8) usize {
+    let mut len = 0;
+    for (;;) {
+        let current_ptr = str + len; 
+        if (current_ptr.* == 0) {
+            return len;
+        }
+        len += 1;
+    }
+    len
+}
+
+fn z_string_layout(bytes: []u8) Option[std.mem.Layout] {
+    if (#bytes == std.num.USIZE_MAX) {
+        return .{ None };
+    }
+    return array_layout_of[u8](#bytes + 1);
+}
+
+/// Allocates a zero-terminated copy of `bytes`.
+///
+/// Returns:
+/// `None` when layout computation or allocation fails.
+pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) Option[*mut u8] {
+    let layout = match (z_string_layout(bytes)) {
+        .{ Some: layout } => layout,
+        .None => return .{ None },
+    };
+    let ptr = match (alloc.alloc(layout)) {
+        .{ Some: ptr } => ptr,
+        .None => return .{ None },
+    };
+
+    let bytes_len = #bytes;
+    if (bytes_len > 0) {
+        @memcpy(ptr, bytes.[0].&, bytes_len);
+    }
+    (ptr + bytes_len).* = 0;
+    return .{ Some: ptr };
+}
+
+/// Frees a pointer previously returned by `alloc_z`.
+///
+/// Safety:
+/// `bytes` must be the same slice length that was used for allocation, and
+/// `ptr` must come from `alloc_z` with the same allocator.
+pub fn free_z(alloc: *mut Allocator, bytes: []u8, ptr: *mut u8) void {
+    let layout = match (z_string_layout(bytes)) {
+        .{ Some: layout } => layout,
+        .None => return,
+    };
+    alloc.free(ptr, layout);
+}

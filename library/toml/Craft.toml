@@ -1,0 +1,8 @@
+[package]
+name = "toml"
+version = "0.1.0"
+kern = "0.7"
+publish = false
+
+[lib]
+root = "src/lib.rn"

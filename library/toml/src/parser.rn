@@ -1,0 +1,29 @@
+use ..{Document, DocumentKind, Error};
+use ..Result;
+
+/// Parses a TOML document into a lightweight bootstrap representation.
+pub fn parse(text: []u8) Result[Document, Error] {
+    for (let mut i = 0; i < #text; i += 1) {
+        let byte = text.[i];
+        if (byte == b' ' or byte == b'\t' or byte == b'\n' or byte == b'\r') {
+            continue;
+        }
+
+        let kind = if (byte == b'[') {
+            DocumentKind.Table
+        } else {
+            DocumentKind.KeyValue
+        };
+
+        return .{ Ok: Document.{
+            text: text,
+            kind: kind,
+        } };
+    }
+
+    return .{ Err: Error.{
+        message: "empty TOML document",
+        line: 1,
+        column: 1,
+    } };
+}

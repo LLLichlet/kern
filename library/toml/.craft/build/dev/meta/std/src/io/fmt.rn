@@ -1,0 +1,93 @@
+use ..traits.Writer;
+use ..traits.Printable;
+use ..File;
+use ..stdout;
+
+/// Formats text and placeholders into the given writer.
+///
+/// Design:
+/// keep formatting small, predictable, and allocation-free.
+pub fn format_to(writer: *mut Writer, fmt: []u8, args: []*Printable) void {
+    let fmt_len = #fmt;
+    let mut arg_idx = 0;
+    let mut last_pos = 0;
+    for (let mut i = 0; i < fmt_len; ) {
+        if (fmt.[i] == b'{') {
+            if (i + 1 < fmt_len) {
+                // Handles the escaped left brace `{{`.
+                if (fmt.[i + 1] == b'{') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    let _ = writer.write("{");
+                    i += 2;
+                    last_pos = i;
+                    continue;
+                } 
+                // Handles the placeholder `{}`.
+                else if (fmt.[i + 1] == b'}') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    if (arg_idx < #args) {
+                        args.[arg_idx].fmt(writer);
+                        arg_idx += 1;
+                    } else {
+                        let _ = writer.write("<missing>");
+                    }
+                    i += 2;
+                    last_pos = i;
+                    continue; 
+                }
+            }
+        } 
+        // Handles the escaped right brace `}}`.
+        else if (fmt.[i] == b'}') {
+            if (i + 1 < fmt_len) {
+                if (fmt.[i + 1] == b'}') {
+                    if (i > last_pos) {
+                        let text_slice = fmt.[last_pos .. i];
+                        let _ = writer.write(text_slice);
+                    }
+                    let _ = writer.write("}");
+                    i += 2;
+                    last_pos = i;
+                    continue;
+                }
+            }
+        }
+        
+        i += 1;
+    }
+
+    // Writes the remaining tail of the format string.
+    if (last_pos < fmt_len) {
+        let tail_slice = fmt.[last_pos .. fmt_len];
+        let _ = writer.write(tail_slice);
+    }
+}
+
+/// Formats into standard output without appending a newline.
+///
+/// Note:
+/// formatting arguments are passed as `.{ value, }`. Single-element lists still
+/// require the trailing comma.
+pub fn print(fmt: []u8, args: []*Printable) void {
+    let mut out_file = stdout(); 
+    let writer = *mut Writer.{ out_file..& };
+    format_to(writer, fmt, args);
+}
+
+/// Formats into standard output and appends a newline.
+///
+/// Note:
+/// formatting arguments are passed as `.{ value, }`. Single-element lists still
+/// require the trailing comma.
+pub fn println(fmt: []u8, args: []*Printable) void {
+    let mut out_file = stdout();
+    let writer = *mut Writer.{ out_file..& };
+    format_to(writer, fmt, args);
+    let _ = writer.write("\n");
+}

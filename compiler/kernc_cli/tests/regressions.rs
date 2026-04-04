@@ -496,7 +496,7 @@ type Option[T] = enum {
 };
 
 const TABLE = [_]u8.{ 3, 5, 8 };
-const DEFAULT_MODE = Mode.{ On };
+const DEFAULT_MODE = Mode.On;
 const VALUE = Option[i32].{ Some: 7 };
 
 extern fn main(args: [][]u8) i32 {
@@ -513,6 +513,183 @@ extern fn main(args: [][]u8) i32 {
     return mode + picked + (TABLE.[1] as i32);
 }
 "#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_type_qualified_payloadless_enum_variants_in_const_and_runtime_contexts() {
+    let output = build_and_run_source(
+        r#"
+type DocumentKind = enum {
+    KeyValue,
+    Table,
+};
+
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+const DEFAULT_KIND = DocumentKind.KeyValue;
+const EMPTY = Option[i32].None;
+
+const fn score(kind: DocumentKind, value: Option[i32]) i32 {
+    let kind_score = match (kind) {
+        .KeyValue => i32.{11},
+        .Table => i32.{17},
+    };
+
+    let value_score = match (value) {
+        .None => i32.{5},
+        .{ Some: inner } => inner,
+    };
+
+    return kind_score + value_score;
+}
+
+const TOTAL = score(DocumentKind.KeyValue, Option[i32].None);
+
+fn passthrough(value: Option[i32]) Option[i32] {
+    return value;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let contextual = passthrough(.None);
+    let some = Option[i32].{ Some: 19 };
+
+    let base = score(DEFAULT_KIND, EMPTY);
+    let contextual_score = match (contextual) {
+        .None => i32.{3},
+        .{ Some: _ } => i32.{100},
+    };
+    let some_score = match (some) {
+        .None => i32.{100},
+        .{ Some: inner } => inner,
+    };
+
+    return TOTAL + base + contextual_score + some_score;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(54),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_type_qualified_payload_variant_without_braces() {
+    let output = compile_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let value = Option[i32].Some;
+    return match (value) {
+        .None => 0,
+        .{ Some: inner } => inner,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("variant `Some` requires a payload"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn compiles_if_expression_returning_type_qualified_payloadless_variants() {
+    let output = build_and_run_source(
+        r#"
+type DocumentKind = enum {
+    KeyValue,
+    Table,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let kind = if (true) {
+        DocumentKind.Table
+    } else {
+        DocumentKind.KeyValue
+    };
+
+    return match (kind) {
+        .KeyValue => 1,
+        .Table => 0,
+    };
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_imported_type_alias_payloadless_variants_in_if_expressions() {
+    let output = compile_source_tree(
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod kinds;
+use .kinds.DocumentKind;
+
+extern fn main(args: [][]u8) i32 {
+    let kind = if (true) {
+        DocumentKind.Table
+    } else {
+        DocumentKind.KeyValue
+    };
+
+    return match (kind) {
+        .KeyValue => 1,
+        .Table => 0,
+    };
+}
+"#,
+            ),
+            (
+                "kinds.rn",
+                r#"
+pub type DocumentKind = enum {
+    KeyValue,
+    Table,
+};
+"#,
+            ),
+        ],
     );
 
     assert!(

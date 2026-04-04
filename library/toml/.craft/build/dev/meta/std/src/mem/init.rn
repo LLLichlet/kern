@@ -1,0 +1,10 @@
+//! Memory layout and allocation primitives.
+//!
+//! This module exposes layout calculation and allocator traits without hiding
+//! ownership or lifetime decisions behind implicit runtime services.
+
+mod layout;
+pub mod alloc;
+
+pub use .layout.{Layout, layout_of, array_layout_of};
+pub use .alloc.Allocator;

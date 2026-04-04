@@ -1,0 +1,103 @@
+//! Byte-slice search and trimming helpers.
+
+use std.Option;
+
+impl []u8 {
+    /// Returns the first index of `byte`.
+    pub fn find_byte(byte: u8) Option[usize] {
+        for (let mut i = 0; i < #self; i += 1) {
+            if (self.[i] == byte) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    /// Returns the last index of `byte`.
+    pub fn rfind_byte(byte: u8) Option[usize] {
+        for (let mut i = #self; i > 0; ) {
+            i -= 1;
+            if (self.[i] == byte) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    /// Returns `true` when the slice contains `byte`.
+    pub fn contains_byte(byte: u8) bool {
+        return self.find_byte(byte).is_some();
+    }
+
+    /// Trims ASCII whitespace from the start of the slice.
+    pub fn trim_ascii_start() []u8 {
+        for (let mut start = 0; start < #self; start += 1) {
+            let b = self.[start];
+            if (
+                b != b' ' and
+                b != b'\t' and
+                b != b'\n' and
+                b != b'\r' and
+                b != u8.{11} and
+                b != u8.{12}
+            ) {
+                return self.[start .. #self];
+            }
+        }
+        return self.[#self .. #self];
+    }
+
+    /// Trims ASCII whitespace from the end of the slice.
+    pub fn trim_ascii_end() []u8 {
+        for (let mut end = #self; end > 0; ) {
+            let b = self.[end - 1];
+            if (
+                b != b' ' and
+                b != b'\t' and
+                b != b'\n' and
+                b != b'\r' and
+                b != u8.{11} and
+                b != u8.{12}
+            ) {
+                return self.[0 .. end];
+            }
+            end -= 1;
+        }
+        return self.[0 .. 0];
+    }
+
+    /// Trims ASCII whitespace from both ends of the slice.
+    pub fn trim_ascii() []u8 {
+        return self.trim_ascii_start().trim_ascii_end();
+    }
+}
+
+/// Returns the first index of `byte` in `text`.
+pub fn find_byte(text: []u8, byte: u8) Option[usize] {
+    return text.find_byte(byte);
+}
+
+/// Returns `true` when `text` contains `byte`.
+pub fn contains_byte(text: []u8, byte: u8) bool {
+    return text.contains_byte(byte);
+}
+
+/// Returns the last index of `byte` in `text`.
+pub fn rfind_byte(text: []u8, byte: u8) Option[usize] {
+    return text.rfind_byte(byte);
+}
+
+/// Trims ASCII whitespace from the start of `text`.
+pub fn trim_ascii_start(text: []u8) []u8 {
+    return text.trim_ascii_start();
+}
+
+/// Trims ASCII whitespace from the end of `text`.
+pub fn trim_ascii_end(text: []u8) []u8 {
+    return text.trim_ascii_end();
+}
+
+/// Trims ASCII whitespace from both ends of `text`.
+pub fn trim_ascii(text: []u8) []u8 {
+    return text.trim_ascii();
+}

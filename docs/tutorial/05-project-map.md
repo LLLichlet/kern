@@ -12,6 +12,7 @@ compiler/     language implementation
 tools/craft/  package manager and builder
 tools/lsp/    language server
 library/std/  standard library
+library/toml/ independent package example
 examples/     small language probes
 docs/         design and user-facing documents
 ```

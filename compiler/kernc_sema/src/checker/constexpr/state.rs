@@ -2,6 +2,18 @@ use super::*;
 use crate::passes::TypeResolver;
 
 impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
+    fn symbol_is_type_namespace(kind: SymbolKind) -> bool {
+        matches!(
+            kind,
+            SymbolKind::Struct
+                | SymbolKind::Union
+                | SymbolKind::Enum
+                | SymbolKind::Trait
+                | SymbolKind::TypeAlias
+                | SymbolKind::TypeParam
+        )
+    }
+
     pub(super) fn global_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
         self.ctx.defs.iter().find_map(|def| {
             let Def::Module(module) = def else {
@@ -269,6 +281,28 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 Some(module.scope_id)
             }
             _ => None,
+        }
+    }
+
+    pub(super) fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
+        match &expr.kind {
+            ExprKind::Identifier(name) => self
+                .resolve_symbol_info(*name)
+                .map(|info| Self::symbol_is_type_namespace(info.kind))
+                .unwrap_or(false),
+            ExprKind::GenericInstantiation { target, .. } => self.expr_is_type_namespace(target),
+            ExprKind::FieldAccess { lhs, field, .. } => {
+                let Some(mod_scope) = self.module_scope_from_expr(lhs) else {
+                    return false;
+                };
+
+                self.ctx
+                    .scopes
+                    .resolve_in(mod_scope, *field)
+                    .map(|info| Self::symbol_is_type_namespace(info.kind))
+                    .unwrap_or(false)
+            }
+            _ => false,
         }
     }
 

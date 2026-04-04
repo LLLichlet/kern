@@ -1,0 +1,26 @@
+/// High-level TOML document classification.
+pub type DocumentKind = enum {
+    KeyValue,
+    Table,
+};
+
+/// Lightweight parsed document handle.
+pub type Document = struct {
+    text: []u8,
+    pub kind: DocumentKind,
+};
+
+impl Document {
+    /// Returns the original TOML source text.
+    pub fn as_str() []u8 {
+        return self.text;
+    }
+
+    /// Returns `true` when the first meaningful token looks table-shaped.
+    pub fn is_table_like() bool {
+        match (self.kind) {
+            .Table => return true,
+            .KeyValue => return false,
+        }
+    }
+}

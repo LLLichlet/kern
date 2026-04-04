@@ -1,0 +1,5 @@
+/// Minimal local result type for the standalone TOML package.
+pub type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};

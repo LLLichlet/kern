@@ -267,7 +267,16 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             ExprKind::FieldAccess { lhs, field, .. } => {
                 let norm_lhs = self.expr_type(lhs);
 
-                if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_lhs).clone() {
+                if self.expr_is_type_namespace(lhs)
+                    && matches!(
+                        self.ctx.type_registry.get(norm_lhs),
+                        TypeKind::Enum(_, _) | TypeKind::AnonymousEnum(_)
+                    )
+                {
+                    self.eval_enum_literal(expr.id, *field, depth, expr.span)
+                } else if let TypeKind::Module(mod_def_id) =
+                    self.ctx.type_registry.get(norm_lhs).clone()
+                {
                     let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                         m.scope_id
                     } else {

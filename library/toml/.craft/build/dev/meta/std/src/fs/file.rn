@@ -1,0 +1,408 @@
+//! File operations and owned file handles.
+
+use std.Result;
+use std.Option;
+use std.os;
+use std.mem.alloc.Allocator;
+use std.coll.String;
+use ..types.{Error, File, Metadata, OpenOptions};
+use ..c_path.{alloc_c_path, free_c_path};
+
+fn to_os_open_options(options: *OpenOptions) os.OpenOptions {
+    return os.OpenOptions.{
+        read: options.read,
+        write: options.write,
+        create: options.create,
+        create_new: options.create_new,
+        truncate: options.truncate,
+        append: options.append,
+    };
+}
+
+fn open_with_c_path(c_path: *u8, options: *OpenOptions) Result[File, Error] {
+    let raw_options = to_os_open_options(options);
+    match (os.open_file(c_path, raw_options.&)) {
+        .{ Ok: handle } => return .{ Ok: .{ handle: handle } },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
+    }
+}
+
+fn metadata_with_c_path(c_path: *u8) Result[Metadata, Error] {
+    match (os.metadata(c_path)) {
+        .{ Ok: meta } => return .{ Ok: meta },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
+    }
+}
+
+fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) Result[bool, Error] {
+    match (os.rename(old_c_path, new_c_path)) {
+        .{ Ok: renamed } => return .{ Ok: renamed },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
+    }
+}
+
+/// Opens a file using the provided options.
+///
+/// Errors:
+/// returns `InvalidOptions` when neither reading nor writing is requested.
+pub fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) Result[File, Error] {
+    if (!options.read and !options.write) {
+        return .{ Err: .{ InvalidOptions } };
+    }
+
+    let c_path = match (alloc_c_path(alloc, path)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
+    };
+
+    let result = open_with_c_path(c_path, options);
+    free_c_path(alloc, path, c_path);
+    return result;
+}
+
+/// Creates or truncates a file for writing.
+pub fn create(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{
+        write: true,
+        create: true,
+        truncate: true,
+    };
+    return open(alloc, path, options.&);
+}
+
+/// Opens a file for reading.
+pub fn open_read(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{ read: true };
+    return open(alloc, path, options.&);
+}
+
+/// Opens a file for writing without creating it.
+pub fn open_write(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{ write: true };
+    return open(alloc, path, options.&);
+}
+
+/// Opens a file for appending, creating it when needed.
+pub fn open_append(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{
+        write: true,
+        create: true,
+        append: true,
+    };
+    return open(alloc, path, options.&);
+}
+
+/// Creates a new file and fails when it already exists.
+pub fn create_new(alloc: *mut Allocator, path: []u8) Result[File, Error] {
+    let options = OpenOptions.{
+        write: true,
+        create_new: true,
+    };
+    return open(alloc, path, options.&);
+}
+
+/// Renames or moves a filesystem entry.
+pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool, Error] {
+    let old_c_path = match (alloc_c_path(alloc, old_path)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
+    };
+
+    let mut new_c_path = *mut u8.{undef};
+    match (alloc_c_path(alloc, new_path)) {
+        .{ Ok: ptr } => new_c_path = ptr,
+        .{ Err: err } => {
+            free_c_path(alloc, old_path, old_c_path);
+            return .{ Err: err };
+        },
+    };
+
+    let result = rename_with_c_paths(old_c_path, new_c_path);
+    free_c_path(alloc, old_path, old_c_path);
+    free_c_path(alloc, new_path, new_c_path);
+    return result;
+}
+
+/// Returns metadata for a filesystem entry.
+pub fn metadata(alloc: *mut Allocator, path: []u8) Result[Metadata, Error] {
+    let c_path = match (alloc_c_path(alloc, path)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
+    };
+
+    let result = metadata_with_c_path(c_path);
+    free_c_path(alloc, path, c_path);
+    return result;
+}
+
+/// Returns `true` when a path exists.
+pub fn exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    let c_path = match (alloc_c_path(alloc, path)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
+    };
+
+    let result = match (os.metadata(c_path)) {
+        .{ Ok: _ } => Result[bool, Error].{ Ok: true },
+        .{ Err: err } => {
+            if (os.is_not_found(err)) {
+                Result[bool, Error].{ Ok: false }
+            } else {
+                Result[bool, Error].{ Err: .{ Os: err } }
+            }
+        }
+    };
+    free_c_path(alloc, path, c_path);
+    return result;
+}
+
+/// Returns `true` when a path exists and refers to a regular file.
+pub fn is_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    match (metadata(alloc, path)) {
+        .{ Ok: meta } => return .{ Ok: meta.is_file() },
+        .{ Err: err } => match (err) {
+            .{ Os: os_err } => {
+                if (os.is_not_found(os_err)) {
+                    return .{ Ok: false };
+                }
+                return .{ Err: .{ Os: os_err } };
+            },
+            _ => return .{ Err: err },
+        },
+    }
+}
+
+/// Returns `true` when a path exists and refers to a directory.
+pub fn is_dir(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    match (metadata(alloc, path)) {
+        .{ Ok: meta } => return .{ Ok: meta.is_dir() },
+        .{ Err: err } => match (err) {
+            .{ Os: os_err } => {
+                if (os.is_not_found(os_err)) {
+                    return .{ Ok: false };
+                }
+                return .{ Err: .{ Os: os_err } };
+            },
+            _ => return .{ Err: err },
+        },
+    }
+}
+
+/// Removes a file.
+pub fn remove_file(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    let c_path = match (alloc_c_path(alloc, path)) {
+        .{ Ok: ptr } => ptr,
+        .{ Err: err } => return .{ Err: err },
+    };
+
+    let result = match (os.remove_file(c_path)) {
+        .{ Ok: removed } => Result[bool, Error].{ Ok: removed },
+        .{ Err: err } => Result[bool, Error].{ Err: .{ Os: err } },
+    };
+    free_c_path(alloc, path, c_path);
+    return result;
+}
+
+/// Removes a file and treats a missing path as `Ok(false)`.
+pub fn remove_file_if_exists(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
+    match (remove_file(alloc, path)) {
+        .{ Ok: removed } => return .{ Ok: removed },
+        .{ Err: err } => match (err) {
+            .{ Os: os_err } => {
+                if (os.is_not_found(os_err)) {
+                    return .{ Ok: false };
+                }
+                return .{ Err: .{ Os: os_err } };
+            },
+            _ => return .{ Err: err },
+        },
+    }
+}
+
+/// Returns a borrowed wrapper around standard input.
+pub fn stdin() File {
+    return .{ handle: os.get_stdin_handle() };
+}
+
+/// Returns a borrowed wrapper around standard output.
+pub fn stdout() File {
+    return .{ handle: os.get_stdout_handle() };
+}
+
+/// Returns a borrowed wrapper around standard error.
+pub fn stderr() File {
+    return .{ handle: os.get_stderr_handle() };
+}
+
+/// Reads an entire file into an owned string.
+pub fn read_to_string(alloc: *mut Allocator, path: []u8) Result[String, Error] {
+    let mut file = match (open_read(alloc, path)) {
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
+    };
+    defer file..&.deinit();
+    return file..&.read_to_string(alloc);
+}
+
+/// Writes the entire buffer to a file, creating or truncating it first.
+pub fn write_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Error] {
+    let mut file = match (create(alloc, path)) {
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
+    };
+    defer file..&.deinit();
+    return file..&.write_all(buf);
+}
+
+/// Appends the entire buffer to a file, creating it when needed.
+pub fn append_all(alloc: *mut Allocator, path: []u8, buf: []u8) Result[usize, Error] {
+    let mut file = match (open_append(alloc, path)) {
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
+    };
+    defer file..&.deinit();
+    return file..&.write_all(buf);
+}
+
+/// Copies the contents of one file into another.
+pub fn copy(alloc: *mut Allocator, from_path: []u8, to_path: []u8) Result[usize, Error] {
+    let mut from = match (open_read(alloc, from_path)) {
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
+    };
+    defer from..&.deinit();
+
+    let mut to = match (create(alloc, to_path)) {
+        .{ Ok: file } => file,
+        .{ Err: err } => return .{ Err: err },
+    };
+    defer to..&.deinit();
+
+    return from..&.copy_to(to..&);
+}
+
+impl *mut File {
+    /// Wraps a raw OS handle in a `File`.
+    ///
+    /// Safety:
+    /// the handle must obey the ownership rules expected by `close`.
+    pub fn from_handle(handle: os.Handle) File {
+        return .{ handle: handle };
+    }
+
+    /// Returns the underlying OS handle.
+    pub fn raw_handle() os.Handle {
+        return self.handle;
+    }
+
+    /// Reads bytes into the provided mutable slice.
+    pub fn read(buf: []mut u8) Result[usize, Error] {
+        let len = #buf;
+        if (len == 0) {
+            return .{ Ok: 0 };
+        }
+
+        match (os.read_file(self.handle, buf.[0]..&, len)) {
+            .{ Ok: count } => return .{ Ok: count },
+            .{ Err: err } => return .{ Err: .{ Os: err } },
+        }
+    }
+
+    /// Writes bytes from the provided slice.
+    pub fn write(buf: []u8) Result[usize, Error] {
+        let len = #buf;
+        if (len == 0) {
+            return .{ Ok: 0 };
+        }
+
+        match (os.write_file(self.handle, buf.[0].&, len)) {
+            .{ Ok: count } => return .{ Ok: count },
+            .{ Err: err } => return .{ Err: .{ Os: err } },
+        }
+    }
+
+    /// Repeatedly writes until the full buffer has been flushed.
+    pub fn write_all(buf: []u8) Result[usize, Error] {
+        let mut total = 0;
+        for (; total < #buf; ) {
+            let written = match (self.write(buf.[total .. #buf])) {
+                .{ Ok: count } => count,
+                .{ Err: err } => return .{ Err: err },
+            };
+            if (written == 0) {
+                return .{ Err: .{ WriteZero } };
+            }
+            total += written;
+        }
+        return .{ Ok: total };
+    }
+
+    /// Copies all remaining bytes from this file into another file.
+    pub fn copy_to(other: *mut File) Result[usize, Error] {
+        let chunk = [1024]mut u8.{undef};
+        let mut total = 0;
+
+        for (;;) {
+            let read = match (self.read(chunk..[0 .. 1024])) {
+                .{ Ok: count } => count,
+                .{ Err: err } => return .{ Err: err },
+            };
+
+            if (read == 0) {
+                return .{ Ok: total };
+            }
+
+            let written = match (other.write_all(chunk.[0 .. read])) {
+                .{ Ok: count } => count,
+                .{ Err: err } => return .{ Err: err },
+            };
+            total += written;
+        }
+    }
+
+    /// Closes the file handle if it is still open.
+    pub fn close() Result[bool, Error] {
+        if (self.handle == os.invalid_handle()) {
+            return .{ Ok: true };
+        }
+
+        let close_result = os.close_file(self.handle);
+        match (close_result) {
+            .{ Ok: _ } => {}
+            .{ Err: err } => return .{ Err: .{ Os: err } },
+        }
+        self.handle = os.invalid_handle();
+        return .{ Ok: true };
+    }
+
+    /// Best-effort destructor for the file handle.
+    pub fn deinit() void {
+        let _ = self.close();
+    }
+
+    /// Reads the remainder of the file into an owned string.
+    pub fn read_to_string(alloc: *mut Allocator) Result[String, Error] {
+        let mut out = String.{};
+        let chunk = [1024]mut u8.{undef};
+
+        for (;;) {
+            let mut read = 0;
+            match (self.read(chunk..[0 .. 1024])) {
+                .{ Ok: count } => read = count,
+                .{ Err: err } => {
+                    out..&.deinit(alloc);
+                    return .{ Err: err };
+                }
+            }
+
+            if (read == 0) {
+                return .{ Ok: out };
+            }
+
+            if (!out..&.push_str(alloc, chunk.[0 .. read])) {
+                out..&.deinit(alloc);
+                return .{ Err: .{ OutOfMemory } };
+            }
+        }
+    }
+}

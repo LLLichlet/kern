@@ -127,6 +127,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             );
         }
 
+        if matches!(
+            self.ctx.type_registry.get(norm_expr),
+            TypeKind::Enum(..) | TypeKind::AnonymousEnum(_)
+        ) {
+            return self.lower_enum_literal(field, expr_ty);
+        }
+
         let l = self.lower_expr(lhs, subst_map, None);
         let mut base_ty = l.ty;
         let mut deref_expr = l.clone();
@@ -144,12 +151,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let norm_base = self.ctx.type_registry.normalize(base_ty);
-
-        if let TypeKind::Enum(def_id, _) = self.ctx.type_registry.get(norm_base)
-            && let Def::Enum(_) = &self.ctx.defs[def_id.0 as usize]
-        {
-            return self.lower_enum_literal(field, expr_ty);
-        }
 
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(norm_base).clone() {
             let mod_scope = match &self.ctx.defs[mod_def_id.0 as usize] {

@@ -1034,15 +1034,13 @@ root = \"src/lib.rn\"
                 .module_aliases
                 .get("craft")
                 .and_then(|path| normalize_test_optional_path(Some(path))),
-            Some(
-                normalize_test_path(
-                    Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("sdk")
-                        .join("init.rn")
-                        .parent()
-                        .unwrap(),
-                )
-            )
+            Some(normalize_test_path(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("sdk")
+                    .join("init.rn")
+                    .parent()
+                    .unwrap(),
+            ))
         );
         assert_eq!(resolved.compile_options.root_module_name, None);
     }
@@ -1095,15 +1093,13 @@ root = \"src/main.rn\"
                 .module_aliases
                 .get("craft")
                 .and_then(|path| normalize_test_optional_path(Some(path))),
-            Some(
-                normalize_test_path(
-                    Path::new(env!("CARGO_MANIFEST_DIR"))
-                        .join("sdk")
-                        .join("init.rn")
-                        .parent()
-                        .unwrap(),
-                )
-            )
+            Some(normalize_test_path(
+                Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("sdk")
+                    .join("init.rn")
+                    .parent()
+                    .unwrap(),
+            ))
         );
     }
 

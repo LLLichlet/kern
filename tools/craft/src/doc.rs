@@ -13,7 +13,10 @@ pub struct RenderedDoc {
     pub item_count: usize,
 }
 
-pub fn sync_workspace_docs(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<Vec<RenderedDoc>> {
+pub fn sync_workspace_docs(
+    build_plan: &BuildPlan,
+    action_plan: &ActionPlan,
+) -> Result<Vec<RenderedDoc>> {
     let docs_root = docs_output_root(&build_plan.workspace_root);
     fs::create_dir_all(&docs_root).map_err(|err| Error::from_io(&docs_root, err))?;
 
@@ -29,7 +32,12 @@ pub fn sync_workspace_docs(build_plan: &BuildPlan, action_plan: &ActionPlan) -> 
         }
 
         let manifest = load_kmeta_manifest(metadata_root)
-            .map_err(|err| Error::Execution(format!("failed to read `{}`: {err}", metadata_root.display())))?
+            .map_err(|err| {
+                Error::Execution(format!(
+                    "failed to read `{}`: {err}",
+                    metadata_root.display()
+                ))
+            })?
             .ok_or_else(|| {
                 Error::Execution(format!(
                     "metadata root `{}` is missing package manifest",
@@ -37,7 +45,12 @@ pub fn sync_workspace_docs(build_plan: &BuildPlan, action_plan: &ActionPlan) -> 
                 ))
             })?;
         let docs = load_kmeta_docs(metadata_root)
-            .map_err(|err| Error::Execution(format!("failed to read `{}`: {err}", metadata_root.display())))?
+            .map_err(|err| {
+                Error::Execution(format!(
+                    "failed to read `{}`: {err}",
+                    metadata_root.display()
+                ))
+            })?
             .ok_or_else(|| {
                 Error::Execution(format!(
                     "metadata root `{}` is missing native docs output",
@@ -59,7 +72,11 @@ pub fn sync_workspace_docs(build_plan: &BuildPlan, action_plan: &ActionPlan) -> 
                 .map(sanitize_segment)
                 .unwrap_or_else(|| "local".to_string())
         ));
-        let markdown = render_package_markdown(&manifest.package_name, manifest.package_version.as_deref(), &docs);
+        let markdown = render_package_markdown(
+            &manifest.package_name,
+            manifest.package_version.as_deref(),
+            &docs,
+        );
         fs::write(&markdown_path, markdown).map_err(|err| Error::from_io(&markdown_path, err))?;
 
         outputs.push(RenderedDoc {

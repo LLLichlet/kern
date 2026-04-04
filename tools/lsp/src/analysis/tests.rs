@@ -4,9 +4,9 @@ use super::{
     position_to_byte_offset, uri_to_file_path,
 };
 use crate::protocol::{
-    DidChangeTextDocumentParams, DidCloseTextDocumentParams, DidOpenTextDocumentParams, Position,
-    Range, SemanticTokens, TextDocumentContentChangeEvent, TextDocumentItem,
-    VersionedTextDocumentIdentifier,
+    DiagnosticTag, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
+    DidOpenTextDocumentParams, Position, Range, SemanticTokens, TextDocumentContentChangeEvent,
+    TextDocumentItem, VersionedTextDocumentIdentifier,
 };
 use craft::analysis_context;
 use kernc_utils::SourceFile;
@@ -77,6 +77,38 @@ fn close_document_clears_open_state_and_returns_empty_bundle() {
         .find(|bundle| bundle.uri == uri)
         .unwrap();
     assert!(bundle.diagnostics.is_empty());
+}
+
+#[test]
+fn analysis_reuses_driver_for_repeated_requests_on_same_document() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main() i32 { return 1; }\n";
+    let uri = temp_file_uri("driver_reuse", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+    assert_eq!(analysis.cached_driver_count(), 1);
+
+    let _ = analysis.analyze_document_uri(&uri);
+    assert_eq!(analysis.cached_driver_count(), 1);
+
+    let _ = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: "fn main() i32 { return 2; }\n".to_string(),
+        }],
+    });
+    assert_eq!(analysis.cached_driver_count(), 1);
 }
 
 #[test]
@@ -375,6 +407,141 @@ fn diagnostics_warn_for_dead_initializer() {
             .message
             .contains("initial value assigned to `value` is never read")
     }));
+}
+
+#[test]
+fn diagnostics_mark_flow_and_reachability_warnings_as_unnecessary() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn helper(unused_param: i32, seed: i32) i32 {\n",
+        "    let unused_local = seed;\n",
+        "    let mut value = seed;\n",
+        "    value = seed + 1;\n",
+        "    value = seed + 2;\n",
+        "    return value;\n",
+        "}\n",
+        "fn main() i32 { return 0; }\n",
+    );
+    let uri = temp_file_uri("unnecessary_warning_tags", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+
+    for needle in [
+        (
+            "private function `leaf` is never used",
+            "unused-private-item",
+        ),
+        (
+            "private function `helper` is never used",
+            "unused-private-item",
+        ),
+        ("parameter `unused_param` is never used", "unused-binding"),
+        (
+            "local variable `unused_local` is never used",
+            "unused-binding",
+        ),
+        ("value assigned to `value` is never read", "dead-store"),
+    ] {
+        let (needle, code) = needle;
+        let diagnostic = bundle
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.message.contains(needle))
+            .unwrap_or_else(|| panic!("missing diagnostic: {needle}"));
+        assert_eq!(diagnostic.code.as_deref(), Some(code));
+        assert_eq!(diagnostic.tags, Some(vec![DiagnosticTag::Unnecessary]));
+    }
+}
+
+#[test]
+fn diagnostics_expose_structured_code_for_missing_semicolon() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn helper() i32 {\n    let value = 1\n    return value;\n}\n";
+    let uri = temp_file_uri("diagnostic_code_missing_semicolon", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+
+    let missing_semicolon = bundle
+        .diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic.message.contains("Expected semicolon"))
+        .expect("missing semicolon diagnostic");
+    assert_eq!(
+        missing_semicolon.code.as_deref(),
+        Some("expected-semicolon")
+    );
+}
+
+#[test]
+fn diagnostics_expose_structured_code_for_nonexhaustive_match() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(value: i32) i32 {\n",
+        "    return match (value) {\n",
+        "        1 => 1,\n",
+        "    };\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("diagnostic_code_nonexhaustive_match", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+
+    let nonexhaustive_match = bundle
+        .diagnostics
+        .iter()
+        .find(|diagnostic| {
+            diagnostic
+                .message
+                .contains("match expression is not exhaustive")
+                || diagnostic
+                    .message
+                    .contains("match expression must be exhaustive")
+        })
+        .expect("missing nonexhaustive match diagnostic");
+    assert_eq!(
+        nonexhaustive_match.code.as_deref(),
+        Some("nonexhaustive-match")
+    );
 }
 
 #[test]
@@ -1331,9 +1498,11 @@ fn code_actions_offer_let_mut_fix() {
         .iter()
         .find(|action| action.title == "Change to `let mut`")
         .unwrap();
+    let diagnostic = action.diagnostics.as_ref().unwrap().first().unwrap();
     let edit = action.edit.as_ref().unwrap();
     let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
 
+    assert_eq!(diagnostic.code.as_deref(), Some("requires-let-mut"));
     assert_eq!(
         text_edit.range.start,
         Position {
@@ -1342,6 +1511,227 @@ fn code_actions_offer_let_mut_fix() {
         }
     );
     assert_eq!(text_edit.new_text, "mut ");
+}
+
+#[test]
+fn code_actions_offer_unused_binding_rename_fix() {
+    let mut analysis = AnalysisEngine::default();
+    let source = "fn main(unused_param: i32) i32 {\n    return 0;\n}\n";
+    let uri = temp_file_uri("code_action_unused_binding", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 8,
+                },
+                end: Position {
+                    line: 0,
+                    character: 28,
+                },
+            },
+        )
+        .unwrap();
+
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Rename binding to `_`")
+        .unwrap();
+    let edit = action.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 0,
+            character: 8,
+        }
+    );
+    assert_eq!(
+        text_edit.range.end,
+        Position {
+            line: 0,
+            character: 20,
+        }
+    );
+    assert_eq!(text_edit.new_text, "_");
+    assert_eq!(action.kind, Some("quickfix"));
+    assert_eq!(action.is_preferred, Some(true));
+}
+
+#[test]
+fn code_actions_offer_dead_store_assignment_removal_fix() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(seed: i32) i32 {\n",
+        "    let mut value = seed;\n",
+        "    value = seed + 1;\n",
+        "    value = seed + 2;\n",
+        "    return value;\n",
+        "}\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let uri = temp_file_uri("code_action_dead_store_assignment", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 2,
+                    character: 4,
+                },
+                end: Position {
+                    line: 2,
+                    character: 21,
+                },
+            },
+        )
+        .unwrap();
+
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Remove dead assignment")
+        .unwrap();
+    let edit = action.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 2,
+            character: 0,
+        }
+    );
+    assert_eq!(
+        text_edit.range.end,
+        Position {
+            line: 3,
+            character: 0,
+        }
+    );
+    assert_eq!(text_edit.new_text, "");
+    assert_eq!(action.kind, Some("quickfix"));
+    assert_eq!(action.is_preferred, Some(true));
+}
+
+#[test]
+fn code_actions_do_not_offer_dead_store_removal_for_initializer() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(seed: i32) i32 {\n",
+        "    let mut value = seed;\n",
+        "    value = seed + 1;\n",
+        "    return value;\n",
+        "}\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let uri = temp_file_uri("code_action_dead_store_initializer", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 1,
+                    character: 4,
+                },
+                end: Position {
+                    line: 1,
+                    character: 25,
+                },
+            },
+        )
+        .unwrap();
+
+    assert!(
+        !actions
+            .iter()
+            .any(|action| action.title == "Remove dead assignment"),
+        "unexpected actions: {actions:?}"
+    );
+}
+
+#[test]
+fn code_actions_offer_make_item_public_fix_for_unused_private_function() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 { return 0; }\n",
+    );
+    let uri = temp_file_uri("code_action_unused_private_function", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let actions = analysis
+        .code_actions(
+            &uri,
+            Range {
+                start: Position {
+                    line: 0,
+                    character: 0,
+                },
+                end: Position {
+                    line: 0,
+                    character: 20,
+                },
+            },
+        )
+        .unwrap();
+
+    let action = actions
+        .iter()
+        .find(|action| action.title == "Make item public")
+        .unwrap();
+    let edit = action.edit.as_ref().unwrap();
+    let text_edit = edit.changes.get(&uri).unwrap().first().unwrap();
+
+    assert_eq!(
+        text_edit.range.start,
+        Position {
+            line: 0,
+            character: 0,
+        }
+    );
+    assert_eq!(text_edit.new_text, "pub ");
+    assert_eq!(action.kind, Some("quickfix"));
+    assert_eq!(action.is_preferred, Some(false));
 }
 
 #[test]
@@ -3278,7 +3668,7 @@ root = \"src/lib.rn\"
 }
 
 #[test]
-fn bin_only_package_with_std_import_has_no_lsp_diagnostics() {
+fn bin_only_package_with_std_import_keeps_diagnostics_local_to_the_target() {
     let root = unique_temp_dir("analysis_bin_only_std");
     fs::create_dir_all(root.join("src")).unwrap();
 
@@ -3327,11 +3717,13 @@ root = \"src/main.rn\"
         .iter()
         .find(|bundle| bundle.uri == uri)
         .unwrap();
-    assert!(
-        target_bundle.diagnostics.is_empty(),
-        "unexpected diagnostics: {:?}",
-        target_bundle.diagnostics
+    assert!(outcome.bundles.iter().all(|bundle| bundle.uri == uri));
+    assert_eq!(target_bundle.diagnostics.len(), 1);
+    assert_eq!(
+        target_bundle.diagnostics[0].code.as_deref(),
+        Some("unused-binding")
     );
+    assert_eq!(target_bundle.diagnostics[0].severity, 2);
 }
 
 #[test]
@@ -4307,7 +4699,18 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
         .iter()
         .find(|bundle| bundle.uri == uri)
         .unwrap();
-    assert!(bundle.diagnostics.is_empty());
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == 2)
+    );
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("unused-private-item"))
+    );
     assert_eq!(analysis.structure_cache.borrow().len(), 2);
     assert_eq!(analysis.artifact_cache.borrow().len(), 2);
 }

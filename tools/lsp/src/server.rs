@@ -1686,6 +1686,41 @@ mod tests {
     }
 
     #[test]
+    fn did_open_publishes_unnecessary_tags_for_flow_warnings() {
+        let mut state = initialized_state();
+        let source = concat!(
+            "fn helper(seed: i32) i32 {\n",
+            "    let mut value = seed;\n",
+            "    value = seed + 1;\n",
+            "    value = seed + 2;\n",
+            "    return value;\n",
+            "}\n",
+            "fn main() i32 { return helper(1); }\n",
+        );
+        let uri = temp_file_uri("server_unnecessary_tags", source);
+
+        let messages = dispatch_messages(&mut state, did_open_message(&uri, source, 1));
+        let diagnostics = messages
+            .iter()
+            .find(|message| {
+                message["method"] == "textDocument/publishDiagnostics"
+                    && message["params"]["uri"] == uri
+            })
+            .and_then(|message| message["params"]["diagnostics"].as_array())
+            .expect("expected publishDiagnostics for target uri");
+        let diagnostic = diagnostics
+            .iter()
+            .find(|diagnostic| {
+                diagnostic["message"].as_str().is_some_and(|message| {
+                    message.contains("value assigned to `value` is never read")
+                })
+            })
+            .expect("expected dead-store warning");
+        assert_eq!(diagnostic["code"], json!("dead-store"));
+        assert_eq!(diagnostic["tags"], json!([1]));
+    }
+
+    #[test]
     fn multiple_did_change_notifications_coalesce_until_save() {
         let mut state = initialized_state();
         let invalid_source = "fn main() i32 {\n    let value = i32.{1}\n    return value;\n}\n";

@@ -489,7 +489,11 @@ impl CompilerDriver {
             || Ok(self.compute_structure_artifact(input_file)),
         ) {
             Ok(Some(structure)) => Ok(structure),
-            Ok(None) => Err(Box::new(session)),
+            Ok(None) => {
+                let structure =
+                    self.compute_structure_artifact_into_session(&mut session, input_file);
+                structure.ok_or_else(|| Box::new(session))
+            }
             Err(_) => {
                 let structure =
                     self.compute_structure_artifact_into_session(&mut session, input_file);
@@ -574,7 +578,11 @@ impl CompilerDriver {
             || Ok(self.compute_collected_structure_artifact(input_file)),
         ) {
             Ok(Some(collected)) => Ok(collected),
-            Ok(None) => Err(Box::new(session)),
+            Ok(None) => {
+                let collected = self
+                    .compute_collected_structure_artifact_into_session(&mut session, input_file);
+                collected.ok_or_else(|| Box::new(session))
+            }
             Err(_) => {
                 let collected = self
                     .compute_collected_structure_artifact_into_session(&mut session, input_file);
@@ -598,7 +606,11 @@ impl CompilerDriver {
             || Ok(self.compute_imported_structure_artifact(input_file)),
         ) {
             Ok(Some(imported)) => Ok(imported),
-            Ok(None) => Err(Box::new(session)),
+            Ok(None) => {
+                let imported =
+                    self.compute_imported_structure_artifact_into_session(&mut session, input_file);
+                imported.ok_or_else(|| Box::new(session))
+            }
             Err(_) => {
                 let imported =
                     self.compute_imported_structure_artifact_into_session(&mut session, input_file);

@@ -30,12 +30,53 @@ impl DiagnosticLevel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DiagnosticTag {
+    Unnecessary,
+    Deprecated,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DiagnosticCode {
+    ExpectedSemicolon,
+    UnclosedBlock,
+    UnclosedParen,
+    UnclosedBracket,
+    IgnoredNonvoidValue,
+    NonexhaustiveMatch,
+    IrrefutableLetElse,
+    RequiresLetMut,
+    UnusedPrivateItem,
+    UnusedBinding,
+    DeadStore,
+}
+
+impl DiagnosticCode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            DiagnosticCode::ExpectedSemicolon => "expected-semicolon",
+            DiagnosticCode::UnclosedBlock => "unclosed-block",
+            DiagnosticCode::UnclosedParen => "unclosed-paren",
+            DiagnosticCode::UnclosedBracket => "unclosed-bracket",
+            DiagnosticCode::IgnoredNonvoidValue => "ignored-nonvoid-value",
+            DiagnosticCode::NonexhaustiveMatch => "nonexhaustive-match",
+            DiagnosticCode::IrrefutableLetElse => "irrefutable-let-else",
+            DiagnosticCode::RequiresLetMut => "requires-let-mut",
+            DiagnosticCode::UnusedPrivateItem => "unused-private-item",
+            DiagnosticCode::UnusedBinding => "unused-binding",
+            DiagnosticCode::DeadStore => "dead-store",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Diagnostic {
     pub level: DiagnosticLevel,
     pub primary_span: Span,
     pub message: String,
+    pub code: Option<DiagnosticCode>,
     pub hints: Vec<String>,
+    pub tags: Vec<DiagnosticTag>,
     pub related_spans: Vec<(Span, String)>,
 }
 
@@ -45,13 +86,27 @@ impl Diagnostic {
             level,
             primary_span: span,
             message: message.into(),
+            code: None,
             hints: Vec::new(),
+            tags: Vec::new(),
             related_spans: Vec::new(),
         }
     }
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.hints.push(hint.into());
+        self
+    }
+
+    pub fn with_code(mut self, code: DiagnosticCode) -> Self {
+        self.code = Some(code);
+        self
+    }
+
+    pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
+        if !self.tags.contains(&tag) {
+            self.tags.push(tag);
+        }
         self
     }
 }
@@ -72,6 +127,16 @@ impl<'a> DiagnosticBuilder<'a> {
 
     pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
         self.diag = self.diag.with_hint(hint);
+        self
+    }
+
+    pub fn with_code(mut self, code: DiagnosticCode) -> Self {
+        self.diag = self.diag.with_code(code);
+        self
+    }
+
+    pub fn with_tag(mut self, tag: DiagnosticTag) -> Self {
+        self.diag = self.diag.with_tag(tag);
         self
     }
 

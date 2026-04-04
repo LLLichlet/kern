@@ -201,6 +201,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
                 if is_irrefutable && else_branch.is_some() {
                     self.ctx
                         .struct_error(expr.span, "irrefutable `let` patterns cannot use `else`")
+                        .with_code(kernc_utils::DiagnosticCode::IrrefutableLetElse)
                         .emit();
                     return Err(ConstEvalError);
                 }

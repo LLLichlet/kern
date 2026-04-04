@@ -1,7 +1,7 @@
 use super::ExprChecker;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{BinaryOperator, Expr, UnaryOperator};
-use kernc_utils::Span;
+use kernc_utils::{DiagnosticCode, Span};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub fn check_binary(
@@ -326,6 +326,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     lhs.span,
                     "cannot assign to an immutable variable or location",
                 )
+                .with_code(DiagnosticCode::RequiresLetMut)
                 .with_hint("if this is a variable, declare it with `let mut`")
                 .with_hint(
                     "if this is a pointer dereference, ensure it is a mutable pointer (`*mut T`)",

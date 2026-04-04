@@ -1,5 +1,6 @@
 use super::OpenDocument;
-use crate::protocol::{Diagnostic, DiagnosticRelatedInformation, Location};
+use crate::protocol::{Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, Location};
+use kernc_utils::SourceFile;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
@@ -17,11 +18,18 @@ pub(super) fn diagnostics_from_session(
     for diag in &session.diagnostics {
         let uri = diagnostic_uri(session, diag.primary_span.file, &uri_by_path)
             .unwrap_or_else(|| "kern-lsp:/unknown".to_string());
+        let fallback_file = open_documents
+            .get(&uri)
+            .map(|document| SourceFile::new(document.path.clone(), document.text.clone()));
 
         bundles
             .entry(uri)
             .or_default()
-            .push(convert_diagnostic(session, diag));
+            .push(convert_diagnostic_with_fallback(
+                session,
+                diag,
+                fallback_file.as_ref(),
+            ));
     }
 
     bundles
@@ -45,12 +53,52 @@ pub(super) fn convert_diagnostic(
     session: &kernc_utils::Session,
     diagnostic: &kernc_utils::Diagnostic,
 ) -> Diagnostic {
+    convert_diagnostic_with_fallback(session, diagnostic, None)
+}
+
+pub(super) fn convert_diagnostic_for_document(
+    session: &kernc_utils::Session,
+    diagnostic: &kernc_utils::Diagnostic,
+    document: &OpenDocument,
+) -> Diagnostic {
+    let fallback = SourceFile::new(document.path.clone(), document.text.clone());
+    convert_diagnostic_with_fallback(session, diagnostic, Some(&fallback))
+}
+
+fn convert_diagnostic_with_fallback(
+    session: &kernc_utils::Session,
+    diagnostic: &kernc_utils::Diagnostic,
+    fallback_file: Option<&SourceFile>,
+) -> Diagnostic {
     Diagnostic {
-        range: super::span_to_range(session, diagnostic.primary_span),
+        range: diagnostic_range(session, diagnostic.primary_span, fallback_file),
         severity: diagnostic_severity(diagnostic.level),
         source: "kernc",
         message: diagnostic_message(diagnostic),
+        code: diagnostic.code.map(|code| code.as_str().to_string()),
+        tags: diagnostic_tags(diagnostic),
         related_information: diagnostic_related_information(session, diagnostic),
+    }
+}
+
+fn diagnostic_range(
+    session: &kernc_utils::Session,
+    span: kernc_utils::Span,
+    fallback_file: Option<&SourceFile>,
+) -> crate::protocol::Range {
+    if let Some(file) = session.source_manager.get_file(span.file) {
+        return crate::protocol::Range {
+            start: super::byte_offset_to_position(file, span.start),
+            end: super::byte_offset_to_position(file, span.end),
+        };
+    }
+
+    let Some(file) = fallback_file else {
+        return super::text::empty_range();
+    };
+    crate::protocol::Range {
+        start: super::byte_offset_to_position(file, span.start),
+        end: super::byte_offset_to_position(file, span.end),
     }
 }
 
@@ -69,6 +117,23 @@ fn diagnostic_message(diagnostic: &kernc_utils::Diagnostic) -> String {
         message.push_str(hint);
     }
     message
+}
+
+fn diagnostic_tags(diagnostic: &kernc_utils::Diagnostic) -> Option<Vec<DiagnosticTag>> {
+    let mut tags = diagnostic
+        .tags
+        .iter()
+        .map(|tag| match tag {
+            kernc_utils::DiagnosticTag::Unnecessary => DiagnosticTag::Unnecessary,
+            kernc_utils::DiagnosticTag::Deprecated => DiagnosticTag::Deprecated,
+        })
+        .collect::<Vec<_>>();
+    tags.sort_by_key(|tag| match tag {
+        DiagnosticTag::Unnecessary => 1u8,
+        DiagnosticTag::Deprecated => 2u8,
+    });
+    tags.dedup();
+    (!tags.is_empty()).then_some(tags)
 }
 
 fn diagnostic_related_information(
@@ -97,6 +162,7 @@ fn diagnostic_related_information(
 #[cfg(test)]
 mod tests {
     use super::convert_diagnostic;
+    use crate::protocol::DiagnosticTag;
 
     #[test]
     fn convert_diagnostic_includes_hints_and_related_information() {
@@ -120,7 +186,9 @@ mod tests {
             primary_span,
             "sample error",
         )
-        .with_hint("first hint");
+        .with_code(kernc_utils::DiagnosticCode::ExpectedSemicolon)
+        .with_hint("first hint")
+        .with_tag(kernc_utils::DiagnosticTag::Unnecessary);
         let mut diagnostic = diagnostic;
         diagnostic
             .related_spans
@@ -130,6 +198,8 @@ mod tests {
 
         assert!(converted.message.contains("sample error"));
         assert!(converted.message.contains("Hint: first hint"));
+        assert_eq!(converted.code.as_deref(), Some("expected-semicolon"));
+        assert_eq!(converted.tags, Some(vec![DiagnosticTag::Unnecessary]));
         let related = converted.related_information.unwrap();
         assert_eq!(related.len(), 1);
         assert_eq!(related[0].message, "related here");

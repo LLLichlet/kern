@@ -2,7 +2,7 @@ use super::ExprChecker;
 use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{DiagnosticCode, Span, SymbolId};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn match_enum_def(
@@ -120,6 +120,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if !missing.is_empty() {
                     self.ctx
                         .struct_error(span, "match expression is not exhaustive")
+                        .with_code(DiagnosticCode::NonexhaustiveMatch)
                         .with_hint(format!("missing variants: {}", missing.join(", ")))
                         .emit();
                 }
@@ -127,6 +128,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 // Non-ADT matches require a catch-all arm.
                 self.ctx
                     .struct_error(span, "match expression must be exhaustive")
+                    .with_code(DiagnosticCode::NonexhaustiveMatch)
                     .with_hint("for non-ADT types (like integers or strings), consider adding an `else =>` catch-all branch")
                     .emit();
             }
@@ -239,6 +241,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let ty_str = self.ctx.ty_to_string(ty);
             self.ctx
                 .struct_error(expr.span, "ignored non-void return value")
+                .with_code(DiagnosticCode::IgnoredNonvoidValue)
                 .with_hint(format!(
                     "expression evaluates to `{}`, which must be explicitly used or discarded",
                     ty_str

@@ -5,7 +5,7 @@ mod ty;
 
 use super::TokenStream;
 use kernc_lexer::{Token, TokenType, Tokenizer};
-use kernc_utils::{DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
+use kernc_utils::{DiagnosticCode, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseError;
@@ -79,10 +79,26 @@ impl<'a> Parser<'a> {
 
             // Attach targeted recovery hints for common delimiter mistakes.
             match tag {
-                TokenType::Semicolon => diag = diag.with_hint("consider adding a `;` here"),
-                TokenType::RBrace => diag = diag.with_hint("unclosed block"),
-                TokenType::RParen => diag = diag.with_hint("unclosed parenthesis"),
-                TokenType::RBracket => diag = diag.with_hint("unclosed bracket"),
+                TokenType::Semicolon => {
+                    diag = diag
+                        .with_code(DiagnosticCode::ExpectedSemicolon)
+                        .with_hint("consider adding a `;` here")
+                }
+                TokenType::RBrace => {
+                    diag = diag
+                        .with_code(DiagnosticCode::UnclosedBlock)
+                        .with_hint("unclosed block")
+                }
+                TokenType::RParen => {
+                    diag = diag
+                        .with_code(DiagnosticCode::UnclosedParen)
+                        .with_hint("unclosed parenthesis")
+                }
+                TokenType::RBracket => {
+                    diag = diag
+                        .with_code(DiagnosticCode::UnclosedBracket)
+                        .with_hint("unclosed bracket")
+                }
                 _ => {}
             }
 

@@ -3,7 +3,7 @@ use crate::checker::Substituter;
 use crate::def::{Def, DefId};
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{Expr, ExprKind, UnaryOperator};
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{DiagnosticCode, Span, SymbolId};
 use std::collections::{HashMap, HashSet};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -257,6 +257,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     expr.span,
                     "cannot implicitly borrow an immutable value as a mutable trait object `*mut Trait`",
                 )
+                .with_code(DiagnosticCode::RequiresLetMut)
                 .with_hint("consider declaring the variable as `let mut`")
                 .emit();
             return false;
@@ -586,6 +587,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     expr.span,
                     "cannot implicitly borrow an immutable closure as a mutable closure `*mut Fn`",
                 )
+                .with_code(DiagnosticCode::RequiresLetMut)
                 .with_hint("consider declaring the closure variable as `let mut`")
                 .emit();
             return false;

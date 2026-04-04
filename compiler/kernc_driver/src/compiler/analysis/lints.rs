@@ -9,6 +9,8 @@ impl CompilerDriver {
     ) {
         for item in self.collect_unused_private_items(ctx, references, flow) {
             ctx.struct_warning(item.definition_span, unused_item_message(&item))
+                .with_code(kernc_utils::DiagnosticCode::UnusedPrivateItem)
+                .with_tag(kernc_utils::DiagnosticTag::Unnecessary)
                 .with_hint("remove it, make it public, or reference it from reachable code")
                 .emit();
         }
@@ -100,6 +102,8 @@ impl CompilerDriver {
     pub(super) fn emit_unused_binding_warnings(&self, ctx: &mut SemaContext<'_>, flow: &FlowModel) {
         for binding in self.collect_unused_bindings(ctx, flow) {
             ctx.struct_warning(binding.definition_span, unused_binding_message(&binding))
+                .with_code(kernc_utils::DiagnosticCode::UnusedBinding)
+                .with_tag(kernc_utils::DiagnosticTag::Unnecessary)
                 .with_hint("remove it, rename it to `_`, or reference it from reachable code")
                 .emit();
         }
@@ -113,6 +117,8 @@ impl CompilerDriver {
     ) {
         for store in self.collect_dead_stores(ctx, references, flow) {
             ctx.struct_warning(store.span, dead_store_message(&store))
+                .with_code(kernc_utils::DiagnosticCode::DeadStore)
+                .with_tag(kernc_utils::DiagnosticTag::Unnecessary)
                 .with_hint("remove the assignment or use the value before it is overwritten")
                 .emit();
         }

@@ -7,7 +7,9 @@ mod tests;
 mod text;
 
 use self::code_actions::{quick_fix_for_diagnostic, ranges_overlap, workspace_edit_key};
-use self::diagnostics::{convert_diagnostic, diagnostics_from_session};
+use self::diagnostics::{
+    convert_diagnostic, convert_diagnostic_for_document, diagnostics_from_session,
+};
 use self::navigation::{
     analysis_completion_to_lsp_item, analysis_signature_help_to_lsp_help,
     analysis_symbol_to_document_symbol, build_rename_changes, find_definition_location,
@@ -148,6 +150,7 @@ pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
     project_cache: RefCell<BTreeMap<PathBuf, Option<AnalysisProject>>>,
+    driver_cache: RefCell<BTreeMap<AnalysisCacheFamilyKey, Rc<CompilerDriver>>>,
     parse_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<ParsedModuleArtifact>>>,
     surface_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisSurfaceArtifact>>>,
     structure_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<StructureArtifact>>>,
@@ -273,6 +276,7 @@ impl AnalysisEngine {
             documents: BTreeMap::new(),
             settings,
             project_cache: RefCell::new(BTreeMap::new()),
+            driver_cache: RefCell::new(BTreeMap::new()),
             parse_cache: RefCell::new(BTreeMap::new()),
             surface_cache: RefCell::new(BTreeMap::new()),
             structure_cache: RefCell::new(BTreeMap::new()),
@@ -384,6 +388,7 @@ impl AnalysisEngine {
 
     pub fn refresh_workspace(&mut self) -> Vec<(String, AnalysisOutcome)> {
         self.project_cache.get_mut().clear();
+        self.driver_cache.get_mut().clear();
         self.invalidate_artifact_cache();
         self.invalidate_render_caches();
         self.documents
@@ -743,7 +748,8 @@ impl AnalysisEngine {
                 continue;
             }
 
-            let lsp_diagnostic = convert_diagnostic(&artifact.session, diagnostic);
+            let lsp_diagnostic =
+                convert_diagnostic_for_document(&artifact.session, diagnostic, target_doc);
             if !ranges_overlap(&lsp_diagnostic.range, &range) {
                 continue;
             }
@@ -776,6 +782,7 @@ impl AnalysisEngine {
         if let Ok(Some(report)) = self.analyze_dirty_report(target_uri) {
             let mut bundles_by_uri = diagnostics_from_session(&report.session, &self.documents);
             bundles_by_uri.entry(target_uri.to_string()).or_default();
+            self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
 
             return AnalysisOutcome {
                 bundles: bundles_by_uri
@@ -794,6 +801,7 @@ impl AnalysisEngine {
 
         let mut bundles_by_uri = diagnostics_from_session(&artifact.session, &self.documents);
         bundles_by_uri.entry(target_uri.to_string()).or_default();
+        self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
 
         AnalysisOutcome {
             bundles: bundles_by_uri
@@ -820,6 +828,21 @@ impl AnalysisEngine {
         let Some(clean_artifact) = self.artifact_cache.borrow().get(&clean_key).cloned() else {
             return Ok(None);
         };
+        let target_doc = self
+            .documents
+            .get(target_uri)
+            .ok_or_else(|| "document is not open".to_string())?;
+        let target_path = normalize_path(&target_doc.path);
+        if clean_artifact.session.diagnostics.iter().any(|diagnostic| {
+            diagnostic.level == kernc_utils::DiagnosticLevel::Error
+                && span_in_path(
+                    &clean_artifact.session,
+                    diagnostic.primary_span,
+                    &target_path,
+                )
+        }) {
+            return Ok(None);
+        }
         let mut bundles_by_uri = diagnostics_from_session(&clean_artifact.session, &self.documents);
 
         let (parsed, driver) = self.parse_modules(target_uri)?;
@@ -837,11 +860,6 @@ impl AnalysisEngine {
             .get(target_uri)
             .is_some_and(|diagnostics| !diagnostics.is_empty())
         {
-            let target_doc = self
-                .documents
-                .get(target_uri)
-                .ok_or_else(|| "document is not open".to_string())?;
-            let target_path = normalize_path(&target_doc.path);
             let clean_target_file = clean_artifact
                 .session
                 .diagnostics
@@ -874,6 +892,7 @@ impl AnalysisEngine {
         }
         target_diagnostics.extend(dirty_bundles.remove(target_uri).unwrap_or_default());
         bundles_by_uri.insert(target_uri.to_string(), target_diagnostics);
+        self.retain_publishable_bundles(target_uri, &mut bundles_by_uri);
 
         Ok(Some(AnalysisOutcome {
             bundles: bundles_by_uri
@@ -953,7 +972,7 @@ impl AnalysisEngine {
             return Ok(Rc::clone(artifact));
         }
 
-        let driver = CompilerDriver::new(resolved.compile_options);
+        let driver = self.driver_for_resolved(&resolved);
         let structure = if let Some(structure) = self.structure_cache.borrow().get(&cache_key) {
             Some(Rc::clone(structure))
         } else {
@@ -998,7 +1017,7 @@ impl AnalysisEngine {
             return Ok(Rc::clone(surface));
         }
 
-        let driver = CompilerDriver::new(resolved.compile_options);
+        let driver = self.driver_for_resolved(&resolved);
         let Some(surface) = driver
             .analyze_surface(
                 &resolved.input_file.to_string_lossy(),
@@ -1018,13 +1037,13 @@ impl AnalysisEngine {
     fn parse_modules(
         &self,
         target_uri: &str,
-    ) -> Result<(Rc<ParsedModuleArtifact>, CompilerDriver), String> {
+    ) -> Result<(Rc<ParsedModuleArtifact>, Rc<CompilerDriver>), String> {
         let resolved = self.resolve_analysis(target_uri)?;
         let dirty_documents = self
             .dirty_documents_snapshot()
             .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
-        let driver = CompilerDriver::new(resolved.compile_options);
+        let driver = self.driver_for_resolved(&resolved);
 
         if let Some(parsed) = self.parse_cache.borrow().get(&cache_key) {
             return Ok((Rc::clone(parsed), driver));
@@ -1044,6 +1063,19 @@ impl AnalysisEngine {
             .borrow_mut()
             .insert(cache_key, Rc::clone(&parsed));
         Ok((parsed, driver))
+    }
+
+    fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Rc<CompilerDriver> {
+        let family = AnalysisCacheKey::clean(resolved).family();
+        if let Some(driver) = self.driver_cache.borrow().get(&family) {
+            return Rc::clone(driver);
+        }
+
+        let driver = Rc::new(CompilerDriver::new(resolved.compile_options.clone()));
+        self.driver_cache
+            .borrow_mut()
+            .insert(family, Rc::clone(&driver));
+        driver
     }
 
     fn resolve_analysis(&self, target_uri: &str) -> Result<ResolvedAnalysis, String> {
@@ -1109,6 +1141,40 @@ impl AnalysisEngine {
             || path.is_file()
     }
 
+    fn retain_publishable_bundles(
+        &self,
+        target_uri: &str,
+        bundles_by_uri: &mut BTreeMap<String, Vec<crate::protocol::Diagnostic>>,
+    ) {
+        let Some(target_doc) = self.documents.get(target_uri) else {
+            return;
+        };
+        let target_path = normalize_path(&target_doc.path);
+        let workspace_root = self
+            .project_for_path(&target_doc.path)
+            .map(|project| normalize_path(project.workspace_root()));
+        let open_paths = self
+            .documents
+            .values()
+            .map(|doc| normalize_path(&doc.path))
+            .collect::<BTreeSet<_>>();
+
+        bundles_by_uri.retain(|uri, _| {
+            if uri == target_uri {
+                return true;
+            }
+            let Some(path) = uri_to_file_path(uri) else {
+                return false;
+            };
+            let normalized = normalize_path(&path);
+            normalized == target_path
+                || open_paths.contains(&normalized)
+                || workspace_root
+                    .as_ref()
+                    .is_some_and(|root| normalized.starts_with(root))
+        });
+    }
+
     fn invalidate_artifact_cache(&self) {
         self.parse_cache.borrow_mut().clear();
         self.surface_cache.borrow_mut().clear();
@@ -1138,6 +1204,11 @@ impl AnalysisEngine {
         self.artifact_cache
             .borrow_mut()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
+    }
+
+    #[cfg(test)]
+    fn cached_driver_count(&self) -> usize {
+        self.driver_cache.borrow().len()
     }
 
     fn document_differs_from_disk(path: &Path, text: &str) -> bool {

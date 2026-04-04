@@ -1,7 +1,7 @@
 use crate::protocol::{CodeAction, Diagnostic, Position, Range, TextEdit, WorkspaceEdit};
-use kernc_driver::AnalysisArtifact;
+use kernc_driver::{AnalysisArtifact, AnalysisDeadStoreKind};
 use kernc_lexer::{TokenType, Tokenizer};
-use kernc_utils::FileId;
+use kernc_utils::{DiagnosticCode, FileId};
 use std::collections::BTreeMap;
 
 pub(super) fn quick_fix_for_diagnostic(
@@ -10,11 +10,102 @@ pub(super) fn quick_fix_for_diagnostic(
     diagnostic: &kernc_utils::Diagnostic,
     lsp_diagnostic: Diagnostic,
 ) -> Option<CodeAction> {
-    let session = &artifact.session;
-    let file = session
-        .source_manager
-        .get_file(diagnostic.primary_span.file)?;
-    let insertion_range = empty_range_at(file, diagnostic.primary_span.start);
+    if diagnostic.level == kernc_utils::DiagnosticLevel::Warning
+        && let Some(action) =
+            fact_driven_quick_fix(uri, artifact, diagnostic, lsp_diagnostic.clone())
+    {
+        return Some(action);
+    }
+    if let Some(action) = structured_quick_fix(uri, artifact, diagnostic, lsp_diagnostic.clone()) {
+        return Some(action);
+    }
+    if diagnostic.code.is_some() {
+        return None;
+    }
+
+    legacy_text_quick_fix(uri, artifact, diagnostic, lsp_diagnostic)
+}
+
+fn structured_quick_fix(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    match diagnostic.code {
+        Some(DiagnosticCode::ExpectedSemicolon) => Some(insert_text_code_action(
+            uri,
+            "Insert `;`",
+            ";",
+            Range {
+                start: lsp_diagnostic.range.start.clone(),
+                end: lsp_diagnostic.range.start.clone(),
+            },
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::UnclosedParen) => Some(insert_text_code_action(
+            uri,
+            "Insert `)`",
+            ")",
+            Range {
+                start: lsp_diagnostic.range.start.clone(),
+                end: lsp_diagnostic.range.start.clone(),
+            },
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::UnclosedBracket) => Some(insert_text_code_action(
+            uri,
+            "Insert `]`",
+            "]",
+            Range {
+                start: lsp_diagnostic.range.start.clone(),
+                end: lsp_diagnostic.range.start.clone(),
+            },
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::UnclosedBlock) => Some(insert_text_code_action(
+            uri,
+            "Insert `}`",
+            "}",
+            Range {
+                start: lsp_diagnostic.range.start.clone(),
+                end: lsp_diagnostic.range.start.clone(),
+            },
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::IgnoredNonvoidValue) => Some(insert_text_code_action(
+            uri,
+            "Discard value with `let _ =`",
+            "let _ = ",
+            Range {
+                start: lsp_diagnostic.range.start.clone(),
+                end: lsp_diagnostic.range.start.clone(),
+            },
+            lsp_diagnostic,
+        )),
+        Some(DiagnosticCode::RequiresLetMut) => {
+            let_mut_code_action(artifact, diagnostic, lsp_diagnostic)
+        }
+        Some(DiagnosticCode::NonexhaustiveMatch) => {
+            add_match_catch_all_code_action(artifact, diagnostic, lsp_diagnostic)
+        }
+        Some(DiagnosticCode::IrrefutableLetElse) => {
+            remove_irrefutable_let_else_code_action(artifact, diagnostic, lsp_diagnostic)
+        }
+        _ => None,
+    }
+}
+
+fn legacy_text_quick_fix(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    let insertion_range = Range {
+        start: lsp_diagnostic.range.start.clone(),
+        end: lsp_diagnostic.range.start.clone(),
+    };
 
     if diagnostic.message == "Expected semicolon"
         || diagnostic
@@ -104,6 +195,26 @@ pub(super) fn quick_fix_for_diagnostic(
     None
 }
 
+fn fact_driven_quick_fix(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    match diagnostic.code {
+        Some(DiagnosticCode::UnusedBinding) => {
+            unused_binding_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+        }
+        Some(DiagnosticCode::DeadStore) => {
+            dead_store_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+        }
+        Some(DiagnosticCode::UnusedPrivateItem) => {
+            unused_private_item_code_action(uri, artifact, diagnostic, lsp_diagnostic)
+        }
+        _ => None,
+    }
+}
+
 fn insert_text_code_action(
     uri: &str,
     title: &str,
@@ -166,6 +277,87 @@ fn let_mut_code_action(
         "mut ",
         insertion_range,
         lsp_diagnostic,
+    ))
+}
+
+fn unused_binding_code_action(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    artifact
+        .unused_bindings()
+        .into_iter()
+        .find(|binding| binding.definition_span == diagnostic.primary_span)
+        .map(|_| {
+            single_edit_code_action(
+                uri,
+                "Rename binding to `_`",
+                TextEdit {
+                    range: super::span_to_range(&artifact.session, diagnostic.primary_span),
+                    new_text: "_".to_string(),
+                },
+                lsp_diagnostic,
+                true,
+            )
+        })
+}
+
+fn dead_store_code_action(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    let store = artifact
+        .dead_stores()
+        .into_iter()
+        .find(|store| store.span == diagnostic.primary_span)?;
+    if store.kind != AnalysisDeadStoreKind::Assignment {
+        return None;
+    }
+
+    let file = artifact.session.source_manager.get_file(store.span.file)?;
+    let delete_range = standalone_statement_delete_range(file, store.span)?;
+
+    Some(single_edit_code_action(
+        uri,
+        "Remove dead assignment",
+        TextEdit {
+            range: delete_range,
+            new_text: String::new(),
+        },
+        lsp_diagnostic,
+        true,
+    ))
+}
+
+fn unused_private_item_code_action(
+    uri: &str,
+    artifact: &AnalysisArtifact,
+    diagnostic: &kernc_utils::Diagnostic,
+    lsp_diagnostic: Diagnostic,
+) -> Option<CodeAction> {
+    let item = artifact
+        .unused_private_items()
+        .into_iter()
+        .find(|item| item.definition_span == diagnostic.primary_span)?;
+    let file = artifact
+        .session
+        .source_manager
+        .get_file(item.definition_span.file)?;
+    let insertion_offset = pub_insertion_offset(file, item.definition_span.start)?;
+
+    Some(single_edit_code_action(
+        uri,
+        "Make item public",
+        TextEdit {
+            range: empty_range_at(file, insertion_offset),
+            new_text: "pub ".to_string(),
+        },
+        lsp_diagnostic,
+        false,
     ))
 }
 
@@ -374,6 +566,85 @@ fn top_level_token_offset(
     }
 
     found
+}
+
+fn standalone_statement_delete_range(
+    file: &kernc_utils::SourceFile,
+    span: kernc_utils::Span,
+) -> Option<Range> {
+    if span.end > file.src.len() || span.start >= span.end {
+        return None;
+    }
+
+    let (line_start, line_end) = line_bounds(&file.src, span.start)?;
+    if !file.src[line_start..span.start].trim().is_empty() {
+        return None;
+    }
+
+    let statement_end = skip_inline_whitespace(&file.src, span.end);
+    if file.src.get(statement_end..=statement_end)? != ";" {
+        return None;
+    }
+    let delete_end = statement_end + 1;
+
+    if !file.src[delete_end..line_end].trim().is_empty() {
+        return None;
+    }
+
+    let range_end = if file.src.as_bytes().get(line_end) == Some(&b'\n') {
+        line_end + 1
+    } else {
+        line_end
+    };
+
+    Some(Range {
+        start: super::byte_offset_to_position(file, line_start),
+        end: super::byte_offset_to_position(file, range_end),
+    })
+}
+
+fn line_bounds(source: &str, offset: usize) -> Option<(usize, usize)> {
+    if offset > source.len() {
+        return None;
+    }
+
+    let line_start = source[..offset]
+        .rfind('\n')
+        .map(|index| index + 1)
+        .unwrap_or(0);
+    let line_end = source[offset..]
+        .find('\n')
+        .map(|index| offset + index)
+        .unwrap_or(source.len());
+    Some((line_start, line_end))
+}
+
+fn pub_insertion_offset(file: &kernc_utils::SourceFile, offset: usize) -> Option<usize> {
+    let (line_start, line_end) = line_bounds(&file.src, offset)?;
+    let line = &file.src[line_start..line_end];
+    let indent = leading_whitespace(line).len();
+    let trimmed = &line[indent..];
+    if trimmed.starts_with("fn ")
+        || trimmed.starts_with("const ")
+        || trimmed.starts_with("static ")
+        || trimmed.starts_with("extern fn ")
+    {
+        return Some(line_start + indent);
+    }
+
+    None
+}
+
+fn skip_inline_whitespace(source: &str, mut offset: usize) -> usize {
+    let bytes = source.as_bytes();
+    while let Some(byte) = bytes.get(offset) {
+        if *byte == b' ' || *byte == b'\t' {
+            offset += 1;
+        } else {
+            break;
+        }
+    }
+    offset
 }
 
 fn leading_whitespace(text: &str) -> &str {

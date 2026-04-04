@@ -2,7 +2,7 @@ use super::super::{ParseResult, Parser};
 use super::Precedence;
 use kernc_ast::*;
 use kernc_lexer::{Token, TokenType};
-use kernc_utils::Span;
+use kernc_utils::{DiagnosticCode, Span};
 
 impl<'a> Parser<'a> {
     pub fn parse_block_expr(&mut self, start_span: Span) -> ParseResult<Expr> {
@@ -37,7 +37,13 @@ impl<'a> Parser<'a> {
             } else if expr.is_block_like() {
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             } else {
-                self.error_at_current("Expected semicolon".to_string());
+                let span = self.peek().span;
+                self.session
+                    .struct_error(span, "Expected semicolon")
+                    .with_code(DiagnosticCode::ExpectedSemicolon)
+                    .with_hint("consider adding a `;` here")
+                    .emit();
+                self.panic_mode = true;
                 self.push_expr_stmt(&mut stmts, attributes, expr);
             }
         }

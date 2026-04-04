@@ -7,7 +7,7 @@ use crate::scope::{SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, TypeNode};
-use kernc_utils::{NodeId, Span, SymbolId};
+use kernc_utils::{DiagnosticCode, NodeId, Span, SymbolId};
 
 #[derive(Clone, Copy)]
 struct ResolvedPatternField {
@@ -542,6 +542,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             (true, Some(_)) => {
                 self.ctx
                     .struct_error(span, "irrefutable `let` patterns cannot use `else`")
+                    .with_code(DiagnosticCode::IrrefutableLetElse)
                     .with_hint(
                         "remove the `else` block or use a refutable enum pattern like `.{ Ok: value }`",
                     )

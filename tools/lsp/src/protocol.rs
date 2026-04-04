@@ -403,7 +403,27 @@ pub struct Diagnostic {
     pub source: &'static str,
     pub message: String,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<DiagnosticTag>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub related_information: Option<Vec<DiagnosticRelatedInformation>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(into = "u8")]
+pub enum DiagnosticTag {
+    Unnecessary,
+    Deprecated,
+}
+
+impl From<DiagnosticTag> for u8 {
+    fn from(value: DiagnosticTag) -> Self {
+        match value {
+            DiagnosticTag::Unnecessary => 1,
+            DiagnosticTag::Deprecated => 2,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]

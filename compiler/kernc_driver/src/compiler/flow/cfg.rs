@@ -195,7 +195,7 @@ impl FlowCfgBuilder {
                         let_node,
                         self.collect_let_pattern_binding_ids(pattern),
                         AnalysisFlowDefinitionKind::Initializer,
-                        self.local_binding_use(init),
+                        self.let_copy_source_binding_id(pattern, init, true),
                         self.local_binding_uses_in_expr(init),
                     );
                     let success_out = self.fallthrough(let_node);
@@ -216,7 +216,7 @@ impl FlowCfgBuilder {
                         node,
                         self.collect_let_pattern_binding_ids(pattern),
                         AnalysisFlowDefinitionKind::Initializer,
-                        self.local_binding_use(init),
+                        self.let_copy_source_binding_id(pattern, init, false),
                         self.local_binding_uses_in_expr(init),
                     );
                     self.fallthrough(node)
@@ -571,6 +571,22 @@ impl FlowCfgBuilder {
             .collect::<Vec<_>>();
         ids.sort();
         ids
+    }
+
+    fn let_copy_source_binding_id(
+        &self,
+        pattern: &ast::LetPattern,
+        init: &ast::Expr,
+        has_else_branch: bool,
+    ) -> Option<AnalysisFlowBindingId> {
+        if has_else_branch {
+            return None;
+        }
+
+        match &pattern.pattern.kind {
+            ast::PatternKind::Binding(_) => self.local_binding_use(init),
+            _ => None,
+        }
     }
 }
 

@@ -26,6 +26,7 @@ use kernc_lower::{
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::semantic::SemanticSymbolKind;
+use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 use std::collections::{HashMap, HashSet};
 
@@ -196,10 +197,14 @@ impl<'a, 'ctx> FlowOwnerOptimizationContext<'a, 'ctx> {
             };
 
             match definition_facts[0].kind {
-                AnalysisFlowDefinitionKind::Initializer if removable_initializer_is_pure(expr) => {
+                AnalysisFlowDefinitionKind::Initializer
+                    if removable_initializer_is_pure(self.ctx, expr) =>
+                {
                     facts.pure_dead_initializer_expr_ids.insert(ast_node_id);
                 }
-                AnalysisFlowDefinitionKind::Assignment if removable_assignment_is_pure(expr) => {
+                AnalysisFlowDefinitionKind::Assignment
+                    if removable_assignment_is_pure(self.ctx, expr) =>
+                {
                     facts.pure_dead_assignment_expr_ids.insert(ast_node_id);
                 }
                 _ => {}
@@ -215,6 +220,7 @@ impl<'a, 'ctx> FlowOwnerOptimizationContext<'a, 'ctx> {
                 continue;
             };
             if is_elidable_pure_binding(
+                self.ctx,
                 binding.id,
                 &self.bindings_by_id,
                 &self.binding_summaries_by_id,
@@ -241,6 +247,7 @@ impl<'a, 'ctx> FlowOwnerOptimizationContext<'a, 'ctx> {
             };
 
             if is_forwardable_pure_value_binding(
+                self.ctx,
                 binding.id,
                 &self.owner.definition_facts,
                 &self.bindings_by_id,
@@ -1097,23 +1104,23 @@ fn collect_simple_binding_let_expr_ids(
     }
 }
 
-fn removable_initializer_is_pure(expr: &ast::Expr) -> bool {
+fn removable_initializer_is_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
     let ast::ExprKind::Let { init, .. } = &expr.kind else {
         return false;
     };
-    expr_is_strictly_pure(init)
+    expr_is_strictly_pure(ctx, init)
 }
 
-fn removable_assignment_is_pure(expr: &ast::Expr) -> bool {
+fn removable_assignment_is_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
     let ast::ExprKind::Assign { lhs, op, rhs } = &expr.kind else {
         return false;
     };
     matches!(lhs.kind, ast::ExprKind::Identifier(_))
         && *op == ast::AssignmentOperator::Assign
-        && expr_is_strictly_pure(rhs)
+        && expr_is_strictly_pure(ctx, rhs)
 }
 
-fn expr_is_strictly_pure(expr: &ast::Expr) -> bool {
+fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
     match &expr.kind {
         ast::ExprKind::Integer(_)
         | ast::ExprKind::Float(_)
@@ -1127,26 +1134,46 @@ fn expr_is_strictly_pure(expr: &ast::Expr) -> bool {
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer => true,
         ast::ExprKind::Unary { op, operand } => {
-            !matches!(op, ast::UnaryOperator::PointerDeRef) && expr_is_strictly_pure(operand)
+            !matches!(
+                op,
+                ast::UnaryOperator::PointerDeRef
+                    | ast::UnaryOperator::AddressOf
+                    | ast::UnaryOperator::MutAddressOf
+            ) && expr_is_strictly_pure(ctx, operand)
         }
         ast::ExprKind::Binary { lhs, rhs, .. } => {
-            expr_is_strictly_pure(lhs) && expr_is_strictly_pure(rhs)
+            expr_is_strictly_pure(ctx, lhs) && expr_is_strictly_pure(ctx, rhs)
         }
-        ast::ExprKind::DataInit { literal, .. } => match literal {
-            ast::DataLiteralKind::Struct(fields) => fields
-                .iter()
-                .all(|field| expr_is_strictly_pure(&field.value)),
-            ast::DataLiteralKind::Array(items) => items.iter().all(expr_is_strictly_pure),
-            ast::DataLiteralKind::Repeat { value, count } => {
-                expr_is_strictly_pure(value) && expr_is_strictly_pure(count)
+        ast::ExprKind::DataInit { literal, .. } => {
+            let ty = ctx
+                .node_types
+                .get(&expr.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let norm_ty = ctx.type_registry.normalize(ty);
+
+            if !matches!(ctx.type_registry.get(norm_ty), TypeKind::Primitive(_)) {
+                return false;
             }
-            ast::DataLiteralKind::Scalar(value) => expr_is_strictly_pure(value),
-        },
-        ast::ExprKind::As { lhs, .. } => expr_is_strictly_pure(lhs),
-        ast::ExprKind::GenericInstantiation { target, .. } => expr_is_strictly_pure(target),
+
+            match literal {
+                ast::DataLiteralKind::Struct(fields) => fields
+                    .iter()
+                    .all(|field| expr_is_strictly_pure(ctx, &field.value)),
+                ast::DataLiteralKind::Array(items) => {
+                    items.iter().all(|item| expr_is_strictly_pure(ctx, item))
+                }
+                ast::DataLiteralKind::Repeat { value, count } => {
+                    expr_is_strictly_pure(ctx, value) && expr_is_strictly_pure(ctx, count)
+                }
+                ast::DataLiteralKind::Scalar(value) => expr_is_strictly_pure(ctx, value),
+            }
+        }
+        ast::ExprKind::As { lhs, .. } => expr_is_strictly_pure(ctx, lhs),
+        ast::ExprKind::GenericInstantiation { target, .. } => expr_is_strictly_pure(ctx, target),
         ast::ExprKind::Closure { captures, .. } => captures
             .iter()
-            .all(|capture| expr_is_strictly_pure(&capture.value)),
+            .all(|capture| expr_is_strictly_pure(ctx, &capture.value)),
         ast::ExprKind::FieldAccess { .. }
         | ast::ExprKind::IndexAccess { .. }
         | ast::ExprKind::Call { .. }
@@ -1202,6 +1229,7 @@ fn resolve_immutable_copy_origin_binding(
 }
 
 fn is_forwardable_pure_value_binding(
+    ctx: &SemaContext<'_>,
     binding_id: AnalysisFlowBindingId,
     definition_facts: &[AnalysisFlowDefinitionFacts],
     bindings_by_id: &HashMap<AnalysisFlowBindingId, &FlowBindingFacts>,
@@ -1212,6 +1240,7 @@ fn is_forwardable_pure_value_binding(
     let mut visiting = HashSet::new();
     let mut memo = HashMap::new();
     is_forwardable_pure_value_binding_inner(
+        ctx,
         binding_id,
         definition_facts,
         bindings_by_id,
@@ -1224,6 +1253,7 @@ fn is_forwardable_pure_value_binding(
 }
 
 fn is_elidable_pure_binding(
+    ctx: &SemaContext<'_>,
     binding_id: AnalysisFlowBindingId,
     bindings_by_id: &HashMap<AnalysisFlowBindingId, &FlowBindingFacts>,
     binding_summaries_by_id: &HashMap<AnalysisFlowBindingId, &AnalysisFlowBindingSummary>,
@@ -1254,10 +1284,11 @@ fn is_elidable_pure_binding(
         return false;
     };
 
-    removable_initializer_is_pure(let_expr)
+    removable_initializer_is_pure(ctx, let_expr)
 }
 
 fn is_forwardable_pure_value_binding_inner(
+    ctx: &SemaContext<'_>,
     binding_id: AnalysisFlowBindingId,
     definition_facts: &[AnalysisFlowDefinitionFacts],
     bindings_by_id: &HashMap<AnalysisFlowBindingId, &FlowBindingFacts>,
@@ -1284,7 +1315,7 @@ fn is_forwardable_pure_value_binding_inner(
                         .copied()
                     {
                         Some(let_expr_id) => match owner_exprs.get(&let_expr_id).copied() {
-                            Some(let_expr) if removable_initializer_is_pure(let_expr) => {
+                            Some(let_expr) if removable_initializer_is_pure(ctx, let_expr) => {
                                 let definition = definition_facts.iter().find(|facts| {
                                     facts.definition.binding_id == binding_id
                                         && facts.definition.node_id
@@ -1294,6 +1325,7 @@ fn is_forwardable_pure_value_binding_inner(
                                 definition.is_some_and(|facts| {
                                     facts.use_binding_ids.iter().all(|used_binding_id| {
                                         is_forwardable_pure_value_binding_inner(
+                                            ctx,
                                             *used_binding_id,
                                             definition_facts,
                                             bindings_by_id,

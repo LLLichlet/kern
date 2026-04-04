@@ -91,6 +91,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> bool {
         if let Some(scope) = self.local_types.last_mut() {
             scope.insert(name, (ty, is_mut));
+            if let Some(forward_scope) = self.local_forwardings.last_mut() {
+                // A concrete local binding must shadow any forwarded alias from an outer scope.
+                forward_scope.insert(name, name);
+            }
             true
         } else {
             self.ctx.emit_ice(

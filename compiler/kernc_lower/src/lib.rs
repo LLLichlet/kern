@@ -249,10 +249,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn forwarded_local_value(&self, name: SymbolId) -> Option<MastExpr> {
-        self.local_value_forwardings
-            .iter()
-            .rev()
-            .find_map(|scope| scope.get(&name).cloned())
+        for scope_idx in (0..self.local_value_forwardings.len()).rev() {
+            if let Some(value) = self.local_value_forwardings[scope_idx].get(&name).cloned() {
+                return Some(value);
+            }
+
+            if self
+                .local_types
+                .get(scope_idx)
+                .is_some_and(|scope| scope.contains_key(&name))
+            {
+                return None;
+            }
+        }
+
+        None
     }
 
     fn new_mono_id(&mut self) -> MonoId {

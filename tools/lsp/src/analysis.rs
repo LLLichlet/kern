@@ -15,11 +15,10 @@ use self::navigation::{
 };
 use self::text::{
     CompletionContext, apply_content_change, byte_offset_to_position, completion_context,
-    completion_is_member_access, completion_prefix, file_path_to_uri,
-    has_following_call_paren, is_valid_identifier, keyword_completion_labels,
-    match_position_in_file, normalize_path, position_to_byte_offset,
-    single_server_diagnostic, span_contains_offset, span_to_range, trim_line_ending,
-    uri_to_file_path,
+    completion_is_member_access, completion_prefix, file_path_to_uri, has_following_call_paren,
+    is_valid_identifier, keyword_completion_labels, match_position_in_file, normalize_path,
+    position_to_byte_offset, single_server_diagnostic, span_contains_offset, span_to_range,
+    trim_line_ending, uri_to_file_path,
 };
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -29,8 +28,8 @@ use crate::protocol::{
 };
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
-    AnalysisArtifact, AnalysisOutline, CompilerDriver, ParsedModuleArtifact, SourceOverrides,
-    StructureArtifact, TargetedAnalysisReport,
+    AnalysisArtifact, AnalysisSurfaceArtifact, CompilerDriver, ParsedModuleArtifact,
+    SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 use kernc_utils::config::{
     CompileOptions, inject_driver_condition_defines, maybe_inject_std_alias,
@@ -150,6 +149,7 @@ pub struct AnalysisEngine {
     settings: AnalysisSettings,
     project_cache: RefCell<BTreeMap<PathBuf, Option<AnalysisProject>>>,
     parse_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<ParsedModuleArtifact>>>,
+    surface_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisSurfaceArtifact>>>,
     structure_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<StructureArtifact>>>,
     artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisArtifact>>>,
     semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, SemanticTokens>>,
@@ -274,6 +274,7 @@ impl AnalysisEngine {
             settings,
             project_cache: RefCell::new(BTreeMap::new()),
             parse_cache: RefCell::new(BTreeMap::new()),
+            surface_cache: RefCell::new(BTreeMap::new()),
             structure_cache: RefCell::new(BTreeMap::new()),
             artifact_cache: RefCell::new(BTreeMap::new()),
             semantic_tokens_cache: RefCell::new(BTreeMap::new()),
@@ -404,8 +405,8 @@ impl AnalysisEngine {
     }
 
     pub fn document_symbols(&self, uri: &str) -> Result<Vec<DocumentSymbol>, String> {
-        let outline = match self.analyze_outline(uri) {
-            Ok(outline) => outline,
+        let surface = match self.analyze_surface_artifact(uri) {
+            Ok(surface) => surface,
             Err(_) => return Ok(Vec::new()),
         };
         let Some(target_doc) = self.documents.get(uri) else {
@@ -414,8 +415,8 @@ impl AnalysisEngine {
         let target_path = normalize_path(&target_doc.path);
 
         let mut symbols = Vec::new();
-        for module_symbol in &outline.symbols {
-            let Some(path) = outline
+        for module_symbol in &surface.symbols {
+            let Some(path) = surface
                 .session
                 .source_manager
                 .get_file_path(module_symbol.span.file)
@@ -427,7 +428,7 @@ impl AnalysisEngine {
                     module_symbol
                         .children
                         .iter()
-                        .map(|symbol| analysis_symbol_to_document_symbol(&outline.session, symbol)),
+                        .map(|symbol| analysis_symbol_to_document_symbol(&surface.session, symbol)),
                 );
             }
         }
@@ -566,15 +567,9 @@ impl AnalysisEngine {
         let context = completion_context(&target_doc.text, offset);
         let member_access = completion_is_member_access(&target_doc.text, offset);
 
-        let mut items = if let Ok((parsed, _driver)) = self.parse_modules(uri) {
-            if !parsed.requires_body_completion(&target_path, offset) {
-                match self.analyze_structure_artifact(uri) {
-                    Ok(structure) => structure.completion_items(&target_path, offset),
-                    Err(_) => match self.analyze_artifact(uri) {
-                        Ok(artifact) => artifact.completion_items(&target_path, offset),
-                        Err(_) => Vec::new(),
-                    },
-                }
+        let mut items = if let Ok(surface) = self.analyze_surface_artifact(uri) {
+            if !surface.requires_body_completion(&target_path, offset) {
+                surface.completion_items(&target_path, offset)
             } else {
                 match self.analyze_artifact(uri) {
                     Ok(artifact) => artifact.completion_items(&target_path, offset),
@@ -990,39 +985,34 @@ impl AnalysisEngine {
         Ok(artifact)
     }
 
-    fn analyze_structure_artifact(
+    fn analyze_surface_artifact(
         &self,
         target_uri: &str,
-    ) -> Result<Rc<StructureArtifact>, String> {
+    ) -> Result<Rc<AnalysisSurfaceArtifact>, String> {
         let resolved = self.resolve_analysis(target_uri)?;
         let dirty_documents = self
             .dirty_documents_snapshot()
             .remap_for(&resolved.source_path_aliases);
         let cache_key = AnalysisCacheKey::from_resolved_dirty_snapshot(&resolved, &dirty_documents);
-        if let Some(structure) = self.structure_cache.borrow().get(&cache_key) {
-            return Ok(Rc::clone(structure));
+        if let Some(surface) = self.surface_cache.borrow().get(&cache_key) {
+            return Ok(Rc::clone(surface));
         }
 
         let driver = CompilerDriver::new(resolved.compile_options);
-        let Some(structure) = driver
-            .analyze_structure(
+        let Some(surface) = driver
+            .analyze_surface(
                 &resolved.input_file.to_string_lossy(),
                 &dirty_documents.overrides,
             )
             .map(Rc::new)
         else {
-            return Err("structure analysis failed".to_string());
+            return Err("surface analysis failed".to_string());
         };
         self.prune_cache_family_for_insert(&cache_key);
-        self.structure_cache
+        self.surface_cache
             .borrow_mut()
-            .insert(cache_key, Rc::clone(&structure));
-        Ok(structure)
-    }
-
-    fn analyze_outline(&self, target_uri: &str) -> Result<AnalysisOutline, String> {
-        let (parsed, driver) = self.parse_modules(target_uri)?;
-        Ok(driver.analyze_outline_from_parsed(&parsed))
+            .insert(cache_key, Rc::clone(&surface));
+        Ok(surface)
     }
 
     fn parse_modules(
@@ -1121,6 +1111,7 @@ impl AnalysisEngine {
 
     fn invalidate_artifact_cache(&self) {
         self.parse_cache.borrow_mut().clear();
+        self.surface_cache.borrow_mut().clear();
         self.structure_cache.borrow_mut().clear();
         self.artifact_cache.borrow_mut().clear();
     }
@@ -1136,6 +1127,9 @@ impl AnalysisEngine {
     fn prune_cache_family_for_insert(&self, keep: &AnalysisCacheKey) {
         let family = keep.family();
         self.parse_cache
+            .borrow_mut()
+            .retain(|key, _| key.family() != family || key == keep || key.is_clean());
+        self.surface_cache
             .borrow_mut()
             .retain(|key, _| key.family() != family || key == keep || key.is_clean());
         self.structure_cache

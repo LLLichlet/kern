@@ -201,6 +201,13 @@ impl SourceManager {
         self.files.get(id.get()).map(|f| &f.path)
     }
 
+    pub fn find_file_id_by_path(&self, path: &Path) -> Option<FileId> {
+        self.files
+            .iter()
+            .position(|file| file.path == path)
+            .map(FileId)
+    }
+
     pub fn update_file(&mut self, id: FileId, new_src: String) {
         if let Some(file) = self.files.get_mut(id.get()) {
             // Replace the contents while preserving the logical path.

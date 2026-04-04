@@ -51,10 +51,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                     TypeKind::Module(_) => {
                         // Modules live in the global namespace and never participate in closure capture.
-                        self.lower_identifier(*name)
+                        self.lower_identifier(expr.id, *name)
                     }
                     _ => {
-                        let kind = self.lower_identifier(*name);
+                        let kind = self.lower_identifier(expr.id, *name);
 
                         // Ordinary variables still need closure-capture safety checks.
                         if let MastExprKind::Var(v) = kind {

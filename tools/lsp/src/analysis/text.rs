@@ -13,32 +13,9 @@ pub(super) enum CompletionContext {
 }
 
 const VALUE_KEYWORD_COMPLETIONS: &[&str] = &[
-    "let",
-    "mut",
-    "const",
-    "static",
-    "type",
-    "return",
-    "if",
-    "else",
-    "for",
-    "break",
-    "continue",
-    "defer",
-    "match",
-    "pub",
-    "extern",
-    "use",
-    "impl",
-    "mod",
-    "true",
-    "false",
-    "undef",
-    "as",
-    "and",
-    "or",
-    "self",
-    "Self",
+    "let", "mut", "const", "static", "type", "return", "if", "else", "for", "break", "continue",
+    "defer", "match", "pub", "extern", "use", "impl", "mod", "true", "false", "undef", "as", "and",
+    "or", "self", "Self",
 ];
 
 const TYPE_KEYWORD_COMPLETIONS: &[&str] = &[

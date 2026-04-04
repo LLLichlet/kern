@@ -15,6 +15,7 @@ license = "MIT"
 [workspace.dependencies]
 
 # kernc
+kernc_db = { path = "compiler/kernc_db" }
 kernc_utils = { path = "compiler/kernc_utils" }
 kernc_lexer = { path = "compiler/kernc_lexer" }
 kernc_ast = { path = "compiler/kernc_ast" }

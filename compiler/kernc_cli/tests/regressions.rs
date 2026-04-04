@@ -5,7 +5,7 @@ use std::process::Command;
 
 use support::{
     assert_success, build_and_run, compile_source_tree_with_args, compile_source_with_args,
-    run_kernc, unique_temp_path,
+    emit_llvm_ir_with_args, run_kernc, unique_temp_path,
 };
 
 fn compile_source(source: &str) -> std::process::Output {
@@ -34,6 +34,212 @@ fn build_and_run_source_with_std(source: &str) -> std::process::Output {
         source,
         &["--use-std", "--link-profile", "hosted"],
     )
+}
+
+#[test]
+fn successful_compile_prints_unused_private_function_warning_and_prunes_ir() {
+    let source = r#"
+fn helper() i32 {
+    return 1;
+}
+
+extern fn main() i32 {
+    return 0;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_unused_private_warning", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("private function `helper` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("helper"),
+        "unused helper leaked into LLVM IR:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn successful_compile_prints_unused_private_constant_warning_and_prunes_ir() {
+    let source = r#"
+const helper = 1;
+
+extern fn main() i32 {
+    return 0;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_unused_private_const_warning", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("private constant `helper` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("helper"),
+        "unused helper leaked into LLVM IR:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn successful_compile_prints_unused_private_static_warning_and_prunes_ir() {
+    let source = r#"
+static helper = 1;
+
+extern fn main() i32 {
+    return 0;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_unused_private_static_warning", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("private static `helper` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("helper"),
+        "unused helper leaked into LLVM IR:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn successful_compile_prints_unused_binding_warnings() {
+    let source = r#"
+fn helper(_: i32, unused_param: i32, used_param: i32) i32 {
+    let unused_local = used_param;
+    return used_param;
+}
+
+extern fn main() i32 {
+    return helper(1, 2, 3);
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_unused_bindings_warning", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("parameter `unused_param` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("local variable `unused_local` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        !stderr.contains("parameter `_` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn successful_compile_prints_dead_store_warning() {
+    let source = r#"
+fn helper(seed: i32) i32 {
+    let mut value = seed;
+    if (seed == 0) {
+        return value;
+    }
+    value = seed + 1;
+    value = seed + 2;
+    return value;
+}
+
+extern fn main() i32 {
+    return helper(1);
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_dead_store_warning", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("value assigned to `value` is never read"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn successful_compile_prints_dead_initializer_warning() {
+    let source = r#"
+fn helper(seed: i32) i32 {
+    let mut value = seed;
+    value = seed + 1;
+    return value;
+}
+
+extern fn main() i32 {
+    return helper(1);
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_dead_initializer_warning", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("initial value assigned to `value` is never read"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn public_reexport_keeps_private_function_reachable_in_ir() {
+    let source = r#"
+fn helper() i32 {
+    return 1;
+}
+
+pub use .helper as exported;
+
+extern fn main() i32 {
+    return 0;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_reexport_root_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("private function `helper` is never used"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("helper"),
+        "reexport-root helper unexpectedly pruned from LLVM IR:\n{}",
+        stdout
+    );
 }
 
 #[test]

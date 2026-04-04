@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use crate::frontend::FrontendDatabase;
 use crate::metadata;
 use kernc_ast as ast;
-use kernc_parser::Parser;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
-use kernc_sema::passes::Pruner;
 use kernc_utils::SymbolId;
 
 struct ResolvedRootModule {
@@ -20,22 +19,16 @@ pub struct ModuleLoader<'a, 'ctx> {
     pub loaded_files: HashMap<PathBuf, DefId>,
     // Cache parsed ASTs until the collector extracts semantic symbols.
     pub asts: Vec<(DefId, ast::Module)>,
-    source_overrides: HashMap<PathBuf, String>,
+    frontend: &'a FrontendDatabase,
 }
 
 impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
-    pub fn new(
-        ctx: &'a mut SemaContext<'ctx>,
-        source_overrides: &crate::compiler::SourceOverrides,
-    ) -> Self {
+    pub fn new(ctx: &'a mut SemaContext<'ctx>, frontend: &'a FrontendDatabase) -> Self {
         Self {
             ctx,
             loaded_files: HashMap::new(),
             asts: Vec::new(),
-            source_overrides: source_overrides
-                .iter()
-                .map(|(path, src)| (Self::normalize_path(path), src.clone()))
-                .collect(),
+            frontend,
         }
     }
 
@@ -168,25 +161,6 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         }
     }
 
-    fn read_module_source(&mut self, abs_path: &PathBuf) -> Option<String> {
-        if let Some(src) = self.source_overrides.get(abs_path) {
-            return Some(src.clone());
-        }
-
-        match std::fs::read_to_string(abs_path) {
-            Ok(s) => Some(s),
-            Err(e) => {
-                self.ctx.sess.error_count += 1;
-                eprintln!(
-                    "Error: Cannot read module file '{}': {}",
-                    abs_path.display(),
-                    e
-                );
-                None
-            }
-        }
-    }
-
     fn load_module(
         &mut self,
         path: PathBuf,
@@ -200,7 +174,29 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             return Some(mod_id);
         }
 
-        let src = self.read_module_source(&abs_path)?;
+        let parsed = match self
+            .frontend
+            .load_parsed_module_uncached(self.ctx.sess, &abs_path)
+        {
+            Ok(Some(parsed)) => parsed,
+            Ok(None) => {
+                self.ctx.sess.error_count += 1;
+                eprintln!(
+                    "Error: Cannot read or parse module file '{}'.",
+                    abs_path.display()
+                );
+                return None;
+            }
+            Err(err) => {
+                self.ctx.sess.error_count += 1;
+                eprintln!(
+                    "Error: Query cycle while loading module '{}': {}",
+                    abs_path.display(),
+                    err
+                );
+                return None;
+            }
+        };
         let Some(dir_path) = abs_path.parent().map(|p| p.to_path_buf()) else {
             self.ctx.sess.error_count += 1;
             eprintln!(
@@ -212,11 +208,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
         let mod_id = DefId(self.ctx.defs.len() as u32);
         self.loaded_files.insert(abs_path.clone(), mod_id);
-        let file_id = self
-            .ctx
-            .sess
-            .source_manager
-            .add_file(abs_path.to_string_lossy().to_string(), src.clone());
+        let file_id = parsed.file_id;
 
         let scope_id = self.ctx.scopes.enter_scope();
         self.ctx.scopes.exit_scope();
@@ -238,17 +230,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             docs: None,
         };
         self.ctx.add_def(Def::Module(dummy_def));
-        let mut ast = {
-            let mut parser = Parser::new(&src, file_id, self.ctx.sess);
-            match parser.parse_module() {
-                Ok(ast) => ast,
-                Err(_) => return None,
-            }
-        };
-        ast.path = abs_path.to_string_lossy().to_string();
-
-        let mut pruner = Pruner::new(self.ctx.sess);
-        pruner.prune_module(&mut ast);
+        let ast = parsed.ast;
 
         let mut submodules = HashMap::new();
 
@@ -310,7 +292,6 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     }
 
     fn path_exists(&self, path: &Path) -> bool {
-        let normalized = Self::normalize_path(path);
-        self.source_overrides.contains_key(&normalized) || path.exists()
+        self.frontend.source_exists(path).unwrap_or(false)
     }
 }

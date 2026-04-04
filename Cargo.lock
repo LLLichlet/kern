@@ -78,11 +78,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kernc_db"
+version = "0.6.6"
+
+[[package]]
 name = "kernc_driver"
 version = "0.6.6"
 dependencies = [
  "kernc_ast",
  "kernc_codegen",
+ "kernc_db",
  "kernc_lower",
  "kernc_mast",
  "kernc_parser",

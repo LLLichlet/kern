@@ -156,11 +156,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.track_pure_enum_repr_in_type(conc_ret);
 
         let saved_local_types = std::mem::take(&mut self.local_types);
+        let saved_local_forwardings = std::mem::take(&mut self.local_forwardings);
+        let saved_local_value_forwardings = std::mem::take(&mut self.local_value_forwardings);
         let saved_defer_stack = std::mem::take(&mut self.defer_stack);
         let saved_loop_frames = std::mem::take(&mut self.loop_frames);
         let saved_local_statics = std::mem::take(&mut self.local_statics);
 
         self.local_types.push(std::collections::HashMap::new());
+        self.local_forwardings
+            .push(std::collections::HashMap::new());
+        self.local_value_forwardings
+            .push(std::collections::HashMap::new());
         for p in &mast_params {
             if let Some(scope) = self.local_types.last_mut() {
                 scope.insert(p.name, (p.ty, p.is_mut));
@@ -175,6 +181,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let body = if self.function_requires_runtime_body(&def) {
             let prev_scope = self.ctx.scopes.current_scope_id();
+            let saved_owner = self.current_owner_def_id.replace(def_id);
             if let Some(owner_scope) = self.function_owner_scope(&def) {
                 self.ctx.scopes.set_current_scope(owner_scope);
             }
@@ -187,6 +194,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Some(prev_scope) = prev_scope {
                 self.ctx.scopes.set_current_scope(prev_scope);
             }
+            self.current_owner_def_id = saved_owner;
 
             body
         } else {
@@ -194,8 +202,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         self.local_types.pop();
+        self.local_forwardings.pop();
+        self.local_value_forwardings.pop();
 
         self.local_types = saved_local_types;
+        self.local_forwardings = saved_local_forwardings;
+        self.local_value_forwardings = saved_local_value_forwardings;
         self.defer_stack = saved_defer_stack;
         self.loop_frames = saved_loop_frames;
         self.local_statics = saved_local_statics;
@@ -744,6 +756,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // Perform constant folding.
         let init = if !g.is_extern {
             let prev_scope = self.ctx.scopes.current_scope_id();
+            let saved_owner = self.current_owner_def_id.replace(g.id);
             if let Some(owner_scope) = self.global_owner_scope(g.id) {
                 self.ctx.scopes.set_current_scope(owner_scope);
             }
@@ -771,6 +784,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Some(prev_scope) = prev_scope {
                 self.ctx.scopes.set_current_scope(prev_scope);
             }
+            self.current_owner_def_id = saved_owner;
 
             folded
         } else {

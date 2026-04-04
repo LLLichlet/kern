@@ -387,7 +387,10 @@ fn parse_docs(contents: &str) -> Result<Vec<KmetaDocItem>, String> {
             }
             Some(SectionKind::ItemSectionEntry) => {
                 let section = current_section.as_mut().ok_or_else(|| {
-                    format!("docs line {} appears outside `[[item.section.entry]]`", index + 1)
+                    format!(
+                        "docs line {} appears outside `[[item.section.entry]]`",
+                        index + 1
+                    )
                 })?;
                 let entry = section.entries.last_mut().ok_or_else(|| {
                     format!(
@@ -465,7 +468,10 @@ fn flush_item(items: &mut Vec<KmetaDocItem>, current_item: &mut Option<KmetaDocI
 
 fn ensure_item(line: usize, current_item: &Option<KmetaDocItem>) -> Result<(), String> {
     if current_item.is_none() {
-        return Err(format!("docs line {} starts a section before any item", line));
+        return Err(format!(
+            "docs line {} starts a section before any item",
+            line
+        ));
     }
     Ok(())
 }

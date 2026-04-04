@@ -174,6 +174,577 @@ fn diagnostics_include_native_doc_lints_for_impl_methods() {
 }
 
 #[test]
+fn diagnostics_warn_for_unreachable_private_function_chain() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn leaf() i32 { return 1; }\n",
+        "fn helper() i32 { return leaf(); }\n",
+        "fn main() i32 { return 0; }\n",
+    );
+    let uri = temp_file_uri("unused_private_chain", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private function `helper` is never used")
+    }));
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private function `leaf` is never used")
+    }));
+}
+
+#[test]
+fn diagnostics_warn_for_unreachable_private_constant() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!("const helper = 1;\n", "fn main() i32 { return 0; }\n",);
+    let uri = temp_file_uri("unused_private_const", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private constant `helper` is never used")
+    }));
+}
+
+#[test]
+fn diagnostics_warn_for_unreachable_private_static() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!("static helper = 1;\n", "fn main() i32 { return 0; }\n",);
+    let uri = temp_file_uri("unused_private_static", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private static `helper` is never used")
+    }));
+}
+
+#[test]
+fn diagnostics_warn_for_unused_parameter_and_local_binding() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(_: i32, unused_param: i32, used_param: i32) i32 {\n",
+        "    let unused_local = used_param;\n",
+        "    return used_param;\n",
+        "}\n",
+        "fn main() i32 { return helper(1, 2, 3); }\n",
+    );
+    let uri = temp_file_uri("unused_bindings", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("parameter `unused_param` is never used")
+    }));
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("local variable `unused_local` is never used")
+    }));
+    assert!(
+        !bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("parameter `_` is never used") })
+    );
+}
+
+#[test]
+fn diagnostics_warn_for_dead_store_assignment() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(seed: i32) i32 {\n",
+        "    let mut value = seed;\n",
+        "    if (seed == 0) { return value; }\n",
+        "    value = seed + 1;\n",
+        "    value = seed + 2;\n",
+        "    return value;\n",
+        "}\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let uri = temp_file_uri("dead_store_assignment", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("value assigned to `value` is never read")
+    }));
+}
+
+#[test]
+fn diagnostics_warn_for_dead_initializer() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper(seed: i32) i32 {\n",
+        "    let mut value = seed;\n",
+        "    value = seed + 1;\n",
+        "    return value;\n",
+        "}\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let uri = temp_file_uri("dead_initializer", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("initial value assigned to `value` is never read")
+    }));
+}
+
+#[test]
+fn diagnostics_warn_for_unreachable_private_item_chain() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "const leaf = i32.{1};\n",
+        "fn helper() i32 { return leaf; }\n",
+        "fn main() i32 { return 0; }\n",
+    );
+    let uri = temp_file_uri("unused_private_item_chain", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private function `helper` is never used")
+    }));
+    assert!(bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private constant `leaf` is never used")
+    }));
+}
+
+#[test]
+fn public_reexport_marks_private_function_as_reachable_root() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "pub use .helper as exported;\n",
+        "fn main() i32 { return 0; }\n",
+    );
+    let uri = temp_file_uri("unused_private_reexport_root", source);
+
+    let outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let bundle = outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(
+        !bundle.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("private function `helper` is never used")),
+        "unexpected diagnostics: {:?}",
+        bundle.diagnostics
+    );
+}
+
+#[test]
+fn body_only_change_recomputes_unused_private_function_warning() {
+    let mut analysis = AnalysisEngine::default();
+    let initial = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 { return 0; }\n",
+    );
+    let updated = concat!(
+        "fn helper() i32 { return 1; }\n",
+        "fn main() i32 { return helper(); }\n",
+    );
+    let uri = temp_file_uri("unused_private_incremental", initial);
+
+    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: initial.to_string(),
+        },
+    });
+    let open_bundle = open_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(open_bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private function `helper` is never used")
+    }));
+
+    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: updated.to_string(),
+        }],
+    });
+    let change_bundle = change_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(
+        !change_bundle.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("private function `helper` is never used")),
+        "unexpected diagnostics: {:?}",
+        change_bundle.diagnostics
+    );
+}
+
+#[test]
+fn body_only_change_recomputes_unused_private_constant_warning() {
+    let mut analysis = AnalysisEngine::default();
+    let initial = concat!("const helper = 1;\n", "fn main() i32 { return 0; }\n",);
+    let updated = concat!("const helper = 1;\n", "fn main() i32 { return helper; }\n",);
+    let uri = temp_file_uri("unused_private_const_incremental", initial);
+
+    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: initial.to_string(),
+        },
+    });
+    let open_bundle = open_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(open_bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private constant `helper` is never used")
+    }));
+
+    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: updated.to_string(),
+        }],
+    });
+    let change_bundle = change_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(
+        !change_bundle.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("private constant `helper` is never used")),
+        "unexpected diagnostics: {:?}",
+        change_bundle.diagnostics
+    );
+}
+
+#[test]
+fn body_only_change_recomputes_unused_private_static_warning() {
+    let mut analysis = AnalysisEngine::default();
+    let initial = concat!("static helper = 1;\n", "fn main() i32 { return 0; }\n",);
+    let updated = concat!("static helper = 1;\n", "fn main() i32 { return helper; }\n",);
+    let uri = temp_file_uri("unused_private_static_incremental", initial);
+
+    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: initial.to_string(),
+        },
+    });
+    let open_bundle = open_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(open_bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("private static `helper` is never used")
+    }));
+
+    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: updated.to_string(),
+        }],
+    });
+    let change_bundle = change_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(
+        !change_bundle.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("private static `helper` is never used")),
+        "unexpected diagnostics: {:?}",
+        change_bundle.diagnostics
+    );
+}
+
+#[test]
+fn body_only_change_recomputes_unused_binding_warnings() {
+    let mut analysis = AnalysisEngine::default();
+    let initial = concat!(
+        "fn helper(unused_param: i32, used_param: i32) i32 {\n",
+        "    let unused_local = used_param;\n",
+        "    return used_param;\n",
+        "}\n",
+        "fn main() i32 { return helper(1, 2); }\n",
+    );
+    let updated = concat!(
+        "fn helper(unused_param: i32, used_param: i32) i32 {\n",
+        "    let unused_local = used_param;\n",
+        "    if (unused_param == 0) { return unused_local; }\n",
+        "    return used_param;\n",
+        "}\n",
+        "fn main() i32 { return helper(1, 2); }\n",
+    );
+    let uri = temp_file_uri("unused_bindings_incremental", initial);
+
+    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: initial.to_string(),
+        },
+    });
+    let open_bundle = open_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(open_bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("parameter `unused_param` is never used")
+    }));
+    assert!(open_bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("local variable `unused_local` is never used")
+    }));
+
+    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: updated.to_string(),
+        }],
+    });
+    let change_bundle = change_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(
+        !change_bundle.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("parameter `unused_param` is never used")),
+        "unexpected diagnostics: {:?}",
+        change_bundle.diagnostics
+    );
+    assert!(
+        !change_bundle.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("local variable `unused_local` is never used")),
+        "unexpected diagnostics: {:?}",
+        change_bundle.diagnostics
+    );
+}
+
+#[test]
+fn body_only_change_recomputes_dead_store_warnings() {
+    let mut analysis = AnalysisEngine::default();
+    let initial = concat!(
+        "fn helper(seed: i32) i32 {\n",
+        "    let mut value = seed;\n",
+        "    value = seed + 1;\n",
+        "    value = seed + 2;\n",
+        "    return value;\n",
+        "}\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let updated = concat!(
+        "fn helper(seed: i32) i32 {\n",
+        "    let mut value = seed;\n",
+        "    value = seed + 1;\n",
+        "    if (seed == 0) { return value; }\n",
+        "    value = seed + 2;\n",
+        "    return value;\n",
+        "}\n",
+        "fn main() i32 { return helper(1); }\n",
+    );
+    let uri = temp_file_uri("dead_store_incremental", initial);
+
+    let open_outcome = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: initial.to_string(),
+        },
+    });
+    let open_bundle = open_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(open_bundle.diagnostics.iter().any(|diagnostic| {
+        diagnostic
+            .message
+            .contains("value assigned to `value` is never read")
+    }));
+
+    let change_outcome = analysis.change_document(DidChangeTextDocumentParams {
+        text_document: VersionedTextDocumentIdentifier {
+            uri: uri.clone(),
+            version: 2,
+        },
+        content_changes: vec![TextDocumentContentChangeEvent {
+            range: None,
+            text: updated.to_string(),
+        }],
+    });
+    let change_bundle = change_outcome
+        .bundles
+        .iter()
+        .find(|bundle| bundle.uri == uri)
+        .expect("expected diagnostics bundle");
+    assert!(
+        !change_bundle.diagnostics.iter().any(|diagnostic| diagnostic
+            .message
+            .contains("value assigned to `value` is never read")),
+        "unexpected diagnostics: {:?}",
+        change_bundle.diagnostics
+    );
+}
+
+#[test]
 fn incremental_sync_inserts_text() {
     let mut analysis = AnalysisEngine::default();
     let uri = temp_file_uri("incremental_insert", "let value = 1;");
@@ -337,7 +908,10 @@ fn incremental_sync_respects_utf16_positions() {
 #[test]
 fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
     let mut analysis = AnalysisEngine::default();
-    let uri = temp_file_uri("semantic_tokens_dirty_fallback", "fn main() i32 { return 1; }\n");
+    let uri = temp_file_uri(
+        "semantic_tokens_dirty_fallback",
+        "fn main() i32 { return 1; }\n",
+    );
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
@@ -361,7 +935,11 @@ fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
     assert!(!decoded.is_empty());
-    assert!(decoded.iter().any(|token| token.2 == SemanticTokenTypes::KEYWORD));
+    assert!(
+        decoded
+            .iter()
+            .any(|token| token.2 == SemanticTokenTypes::KEYWORD)
+    );
 }
 
 #[test]
@@ -943,7 +1521,7 @@ fn extracts_document_symbols_from_compiler_artifact() {
 }
 
 #[test]
-fn document_symbols_use_structure_cache_without_body_artifact() {
+fn document_symbols_use_surface_cache_without_body_artifact() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "type Point = struct { x: i32 };\n",
@@ -963,8 +1541,12 @@ fn document_symbols_use_structure_cache_without_body_artifact() {
     });
 
     analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
+    analysis.structure_cache.borrow_mut().clear();
     analysis.artifact_cache.borrow_mut().clear();
     assert_eq!(analysis.parse_cache.borrow().len(), 0);
+    assert_eq!(analysis.surface_cache.borrow().len(), 0);
+    assert_eq!(analysis.structure_cache.borrow().len(), 0);
     assert_eq!(analysis.artifact_cache.borrow().len(), 0);
 
     let symbols = analysis.document_symbols(&uri).unwrap();
@@ -975,8 +1557,39 @@ fn document_symbols_use_structure_cache_without_body_artifact() {
 
     assert!(names.contains(&"Point".to_string()));
     assert!(names.contains(&"helper".to_string()));
-    assert_eq!(analysis.parse_cache.borrow().len(), 1);
+    assert_eq!(analysis.parse_cache.borrow().len(), 0);
+    assert_eq!(analysis.surface_cache.borrow().len(), 1);
+    assert_eq!(analysis.structure_cache.borrow().len(), 0);
     assert_eq!(analysis.artifact_cache.borrow().len(), 0);
+}
+
+#[test]
+fn document_symbols_use_collected_outline_names_for_impl_blocks() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Point = struct { x: i32 };\n",
+        "impl Point {\n",
+        "    fn magnitude() i32 { return self.x; }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("document_symbols_impl_outline", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let symbols = analysis.document_symbols(&uri).unwrap();
+    let impl_symbol = symbols
+        .iter()
+        .find(|symbol| symbol.name == "impl Point")
+        .expect("impl block should use collected outline naming");
+
+    assert_eq!(impl_symbol.detail.as_deref(), Some("impl"));
 }
 
 #[test]
@@ -1899,7 +2512,211 @@ fn completion_in_function_body_includes_visible_symbols() {
 }
 
 #[test]
-fn completion_in_function_signature_uses_parse_and_structure_caches() {
+fn completion_after_block_statements_includes_prior_bindings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn main(flag: i32) void {\n",
+        "    {\n",
+        "        let first = flag;\n",
+        "        let second = first;\n",
+        "        \n",
+        "    }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_block_tail_bindings", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 4,
+                character: 8,
+            },
+        )
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"flag".to_string()));
+    assert!(labels.contains(&"first".to_string()));
+    assert!(labels.contains(&"second".to_string()));
+}
+
+#[test]
+fn completion_in_for_body_includes_init_bindings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn main(limit: i32) void {\n",
+        "    for (let index = 0; index < limit; index += 1) {\n",
+        "        \n",
+        "    }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_for_body_bindings", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 2,
+                character: 8,
+            },
+        )
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"limit".to_string()));
+    assert!(labels.contains(&"index".to_string()));
+}
+
+#[test]
+fn completion_in_match_arm_body_includes_pattern_bindings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "type Result = enum { Ok: i32, Err };\n",
+        "fn main(value: Result) void {\n",
+        "    match (value) {\n",
+        "        .{ Ok: payload } => {\n",
+        "            \n",
+        "        },\n",
+        "        .Err => {},\n",
+        "    };\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_match_arm_bindings", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 4,
+                character: 12,
+            },
+        )
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"value".to_string()));
+    assert!(labels.contains(&"payload".to_string()));
+}
+
+#[test]
+fn completion_in_closure_body_includes_capture_and_param_bindings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn main(seed: i32) void {\n",
+        "    let visit = .[seed](value: i32) bool {\n",
+        "        \n",
+        "        return true;\n",
+        "    };\n",
+        "    let _ = visit;\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_closure_bindings", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 2,
+                character: 8,
+            },
+        )
+        .unwrap();
+    let labels = completion_labels(&items);
+
+    assert!(labels.contains(&"seed".to_string()));
+    assert!(labels.contains(&"value".to_string()));
+}
+
+#[test]
+fn completion_in_if_branches_includes_outer_bindings() {
+    let mut analysis = AnalysisEngine::default();
+    let source = concat!(
+        "fn main(seed: i32) void {\n",
+        "    let value = seed;\n",
+        "    if (seed > 0) {\n",
+        "        \n",
+        "    } else {\n",
+        "        \n",
+        "    }\n",
+        "}\n",
+    );
+    let uri = temp_file_uri("completion_if_branch_bindings", source);
+
+    let _ = analysis.open_document(DidOpenTextDocumentParams {
+        text_document: TextDocumentItem {
+            uri: uri.clone(),
+            _language_id: "kern".to_string(),
+            version: 1,
+            text: source.to_string(),
+        },
+    });
+
+    let then_items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 3,
+                character: 8,
+            },
+        )
+        .unwrap();
+    let then_labels = completion_labels(&then_items);
+    assert!(then_labels.contains(&"seed".to_string()));
+    assert!(then_labels.contains(&"value".to_string()));
+
+    let else_items = analysis
+        .completion(
+            &uri,
+            Position {
+                line: 5,
+                character: 8,
+            },
+        )
+        .unwrap();
+    let else_labels = completion_labels(&else_items);
+    assert!(else_labels.contains(&"seed".to_string()));
+    assert!(else_labels.contains(&"value".to_string()));
+}
+
+#[test]
+fn completion_in_function_signature_uses_surface_cache_without_parse_cache() {
     let mut analysis = AnalysisEngine::default();
     let source = concat!(
         "type Helper = struct {};\n",
@@ -1919,6 +2736,7 @@ fn completion_in_function_signature_uses_parse_and_structure_caches() {
     });
 
     analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
     analysis.structure_cache.borrow_mut().clear();
     analysis.artifact_cache.borrow_mut().clear();
 
@@ -1928,8 +2746,9 @@ fn completion_in_function_signature_uses_parse_and_structure_caches() {
     let labels = completion_labels(&items);
 
     assert!(labels.contains(&"Helper".to_string()));
-    assert_eq!(analysis.parse_cache.borrow().len(), 1);
-    assert_eq!(analysis.structure_cache.borrow().len(), 1);
+    assert_eq!(analysis.parse_cache.borrow().len(), 0);
+    assert_eq!(analysis.surface_cache.borrow().len(), 1);
+    assert!(analysis.structure_cache.borrow().is_empty());
     assert!(analysis.artifact_cache.borrow().is_empty());
 }
 
@@ -1954,6 +2773,7 @@ fn completion_in_function_body_still_uses_full_artifact_cache() {
     });
 
     analysis.parse_cache.borrow_mut().clear();
+    analysis.surface_cache.borrow_mut().clear();
     analysis.structure_cache.borrow_mut().clear();
     analysis.artifact_cache.borrow_mut().clear();
 
@@ -1963,7 +2783,8 @@ fn completion_in_function_body_still_uses_full_artifact_cache() {
     let labels = completion_labels(&items);
 
     assert!(labels.contains(&"helper".to_string()));
-    assert_eq!(analysis.parse_cache.borrow().len(), 1);
+    assert_eq!(analysis.parse_cache.borrow().len(), 0);
+    assert_eq!(analysis.surface_cache.borrow().len(), 1);
     assert_eq!(analysis.structure_cache.borrow().len(), 1);
     assert_eq!(analysis.artifact_cache.borrow().len(), 1);
 }
@@ -2045,7 +2866,10 @@ fn completion_includes_keyword_suggestions_for_prefixes() {
     let let_item = items.iter().find(|item| item.label == "let").unwrap();
 
     assert!(labels.contains(&"let".to_string()));
-    assert_eq!(let_item.insert_text.as_deref(), Some("let ${1:name} = ${0};"));
+    assert_eq!(
+        let_item.insert_text.as_deref(),
+        Some("let ${1:name} = ${0};")
+    );
     assert_eq!(let_item.insert_text_format, Some(2));
 }
 
@@ -2100,7 +2924,10 @@ fn completion_includes_top_level_type_keyword_snippet() {
     let type_item = items.iter().find(|item| item.label == "type").unwrap();
 
     assert!(labels.contains(&"type".to_string()));
-    assert_eq!(type_item.insert_text.as_deref(), Some("type ${1:Name} = ${0};"));
+    assert_eq!(
+        type_item.insert_text.as_deref(),
+        Some("type ${1:Name} = ${0};")
+    );
     assert_eq!(type_item.insert_text_format, Some(2));
 }
 
@@ -2126,7 +2953,10 @@ fn completion_in_type_context_includes_struct_keyword_snippet() {
     let struct_item = items.iter().find(|item| item.label == "struct").unwrap();
 
     assert!(labels.contains(&"struct".to_string()));
-    assert_eq!(struct_item.insert_text.as_deref(), Some("struct {\n    $0\n}"));
+    assert_eq!(
+        struct_item.insert_text.as_deref(),
+        Some("struct {\n    $0\n}")
+    );
     assert_eq!(struct_item.insert_text_format, Some(2));
 }
 

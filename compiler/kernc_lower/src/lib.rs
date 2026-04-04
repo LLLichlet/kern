@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+#![doc = include_str!("../README.md")]
+
+use std::collections::{HashMap, HashSet};
 
 use kernc_ast as ast;
 use kernc_mast::*;
@@ -13,6 +15,41 @@ pub(crate) mod expr;
 pub(crate) mod mono;
 pub(crate) mod vtable;
 
+#[derive(Debug, Clone, Default)]
+pub struct FlowLoweringHints {
+    owners: HashMap<DefId, FlowLoweringOwnerHints>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FlowLoweringOwnerHints {
+    pub elision: FlowLoweringElisionHints,
+    pub forwarding: FlowLoweringForwardingHints,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FlowLoweringElisionHints {
+    pub pure_dead_initializer_expr_ids: HashSet<NodeId>,
+    pub pure_dead_assignment_expr_ids: HashSet<NodeId>,
+    pub elidable_binding_expr_ids: HashSet<NodeId>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct FlowLoweringForwardingHints {
+    pub identifier_copy_sources: HashMap<NodeId, String>,
+    pub forwardable_binding_sources: HashMap<NodeId, String>,
+    pub forwardable_value_expr_ids: HashSet<NodeId>,
+}
+
+impl FlowLoweringHints {
+    pub fn insert_owner(&mut self, def_id: DefId, hints: FlowLoweringOwnerHints) {
+        self.owners.insert(def_id, hints);
+    }
+
+    pub fn owner(&self, def_id: DefId) -> Option<&FlowLoweringOwnerHints> {
+        self.owners.get(&def_id)
+    }
+}
+
 pub struct Lowerer<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     module: MastModule,
@@ -25,6 +62,8 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) global_symbol_map: HashMap<SymbolId, MonoId>,
     pub(crate) vtable_cache: HashMap<(TypeId, TypeId), MonoId>,
     pub(crate) local_types: Vec<HashMap<SymbolId, (TypeId, bool)>>,
+    pub(crate) local_forwardings: Vec<HashMap<SymbolId, SymbolId>>,
+    pub(crate) local_value_forwardings: Vec<HashMap<SymbolId, MastExpr>>,
     pub(crate) local_statics: Vec<HashMap<SymbolId, MonoId>>,
     pub(crate) loop_frames: Vec<usize>,
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
@@ -32,6 +71,9 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) anon_struct_cache: HashMap<TypeId, MonoId>,
     pub(crate) anon_union_cache: HashMap<TypeId, MonoId>,
     pub(crate) anon_enum_cache: HashMap<TypeId, MonoId>,
+    pub(crate) reachable_module_items: Option<HashSet<DefId>>,
+    pub(crate) flow_lowering_hints: FlowLoweringHints,
+    pub(crate) current_owner_def_id: Option<DefId>,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -65,6 +107,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             global_symbol_map: HashMap::new(),
             vtable_cache: HashMap::new(),
             local_types: Vec::new(),
+            local_forwardings: Vec::new(),
+            local_value_forwardings: Vec::new(),
             local_statics: Vec::new(),
             loop_frames: Vec::new(),
             adt_union_map: HashMap::new(),
@@ -72,11 +116,143 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             anon_struct_cache: HashMap::new(),
             anon_union_cache: HashMap::new(),
             anon_enum_cache: HashMap::new(),
+            reachable_module_items: None,
+            flow_lowering_hints: FlowLoweringHints::default(),
+            current_owner_def_id: None,
         }
     }
 
     pub fn context(&mut self) -> &mut SemaContext<'ctx> {
         self.ctx
+    }
+
+    pub fn set_reachable_module_items(&mut self, reachable: HashSet<DefId>) {
+        self.reachable_module_items = Some(reachable);
+    }
+
+    pub fn set_flow_lowering_hints(&mut self, hints: FlowLoweringHints) {
+        self.flow_lowering_hints = hints;
+    }
+
+    pub(crate) fn current_owner_flow_hints(&self) -> Option<&FlowLoweringOwnerHints> {
+        self.current_owner_def_id
+            .and_then(|def_id| self.flow_lowering_hints.owner(def_id))
+    }
+
+    pub(crate) fn is_pure_dead_initializer(&self, expr_id: NodeId) -> bool {
+        self.current_owner_flow_hints().is_some_and(|hints| {
+            hints
+                .elision
+                .pure_dead_initializer_expr_ids
+                .contains(&expr_id)
+        })
+    }
+
+    pub(crate) fn is_pure_dead_assignment(&self, expr_id: NodeId) -> bool {
+        self.current_owner_flow_hints().is_some_and(|hints| {
+            hints
+                .elision
+                .pure_dead_assignment_expr_ids
+                .contains(&expr_id)
+        })
+    }
+
+    pub(crate) fn identifier_copy_source(&mut self, expr_id: NodeId) -> Option<SymbolId> {
+        let name = self
+            .current_owner_flow_hints()
+            .and_then(|hints| hints.forwarding.identifier_copy_sources.get(&expr_id))
+            .cloned()?;
+        Some(self.ctx.intern(&name))
+    }
+
+    pub(crate) fn forwardable_binding_source(&mut self, expr_id: NodeId) -> Option<SymbolId> {
+        let name = self
+            .current_owner_flow_hints()
+            .and_then(|hints| hints.forwarding.forwardable_binding_sources.get(&expr_id))
+            .cloned()?;
+        Some(self.ctx.intern(&name))
+    }
+
+    pub(crate) fn is_forwardable_value_binding(&self, expr_id: NodeId) -> bool {
+        self.current_owner_flow_hints().is_some_and(|hints| {
+            hints
+                .forwarding
+                .forwardable_value_expr_ids
+                .contains(&expr_id)
+        })
+    }
+
+    pub(crate) fn is_elidable_binding(&self, expr_id: NodeId) -> bool {
+        self.current_owner_flow_hints()
+            .is_some_and(|hints| hints.elision.elidable_binding_expr_ids.contains(&expr_id))
+    }
+
+    pub(crate) fn record_local_forwarding(
+        &mut self,
+        span: Span,
+        name: SymbolId,
+        forwarded_to: SymbolId,
+        context: &str,
+    ) -> bool {
+        if let Some(scope) = self.local_forwardings.last_mut() {
+            scope.insert(name, forwarded_to);
+            true
+        } else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Kern ICE (Lowering): missing local forwarding scope while {}.",
+                    context
+                ),
+            );
+            false
+        }
+    }
+
+    pub(crate) fn record_local_value_forwarding(
+        &mut self,
+        span: Span,
+        name: SymbolId,
+        value: MastExpr,
+        context: &str,
+    ) -> bool {
+        if let Some(scope) = self.local_value_forwardings.last_mut() {
+            scope.insert(name, value);
+            true
+        } else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Kern ICE (Lowering): missing local value-forwarding scope while {}.",
+                    context
+                ),
+            );
+            false
+        }
+    }
+
+    pub(crate) fn resolve_forwarded_local(&self, name: SymbolId) -> SymbolId {
+        let mut current = name;
+        let mut visited = HashSet::new();
+        while visited.insert(current) {
+            let Some(next) = self
+                .local_forwardings
+                .iter()
+                .rev()
+                .find_map(|scope| scope.get(&current).copied())
+            else {
+                break;
+            };
+            current = next;
+        }
+        current
+    }
+
+    pub(crate) fn forwarded_local_value(&self, name: SymbolId) -> Option<MastExpr> {
+        self.local_value_forwardings
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(&name).cloned())
     }
 
     fn new_mono_id(&mut self) -> MonoId {
@@ -115,6 +291,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
+    fn is_module_owned_free_function(&self, f: &FunctionDef) -> bool {
+        let Some(parent_id) = f.parent else {
+            return false;
+        };
+
+        matches!(&self.ctx.defs[parent_id.0 as usize], Def::Module(_))
+    }
+
     /// Entry point for lowering: recursively monomorphize every non-generic root item.
     pub fn lower_all(&mut self) -> MastModule {
         let def_ids: Vec<_> = (0..self.ctx.defs.len()).map(|i| DefId(i as u32)).collect();
@@ -147,6 +331,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     if f.is_intrinsic {
                         continue;
                     }
+                    if self
+                        .reachable_module_items
+                        .as_ref()
+                        .is_some_and(|reachable| {
+                            self.is_module_owned_free_function(&f) && !reachable.contains(&id)
+                        })
+                    {
+                        continue;
+                    }
                     // A function is only a free concrete item when neither it nor its parent impl is generic.
                     let mut is_generic = !f.generics.is_empty();
                     if let Some(parent_id) = f.parent
@@ -161,7 +354,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
                 }
                 Def::Global(g) => {
-                    if !g.is_imported {
+                    if !g.is_imported
+                        && self
+                            .reachable_module_items
+                            .as_ref()
+                            .is_none_or(|reachable| reachable.contains(&id))
+                    {
                         self.lower_global(&g);
                     }
                 }

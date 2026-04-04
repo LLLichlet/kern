@@ -371,6 +371,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
         for (i, param_ast) in f.params.iter().enumerate() {
             if i < param_tys.len() {
+                if self.ctx.resolve(param_ast.pattern.name) == "_" {
+                    continue;
+                }
                 let info = SymbolInfo {
                     kind: SymbolKind::Var,
                     node_id: param_ast.type_node.id,

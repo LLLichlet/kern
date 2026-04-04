@@ -15,7 +15,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         MastExprKind::Trap
     }
 
-    pub(crate) fn lower_identifier(&mut self, name: SymbolId) -> MastExprKind {
+    pub(crate) fn lower_identifier(
+        &mut self,
+        expr_id: kernc_utils::NodeId,
+        name: SymbolId,
+    ) -> MastExprKind {
+        let name = self.identifier_copy_source(expr_id).unwrap_or(name);
+        let name = self.resolve_forwarded_local(name);
+        if let Some(value) = self.forwarded_local_value(name) {
+            return value.kind;
+        }
+
         // Inline constant values when possible.
         if let Some(info) = self.ctx.scopes.resolve(name).cloned()
             && info.kind == SymbolKind::Const

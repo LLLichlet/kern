@@ -9,11 +9,9 @@ pub struct Token {
     pub span: Span,
 }
 
-
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum TokenType {
     // === Identifiers and literals ===
-    
     /// Identifier token, for example `abc` or `my_var`.
     Identifier,
 
@@ -39,8 +37,7 @@ pub enum TokenType {
     DocCommentInner,
 
     // === Keywords ===
-    
-    Fn, 
+    Fn,
     Let,
     Mut,
     Const,
@@ -79,7 +76,6 @@ pub enum TokenType {
     // === Operators ===
 
     // Arithmetic
-
     /// `+`
     Plus,
 
@@ -87,7 +83,7 @@ pub enum TokenType {
     Minus,
 
     /// `*`
-    /// 
+    ///
     /// Also used for pointer dereference and pointer types such as `*T`.
     Star,
 
@@ -98,10 +94,9 @@ pub enum TokenType {
     Percent,
 
     // Special prefixes
-
     /// `#arr` length operator.
     Hash,
-    
+
     /// `@intToFloat`-style intrinsic prefix.
     At,
 
@@ -109,13 +104,12 @@ pub enum TokenType {
     Caret,
 
     // Logical and bitwise operators
-
     /// `!` for macro-style calls or logical negation.
     Bang,
 
     /// `&` for address-of or bitwise AND.
     Ampersand,
-    
+
     /// `|` bitwise OR.
     Pipe,
 
@@ -123,27 +117,25 @@ pub enum TokenType {
     Tilde,
 
     // Comparisons
-
     /// `==`
     EqualEqual,
 
     /// `!=`
     NotEqual,
-    
+
     /// `<`
     LessThan,
-    
+
     /// `<=`
     LessEqual,
-    
+
     /// `>`
     GreaterThan,
-    
+
     /// `>=`
     GreaterEqual,
 
     // Shifts
-
     /// `<<`
     LShift,
 
@@ -151,7 +143,6 @@ pub enum TokenType {
     RShift,
 
     // Assignments
-
     /// `=`
     Assign,
 
@@ -175,18 +166,17 @@ pub enum TokenType {
 
     /// `|=`
     PipeAssign,
-    
+
     /// `^=`
     CaretAssign,
 
     /// `<<=`
     LShiftAssign,
-    
+
     /// `>>=`
     RShiftAssign,
 
     // === Punctuation ===
-
     /// `.` field access.
     Dot,
 
@@ -234,13 +224,13 @@ pub enum TokenType {
 
     /// {
     LBrace,
-    
+
     /// }
     RBrace,
 
     /// [
     LBracket,
-    
+
     /// ]
     RBracket,
 
@@ -248,10 +238,9 @@ pub enum TokenType {
     Arrow,
 
     // === Special ===
-
     /// End of file sentinel.
     Eof,
-    
+
     /// Invalid token produced after recovery.
     #[default]
     Illegal,

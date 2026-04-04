@@ -18,16 +18,10 @@ pub enum TypeKind {
     },
 
     /// Pointer type: `*T` or `*mut T`.
-    Pointer {
-        is_mut: bool,
-        elem: Box<TypeNode>,
-    },
+    Pointer { is_mut: bool, elem: Box<TypeNode> },
 
     /// Volatile pointer type: `^T` or `^mut T`.
-    VolatilePtr {
-        is_mut: bool,
-        elem: Box<TypeNode>,
-    },
+    VolatilePtr { is_mut: bool, elem: Box<TypeNode> },
 
     /// Array type: `[N]T`.
     Array {
@@ -38,16 +32,10 @@ pub enum TypeKind {
     },
 
     /// Array with inferred length, `[_]T`.
-    ArrayInfer {
-        is_mut: bool,
-        elem: Box<TypeNode>,
-    },
+    ArrayInfer { is_mut: bool, elem: Box<TypeNode> },
 
     /// Slice type: `[]T`.
-    Slice {
-        is_mut: bool,
-        elem: Box<TypeNode>,
-    },
+    Slice { is_mut: bool, elem: Box<TypeNode> },
 
     /// Function pointer type: `fn(i32) bool`.
     Function {
@@ -77,9 +65,7 @@ pub enum TypeKind {
     },
 
     /// Trait definition.
-    Trait {
-        fields: Vec<StructFieldDef>,
-    },
+    Trait { fields: Vec<StructFieldDef> },
 
     /// Inference placeholder `_`.
     Infer,

@@ -1020,6 +1020,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // Inject explicit closure parameters.
         for (i, param) in params.iter().enumerate() {
+            if self.ctx.resolve(param.pattern.name) == "_" {
+                continue;
+            }
             let param_node_id = self.ctx.next_node_id();
             let info = SymbolInfo {
                 kind: SymbolKind::Var,

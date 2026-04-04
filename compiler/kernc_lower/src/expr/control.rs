@@ -53,6 +53,23 @@ struct MatchLowerContext<'a> {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn lower_optional_stmt_expr(
+        &mut self,
+        expr: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> Option<MastStmt> {
+        if matches!(expr.kind, ExprKind::Assign { .. }) && self.is_pure_dead_assignment(expr.id) {
+            return None;
+        }
+
+        let lowered = self.lower_expr(expr, subst_map, None);
+        if matches!(expr.kind, ExprKind::Static { .. }) {
+            return None;
+        }
+
+        Some(MastStmt::Expr(lowered))
+    }
+
     fn push_defer_in_current_scope(&mut self, span: Span, deferred: MastExpr) {
         if let Some(scope) = self.defer_stack.last_mut() {
             scope.push(deferred);
@@ -562,6 +579,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         exp_ty: TypeId,
     ) -> MastBlock {
         self.local_types.push(HashMap::new());
+        self.local_forwardings.push(HashMap::new());
+        self.local_value_forwardings.push(HashMap::new());
         let mut prefix = Vec::new();
         for binding in bindings {
             self.bind_local_type(
@@ -583,6 +602,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         prefix.append(&mut block.stmts);
         block.stmts = prefix;
         self.local_types.pop();
+        self.local_forwardings.pop();
+        self.local_value_forwardings.pop();
         block
     }
 
@@ -594,6 +615,88 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         else_branch: Option<&Expr>,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> Vec<MastStmt> {
+        if else_branch.is_none() {
+            match &pattern.pattern.kind {
+                ast::PatternKind::Binding(binding) => {
+                    if self.is_ignored_binding(binding.name) {
+                        if self.is_pure_dead_initializer(expr.id) {
+                            return Vec::new();
+                        }
+
+                        return self
+                            .lower_optional_stmt_expr(init, subst_map)
+                            .into_iter()
+                            .collect();
+                    }
+
+                    let target_ty = {
+                        let raw_ty = self.resolve_expr_type(init);
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
+                        subst.substitute(raw_ty)
+                    };
+
+                    if !binding.is_mut && self.is_elidable_binding(expr.id) {
+                        return Vec::new();
+                    }
+
+                    self.bind_local_type(
+                        expr.span,
+                        binding.name,
+                        target_ty,
+                        binding.is_mut,
+                        "let pattern binding",
+                    );
+
+                    if !binding.is_mut && self.is_forwardable_value_binding(expr.id) {
+                        let init = self.lower_expr(init, subst_map, Some(target_ty));
+                        self.record_local_value_forwarding(
+                            expr.span,
+                            binding.name,
+                            init,
+                            "recording forwardable pure value binding",
+                        );
+                        return Vec::new();
+                    }
+
+                    if !binding.is_mut
+                        && let Some(source_name) = self.forwardable_binding_source(expr.id)
+                    {
+                        self.record_local_forwarding(
+                            expr.span,
+                            binding.name,
+                            source_name,
+                            "recording forwardable immutable alias binding",
+                        );
+                        return Vec::new();
+                    }
+
+                    let init = if self.is_pure_dead_initializer(expr.id) {
+                        MastExpr::new(target_ty, MastExprKind::Undef, expr.span)
+                    } else {
+                        self.lower_expr(init, subst_map, Some(target_ty))
+                    };
+
+                    return vec![MastStmt::Let {
+                        name: binding.name,
+                        ty: target_ty,
+                        is_mut: binding.is_mut,
+                        init,
+                    }];
+                }
+                ast::PatternKind::Ignore => {
+                    if self.is_pure_dead_initializer(expr.id) {
+                        return Vec::new();
+                    }
+
+                    return self
+                        .lower_optional_stmt_expr(init, subst_map)
+                        .into_iter()
+                        .collect();
+                }
+                _ => {}
+            }
+        }
+
         let lowered_init = self.lower_expr(init, subst_map, None);
         let target_ty = lowered_init.ty;
         let (target_let, target_var_expr) =
@@ -695,6 +798,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastBlock {
         self.defer_stack.push(Vec::new());
         self.local_types.push(HashMap::new());
+        self.local_forwardings.push(HashMap::new());
+        self.local_value_forwardings.push(HashMap::new());
         self.local_statics.push(HashMap::new());
 
         let mut stmts = Vec::new();
@@ -725,9 +830,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 subst_map,
                             ));
                         } else {
-                            let lowered = self.lower_expr(e, subst_map, None);
-                            if !matches!(e.kind, ExprKind::Static { .. }) {
-                                stmts.push(MastStmt::Expr(lowered));
+                            if let Some(stmt) = self.lower_optional_stmt_expr(e, subst_map) {
+                                stmts.push(stmt);
                             }
                         }
                     }
@@ -751,6 +855,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         self.local_types.pop();
+        self.local_forwardings.pop();
+        self.local_value_forwardings.pop();
         self.local_statics.pop();
         MastBlock {
             stmts,
@@ -812,11 +918,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         let saved_local_types = std::mem::take(&mut self.local_types);
+        let saved_local_forwardings = std::mem::take(&mut self.local_forwardings);
+        let saved_local_value_forwardings = std::mem::take(&mut self.local_value_forwardings);
         let saved_defer_stack = std::mem::take(&mut self.defer_stack);
         let saved_loop_frames = std::mem::take(&mut self.loop_frames);
         let saved_local_statics = std::mem::take(&mut self.local_statics);
 
         self.local_types.push(HashMap::new());
+        self.local_forwardings.push(HashMap::new());
+        self.local_value_forwardings.push(HashMap::new());
         for p in &mast_params {
             self.bind_local_type(spec.body.span, p.name, p.ty, p.is_mut, "closure parameter");
         }
@@ -864,8 +974,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         body_block.stmts = injected_stmts;
 
         self.local_types.pop();
+        self.local_forwardings.pop();
+        self.local_value_forwardings.pop();
 
         self.local_types = saved_local_types;
+        self.local_forwardings = saved_local_forwardings;
+        self.local_value_forwardings = saved_local_value_forwardings;
         self.defer_stack = saved_defer_stack;
         self.loop_frames = saved_loop_frames;
         self.local_statics = saved_local_statics;
@@ -931,6 +1045,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let has_init_scope = init.is_some();
         if has_init_scope {
             self.local_types.push(HashMap::new());
+            self.local_forwardings.push(HashMap::new());
+            self.local_value_forwardings.push(HashMap::new());
         }
 
         let mut outer_stmts = Vec::new();
@@ -947,7 +1063,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     else_branch.as_deref(),
                     subst_map,
                 )),
-                _ => outer_stmts.push(MastStmt::Expr(self.lower_expr(i, subst_map, None))),
+                _ => {
+                    if let Some(stmt) = self.lower_optional_stmt_expr(i, subst_map) {
+                        outer_stmts.push(stmt);
+                    }
+                }
             }
         }
 
@@ -996,7 +1116,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         // Lower the post statement separately as the latch block.
         let latch_block = post.map(|p| MastBlock {
-            stmts: vec![MastStmt::Expr(self.lower_expr(p, subst_map, None))],
+            stmts: self
+                .lower_optional_stmt_expr(p, subst_map)
+                .into_iter()
+                .collect(),
             result: None,
             defers: vec![],
         });
@@ -1022,6 +1145,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 defers: vec![],
             });
             self.local_types.pop();
+            self.local_forwardings.pop();
+            self.local_value_forwardings.pop();
             block
         } else {
             loop_expr.kind

@@ -206,4 +206,216 @@ impl Counter {
                 .any(|hint| { hint.contains("use `///` to document this impl method") })
         );
     }
+
+    #[test]
+    fn parses_trailing_commas_in_common_lists() {
+        let source = r#"
+use std.coll.{List,};
+
+type Pair[T,] = struct {
+    left: T,
+    right: T,
+};
+
+type Choice = enum {
+    A,
+    B: i32,
+};
+
+type Ops = trait {
+    run: fn(i32, i32,) i32,
+};
+
+#[cold,]
+fn add(a: i32, b: i32,) i32 {
+    return a + b;
+}
+
+fn main() i32 {
+    let pair = Pair[i32,].{ left: 1, right: 2, };
+    let values = [2]i32.{ pair.left, pair.right, };
+    match (values.[0]) {
+        1, => return add(values.[0], values.[1],),
+        _ => return 0,
+    }
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+        assert_eq!(module.decls.len(), 6);
+
+        let ast::DeclKind::Use { target, .. } = &module.decls[0].kind else {
+            panic!("expected use declaration");
+        };
+        let ast::UseTarget::Members(members) = target else {
+            panic!("expected grouped use members");
+        };
+        assert_eq!(members.len(), 1);
+
+        let ast::DeclKind::TypeAlias {
+            generics, target, ..
+        } = &module.decls[1].kind
+        else {
+            panic!("expected generic type alias");
+        };
+        assert_eq!(generics.len(), 1);
+        let ast::TypeKind::Struct { fields, .. } = &target.kind else {
+            panic!("expected struct type");
+        };
+        assert_eq!(fields.len(), 2);
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[2].kind else {
+            panic!("expected enum type alias");
+        };
+        let ast::TypeKind::Enum { variants, .. } = &target.kind else {
+            panic!("expected enum type");
+        };
+        assert_eq!(variants.len(), 2);
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[3].kind else {
+            panic!("expected trait type alias");
+        };
+        let ast::TypeKind::Trait { fields } = &target.kind else {
+            panic!("expected trait type");
+        };
+        assert_eq!(fields.len(), 1);
+        let ast::TypeKind::Function { params, .. } = &fields[0].type_node.kind else {
+            panic!("expected trait method signature");
+        };
+        assert_eq!(params.len(), 3);
+
+        let add_decl = &module.decls[4];
+        assert_eq!(add_decl.attributes.len(), 1);
+        let ast::DeclKind::Function { params, .. } = &add_decl.kind else {
+            panic!("expected function declaration");
+        };
+        assert_eq!(params.len(), 2);
+
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[5].kind
+        else {
+            panic!("expected main body");
+        };
+        let ast::ExprKind::Block {
+            stmts,
+            result: Some(result),
+        } = &body.kind
+        else {
+            panic!("expected block body with trailing match result");
+        };
+        assert_eq!(stmts.len(), 2);
+
+        let ast::StmtKind::ExprStmt(first_stmt) = &stmts[0].kind else {
+            panic!("expected let statement");
+        };
+        let ast::ExprKind::Let { init, .. } = &first_stmt.kind else {
+            panic!("expected first let");
+        };
+        let ast::ExprKind::DataInit {
+            type_node: Some(type_node),
+            literal: ast::DataLiteralKind::Struct(fields),
+        } = &init.kind
+        else {
+            panic!("expected generic struct data init");
+        };
+        let ast::TypeKind::Path { generics, .. } = &type_node.kind else {
+            panic!("expected instantiated path type");
+        };
+        assert_eq!(generics.len(), 1);
+        assert_eq!(fields.len(), 2);
+
+        let ast::StmtKind::ExprStmt(second_stmt) = &stmts[1].kind else {
+            panic!("expected second let statement");
+        };
+        let ast::ExprKind::Let { init, .. } = &second_stmt.kind else {
+            panic!("expected second let");
+        };
+        let ast::ExprKind::DataInit {
+            literal: ast::DataLiteralKind::Array(elems),
+            ..
+        } = &init.kind
+        else {
+            panic!("expected array data init");
+        };
+        assert_eq!(elems.len(), 2);
+
+        let ast::ExprKind::Match { arms, .. } = &result.kind else {
+            panic!("expected match expression");
+        };
+        assert_eq!(arms.len(), 2);
+        assert_eq!(arms[0].patterns.len(), 1);
+
+        let ast::ExprKind::Return(Some(call_expr)) = &arms[0].body.kind else {
+            panic!("expected return call");
+        };
+        let ast::ExprKind::Call { args, .. } = &call_expr.kind else {
+            panic!("expected call expression");
+        };
+        assert_eq!(args.len(), 2);
+    }
+
+    #[test]
+    fn parses_let_else_pattern_unpack_clause() {
+        let source = r#"
+type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};
+
+fn unwrap_or(err: Result[i32, i32]) i32 {
+    let .{ Ok: value } = err else .{ Err: code } => return code;
+    return value;
+}
+"#;
+
+        let (_session, module) = parse_module(source);
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[1].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block {
+            stmts,
+            result: None,
+        } = &body.kind
+        else {
+            panic!("expected block body");
+        };
+        let ast::StmtKind::ExprStmt(expr) = &stmts[0].kind else {
+            panic!("expected let statement");
+        };
+        let ast::ExprKind::Let {
+            else_pattern,
+            else_branch,
+            ..
+        } = &expr.kind
+        else {
+            panic!("expected let expression");
+        };
+
+        let Some(else_pattern) = else_pattern.as_ref() else {
+            panic!("expected explicit else pattern");
+        };
+        let ast::PatternKind::Destructure(destructure) = &else_pattern.kind else {
+            panic!("expected destructure else pattern");
+        };
+        assert_eq!(destructure.fields.len(), 1);
+
+        let Some(else_branch) = else_branch.as_ref() else {
+            panic!("expected else branch");
+        };
+        let ast::ExprKind::Return(Some(returned)) = &else_branch.kind else {
+            panic!("expected return else branch");
+        };
+        let ast::ExprKind::Identifier(_) = returned.kind else {
+            panic!("expected identifier return payload");
+        };
+    }
 }

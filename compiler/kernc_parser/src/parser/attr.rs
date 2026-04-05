@@ -69,7 +69,7 @@ impl<'a> Parser<'a> {
                         items.push(MetaItem::Marker(ident_id));
                     }
 
-                    if !self.match_token(&[TokenType::Comma]) {
+                    if !self.continue_after_comma(&[TokenType::RBracket]) {
                         break;
                     }
                 }

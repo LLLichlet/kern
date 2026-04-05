@@ -50,11 +50,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ExprKind::Let {
                 pattern,
                 init,
+                else_pattern,
                 else_branch,
             } => self.check_let(
                 expr.id,
                 pattern,
                 init,
+                else_pattern.as_ref(),
                 else_branch.as_deref(),
                 expected_ty,
                 expr.span,

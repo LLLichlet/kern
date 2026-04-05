@@ -23,7 +23,7 @@ impl<'a> Parser<'a> {
                 span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBracket]) {
                 break;
             }
         }
@@ -64,12 +64,7 @@ impl<'a> Parser<'a> {
             });
 
             // Without a comma, the where-clause list is complete.
-            if !self.match_token(&[TokenType::Comma]) {
-                break;
-            }
-
-            // Accept a trailing comma before `{` or `;`.
-            if self.check(TokenType::LBrace) || self.check(TokenType::Semicolon) {
+            if !self.continue_after_comma(&[TokenType::LBrace, TokenType::Semicolon]) {
                 break;
             }
         }
@@ -99,7 +94,7 @@ impl<'a> Parser<'a> {
                 type_node,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RParen]) {
                 break;
             }
         }
@@ -699,7 +694,7 @@ impl<'a> Parser<'a> {
             });
 
             // 4. Consume the member separator.
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }

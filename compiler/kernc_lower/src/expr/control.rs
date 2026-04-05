@@ -89,6 +89,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         is_mut: bool,
         context: &str,
     ) -> bool {
+        self.track_pure_enum_repr_in_type(ty);
         if let Some(scope) = self.local_types.last_mut() {
             scope.insert(name, (ty, is_mut));
             if let Some(forward_scope) = self.local_forwardings.last_mut() {
@@ -616,6 +617,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         expr: &Expr,
         pattern: &ast::LetPattern,
         init: &Expr,
+        else_pattern: Option<&ast::Pattern>,
         else_branch: Option<&Expr>,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> Vec<MastStmt> {
@@ -748,6 +750,47 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 )));
             }
 
+            let lowered_else = if let Some(else_pattern) = else_pattern {
+                let mut else_bindings = Vec::new();
+                let else_condition = self.collect_pattern_plan(
+                    expr.span,
+                    else_pattern,
+                    &target_var_expr,
+                    target_ty,
+                    &mut else_bindings,
+                );
+                let else_body = self.lower_match_pattern_body(
+                    else_expr,
+                    else_bindings,
+                    subst_map,
+                    TypeId::VOID,
+                );
+
+                MastBlock {
+                    stmts: vec![],
+                    result: Some(Box::new(MastExpr::new(
+                        TypeId::VOID,
+                        MastExprKind::If {
+                            cond: Box::new(else_condition),
+                            then_branch: else_body,
+                            else_branch: Some(MastBlock {
+                                stmts: vec![],
+                                result: Some(Box::new(MastExpr::new(
+                                    TypeId::NEVER,
+                                    MastExprKind::Trap,
+                                    else_expr.span,
+                                ))),
+                                defers: vec![],
+                            }),
+                        },
+                        else_expr.span,
+                    ))),
+                    defers: vec![],
+                }
+            } else {
+                self.lower_block_as_body(else_expr, subst_map, TypeId::VOID)
+            };
+
             let if_expr = MastExpr::new(
                 TypeId::VOID,
                 MastExprKind::If {
@@ -757,7 +800,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         result: None,
                         defers: vec![],
                     },
-                    else_branch: Some(self.lower_block_as_body(else_expr, subst_map, TypeId::VOID)),
+                    else_branch: Some(lowered_else),
                 },
                 expr.span,
             );
@@ -823,6 +866,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         } else if let ExprKind::Let {
                             pattern,
                             init,
+                            else_pattern,
                             else_branch,
                         } = &e.kind
                         {
@@ -830,6 +874,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 e,
                                 pattern,
                                 init,
+                                else_pattern.as_ref(),
                                 else_branch.as_deref(),
                                 subst_map,
                             ));
@@ -1059,11 +1104,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 ExprKind::Let {
                     pattern,
                     init,
+                    else_pattern,
                     else_branch,
                 } => outer_stmts.extend(self.lower_let_stmts(
                     i,
                     pattern,
                     init,
+                    else_pattern.as_ref(),
                     else_branch.as_deref(),
                     subst_map,
                 )),

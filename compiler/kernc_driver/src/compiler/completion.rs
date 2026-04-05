@@ -71,6 +71,11 @@ pub(super) struct CompletionClosureFacts {
 }
 
 #[derive(Debug, Clone)]
+pub(super) struct CompletionLetElseFacts {
+    pub(super) binding_items: Vec<AnalysisCompletionItem>,
+}
+
+#[derive(Debug, Clone)]
 pub(super) struct CompletionIfFacts {
     pub(super) then_span: kernc_utils::Span,
     pub(super) else_span: Option<kernc_utils::Span>,
@@ -85,6 +90,7 @@ pub(super) struct CompletionModel {
     pub(super) for_facts_by_span: BTreeMap<kernc_utils::Span, CompletionForFacts>,
     pub(super) match_facts_by_span: BTreeMap<kernc_utils::Span, CompletionMatchFacts>,
     pub(super) closure_facts_by_span: BTreeMap<kernc_utils::Span, CompletionClosureFacts>,
+    pub(super) let_else_facts_by_span: BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
     pub(super) if_facts_by_span: BTreeMap<kernc_utils::Span, CompletionIfFacts>,
     pub(super) modules: Vec<CompletionModule>,
 }
@@ -147,6 +153,7 @@ impl CompilerDriver {
         let mut expr_binding_items_by_span = BTreeMap::new();
         let mut match_arm_binding_items_by_span = BTreeMap::new();
         let mut closure_binding_items_by_body_span = BTreeMap::new();
+        let mut let_else_facts_by_span = BTreeMap::new();
         for (_mod_id, ast) in asts {
             collect_module_binding_completion_facts(
                 ast,
@@ -154,6 +161,7 @@ impl CompilerDriver {
                 &mut expr_binding_items_by_span,
                 &mut match_arm_binding_items_by_span,
                 &mut closure_binding_items_by_body_span,
+                &mut let_else_facts_by_span,
             );
         }
 
@@ -235,6 +243,7 @@ impl CompilerDriver {
             for_facts_by_span,
             match_facts_by_span,
             closure_facts_by_span,
+            let_else_facts_by_span,
             if_facts_by_span,
             member_items_by_span: BTreeMap::new(),
             modules,

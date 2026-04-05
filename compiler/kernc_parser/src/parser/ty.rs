@@ -188,7 +188,7 @@ impl<'a> Parser<'a> {
 
                 params.push(self.parse_type()?);
 
-                if !self.match_token(&[TokenType::Comma]) {
+                if !self.continue_after_comma(&[TokenType::RParen]) {
                     break;
                 }
             }
@@ -248,10 +248,7 @@ impl<'a> Parser<'a> {
         if !self.check(TokenType::RBracket) {
             loop {
                 args.push(self.parse_type()?);
-                if !self.match_token(&[TokenType::Comma]) {
-                    break;
-                }
-                if self.check(TokenType::RBracket) {
+                if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
                 }
             }
@@ -294,7 +291,7 @@ impl<'a> Parser<'a> {
                 span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }
@@ -359,7 +356,7 @@ impl<'a> Parser<'a> {
                 span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }
@@ -421,7 +418,7 @@ impl<'a> Parser<'a> {
                 type_node: method_type,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }
@@ -468,7 +465,7 @@ impl<'a> Parser<'a> {
         if !self.check(TokenType::RParen) {
             loop {
                 params.push(self.parse_type()?);
-                if !self.match_token(&[TokenType::Comma]) {
+                if !self.continue_after_comma(&[TokenType::RParen]) {
                     break;
                 }
             }

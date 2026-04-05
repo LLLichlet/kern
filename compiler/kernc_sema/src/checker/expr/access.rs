@@ -420,6 +420,81 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
+    fn let_else_top_level_pattern_variant_name(&self, pattern: &ast::Pattern) -> Option<SymbolId> {
+        match &pattern.kind {
+            ast::PatternKind::Variant(variant) => Some(variant.variant_name),
+            ast::PatternKind::Destructure(destructure) if destructure.fields.len() == 1 => {
+                Some(destructure.fields[0].name)
+            }
+            _ => None,
+        }
+    }
+
+    fn let_else_anon_enum_patterns_cover_all_variants(
+        &mut self,
+        primary: &ast::Pattern,
+        else_pattern: &ast::Pattern,
+        target_ty: TypeId,
+        enum_def: &crate::ty::AnonymousEnum,
+    ) -> bool {
+        if self.pattern_is_irrefutable(primary, target_ty)
+            || self.pattern_is_irrefutable(else_pattern, target_ty)
+        {
+            return true;
+        }
+
+        let mut handled = std::collections::HashSet::new();
+        if let Some(name) = self.let_else_top_level_pattern_variant_name(primary) {
+            handled.insert(name);
+        }
+        if let Some(name) = self.let_else_top_level_pattern_variant_name(else_pattern) {
+            handled.insert(name);
+        }
+
+        enum_def
+            .variants
+            .iter()
+            .all(|variant| handled.contains(&variant.name))
+    }
+
+    fn let_else_enum_patterns_cover_all_variants(
+        &mut self,
+        primary: &ast::Pattern,
+        else_pattern: &ast::Pattern,
+        target_ty: TypeId,
+        def_id: DefId,
+        span: Span,
+    ) -> bool {
+        if self.pattern_is_irrefutable(primary, target_ty)
+            || self.pattern_is_irrefutable(else_pattern, target_ty)
+        {
+            return true;
+        }
+
+        let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned() else {
+            self.ctx.emit_ice(
+                span,
+                format!(
+                    "Kern ICE (Typeck): expected enum definition for DefId {} while checking `let ... else` patterns.",
+                    def_id.0
+                ),
+            );
+            return false;
+        };
+
+        let mut handled = std::collections::HashSet::new();
+        if let Some(name) = self.let_else_top_level_pattern_variant_name(primary) {
+            handled.insert(name);
+        }
+        if let Some(name) = self.let_else_top_level_pattern_variant_name(else_pattern) {
+            handled.insert(name);
+        }
+
+        def.variants
+            .iter()
+            .all(|variant| handled.contains(&variant.name))
+    }
+
     fn current_module_id(&self) -> Option<DefId> {
         let current_scope = self.ctx.scopes.current_scope_id()?;
 
@@ -567,6 +642,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         node_id: NodeId,
         pattern: &ast::LetPattern,
         init: &Expr,
+        else_pattern: Option<&ast::Pattern>,
         else_branch: Option<&Expr>,
         expected_ty: Option<TypeId>,
         span: Span,
@@ -608,6 +684,64 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         if let Some(else_expr) = else_branch {
+            if let Some(else_pattern) = else_pattern {
+                let else_irrefutable = self.pattern_is_irrefutable(else_pattern, norm_init);
+                match self.ctx.type_registry.get(norm_init).clone() {
+                    TypeKind::Enum(def_id, _) => {
+                        if !self.let_else_enum_patterns_cover_all_variants(
+                            &pattern.pattern,
+                            else_pattern,
+                            norm_init,
+                            def_id,
+                            span,
+                        ) {
+                            self.ctx
+                                .struct_error(
+                                    else_pattern.span,
+                                    "explicit `else` pattern does not cover all remaining enum variants",
+                                )
+                                .with_hint(
+                                    "make the `else` pattern irrefutable, or cover every variant not matched by the main `let` pattern",
+                                )
+                                .emit();
+                        }
+                    }
+                    TypeKind::AnonymousEnum(enum_def) => {
+                        if !self.let_else_anon_enum_patterns_cover_all_variants(
+                            &pattern.pattern,
+                            else_pattern,
+                            norm_init,
+                            &enum_def,
+                        ) {
+                            self.ctx
+                                .struct_error(
+                                    else_pattern.span,
+                                    "explicit `else` pattern does not cover all remaining enum variants",
+                                )
+                                .with_hint(
+                                    "make the `else` pattern irrefutable, or cover every variant not matched by the main `let` pattern",
+                                )
+                                .emit();
+                        }
+                    }
+                    _ if !else_irrefutable => {
+                        self.ctx
+                            .struct_error(
+                                else_pattern.span,
+                                "explicit `else` patterns on non-enum `let` bindings must be irrefutable",
+                            )
+                            .with_hint(
+                                "use an irrefutable binding like `err` or `_`, or keep using a plain `else` expression",
+                            )
+                            .emit();
+                    }
+                    _ => {}
+                }
+
+                self.ctx.scopes.enter_scope();
+                self.check_pattern(node_id, else_pattern, init_ty);
+            }
+
             let else_ty = self.check_expr(else_expr, None);
             let norm_else = self.resolve_tv(else_ty);
             if norm_else != TypeId::NEVER && norm_else != TypeId::ERROR {
@@ -617,6 +751,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         "end the `else` block with `return`, `break`, `continue`, or another diverging expression",
                     )
                     .emit();
+            }
+
+            if else_pattern.is_some() {
+                self.ctx.scopes.exit_scope();
             }
         }
 

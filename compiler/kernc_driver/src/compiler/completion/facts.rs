@@ -10,6 +10,7 @@ pub(super) fn collect_module_binding_completion_facts(
         kernc_utils::Span,
         Vec<AnalysisCompletionItem>,
     >,
+    let_else_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
 ) {
     for decl in &module.decls {
         collect_decl_binding_completion_facts(
@@ -18,6 +19,7 @@ pub(super) fn collect_module_binding_completion_facts(
             expr_binding_items_by_span,
             match_arm_binding_items_by_span,
             closure_binding_items_by_body_span,
+            let_else_facts_by_span,
         );
     }
 }
@@ -31,6 +33,7 @@ fn collect_decl_binding_completion_facts(
         kernc_utils::Span,
         Vec<AnalysisCompletionItem>,
     >,
+    let_else_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
 ) {
     match &decl.kind {
         ast::DeclKind::Function { body, .. } => {
@@ -41,6 +44,7 @@ fn collect_decl_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -51,6 +55,7 @@ fn collect_decl_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::DeclKind::ExternBlock { decls, .. } | ast::DeclKind::Impl { decls, .. } => {
@@ -61,6 +66,7 @@ fn collect_decl_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -77,6 +83,7 @@ fn collect_expr_binding_completion_facts(
         kernc_utils::Span,
         Vec<AnalysisCompletionItem>,
     >,
+    let_else_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
 ) {
     match &expr.kind {
         ast::ExprKind::Block { stmts, result } => {
@@ -87,6 +94,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
             if let Some(result) = result {
@@ -96,12 +104,14 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
         ast::ExprKind::Let {
             pattern,
             init,
+            else_pattern,
             else_branch,
         } => {
             let mut bindings = Vec::new();
@@ -113,14 +123,26 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             if let Some(else_branch) = else_branch {
+                if let Some(else_pattern) = else_pattern {
+                    let mut bindings = Vec::new();
+                    collect_pattern_binding_items(else_pattern, items_by_span, &mut bindings);
+                    let_else_facts_by_span.insert(
+                        query_span_for_expr(else_branch),
+                        CompletionLetElseFacts {
+                            binding_items: bindings,
+                        },
+                    );
+                }
                 collect_expr_binding_completion_facts(
                     else_branch,
                     items_by_span,
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -134,6 +156,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::ExprKind::FieldAccess { lhs, .. }
@@ -147,6 +170,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::ExprKind::Binary { lhs, rhs, .. }
@@ -160,6 +184,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             collect_expr_binding_completion_facts(
                 rhs,
@@ -167,6 +192,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::ExprKind::Call { callee, args } => {
@@ -176,6 +202,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             for arg in args {
                 collect_expr_binding_completion_facts(
@@ -184,6 +211,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -194,6 +222,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::ExprKind::If {
@@ -207,6 +236,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             collect_expr_binding_completion_facts(
                 then_branch,
@@ -214,6 +244,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             if let Some(else_branch) = else_branch {
                 collect_expr_binding_completion_facts(
@@ -222,6 +253,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -232,6 +264,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             for arm in arms {
                 let mut bindings = Vec::new();
@@ -249,6 +282,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -265,6 +299,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
             if let Some(cond) = cond {
@@ -274,6 +309,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
             if let Some(post) = post {
@@ -283,6 +319,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
             collect_expr_binding_completion_facts(
@@ -291,6 +328,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::ExprKind::SliceOp {
@@ -302,6 +340,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             if let Some(start) = start {
                 collect_expr_binding_completion_facts(
@@ -310,6 +349,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
             if let Some(end) = end {
@@ -319,6 +359,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -329,6 +370,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::ExprKind::Closure {
@@ -345,6 +387,7 @@ fn collect_expr_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
                 push_binding_item_from_span(items_by_span, capture.span, &mut bindings);
             }
@@ -358,6 +401,7 @@ fn collect_expr_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         _ => {}
@@ -373,6 +417,7 @@ fn collect_stmt_binding_completion_facts(
         kernc_utils::Span,
         Vec<AnalysisCompletionItem>,
     >,
+    let_else_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
 ) {
     collect_expr_binding_completion_facts(
         stmt_expr(stmt),
@@ -380,6 +425,7 @@ fn collect_stmt_binding_completion_facts(
         expr_binding_items_by_span,
         match_arm_binding_items_by_span,
         closure_binding_items_by_body_span,
+        let_else_facts_by_span,
     );
 }
 
@@ -392,6 +438,7 @@ fn collect_data_literal_binding_completion_facts(
         kernc_utils::Span,
         Vec<AnalysisCompletionItem>,
     >,
+    let_else_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
 ) {
     match literal {
         ast::DataLiteralKind::Struct(fields) => {
@@ -402,6 +449,7 @@ fn collect_data_literal_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -413,6 +461,7 @@ fn collect_data_literal_binding_completion_facts(
                     expr_binding_items_by_span,
                     match_arm_binding_items_by_span,
                     closure_binding_items_by_body_span,
+                    let_else_facts_by_span,
                 );
             }
         }
@@ -423,6 +472,7 @@ fn collect_data_literal_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
             collect_expr_binding_completion_facts(
                 count,
@@ -430,6 +480,7 @@ fn collect_data_literal_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
         ast::DataLiteralKind::Scalar(value) => {
@@ -439,6 +490,7 @@ fn collect_data_literal_binding_completion_facts(
                 expr_binding_items_by_span,
                 match_arm_binding_items_by_span,
                 closure_binding_items_by_body_span,
+                let_else_facts_by_span,
             );
         }
     }

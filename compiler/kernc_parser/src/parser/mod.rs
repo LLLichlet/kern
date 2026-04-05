@@ -64,6 +64,20 @@ impl<'a> Parser<'a> {
         false
     }
 
+    fn continue_after_comma(&mut self, end_tags: &[TokenType]) -> bool {
+        if !self.match_token(&[TokenType::Comma]) {
+            return false;
+        }
+
+        for &tag in end_tags {
+            if self.check(tag) {
+                return false;
+            }
+        }
+
+        true
+    }
+
     /// Consume one token and report a synchronized parse error on mismatch.
     fn expect(&mut self, tag: TokenType) -> ParseResult<Token> {
         if self.check(tag) {

@@ -623,9 +623,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::Let {
                 pattern,
                 init,
+                else_pattern,
                 else_branch,
             } => {
                 self.resolve_pattern(&pattern.pattern, scope);
+                if let Some(else_pattern) = else_pattern {
+                    self.resolve_pattern(else_pattern, scope);
+                }
                 self.resolve_expr(init, scope);
                 if let Some(else_branch) = else_branch {
                     self.resolve_expr(else_branch, scope);

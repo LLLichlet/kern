@@ -137,7 +137,7 @@ impl<'a> Parser<'a> {
                 span: variant_span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }
@@ -189,7 +189,7 @@ impl<'a> Parser<'a> {
                 span: field_span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }
@@ -239,7 +239,7 @@ impl<'a> Parser<'a> {
                 span: field_span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }
@@ -277,7 +277,7 @@ impl<'a> Parser<'a> {
                     span: name_tok.span.to(self.stream.prev_span()),
                 });
 
-                if !self.match_token(&[TokenType::Comma]) {
+                if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
                 }
             }
@@ -381,10 +381,7 @@ impl<'a> Parser<'a> {
         if !self.check(TokenType::RBracket) {
             loop {
                 types.push(self.parse_type()?);
-                if !self.match_token(&[TokenType::Comma]) {
-                    break;
-                }
-                if self.check(TokenType::RBracket) {
+                if !self.continue_after_comma(&[TokenType::RBracket]) {
                     break;
                 }
             }
@@ -443,7 +440,7 @@ impl<'a> Parser<'a> {
             let mut elems = vec![first];
             while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
                 elems.push(self.parse_expression(Precedence::Lowest)?);
-                if !self.match_token(&[TokenType::Comma]) {
+                if !self.continue_after_comma(&[TokenType::RBrace]) {
                     break;
                 }
             }
@@ -502,7 +499,7 @@ impl<'a> Parser<'a> {
                 span: field_span,
             });
 
-            if !self.match_token(&[TokenType::Comma]) {
+            if !self.continue_after_comma(&[TokenType::RBrace]) {
                 break;
             }
         }

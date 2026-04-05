@@ -368,7 +368,7 @@ impl<'a> Parser<'a> {
         if !self.check(TokenType::RParen) {
             loop {
                 args.push(self.parse_expression(Precedence::Lowest)?);
-                if !self.match_token(&[TokenType::Comma]) {
+                if !self.continue_after_comma(&[TokenType::RParen]) {
                     break;
                 }
             }

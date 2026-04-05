@@ -1,6 +1,6 @@
 use super::{
-    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, LetPattern, MatchPattern, Stmt,
-    TypeNode, UnaryOperator,
+    AssignmentOperator, BinaryOperator, BindingPattern, FuncParam, LetPattern, MatchPattern,
+    Pattern, Stmt, TypeNode, UnaryOperator,
 };
 use kernc_utils::{NodeId, Span, SymbolId};
 
@@ -30,6 +30,7 @@ pub enum ExprKind {
     Let {
         pattern: LetPattern,
         init: Box<Expr>,
+        else_pattern: Option<Pattern>,
         else_branch: Option<Box<Expr>>,
     },
 

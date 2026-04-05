@@ -178,6 +178,7 @@ impl FlowCfgBuilder {
             ast::ExprKind::Let {
                 pattern,
                 init,
+                else_pattern,
                 else_branch,
             } => {
                 let init_out = self.lower_expr(init, incoming, loop_ctx);
@@ -193,20 +194,37 @@ impl FlowCfgBuilder {
                     self.add_edge(branch, let_node, AnalysisFlowCfgEdgeKind::TrueBranch);
                     self.record_defs(
                         let_node,
-                        self.collect_let_pattern_binding_ids(pattern),
+                        self.collect_pattern_binding_ids(&pattern.pattern),
                         AnalysisFlowDefinitionKind::Initializer,
                         self.let_copy_source_binding_id(pattern, init, true),
                         self.local_binding_uses_in_expr(init),
                     );
                     let success_out = self.fallthrough(let_node);
-                    let else_out = self.lower_expr(
-                        else_expr,
-                        vec![PendingEdge {
-                            from: branch,
-                            kind: AnalysisFlowCfgEdgeKind::FalseBranch,
-                        }],
-                        loop_ctx,
-                    );
+                    let else_out = if let Some(else_pattern) = else_pattern {
+                        let else_node = self.add_node(
+                            AnalysisFlowCfgNodeKind::Eval,
+                            else_pattern.span,
+                            Some(expr.id),
+                        );
+                        self.add_edge(branch, else_node, AnalysisFlowCfgEdgeKind::FalseBranch);
+                        self.record_defs(
+                            else_node,
+                            self.collect_pattern_binding_ids(else_pattern),
+                            AnalysisFlowDefinitionKind::Initializer,
+                            None,
+                            Vec::new(),
+                        );
+                        self.lower_expr(else_expr, self.fallthrough(else_node), loop_ctx)
+                    } else {
+                        self.lower_expr(
+                            else_expr,
+                            vec![PendingEdge {
+                                from: branch,
+                                kind: AnalysisFlowCfgEdgeKind::FalseBranch,
+                            }],
+                            loop_ctx,
+                        )
+                    };
                     let mut merged = success_out;
                     merged.extend(else_out);
                     self.join_pending(merged, expr.span)
@@ -214,7 +232,7 @@ impl FlowCfgBuilder {
                     let node = self.lower_eval(expr, init_out);
                     self.record_defs(
                         node,
-                        self.collect_let_pattern_binding_ids(pattern),
+                        self.collect_pattern_binding_ids(&pattern.pattern),
                         AnalysisFlowDefinitionKind::Initializer,
                         self.let_copy_source_binding_id(pattern, init, false),
                         self.local_binding_uses_in_expr(init),
@@ -559,12 +577,9 @@ impl FlowCfgBuilder {
         }
     }
 
-    fn collect_let_pattern_binding_ids(
-        &self,
-        pattern: &ast::LetPattern,
-    ) -> Vec<AnalysisFlowBindingId> {
+    fn collect_pattern_binding_ids(&self, pattern: &ast::Pattern) -> Vec<AnalysisFlowBindingId> {
         let mut spans = HashSet::new();
-        collect_pattern_binding_spans(&pattern.pattern, &mut spans);
+        collect_pattern_binding_spans(pattern, &mut spans);
         let mut ids = spans
             .into_iter()
             .filter_map(|span| self.local_bindings_by_span.get(&span).copied())

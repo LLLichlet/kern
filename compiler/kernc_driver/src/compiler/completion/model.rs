@@ -161,13 +161,25 @@ impl CompletionModel {
             ast::ExprKind::Let {
                 pattern: _,
                 init,
+                else_pattern: _,
                 else_branch,
             } => {
                 if self.collect_in_expr(init, visible, offset) {
                     return true;
                 }
-                if let Some(else_branch) = else_branch {
-                    return self.collect_in_expr(else_branch, visible, offset);
+                if let Some(else_branch) = else_branch
+                    && span_contains_offset(query_span_for_expr(else_branch), offset)
+                {
+                    let mut branch_visible = visible.clone();
+                    if let Some(facts) = self
+                        .let_else_facts_by_span
+                        .get(&query_span_for_expr(else_branch))
+                    {
+                        extend_completion_items(&mut branch_visible, &facts.binding_items);
+                    }
+                    self.collect_in_expr(else_branch, &mut branch_visible, offset);
+                    *visible = branch_visible;
+                    return true;
                 }
                 true
             }

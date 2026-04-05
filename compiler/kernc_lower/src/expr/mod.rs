@@ -81,6 +81,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ExprKind::Let {
                 pattern,
                 init,
+                else_pattern,
                 else_branch,
             } => {
                 return MastExpr::new(
@@ -90,6 +91,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             expr,
                             pattern,
                             init,
+                            else_pattern.as_ref(),
                             else_branch.as_deref(),
                             subst_map,
                         ),

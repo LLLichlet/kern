@@ -28,7 +28,7 @@ fn ok_bool() Result[bool, os.Error] {{
     return .{{ Ok: true }};
 }}
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -73,7 +73,7 @@ fn runs_hosted_program_using_std_fs_convenience_functions() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -134,7 +134,7 @@ fn runs_hosted_program_using_std_fs_metadata_and_directories() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -272,7 +272,7 @@ fn runs_hosted_program_using_std_fs_roundtrip() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -341,7 +341,7 @@ fn runs_hosted_program_using_std_fs_open_variants() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -435,7 +435,7 @@ fn runs_hosted_program_using_std_fs_create_dir_all() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -526,7 +526,7 @@ fn runs_hosted_program_using_std_fs_rename() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -635,7 +635,7 @@ fn runs_hosted_program_using_std_fs_read_dir() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -749,7 +749,7 @@ fn runs_hosted_program_using_std_fs_remove_dir_all() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -812,7 +812,7 @@ fn runs_hosted_program_using_std_fs_path_views() {
         r#"
 use std.fs;
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let path = "/tmp/kern/archive.tar";
 
     if (!fs.file_name(path).is_some_and(.[](name: []u8) bool {
@@ -893,7 +893,7 @@ fn runs_hosted_program_using_std_fs_path_join_and_normalize() {
 use std.fs;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -989,7 +989,7 @@ fn runs_hosted_program_using_std_fs_path_replacements() {
 use std.fs;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1067,7 +1067,7 @@ fn runs_hosted_program_using_std_fs_windows_path_semantics() {
 use std.fs;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1186,7 +1186,7 @@ fn runs_hosted_program_using_std_fs_unicode_paths_on_windows() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -1265,7 +1265,7 @@ fn runs_hosted_program_using_std_fs_copy_and_append() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -1378,7 +1378,7 @@ fn runs_hosted_program_using_std_fs_walk_dir() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -1531,7 +1531,7 @@ fn runs_hosted_program_using_std_fs_if_exists_helpers() {
 use std.fs;
 use std.mem.alloc.{{Page, GPA}};
 
-extern fn main() i32 {{
+extern fn main(_: [][]u8) i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 

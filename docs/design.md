@@ -580,27 +580,36 @@ Kern uses the C Application Binary Interface (ABI) as the universal language for
 
 To safely support Generics, Modules, and Trait implementations without symbol collisions, Kern uses a deterministic, **Itanium-style Name Mangling Engine** (e.g., a generic method might be compiled as `_K3std11collections15ArrayListI3i32E3new`).
 
-Because of this, internal Kern functions are physically invisible to standard C linkers by their raw names. To export a function to C, Assembly, or to act as the OS/Runtime entry point, you must use the `extern` modifier. 
+Because of this, internal Kern functions are physically invisible to standard C linkers by their raw names. To export a function to C, Assembly, or to expose a runtime-facing symbol, you must use the `extern` modifier. 
 
 The `extern` keyword acts as an explicit ABI boundary contract: it forces the compiler to use the standard C calling convention and **completely disables name mangling** for that symbol.
 
 This top-level form is specifically for **exported ABI definitions** such as runtime entry points or functions intentionally exposed to C/Assembly. It is not the syntax for importing foreign symbols.
 
-**The `main` Function Contract:**
-When a program uses the Kern runtime entry path (for example `std.rt` providing `_start`, `start`, or `mainCRTStartup`), the runtime looks for a raw symbol named `main`, so the entry point must be explicitly marked as `extern` and must match the runtime's expected ABI.
+**No Builtin Entry Symbol:**
+Kern the language does **not** have a builtin entry function. The compiler does not grant `main`, `_start`, `start`, `mainCRTStartup`, or any other symbol privileged language status.
+
+Those names only become meaningful at an ABI boundary:
+
+  * The operating system or loader may require a specific startup symbol such as `_start`.
+  * A runtime layer such as `std.rt` may choose to look up a raw symbol named `main`.
+  * A hosted C runtime may itself expect a C ABI symbol such as `main`.
+
+In all three cases, this is a property of the surrounding runtime/link environment, not of Kern's core semantics. `main` remains just an ordinary function name unless some external ABI contract chooses to use it.
+
+When a Kern runtime path such as `std.rt` is responsible for startup, that runtime may in turn call an exported `main` symbol:
 
 ```kern
 use std.io;
 
-// 'extern' prevents mangling (e.g., turning into _K4root4main)
-// ensuring the runtime can strictly link to the exact 'main' symbol.
+// `extern` prevents mangling so the surrounding runtime can bind this symbol exactly.
 extern fn main(args: [][]u8) i32 {
     io.println("hello, {}!", .{"world",});
     0
 }
 ```
 
-When using a hosted C runtime instead, Kern does not force the `std.rt` entry shim. In that environment, the program should expose whichever `extern` entry signature the hosted runtime expects (for example a C-style `main`).
+This does **not** mean Kern itself "recognizes main". It only means the selected runtime/startup contract chose to consume that exact exported symbol.
 
 ### 9.2 Importing External Functions and Statics
 

@@ -109,7 +109,9 @@ This is the core mechanism for wiring module roots into the compiler. It is inte
 
 `--use-std` can be combined with hosted C library linkage.
 
-When `--link-profile hosted` (or `--link-libc`) is active, `kernc` still injects `std`, but the standard library can prune Kern-specific runtime entry shims via compile-time conditions such as `#[if(kern_rt)]`. This allows `std` facilities like `std.io` or allocators to coexist with a hosted C startup without forcing the Kern `_start` / `mainCRTStartup` path.
+When `--link-profile hosted` (or `--link-libc`) is active, `kernc` still injects `std`. Whether `std` provides the startup shim is controlled separately from whether libc is linked.
+
+On non-Windows targets, `--use-std --link-profile hosted` keeps libc available but lets `std.rt` own process startup, so the exported `main` symbol must still match the `std.rt` contract (`extern fn main(args: [][]u8) i32`). On Windows hosted builds, CRT startup remains in charge for now.
 
 ## Compilation Controls
 

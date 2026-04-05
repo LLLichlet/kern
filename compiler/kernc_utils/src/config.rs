@@ -200,6 +200,39 @@ pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
         .insert("std".to_string(), std_path.to_string_lossy().to_string());
 }
 
+fn target_is_darwin(target: &TargetMachine) -> bool {
+    let raw_os = target.triple.operating_system.to_string();
+    raw_os.contains("darwin") || raw_os.contains("macosx")
+}
+
+fn target_is_windows(target: &TargetMachine) -> bool {
+    target.triple.to_string().contains("windows")
+}
+
+pub fn link_profile_links_libc(options: &CompileOptions) -> bool {
+    if matches!(options.link_profile, LinkProfile::Hosted) {
+        return true;
+    }
+
+    matches!(options.link_profile, LinkProfile::Kern) && target_is_darwin(&options.target)
+}
+
+pub fn link_profile_uses_crt_startup(options: &CompileOptions) -> bool {
+    if !matches!(options.link_profile, LinkProfile::Hosted) {
+        return false;
+    }
+
+    if target_is_windows(&options.target) {
+        return true;
+    }
+
+    !options.use_std
+}
+
+pub fn link_profile_uses_kern_rt(options: &CompileOptions) -> bool {
+    options.use_std && !link_profile_uses_crt_startup(options)
+}
+
 pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
     let link_profile = match options.link_profile {
         LinkProfile::Kern => "kern",
@@ -209,7 +242,9 @@ pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
     };
 
     let hosted = matches!(options.link_profile, LinkProfile::Hosted);
-    let kern_rt = options.use_std && !hosted;
+    let libc = link_profile_links_libc(options);
+    let crt_startup = link_profile_uses_crt_startup(options);
+    let kern_rt = link_profile_uses_kern_rt(options);
 
     options
         .custom_defines
@@ -219,7 +254,10 @@ pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
         .insert("hosted".to_string(), hosted.to_string());
     options
         .custom_defines
-        .insert("libc".to_string(), hosted.to_string());
+        .insert("libc".to_string(), libc.to_string());
+    options
+        .custom_defines
+        .insert("crt_startup".to_string(), crt_startup.to_string());
     options
         .custom_defines
         .insert("kern_rt".to_string(), kern_rt.to_string());

@@ -1,0 +1,169 @@
+//! Monotonic time measurement helpers.
+//!
+//!
+//! Design:
+//! `Instant` and `Duration` support benchmark-style elapsed-time measurement
+//! without pulling date/time-zone policy into the core standard library.
+
+const U64_MAX = ~u64.{0};
+const NS_PER_MICRO = u64.{1_000};
+const NS_PER_MILLI = u64.{1_000_000};
+const NS_PER_SEC = u64.{1_000_000_000};
+
+pub type Duration = struct {
+    nanos: u64,
+};
+
+impl Duration {
+    pub const fn is_zero() bool {
+        return self.nanos == 0;
+    }
+
+    pub const fn as_nanos() u64 {
+        return self.nanos;
+    }
+
+    pub const fn as_micros() u64 {
+        return self.nanos / NS_PER_MICRO;
+    }
+
+    pub const fn as_millis() u64 {
+        return self.nanos / NS_PER_MILLI;
+    }
+
+    pub const fn as_secs() u64 {
+        return self.nanos / NS_PER_SEC;
+    }
+
+    pub const fn subsec_nanos() u64 {
+        return self.nanos % NS_PER_SEC;
+    }
+
+    pub const fn saturating_add(other: Duration) Duration {
+        return .{ nanos: saturating_add_u64(self.nanos, other.nanos) };
+    }
+
+    pub const fn saturating_sub(other: Duration) Duration {
+        return if (self.nanos <= other.nanos) {
+            zero()
+        } else {
+            .{ nanos: self.nanos - other.nanos }
+        };
+    }
+
+    pub const fn saturating_mul(scale: u64) Duration {
+        return .{ nanos: saturating_mul_u64(self.nanos, scale) };
+    }
+
+    pub const fn div_u64(divisor: u64) Duration {
+        return if (divisor == 0) {
+            zero()
+        } else {
+            .{ nanos: self.nanos / divisor }
+        };
+    }
+
+    pub const fn units_per_sec(units: u64) u64 {
+        if (units == 0 or self.nanos == 0) {
+            return 0;
+        }
+
+        let whole = units / self.nanos;
+        let rem = units % self.nanos;
+        let whole_scaled = saturating_mul_u64(whole, NS_PER_SEC);
+        let rem_scaled = saturating_mul_u64(rem, NS_PER_SEC) / self.nanos;
+        return saturating_add_u64(whole_scaled, rem_scaled);
+    }
+}
+
+pub type Instant = struct {
+    nanos: u64,
+};
+
+impl Instant {
+    pub fn elapsed() Duration {
+        return since(self);
+    }
+
+    pub fn duration_since(earlier: Instant) Duration {
+        return duration_between(earlier.nanos, self.nanos);
+    }
+}
+
+#[if(os == "linux")]
+mod linux;
+#[if(os == "linux")]
+use .linux.{monotonic_now_nanos, sleep_nanos};
+
+#[if(os == "darwin")]
+mod darwin;
+#[if(os == "darwin")]
+use .darwin.{monotonic_now_nanos, sleep_nanos};
+
+#[if(os == "windows")]
+mod windows;
+#[if(os == "windows")]
+use .windows.{monotonic_now_nanos, sleep_nanos};
+
+const fn saturating_mul_u64(lhs: u64, rhs: u64) u64 {
+    if (lhs == 0 or rhs == 0) {
+        return 0;
+    }
+    if (lhs > U64_MAX / rhs) {
+        return U64_MAX;
+    }
+    return lhs * rhs;
+}
+
+const fn saturating_add_u64(lhs: u64, rhs: u64) u64 {
+    if (lhs > U64_MAX - rhs) {
+        return U64_MAX;
+    }
+    return lhs + rhs;
+}
+
+fn duration_between(start_nanos: u64, end_nanos: u64) Duration {
+    if (end_nanos <= start_nanos) {
+        return zero();
+    }
+    return .{ nanos: end_nanos - start_nanos };
+}
+
+pub const fn zero() Duration {
+    return .{ nanos: 0 };
+}
+
+pub const fn from_nanos(nanos: u64) Duration {
+    return .{ nanos: nanos };
+}
+
+pub const fn from_micros(micros: u64) Duration {
+    return .{ nanos: saturating_mul_u64(micros, NS_PER_MICRO) };
+}
+
+pub const fn from_millis(millis: u64) Duration {
+    return .{ nanos: saturating_mul_u64(millis, NS_PER_MILLI) };
+}
+
+pub const fn from_secs(secs: u64) Duration {
+    return .{ nanos: saturating_mul_u64(secs, NS_PER_SEC) };
+}
+
+pub fn now() Instant {
+    return .{ nanos: monotonic_now_nanos() };
+}
+
+pub fn since(start: Instant) Duration {
+    return duration_between(start.nanos, monotonic_now_nanos());
+}
+
+pub fn sleep(duration: Duration) void {
+    if (duration.is_zero()) {
+        return;
+    }
+    sleep_nanos(duration.nanos);
+}
+
+pub fn sleep_millis(millis: u64) void {
+    sleep(from_millis(millis));
+}

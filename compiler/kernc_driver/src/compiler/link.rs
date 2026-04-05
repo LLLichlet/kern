@@ -1,5 +1,5 @@
 use super::{CompilerDriver, LinkTarget, TempFileGuard};
-use kernc_utils::config::LinkProfile;
+use kernc_utils::config::{LinkProfile, link_profile_uses_crt_startup};
 use std::env;
 use std::process::Command;
 
@@ -130,11 +130,25 @@ impl CompilerDriver {
         match self.options.link_profile {
             LinkProfile::None => {}
             LinkProfile::Hosted => {
-                if !is_windows && !is_darwin {
+                if link_profile_uses_crt_startup(&self.options) {
+                    if !is_windows && !is_darwin {
+                        cmd.arg("-no-pie");
+                    }
+                    if let Some(entry_symbol) = &self.options.entry_symbol {
+                        cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                    }
+                } else if is_darwin {
+                    cmd.arg("-nostartfiles");
+                    cmd.arg(format!(
+                        "-Wl,-e,{}",
+                        self.options.entry_symbol.as_deref().unwrap_or("_start")
+                    ));
+                } else {
                     cmd.arg("-no-pie");
-                }
-                if let Some(entry_symbol) = &self.options.entry_symbol {
-                    cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                    cmd.arg("-nostartfiles");
+                    if let Some(entry_symbol) = &self.options.entry_symbol {
+                        cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                    }
                 }
             }
             LinkProfile::Freestanding => {

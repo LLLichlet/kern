@@ -21,7 +21,7 @@ fn runs_hosted_program_using_layout_based_allocator_api() {
 use std.mem.{layout_of, array_layout_of};
 use std.mem.alloc.Page;
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
 
     let item_layout = layout_of[u64]();
@@ -62,7 +62,7 @@ fn runs_hosted_program_using_std_coll_tree() {
 use std.coll.Tree;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -184,7 +184,7 @@ impl Key : Comparable[Key] {
 
 impl Key : Ord[Key] {}
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[Key, i32].{}..&;
@@ -269,7 +269,7 @@ fn runs_hosted_program_using_std_coll_map() {
 use std.coll.Map;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -392,7 +392,7 @@ impl Key : Hash[Key] {
     }
 }
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[Key, i32].{}..&;
@@ -484,7 +484,7 @@ use std.cmp.{LESS, EQUAL, GREATER};
 use std.hash.hash_of;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -550,7 +550,7 @@ fn runs_hosted_program_using_map_get_or_insert_apis() {
 use std.coll.Map;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -653,7 +653,7 @@ fn runs_hosted_program_using_map_traversal_and_filter_helpers() {
 use std.coll.Map;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -733,7 +733,7 @@ use std.{Option};
 use std.coll.Map;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -842,7 +842,7 @@ fn runs_hosted_program_using_map_list_bridge_helpers() {
 use std.coll.{Map, List};
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -966,7 +966,7 @@ fn runs_hosted_program_using_tree_ordered_traversal_helpers() {
 use std.coll.{Tree, String};
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -1028,7 +1028,7 @@ fn runs_hosted_program_using_tree_boundary_queries() {
 use std.coll.Tree;
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -1108,7 +1108,7 @@ fn runs_hosted_program_using_tree_remove() {
 use std.coll.{Tree, String};
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -1204,7 +1204,7 @@ use std.coll.{List, String, find_byte, rfind_byte, trim_ascii_start, trim_ascii_
 use std.cmp.{LESS, GREATER, EQUAL};
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1598,7 +1598,7 @@ fn runs_hosted_program_using_coll_iteration_and_copy_helpers() {
 use std.coll.{List, String};
 use std.mem.alloc.{Page, GPA};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1803,7 +1803,7 @@ fn runs_hosted_program_using_option_and_result_closure_methods() {
         r#"
 use std.{Option, Result};
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let mut seen = i32.{0};
 
     let option = Option[i32].{ Some: 7 };

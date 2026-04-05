@@ -53,7 +53,7 @@ fn print_usage(program_name: &str) {
     println!("                       Alias for `--link-profile none`");
     println!("  --link-libc          Alias for `--link-profile hosted`");
     println!(
-        "  --use-std            Enable the Kern standard library (hosted links prune std.rt entry shims)"
+        "  --use-std            Enable the Kern standard library (hosted links may still keep std.rt entry shims)"
     );
     println!("  --emit-llvm          Print LLVM IR to stdout");
 

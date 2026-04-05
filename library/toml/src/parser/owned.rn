@@ -1,0 +1,1088 @@
+use std.{Option, Result};
+use std.coll.{List, String};
+use std.mem.alloc.Allocator;
+
+use ..common.{
+    is_ascii_space,
+    is_comment_line,
+    is_multiline_basic_string,
+    is_multiline_literal_string,
+    next_statement,
+    scan_value_string_end,
+    trim_array_element,
+    strip_inline_comment,
+    validate_source_text,
+};
+use ..key.{TableHeaderKind, parse_table_header};
+use ..path.{
+    PathSegment,
+    PathSegmentKind,
+    conflicting_key_path_message,
+    full_path_relation,
+    full_paths_share_head,
+    next_path_segment,
+    PathRelation,
+};
+use ..value.{is_datetime_value, is_float_value, is_integer_value};
+use ..owned_decode.{
+    decode_basic_string,
+    decode_key_segment,
+    decode_literal_string,
+    map_model_error,
+    parse_error,
+    parse_integer_i64,
+    split_key_value,
+};
+use ..{Array, Error, ModelError, OwnedDocument, Table};
+
+pub type ParseOwnedError = enum {
+    Parse: Error,
+    Model: ModelError,
+};
+
+type ArrayAnchor = struct {
+    path: []u8,
+    item: *mut Table,
+};
+
+type SeenItemKind = enum {
+    KeyValue,
+    Table,
+    ArrayTable,
+};
+
+type SeenItem = struct {
+    scope: []u8,
+    path: []u8,
+    kind: SeenItemKind,
+};
+
+type SegmentText = struct {
+    text: []u8,
+    owned: Option[String] = .{ None },
+};
+
+type Lowerer = struct {
+    alloc: *mut Allocator,
+    text: []u8,
+    doc: OwnedDocument = OwnedDocument.{},
+    anchors: List[ArrayAnchor] = List[ArrayAnchor].{},
+    current_target: Option[*mut Table] = .{ None },
+    in_table: bool = false,
+    active_table_path: []u8 = "",
+    active_array_path: []u8 = "",
+    seen_items: List[SeenItem] = List[SeenItem].{},
+};
+
+impl *mut Lowerer {
+    fn key_segment_needs_decode(segment: PathSegment) bool {
+        if (segment.kind != PathSegmentKind.BasicQuoted) {
+            return false;
+        }
+
+        for (let mut i = 0; i < #segment.text; i += 1) {
+            if (segment.text.[i] == b'\\') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn decode_segment_text(segment: PathSegment, line: usize, column_base: usize) Result[SegmentText, ParseOwnedError] {
+        if (!self.key_segment_needs_decode(segment)) {
+            return .{ Ok: SegmentText.{ text: segment.text } };
+        }
+
+        let owned = match (decode_key_segment(self.alloc, segment, line, column_base)) {
+            .{ Ok: owned } => owned,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return .{ Ok: SegmentText.{
+            text: owned.&.as_str(),
+            owned: .{ Some: owned },
+        } };
+    }
+
+    fn deinit_segment_text(segment_text: *mut SegmentText) void {
+        match (segment_text.owned) {
+            .{ Some: owned } => {
+                let mut owned = owned;
+                owned..&.deinit(self.alloc);
+                segment_text.owned = .{ None };
+            },
+            .None => {},
+        }
+    }
+
+    fn fail_semantic(message: []u8, line: usize, column: usize) Result[void, ParseOwnedError] {
+        return .{ Err: parse_error(message, line, column) };
+    }
+
+    fn target() *mut Table {
+        match (self.current_target) {
+            .{ Some: table } => return table,
+            .None => return self.doc..&.root_mut(),
+        }
+    }
+
+    fn clear_anchors() void {
+        self.anchors..&.clear();
+    }
+
+    fn push_anchor(path: []u8, item: *mut Table) Result[void, ParseOwnedError] {
+        if (!self.anchors..&.push(self.alloc, ArrayAnchor.{ path: path, item: item })) {
+            return .{ Err: .{ Model: ModelError.OutOfMemory } };
+        }
+        return .{ Ok: {} };
+    }
+
+    fn record_item(item: SeenItem) Result[void, ParseOwnedError] {
+        if (!self.seen_items..&.push(self.alloc, item)) {
+            return .{ Err: .{ Model: ModelError.OutOfMemory } };
+        }
+        return .{ Ok: {} };
+    }
+
+    fn item_relation(lhs: SeenItem, rhs: SeenItem) PathRelation {
+        return full_path_relation(lhs.scope, lhs.path, rhs.scope, rhs.path);
+    }
+
+    fn key_conflict(item: SeenItem, previous_item: SeenItem, relation: PathRelation, line: usize) Result[void, ParseOwnedError] {
+        match (previous_item.kind) {
+            .KeyValue => match (relation) {
+                .Equal => return self.fail_semantic("duplicate key path", line, 1),
+                .Prefix => return self.fail_semantic(
+                    "key path conflicts with existing nested key namespace",
+                    line,
+                    1
+                ),
+                .Super => return self.fail_semantic(
+                    "key path conflicts with existing parent key namespace",
+                    line,
+                    1
+                ),
+                .Disjoint => return .{ Ok: {} },
+            },
+            .Table => match (relation) {
+                .Equal => return self.fail_semantic("key path conflicts with existing table path", line, 1),
+                .Prefix => return self.fail_semantic("key path conflicts with existing table path", line, 1),
+                .Super => {
+                    let scope_relation = full_path_relation("", previous_item.path, "", item.scope);
+                    return if (scope_relation == PathRelation.Super) {
+                        self.fail_semantic("key path conflicts with existing table path", line, 1)
+                    } else {
+                        .{ Ok: {} }
+                    };
+                },
+                .Disjoint => return .{ Ok: {} },
+            },
+            .ArrayTable => match (relation) {
+                .Equal => return self.fail_semantic(
+                    "key path conflicts with existing array-of-tables path",
+                    line,
+                    1
+                ),
+                .Prefix => return self.fail_semantic(
+                    "key path conflicts with existing array-of-tables path",
+                    line,
+                    1
+                ),
+                .Super => {
+                    let scope_relation = full_path_relation("", previous_item.path, "", item.scope);
+                    return if (scope_relation == PathRelation.Super) {
+                        self.fail_semantic("key path conflicts with existing array-of-tables path", line, 1)
+                    } else {
+                        .{ Ok: {} }
+                    };
+                },
+                .Disjoint => return .{ Ok: {} },
+            },
+        }
+    }
+
+    fn table_conflict(
+        item: SeenItem,
+        previous_item: SeenItem,
+        relation: PathRelation,
+        line: usize,
+        saw_same_array_table: bool
+    ) Result[void, ParseOwnedError] {
+        match (previous_item.kind) {
+            .KeyValue => match (relation) {
+                .Equal => return self.fail_semantic("table path conflicts with existing key path", line, 1),
+                .Prefix => {
+                    let scope_relation = full_path_relation("", item.path, "", previous_item.scope);
+                    return if (
+                        scope_relation == PathRelation.Prefix or
+                        (
+                            item.kind == SeenItemKind.ArrayTable and
+                            scope_relation == PathRelation.Equal and
+                            saw_same_array_table
+                        )
+                    ) {
+                        .{ Ok: {} }
+                    } else {
+                        self.fail_semantic("table path conflicts with existing key path", line, 1)
+                    };
+                },
+                .Super => return self.fail_semantic("table path conflicts with existing key path", line, 1),
+                .Disjoint => return .{ Ok: {} },
+            },
+            .Table => match (relation) {
+                .Equal => return self.fail_semantic("duplicate table header", line, 1),
+                .Prefix => {
+                    return match (item.kind) {
+                        .Table => .{ Ok: {} },
+                        .ArrayTable => if (saw_same_array_table) {
+                            .{ Ok: {} }
+                        } else {
+                            self.fail_semantic("table path conflicts with existing child table path", line, 1)
+                        },
+                        .KeyValue => .{ Ok: {} },
+                    };
+                },
+                .Super => return .{ Ok: {} },
+                .Disjoint => return .{ Ok: {} },
+            },
+            .ArrayTable => match (relation) {
+                .Equal => {
+                    return match (item.kind) {
+                        .ArrayTable => .{ Ok: {} },
+                        .Table => self.fail_semantic(
+                            "table path conflicts with existing array-of-tables path",
+                            line,
+                            1
+                        ),
+                        .KeyValue => .{ Ok: {} },
+                    };
+                },
+                .Prefix => {
+                    return match (item.kind) {
+                        .Table => .{ Ok: {} },
+                        .ArrayTable => if (saw_same_array_table) {
+                            .{ Ok: {} }
+                        } else {
+                            self.fail_semantic("table path conflicts with existing child table path", line, 1)
+                        },
+                        .KeyValue => .{ Ok: {} },
+                    };
+                },
+                .Super => return .{ Ok: {} },
+                .Disjoint => return .{ Ok: {} },
+            },
+        }
+    }
+
+    fn validate_item_semantics(item: SeenItem, line_no: usize) Result[void, ParseOwnedError] {
+        let seen = self.seen_items.&.as_slice();
+        let mut saw_same_array_table = false;
+
+        for (let mut i = 0; i < #seen; i += 1) {
+            let previous_item = seen.[i];
+            if (!full_paths_share_head(item.scope, item.path, previous_item.scope, previous_item.path)) {
+                continue;
+            }
+            let relation = self.item_relation(item, previous_item);
+            if (
+                item.kind == SeenItemKind.ArrayTable and
+                previous_item.kind == SeenItemKind.ArrayTable and
+                relation == PathRelation.Equal
+            ) {
+                saw_same_array_table = true;
+            }
+            if (relation != PathRelation.Disjoint) {
+                let conflict = match (item.kind) {
+                    .KeyValue => self.key_conflict(item, previous_item, relation, line_no),
+                    .Table => self.table_conflict(item, previous_item, relation, line_no, saw_same_array_table),
+                    .ArrayTable => self.table_conflict(item, previous_item, relation, line_no, saw_same_array_table),
+                };
+                if (conflict.is_err()) {
+                    return conflict;
+                }
+            }
+        }
+
+        return .{ Ok: {} };
+    }
+
+    fn find_matching_anchor(path: []u8) Option[usize] {
+        let anchors = self.anchors.&.as_slice();
+        let mut found = Option[usize].{ None };
+        for (let mut i = 0; i < #anchors; i += 1) {
+            if (full_path_relation("", path, "", anchors.[i].path) == PathRelation.Super) {
+                found = .{ Some: i };
+            }
+        }
+        return found;
+    }
+
+    fn suffix_after_prefix(path: []u8, prefix: []u8, line: usize) Result[[]u8, ParseOwnedError] {
+        let mut path_index = 0;
+        let mut prefix_index = 0;
+
+        for (;;) {
+            let prefix_segment = next_path_segment(prefix, prefix_index);
+            match (prefix_segment) {
+                .None => return .{ Ok: path.[path_index .. #path] },
+                .{ Some: segment } => {
+                    let .{ Some: path_segment } = next_path_segment(path, path_index) else {
+                        return .{ Err: parse_error("invalid nested table path lowering state", line, 1) };
+                    };
+                    prefix_index = segment.next;
+                    path_index = path_segment.next;
+                },
+            }
+        }
+    }
+
+    fn lower_nested_table(base: *mut Table, path: []u8, prefix: []u8, line: usize) Result[*mut Table, ParseOwnedError] {
+        let suffix = match (self.suffix_after_prefix(path, prefix, line)) {
+            .{ Ok: suffix } => suffix,
+            .{ Err: err } => return .{ Err: err },
+        };
+
+        let mut table = base;
+        let mut index = 0;
+        for (;;) {
+            let .{ Some: segment } = next_path_segment(suffix, index) else {
+                return .{ Err: parse_error("expected a nested table suffix", line, 1) };
+            };
+            let mut segment_text = match (self.decode_segment_text(segment, line, 1)) {
+                .{ Ok: segment_text } => segment_text,
+                .{ Err: err } => return .{ Err: err },
+            };
+            let result = map_model_error(table.ensure_inline_table(self.alloc, segment_text.text));
+            self.deinit_segment_text(segment_text..&);
+            table = match (result) {
+                .{ Ok: table } => table,
+                .{ Err: err } => return .{ Err: err },
+            };
+            index = segment.next;
+            if (next_path_segment(suffix, index).is_none()) {
+                return .{ Ok: table };
+            }
+        }
+    }
+
+    fn lower_nested_array_table(base: *mut Table, path: []u8, prefix: []u8, line: usize) Result[*mut Table, ParseOwnedError] {
+        let suffix = match (self.suffix_after_prefix(path, prefix, line)) {
+            .{ Ok: suffix } => suffix,
+            .{ Err: err } => return .{ Err: err },
+        };
+
+        let mut table = base;
+        let mut index = 0;
+        for (;;) {
+            let .{ Some: segment } = next_path_segment(suffix, index) else {
+                return .{ Err: parse_error("expected a nested array-table suffix", line, 1) };
+            };
+            let mut segment_text = match (self.decode_segment_text(segment, line, 1)) {
+                .{ Ok: segment_text } => segment_text,
+                .{ Err: err } => return .{ Err: err },
+            };
+
+            index = segment.next;
+            if (next_path_segment(suffix, index).is_none()) {
+                let array_result = map_model_error(table.ensure_array(self.alloc, segment_text.text));
+                self.deinit_segment_text(segment_text..&);
+                let array = match (array_result) {
+                    .{ Ok: array } => array,
+                    .{ Err: err } => return .{ Err: err },
+                };
+                return map_model_error(array.push_inline_table(self.alloc));
+            }
+
+            let inner_result = map_model_error(table.ensure_inline_table(self.alloc, segment_text.text));
+            self.deinit_segment_text(segment_text..&);
+            table = match (inner_result) {
+                .{ Ok: table } => table,
+                .{ Err: err } => return .{ Err: err },
+            };
+        }
+    }
+
+    fn handle_table_header(line: []u8, line_no: usize) Result[void, ParseOwnedError] {
+        let header = match (parse_table_header(line, line_no)) {
+            .{ Ok: header } => header,
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+        };
+
+        let item = SeenItem.{
+            scope: "",
+            path: header.path,
+            kind: match (header.kind) {
+                .Table => SeenItemKind.Table,
+                .ArrayTable => SeenItemKind.ArrayTable,
+            },
+        };
+        let nested_under_array = (
+            #self.active_array_path != 0 and
+            full_path_relation("", header.path, "", self.active_array_path) == PathRelation.Super
+        );
+        if (!(header.kind == TableHeaderKind.Table and nested_under_array)) {
+            let semantic_result = self.validate_item_semantics(item, line_no);
+            if (semantic_result.is_err()) {
+                return semantic_result;
+            }
+        }
+        let record_result = self.record_item(item);
+        if (record_result.is_err()) {
+            return record_result;
+        }
+
+        match (self.find_matching_anchor(header.path)) {
+            .{ Some: anchor_index } => {
+                self.anchors..&.truncate(anchor_index + 1);
+                let anchor = self.anchors.&.as_slice().[anchor_index];
+                match (header.kind) {
+                    .Table => {
+                        let nested = self.lower_nested_table(anchor.item, header.path, anchor.path, line_no);
+                        match (nested) {
+                            .{ Ok: table } => {
+                                self.current_target = .{ Some: table };
+                                if (!nested_under_array) {
+                                    self.active_array_path = "";
+                                }
+                                self.in_table = true;
+                                self.active_table_path = header.path;
+                                return .{ Ok: {} };
+                            },
+                            .{ Err: err } => return .{ Err: err },
+                        }
+                    },
+                    .ArrayTable => {
+                        let nested = self.lower_nested_array_table(
+                            anchor.item,
+                            header.path,
+                            anchor.path,
+                            line_no
+                        );
+                        let item = match (nested) {
+                            .{ Ok: item } => item,
+                            .{ Err: err } => return .{ Err: err },
+                        };
+                        let push_result = self.push_anchor(header.path, item);
+                        match (push_result) {
+                            .{ Ok: _ } => {},
+                            .{ Err: err } => return .{ Err: err },
+                        }
+                        self.current_target = .{ Some: item };
+                        self.active_array_path = header.path;
+                        self.in_table = true;
+                        self.active_table_path = header.path;
+                        return .{ Ok: {} };
+                    },
+                }
+            },
+            .None => {},
+        }
+
+        self.clear_anchors();
+        match (header.kind) {
+            .Table => {
+                let table = map_model_error(self.doc..&.ensure_table(self.alloc, header.path));
+                match (table) {
+                    .{ Ok: table } => {
+                        self.current_target = .{ Some: table };
+                        if (!nested_under_array) {
+                            self.active_array_path = "";
+                        }
+                        self.in_table = true;
+                        self.active_table_path = header.path;
+                        return .{ Ok: {} };
+                    },
+                    .{ Err: err } => return .{ Err: err },
+                }
+            },
+            .ArrayTable => {
+                let item = map_model_error(self.doc..&.append_array_table(self.alloc, header.path));
+                match (item) {
+                    .{ Ok: item } => {
+                        let push_result = self.push_anchor(header.path, item);
+                        match (push_result) {
+                            .{ Ok: _ } => {},
+                            .{ Err: err } => return .{ Err: err },
+                        }
+                        self.current_target = .{ Some: item };
+                        self.active_array_path = header.path;
+                        self.in_table = true;
+                        self.active_table_path = header.path;
+                        return .{ Ok: {} };
+                    },
+                    .{ Err: err } => return .{ Err: err },
+                }
+            },
+        }
+    }
+
+    fn assign_string_value(table: *mut Table, key: []u8, text: []u8) Result[void, ParseOwnedError] {
+        let result = map_model_error(table.set_string(self.alloc, key, text));
+        match (result) {
+            .{ Ok: _ } => return .{ Ok: {} },
+            .{ Err: err } => return .{ Err: err },
+        }
+    }
+
+    fn append_string_value(array: *mut Array, text: []u8) Result[void, ParseOwnedError] {
+        return map_model_error(array.push_string(self.alloc, text));
+    }
+
+    fn parse_table_value(
+        table: *mut Table,
+        key: []u8,
+        text: []u8,
+        line: usize,
+        column_base: usize
+    ) Result[void, ParseOwnedError] {
+        let value = strip_inline_comment(text).trim_ascii();
+        if (#value == 0) {
+            return .{ Err: parse_error("expected a value after `=`", line, column_base) };
+        }
+
+        if (value.[0] == b'[') {
+            let array_result = map_model_error(table.ensure_array(self.alloc, key));
+            let array = match (array_result) {
+                .{ Ok: array } => array,
+                .{ Err: err } => return .{ Err: err },
+            };
+            return self.parse_array_value(array, value, line, column_base);
+        }
+
+        if (value.[0] == b'{') {
+            let table_result = map_model_error(table.ensure_inline_table(self.alloc, key));
+            let inline = match (table_result) {
+                .{ Ok: table } => table,
+                .{ Err: err } => return .{ Err: err },
+            };
+            return self.parse_inline_table_value(inline, value, line, column_base);
+        }
+
+        if (is_multiline_basic_string(value, 0) or value.[0] == b'"') {
+            let decoded_result = decode_basic_string(
+                self.alloc,
+                value,
+                line,
+                column_base,
+                is_multiline_basic_string(value, 0)
+            );
+            let mut decoded = match (decoded_result) {
+                .{ Ok: decoded } => decoded,
+                .{ Err: err } => return .{ Err: err },
+            };
+            let assign_result = self.assign_string_value(table, key, decoded.&.as_str());
+            decoded..&.deinit(self.alloc);
+            return assign_result;
+        }
+
+        if (is_multiline_literal_string(value, 0) or value.[0] == b'\'') {
+            let decoded_result = decode_literal_string(
+                self.alloc,
+                value,
+                line,
+                column_base,
+                is_multiline_literal_string(value, 0)
+            );
+            let mut decoded = match (decoded_result) {
+                .{ Ok: decoded } => decoded,
+                .{ Err: err } => return .{ Err: err },
+            };
+            let assign_result = self.assign_string_value(table, key, decoded.&.as_str());
+            decoded..&.deinit(self.alloc);
+            return assign_result;
+        }
+
+        if (value.eq("true") or value.eq("false")) {
+            let result = map_model_error(table.set_bool(self.alloc, key, value.eq("true")));
+            match (result) {
+                .{ Ok: _ } => return .{ Ok: {} },
+                .{ Err: err } => return .{ Err: err },
+            }
+        }
+
+        if (is_integer_value(value)) {
+            let integer = match (parse_integer_i64(value, line, column_base)) {
+                .{ Ok: integer } => integer,
+                .{ Err: err } => return .{ Err: err },
+            };
+            let result = map_model_error(table.set_integer(self.alloc, key, integer));
+            match (result) {
+                .{ Ok: _ } => return .{ Ok: {} },
+                .{ Err: err } => return .{ Err: err },
+            }
+        }
+
+        if (is_float_value(value)) {
+            let result = map_model_error(table.set_float_text(self.alloc, key, value));
+            match (result) {
+                .{ Ok: _ } => return .{ Ok: {} },
+                .{ Err: err } => return .{ Err: err },
+            }
+        }
+
+        if (is_datetime_value(value)) {
+            let result = map_model_error(table.set_datetime_text(self.alloc, key, value));
+            match (result) {
+                .{ Ok: _ } => return .{ Ok: {} },
+                .{ Err: err } => return .{ Err: err },
+            }
+        }
+
+        return .{ Err: parse_error(
+            "only integers, floats, booleans, strings, arrays, inline tables, and date/time literals are supported currently",
+            line,
+            column_base
+        ) };
+    }
+
+    fn parse_array_item(
+        array: *mut Array,
+        text: []u8,
+        line: usize,
+        column_base: usize
+    ) Result[void, ParseOwnedError] {
+        let value = strip_inline_comment(text).trim_ascii();
+        if (#value == 0) {
+            return .{ Err: parse_error("array elements cannot be empty", line, column_base) };
+        }
+
+        if (value.[0] == b'[') {
+            let nested_result = map_model_error(array.push_array(self.alloc));
+            let nested = match (nested_result) {
+                .{ Ok: nested } => nested,
+                .{ Err: err } => return .{ Err: err },
+            };
+            return self.parse_array_value(nested, value, line, column_base);
+        }
+
+        if (value.[0] == b'{') {
+            let nested_result = map_model_error(array.push_inline_table(self.alloc));
+            let nested = match (nested_result) {
+                .{ Ok: nested } => nested,
+                .{ Err: err } => return .{ Err: err },
+            };
+            return self.parse_inline_table_value(nested, value, line, column_base);
+        }
+
+        if (is_multiline_basic_string(value, 0) or value.[0] == b'"') {
+            let decoded_result = decode_basic_string(
+                self.alloc,
+                value,
+                line,
+                column_base,
+                is_multiline_basic_string(value, 0)
+            );
+            let mut decoded = match (decoded_result) {
+                .{ Ok: decoded } => decoded,
+                .{ Err: err } => return .{ Err: err },
+            };
+            let append_result = self.append_string_value(array, decoded.&.as_str());
+            decoded..&.deinit(self.alloc);
+            return append_result;
+        }
+
+        if (is_multiline_literal_string(value, 0) or value.[0] == b'\'') {
+            let decoded_result = decode_literal_string(
+                self.alloc,
+                value,
+                line,
+                column_base,
+                is_multiline_literal_string(value, 0)
+            );
+            let mut decoded = match (decoded_result) {
+                .{ Ok: decoded } => decoded,
+                .{ Err: err } => return .{ Err: err },
+            };
+            let append_result = self.append_string_value(array, decoded.&.as_str());
+            decoded..&.deinit(self.alloc);
+            return append_result;
+        }
+
+        if (value.eq("true") or value.eq("false")) {
+            return map_model_error(array.push_bool(self.alloc, value.eq("true")));
+        }
+
+        if (is_integer_value(value)) {
+            let integer = match (parse_integer_i64(value, line, column_base)) {
+                .{ Ok: integer } => integer,
+                .{ Err: err } => return .{ Err: err },
+            };
+            return map_model_error(array.push_integer(self.alloc, integer));
+        }
+
+        if (is_float_value(value)) {
+            return map_model_error(array.push_float_text(self.alloc, value));
+        }
+
+        if (is_datetime_value(value)) {
+            return map_model_error(array.push_datetime_text(self.alloc, value));
+        }
+
+        return .{ Err: parse_error(
+            "only integers, floats, booleans, strings, arrays, inline tables, and date/time literals are supported currently",
+            line,
+            column_base
+        ) };
+    }
+
+    fn parse_array_value(array: *mut Array, value: []u8, line: usize, column_base: usize) Result[void, ParseOwnedError] {
+        if (#value < 2 or value.[#value - 1] != b']') {
+            return .{ Err: parse_error("unterminated array literal", line, column_base + #value - 1) };
+        }
+
+        let inner = value.[1 .. #value - 1];
+        let trimmed_inner = inner.trim_ascii();
+        if (#trimmed_inner == 0) {
+            return .{ Ok: {} };
+        }
+
+        let mut in_comment = false;
+        let mut nested_array_depth = 0;
+        let mut nested_inline_table_depth = 0;
+        let mut element_start = 0;
+
+        for (let mut i = 0; i <= #inner; i += 1) {
+            let at_end = i == #inner;
+            if (!at_end) {
+                let byte = inner.[i];
+                if (in_comment) {
+                    if (byte == b'\n') {
+                        in_comment = false;
+                    }
+                    continue;
+                }
+
+                if (byte == b'"' or byte == b'\'') {
+                    let .{ Some: end } = scan_value_string_end(inner, i) else {
+                        return .{ Err: parse_error("unterminated string inside array literal", line, column_base + i + 1) };
+                    };
+                    i = end - 1;
+                    continue;
+                }
+
+                if (byte == b'#' and nested_inline_table_depth == 0) {
+                    in_comment = true;
+                    continue;
+                }
+
+                if (byte == b'[') {
+                    nested_array_depth += 1;
+                    continue;
+                }
+
+                if (byte == b']') {
+                    if (nested_array_depth == 0) {
+                        return .{ Err: parse_error("unexpected `]` inside array literal", line, column_base + i + 1) };
+                    }
+                    nested_array_depth -= 1;
+                    continue;
+                }
+
+                if (byte == b'{') {
+                    nested_inline_table_depth += 1;
+                    continue;
+                }
+
+                if (byte == b'}') {
+                    if (nested_inline_table_depth == 0) {
+                        return .{ Err: parse_error("unexpected `}` inside array literal", line, column_base + i + 1) };
+                    }
+                    nested_inline_table_depth -= 1;
+                    continue;
+                }
+
+                if (
+                    byte != b',' or
+                    nested_array_depth != 0 or
+                    nested_inline_table_depth != 0
+                ) {
+                    continue;
+                }
+            }
+
+            if (!at_end and (nested_array_depth != 0 or nested_inline_table_depth != 0)) {
+                continue;
+            }
+
+            let element = trim_array_element(inner.[element_start .. i]);
+            if (#element == 0) {
+                if (at_end) {
+                    return .{ Ok: {} };
+                }
+                return .{ Err: parse_error("array elements cannot be empty", line, column_base + element_start + 1) };
+            }
+
+            let item_result = self.parse_array_item(array, element, line, column_base + element_start + 1);
+            if (item_result.is_err()) {
+                return item_result;
+            }
+
+            if (at_end) {
+                break;
+            }
+            element_start = i + 1;
+        }
+
+        if (in_comment) {
+            return .{ Err: parse_error("unterminated array literal", line, column_base + #value - 1) };
+        }
+
+        return .{ Ok: {} };
+    }
+
+    fn parse_inline_table_value(
+        table: *mut Table,
+        value: []u8,
+        line: usize,
+        column_base: usize
+    ) Result[void, ParseOwnedError] {
+        if (#value < 2 or value.[#value - 1] != b'}') {
+            return .{ Err: parse_error("unterminated inline table", line, column_base + #value - 1) };
+        }
+
+        let inner = value.[1 .. #value - 1];
+        let trimmed_inner = inner.trim_ascii();
+        if (#trimmed_inner == 0) {
+            return .{ Ok: {} };
+        }
+
+        let mut nested_array_depth = 0;
+        let mut nested_inline_table_depth = 0;
+        let mut entry_start = 0;
+        let mut seen_keys = List[[]u8].{};
+        defer seen_keys..&.deinit(self.alloc);
+
+        for (let mut i = 0; i <= #inner; i += 1) {
+            let at_end = i == #inner;
+            if (!at_end) {
+                let byte = inner.[i];
+                if (
+                    (byte == b'\n' or byte == b'\r') and
+                    nested_array_depth == 0 and
+                    nested_inline_table_depth == 0
+                ) {
+                    return .{ Err: parse_error(
+                        "inline tables cannot contain top-level newlines",
+                        line,
+                        column_base + i + 1
+                    ) };
+                }
+
+                if (byte == b'"' or byte == b'\'') {
+                    let .{ Some: end } = scan_value_string_end(inner, i) else {
+                        return .{ Err: parse_error(
+                            "unterminated string inside inline table",
+                            line,
+                            column_base + i + 1
+                        ) };
+                    };
+                    i = end - 1;
+                    continue;
+                }
+
+                if (byte == b'#' and nested_array_depth == 0 and nested_inline_table_depth == 0) {
+                    return .{ Err: parse_error(
+                        "inline tables cannot contain comments",
+                        line,
+                        column_base + i + 1
+                    ) };
+                }
+
+                if (byte == b'[') {
+                    nested_array_depth += 1;
+                    continue;
+                }
+
+                if (byte == b']') {
+                    if (nested_array_depth == 0) {
+                        return .{ Err: parse_error("unexpected `]` inside inline table", line, column_base + i + 1) };
+                    }
+                    nested_array_depth -= 1;
+                    continue;
+                }
+
+                if (byte == b'{') {
+                    nested_inline_table_depth += 1;
+                    continue;
+                }
+
+                if (byte == b'}') {
+                    if (nested_inline_table_depth == 0) {
+                        return .{ Err: parse_error("unexpected `}` inside inline table", line, column_base + i + 1) };
+                    }
+                    nested_inline_table_depth -= 1;
+                    continue;
+                }
+
+                if (
+                    byte != b',' or
+                    nested_array_depth != 0 or
+                    nested_inline_table_depth != 0
+                ) {
+                    continue;
+                }
+            }
+
+            if (!at_end and (nested_array_depth != 0 or nested_inline_table_depth != 0)) {
+                continue;
+            }
+
+            let entry = inner.[entry_start .. i].trim_ascii();
+            if (#entry == 0) {
+                return .{ Err: parse_error("inline table entries cannot be empty", line, column_base + entry_start + 1) };
+            }
+
+            let split = match (split_key_value(entry, line)) {
+                .{ Ok: split } => split,
+                .{ Err: err } => return .{ Err: err },
+            };
+            let seen = seen_keys.&.as_slice();
+            for (let mut seen_index = 0; seen_index < #seen; seen_index += 1) {
+                let conflict = conflicting_key_path_message(split.key, seen.[seen_index]);
+                match (conflict) {
+                    .{ Some: message } => {
+                        return .{ Err: parse_error(message, line, column_base + entry_start + 1) };
+                    },
+                    .None => {},
+                }
+            }
+            if (!seen_keys..&.push(self.alloc, split.key)) {
+                return .{ Err: .{ Model: ModelError.OutOfMemory } };
+            }
+            let lower_result = self.lower_key_path(
+                table,
+                split.key,
+                split.value,
+                line,
+                column_base + entry_start + split.value_column
+            );
+            if (lower_result.is_err()) {
+                return lower_result;
+            }
+
+            if (at_end) {
+                break;
+            }
+            entry_start = i + 1;
+        }
+
+        return .{ Ok: {} };
+    }
+
+    fn lower_key_path(
+        table: *mut Table,
+        key: []u8,
+        value: []u8,
+        line: usize,
+        value_column: usize
+    ) Result[void, ParseOwnedError] {
+        let .{ Some: segment } = next_path_segment(key, 0) else {
+            return .{ Err: parse_error("expected a key", line, 1) };
+        };
+        let mut segment_text = match (self.decode_segment_text(segment, line, 1)) {
+            .{ Ok: segment_text } => segment_text,
+            .{ Err: err } => return .{ Err: err },
+        };
+
+        if (next_path_segment(key, segment.next).is_none()) {
+            let result = self.parse_table_value(table, segment_text.text, value, line, value_column);
+            self.deinit_segment_text(segment_text..&);
+            return result;
+        }
+
+        let inner_result = map_model_error(
+            table.ensure_inline_table(self.alloc, segment_text.text)
+        );
+        self.deinit_segment_text(segment_text..&);
+        let inner = match (inner_result) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return self.lower_key_path(inner, key.[segment.next .. #key], value, line, value_column);
+    }
+
+    fn handle_key_value(line: []u8, line_no: usize) Result[void, ParseOwnedError] {
+        let split = match (split_key_value(line, line_no)) {
+            .{ Ok: split } => split,
+            .{ Err: err } => return .{ Err: err },
+        };
+        let item = SeenItem.{
+            scope: if (self.in_table) self.active_table_path else "",
+            path: split.key,
+            kind: SeenItemKind.KeyValue,
+        };
+        if (#self.active_array_path == 0) {
+            let semantic_result = self.validate_item_semantics(item, line_no);
+            if (semantic_result.is_err()) {
+                return semantic_result;
+            }
+        }
+        let record_result = self.record_item(item);
+        if (record_result.is_err()) {
+            return record_result;
+        }
+        return self.lower_key_path(
+            self.target(),
+            split.key,
+            split.value,
+            line_no,
+            split.value_column
+        );
+    }
+
+    fn parse_line(line: []u8, line_no: usize) Result[void, ParseOwnedError] {
+        let trimmed = line.trim_ascii();
+        if (#trimmed == 0 or is_comment_line(trimmed)) {
+            return .{ Ok: {} };
+        }
+
+        if (trimmed.[0] == b'[') {
+            return self.handle_table_header(trimmed, line_no);
+        }
+        return self.handle_key_value(trimmed, line_no);
+    }
+
+    fn parse_all() Result[void, ParseOwnedError] {
+        let mut offset = 0;
+        let mut line_no = 1;
+
+        for (;;) {
+            let .{ Some: statement } = next_statement(self.text, offset, line_no) else break;
+            let result = self.parse_line(statement.text, line_no);
+            if (result.is_err()) {
+                return result;
+            }
+
+            offset = statement.next;
+            line_no = statement.next_line;
+        }
+
+        return .{ Ok: {} };
+    }
+}
+
+pub fn parse_owned(alloc: *mut Allocator, text: []u8) Result[OwnedDocument, ParseOwnedError] {
+    let source_result = validate_source_text(text);
+    if (source_result.is_err()) {
+        match (source_result) {
+            .{ Err: err } => return .{ Err: .{ Parse: err } },
+            .{ Ok: _ } => {},
+        }
+    }
+
+    let mut lowerer = Lowerer.{ alloc: alloc, text: text };
+    let result = lowerer..&.parse_all();
+    if (result.is_err()) {
+        let err = match (result) {
+            .{ Err: err } => err,
+            .{ Ok: _ } => return .{ Err: .{ Model: ModelError.InvalidDocument } },
+        };
+        lowerer.doc..&.deinit(alloc);
+        lowerer.seen_items..&.deinit(alloc);
+        lowerer.anchors..&.deinit(alloc);
+        return .{ Err: err };
+    }
+
+    lowerer.seen_items..&.deinit(alloc);
+    lowerer.anchors..&.deinit(alloc);
+    return .{ Ok: lowerer.doc };
+}

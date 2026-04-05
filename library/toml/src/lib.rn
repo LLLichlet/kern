@@ -7,10 +7,16 @@
 
 mod document;
 mod error;
+mod managed;
+mod model;
 mod parser;
+mod render;
 mod result;
 
-pub use .document.{Document, DocumentKind};
+pub use .document.{ScanDocument, ScanDocumentKind};
 pub use .error.Error;
-pub use .parser.parse;
+pub use .managed.{ArrayRef, Document, TableRef, parse};
+pub use .model.{Array, DocumentSectionKind, ModelError, OwnedDocument, Table, Value};
+pub use .parser.{ParseOwnedError, parse_owned, scan};
+pub use .render.render_document;
 pub use .result.Result;

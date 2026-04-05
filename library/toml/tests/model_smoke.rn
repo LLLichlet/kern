@@ -1,0 +1,232 @@
+use std.test;
+use std.Option;
+use std.mem.alloc.{Allocator, GPA, Page};
+use toml.{Array, DocumentSectionKind, ModelError, OwnedDocument};
+
+fn expect_some_text(value: Option[[]u8], expected: []u8) void {
+    match (value) {
+        .{ Some: actual } => test.assert(
+            actual.eq(expected),
+            "unexpected text value: {}",
+            .{ actual, }
+        ),
+        .None => test.fail("expected text value", .{}),
+    }
+}
+
+fn expect_none_text(value: Option[[]u8]) void {
+    match (value) {
+        .{ Some: actual } => test.fail("expected no text value: {}", .{ actual, }),
+        .None => return,
+    }
+}
+
+fn expect_array_text(array: *Array, index: usize, expected: []u8) void {
+    let value = test.expect_some(array.get(index));
+    expect_some_text(value.as_string(), expected);
+}
+
+fn check_owned_document_queries_and_mutation() void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut doc = OwnedDocument.{};
+    defer doc..&.deinit(alloc);
+
+    let _ = test.expect_ok(doc..&.root_mut().set_string(alloc, "title", "demo"));
+    let _ = test.expect_ok(doc..&.root_mut().set_integer(alloc, "edition", 2027));
+    let _ = test.expect_ok(doc..&.root_mut().set_float_text(alloc, "ratio", "1.25"));
+    let _ = test.expect_ok(doc..&.root_mut().set_datetime_text(alloc, "release", "1979-05-27T07:32:00Z"));
+    let _ = test.expect_ok(doc..&.root_mut().set_bool(alloc, "publish", false));
+
+    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
+    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
+    let _ = test.expect_ok(package.set_string(alloc, "version", "0.1.0"));
+
+    let dep = test.expect_ok(doc..&.root_mut().ensure_inline_table(alloc, "dep"));
+    let _ = test.expect_ok(dep.set_string(alloc, "path", "../util"));
+    let _ = test.expect_ok(dep.set_string(alloc, "package", "util"));
+    let _ = test.expect_ok(dep.set_path_string(alloc, "meta.license", "MIT"));
+
+    let features = test.expect_ok(package.ensure_array(alloc, "features"));
+    let _ = test.expect_ok(features.push_string(alloc, "parse"));
+    let _ = test.expect_ok(features.push_string(alloc, "model"));
+
+    let _ = test.expect_ok(doc..&.root_mut().set_path_integer(alloc, "server.port", 443));
+    let _ = test.expect_ok(doc..&.root_mut().set_path_bool(alloc, "server.tls.enabled", true));
+    let cipher_suites = test.expect_ok(doc..&.root_mut().ensure_path_array(alloc, "server.tls.cipher-suites"));
+    let _ = test.expect_ok(cipher_suites.push_string(alloc, "TLS_AES_128_GCM_SHA256"));
+    let _ = test.expect_ok(cipher_suites.push_string(alloc, "TLS_AES_256_GCM_SHA384"));
+
+    let product1 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product1.set_string(alloc, "name", "hammer"));
+    let _ = test.expect_ok(product1.set_integer(alloc, "price", 9));
+
+    let product2 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product2.set_string(alloc, "name", "nail"));
+    let _ = test.expect_ok(product2.set_bool(alloc, "available", true));
+
+    expect_some_text(doc..&.root().get_string("title"), "demo");
+    test.eq(test.expect_some(doc..&.root().get_integer("edition")), 2027);
+    expect_some_text(doc..&.root().get_float_text("ratio"), "1.25");
+    expect_some_text(doc..&.root().get_datetime_text("release"), "1979-05-27T07:32:00Z");
+    test.eq(test.expect_some(doc..&.root().get_bool("publish")), false);
+    test.assert(doc..&.root().contains("dep"), "expected inline table key", .{});
+    test.assert(doc..&.root().contains_path("server.tls.enabled"), "expected nested path key", .{});
+    expect_some_text(package.get_string("name"), "toml");
+    expect_some_text(package.get_string("version"), "0.1.0");
+    expect_some_text(dep.get_path_string("meta.license"), "MIT");
+    test.eq(features.len(), 2);
+    expect_array_text(features, 0, "parse");
+    expect_array_text(features, 1, "model");
+    let package_again = test.expect_some(doc..&.get_table("package"));
+    expect_some_text(package_again.get_string("name"), "toml");
+    test.eq(test.expect_some(doc..&.get_path_integer("server.port")), 443);
+    test.eq(test.expect_some(doc..&.get_path_bool("server.tls.enabled")), true);
+    expect_some_text(doc..&.get_path_string("dep.meta.license"), "MIT");
+    let server_tls = test.expect_some(doc..&.get_table_path("server.tls"));
+    test.eq(test.expect_some(server_tls.get_bool("enabled")), true);
+    let package_dep = test.expect_some(doc..&.get_table_path("dep.meta"));
+    expect_some_text(package_dep.get_string("license"), "MIT");
+    test.eq(doc..&.array_table_len("products"), 2);
+    let second_product = test.expect_some(doc..&.get_array_table("products", 1));
+    expect_some_text(second_product.get_string("name"), "nail");
+
+    test.assert(dep.remove_path(alloc, "meta.license"), "expected nested removal to succeed", .{});
+    expect_none_text(dep.get_path_string("meta.license"));
+    test.assert(package.remove(alloc, "version"), "expected removal to succeed", .{});
+    expect_none_text(package.get_string("version"));
+}
+
+fn check_kind_conflicts() void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut doc = OwnedDocument.{};
+    defer doc..&.deinit(alloc);
+
+    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
+    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
+
+    let dep = test.expect_ok(doc..&.root_mut().ensure_inline_table(alloc, "dep"));
+    let _ = test.expect_ok(dep.set_string(alloc, "path", "../util"));
+
+    let table_conflict = test.expect_err(doc..&.append_array_table(alloc, "package"));
+    test.eq(table_conflict, ModelError.KindConflict);
+
+    let value_conflict = test.expect_err(doc..&.root_mut().ensure_array(alloc, "dep"));
+    test.eq(value_conflict, ModelError.KindConflict);
+}
+
+fn check_array_mutation_api() void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut doc = OwnedDocument.{};
+    defer doc..&.deinit(alloc);
+
+    let items = test.expect_ok(doc..&.root_mut().ensure_array(alloc, "items"));
+    let _ = test.expect_ok(items.push_string(alloc, "alpha"));
+    let _ = test.expect_ok(items.push_integer(alloc, 1));
+    let _ = test.expect_ok(items.insert_bool(alloc, 1, true));
+    let _ = test.expect_ok(items.set_string(alloc, 0, "beta"));
+    let _ = test.expect_ok(items.set_integer(alloc, 2, 2));
+
+    let nested = test.expect_ok(items.insert_array(alloc, 3));
+    let _ = test.expect_ok(nested.push_string(alloc, "inner"));
+    let meta = test.expect_ok(items.insert_inline_table(alloc, 4));
+    let _ = test.expect_ok(meta.set_bool(alloc, "ok", true));
+
+    test.eq(items.len(), 5);
+    expect_some_text(test.expect_some(items.get(0)).as_string(), "beta");
+    test.eq(test.expect_some(test.expect_some(items.get(1)).as_bool()), true);
+    test.eq(test.expect_some(test.expect_some(items.get(2)).as_integer()), 2);
+    expect_some_text(
+        test.expect_some(test.expect_some(test.expect_some(items.get(3)).as_array()).get(0)).as_string(),
+        "inner"
+    );
+    test.eq(
+        test.expect_some(test.expect_some(test.expect_some(items.get(4)).as_inline_table()).get_bool("ok")),
+        true
+    );
+
+    test.assert(items.remove(alloc, 1), "expected array removal to succeed", .{});
+    test.eq(items.len(), 4);
+    test.eq(test.expect_some(test.expect_some(items.get(1)).as_integer()), 2);
+
+    items.truncate(alloc, 2);
+    test.eq(items.len(), 2);
+    test.eq(test.expect_some(test.expect_some(items.get(1)).as_integer()), 2);
+
+    let bounds_err = test.expect_err(items.set_bool(alloc, 5, false));
+    test.eq(bounds_err, ModelError.IndexOutOfBounds);
+
+    items.clear(alloc);
+    test.eq(items.len(), 0);
+    test.assert(items.is_empty(), "expected cleared array to be empty", .{});
+}
+
+fn check_document_section_mutation() void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut doc = OwnedDocument.{};
+    defer doc..&.deinit(alloc);
+
+    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
+    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
+    let profile = test.expect_ok(doc..&.ensure_table(alloc, "profile"));
+    let _ = test.expect_ok(profile.set_bool(alloc, "debug", true));
+
+    let product1 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product1.set_string(alloc, "name", "hammer"));
+    let product2 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product2.set_string(alloc, "name", "nail"));
+
+    test.eq(doc..&.section_count(), 3);
+    test.eq(test.expect_some(doc..&.section_kind(0)), DocumentSectionKind.Table);
+    test.eq(test.expect_some(doc..&.section_kind(1)), DocumentSectionKind.Table);
+    test.eq(test.expect_some(doc..&.section_kind(2)), DocumentSectionKind.ArrayTable);
+    test.assert(doc..&.section_kind(3).is_none(), "expected missing section kind", .{});
+    expect_some_text(doc..&.section_path(0), "package");
+    expect_some_text(doc..&.section_path(1), "profile");
+    expect_some_text(doc..&.section_path(2), "products");
+    test.eq(doc..&.array_table_len("products"), 2);
+    test.assert(doc..&.contains_table("package"), "expected table section", .{});
+    test.assert(doc..&.contains_array_table("products"), "expected array-table section", .{});
+
+    test.assert(doc..&.remove_array_table_item(alloc, "products", 0), "expected array-table item removal", .{});
+    test.eq(doc..&.array_table_len("products"), 1);
+    let remaining = test.expect_some(doc..&.get_array_table("products", 0));
+    expect_some_text(remaining.get_string("name"), "nail");
+
+    test.assert(doc..&.remove_table(alloc, "profile"), "expected table section removal", .{});
+    test.eq(doc..&.section_count(), 2);
+    test.assert(!doc..&.contains_table("profile"), "expected profile removal", .{});
+    test.assert(doc..&.get_table("profile").is_none(), "expected removed profile lookup to fail", .{});
+
+    test.assert(doc..&.remove_array_table_item(alloc, "products", 0), "expected last array-table item removal", .{});
+    test.eq(doc..&.section_count(), 1);
+    test.eq(doc..&.array_table_len("products"), 0);
+    test.assert(!doc..&.contains_array_table("products"), "expected products section removal", .{});
+
+    test.assert(!doc..&.remove_table(alloc, "profile"), "expected duplicate removal to fail", .{});
+    test.assert(!doc..&.remove_array_table(alloc, "products"), "expected missing array-table removal to fail", .{});
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    check_owned_document_queries_and_mutation();
+    check_kind_conflicts();
+    check_array_mutation_api();
+    check_document_section_mutation();
+    return 0;
+}

@@ -1,0 +1,512 @@
+use std.Result;
+use std.coll.List;
+use std.mem.alloc.{Allocator, Arena, Page};
+
+pub use ..{Array, Error, ModelError, OwnedDocument, ScanDocument, ScanDocumentKind, Table};
+
+mod common;
+mod path;
+mod value_string;
+mod value_number;
+mod value_compound;
+mod value;
+mod owned_decode;
+mod key;
+mod owned;
+
+use .common.{is_comment_line, next_statement, validate_source_text};
+use .key.{TableHeaderKind, parse_key_value, parse_table_header};
+use .path.{PathRelation, full_path_relation, full_paths_share_head};
+pub use .path.{PathSegment, next_path_segment};
+pub use .owned.{ParseOwnedError, parse_owned};
+
+type ParseStats = struct {
+    line_count: usize = 0,
+    item_count: usize = 0,
+    root_key_count: usize = 0,
+    table_key_count: usize = 0,
+    table_count: usize = 0,
+    array_table_count: usize = 0,
+};
+
+type Parser = struct {
+    text: []u8,
+    alloc: *mut Allocator,
+    stats: ParseStats = .{},
+    in_table: bool = false,
+    active_table_path: []u8 = "",
+    active_array_path: []u8 = "",
+    seen_items: List[SeenItem] = List[SeenItem].{},
+    using_seen_items: bool = true,
+};
+
+type SeenItemKind = enum {
+    KeyValue,
+    Table,
+    ArrayTable,
+};
+
+type SeenItem = struct {
+    scope: []u8,
+    path: []u8,
+    kind: SeenItemKind,
+};
+
+impl *mut Parser {
+    fn fail_semantic(message: []u8, line: usize, column: usize) Result[void, Error] {
+        return .{ Err: Error.{
+            message: message,
+            line: line,
+            column: column,
+        } };
+    }
+
+    fn document_kind() ScanDocumentKind {
+        if (self.stats.table_count != 0 and self.stats.root_key_count != 0) {
+            return ScanDocumentKind.Mixed;
+        }
+        if (self.stats.table_count != 0) {
+            return ScanDocumentKind.Table;
+        }
+        return ScanDocumentKind.KeyValue;
+    }
+
+    fn item_relation(lhs: SeenItem, rhs: SeenItem) PathRelation {
+        return full_path_relation(lhs.scope, lhs.path, rhs.scope, rhs.path);
+    }
+
+    fn record_item(item: SeenItem) void {
+        if (!self.using_seen_items) {
+            return;
+        }
+        if (!self.seen_items..&.push(self.alloc, item)) {
+            self.using_seen_items = false;
+        }
+    }
+
+    fn key_conflict(item: SeenItem, previous_item: SeenItem, relation: PathRelation, line: usize) Result[void, Error] {
+        match (previous_item.kind) {
+            .KeyValue => match (relation) {
+                .Equal => return self.fail_semantic("duplicate key path", line, 1),
+                .Prefix => return self.fail_semantic(
+                    "key path conflicts with existing nested key namespace",
+                    line,
+                    1
+                ),
+                .Super => return self.fail_semantic(
+                    "key path conflicts with existing parent key namespace",
+                    line,
+                    1
+                ),
+                .Disjoint => return .{ Ok: {} },
+            },
+            .Table => match (relation) {
+                .Equal => return self.fail_semantic("key path conflicts with existing table path", line, 1),
+                .Prefix => return self.fail_semantic("key path conflicts with existing table path", line, 1),
+                .Super => {
+                    let scope_relation = full_path_relation("", previous_item.path, "", item.scope);
+                    return if (scope_relation == PathRelation.Super) {
+                        self.fail_semantic("key path conflicts with existing table path", line, 1)
+                    } else {
+                        .{ Ok: {} }
+                    };
+                },
+                .Disjoint => return .{ Ok: {} },
+            },
+            .ArrayTable => match (relation) {
+                .Equal => return self.fail_semantic(
+                    "key path conflicts with existing array-of-tables path",
+                    line,
+                    1
+                ),
+                .Prefix => return self.fail_semantic(
+                    "key path conflicts with existing array-of-tables path",
+                    line,
+                    1
+                ),
+                .Super => {
+                    let scope_relation = full_path_relation("", previous_item.path, "", item.scope);
+                    return if (scope_relation == PathRelation.Super) {
+                        self.fail_semantic("key path conflicts with existing array-of-tables path", line, 1)
+                    } else {
+                        .{ Ok: {} }
+                    };
+                },
+                .Disjoint => return .{ Ok: {} },
+            },
+        }
+    }
+
+    fn table_conflict(
+        item: SeenItem,
+        previous_item: SeenItem,
+        relation: PathRelation,
+        line: usize,
+        saw_same_array_table: bool
+    ) Result[void, Error] {
+        match (previous_item.kind) {
+            .KeyValue => match (relation) {
+                .Equal => return self.fail_semantic("table path conflicts with existing key path", line, 1),
+                .Prefix => {
+                    let scope_relation = full_path_relation("", item.path, "", previous_item.scope);
+                    return if (
+                        scope_relation == PathRelation.Prefix or
+                        (
+                            item.kind == SeenItemKind.ArrayTable and
+                            scope_relation == PathRelation.Equal and
+                            saw_same_array_table
+                        )
+                    ) {
+                        .{ Ok: {} }
+                    } else {
+                        self.fail_semantic("table path conflicts with existing key path", line, 1)
+                    };
+                },
+                .Super => return self.fail_semantic("table path conflicts with existing key path", line, 1),
+                .Disjoint => return .{ Ok: {} },
+            },
+            .Table => match (relation) {
+                .Equal => return self.fail_semantic("duplicate table header", line, 1),
+                .Prefix => {
+                    return match (item.kind) {
+                        .Table => .{ Ok: {} },
+                        .ArrayTable => if (saw_same_array_table) {
+                            .{ Ok: {} }
+                        } else {
+                            self.fail_semantic("table path conflicts with existing child table path", line, 1)
+                        },
+                        .KeyValue => .{ Ok: {} },
+                    };
+                },
+                .Super => return .{ Ok: {} },
+                .Disjoint => return .{ Ok: {} },
+            },
+            .ArrayTable => match (relation) {
+                .Equal => {
+                    return match (item.kind) {
+                        .ArrayTable => .{ Ok: {} },
+                        .Table => self.fail_semantic(
+                            "table path conflicts with existing array-of-tables path",
+                            line,
+                            1
+                        ),
+                        .KeyValue => .{ Ok: {} },
+                    };
+                },
+                .Prefix => {
+                    return match (item.kind) {
+                        .Table => .{ Ok: {} },
+                        .ArrayTable => if (saw_same_array_table) {
+                            .{ Ok: {} }
+                        } else {
+                            self.fail_semantic("table path conflicts with existing child table path", line, 1)
+                        },
+                        .KeyValue => .{ Ok: {} },
+                    };
+                },
+                .Super => return .{ Ok: {} },
+                .Disjoint => return .{ Ok: {} },
+            },
+        }
+    }
+
+    fn validate_seen_item_semantics(item: SeenItem, line_no: usize) Result[void, Error] {
+        let seen = self.seen_items.&.as_slice();
+        let mut saw_same_array_table = false;
+
+        for (let mut i = 0; i < #seen; i += 1) {
+            let previous_item = seen.[i];
+            if (!full_paths_share_head(item.scope, item.path, previous_item.scope, previous_item.path)) {
+                continue;
+            }
+            let relation = self.item_relation(item, previous_item);
+            if (
+                item.kind == SeenItemKind.ArrayTable and
+                previous_item.kind == SeenItemKind.ArrayTable and
+                relation == PathRelation.Equal
+            ) {
+                saw_same_array_table = true;
+            }
+            if (relation != PathRelation.Disjoint) {
+                let conflict = match (item.kind) {
+                    .KeyValue => self.key_conflict(item, previous_item, relation, line_no),
+                    .Table => self.table_conflict(
+                        item,
+                        previous_item,
+                        relation,
+                        line_no,
+                        saw_same_array_table
+                    ),
+                    .ArrayTable => self.table_conflict(
+                        item,
+                        previous_item,
+                        relation,
+                        line_no,
+                        saw_same_array_table
+                    ),
+                };
+                if (conflict.is_err()) {
+                    return conflict;
+                }
+            }
+        }
+
+        return .{ Ok: {} };
+    }
+
+    fn validate_item_semantics_from_source(item: SeenItem, line_no: usize) Result[void, Error] {
+        let mut previous_in_table = false;
+        let mut previous_table_path = "";
+        let mut previous_line_no = 1;
+        let mut saw_same_array_table = false;
+        let mut offset = 0;
+
+        for (;;) {
+            let .{ Some: statement } = next_statement(self.text, offset, previous_line_no) else {
+                return .{ Ok: {} };
+            };
+            if (previous_line_no == line_no) {
+                return .{ Ok: {} };
+            }
+
+            let trimmed = statement.text.trim_ascii();
+            if (#trimmed != 0 and !is_comment_line(trimmed)) {
+                let previous_item = if (trimmed.[0] == b'[') {
+                    match (parse_table_header(trimmed, previous_line_no)) {
+                        .{ Ok: header } => {
+                            previous_in_table = true;
+                            previous_table_path = header.path;
+                            SeenItem.{
+                                scope: "",
+                                path: header.path,
+                                kind: match (header.kind) {
+                                    .Table => SeenItemKind.Table,
+                                    .ArrayTable => SeenItemKind.ArrayTable,
+                                },
+                            }
+                        },
+                        .{ Err: err } => return .{ Err: err },
+                    }
+                } else {
+                    match (parse_key_value(trimmed, previous_line_no)) {
+                        .{ Ok: key_value } => SeenItem.{
+                            scope: if (previous_in_table) previous_table_path else "",
+                            path: key_value.key,
+                            kind: SeenItemKind.KeyValue,
+                        },
+                        .{ Err: err } => return .{ Err: err },
+                    }
+                };
+
+                if (!full_paths_share_head(item.scope, item.path, previous_item.scope, previous_item.path)) {
+                    continue;
+                }
+                let relation = self.item_relation(item, previous_item);
+                if (
+                    item.kind == SeenItemKind.ArrayTable and
+                    previous_item.kind == SeenItemKind.ArrayTable and
+                    relation == PathRelation.Equal
+                ) {
+                    saw_same_array_table = true;
+                }
+                if (relation != PathRelation.Disjoint) {
+                    let conflict = match (item.kind) {
+                        .KeyValue => self.key_conflict(item, previous_item, relation, line_no),
+                        .Table => self.table_conflict(
+                            item,
+                            previous_item,
+                            relation,
+                            line_no,
+                            saw_same_array_table
+                        ),
+                        .ArrayTable => self.table_conflict(
+                            item,
+                            previous_item,
+                            relation,
+                            line_no,
+                            saw_same_array_table
+                        ),
+                    };
+                    if (conflict.is_err()) {
+                        return conflict;
+                    }
+                }
+            }
+
+            offset = statement.next;
+            previous_line_no = statement.next_line;
+        }
+    }
+
+    fn validate_item_semantics(item: SeenItem, line_no: usize) Result[void, Error] {
+        return if (self.using_seen_items) {
+            self.validate_seen_item_semantics(item, line_no)
+        } else {
+            self.validate_item_semantics_from_source(item, line_no)
+        };
+    }
+
+    fn handle_table_header(line: []u8, line_no: usize) Result[void, Error] {
+        match (parse_table_header(line, line_no)) {
+            .{ Ok: header } => {
+                let item = SeenItem.{
+                    scope: "",
+                    path: header.path,
+                    kind: match (header.kind) {
+                        .Table => SeenItemKind.Table,
+                        .ArrayTable => SeenItemKind.ArrayTable,
+                    },
+                };
+                let nested_under_array = (
+                    #self.active_array_path != 0 and
+                    full_path_relation("", header.path, "", self.active_array_path) == PathRelation.Super
+                );
+                if (!(header.kind == TableHeaderKind.Table and nested_under_array)) {
+                    let semantic_result = self.validate_item_semantics(item, line_no);
+                    if (semantic_result.is_err()) {
+                        return semantic_result;
+                    }
+                }
+                self.record_item(item);
+
+                self.stats.table_count += 1;
+                match (header.kind) {
+                    .ArrayTable => {
+                        self.stats.array_table_count += 1;
+                        self.active_array_path = header.path;
+                    },
+                    .Table => {
+                        if (!nested_under_array) {
+                            self.active_array_path = "";
+                        }
+                    },
+                }
+                self.in_table = true;
+                self.active_table_path = header.path;
+                return .{ Ok: {} };
+            },
+            .{ Err: err } => return .{ Err: err },
+        }
+    }
+
+    fn handle_key_value(line: []u8, line_no: usize) Result[void, Error] {
+        match (parse_key_value(line, line_no)) {
+            .{ Ok: key_value } => {
+                let item = SeenItem.{
+                    scope: if (self.in_table) self.active_table_path else "",
+                    path: key_value.key,
+                    kind: SeenItemKind.KeyValue,
+                };
+                if (#self.active_array_path == 0) {
+                    let semantic_result = self.validate_item_semantics(item, line_no);
+                    if (semantic_result.is_err()) {
+                        return semantic_result;
+                    }
+                }
+                self.record_item(item);
+
+                if (self.in_table) {
+                    self.stats.table_key_count += 1;
+                } else {
+                    self.stats.root_key_count += 1;
+                }
+                return .{ Ok: {} };
+            },
+            .{ Err: err } => return .{ Err: err },
+        }
+    }
+
+    fn parse_line(line: []u8, line_no: usize) Result[void, Error] {
+        let trimmed = line.trim_ascii();
+        if (#trimmed == 0 or is_comment_line(trimmed)) {
+            return .{ Ok: {} };
+        }
+
+        if (trimmed.[0] == b'[') {
+            let table_result = self.handle_table_header(trimmed, line_no);
+            if (table_result.is_err()) {
+                return table_result;
+            }
+        } else {
+            let key_value_result = self.handle_key_value(trimmed, line_no);
+            if (key_value_result.is_err()) {
+                return key_value_result;
+            }
+        }
+
+        self.stats.item_count += 1;
+        return .{ Ok: {} };
+    }
+
+    fn finish() Result[ScanDocument, Error] {
+        if (self.stats.item_count == 0) {
+            return .{ Ok: ScanDocument.{
+                text: self.text,
+                kind: ScanDocumentKind.KeyValue,
+                line_count: self.stats.line_count,
+                item_count: 0,
+                root_key_count: 0,
+                table_key_count: 0,
+                table_count: 0,
+                array_table_count: 0,
+            } };
+        }
+
+        return .{ Ok: ScanDocument.{
+            text: self.text,
+            kind: self.document_kind(),
+            line_count: self.stats.line_count,
+            item_count: self.stats.item_count,
+            root_key_count: self.stats.root_key_count,
+            table_key_count: self.stats.table_key_count,
+            table_count: self.stats.table_count,
+            array_table_count: self.stats.array_table_count,
+        } };
+    }
+
+    fn parse_all() Result[ScanDocument, Error] {
+        let mut offset = 0;
+        let mut line_no = 1;
+
+        for (;;) {
+            let .{ Some: statement } = next_statement(self.text, offset, line_no) else break;
+            let line_result = self.parse_line(statement.text, line_no);
+            if (line_result.is_err()) {
+                match (line_result) {
+                    .{ Err: err } => return .{ Err: err },
+                    .{ Ok: _ } => {},
+                }
+            }
+
+            offset = statement.next;
+            line_no = statement.next_line;
+        }
+
+        self.stats.line_count = line_no;
+        return self.finish();
+    }
+}
+
+/// Parses a TOML document into a lightweight validated representation.
+///
+/// Note:
+/// - blank lines and `#` comments are accepted
+/// - bare keys and dotted bare-key paths are supported
+/// - `[table]` and `[[array-of-tables]]` headers plus trailing comments are supported
+/// - integer, float, boolean, string, array, inline-table, and date/time values are supported
+pub fn scan(text: []u8) Result[ScanDocument, Error] {
+    let source_result = validate_source_text(text);
+    if (source_result.is_err()) {
+        match (source_result) {
+            .{ Err: err } => return .{ Err: err },
+            .{ Ok: _ } => {},
+        }
+    }
+    let mut page = Page.{}..&;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = *mut Allocator.{ arena };
+    let mut parser = Parser.{ text: text, alloc: alloc };
+    defer parser.seen_items..&.deinit(alloc);
+    return parser..&.parse_all();
+}

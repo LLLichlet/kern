@@ -7,6 +7,14 @@ publish = false
 [lib]
 root = "src/lib.rn"
 
+[[bin]]
+name = "toml-test-decoder"
+root = "src/toml_test_decoder.rn"
+
+[[bin]]
+name = "toml-bench"
+root = "src/toml_bench.rn"
+
 [[test]]
 name = "parse_smoke"
 root = "tests/parse_smoke.rn"
@@ -14,3 +22,23 @@ root = "tests/parse_smoke.rn"
 [[test]]
 name = "parse_errors"
 root = "tests/parse_errors.rn"
+
+[[test]]
+name = "model_smoke"
+root = "tests/model_smoke.rn"
+
+[[test]]
+name = "render_smoke"
+root = "tests/render_smoke.rn"
+
+[[test]]
+name = "parse_owned_smoke"
+root = "tests/parse_owned_smoke.rn"
+
+[[test]]
+name = "managed_smoke"
+root = "tests/managed_smoke.rn"
+
+[[test]]
+name = "corpus_smoke"
+root = "tests/corpus_smoke.rn"

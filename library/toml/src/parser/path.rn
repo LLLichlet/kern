@@ -1,0 +1,438 @@
+use std.{Option, Result};
+use std.cmp.{Ordering, EQUAL, LESS, GREATER};
+use ..Error;
+use ..common.{
+    Validation,
+    fail_validation,
+    valid,
+    is_bare_key_char,
+    scan_basic_string_end,
+    scan_literal_string_end,
+};
+
+pub type PathRelation = enum {
+    Disjoint,
+    Equal,
+    Prefix,
+    Super,
+};
+
+pub type PathSegmentKind = enum {
+    Bare,
+    BasicQuoted,
+    LiteralQuoted,
+};
+
+pub type PathSegment = struct {
+    pub text: []u8,
+    pub kind: PathSegmentKind,
+    pub next: usize,
+};
+
+type FullPathCursor = struct {
+    prefix: []u8,
+    path: []u8,
+    using_prefix: bool = true,
+    index: usize = 0,
+};
+
+fn is_path_space(byte: u8) bool {
+    return byte == b' ' or byte == b'\t';
+}
+
+fn skip_path_space(text: []u8, start: usize) usize {
+    let mut i = start;
+    for (; i < #text; i += 1) {
+        if (!is_path_space(text.[i])) {
+            return i;
+        }
+    }
+    return i;
+}
+
+pub fn next_path_segment(text: []u8, start: usize) Option[PathSegment] {
+    let mut i = skip_path_space(text, start);
+    if (i == #text) {
+        return .{ None };
+    }
+
+    let byte = text.[i];
+    let segment_start = i;
+    if (byte == b'"') {
+        let .{ Some: end } = scan_basic_string_end(text, i) else return .{ None };
+        i = skip_path_space(text, end);
+        if (i < #text and text.[i] == b'.') {
+            i += 1;
+        }
+        return .{ Some: PathSegment.{
+            text: text.[segment_start + 1 .. end - 1],
+            kind: PathSegmentKind.BasicQuoted,
+            next: i,
+        } };
+    }
+
+    if (byte == b'\'') {
+        let .{ Some: end } = scan_literal_string_end(text, i) else return .{ None };
+        i = skip_path_space(text, end);
+        if (i < #text and text.[i] == b'.') {
+            i += 1;
+        }
+        return .{ Some: PathSegment.{
+            text: text.[segment_start + 1 .. end - 1],
+            kind: PathSegmentKind.LiteralQuoted,
+            next: i,
+        } };
+    }
+
+    for (; i < #text; i += 1) {
+        if (!is_bare_key_char(text.[i])) {
+            break;
+        }
+    }
+
+    if (i == segment_start) {
+        return .{ None };
+    }
+
+    let segment_end = i;
+    i = skip_path_space(text, i);
+    if (i < #text and text.[i] == b'.') {
+        i += 1;
+    }
+
+    return .{ Some: PathSegment.{
+        text: text.[segment_start .. segment_end],
+        kind: PathSegmentKind.Bare,
+        next: i,
+    } };
+}
+
+fn hex_digit_value(byte: u8) Option[u32] {
+    if (byte >= b'0' and byte <= b'9') {
+        return .{ Some: (byte - b'0') as u32 };
+    }
+    if (byte >= b'a' and byte <= b'f') {
+        return .{ Some: (byte - b'a') as u32 + u32.{10} };
+    }
+    if (byte >= b'A' and byte <= b'F') {
+        return .{ Some: (byte - b'A') as u32 + u32.{10} };
+    }
+    return .{ None };
+}
+
+fn encode_utf8_codepoint(
+    byte0: *mut u8,
+    byte1: *mut u8,
+    byte2: *mut u8,
+    byte3: *mut u8,
+    codepoint: u32
+) usize {
+    if (codepoint <= u32.{127}) {
+        byte0.* = codepoint as u8;
+        return 1;
+    }
+
+    if (codepoint <= u32.{2047}) {
+        byte0.* = u8.{192} | ((codepoint >> 6) as u8);
+        byte1.* = u8.{128} | ((codepoint & u32.{63}) as u8);
+        return 2;
+    }
+
+    if (codepoint <= u32.{65535}) {
+        byte0.* = u8.{224} | ((codepoint >> 12) as u8);
+        byte1.* = u8.{128} | (((codepoint >> 6) & u32.{63}) as u8);
+        byte2.* = u8.{128} | ((codepoint & u32.{63}) as u8);
+        return 3;
+    }
+
+    byte0.* = u8.{240} | ((codepoint >> 18) as u8);
+    byte1.* = u8.{128} | (((codepoint >> 12) & u32.{63}) as u8);
+    byte2.* = u8.{128} | (((codepoint >> 6) & u32.{63}) as u8);
+    byte3.* = u8.{128} | ((codepoint & u32.{63}) as u8);
+    return 4;
+}
+
+type SegmentDecoder = struct {
+    kind: PathSegmentKind,
+    text: []u8,
+    index: usize = 0,
+    pending0: u8 = 0,
+    pending1: u8 = 0,
+    pending2: u8 = 0,
+    pending3: u8 = 0,
+    pending_len: usize = 0,
+    pending_index: usize = 0,
+    failed: bool = false,
+};
+
+fn next_decoded_segment_byte(decoder: *mut SegmentDecoder) Option[u8] {
+    if (decoder.pending_index < decoder.pending_len) {
+        let byte = match (decoder.pending_index) {
+            0 => decoder.pending0,
+            1 => decoder.pending1,
+            2 => decoder.pending2,
+            _ => decoder.pending3,
+        };
+        decoder.pending_index += 1;
+        return .{ Some: byte };
+    }
+
+    if (decoder.index >= #decoder.text) {
+        return .{ None };
+    }
+
+    if (decoder.kind != PathSegmentKind.BasicQuoted) {
+        let byte = decoder.text.[decoder.index];
+        decoder.index += 1;
+        return .{ Some: byte };
+    }
+
+    let byte = decoder.text.[decoder.index];
+    decoder.index += 1;
+    if (byte != b'\\') {
+        return .{ Some: byte };
+    }
+
+    if (decoder.index >= #decoder.text) {
+        decoder.failed = true;
+        return .{ None };
+    }
+
+    let escape = decoder.text.[decoder.index];
+    decoder.index += 1;
+    match (escape) {
+        b'"' => return .{ Some: b'"' },
+        b'\\' => return .{ Some: b'\\' },
+        b'b' => return .{ Some: 8 },
+        b't' => return .{ Some: b'\t' },
+        b'n' => return .{ Some: b'\n' },
+        b'f' => return .{ Some: 12 },
+        b'r' => return .{ Some: b'\r' },
+        b'u', b'U' => {
+            let digits = if (escape == b'u') 4 else 8;
+            if (decoder.index + digits > #decoder.text) {
+                decoder.failed = true;
+                return .{ None };
+            }
+
+            let mut scalar = u32.{0};
+            for (let mut i = 0; i < digits; i += 1) {
+                let .{ Some: digit } = hex_digit_value(decoder.text.[decoder.index + i]) else {
+                    decoder.failed = true;
+                    return .{ None };
+                };
+                scalar = (scalar << 4) | digit;
+            }
+            decoder.index += digits;
+
+            decoder.pending_len = encode_utf8_codepoint(
+                decoder.pending0..&,
+                decoder.pending1..&,
+                decoder.pending2..&,
+                decoder.pending3..&,
+                scalar
+            );
+            decoder.pending_index = 1;
+            return .{ Some: decoder.pending0 };
+        },
+        _ => {
+            decoder.failed = true;
+            return .{ None };
+        },
+    }
+}
+
+fn path_segments_equal(lhs: PathSegment, rhs: PathSegment) bool {
+    if (lhs.kind == rhs.kind and lhs.text.eq(rhs.text)) {
+        return true;
+    }
+
+    let mut lhs_decoder = SegmentDecoder.{ kind: lhs.kind, text: lhs.text };
+    let mut rhs_decoder = SegmentDecoder.{ kind: rhs.kind, text: rhs.text };
+
+    for (;;) {
+        let lhs_byte = next_decoded_segment_byte(lhs_decoder..&);
+        let rhs_byte = next_decoded_segment_byte(rhs_decoder..&);
+        match (lhs_byte) {
+            .{ Some: lhs_byte } => match (rhs_byte) {
+                .{ Some: rhs_byte } => {
+                    if (lhs_byte != rhs_byte) {
+                        return false;
+                    }
+                },
+                .None => return false,
+            },
+            .None => match (rhs_byte) {
+                .{ Some: _ } => return false,
+                .None => return !lhs_decoder.failed and !rhs_decoder.failed,
+            },
+        }
+    }
+}
+
+fn next_full_path_segment(cursor: *mut FullPathCursor) Option[PathSegment] {
+    for (;;) {
+        let text = if (cursor.using_prefix) cursor.prefix else cursor.path;
+        match (next_path_segment(text, cursor.index)) {
+            .{ Some: segment } => {
+                cursor.index = segment.next;
+                if (cursor.index >= #text and cursor.using_prefix and #cursor.path != 0) {
+                    cursor.using_prefix = false;
+                    cursor.index = 0;
+                }
+                return .{ Some: segment };
+            },
+            .None => {
+                if (cursor.using_prefix and #cursor.path != 0) {
+                    cursor.using_prefix = false;
+                    cursor.index = 0;
+                    continue;
+                }
+                return .{ None };
+            },
+        }
+    }
+}
+
+fn first_full_path_segment(prefix: []u8, path: []u8) Option[PathSegment] {
+    if (#prefix != 0) {
+        return next_path_segment(prefix, 0);
+    }
+    return next_path_segment(path, 0);
+}
+
+pub fn full_paths_share_head(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rhs_path: []u8) bool {
+    let .{ Some: lhs_segment } = first_full_path_segment(lhs_prefix, lhs_path) else return false;
+    let .{ Some: rhs_segment } = first_full_path_segment(rhs_prefix, rhs_path) else return false;
+    return path_segments_equal(lhs_segment, rhs_segment);
+}
+
+pub fn compare_full_paths(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rhs_path: []u8) Ordering {
+    let mut lhs = FullPathCursor.{ prefix: lhs_prefix, path: lhs_path };
+    let mut rhs = FullPathCursor.{ prefix: rhs_prefix, path: rhs_path };
+
+    for (;;) {
+        let lhs_segment = next_full_path_segment(lhs..&);
+        let rhs_segment = next_full_path_segment(rhs..&);
+        match (lhs_segment) {
+            .{ Some: lhs_segment } => match (rhs_segment) {
+                .{ Some: rhs_segment } => {
+                    let ord = if (path_segments_equal(lhs_segment, rhs_segment)) {
+                        EQUAL
+                    } else {
+                        lhs_segment.text.lex_cmp(rhs_segment.text)
+                    };
+                    if (ord != EQUAL) {
+                        return ord;
+                    }
+                },
+                .None => return GREATER,
+            },
+            .None => match (rhs_segment) {
+                .{ Some: _ } => return LESS,
+                .None => return EQUAL,
+            },
+        }
+    }
+}
+
+pub fn full_path_relation(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rhs_path: []u8) PathRelation {
+    let mut lhs = FullPathCursor.{ prefix: lhs_prefix, path: lhs_path };
+    let mut rhs = FullPathCursor.{ prefix: rhs_prefix, path: rhs_path };
+
+    for (;;) {
+        let lhs_segment = next_full_path_segment(lhs..&);
+        let rhs_segment = next_full_path_segment(rhs..&);
+        match (lhs_segment) {
+            .{ Some: lhs_segment } => match (rhs_segment) {
+                .{ Some: rhs_segment } => {
+                    if (!path_segments_equal(lhs_segment, rhs_segment)) {
+                        return PathRelation.Disjoint;
+                    }
+                },
+                .None => return PathRelation.Super,
+            },
+            .None => match (rhs_segment) {
+                .{ Some: _ } => return PathRelation.Prefix,
+                .None => return PathRelation.Equal,
+            },
+        }
+    }
+}
+
+pub fn conflicting_key_path_message(path: []u8, previous_path: []u8) Option[[]u8] {
+    return match (full_path_relation("", path, "", previous_path)) {
+        .Equal => .{ Some: "duplicate key path" },
+        .Prefix => .{ Some: "key path conflicts with existing nested key namespace" },
+        .Super => .{ Some: "key path conflicts with existing parent key namespace" },
+        .Disjoint => .{ None },
+    };
+}
+
+pub fn validate_key_path(text: []u8, line: usize, column_base: usize) Result[Validation, Error] {
+    let key = text.trim_ascii();
+    if (#key == 0) {
+        return fail_validation("expected a key", line, column_base);
+    }
+
+    let mut i = 0;
+    let mut saw_segment = false;
+
+    for (;;) {
+        i = skip_path_space(key, i);
+        if (i == #key) {
+            if (!saw_segment) {
+                return fail_validation("expected a key", line, column_base);
+            }
+            return valid();
+        }
+
+        let segment_start = i;
+        let byte = key.[i];
+        if (byte == b'"') {
+            let .{ Some: end } = scan_basic_string_end(key, i) else {
+                return fail_validation("unterminated quoted key segment", line, column_base + i);
+            };
+            i = end;
+        } else if (byte == b'\'') {
+            let .{ Some: end } = scan_literal_string_end(key, i) else {
+                return fail_validation("unterminated literal key segment", line, column_base + i);
+            };
+            i = end;
+        } else {
+            for (; i < #key; i += 1) {
+                if (!is_bare_key_char(key.[i])) {
+                    break;
+                }
+            }
+
+            if (i == segment_start) {
+                return fail_validation(
+                    "key segments must be bare or quoted strings",
+                    line,
+                    column_base + i
+                );
+            }
+        }
+
+        saw_segment = true;
+        i = skip_path_space(key, i);
+        if (i == #key) {
+            return valid();
+        }
+
+        if (key.[i] != b'.') {
+            return fail_validation(
+                "expected `.` between key path segments",
+                line,
+                column_base + i
+            );
+        }
+
+        i += 1;
+        i = skip_path_space(key, i);
+        if (i == #key) {
+            return fail_validation("key path cannot end with `.`", line, column_base + #key - 1);
+        }
+    }
+}

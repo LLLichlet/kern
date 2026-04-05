@@ -1,22 +1,23 @@
 /// High-level TOML document classification.
-pub type DocumentKind = enum {
+pub type ScanDocumentKind = enum {
     KeyValue,
     Table,
     Mixed,
 };
 
 /// Lightweight parsed document handle.
-pub type Document = struct {
+pub type ScanDocument = struct {
     text: []u8,
-    pub kind: DocumentKind,
+    pub kind: ScanDocumentKind,
     pub line_count: usize,
     pub item_count: usize,
     pub root_key_count: usize,
     pub table_key_count: usize,
     pub table_count: usize,
+    pub array_table_count: usize,
 };
 
-impl Document {
+impl ScanDocument {
     /// Returns the original TOML source text.
     pub fn as_str() []u8 {
         return self.text;
@@ -39,6 +40,11 @@ impl Document {
     /// Returns `true` when the document contains any table headers.
     pub fn has_tables() bool {
         return self.table_count != 0;
+    }
+
+    /// Returns `true` when the document contains any array-of-tables headers.
+    pub fn has_array_tables() bool {
+        return self.array_table_count != 0;
     }
 
     /// Returns `true` when the document contains any key/value items inside tables.

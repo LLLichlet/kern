@@ -1,0 +1,382 @@
+use std.Option;
+
+fn is_decimal_digit(byte: u8) bool {
+    return byte >= b'0' and byte <= b'9';
+}
+
+fn digit_value(byte: u8) Option[u8] {
+    if (byte >= b'0' and byte <= b'9') {
+        return .{ Some: byte - b'0' };
+    }
+    if (byte >= b'a' and byte <= b'f') {
+        return .{ Some: byte - b'a' + 10 };
+    }
+    if (byte >= b'A' and byte <= b'F') {
+        return .{ Some: byte - b'A' + 10 };
+    }
+    return .{ None };
+}
+
+fn scan_decimal_digit_run(value: []u8, start: usize, allow_leading_zeroes: bool) Option[usize] {
+    if (start >= #value or !is_decimal_digit(value.[start])) {
+        return .{ None };
+    }
+
+    if (!allow_leading_zeroes and value.[start] == b'0') {
+        if (start + 1 < #value and (is_decimal_digit(value.[start + 1]) or value.[start + 1] == b'_')) {
+            return .{ None };
+        }
+        return .{ Some: start + 1 };
+    }
+
+    let mut i = start;
+    let mut saw_digit = false;
+    let mut prev_underscore = false;
+
+    for (; i < #value; i += 1) {
+        let byte = value.[i];
+        if (is_decimal_digit(byte)) {
+            saw_digit = true;
+            prev_underscore = false;
+            continue;
+        }
+
+        if (byte == b'_') {
+            if (
+                !saw_digit or
+                prev_underscore or
+                i + 1 == #value or
+                !is_decimal_digit(value.[i + 1])
+            ) {
+                return .{ None };
+            }
+            prev_underscore = true;
+            continue;
+        }
+
+        break;
+    }
+
+    if (!saw_digit or prev_underscore) {
+        return .{ None };
+    }
+
+    return .{ Some: i };
+}
+
+fn scan_prefixed_integer_end(value: []u8, start: usize, prefix: u8, base: u8) Option[usize] {
+    if (
+        start + 2 >= #value or
+        value.[start] != b'0' or
+        value.[start + 1] != prefix
+    ) {
+        return .{ None };
+    }
+
+    let mut i = start + 2;
+    let mut saw_digit = false;
+    let mut prev_underscore = false;
+
+    for (; i < #value; i += 1) {
+        let byte = value.[i];
+        let digit = digit_value(byte);
+        match (digit) {
+            .{ Some: digit } => {
+                if (digit >= base) {
+                    return .{ None };
+                }
+                saw_digit = true;
+                prev_underscore = false;
+                continue;
+            },
+            .None => {},
+        }
+
+        if (byte == b'_') {
+            if (!saw_digit or prev_underscore or i + 1 == #value) {
+                return .{ None };
+            }
+            let .{ Some: next_digit } = digit_value(value.[i + 1]) else return .{ None };
+            if (next_digit >= base) {
+                return .{ None };
+            }
+            prev_underscore = true;
+            continue;
+        }
+
+        break;
+    }
+
+    if (!saw_digit or prev_underscore) {
+        return .{ None };
+    }
+
+    return .{ Some: i };
+}
+
+pub fn is_integer_value(value: []u8) bool {
+    if (#value == 0) {
+        return false;
+    }
+
+    let mut start = 0;
+    if (value.[0] == b'+' or value.[0] == b'-') {
+        if (#value == 1) {
+            return false;
+        }
+        start = 1;
+    }
+
+    if (
+        start + 1 < #value and
+        value.[start] == b'0' and
+        (value.[start + 1] == b'x' or value.[start + 1] == b'o' or value.[start + 1] == b'b')
+    ) {
+        if (start != 0) {
+            return false;
+        }
+
+        return match (value.[start + 1]) {
+            b'x' => match (scan_prefixed_integer_end(value, start, b'x', 16)) {
+                .{ Some: end } => end == #value,
+                .None => false,
+            },
+            b'o' => match (scan_prefixed_integer_end(value, start, b'o', 8)) {
+                .{ Some: end } => end == #value,
+                .None => false,
+            },
+            b'b' => match (scan_prefixed_integer_end(value, start, b'b', 2)) {
+                .{ Some: end } => end == #value,
+                .None => false,
+            },
+            _ => false,
+        };
+    }
+
+    return match (scan_decimal_digit_run(value, start, false)) {
+        .{ Some: end } => end == #value,
+        .None => false,
+    };
+}
+
+fn is_special_float_value(value: []u8) bool {
+    if (#value == 0) {
+        return false;
+    }
+
+    let start = if (value.[0] == b'+' or value.[0] == b'-') 1 else 0;
+    if (start == #value) {
+        return false;
+    }
+
+    let tail = value.[start .. #value];
+    return tail.eq("inf") or tail.eq("nan");
+}
+
+pub fn is_float_value(value: []u8) bool {
+    if (#value == 0) {
+        return false;
+    }
+
+    if (is_special_float_value(value)) {
+        return true;
+    }
+
+    let mut i = 0;
+    if (value.[0] == b'+' or value.[0] == b'-') {
+        if (#value == 1) {
+            return false;
+        }
+        i = 1;
+    }
+
+    let .{ Some: int_end } = scan_decimal_digit_run(value, i, false) else {
+        return false;
+    };
+    i = int_end;
+
+    let mut saw_fraction_or_exponent = false;
+
+    if (i < #value and value.[i] == b'.') {
+        saw_fraction_or_exponent = true;
+        i += 1;
+        let .{ Some: frac_end } = scan_decimal_digit_run(value, i, true) else {
+            return false;
+        };
+        i = frac_end;
+    }
+
+    if (i < #value and (value.[i] == b'e' or value.[i] == b'E')) {
+        saw_fraction_or_exponent = true;
+        i += 1;
+        if (i < #value and (value.[i] == b'+' or value.[i] == b'-')) {
+            i += 1;
+        }
+        let .{ Some: exp_end } = scan_decimal_digit_run(value, i, true) else {
+            return false;
+        };
+        i = exp_end;
+    }
+
+    return saw_fraction_or_exponent and i == #value;
+}
+
+fn is_all_digits(text: []u8) bool {
+    if (#text == 0) {
+        return false;
+    }
+
+    for (let mut i = 0; i < #text; i += 1) {
+        let byte = text.[i];
+        if (byte < b'0' or byte > b'9') {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+fn decimal_value(text: []u8) Option[usize] {
+    if (!is_all_digits(text)) {
+        return .{ None };
+    }
+
+    let mut value = 0;
+    for (let mut i = 0; i < #text; i += 1) {
+        value = (value * 10) + (text.[i] - b'0') as usize;
+    }
+    return .{ Some: value };
+}
+
+fn is_leap_year(year: usize) bool {
+    if ((year % 4) != 0) {
+        return false;
+    }
+    if ((year % 100) != 0) {
+        return true;
+    }
+    return (year % 400) == 0;
+}
+
+fn days_in_month(year: usize, month: usize) usize {
+    return match (month) {
+        1 => 31,
+        2 => if (is_leap_year(year)) 29 else 28,
+        3 => 31,
+        4 => 30,
+        5 => 31,
+        6 => 30,
+        7 => 31,
+        8 => 31,
+        9 => 30,
+        10 => 31,
+        11 => 30,
+        12 => 31,
+        _ => 0,
+    };
+}
+
+fn is_local_date_value(value: []u8) bool {
+    if (#value != 10 or value.[4] != b'-' or value.[7] != b'-') {
+        return false;
+    }
+
+    let .{ Some: year } = decimal_value(value.[0 .. 4]) else return false;
+    let .{ Some: month } = decimal_value(value.[5 .. 7]) else return false;
+    let .{ Some: day } = decimal_value(value.[8 .. 10]) else return false;
+
+    if (month < 1 or month > 12) {
+        return false;
+    }
+
+    let max_day = days_in_month(year, month);
+    return day >= 1 and day <= max_day;
+}
+
+fn scan_local_time_end(value: []u8, start: usize) Option[usize] {
+    if (start + 8 > #value) {
+        return .{ None };
+    }
+
+    if (value.[start + 2] != b':' or value.[start + 5] != b':') {
+        return .{ None };
+    }
+
+    let .{ Some: hour } = decimal_value(value.[start .. start + 2]) else return .{ None };
+    let .{ Some: minute } = decimal_value(value.[start + 3 .. start + 5]) else return .{ None };
+    let .{ Some: second } = decimal_value(value.[start + 6 .. start + 8]) else return .{ None };
+
+    if (hour > 23 or minute > 59 or second > 59) {
+        return .{ None };
+    }
+
+    let mut end = start + 8;
+    if (end < #value and value.[end] == b'.') {
+        end += 1;
+        let frac_start = end;
+        for (; end < #value; end += 1) {
+            let byte = value.[end];
+            if (byte < b'0' or byte > b'9') {
+                break;
+            }
+        }
+        if (end == frac_start) {
+            return .{ None };
+        }
+    }
+
+    return .{ Some: end };
+}
+
+fn is_offset_time_tail(value: []u8, start: usize) bool {
+    if (start == #value) {
+        return true;
+    }
+
+    if (start + 1 == #value and (value.[start] == b'Z' or value.[start] == b'z')) {
+        return true;
+    }
+
+    if (
+        start + 6 != #value or
+        (value.[start] != b'+' and value.[start] != b'-') or
+        value.[start + 3] != b':'
+    ) {
+        return false;
+    }
+
+    let .{ Some: hour } = decimal_value(value.[start + 1 .. start + 3]) else return false;
+    let .{ Some: minute } = decimal_value(value.[start + 4 .. start + 6]) else return false;
+    return hour <= 23 and minute <= 59;
+}
+
+fn is_local_time_value(value: []u8) bool {
+    let .{ Some: end } = scan_local_time_end(value, 0) else return false;
+    return end == #value;
+}
+
+fn is_date_time_value(value: []u8) bool {
+    if (#value < 19) {
+        return false;
+    }
+
+    if (!is_local_date_value(value.[0 .. 10])) {
+        return false;
+    }
+
+    let separator = value.[10];
+    if (separator != b'T' and separator != b't' and separator != b' ') {
+        return false;
+    }
+
+    let .{ Some: time_end } = scan_local_time_end(value, 11) else return false;
+    return is_offset_time_tail(value, time_end);
+}
+
+pub fn is_datetime_value(value: []u8) bool {
+    return (
+        is_local_date_value(value) or
+        is_local_time_value(value) or
+        is_date_time_value(value)
+    );
+}

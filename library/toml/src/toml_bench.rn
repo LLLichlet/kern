@@ -1,0 +1,530 @@
+use std.Option;
+use std.fs;
+use std.time;
+use std.num.USIZE_MAX;
+use std.coll.{List, String};
+use std.mem.alloc.{Allocator, Arena, GPA, Page};
+
+use toml.{ModelError, ParseOwnedError, parse, parse_owned, scan};
+
+type BenchMode = enum {
+    Scan,
+    Parse,
+    ParseOwned,
+    ParseOwnedArena,
+};
+
+type BenchConfig = struct {
+    mode: BenchMode,
+    iterations: usize,
+    paths: List[[]u8] = List[[]u8].{},
+};
+
+type ManifestLine = struct {
+    text: []u8,
+    next: usize,
+};
+
+fn append_u64(out: *mut String, alloc: *mut Allocator, value: u64) bool {
+    if (value == 0) {
+        return out.push_str(alloc, "0");
+    }
+
+    let buf = [20]mut u8.{undef};
+    let mut i = 20;
+    let mut curr = value;
+
+    for (; curr > 0; ) {
+        i -= 1;
+        buf.[i] = (curr % 10) as u8 + b'0';
+        curr /= 10;
+    }
+
+    return out.push_str(alloc, buf.[i .. 20]);
+}
+
+fn append_usize(out: *mut String, alloc: *mut Allocator, value: usize) bool {
+    return append_u64(out, alloc, value as u64);
+}
+
+fn append_duration_ns(out: *mut String, alloc: *mut Allocator, duration: time.Duration) bool {
+    return append_u64(out, alloc, duration.as_nanos());
+}
+
+fn write_line(file: *mut fs.File, text: []u8) void {
+    let _ = file.write_all(text);
+    let _ = file.write_all("\n");
+}
+
+fn print_literal(file: *mut fs.File, text: []u8) void {
+    write_line(file, text);
+}
+
+fn print_usage() void {
+    let mut stderr = fs.stderr();
+    print_literal(
+        stderr..&,
+        "toml-bench reads a manifest from stdin: first line mode, second line iterations, remaining lines file paths"
+    );
+}
+
+fn mode_name(mode: BenchMode) []u8 {
+    return match (mode) {
+        .Scan => "scan",
+        .Parse => "parse",
+        .ParseOwned => "parse-owned",
+        .ParseOwnedArena => "parse-owned-arena",
+    };
+}
+
+fn print_summary(
+    alloc: *mut Allocator,
+    mode: BenchMode,
+    iterations: usize,
+    files: usize,
+    total_bytes: usize,
+    checksum: usize,
+    elapsed: time.Duration
+) void {
+    let mut line = String.{};
+    defer line..&.deinit(alloc);
+    let total_runs = (iterations as u64) * (files as u64);
+    let total_work_bytes = (iterations as u64) * (total_bytes as u64);
+    let avg_input = elapsed.div_u64(total_runs);
+    let bytes_per_sec = elapsed.units_per_sec(total_work_bytes);
+
+    let ok = (
+        line..&.push_str(alloc, "mode=") and
+        line..&.push_str(alloc, mode_name(mode)) and
+        line..&.push_str(alloc, " iterations=") and
+        append_usize(line..&, alloc, iterations) and
+        line..&.push_str(alloc, " files=") and
+        append_usize(line..&, alloc, files) and
+        line..&.push_str(alloc, " bytes=") and
+        append_usize(line..&, alloc, total_bytes) and
+        line..&.push_str(alloc, " checksum=") and
+        append_usize(line..&, alloc, checksum) and
+        line..&.push_str(alloc, " elapsed_ns=") and
+        append_duration_ns(line..&, alloc, elapsed) and
+        line..&.push_str(alloc, " ns_per_input=") and
+        append_duration_ns(line..&, alloc, avg_input) and
+        line..&.push_str(alloc, " bytes_per_sec=") and
+        append_u64(line..&, alloc, bytes_per_sec)
+    );
+
+    let mut stdout = fs.stdout();
+    if (ok) {
+        write_line(stdout..&, line.&.as_str());
+    } else {
+        print_literal(stdout..&, "benchmark summary truncated: out of memory");
+    }
+}
+
+fn print_parse_error(path: []u8, line: usize, column: usize, message: []u8) void {
+    let mut stderr = fs.stderr();
+    let _ = stderr..&.write_all("parse failed for ");
+    let _ = stderr..&.write_all(path);
+    let _ = stderr..&.write_all(": ");
+    let _ = stderr..&.write_all(message);
+    let _ = stderr..&.write_all(" at ");
+
+    let mut line_text = String.{};
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+    if (append_usize(line_text..&, alloc, line) and line_text..&.push_str(alloc, ":") and append_usize(line_text..&, alloc, column)) {
+        let _ = stderr..&.write_all(line_text.&.as_str());
+    }
+    line_text..&.deinit(alloc);
+    let _ = stderr..&.write_all("\n");
+}
+
+fn parse_mode(text: []u8) Option[BenchMode] {
+    if (text.eq("scan")) {
+        return .{ Some: BenchMode.Scan };
+    }
+    if (text.eq("parse")) {
+        return .{ Some: BenchMode.Parse };
+    }
+    if (text.eq("parse-owned")) {
+        return .{ Some: BenchMode.ParseOwned };
+    }
+    if (text.eq("parse-owned-arena")) {
+        return .{ Some: BenchMode.ParseOwnedArena };
+    }
+    return .{ None };
+}
+
+fn parse_usize(text: []u8) Option[usize] {
+    if (#text == 0) {
+        return .{ None };
+    }
+
+    let mut value = 0;
+    for (let mut i = 0; i < #text; i += 1) {
+        let byte = text.[i];
+        if (byte < b'0' or byte > b'9') {
+            return .{ None };
+        }
+
+        let digit = (byte - b'0') as usize;
+        if (value > (USIZE_MAX - digit) / 10) {
+            return .{ None };
+        }
+        value = (value * 10) + digit;
+    }
+
+    return .{ Some: value };
+}
+
+fn next_manifest_line(text: []u8, start: usize) Option[ManifestLine] {
+    if (start >= #text) {
+        return .{ None };
+    }
+
+    let mut end = start;
+    for (; end < #text; end += 1) {
+        if (text.[end] == b'\n') {
+            let line_end = if (end > start and text.[end - 1] == b'\r') end - 1 else end;
+            return .{ Some: ManifestLine.{ text: text.[start .. line_end], next: end + 1 } };
+        }
+    }
+
+    let line_end = if (end > start and text.[end - 1] == b'\r') end - 1 else end;
+    return .{ Some: ManifestLine.{ text: text.[start .. line_end], next: end } };
+}
+
+fn next_nonempty_manifest_line(text: []u8, start: usize) Option[ManifestLine] {
+    let mut offset = start;
+    for (;;) {
+        let .{ Some: line } = next_manifest_line(text, offset) else return .{ None };
+        offset = line.next;
+        let trimmed = line.text.trim_ascii();
+        if (#trimmed == 0) {
+            continue;
+        }
+        if (trimmed.[0] == b'#') {
+            continue;
+        }
+        return .{ Some: ManifestLine.{ text: trimmed, next: offset } };
+    }
+}
+
+fn parse_manifest(alloc: *mut Allocator, text: []u8) Option[BenchConfig] {
+    let .{ Some: mode_line } = next_nonempty_manifest_line(text, 0) else return .{ None };
+    let .{ Some: mode } = parse_mode(mode_line.text) else return .{ None };
+
+    let .{ Some: iter_line } = next_nonempty_manifest_line(text, mode_line.next) else return .{ None };
+    let .{ Some: iterations } = parse_usize(iter_line.text) else return .{ None };
+    if (iterations == 0) {
+        return .{ None };
+    }
+
+    let mut config = BenchConfig.{ mode: mode, iterations: iterations };
+    let mut offset = iter_line.next;
+    for (;;) {
+        let next = next_nonempty_manifest_line(text, offset);
+        match (next) {
+            .{ Some: line } => {
+                if (!config.paths..&.push(alloc, line.text)) {
+                    config.paths..&.deinit(alloc);
+                    return .{ None };
+                }
+                offset = line.next;
+            },
+            .None => break,
+        }
+    }
+
+    if (config.paths.len == 0) {
+        config.paths..&.deinit(alloc);
+        return .{ None };
+    }
+    return .{ Some: config };
+}
+
+fn deinit_inputs(alloc: *mut Allocator, inputs: *mut List[String]) void {
+    let slice = inputs.as_slice();
+    for (let mut i = 0; i < #slice; i += 1) {
+        let input = slice.[i].& as *mut String;
+        input.deinit(alloc);
+    }
+    inputs.deinit(alloc);
+}
+
+fn load_inputs(
+    alloc: *mut Allocator,
+    paths: [][]u8
+) Option[List[String]] {
+    let mut inputs = List[String].{};
+    for (let mut i = 0; i < #paths; i += 1) {
+        let content = match (fs.read_to_string(alloc, paths.[i])) {
+            .{ Ok: content } => content,
+            .{ Err: _ } => {
+                let mut stderr = fs.stderr();
+                let _ = stderr..&.write_all("failed to read benchmark input: ");
+                let _ = stderr..&.write_all(paths.[i]);
+                let _ = stderr..&.write_all("\n");
+                deinit_inputs(alloc, inputs..&);
+                return .{ None };
+            },
+        };
+
+        if (!inputs..&.push(alloc, content)) {
+            let mut content = content;
+            content..&.deinit(alloc);
+            let mut stderr = fs.stderr();
+            print_literal(stderr..&, "out of memory while loading benchmark inputs");
+            deinit_inputs(alloc, inputs..&);
+            return .{ None };
+        }
+    }
+    return .{ Some: inputs };
+}
+
+fn print_parse_owned_error(path: []u8, err: ParseOwnedError) void {
+    match (err) {
+        .{ Parse: parse_err } => print_parse_error(path, parse_err.line, parse_err.column, parse_err.message),
+        .{ Model: model_err } => {
+            let mut stderr = fs.stderr();
+            let _ = stderr..&.write_all("parse-owned failed for ");
+            let _ = stderr..&.write_all(path);
+            let _ = stderr..&.write_all(": model ");
+            let _ = stderr..&.write_all(model_error_name(model_err));
+            let _ = stderr..&.write_all("\n");
+        },
+    }
+}
+
+fn model_error_name(err: ModelError) []u8 {
+    return match (err) {
+        .OutOfMemory => "OutOfMemory",
+        .KindConflict => "KindConflict",
+        .IndexOutOfBounds => "IndexOutOfBounds",
+        .InvalidDocument => "InvalidDocument",
+    };
+}
+
+fn run_scan(
+    alloc: *mut Allocator,
+    paths: [][]u8,
+    inputs: []String,
+    iterations: usize
+) bool {
+    let mut checksum = 0;
+    let started = time.now();
+
+    for (let mut iter = 0; iter < iterations; iter += 1) {
+        for (let mut i = 0; i < #inputs; i += 1) {
+            let doc = match (scan(inputs.[i].&.as_str())) {
+                .{ Ok: doc } => doc,
+                .{ Err: err } => {
+                    print_parse_error(paths.[i], err.line, err.column, err.message);
+                    return false;
+                },
+            };
+
+            checksum += (
+                doc.item_count +
+                doc.line_count +
+                doc.root_key_count +
+                doc.table_key_count +
+                doc.table_count +
+                doc.array_table_count
+            );
+        }
+    }
+
+    let mut total_bytes = 0;
+    for (let mut i = 0; i < #inputs; i += 1) {
+        total_bytes += #inputs.[i].&.as_str();
+    }
+
+    print_summary(
+        alloc,
+        BenchMode.Scan,
+        iterations,
+        #inputs,
+        total_bytes,
+        checksum,
+        started.elapsed()
+    );
+    return true;
+}
+
+fn run_parse(
+    alloc: *mut Allocator,
+    paths: [][]u8,
+    inputs: []String,
+    iterations: usize
+) bool {
+    let mut checksum = 0;
+    let started = time.now();
+
+    for (let mut iter = 0; iter < iterations; iter += 1) {
+        for (let mut i = 0; i < #inputs; i += 1) {
+            let mut doc = match (parse(inputs.[i].&.as_str())) {
+                .{ Ok: doc } => doc,
+                .{ Err: err } => {
+                    print_parse_owned_error(paths.[i], err);
+                    return false;
+                },
+            };
+
+            checksum += doc.&.root().len();
+            checksum += doc.&.section_count();
+            doc..&.deinit();
+        }
+    }
+
+    let mut total_bytes = 0;
+    for (let mut i = 0; i < #inputs; i += 1) {
+        total_bytes += #inputs.[i].&.as_str();
+    }
+
+    print_summary(
+        alloc,
+        BenchMode.Parse,
+        iterations,
+        #inputs,
+        total_bytes,
+        checksum,
+        started.elapsed()
+    );
+    return true;
+}
+
+fn run_parse_owned(
+    alloc: *mut Allocator,
+    paths: [][]u8,
+    inputs: []String,
+    iterations: usize
+) bool {
+    let mut checksum = 0;
+    let started = time.now();
+
+    for (let mut iter = 0; iter < iterations; iter += 1) {
+        for (let mut i = 0; i < #inputs; i += 1) {
+            let mut doc = match (parse_owned(alloc, inputs.[i].&.as_str())) {
+                .{ Ok: doc } => doc,
+                .{ Err: err } => {
+                    print_parse_owned_error(paths.[i], err);
+                    return false;
+                },
+            };
+
+            checksum += doc..&.root().len();
+            checksum += doc..&.section_count();
+            doc..&.deinit(alloc);
+        }
+    }
+
+    let mut total_bytes = 0;
+    for (let mut i = 0; i < #inputs; i += 1) {
+        total_bytes += #inputs.[i].&.as_str();
+    }
+
+    print_summary(
+        alloc,
+        BenchMode.ParseOwned,
+        iterations,
+        #inputs,
+        total_bytes,
+        checksum,
+        started.elapsed()
+    );
+    return true;
+}
+
+fn run_parse_owned_arena(
+    alloc: *mut Allocator,
+    paths: [][]u8,
+    inputs: []String,
+    iterations: usize
+) bool {
+    let mut checksum = 0;
+    let started = time.now();
+    let mut arena = Arena.{ backing: alloc };
+    defer arena..&.deinit();
+
+    for (let mut iter = 0; iter < iterations; iter += 1) {
+        for (let mut i = 0; i < #inputs; i += 1) {
+            let mut doc = match (parse_owned(arena..&, inputs.[i].&.as_str())) {
+                .{ Ok: doc } => doc,
+                .{ Err: err } => {
+                    print_parse_owned_error(paths.[i], err);
+                    return false;
+                },
+            };
+
+            checksum += doc..&.root().len();
+            checksum += doc..&.section_count();
+            arena..&.reset();
+        }
+    }
+
+    let mut total_bytes = 0;
+    for (let mut i = 0; i < #inputs; i += 1) {
+        total_bytes += #inputs.[i].&.as_str();
+    }
+
+    print_summary(
+        alloc,
+        BenchMode.ParseOwnedArena,
+        iterations,
+        #inputs,
+        total_bytes,
+        checksum,
+        started.elapsed()
+    );
+    return true;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut stdin = fs.stdin();
+    let mut manifest = match (stdin..&.read_to_string(alloc)) {
+        .{ Ok: text } => text,
+        .{ Err: _ } => {
+            print_usage();
+            return 1;
+        },
+    };
+    defer manifest..&.deinit(alloc);
+
+    let .{ Some: mut config } = parse_manifest(alloc, manifest.&.as_str()) else {
+        print_usage();
+        return 1;
+    };
+    defer config.paths..&.deinit(alloc);
+
+    let .{ Some: mut inputs } = load_inputs(alloc, config.paths.&.as_slice()) else {
+        return 1;
+    };
+    defer deinit_inputs(alloc, inputs..&);
+
+    let ok = match (config.mode) {
+        .Scan => run_scan(alloc, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
+        .Parse => run_parse(alloc, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
+        .ParseOwned => run_parse_owned(
+            alloc,
+            config.paths.&.as_slice(),
+            inputs.&.as_slice(),
+            config.iterations
+        ),
+        .ParseOwnedArena => run_parse_owned_arena(
+            alloc,
+            config.paths.&.as_slice(),
+            inputs.&.as_slice(),
+            config.iterations
+        ),
+    };
+    return if (ok) 0 else 1;
+}

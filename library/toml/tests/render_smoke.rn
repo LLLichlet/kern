@@ -1,0 +1,131 @@
+use std.test;
+use std.mem.alloc.{Allocator, GPA, Page};
+use toml.{OwnedDocument, render_document};
+
+fn check_render_document_smoke() void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut doc = OwnedDocument.{};
+    defer doc..&.deinit(alloc);
+
+    let root = doc..&.root_mut();
+    let _ = test.expect_ok(root.set_string(alloc, "title", "kern"));
+    let _ = test.expect_ok(root.set_string(alloc, "message", "line 1\n\"quoted\""));
+    let _ = test.expect_ok(root.set_bool(alloc, "enabled", true));
+
+    let dep = test.expect_ok(root.ensure_inline_table(alloc, "dep"));
+    let _ = test.expect_ok(dep.set_string(alloc, "path", "../util"));
+    let _ = test.expect_ok(dep.set_string(alloc, "package", "util"));
+
+    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
+    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
+    let _ = test.expect_ok(package.set_float_text(alloc, "version", "0.1"));
+    let features = test.expect_ok(package.ensure_array(alloc, "features"));
+    let _ = test.expect_ok(features.push_string(alloc, "parse"));
+    let _ = test.expect_ok(features.push_string(alloc, "render"));
+
+    let product1 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product1.set_string(alloc, "name", "hammer"));
+    let _ = test.expect_ok(product1.set_integer(alloc, "price", 9));
+
+    let product2 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product2.set_string(alloc, "name", "nail"));
+    let _ = test.expect_ok(product2.set_bool(alloc, "available", true));
+
+    let profile = test.expect_ok(doc..&.ensure_table(alloc, "profile"));
+    let _ = test.expect_ok(profile.set_datetime_text(alloc, "release", "1979-05-27T07:32:00Z"));
+    let quoted = test.expect_ok(doc..&.ensure_table(alloc, "target.\"cfg(unix)\""));
+    let _ = test.expect_ok(quoted.set_string(alloc, "link-lib", "ssl"));
+
+    let mut rendered = test.expect_ok(render_document(alloc, doc..&));
+    defer rendered..&.deinit(alloc);
+
+    let expected =
+        \\title = "kern"
+        \\message = "line 1\n\"quoted\""
+        \\enabled = true
+        \\dep = { path = "../util", package = "util" }
+        \\
+        \\[package]
+        \\name = "toml"
+        \\version = 0.1
+        \\features = ["parse", "render"]
+        \\
+        \\[[products]]
+        \\name = "hammer"
+        \\price = 9
+        \\
+        \\[[products]]
+        \\name = "nail"
+        \\available = true
+        \\
+        \\[profile]
+        \\release = 1979-05-27T07:32:00Z
+        \\
+        \\[target."cfg(unix)"]
+        \\link-lib = "ssl"
+        \\
+    ;
+
+    test.assert(
+        rendered.&.as_str().eq(expected),
+        "unexpected rendered TOML: {}",
+        .{ rendered.&.as_str(), }
+    );
+}
+
+fn check_render_after_section_removal() void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut doc = OwnedDocument.{};
+    defer doc..&.deinit(alloc);
+
+    let root = doc..&.root_mut();
+    let _ = test.expect_ok(root.set_string(alloc, "title", "kern"));
+
+    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
+    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
+    let profile = test.expect_ok(doc..&.ensure_table(alloc, "profile"));
+    let _ = test.expect_ok(profile.set_bool(alloc, "debug", true));
+
+    let product1 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product1.set_string(alloc, "name", "hammer"));
+    let product2 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
+    let _ = test.expect_ok(product2.set_string(alloc, "name", "nail"));
+
+    test.assert(doc..&.remove_table(alloc, "profile"), "expected table removal", .{});
+    test.assert(doc..&.remove_array_table_item(alloc, "products", 0), "expected first item removal", .{});
+
+    let mut rendered = test.expect_ok(render_document(alloc, doc..&));
+    defer rendered..&.deinit(alloc);
+
+    let expected =
+        \\title = "kern"
+        \\
+        \\[package]
+        \\name = "toml"
+        \\
+        \\[[products]]
+        \\name = "nail"
+        \\
+    ;
+
+    test.assert(
+        rendered.&.as_str().eq(expected),
+        "unexpected rendered TOML after section removal: {}",
+        .{ rendered.&.as_str(), }
+    );
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    check_render_document_smoke();
+    check_render_after_section_removal();
+    return 0;
+}

@@ -1,0 +1,1348 @@
+use std.{Option, Result};
+use std.coll.{List, String};
+use std.mem.layout_of;
+use std.mem.alloc.Allocator;
+
+pub type ModelError = enum {
+    OutOfMemory,
+    KindConflict,
+    IndexOutOfBounds,
+    InvalidDocument,
+};
+
+pub type Value = enum {
+    Bool: bool,
+    Integer: i64,
+    String: String,
+    FloatText: String,
+    DateTimeText: String,
+    Array: *mut Array,
+    InlineTable: *mut Table,
+};
+
+pub type Array = struct {
+    items: List[Value] = List[Value].{},
+};
+
+type TableEntry = struct {
+    key: String,
+    value: Value,
+};
+
+pub type Table = struct {
+    entries: List[TableEntry] = List[TableEntry].{},
+};
+
+pub type DocumentSectionKind = enum {
+    Table,
+    ArrayTable,
+};
+
+type TableSection = struct {
+    path: String,
+    table: Table,
+};
+
+type ArrayTableSection = struct {
+    path: String,
+    items: List[Table] = List[Table].{},
+};
+
+type DocumentSectionRef = enum {
+    Table: usize,
+    ArrayTable: usize,
+};
+
+pub type OwnedDocument = struct {
+    root_table: Table = Table.{},
+    tables: List[TableSection] = List[TableSection].{},
+    array_tables: List[ArrayTableSection] = List[ArrayTableSection].{},
+    section_order: List[DocumentSectionRef] = List[DocumentSectionRef].{},
+};
+
+type PathSegment = struct {
+    text: []u8,
+    next: usize,
+};
+
+type TablePathMatch = struct {
+    table: *Table,
+    next: usize,
+};
+
+fn alloc_box[T](alloc: *mut Allocator, value: T) Result[*mut T, ModelError] {
+    let .{ Some: raw } = alloc.alloc(layout_of[T]()) else return .{ Err: ModelError.OutOfMemory };
+    let ptr = raw as *mut T;
+    ptr.* = value;
+    return .{ Ok: ptr };
+}
+
+fn free_box[T](alloc: *mut Allocator, ptr: *mut T) void {
+    alloc.free(ptr as *mut u8, layout_of[T]());
+}
+
+fn clone_string(alloc: *mut Allocator, text: []u8) Result[String, ModelError] {
+    let mut out = String.{};
+    if (!out..&.clone_from(alloc, text)) {
+        return .{ Err: ModelError.OutOfMemory };
+    }
+    return .{ Ok: out };
+}
+
+fn is_ascii_space(byte: u8) bool {
+    return (
+        byte == b' ' or
+        byte == b'\t' or
+        byte == b'\n' or
+        byte == b'\r' or
+        byte == 11 or
+        byte == 12
+    );
+}
+
+fn skip_ascii_space(text: []u8, start: usize) usize {
+    let mut i = start;
+    for (; i < #text; i += 1) {
+        if (!is_ascii_space(text.[i])) {
+            return i;
+        }
+    }
+    return i;
+}
+
+fn is_bare_key_char(byte: u8) bool {
+    return (
+        (byte >= b'a' and byte <= b'z') or
+        (byte >= b'A' and byte <= b'Z') or
+        (byte >= b'0' and byte <= b'9') or
+        byte == b'-' or
+        byte == b'_'
+    );
+}
+
+fn scan_basic_string_end(value: []u8, start: usize) Option[usize] {
+    if (start >= #value or value.[start] != b'"') {
+        return .{ None };
+    }
+
+    let mut escape = false;
+    for (let mut i = start + 1; i < #value; i += 1) {
+        let byte = value.[i];
+        if (escape) {
+            escape = false;
+            continue;
+        }
+
+        if (byte == b'\\') {
+            escape = true;
+            continue;
+        }
+
+        if (byte == b'"') {
+            return .{ Some: i + 1 };
+        }
+    }
+
+    return .{ None };
+}
+
+fn scan_literal_string_end(value: []u8, start: usize) Option[usize] {
+    if (start >= #value or value.[start] != b'\'') {
+        return .{ None };
+    }
+
+    for (let mut i = start + 1; i < #value; i += 1) {
+        if (value.[i] == b'\'') {
+            return .{ Some: i + 1 };
+        }
+    }
+
+    return .{ None };
+}
+
+fn next_path_segment(text: []u8, start: usize) Option[PathSegment] {
+    let mut i = skip_ascii_space(text, start);
+    if (i == #text) {
+        return .{ None };
+    }
+
+    let byte = text.[i];
+    let segment_start = i;
+    if (byte == b'"') {
+        let .{ Some: end } = scan_basic_string_end(text, i) else return .{ None };
+        i = skip_ascii_space(text, end);
+        if (i < #text and text.[i] == b'.') {
+            i += 1;
+        }
+        return .{ Some: PathSegment.{
+            text: text.[segment_start + 1 .. end - 1],
+            next: i,
+        } };
+    }
+
+    if (byte == b'\'') {
+        let .{ Some: end } = scan_literal_string_end(text, i) else return .{ None };
+        i = skip_ascii_space(text, end);
+        if (i < #text and text.[i] == b'.') {
+            i += 1;
+        }
+        return .{ Some: PathSegment.{
+            text: text.[segment_start + 1 .. end - 1],
+            next: i,
+        } };
+    }
+
+    for (; i < #text; i += 1) {
+        if (!is_bare_key_char(text.[i])) {
+            break;
+        }
+    }
+
+    if (i == segment_start) {
+        return .{ None };
+    }
+
+    let segment_end = i;
+    i = skip_ascii_space(text, i);
+    if (i < #text and text.[i] == b'.') {
+        i += 1;
+    }
+
+    return .{ Some: PathSegment.{
+        text: text.[segment_start .. segment_end],
+        next: i,
+    } };
+}
+
+fn path_suffix_after_prefix(path: []u8, prefix: []u8) Option[usize] {
+    let mut path_index = 0;
+    let mut prefix_index = 0;
+
+    for (;;) {
+        let prefix_segment = next_path_segment(prefix, prefix_index);
+        match (prefix_segment) {
+            .None => return .{ Some: path_index },
+            .{ Some: segment } => {
+                let .{ Some: path_segment } = next_path_segment(path, path_index) else return .{ None };
+                if (!path_segment.text.eq(segment.text)) {
+                    return .{ None };
+                }
+                path_index = path_segment.next;
+                prefix_index = segment.next;
+            },
+        }
+    }
+}
+
+impl *Value {
+    pub fn as_bool() Option[bool] {
+        match (self.*) {
+            .{ Bool: value } => return .{ Some: value },
+            _ => return .{ None },
+        }
+    }
+
+    pub fn as_integer() Option[i64] {
+        match (self.*) {
+            .{ Integer: value } => return .{ Some: value },
+            _ => return .{ None },
+        }
+    }
+
+    pub fn as_string() Option[[]u8] {
+        match (self.*) {
+            .{ String: text } => return .{ Some: text.&.as_str() },
+            _ => return .{ None },
+        }
+    }
+
+    pub fn as_float_text() Option[[]u8] {
+        match (self.*) {
+            .{ FloatText: text } => return .{ Some: text.&.as_str() },
+            _ => return .{ None },
+        }
+    }
+
+    pub fn as_datetime_text() Option[[]u8] {
+        match (self.*) {
+            .{ DateTimeText: text } => return .{ Some: text.&.as_str() },
+            _ => return .{ None },
+        }
+    }
+
+    pub fn as_array() Option[*mut Array] {
+        match (self.*) {
+            .{ Array: items } => return .{ Some: items },
+            _ => return .{ None },
+        }
+    }
+
+    pub fn as_inline_table() Option[*mut Table] {
+        match (self.*) {
+            .{ InlineTable: table } => return .{ Some: table },
+            _ => return .{ None },
+        }
+    }
+}
+
+impl *mut Value {
+    pub fn deinit(alloc: *mut Allocator) void {
+        match (self.*) {
+            .{ String: text } => {
+                let mut text = text;
+                text..&.deinit(alloc);
+            },
+            .{ FloatText: text } => {
+                let mut text = text;
+                text..&.deinit(alloc);
+            },
+            .{ DateTimeText: text } => {
+                let mut text = text;
+                text..&.deinit(alloc);
+            },
+            .{ Array: items } => {
+                items.deinit(alloc);
+                free_box[Array](alloc, items);
+            },
+            .{ InlineTable: table } => {
+                table.deinit(alloc);
+                free_box[Table](alloc, table);
+            },
+            .{ Bool: _ } => {},
+            .{ Integer: _ } => {},
+        }
+        self.* = .{ Bool: false };
+    }
+}
+
+impl *Array {
+    pub fn len() usize {
+        return self.items.len;
+    }
+
+    pub fn is_empty() bool {
+        return self.items.&.is_empty();
+    }
+
+    pub fn get(index: usize) Option[*Value] {
+        if (index >= self.items.len) {
+            return .{ None };
+        }
+        let items = self.items.&.as_slice();
+        return .{ Some: items.[index].& as *Value };
+    }
+}
+
+impl *mut Array {
+    fn push_value(alloc: *mut Allocator, value: Value) Result[void, ModelError] {
+        let mut value = value;
+        if (!self.items..&.push(alloc, value)) {
+            value..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        return .{ Ok: {} };
+    }
+
+    fn insert_value(alloc: *mut Allocator, index: usize, value: Value) Result[void, ModelError] {
+        let mut value = value;
+        if (index > self.items.len) {
+            value..&.deinit(alloc);
+            return .{ Err: ModelError.IndexOutOfBounds };
+        }
+        if (!self.items..&.insert(alloc, index, value)) {
+            value..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        return .{ Ok: {} };
+    }
+
+    fn set_value(alloc: *mut Allocator, index: usize, value: Value) Result[void, ModelError] {
+        let mut value = value;
+        if (index >= self.items.len) {
+            value..&.deinit(alloc);
+            return .{ Err: ModelError.IndexOutOfBounds };
+        }
+
+        let items = self.items..&.as_mut_slice();
+        items.[index]..&.deinit(alloc);
+        items.[index] = value;
+        return .{ Ok: {} };
+    }
+
+    pub fn push_bool(alloc: *mut Allocator, value: bool) Result[void, ModelError] {
+        return self.push_value(alloc, .{ Bool: value });
+    }
+
+    pub fn push_integer(alloc: *mut Allocator, value: i64) Result[void, ModelError] {
+        return self.push_value(alloc, .{ Integer: value });
+    }
+
+    pub fn push_string(alloc: *mut Allocator, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.push_value(alloc, .{ String: owned });
+    }
+
+    pub fn push_float_text(alloc: *mut Allocator, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.push_value(alloc, .{ FloatText: owned });
+    }
+
+    pub fn push_datetime_text(alloc: *mut Allocator, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.push_value(alloc, .{ DateTimeText: owned });
+    }
+
+    pub fn push_inline_table(alloc: *mut Allocator) Result[*mut Table, ModelError] {
+        let .{ Ok: table } = alloc_box[Table](alloc, Table.{}) else return .{ Err: ModelError.OutOfMemory };
+        let push_result = self.push_value(alloc, .{ InlineTable: table });
+        if (push_result.is_err()) {
+            table.deinit(alloc);
+            free_box[Table](alloc, table);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        return .{ Ok: table };
+    }
+
+    pub fn push_array(alloc: *mut Allocator) Result[*mut Array, ModelError] {
+        let .{ Ok: array } = alloc_box[Array](alloc, Array.{}) else return .{ Err: ModelError.OutOfMemory };
+        let push_result = self.push_value(alloc, .{ Array: array });
+        if (push_result.is_err()) {
+            array.deinit(alloc);
+            free_box[Array](alloc, array);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        return .{ Ok: array };
+    }
+
+    pub fn insert_bool(alloc: *mut Allocator, index: usize, value: bool) Result[void, ModelError] {
+        return self.insert_value(alloc, index, .{ Bool: value });
+    }
+
+    pub fn insert_integer(alloc: *mut Allocator, index: usize, value: i64) Result[void, ModelError] {
+        return self.insert_value(alloc, index, .{ Integer: value });
+    }
+
+    pub fn insert_string(alloc: *mut Allocator, index: usize, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.insert_value(alloc, index, .{ String: owned });
+    }
+
+    pub fn insert_float_text(alloc: *mut Allocator, index: usize, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.insert_value(alloc, index, .{ FloatText: owned });
+    }
+
+    pub fn insert_datetime_text(alloc: *mut Allocator, index: usize, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.insert_value(alloc, index, .{ DateTimeText: owned });
+    }
+
+    pub fn insert_inline_table(alloc: *mut Allocator, index: usize) Result[*mut Table, ModelError] {
+        let .{ Ok: table } = alloc_box[Table](alloc, Table.{}) else return .{ Err: ModelError.OutOfMemory };
+        let insert_result = self.insert_value(alloc, index, .{ InlineTable: table });
+        if (insert_result.is_err()) {
+            table.deinit(alloc);
+            free_box[Table](alloc, table);
+            let err = match (insert_result) {
+                .{ Err: err } => err,
+                .{ Ok: _ } => ModelError.InvalidDocument,
+            };
+            return .{ Err: err };
+        }
+        return .{ Ok: table };
+    }
+
+    pub fn insert_array(alloc: *mut Allocator, index: usize) Result[*mut Array, ModelError] {
+        let .{ Ok: array } = alloc_box[Array](alloc, Array.{}) else return .{ Err: ModelError.OutOfMemory };
+        let insert_result = self.insert_value(alloc, index, .{ Array: array });
+        if (insert_result.is_err()) {
+            array.deinit(alloc);
+            free_box[Array](alloc, array);
+            let err = match (insert_result) {
+                .{ Err: err } => err,
+                .{ Ok: _ } => ModelError.InvalidDocument,
+            };
+            return .{ Err: err };
+        }
+        return .{ Ok: array };
+    }
+
+    pub fn set_bool(alloc: *mut Allocator, index: usize, value: bool) Result[void, ModelError] {
+        return self.set_value(alloc, index, .{ Bool: value });
+    }
+
+    pub fn set_integer(alloc: *mut Allocator, index: usize, value: i64) Result[void, ModelError] {
+        return self.set_value(alloc, index, .{ Integer: value });
+    }
+
+    pub fn set_string(alloc: *mut Allocator, index: usize, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.set_value(alloc, index, .{ String: owned });
+    }
+
+    pub fn set_float_text(alloc: *mut Allocator, index: usize, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.set_value(alloc, index, .{ FloatText: owned });
+    }
+
+    pub fn set_datetime_text(alloc: *mut Allocator, index: usize, text: []u8) Result[void, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.set_value(alloc, index, .{ DateTimeText: owned });
+    }
+
+    pub fn set_inline_table(alloc: *mut Allocator, index: usize) Result[*mut Table, ModelError] {
+        let .{ Ok: table } = alloc_box[Table](alloc, Table.{}) else return .{ Err: ModelError.OutOfMemory };
+        let set_result = self.set_value(alloc, index, .{ InlineTable: table });
+        if (set_result.is_err()) {
+            table.deinit(alloc);
+            free_box[Table](alloc, table);
+            let err = match (set_result) {
+                .{ Err: err } => err,
+                .{ Ok: _ } => ModelError.InvalidDocument,
+            };
+            return .{ Err: err };
+        }
+        return .{ Ok: table };
+    }
+
+    pub fn set_array(alloc: *mut Allocator, index: usize) Result[*mut Array, ModelError] {
+        let .{ Ok: array } = alloc_box[Array](alloc, Array.{}) else return .{ Err: ModelError.OutOfMemory };
+        let set_result = self.set_value(alloc, index, .{ Array: array });
+        if (set_result.is_err()) {
+            array.deinit(alloc);
+            free_box[Array](alloc, array);
+            let err = match (set_result) {
+                .{ Err: err } => err,
+                .{ Ok: _ } => ModelError.InvalidDocument,
+            };
+            return .{ Err: err };
+        }
+        return .{ Ok: array };
+    }
+
+    pub fn remove(alloc: *mut Allocator, index: usize) bool {
+        let mut removed = match (self.items..&.remove(index)) {
+            .{ Some: removed } => removed,
+            .None => return false,
+        };
+        removed..&.deinit(alloc);
+        return true;
+    }
+
+    pub fn truncate(alloc: *mut Allocator, new_len: usize) void {
+        if (new_len >= self.items.len) {
+            return;
+        }
+
+        let items = self.items..&.as_mut_slice();
+        for (let mut i = new_len; i < #items; i += 1) {
+            items.[i]..&.deinit(alloc);
+        }
+        self.items..&.truncate(new_len);
+    }
+
+    pub fn clear(alloc: *mut Allocator) void {
+        self.truncate(alloc, 0);
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.clear(alloc);
+        self.items..&.deinit(alloc);
+    }
+}
+
+impl *Table {
+    fn find_index(key: []u8) Option[usize] {
+        let entries = self.entries.&.as_slice();
+        for (let mut i = 0; i < #entries; i += 1) {
+            if (entries.[i].key.&.as_str().eq(key)) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn len() usize {
+        return self.entries.len;
+    }
+
+    pub fn is_empty() bool {
+        return self.entries.&.is_empty();
+    }
+
+    pub fn contains(key: []u8) bool {
+        return self.find_index(key).is_some();
+    }
+
+    pub fn get(key: []u8) Option[*Value] {
+        let .{ Some: index } = self.find_index(key) else return .{ None };
+        let entries = self.entries.&.as_slice();
+        return .{ Some: entries.[index].value.& as *Value };
+    }
+
+    pub fn key_at(index: usize) Option[[]u8] {
+        if (index >= self.entries.len) {
+            return .{ None };
+        }
+        let entries = self.entries.&.as_slice();
+        return .{ Some: entries.[index].key.&.as_str() };
+    }
+
+    pub fn value_at(index: usize) Option[*Value] {
+        if (index >= self.entries.len) {
+            return .{ None };
+        }
+        let entries = self.entries.&.as_slice();
+        return .{ Some: entries.[index].value.& as *Value };
+    }
+
+    pub fn get_bool(key: []u8) Option[bool] {
+        let .{ Some: value } = self.get(key) else return .{ None };
+        return value.as_bool();
+    }
+
+    pub fn get_integer(key: []u8) Option[i64] {
+        let .{ Some: value } = self.get(key) else return .{ None };
+        return value.as_integer();
+    }
+
+    pub fn get_string(key: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get(key) else return .{ None };
+        return value.as_string();
+    }
+
+    pub fn get_float_text(key: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get(key) else return .{ None };
+        return value.as_float_text();
+    }
+
+    pub fn get_datetime_text(key: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get(key) else return .{ None };
+        return value.as_datetime_text();
+    }
+
+    pub fn get_inline_table(key: []u8) Option[*mut Table] {
+        let .{ Some: value } = self.get(key) else return .{ None };
+        return value.as_inline_table();
+    }
+
+    pub fn get_array(key: []u8) Option[*mut Array] {
+        let .{ Some: value } = self.get(key) else return .{ None };
+        return value.as_array();
+    }
+
+    pub fn contains_path(path: []u8) bool {
+        return self.get_path(path).is_some();
+    }
+
+    pub fn get_path(path: []u8) Option[*Value] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ None };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.get(segment.text);
+        }
+
+        let .{ Some: table } = self.get_inline_table(segment.text) else return .{ None };
+        return table.get_path(path.[segment.next .. #path]);
+    }
+
+    pub fn get_path_bool(path: []u8) Option[bool] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_bool();
+    }
+
+    pub fn get_path_integer(path: []u8) Option[i64] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_integer();
+    }
+
+    pub fn get_path_string(path: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_string();
+    }
+
+    pub fn get_path_float_text(path: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_float_text();
+    }
+
+    pub fn get_path_datetime_text(path: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_datetime_text();
+    }
+
+    pub fn get_path_inline_table(path: []u8) Option[*mut Table] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_inline_table();
+    }
+
+    pub fn get_path_array(path: []u8) Option[*mut Array] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_array();
+    }
+}
+
+impl *mut Table {
+    fn set_value(alloc: *mut Allocator, key: []u8, value: Value) Result[bool, ModelError] {
+        let mut value = value;
+        match (self.find_index(key)) {
+            .{ Some: index } => {
+                let entries = self.entries..&.as_mut_slice();
+                entries.[index].value..&.deinit(alloc);
+                entries.[index].value = value;
+                return .{ Ok: false };
+            },
+            .None => {},
+        }
+
+        let .{ Ok: owned_key } = clone_string(alloc, key) else {
+            value..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        };
+        let mut entry = TableEntry.{ key: owned_key, value: value };
+
+        if (!self.entries..&.push(alloc, entry)) {
+            entry.key..&.deinit(alloc);
+            entry.value..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        return .{ Ok: true };
+    }
+
+    pub fn set_bool(alloc: *mut Allocator, key: []u8, value: bool) Result[bool, ModelError] {
+        return self.set_value(alloc, key, .{ Bool: value });
+    }
+
+    pub fn set_integer(alloc: *mut Allocator, key: []u8, value: i64) Result[bool, ModelError] {
+        return self.set_value(alloc, key, .{ Integer: value });
+    }
+
+    pub fn set_string(alloc: *mut Allocator, key: []u8, text: []u8) Result[bool, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.set_value(alloc, key, .{ String: owned });
+    }
+
+    pub fn set_float_text(alloc: *mut Allocator, key: []u8, text: []u8) Result[bool, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.set_value(alloc, key, .{ FloatText: owned });
+    }
+
+    pub fn set_datetime_text(alloc: *mut Allocator, key: []u8, text: []u8) Result[bool, ModelError] {
+        let .{ Ok: owned } = clone_string(alloc, text) else return .{ Err: ModelError.OutOfMemory };
+        return self.set_value(alloc, key, .{ DateTimeText: owned });
+    }
+
+    pub fn ensure_inline_table(alloc: *mut Allocator, key: []u8) Result[*mut Table, ModelError] {
+        match (self.get(key)) {
+            .{ Some: value } => match (value.as_inline_table()) {
+                .{ Some: table } => return .{ Ok: table },
+                .None => return .{ Err: ModelError.KindConflict },
+            },
+            .None => {},
+        }
+
+        let .{ Ok: table } = alloc_box[Table](alloc, Table.{}) else return .{ Err: ModelError.OutOfMemory };
+        let set_result = self.set_value(alloc, key, .{ InlineTable: table });
+        if (set_result.is_err()) {
+            table.deinit(alloc);
+            free_box[Table](alloc, table);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        return .{ Ok: table };
+    }
+
+    pub fn ensure_array(alloc: *mut Allocator, key: []u8) Result[*mut Array, ModelError] {
+        match (self.get(key)) {
+            .{ Some: value } => match (value.as_array()) {
+                .{ Some: items } => return .{ Ok: items },
+                .None => return .{ Err: ModelError.KindConflict },
+            },
+            .None => {},
+        }
+
+        let .{ Ok: array } = alloc_box[Array](alloc, Array.{}) else return .{ Err: ModelError.OutOfMemory };
+        let set_result = self.set_value(alloc, key, .{ Array: array });
+        if (set_result.is_err()) {
+            array.deinit(alloc);
+            free_box[Array](alloc, array);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        return .{ Ok: array };
+    }
+
+    pub fn set_path_bool(alloc: *mut Allocator, path: []u8, value: bool) Result[bool, ModelError] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ Err: ModelError.InvalidDocument };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.set_bool(alloc, segment.text, value);
+        }
+
+        let table = match (self.ensure_inline_table(alloc, segment.text)) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return table.set_path_bool(alloc, path.[segment.next .. #path], value);
+    }
+
+    pub fn set_path_integer(alloc: *mut Allocator, path: []u8, value: i64) Result[bool, ModelError] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ Err: ModelError.InvalidDocument };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.set_integer(alloc, segment.text, value);
+        }
+
+        let table = match (self.ensure_inline_table(alloc, segment.text)) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return table.set_path_integer(alloc, path.[segment.next .. #path], value);
+    }
+
+    pub fn set_path_string(alloc: *mut Allocator, path: []u8, text: []u8) Result[bool, ModelError] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ Err: ModelError.InvalidDocument };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.set_string(alloc, segment.text, text);
+        }
+
+        let table = match (self.ensure_inline_table(alloc, segment.text)) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return table.set_path_string(alloc, path.[segment.next .. #path], text);
+    }
+
+    pub fn set_path_float_text(alloc: *mut Allocator, path: []u8, text: []u8) Result[bool, ModelError] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ Err: ModelError.InvalidDocument };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.set_float_text(alloc, segment.text, text);
+        }
+
+        let table = match (self.ensure_inline_table(alloc, segment.text)) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return table.set_path_float_text(alloc, path.[segment.next .. #path], text);
+    }
+
+    pub fn set_path_datetime_text(alloc: *mut Allocator, path: []u8, text: []u8) Result[bool, ModelError] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ Err: ModelError.InvalidDocument };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.set_datetime_text(alloc, segment.text, text);
+        }
+
+        let table = match (self.ensure_inline_table(alloc, segment.text)) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return table.set_path_datetime_text(alloc, path.[segment.next .. #path], text);
+    }
+
+    pub fn ensure_path_inline_table(alloc: *mut Allocator, path: []u8) Result[*mut Table, ModelError] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ Err: ModelError.InvalidDocument };
+        let table = match (self.ensure_inline_table(alloc, segment.text)) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return .{ Ok: table };
+        }
+        return table.ensure_path_inline_table(alloc, path.[segment.next .. #path]);
+    }
+
+    pub fn ensure_path_array(alloc: *mut Allocator, path: []u8) Result[*mut Array, ModelError] {
+        let .{ Some: segment } = next_path_segment(path, 0) else return .{ Err: ModelError.InvalidDocument };
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.ensure_array(alloc, segment.text);
+        }
+
+        let table = match (self.ensure_inline_table(alloc, segment.text)) {
+            .{ Ok: table } => table,
+            .{ Err: err } => return .{ Err: err },
+        };
+        return table.ensure_path_array(alloc, path.[segment.next .. #path]);
+    }
+
+    pub fn remove_path(alloc: *mut Allocator, path: []u8) bool {
+        let .{ Some: segment } = next_path_segment(path, 0) else return false;
+        if (next_path_segment(path, segment.next).is_none()) {
+            return self.remove(alloc, segment.text);
+        }
+
+        let .{ Some: table } = self.get_inline_table(segment.text) else return false;
+        return table.remove_path(alloc, path.[segment.next .. #path]);
+    }
+
+    pub fn remove(alloc: *mut Allocator, key: []u8) bool {
+        let .{ Some: index } = self.find_index(key) else return false;
+        let mut removed = match (self.entries..&.remove(index)) {
+            .{ Some: entry } => entry,
+            .None => return false,
+        };
+        removed.key..&.deinit(alloc);
+        removed.value..&.deinit(alloc);
+        return true;
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        let entries = self.entries..&.as_mut_slice();
+        for (let mut i = 0; i < #entries; i += 1) {
+            entries.[i].key..&.deinit(alloc);
+            entries.[i].value..&.deinit(alloc);
+        }
+        self.entries..&.deinit(alloc);
+    }
+}
+
+impl *OwnedDocument {
+    fn longest_matching_table(path: []u8) Option[TablePathMatch] {
+        let tables = self.tables.&.as_slice();
+        let mut matched_table = Option[*Table].{ None };
+        let mut matched_next = 0;
+
+        for (let mut i = 0; i < #tables; i += 1) {
+            let prefix = tables.[i].path.&.as_str();
+            let .{ Some: next } = path_suffix_after_prefix(path, prefix) else continue;
+            if (next > matched_next) {
+                matched_table = .{ Some: tables.[i].table.& as *Table };
+                matched_next = next;
+            }
+        }
+
+        match (matched_table) {
+            .{ Some: table } => return .{ Some: TablePathMatch.{ table: table, next: matched_next } },
+            .None => return .{ None },
+        }
+    }
+
+    fn find_table_index(path: []u8) Option[usize] {
+        let tables = self.tables.&.as_slice();
+        for (let mut i = 0; i < #tables; i += 1) {
+            if (tables.[i].path.&.as_str().eq(path)) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    fn find_array_table_index(path: []u8) Option[usize] {
+        let sections = self.array_tables.&.as_slice();
+        for (let mut i = 0; i < #sections; i += 1) {
+            if (sections.[i].path.&.as_str().eq(path)) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
+    pub fn contains_table(path: []u8) bool {
+        return self.find_table_index(path).is_some();
+    }
+
+    pub fn contains_array_table(path: []u8) bool {
+        return self.find_array_table_index(path).is_some();
+    }
+
+    pub fn root() *Table {
+        return self.root_table.& as *Table;
+    }
+
+    pub fn get_table(path: []u8) Option[*Table] {
+        let .{ Some: index } = self.find_table_index(path) else return .{ None };
+        let tables = self.tables.&.as_slice();
+        return .{ Some: tables.[index].table.& as *Table };
+    }
+
+    pub fn get_table_path(path: []u8) Option[*mut Table] {
+        match (self.get_table(path)) {
+            .{ Some: table } => return .{ Some: table as *mut Table },
+            .None => {},
+        }
+
+        match (self.longest_matching_table(path)) {
+            .{ Some: matched } => {
+                if (matched.next >= #path) {
+                    return .{ Some: matched.table as *mut Table };
+                }
+                return matched.table.get_path_inline_table(path.[matched.next .. #path]);
+            },
+            .None => return self.root_table.&.get_path_inline_table(path),
+        }
+    }
+
+    pub fn get_array_table(path: []u8, index: usize) Option[*Table] {
+        let .{ Some: section_index } = self.find_array_table_index(path) else return .{ None };
+        let sections = self.array_tables.&.as_slice();
+        let section = sections.[section_index].&;
+        if (index >= section.items.len) {
+            return .{ None };
+        }
+        let items = section.items.&.as_slice();
+        return .{ Some: items.[index].& as *Table };
+    }
+
+    pub fn array_table_len(path: []u8) usize {
+        let .{ Some: section_index } = self.find_array_table_index(path) else return 0;
+        let sections = self.array_tables.&.as_slice();
+        return sections.[section_index].items.len;
+    }
+
+    pub fn contains_path(path: []u8) bool {
+        return self.get_path(path).is_some();
+    }
+
+    pub fn get_path(path: []u8) Option[*Value] {
+        match (self.longest_matching_table(path)) {
+            .{ Some: matched } => {
+                if (matched.next >= #path) {
+                    return .{ None };
+                }
+                return matched.table.get_path(path.[matched.next .. #path]);
+            },
+            .None => return self.root_table.&.get_path(path),
+        }
+    }
+
+    pub fn get_path_bool(path: []u8) Option[bool] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_bool();
+    }
+
+    pub fn get_path_integer(path: []u8) Option[i64] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_integer();
+    }
+
+    pub fn get_path_string(path: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_string();
+    }
+
+    pub fn get_path_float_text(path: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_float_text();
+    }
+
+    pub fn get_path_datetime_text(path: []u8) Option[[]u8] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_datetime_text();
+    }
+
+    pub fn get_path_inline_table(path: []u8) Option[*mut Table] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_inline_table();
+    }
+
+    pub fn get_path_array(path: []u8) Option[*mut Array] {
+        let .{ Some: value } = self.get_path(path) else return .{ None };
+        return value.as_array();
+    }
+
+    pub fn section_count() usize {
+        return self.section_order.len;
+    }
+
+    pub fn section_kind(index: usize) Option[DocumentSectionKind] {
+        if (index >= self.section_order.len) {
+            return .{ None };
+        }
+        let order = self.section_order.&.as_slice();
+        match (order.[index]) {
+            .{ Table: _ } => return .{ Some: DocumentSectionKind.Table },
+            .{ ArrayTable: _ } => return .{ Some: DocumentSectionKind.ArrayTable },
+        }
+    }
+
+    pub fn section_path(index: usize) Option[[]u8] {
+        if (index >= self.section_order.len) {
+            return .{ None };
+        }
+
+        let order = self.section_order.&.as_slice();
+        match (order.[index]) {
+            .{ Table: table_index } => {
+                if (table_index >= self.tables.len) {
+                    return .{ None };
+                }
+                let tables = self.tables.&.as_slice();
+                return .{ Some: tables.[table_index].path.&.as_str() };
+            },
+            .{ ArrayTable: array_index } => {
+                if (array_index >= self.array_tables.len) {
+                    return .{ None };
+                }
+                let sections = self.array_tables.&.as_slice();
+                return .{ Some: sections.[array_index].path.&.as_str() };
+            },
+        }
+    }
+
+    pub fn section_table(index: usize) Option[*Table] {
+        if (index >= self.section_order.len) {
+            return .{ None };
+        }
+
+        let order = self.section_order.&.as_slice();
+        match (order.[index]) {
+            .{ Table: table_index } => {
+                if (table_index >= self.tables.len) {
+                    return .{ None };
+                }
+                let tables = self.tables.&.as_slice();
+                return .{ Some: tables.[table_index].table.& as *Table };
+            },
+            .{ ArrayTable: _ } => return .{ None },
+        }
+    }
+
+    pub fn section_array_len(index: usize) Option[usize] {
+        if (index >= self.section_order.len) {
+            return .{ None };
+        }
+
+        let order = self.section_order.&.as_slice();
+        match (order.[index]) {
+            .{ Table: _ } => return .{ None },
+            .{ ArrayTable: array_index } => {
+                if (array_index >= self.array_tables.len) {
+                    return .{ None };
+                }
+                let sections = self.array_tables.&.as_slice();
+                return .{ Some: sections.[array_index].items.len };
+            },
+        }
+    }
+
+    pub fn section_array_item(index: usize, item_index: usize) Option[*Table] {
+        if (index >= self.section_order.len) {
+            return .{ None };
+        }
+
+        let order = self.section_order.&.as_slice();
+        match (order.[index]) {
+            .{ Table: _ } => return .{ None },
+            .{ ArrayTable: array_index } => {
+                if (array_index >= self.array_tables.len) {
+                    return .{ None };
+                }
+                let sections = self.array_tables.&.as_slice();
+                let section = sections.[array_index].&;
+                if (item_index >= section.items.len) {
+                    return .{ None };
+                }
+                let items = section.items.&.as_slice();
+                return .{ Some: items.[item_index].& as *Table };
+            },
+        }
+    }
+}
+
+impl *mut OwnedDocument {
+    fn remove_table_section_ref(table_index: usize) bool {
+        let mut found = Option[usize].{ None };
+        let order = self.section_order..&.as_mut_slice();
+        for (let mut i = 0; i < #order; i += 1) {
+            match (order.[i]) {
+                .{ Table: index } => {
+                    if (index == table_index) {
+                        found = .{ Some: i };
+                    } else if (index > table_index) {
+                        order.[i] = .{ Table: index - 1 };
+                    }
+                },
+                .{ ArrayTable: _ } => {},
+            }
+        }
+
+        match (found) {
+            .{ Some: index } => {
+                let _ = self.section_order..&.remove(index);
+                return true;
+            },
+            .None => return false,
+        }
+    }
+
+    fn remove_array_table_section_ref(section_index: usize) bool {
+        let mut found = Option[usize].{ None };
+        let order = self.section_order..&.as_mut_slice();
+        for (let mut i = 0; i < #order; i += 1) {
+            match (order.[i]) {
+                .{ Table: _ } => {},
+                .{ ArrayTable: index } => {
+                    if (index == section_index) {
+                        found = .{ Some: i };
+                    } else if (index > section_index) {
+                        order.[i] = .{ ArrayTable: index - 1 };
+                    }
+                },
+            }
+        }
+
+        match (found) {
+            .{ Some: index } => {
+                let _ = self.section_order..&.remove(index);
+                return true;
+            },
+            .None => return false,
+        }
+    }
+
+    fn deinit_array_table_section(alloc: *mut Allocator, section: *mut ArrayTableSection) void {
+        section.path..&.deinit(alloc);
+        let items = section.items..&.as_mut_slice();
+        for (let mut i = 0; i < #items; i += 1) {
+            items.[i]..&.deinit(alloc);
+        }
+        section.items..&.deinit(alloc);
+    }
+
+    pub fn root_mut() *mut Table {
+        return self.root_table..&;
+    }
+
+    pub fn ensure_table(alloc: *mut Allocator, path: []u8) Result[*mut Table, ModelError] {
+        if (self.find_array_table_index(path).is_some()) {
+            return .{ Err: ModelError.KindConflict };
+        }
+
+        match (self.find_table_index(path)) {
+            .{ Some: index } => {
+                let tables = self.tables..&.as_mut_slice();
+                return .{ Ok: tables.[index].table..& };
+            },
+            .None => {},
+        }
+
+        let .{ Ok: owned_path } = clone_string(alloc, path) else return .{ Err: ModelError.OutOfMemory };
+        let mut section = TableSection.{ path: owned_path, table: Table.{} };
+        if (!self.tables..&.push(alloc, section)) {
+            section.path..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        let table_index = self.tables.len - 1;
+        if (!self.section_order..&.push(alloc, .{ Table: table_index })) {
+            let mut removed = match (self.tables..&.pop()) {
+                .{ Some: removed } => removed,
+                .None => return .{ Err: ModelError.InvalidDocument },
+            };
+            removed.path..&.deinit(alloc);
+            removed.table..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        let tables = self.tables..&.as_mut_slice();
+        return .{ Ok: tables.[#tables - 1].table..& };
+    }
+
+    pub fn append_array_table(alloc: *mut Allocator, path: []u8) Result[*mut Table, ModelError] {
+        if (self.find_table_index(path).is_some()) {
+            return .{ Err: ModelError.KindConflict };
+        }
+
+        match (self.find_array_table_index(path)) {
+            .{ Some: index } => {
+                let sections = self.array_tables..&.as_mut_slice();
+                let section = sections.[index]..&;
+                if (!section.items..&.push(alloc, Table.{})) {
+                    return .{ Err: ModelError.OutOfMemory };
+                }
+                let items = section.items..&.as_mut_slice();
+                return .{ Ok: items.[#items - 1]..& };
+            },
+            .None => {},
+        }
+
+        let .{ Ok: owned_path } = clone_string(alloc, path) else return .{ Err: ModelError.OutOfMemory };
+        let mut section = ArrayTableSection.{ path: owned_path };
+        if (!section.items..&.push(alloc, Table.{})) {
+            section.path..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        if (!self.array_tables..&.push(alloc, section)) {
+            section.items..&.as_mut_slice().[0]..&.deinit(alloc);
+            section.items..&.deinit(alloc);
+            section.path..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        let section_index = self.array_tables.len - 1;
+        if (!self.section_order..&.push(alloc, .{ ArrayTable: section_index })) {
+            let mut removed = match (self.array_tables..&.pop()) {
+                .{ Some: removed } => removed,
+                .None => return .{ Err: ModelError.InvalidDocument },
+            };
+            removed.path..&.deinit(alloc);
+            let items = removed.items..&.as_mut_slice();
+            for (let mut i = 0; i < #items; i += 1) {
+                items.[i]..&.deinit(alloc);
+            }
+            removed.items..&.deinit(alloc);
+            return .{ Err: ModelError.OutOfMemory };
+        }
+        let sections = self.array_tables..&.as_mut_slice();
+        let added = sections.[#sections - 1]..&;
+        let items = added.items..&.as_mut_slice();
+        return .{ Ok: items.[#items - 1]..& };
+    }
+
+    pub fn remove_table(alloc: *mut Allocator, path: []u8) bool {
+        let .{ Some: table_index } = self.find_table_index(path) else return false;
+        let _ = self.remove_table_section_ref(table_index);
+        let mut removed = match (self.tables..&.remove(table_index)) {
+            .{ Some: removed } => removed,
+            .None => return false,
+        };
+        removed.path..&.deinit(alloc);
+        removed.table..&.deinit(alloc);
+        return true;
+    }
+
+    pub fn remove_array_table(alloc: *mut Allocator, path: []u8) bool {
+        let .{ Some: section_index } = self.find_array_table_index(path) else return false;
+        let _ = self.remove_array_table_section_ref(section_index);
+        let mut removed = match (self.array_tables..&.remove(section_index)) {
+            .{ Some: removed } => removed,
+            .None => return false,
+        };
+        self.deinit_array_table_section(alloc, removed..&);
+        return true;
+    }
+
+    pub fn remove_array_table_item(alloc: *mut Allocator, path: []u8, index: usize) bool {
+        let .{ Some: section_index } = self.find_array_table_index(path) else return false;
+
+        {
+            let sections = self.array_tables..&.as_mut_slice();
+            let section = sections.[section_index]..&;
+            let mut removed = match (section.items..&.remove(index)) {
+                .{ Some: removed } => removed,
+                .None => return false,
+            };
+            removed..&.deinit(alloc);
+            if (section.items.len != 0) {
+                return true;
+            }
+        }
+
+        let _ = self.remove_array_table_section_ref(section_index);
+        let mut removed_section = match (self.array_tables..&.remove(section_index)) {
+            .{ Some: removed } => removed,
+            .None => return false,
+        };
+        self.deinit_array_table_section(alloc, removed_section..&);
+        return true;
+    }
+
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.root_table..&.deinit(alloc);
+
+        let tables = self.tables..&.as_mut_slice();
+        for (let mut i = 0; i < #tables; i += 1) {
+            tables.[i].path..&.deinit(alloc);
+            tables.[i].table..&.deinit(alloc);
+        }
+        self.tables..&.deinit(alloc);
+
+        let sections = self.array_tables..&.as_mut_slice();
+        for (let mut i = 0; i < #sections; i += 1) {
+            self.deinit_array_table_section(alloc, sections.[i]..&);
+        }
+        self.array_tables..&.deinit(alloc);
+        self.section_order..&.deinit(alloc);
+    }
+}

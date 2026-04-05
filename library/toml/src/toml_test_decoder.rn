@@ -1,0 +1,836 @@
+use std.Option;
+use std.coll.String;
+use std.fs;
+use std.mem.alloc.{Allocator, GPA, Page};
+use toml.{Array, OwnedDocument, ParseOwnedError, Table, Value, parse_owned};
+
+fn append_u64(out: *mut String, alloc: *mut Allocator, value: u64) bool {
+    if (value == 0) {
+        return out.push_str(alloc, "0");
+    }
+
+    let buf = [20]mut u8.{undef};
+    let mut i = 20;
+    let mut curr = value;
+
+    for (; curr > 0; ) {
+        i -= 1;
+        buf.[i] = (curr % 10) as u8 + b'0';
+        curr /= 10;
+    }
+
+    return out.push_str(alloc, buf.[i .. 20]);
+}
+
+fn append_i64(out: *mut String, alloc: *mut Allocator, value: i64) bool {
+    if (value < i64.{0}) {
+        if (!out.push_str(alloc, "-")) {
+            return false;
+        }
+        let unsigned_value = value as u64;
+        let magnitude = (~unsigned_value) + 1;
+        return append_u64(out, alloc, magnitude);
+    }
+
+    return append_u64(out, alloc, value as u64);
+}
+
+fn integer_string(alloc: *mut Allocator, value: i64) Option[String] {
+    let mut out = String.{};
+    if (!append_i64(out..&, alloc, value)) {
+        out..&.deinit(alloc);
+        return .{ None };
+    }
+    return .{ Some: out };
+}
+
+fn datetime_tag(text: []u8) []u8 {
+    if (#text == 10 and text.[4] == b'-' and text.[7] == b'-') {
+        return "date-local";
+    }
+
+    if (#text >= 8 and text.[2] == b':' and text.[5] == b':') {
+        return "time-local";
+    }
+
+    for (let mut i = 0; i < #text; i += 1) {
+        let byte = text.[i];
+        if (byte == b'Z' or byte == b'z' or byte == b'+' or byte == b'-') {
+            if (i > 10) {
+                return "datetime";
+            }
+        }
+    }
+
+    return "datetime-local";
+}
+
+fn hex_digit_value(byte: u8) Option[u32] {
+    if (byte >= b'0' and byte <= b'9') {
+        return .{ Some: (byte - b'0') as u32 };
+    }
+    if (byte >= b'a' and byte <= b'f') {
+        return .{ Some: (byte - b'a') as u32 + u32.{10} };
+    }
+    if (byte >= b'A' and byte <= b'F') {
+        return .{ Some: (byte - b'A') as u32 + u32.{10} };
+    }
+    return .{ None };
+}
+
+fn push_utf8_codepoint(out: *mut String, alloc: *mut Allocator, codepoint: u32) bool {
+    if (codepoint <= u32.{127}) {
+        return out.push_char(alloc, codepoint as u8);
+    }
+
+    if (codepoint <= u32.{2047}) {
+        return (
+            out.push_char(alloc, u8.{192} | ((codepoint >> 6) as u8)) and
+            out.push_char(alloc, u8.{128} | ((codepoint & u32.{63}) as u8))
+        );
+    }
+
+    if (codepoint <= u32.{65535}) {
+        return (
+            out.push_char(alloc, u8.{224} | ((codepoint >> 12) as u8)) and
+            out.push_char(alloc, u8.{128} | (((codepoint >> 6) & u32.{63}) as u8)) and
+            out.push_char(alloc, u8.{128} | ((codepoint & u32.{63}) as u8))
+        );
+    }
+
+    return (
+        out.push_char(alloc, u8.{240} | ((codepoint >> 18) as u8)) and
+        out.push_char(alloc, u8.{128} | (((codepoint >> 12) & u32.{63}) as u8)) and
+        out.push_char(alloc, u8.{128} | (((codepoint >> 6) & u32.{63}) as u8)) and
+        out.push_char(alloc, u8.{128} | ((codepoint & u32.{63}) as u8))
+    );
+}
+
+fn decode_basic_key_text(
+    alloc: *mut Allocator,
+    text: []u8
+) Option[String] {
+    let mut out = String.{};
+    let mut i = 0;
+
+    for (; i < #text; ) {
+        let byte = text.[i];
+        if (byte != b'\\') {
+            if (!out..&.push_char(alloc, byte)) {
+                out..&.deinit(alloc);
+                return .{ None };
+            }
+            i += 1;
+            continue;
+        }
+
+        i += 1;
+        if (i >= #text) {
+            out..&.deinit(alloc);
+            return .{ None };
+        }
+
+        let escape = text.[i];
+        match (escape) {
+            b'"' => {
+                if (!out..&.push_char(alloc, b'"')) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += 1;
+            },
+            b'\\' => {
+                if (!out..&.push_char(alloc, b'\\')) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += 1;
+            },
+            b'b' => {
+                if (!out..&.push_char(alloc, 8)) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += 1;
+            },
+            b't' => {
+                if (!out..&.push_char(alloc, b'\t')) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += 1;
+            },
+            b'n' => {
+                if (!out..&.push_char(alloc, b'\n')) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += 1;
+            },
+            b'f' => {
+                if (!out..&.push_char(alloc, 12)) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += 1;
+            },
+            b'r' => {
+                if (!out..&.push_char(alloc, b'\r')) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += 1;
+            },
+            b'u', b'U' => {
+                let digits = if (escape == b'u') 4 else 8;
+                if (i + digits >= #text) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                let mut scalar = u32.{0};
+                for (let mut j = 0; j < digits; j += 1) {
+                    let .{ Some: digit } = hex_digit_value(text.[i + 1 + j]) else {
+                        out..&.deinit(alloc);
+                        return .{ None };
+                    };
+                    scalar = (scalar << 4) | digit;
+                }
+                if (!push_utf8_codepoint(out..&, alloc, scalar)) {
+                    out..&.deinit(alloc);
+                    return .{ None };
+                }
+                i += digits + 1;
+            },
+            _ => {
+                out..&.deinit(alloc);
+                return .{ None };
+            },
+        }
+    }
+
+    return .{ Some: out };
+}
+
+type RawPathSegmentKind = enum {
+    Bare,
+    BasicQuoted,
+    LiteralQuoted,
+};
+
+type RawPathSegment = struct {
+    text: []u8,
+    kind: RawPathSegmentKind,
+    next: usize,
+};
+
+fn is_ascii_space(byte: u8) bool {
+    return (
+        byte == b' ' or
+        byte == b'\t' or
+        byte == b'\n' or
+        byte == b'\r' or
+        byte == 11 or
+        byte == 12
+    );
+}
+
+fn skip_ascii_space(text: []u8, start: usize) usize {
+    let mut i = start;
+    for (; i < #text; i += 1) {
+        if (!is_ascii_space(text.[i])) {
+            return i;
+        }
+    }
+    return i;
+}
+
+fn is_bare_key_char(byte: u8) bool {
+    return (
+        (byte >= b'a' and byte <= b'z') or
+        (byte >= b'A' and byte <= b'Z') or
+        (byte >= b'0' and byte <= b'9') or
+        byte == b'-' or
+        byte == b'_'
+    );
+}
+
+fn scan_basic_string_end(text: []u8, start: usize) Option[usize] {
+    if (start >= #text or text.[start] != b'"') {
+        return .{ None };
+    }
+
+    let mut escape = false;
+    for (let mut i = start + 1; i < #text; i += 1) {
+        if (escape) {
+            escape = false;
+            continue;
+        }
+        if (text.[i] == b'\\') {
+            escape = true;
+            continue;
+        }
+        if (text.[i] == b'"') {
+            return .{ Some: i + 1 };
+        }
+    }
+    return .{ None };
+}
+
+fn scan_literal_string_end(text: []u8, start: usize) Option[usize] {
+    if (start >= #text or text.[start] != b'\'') {
+        return .{ None };
+    }
+
+    for (let mut i = start + 1; i < #text; i += 1) {
+        if (text.[i] == b'\'') {
+            return .{ Some: i + 1 };
+        }
+    }
+    return .{ None };
+}
+
+fn next_raw_path_segment(text: []u8, start: usize) Option[RawPathSegment] {
+    let mut i = skip_ascii_space(text, start);
+    if (i == #text) {
+        return .{ None };
+    }
+
+    let byte = text.[i];
+    let segment_start = i;
+    if (byte == b'"') {
+        let .{ Some: end } = scan_basic_string_end(text, i) else return .{ None };
+        i = skip_ascii_space(text, end);
+        if (i < #text and text.[i] == b'.') {
+            i += 1;
+        }
+        return .{ Some: RawPathSegment.{
+            text: text.[segment_start + 1 .. end - 1],
+            kind: RawPathSegmentKind.BasicQuoted,
+            next: i,
+        } };
+    }
+
+    if (byte == b'\'') {
+        let .{ Some: end } = scan_literal_string_end(text, i) else return .{ None };
+        i = skip_ascii_space(text, end);
+        if (i < #text and text.[i] == b'.') {
+            i += 1;
+        }
+        return .{ Some: RawPathSegment.{
+            text: text.[segment_start + 1 .. end - 1],
+            kind: RawPathSegmentKind.LiteralQuoted,
+            next: i,
+        } };
+    }
+
+    for (; i < #text; i += 1) {
+        if (!is_bare_key_char(text.[i])) {
+            break;
+        }
+    }
+
+    if (i == segment_start) {
+        return .{ None };
+    }
+
+    let segment_end = i;
+    i = skip_ascii_space(text, i);
+    if (i < #text and text.[i] == b'.') {
+        i += 1;
+    }
+
+    return .{ Some: RawPathSegment.{
+        text: text.[segment_start .. segment_end],
+        kind: RawPathSegmentKind.Bare,
+        next: i,
+    } };
+}
+
+fn decode_raw_path_segment(
+    alloc: *mut Allocator,
+    segment: RawPathSegment
+) Option[String] {
+    match (segment.kind) {
+        .Bare, .LiteralQuoted => {
+            let mut out = String.{};
+            if (!out..&.clone_from(alloc, segment.text)) {
+                return .{ None };
+            }
+            return .{ Some: out };
+        },
+        .BasicQuoted => return decode_basic_key_text(alloc, segment.text),
+    }
+}
+
+fn ensure_decoded_path_inline_table(
+    alloc: *mut Allocator,
+    root: *mut Table,
+    raw_path: []u8
+) Option[*mut Table] {
+    let mut table = root;
+    let mut index = 0;
+
+    for (;;) {
+        let .{ Some: segment } = next_raw_path_segment(raw_path, index) else return .{ None };
+        let mut decoded = match (decode_raw_path_segment(alloc, segment)) {
+            .{ Some: decoded } => decoded,
+            .None => return .{ None },
+        };
+        defer decoded..&.deinit(alloc);
+
+        let result = table.ensure_inline_table(alloc, decoded.&.as_str());
+        table = match (result) {
+            .{ Ok: table } => table,
+            .{ Err: _ } => return .{ None },
+        };
+        index = segment.next;
+        if (next_raw_path_segment(raw_path, index).is_none()) {
+            return .{ Some: table };
+        }
+    }
+}
+
+fn ensure_decoded_path_array(
+    alloc: *mut Allocator,
+    root: *mut Table,
+    raw_path: []u8
+) Option[*mut Array] {
+    let mut table = root;
+    let mut index = 0;
+
+    for (;;) {
+        let .{ Some: segment } = next_raw_path_segment(raw_path, index) else return .{ None };
+        let mut decoded = match (decode_raw_path_segment(alloc, segment)) {
+            .{ Some: decoded } => decoded,
+            .None => return .{ None },
+        };
+        defer decoded..&.deinit(alloc);
+
+        index = segment.next;
+        if (next_raw_path_segment(raw_path, index).is_none()) {
+            return match (table.ensure_array(alloc, decoded.&.as_str())) {
+                .{ Ok: array } => .{ Some: array },
+                .{ Err: _ } => .{ None },
+            };
+        }
+
+        table = match (table.ensure_inline_table(alloc, decoded.&.as_str())) {
+            .{ Ok: table } => table,
+            .{ Err: _ } => return .{ None },
+        };
+    }
+}
+
+fn set_tagged_scalar(
+    alloc: *mut Allocator,
+    table: *mut Table,
+    key: []u8,
+    type_name: []u8,
+    value_text: []u8
+) bool {
+    let tagged = match (table.ensure_inline_table(alloc, key)) {
+        .{ Ok: tagged } => tagged,
+        .{ Err: _ } => return false,
+    };
+    let _ = match (tagged.set_string(alloc, "type", type_name)) {
+        .{ Ok: _ } => true,
+        .{ Err: _ } => false,
+    };
+    let _ = match (tagged.set_string(alloc, "value", value_text)) {
+        .{ Ok: _ } => true,
+        .{ Err: _ } => false,
+    };
+    return true;
+}
+
+fn push_tagged_scalar(
+    alloc: *mut Allocator,
+    array: *mut Array,
+    type_name: []u8,
+    value_text: []u8
+) bool {
+    let tagged = match (array.push_inline_table(alloc)) {
+        .{ Ok: tagged } => tagged,
+        .{ Err: _ } => return false,
+    };
+    let _ = match (tagged.set_string(alloc, "type", type_name)) {
+        .{ Ok: _ } => true,
+        .{ Err: _ } => false,
+    };
+    let _ = match (tagged.set_string(alloc, "value", value_text)) {
+        .{ Ok: _ } => true,
+        .{ Err: _ } => false,
+    };
+    return true;
+}
+
+fn copy_toml_value_into_json_table(
+    alloc: *mut Allocator,
+    dest: *mut Table,
+    key: []u8,
+    value: *Value
+) bool {
+    match (value.*) {
+        .{ Bool: item } => return set_tagged_scalar(
+            alloc,
+            dest,
+            key,
+            "bool",
+            if (item) "true" else "false"
+        ),
+        .{ Integer: item } => {
+            let mut text = match (integer_string(alloc, item)) {
+                .{ Some: text } => text,
+                .None => return false,
+            };
+            defer text..&.deinit(alloc);
+            return set_tagged_scalar(alloc, dest, key, "integer", text.&.as_str());
+        },
+        .{ String: item } => return set_tagged_scalar(alloc, dest, key, "string", item.&.as_str()),
+        .{ FloatText: item } => return set_tagged_scalar(alloc, dest, key, "float", item.&.as_str()),
+        .{ DateTimeText: item } => {
+            let text = item.&.as_str();
+            return set_tagged_scalar(alloc, dest, key, datetime_tag(text), text);
+        },
+        .{ Array: item } => {
+            let target = match (dest.ensure_array(alloc, key)) {
+                .{ Ok: target } => target,
+                .{ Err: _ } => return false,
+            };
+            return copy_toml_array_into_json(alloc, item, target);
+        },
+        .{ InlineTable: item } => {
+            let target = match (dest.ensure_inline_table(alloc, key)) {
+                .{ Ok: target } => target,
+                .{ Err: _ } => return false,
+            };
+            return copy_toml_table_into_json(alloc, item, target);
+        },
+    }
+}
+
+fn copy_toml_value_into_json_array(
+    alloc: *mut Allocator,
+    dest: *mut Array,
+    value: *Value
+) bool {
+    match (value.*) {
+        .{ Bool: item } => return push_tagged_scalar(
+            alloc,
+            dest,
+            "bool",
+            if (item) "true" else "false"
+        ),
+        .{ Integer: item } => {
+            let mut text = match (integer_string(alloc, item)) {
+                .{ Some: text } => text,
+                .None => return false,
+            };
+            defer text..&.deinit(alloc);
+            return push_tagged_scalar(alloc, dest, "integer", text.&.as_str());
+        },
+        .{ String: item } => return push_tagged_scalar(alloc, dest, "string", item.&.as_str()),
+        .{ FloatText: item } => return push_tagged_scalar(alloc, dest, "float", item.&.as_str()),
+        .{ DateTimeText: item } => {
+            let text = item.&.as_str();
+            return push_tagged_scalar(alloc, dest, datetime_tag(text), text);
+        },
+        .{ Array: item } => {
+            let target = match (dest.push_array(alloc)) {
+                .{ Ok: target } => target,
+                .{ Err: _ } => return false,
+            };
+            return copy_toml_array_into_json(alloc, item, target);
+        },
+        .{ InlineTable: item } => {
+            let target = match (dest.push_inline_table(alloc)) {
+                .{ Ok: target } => target,
+                .{ Err: _ } => return false,
+            };
+            return copy_toml_table_into_json(alloc, item, target);
+        },
+    }
+}
+
+fn copy_toml_table_into_json(alloc: *mut Allocator, source: *Table, dest: *mut Table) bool {
+    for (let mut i = 0; i < source.len(); i += 1) {
+        let key = match (source.key_at(i)) {
+            .{ Some: key } => key,
+            .None => return false,
+        };
+        let value = match (source.value_at(i)) {
+            .{ Some: value } => value,
+            .None => return false,
+        };
+        if (!copy_toml_value_into_json_table(alloc, dest, key, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn copy_toml_array_into_json(alloc: *mut Allocator, source: *Array, dest: *mut Array) bool {
+    for (let mut i = 0; i < source.len(); i += 1) {
+        let value = match (source.get(i)) {
+            .{ Some: value } => value,
+            .None => return false,
+        };
+        if (!copy_toml_value_into_json_array(alloc, dest, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+fn build_json_tree(alloc: *mut Allocator, doc: *OwnedDocument) Option[Table] {
+    let mut root = Table.{};
+
+    if (!copy_toml_table_into_json(alloc, doc.root(), root..&)) {
+        root..&.deinit(alloc);
+        return .{ None };
+    }
+
+    for (let mut i = 0; i < doc.section_count(); i += 1) {
+        let path = match (doc.section_path(i)) {
+            .{ Some: path } => path,
+            .None => {
+                root..&.deinit(alloc);
+                return .{ None };
+            },
+        };
+        let kind = match (doc.section_kind(i)) {
+            .{ Some: kind } => kind,
+            .None => {
+                root..&.deinit(alloc);
+                return .{ None };
+            },
+        };
+
+        match (kind) {
+            .Table => {
+                let source = match (doc.section_table(i)) {
+                    .{ Some: source } => source,
+                    .None => {
+                        root..&.deinit(alloc);
+                        return .{ None };
+                    },
+                };
+                let .{ Some: target } = ensure_decoded_path_inline_table(alloc, root..&, path) else {
+                    root..&.deinit(alloc);
+                    return .{ None };
+                };
+                if (!copy_toml_table_into_json(alloc, source, target)) {
+                    root..&.deinit(alloc);
+                    return .{ None };
+                }
+            },
+            .ArrayTable => {
+                let .{ Some: target } = ensure_decoded_path_array(alloc, root..&, path) else {
+                    root..&.deinit(alloc);
+                    return .{ None };
+                };
+
+                let count = match (doc.section_array_len(i)) {
+                    .{ Some: count } => count,
+                    .None => {
+                        root..&.deinit(alloc);
+                        return .{ None };
+                    },
+                };
+                for (let mut j = 0; j < count; j += 1) {
+                    let source = match (doc.section_array_item(i, j)) {
+                        .{ Some: source } => source,
+                        .None => {
+                            root..&.deinit(alloc);
+                            return .{ None };
+                        },
+                    };
+                    let item = match (target.push_inline_table(alloc)) {
+                        .{ Ok: item } => item,
+                        .{ Err: _ } => {
+                            root..&.deinit(alloc);
+                            return .{ None };
+                        },
+                    };
+                    if (!copy_toml_table_into_json(alloc, source, item)) {
+                        root..&.deinit(alloc);
+                        return .{ None };
+                    }
+                }
+            },
+        }
+    }
+
+    return .{ Some: root };
+}
+
+fn append_json_escaped(out: *mut String, alloc: *mut Allocator, text: []u8) bool {
+    if (!out.push_str(alloc, "\"")) {
+        return false;
+    }
+
+    for (let mut i = 0; i < #text; i += 1) {
+        let byte = text.[i];
+        match (byte) {
+            b'"' => if (!out.push_str(alloc, "\\\"")) return false,
+            b'\\' => if (!out.push_str(alloc, "\\\\")) return false,
+            8 => if (!out.push_str(alloc, "\\b")) return false,
+            b'\t' => if (!out.push_str(alloc, "\\t")) return false,
+            b'\n' => if (!out.push_str(alloc, "\\n")) return false,
+            12 => if (!out.push_str(alloc, "\\f")) return false,
+            b'\r' => if (!out.push_str(alloc, "\\r")) return false,
+            _ => {
+                if (byte < 32) {
+                    if (
+                        !out.push_str(alloc, "\\u00") or
+                        !out.push_char(
+                            alloc,
+                            if ((byte >> 4) < 10) b'0' + (byte >> 4) else b'a' + ((byte >> 4) - 10)
+                        ) or
+                        !out.push_char(
+                            alloc,
+                            if ((byte & 15) < 10) b'0' + (byte & 15) else b'a' + ((byte & 15) - 10)
+                        )
+                    ) {
+                        return false;
+                    }
+                    continue;
+                }
+                if (!out.push_char(alloc, byte)) {
+                    return false;
+                }
+            },
+        }
+    }
+
+    return out.push_str(alloc, "\"");
+}
+
+fn append_json_object(out: *mut String, alloc: *mut Allocator, table: *Table) bool {
+    if (!out.push_str(alloc, "{")) {
+        return false;
+    }
+
+    for (let mut i = 0; i < table.len(); i += 1) {
+        if (i != 0 and !out.push_str(alloc, ",")) {
+            return false;
+        }
+        let key = match (table.key_at(i)) {
+            .{ Some: key } => key,
+            .None => return false,
+        };
+        if (!append_json_escaped(out, alloc, key)) {
+            return false;
+        }
+        if (!out.push_str(alloc, ":")) {
+            return false;
+        }
+        let value = match (table.value_at(i)) {
+            .{ Some: value } => value,
+            .None => return false,
+        };
+        if (!append_json_value(out, alloc, value)) {
+            return false;
+        }
+    }
+
+    return out.push_str(alloc, "}");
+}
+
+fn append_json_array(out: *mut String, alloc: *mut Allocator, array: *Array) bool {
+    if (!out.push_str(alloc, "[")) {
+        return false;
+    }
+
+    for (let mut i = 0; i < array.len(); i += 1) {
+        if (i != 0 and !out.push_str(alloc, ",")) {
+            return false;
+        }
+        let value = match (array.get(i)) {
+            .{ Some: value } => value,
+            .None => return false,
+        };
+        if (!append_json_value(out, alloc, value)) {
+            return false;
+        }
+    }
+
+    return out.push_str(alloc, "]");
+}
+
+fn append_json_value(out: *mut String, alloc: *mut Allocator, value: *Value) bool {
+    match (value.*) {
+        .{ String: text } => return append_json_escaped(out, alloc, text.&.as_str()),
+        .{ Array: array } => return append_json_array(out, alloc, array),
+        .{ InlineTable: table } => return append_json_object(out, alloc, table),
+        _ => return false,
+    }
+}
+
+fn emit_json_stdout(alloc: *mut Allocator, root: *Table) bool {
+    let mut out = String.{};
+    defer out..&.deinit(alloc);
+
+    if (!append_json_object(out..&, alloc, root)) {
+        return false;
+    }
+    if (!out..&.push_str(alloc, "\n")) {
+        return false;
+    }
+
+    let mut stdout = fs.stdout();
+    return match (stdout..&.write_all(out.&.as_str())) {
+        .{ Ok: _ } => true,
+        .{ Err: _ } => false,
+    };
+}
+
+fn print_parse_error(err: ParseOwnedError) void {
+    let mut stderr = fs.stderr();
+    match (err) {
+        .{ Parse: parse } => {
+            let _ = stderr..&.write_all("parse error: ");
+            let _ = stderr..&.write_all(parse.message);
+            let _ = stderr..&.write_all("\n");
+        },
+        .{ Model: _ } => {
+            let _ = stderr..&.write_all("model error\n");
+        },
+    }
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut stdin = fs.stdin();
+    let mut input = match (stdin..&.read_to_string(alloc)) {
+        .{ Ok: input } => input,
+        .{ Err: _ } => return 1,
+    };
+    defer input..&.deinit(alloc);
+
+    let mut doc = match (parse_owned(alloc, input.&.as_str())) {
+        .{ Ok: doc } => doc,
+        .{ Err: err } => {
+            print_parse_error(err);
+            return 1;
+        },
+    };
+    defer doc..&.deinit(alloc);
+
+    let mut root = match (build_json_tree(alloc, doc..&)) {
+        .{ Some: root } => root,
+        .None => return 1,
+    };
+    defer root..&.deinit(alloc);
+
+    if (!emit_json_stdout(alloc, root..&)) {
+        return 1;
+    }
+    return 0;
+}

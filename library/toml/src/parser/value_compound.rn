@@ -1,0 +1,452 @@
+use std.Result;
+
+use ..Error;
+use ..common.{
+    Validation,
+    fail_validation,
+    valid,
+    is_multiline_basic_string,
+    is_multiline_literal_string,
+    scan_value_string_end,
+    strip_inline_comment,
+    trim_array_element,
+    find_assignment,
+};
+use ..path.{conflicting_key_path_message, validate_key_path};
+use ..value_number.{is_datetime_value, is_float_value, is_integer_value};
+use ..value_string.{
+    validate_basic_string,
+    validate_literal_string,
+    validate_multiline_basic_string,
+    validate_multiline_literal_string,
+};
+
+fn fail_array(message: []u8, line: usize, column: usize) Result[Validation, Error] {
+    return fail_validation(message, line, column);
+}
+
+fn fail_inline_table(message: []u8, line: usize, column: usize) Result[Validation, Error] {
+    return fail_validation(message, line, column);
+}
+
+fn validate_array(value: []u8, line: usize, column_base: usize) Result[Validation, Error] {
+    if (#value < 2 or value.[#value - 1] != b']') {
+        return fail_array("unterminated array literal", line, column_base + #value - 1);
+    }
+
+    let inner = value.[1 .. #value - 1];
+    let trimmed_inner = inner.trim_ascii();
+    if (#trimmed_inner == 0) {
+        return valid();
+    }
+
+    let mut in_comment = false;
+    let mut nested_array_depth = 0;
+    let mut nested_inline_table_depth = 0;
+    let mut element_start = 0;
+
+    for (let mut i = 0; i <= #inner; i += 1) {
+        let at_end = i == #inner;
+        if (!at_end) {
+            let byte = inner.[i];
+            if (in_comment) {
+                if (byte == b'\n') {
+                    in_comment = false;
+                }
+                continue;
+            }
+
+            if (byte == b'"' or byte == b'\'') {
+                let .{ Some: end } = scan_value_string_end(inner, i) else {
+                    return fail_array("unterminated string inside array literal", line, column_base + i + 1);
+                };
+                i = end - 1;
+                continue;
+            }
+
+            if (byte == b'#' and nested_inline_table_depth == 0) {
+                in_comment = true;
+                continue;
+            }
+
+            if (byte == b'[') {
+                nested_array_depth += 1;
+                continue;
+            }
+
+            if (byte == b']') {
+                if (nested_array_depth == 0) {
+                    return fail_array("unexpected `]` inside array literal", line, column_base + i + 1);
+                }
+                nested_array_depth -= 1;
+                continue;
+            }
+
+            if (byte == b'{') {
+                nested_inline_table_depth += 1;
+                continue;
+            }
+
+            if (byte == b'}') {
+                if (nested_inline_table_depth == 0) {
+                    return fail_array(
+                        "unexpected `}` inside array literal",
+                        line,
+                        column_base + i + 1
+                    );
+                }
+                nested_inline_table_depth -= 1;
+                continue;
+            }
+
+            if (
+                byte != b',' or
+                nested_array_depth != 0 or
+                nested_inline_table_depth != 0
+            ) {
+                continue;
+            }
+        }
+
+        if (!at_end and (nested_array_depth != 0 or nested_inline_table_depth != 0)) {
+            continue;
+        }
+
+        let element = trim_array_element(inner.[element_start .. i]);
+        if (#element == 0) {
+            if (at_end) {
+                return valid();
+            }
+            return fail_array("array elements cannot be empty", line, column_base + element_start + 1);
+        }
+
+        let element_result = validate_value(element, line, column_base + element_start + 1);
+        if (element_result.is_err()) {
+            return element_result;
+        }
+
+        if (at_end) {
+            break;
+        }
+
+        element_start = i + 1;
+    }
+
+    if (nested_array_depth != 0) {
+        return fail_array("unterminated nested array literal", line, column_base + #value - 1);
+    }
+
+    if (nested_inline_table_depth != 0) {
+        return fail_array("unterminated inline table inside array literal", line, column_base + #value - 1);
+    }
+
+    if (in_comment) {
+        return fail_array("unterminated array literal", line, column_base + #value - 1);
+    }
+
+    return valid();
+}
+
+fn validate_inline_table_entry(entry: []u8, line: usize, column_base: usize) Result[Validation, Error] {
+    let .{ Some: eq_index } = find_assignment(entry) else {
+        return fail_inline_table(
+            "inline table entries must use `key = value`",
+            line,
+            column_base
+        );
+    };
+
+    let key = entry.[0 .. eq_index].trim_ascii_end();
+    let value = entry.[eq_index + 1 .. #entry];
+
+    let key_result = validate_key_path(key, line, column_base);
+    if (key_result.is_err()) {
+        return key_result;
+    }
+
+    return validate_value(value, line, column_base + eq_index + 2);
+}
+
+fn validate_inline_table_entry_history(
+    inner: []u8,
+    current_entry_start: usize,
+    current_key: []u8,
+    line: usize,
+    column_base: usize
+) Result[Validation, Error] {
+    let mut nested_array_depth = 0;
+    let mut nested_inline_table_depth = 0;
+    let mut entry_start = 0;
+
+    for (let mut i = 0; i <= current_entry_start; i += 1) {
+        let at_end = i == current_entry_start;
+        if (!at_end) {
+            let byte = inner.[i];
+
+            if (byte == b'"' or byte == b'\'') {
+                let .{ Some: end } = scan_value_string_end(inner, i) else return valid();
+                i = end - 1;
+                continue;
+            }
+
+            if (byte == b'[') {
+                nested_array_depth += 1;
+                continue;
+            }
+
+            if (byte == b']') {
+                if (nested_array_depth != 0) {
+                    nested_array_depth -= 1;
+                }
+                continue;
+            }
+
+            if (byte == b'{') {
+                nested_inline_table_depth += 1;
+                continue;
+            }
+
+            if (byte == b'}') {
+                if (nested_inline_table_depth != 0) {
+                    nested_inline_table_depth -= 1;
+                }
+                continue;
+            }
+
+            if (
+                byte != b',' or
+                nested_array_depth != 0 or
+                nested_inline_table_depth != 0
+            ) {
+                continue;
+            }
+        }
+
+        if (!at_end and (nested_array_depth != 0 or nested_inline_table_depth != 0)) {
+            continue;
+        }
+
+        let entry = inner.[entry_start .. i].trim_ascii();
+        if (#entry != 0) {
+            let .{ Some: eq_index } = find_assignment(entry) else return valid();
+            let previous_key = entry.[0 .. eq_index].trim_ascii_end();
+            let conflict = conflicting_key_path_message(current_key, previous_key);
+            match (conflict) {
+                .{ Some: message } => {
+                    return fail_inline_table(message, line, column_base + current_entry_start + 1);
+                },
+                .None => {},
+            }
+        }
+
+        if (at_end) {
+            return valid();
+        }
+
+        entry_start = i + 1;
+    }
+
+    return valid();
+}
+
+fn validate_inline_table(value: []u8, line: usize, column_base: usize) Result[Validation, Error] {
+    if (#value < 2 or value.[#value - 1] != b'}') {
+        return fail_inline_table("unterminated inline table", line, column_base + #value - 1);
+    }
+
+    let inner = value.[1 .. #value - 1];
+    let trimmed_inner = inner.trim_ascii();
+    if (#trimmed_inner == 0) {
+        return valid();
+    }
+
+    let mut nested_array_depth = 0;
+    let mut nested_inline_table_depth = 0;
+    let mut entry_start = 0;
+
+    for (let mut i = 0; i <= #inner; i += 1) {
+        let at_end = i == #inner;
+        if (!at_end) {
+            let byte = inner.[i];
+            if (
+                (byte == b'\n' or byte == b'\r') and
+                nested_array_depth == 0 and
+                nested_inline_table_depth == 0
+            ) {
+                return fail_inline_table("inline tables cannot contain top-level newlines", line, column_base + i + 1);
+            }
+
+            if (byte == b'"' or byte == b'\'') {
+                let .{ Some: end } = scan_value_string_end(inner, i) else {
+                    return fail_inline_table(
+                        "unterminated string inside inline table",
+                        line,
+                        column_base + i + 1
+                    );
+                };
+                i = end - 1;
+                continue;
+            }
+
+            if (byte == b'#' and nested_array_depth == 0 and nested_inline_table_depth == 0) {
+                return fail_inline_table("inline tables cannot contain comments", line, column_base + i + 1);
+            }
+
+            if (byte == b'[') {
+                nested_array_depth += 1;
+                continue;
+            }
+
+            if (byte == b']') {
+                if (nested_array_depth == 0) {
+                    return fail_inline_table(
+                        "unexpected `]` inside inline table",
+                        line,
+                        column_base + i + 1
+                    );
+                }
+                nested_array_depth -= 1;
+                continue;
+            }
+
+            if (byte == b'{') {
+                nested_inline_table_depth += 1;
+                continue;
+            }
+
+            if (byte == b'}') {
+                if (nested_inline_table_depth == 0) {
+                    return fail_inline_table(
+                        "unexpected `}` inside inline table",
+                        line,
+                        column_base + i + 1
+                    );
+                }
+                nested_inline_table_depth -= 1;
+                continue;
+            }
+
+            if (
+                byte != b',' or
+                nested_array_depth != 0 or
+                nested_inline_table_depth != 0
+            ) {
+                continue;
+            }
+        }
+
+        if (!at_end and (nested_array_depth != 0 or nested_inline_table_depth != 0)) {
+            continue;
+        }
+
+        let entry = inner.[entry_start .. i].trim_ascii();
+        if (#entry == 0) {
+            return fail_inline_table(
+                "inline table entries cannot be empty",
+                line,
+                column_base + entry_start + 1
+            );
+        }
+
+        let entry_result = validate_inline_table_entry(entry, line, column_base + entry_start + 1);
+        if (entry_result.is_err()) {
+            return entry_result;
+        }
+
+        let .{ Some: eq_index } = find_assignment(entry) else {
+            return fail_inline_table(
+                "inline table entries must use `key = value`",
+                line,
+                column_base + entry_start + 1
+            );
+        };
+        let key = entry.[0 .. eq_index].trim_ascii_end();
+        let history_result = validate_inline_table_entry_history(
+            inner,
+            entry_start,
+            key,
+            line,
+            column_base
+        );
+        if (history_result.is_err()) {
+            return history_result;
+        }
+
+        if (at_end) {
+            break;
+        }
+
+        entry_start = i + 1;
+    }
+
+    if (nested_array_depth != 0) {
+        return fail_inline_table(
+            "unterminated array inside inline table",
+            line,
+            column_base + #value - 1
+        );
+    }
+
+    if (nested_inline_table_depth != 0) {
+        return fail_inline_table(
+            "unterminated nested inline table",
+            line,
+            column_base + #value - 1
+        );
+    }
+
+    return valid();
+}
+
+pub fn validate_value(text: []u8, line: usize, column_base: usize) Result[Validation, Error] {
+    let value = strip_inline_comment(text).trim_ascii();
+    if (#value == 0) {
+        return fail_validation("expected a value after `=`", line, column_base);
+    }
+
+    if (value.[0] == b'[') {
+        return validate_array(value, line, column_base);
+    }
+
+    if (value.[0] == b'{') {
+        return validate_inline_table(value, line, column_base);
+    }
+
+    if (is_multiline_basic_string(value, 0)) {
+        return validate_multiline_basic_string(value, line, column_base);
+    }
+
+    if (is_multiline_literal_string(value, 0)) {
+        return validate_multiline_literal_string(value, line, column_base);
+    }
+
+    if (value.[0] == b'"') {
+        return validate_basic_string(value, line, column_base);
+    }
+
+    if (value.[0] == b'\'') {
+        return validate_literal_string(value, line, column_base);
+    }
+
+    if (value.eq("true") or value.eq("false")) {
+        return valid();
+    }
+
+    if (is_integer_value(value)) {
+        return valid();
+    }
+
+    if (is_float_value(value)) {
+        return valid();
+    }
+
+    if (is_datetime_value(value)) {
+        return valid();
+    }
+
+    return fail_validation(
+        "only integers, floats, booleans, strings, arrays, inline tables, and date/time literals are supported currently",
+        line,
+        column_base
+    );
+}

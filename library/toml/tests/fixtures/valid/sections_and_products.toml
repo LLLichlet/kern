@@ -1,0 +1,12 @@
+[package]
+name = "toml"
+version = 0.1
+features = ["parse", "render"]
+
+[[products]]
+name = "hammer"
+price = 9
+
+[[products]]
+name = "nail"
+available = true

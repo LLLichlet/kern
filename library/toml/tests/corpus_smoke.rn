@@ -1,0 +1,107 @@
+use std.test;
+use std.fs;
+use std.coll.String;
+use std.mem.alloc.{Allocator, GPA, Page};
+use toml.{parse, parse_owned, render_document, scan};
+
+fn join_path(alloc: *mut Allocator, base: []u8, child: []u8) String {
+    return test.expect_ok(fs.join(alloc, base, child));
+}
+
+fn load_fixture(alloc: *mut Allocator, category: []u8, name: []u8) String {
+    let bases = [2][]u8.{
+        "tests/fixtures",
+        "library/toml/tests/fixtures",
+    };
+
+    for (let mut i = 0; i < #bases; i += 1) {
+        let mut category_path = join_path(alloc, bases.[i], category);
+        defer category_path..&.deinit(alloc);
+
+        let mut full_path = join_path(alloc, category_path.&.as_str(), name);
+        defer full_path..&.deinit(alloc);
+
+        let exists = match (fs.exists(alloc, full_path.&.as_str())) {
+            .{ Ok: exists } => exists,
+            .{ Err: _ } => {
+                test.fail("fixture exists() failed", .{});
+            },
+        };
+        if (!exists) {
+            continue;
+        }
+
+        return test.expect_ok(fs.read_to_string(alloc, full_path.&.as_str()));
+    }
+
+    test.fail("fixture not found: {}/{}", .{ category, name, });
+}
+
+fn check_valid_fixture(name: []u8) void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut source = load_fixture(alloc, "valid", name);
+    defer source..&.deinit(alloc);
+
+    let _ = test.expect_ok(scan(source.&.as_str()));
+
+    let mut managed = test.expect_ok(parse(source.&.as_str()));
+    defer managed..&.deinit();
+
+    let rendered = test.expect_ok(managed.&.render());
+
+    let _ = test.expect_ok(scan(rendered));
+    let mut reparsed = test.expect_ok(parse(rendered));
+    defer reparsed..&.deinit();
+
+    let mut doc = test.expect_ok(parse_owned(alloc, source.&.as_str()));
+    defer doc..&.deinit(alloc);
+
+    let mut rendered_raw = test.expect_ok(render_document(alloc, doc..&));
+    defer rendered_raw..&.deinit(alloc);
+    let mut reparsed_raw = test.expect_ok(parse_owned(alloc, rendered_raw.&.as_str()));
+    defer reparsed_raw..&.deinit(alloc);
+}
+
+fn check_invalid_fixture(name: []u8) void {
+    let mut page = Page.{}..&;
+    let mut gpa = GPA.{ backing: page }..&;
+    defer gpa.deinit();
+    let alloc = gpa;
+
+    let mut source = load_fixture(alloc, "invalid", name);
+    defer source..&.deinit(alloc);
+
+    let _ = test.expect_err(scan(source.&.as_str()));
+    let _ = test.expect_err(parse(source.&.as_str()));
+    let _ = test.expect_err(parse_owned(alloc, source.&.as_str()));
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+
+    let valid = [4][]u8.{
+        "basic_document.toml",
+        "numeric_datetime.toml",
+        "strings_arrays.toml",
+        "sections_and_products.toml",
+    };
+    for (let mut i = 0; i < #valid; i += 1) {
+        check_valid_fixture(valid.[i]);
+    }
+
+    let invalid = [4][]u8.{
+        "duplicate_key.toml",
+        "bad_escape.toml",
+        "leading_zero.toml",
+        "bad_time.toml",
+    };
+    for (let mut i = 0; i < #invalid; i += 1) {
+        check_invalid_fixture(invalid.[i]);
+    }
+
+    return 0;
+}

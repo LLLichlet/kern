@@ -1,5 +1,6 @@
 use crate::build_plan::{ActionPlan, BuildPlan};
 use crate::error::{Error, Result};
+use crate::local_state;
 use kernc_driver::{KernDocSectionKind, KmetaDocItem, load_kmeta_docs, load_kmeta_manifest};
 use std::collections::BTreeSet;
 use std::fs;
@@ -18,7 +19,7 @@ pub fn sync_workspace_docs(
     action_plan: &ActionPlan,
 ) -> Result<Vec<RenderedDoc>> {
     let docs_root = docs_output_root(&build_plan.workspace_root);
-    fs::create_dir_all(&docs_root).map_err(|err| Error::from_io(&docs_root, err))?;
+    local_state::ensure_dir(&docs_root)?;
 
     let mut outputs = Vec::new();
     let mut seen = BTreeSet::new();

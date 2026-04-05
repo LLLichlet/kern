@@ -12,6 +12,7 @@ pub mod workspace;
 mod build_plan;
 mod elaborate;
 mod execute;
+mod local_state;
 mod lockfile;
 mod operation_lock;
 mod resolver;

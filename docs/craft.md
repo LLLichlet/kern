@@ -30,6 +30,15 @@ The goal is not to imitate Cargo or Zig mechanically. The goal is to preserve Ke
 - executing the derived build graph
 - managing local package/source caches
 
+All machine-local state owned by `craft` lives under `.craft/`. That tree is
+derived state, not part of the reproducibility surface, and should not be
+checked into version control.
+
+`craft` maintains `.craft/.gitignore` automatically for new local state. If a
+repository already tracked files under `.craft/`, that is a one-time VCS
+cleanup problem rather than a build reproducibility input, and those entries
+should be removed from the index.
+
 `craft` is not responsible for:
 
 - replacing the Kern language module system
@@ -552,8 +561,13 @@ Current behavior:
   - source backends may be local directories or git-backed registry trees
   - git-backed sources still use the same decentralized `<package>/<version>` tree layout
 - `build` executes the selected build plan
-- `run` builds and runs the selected runnable binary
-- `test` builds and runs test targets
+- `run` builds and runs the selected runnable binary from its owning package root
+- `test` builds and runs test targets from their owning package roots
+
+When `craft` launches a runtime target for `run` or `test`, it also injects:
+
+- `CRAFT_WORKSPACE_ROOT`
+- `CRAFT_PACKAGE_ROOT`
 
 `check` also reports:
 

@@ -7,6 +7,8 @@ It is part of the reproducibility surface of a project.
 
 `.craft/analysis.toml` exists to snapshot the most recent resolved analysis
 context for editor tooling. It is a derived local artifact under `.craft/`.
+The entire `.craft/` tree is machine-local state and should stay out of version
+control.
 
 ## Responsibilities
 
@@ -30,6 +32,9 @@ analysis state.
 
 `.craft/analysis.toml` must not become a lockfile. It is allowed to be replaced,
 regenerated, or discarded at any time.
+
+`craft` should maintain `.craft/.gitignore` automatically so that derived
+artifacts under `.craft/` do not get committed by accident.
 
 ## Priority Rules
 

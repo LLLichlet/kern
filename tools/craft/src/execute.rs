@@ -244,8 +244,7 @@ pub fn run(
     build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Run)?;
     let action = find_link_action(action_plan, unit)?;
     let executable_path = resolve_invocation_path(&action.artifact_path)?;
-    let status = Command::new(&executable_path)
-        .current_dir(&build_plan.workspace_root)
+    let status = runtime_command(&executable_path, action, &build_plan.workspace_root)
         .status()
         .map_err(Error::from_io_plain)?;
     if !status.success() {
@@ -272,8 +271,7 @@ pub fn test(
     for unit in units {
         let action = find_link_action(action_plan, unit)?;
         let executable_path = resolve_invocation_path(&action.artifact_path)?;
-        let status = Command::new(&executable_path)
-            .current_dir(&build_plan.workspace_root)
+        let status = runtime_command(&executable_path, action, &build_plan.workspace_root)
             .status()
             .map_err(Error::from_io_plain)?;
         if !status.success() {
@@ -287,6 +285,14 @@ pub fn test(
     }
 
     Ok(TestSummary { executed })
+}
+
+fn runtime_command(executable_path: &Path, action: &LinkAction, workspace_root: &Path) -> Command {
+    let mut command = Command::new(executable_path);
+    command.current_dir(&action.package_root_path);
+    command.env("CRAFT_WORKSPACE_ROOT", workspace_root);
+    command.env("CRAFT_PACKAGE_ROOT", &action.package_root_path);
+    command
 }
 
 fn find_link_action<'a>(action_plan: &'a ActionPlan, unit: &BuildUnit) -> Result<&'a LinkAction> {
@@ -341,10 +347,7 @@ fn plan_value_string(value: &crate::plan::PlanValue) -> String {
 }
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
-    }
-    Ok(())
+    crate::local_state::ensure_parent_dir(path)
 }
 
 fn resolve_invocation_path(path: &Path) -> Result<PathBuf> {
@@ -639,9 +642,7 @@ fn execute_staged_action(
         return Ok(());
     }
 
-    if let Some(parent) = output_path.parent() {
-        fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
-    }
+    ensure_parent_dir(&output_path)?;
 
     match &action.kind {
         StagedActionKind::WriteFile { contents } => {
@@ -1604,7 +1605,7 @@ fn build_std_package(
         root_module_name: Some("std".to_string()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        use_std: false,
+        use_std: true,
         link_profile: LinkProfile::Hosted,
         ..CompileOptions::default()
     };
@@ -2062,6 +2063,9 @@ extern fn main(args: [][]u8) i32 {
 
         let summary = test(&build_plan, &action_plan, &test_units).unwrap();
         assert_eq!(summary.executed, 1);
+        let gitignore = fs::read_to_string(root.join(".craft").join(".gitignore")).unwrap();
+        assert!(gitignore.contains("*"));
+        assert!(gitignore.contains("!.gitignore"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -2128,6 +2132,187 @@ extern fn main(args: [][]u8) i32 {
             build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
         let action_plan = build_plan.derive_actions(&crate::script::host_target());
         let test_units = build_plan.packages[0]
+            .units
+            .iter()
+            .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)
+            .collect::<Vec<_>>();
+
+        let summary = test(&build_plan, &action_plan, &test_units).unwrap();
+        assert_eq!(summary.executed, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn workspace_member_tests_run_from_member_package_root() {
+        let root = temp_dir("craft-exec-test-member-cwd");
+        let app_dir = root.join("app");
+        fs::create_dir_all(app_dir.join("tests")).unwrap();
+        fs::create_dir_all(app_dir.join("fixtures")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[test]]
+name = "cwd"
+root = "tests/cwd.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(app_dir.join("fixtures/ok.txt"), "ok\n").unwrap();
+        fs::write(
+            app_dir.join("tests/cwd.rn"),
+            r#"
+use std.fs;
+use std.mem.alloc.{Allocator, GPA, Page};
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    let mut page = Page.{};
+    let mut gpa = GPA.{ backing: *mut Allocator.{ page..& } };
+    defer gpa..&.deinit();
+    let alloc = *mut Allocator.{ gpa..& };
+
+    let found = match (fs.exists(alloc, "fixtures/ok.txt")) {
+        .{ Ok: value } => value,
+        .{ Err: _ } => false,
+    };
+    if (found) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Test,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+        let test_units = build_plan
+            .packages
+            .iter()
+            .find(|package| package.package_id.name == "app")
+            .unwrap()
+            .units
+            .iter()
+            .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)
+            .collect::<Vec<_>>();
+
+        let summary = test(&build_plan, &action_plan, &test_units).unwrap();
+        assert_eq!(summary.executed, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn workspace_member_tests_receive_package_and_workspace_root_env() {
+        let root = temp_dir("craft-exec-test-member-env");
+        let app_dir = root.join("app");
+        fs::create_dir_all(app_dir.join("tests")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[test]]
+name = "env"
+root = "tests/env.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("tests/env.rn"),
+            r#"
+use std.env;
+use std.mem.alloc.{Allocator, GPA, Page};
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    let mut page = Page.{};
+    let mut gpa = GPA.{ backing: *mut Allocator.{ page..& } };
+    defer gpa..&.deinit();
+    let alloc = *mut Allocator.{ gpa..& };
+
+    let mut workspace_root = match (env.get(alloc, "CRAFT_WORKSPACE_ROOT")) {
+        .{ Some: value } => value,
+        .None => return 1,
+    };
+    defer workspace_root..&.deinit(alloc);
+
+    let mut package_root = match (env.get(alloc, "CRAFT_PACKAGE_ROOT")) {
+        .{ Some: value } => value,
+        .None => return 2,
+    };
+    defer package_root..&.deinit(alloc);
+
+    if (!package_root.&.ends_with("/app") and !package_root.&.ends_with("\\app")) {
+        return 3;
+    }
+    if (workspace_root.&.eq(package_root.&.as_str())) {
+        return 4;
+    }
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Test,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+        let test_units = build_plan
+            .packages
+            .iter()
+            .find(|package| package.package_id.name == "app")
+            .unwrap()
             .units
             .iter()
             .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)

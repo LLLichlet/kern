@@ -2,6 +2,7 @@ use crate::build_plan::{BuildPlan, SourceRootBinding};
 use crate::elaborate::{ElaborationPlan, FeatureSelection};
 use crate::error::{Error, Result};
 use crate::execute;
+use crate::local_state;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -86,9 +87,7 @@ pub fn sync_analysis_context(
     let context =
         AnalysisContext::from_inputs(manifest_path, elaboration, build_plan, feature_selection)?;
     let path = analysis_context_path(&build_plan.workspace_root);
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
-    }
+    local_state::ensure_parent_dir(&path)?;
     fs::write(&path, context.render()).map_err(|err| Error::from_io(&path, err))?;
     Ok(path)
 }
@@ -1284,6 +1283,9 @@ pub fn craft(p: *mut plan.Plan) void {{
             values.get("GREETING_MSG").map(String::as_str),
             Some("Hello from craft")
         );
+        let gitignore = fs::read_to_string(root.join(".craft").join(".gitignore")).unwrap();
+        assert!(gitignore.contains("*"));
+        assert!(gitignore.contains("!.gitignore"));
     }
 
     #[test]

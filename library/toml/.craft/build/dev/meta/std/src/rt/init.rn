@@ -1,8 +1,0 @@
-//! Runtime support used by the compiler and start-up sequence.
-//!
-//! Most user code should prefer higher-level modules. This module exists so the
-//! runtime boundary stays explicit.
-
-pub mod mem;
-#[if(kern_rt)]
-mod entry;

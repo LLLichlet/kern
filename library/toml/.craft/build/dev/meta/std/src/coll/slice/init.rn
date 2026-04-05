@@ -1,7 +1,0 @@
-//! Slice-oriented helper routines.
-
-mod query;
-mod mutable;
-mod bytes;
-
-pub use .bytes.{find_byte, rfind_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};

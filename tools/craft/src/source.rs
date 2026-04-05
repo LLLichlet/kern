@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
 use crate::graph::SourceId;
+use crate::local_state;
 use crate::manifest::{Manifest, SourceConfig};
 use crate::resolver::{ExternalPackageId, ResolvedGraph};
 use std::collections::BTreeMap;
@@ -348,9 +349,7 @@ fn prepare_git_source_root(
         if cache_root.exists() {
             fs::remove_dir_all(&cache_root).map_err(|err| Error::from_io(&cache_root, err))?;
         }
-        if let Some(parent) = cache_root.parent() {
-            fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
-        }
+        local_state::ensure_parent_dir(&cache_root)?;
         run_git(
             config_root,
             [
@@ -504,9 +503,7 @@ fn materialize_tree(source: &Path, dest: &Path) -> Result<FetchStatus> {
     if existed {
         fs::remove_dir_all(dest).map_err(|err| Error::from_io(dest, err))?;
     }
-    if let Some(parent) = dest.parent() {
-        fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
-    }
+    local_state::ensure_parent_dir(dest)?;
     copy_dir_all(source, dest)?;
 
     Ok(if existed {
@@ -517,7 +514,7 @@ fn materialize_tree(source: &Path, dest: &Path) -> Result<FetchStatus> {
 }
 
 fn copy_dir_all(source: &Path, dest: &Path) -> Result<()> {
-    fs::create_dir_all(dest).map_err(|err| Error::from_io(dest, err))?;
+    local_state::ensure_dir(dest)?;
     for entry in fs::read_dir(source).map_err(|err| Error::from_io(source, err))? {
         let entry = entry.map_err(Error::from_io_plain)?;
         let file_type = entry.file_type().map_err(Error::from_io_plain)?;
@@ -690,6 +687,9 @@ root = "src/lib.rn"
         assert_eq!(fetched[0].source.selector, None);
         assert_eq!(fetched[0].source.resolved_revision, None);
         assert!(fetched[0].cache_path.join("Craft.toml").is_file());
+        let gitignore = fs::read_to_string(root.join(".craft").join(".gitignore")).unwrap();
+        assert!(gitignore.contains("*"));
+        assert!(gitignore.contains("!.gitignore"));
         let summary = summarize_fetch(&fetched);
         assert_eq!(summary.created, 1);
 

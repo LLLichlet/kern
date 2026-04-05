@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::local_state;
 use std::fs::{self, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
@@ -14,7 +15,7 @@ pub(crate) struct WorkspaceOperationLock {
 impl WorkspaceOperationLock {
     pub(crate) fn acquire(workspace_root: &Path, operation: &str) -> Result<Self> {
         let path = workspace_lock_path(workspace_root);
-        ensure_parent_dir(&path)?;
+        local_state::ensure_parent_dir(&path)?;
 
         loop {
             match try_acquire(&path, operation) {
@@ -68,13 +69,6 @@ fn workspace_lock_path(workspace_root: &Path) -> PathBuf {
         .join(".craft")
         .join("lock")
         .join("workspace.lock")
-}
-
-fn ensure_parent_dir(path: &Path) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
-    }
-    Ok(())
 }
 
 fn reclaim_stale_lock(path: &Path) -> Result<bool> {

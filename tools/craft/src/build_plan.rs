@@ -35,6 +35,7 @@ pub struct PackageBuildPlan {
 pub struct BuildUnit {
     pub domain: BuildDomain,
     pub package_id: PackageId,
+    pub package_root_path: PathBuf,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
     pub source_root: SourceRootBinding,
@@ -165,6 +166,7 @@ pub enum CompileSourceInput {
 pub struct LinkAction {
     pub domain: BuildDomain,
     pub package_id: PackageId,
+    pub package_root_path: PathBuf,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
     pub artifact_name: String,
@@ -430,6 +432,7 @@ impl BuildPlan {
                 link_actions.push(LinkAction {
                     domain: unit.domain,
                     package_id: unit.package_id.clone(),
+                    package_root_path: unit.package_root_path.clone(),
                     target_kind: unit.target_kind,
                     target_name: unit.target_name.clone(),
                     artifact_name: unit.artifact_name.clone(),
@@ -741,6 +744,13 @@ fn build_package_for_domain(
             BuildUnit {
                 domain,
                 package_id: source.resolved.id.clone(),
+                package_root_path: source
+                    .elaboration
+                    .plan
+                    .manifest_path
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .to_path_buf(),
                 target_kind: target.kind,
                 target_name: target.name.clone(),
                 source_root: SourceRootBinding::PackagePath(target.root.clone()),

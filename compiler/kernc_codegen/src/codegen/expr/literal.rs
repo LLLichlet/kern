@@ -12,7 +12,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         struct_id: MonoId,
         fields: &[MastExpr],
     ) -> BasicValueEnum<'ctx> {
-        let struct_llvm_ty = self.structs.get(&struct_id).unwrap();
+        let struct_llvm_ty = *self.structs.get(&struct_id).unwrap();
         let mut current_struct = struct_llvm_ty
             .as_basic_type_enum()
             .into_struct_type()
@@ -20,6 +20,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         for (idx, field_expr) in fields.iter().enumerate() {
             let field_val = self.compile_expr(field_expr);
+            if self.current_block_is_terminated() {
+                return struct_llvm_ty.as_basic_type_enum().const_zero();
+            }
             current_struct = self
                 .builder
                 .build_insert_value(current_struct, field_val, idx as u32, "s_init")
@@ -39,6 +42,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             self.create_entry_block_alloca(union_llvm_ty.as_basic_type_enum(), "union_init");
 
         let val = self.compile_expr(value);
+        if self.current_block_is_terminated() {
+            return union_llvm_ty.as_basic_type_enum().const_zero();
+        }
         self.builder.build_store(alloca, val).unwrap();
 
         self.builder
@@ -67,6 +73,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         // Store the payload into the union storage.
         if payload.ty != TypeId::VOID && payload.ty != TypeId::ERROR {
             let payload_val = self.compile_expr(payload);
+            if self.current_block_is_terminated() {
+                return struct_llvm_ty.as_basic_type_enum().const_zero();
+            }
             self.builder.build_store(union_alloca, payload_val).unwrap();
         }
 
@@ -101,6 +110,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let mut current_array = array_llvm_ty.const_zero();
         for (idx, elem_expr) in elems.iter().enumerate() {
             let elem_val = self.compile_expr(elem_expr);
+            if self.current_block_is_terminated() {
+                return array_llvm_ty.const_zero().into();
+            }
             current_array = self
                 .builder
                 .build_insert_value(current_array, elem_val, idx as u32, "arr_init")

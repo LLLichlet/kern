@@ -336,6 +336,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             id: def_id,
             name: decl.name,
             vis,
+            parent: self.current_module,
             is_imported: self.current_module_imported,
             value: value.clone(),
             is_static,

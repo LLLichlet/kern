@@ -645,9 +645,13 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
         ast::ExprKind::Let {
             pattern,
             init,
+            else_pattern,
             else_branch,
         } => {
             normalize_let_pattern_for_body_only_comparison(pattern);
+            if let Some(else_pattern) = else_pattern {
+                normalize_pattern_for_body_only_comparison(else_pattern);
+            }
             normalize_expr_for_body_only_comparison(init);
             if let Some(else_branch) = else_branch {
                 normalize_expr_for_body_only_comparison(else_branch);

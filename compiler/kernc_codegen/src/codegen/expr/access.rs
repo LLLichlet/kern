@@ -98,6 +98,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 field_idx,
             } => {
                 let struct_ptr = self.compile_lvalue(lhs);
+                if self.current_block_is_terminated() {
+                    return self.null_ptr();
+                }
                 if self.union_ids.contains(struct_id) {
                     // Union fields all begin at offset 0 and share the same storage.
                     // Under opaque pointers we can treat the union allocation itself as
@@ -114,11 +117,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .unwrap()
             }
             MastExprKind::IndexAccess { lhs, index } => {
-                let idx_val = self.compile_expr(index).into_int_value();
+                let idx_raw = self.compile_expr(index);
+                if self.current_block_is_terminated() {
+                    return self.null_ptr();
+                }
+                let idx_val = idx_raw.into_int_value();
                 let norm_lhs = self.type_registry.normalize(lhs.ty);
 
                 if let TypeKind::Slice { .. } = self.type_registry.get(norm_lhs) {
-                    let slice_val = self.compile_expr(lhs).into_struct_value();
+                    let slice_raw = self.compile_expr(lhs);
+                    if self.current_block_is_terminated() {
+                        return self.null_ptr();
+                    }
+                    let slice_val = slice_raw.into_struct_value();
                     let ptr_val = self
                         .builder
                         .build_extract_value(slice_val, 0, "slice_ptr")
@@ -133,7 +144,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 } else if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } =
                     self.type_registry.get(norm_lhs)
                 {
-                    let ptr_val = self.compile_expr(lhs).into_pointer_value();
+                    let ptr_raw = self.compile_expr(lhs);
+                    if self.current_block_is_terminated() {
+                        return self.null_ptr();
+                    }
+                    let ptr_val = ptr_raw.into_pointer_value();
                     let elem_ty = self.get_llvm_type(expr.ty);
                     unsafe {
                         self.builder
@@ -142,6 +157,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     }
                 } else {
                     let array_ptr = self.compile_lvalue(lhs);
+                    if self.current_block_is_terminated() {
+                        return self.null_ptr();
+                    }
                     let zero = self.context.i64_type().const_zero();
                     let array_llvm_ty = self.get_llvm_type(lhs.ty);
                     unsafe {
@@ -151,11 +169,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     }
                 }
             }
-            MastExprKind::Deref(operand) => self.compile_expr(operand).into_pointer_value(),
+            MastExprKind::Deref(operand) => {
+                let ptr_raw = self.compile_expr(operand);
+                if self.current_block_is_terminated() {
+                    return self.null_ptr();
+                }
+                ptr_raw.into_pointer_value()
+            }
 
             // Materialize pure rvalues into temporary stack storage whenever an lvalue address is required.
             _ => {
                 let rval = self.compile_expr(expr);
+                if self.current_block_is_terminated() {
+                    return self.null_ptr();
+                }
                 let llvm_ty = self.get_llvm_type(expr.ty);
                 let temp_ptr = self.create_entry_block_alloca(llvm_ty, "tmp_materialized_lvalue");
                 self.builder.build_store(temp_ptr, rval).unwrap();
@@ -244,7 +271,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         operand: &MastExpr,
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let ptr_val = self.compile_expr(operand).into_pointer_value();
+        let ptr_raw = self.compile_expr(operand);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+            return fallback;
+        }
+        let ptr_val = ptr_raw.into_pointer_value();
         self.builder
             .build_load(expected_ty, ptr_val, "deref")
             .unwrap()
@@ -258,6 +289,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let struct_ptr = self.compile_lvalue(lhs);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+            return fallback;
+        }
         let Some(struct_llvm_ty) = self.lookup_struct_type(struct_id, lhs.span, "field access")
         else {
             return expected_ty.const_zero();
@@ -286,11 +320,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_ty: BasicTypeEnum<'ctx>,
         expr_ty: TypeId,
     ) -> BasicValueEnum<'ctx> {
-        let idx_val = self.compile_expr(index).into_int_value();
+        let idx_raw = self.compile_expr(index);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+            return fallback;
+        }
+        let idx_val = idx_raw.into_int_value();
         let norm_lhs = self.type_registry.normalize(lhs.ty);
 
         let elem_ptr = if let TypeKind::Slice { .. } = self.type_registry.get(norm_lhs) {
-            let slice_val = self.compile_expr(lhs).into_struct_value();
+            let slice_raw = self.compile_expr(lhs);
+            if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+                return fallback;
+            }
+            let slice_val = slice_raw.into_struct_value();
             let ptr_val = self
                 .builder
                 .build_extract_value(slice_val, 0, "slice_ptr")
@@ -305,7 +347,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         } else if let TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } =
             self.type_registry.get(norm_lhs)
         {
-            let ptr_val = self.compile_expr(lhs).into_pointer_value();
+            let ptr_raw = self.compile_expr(lhs);
+            if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+                return fallback;
+            }
+            let ptr_val = ptr_raw.into_pointer_value();
             let elem_ty = self.get_llvm_type(expr_ty);
             unsafe {
                 self.builder
@@ -314,6 +360,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
         } else {
             let array_ptr = self.compile_lvalue(lhs);
+            if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+                return fallback;
+            }
             let zero = self.context.i64_type().const_zero();
             let array_llvm_ty = self.get_llvm_type(lhs.ty);
             unsafe {
@@ -338,6 +387,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let lhs_val = self.compile_expr(lhs);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+            return fallback;
+        }
         let Some((base_ptr, base_len, elem_ty)) = self.slice_base_parts(lhs, lhs_val) else {
             self.sess.emit_ice(
                 lhs.span,
@@ -351,14 +403,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         // 2. Compute `start`, defaulting to zero.
         let start_val = if let Some(s) = start {
-            self.compile_expr(s).into_int_value()
+            let start_raw = self.compile_expr(s);
+            if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                return fallback;
+            }
+            start_raw.into_int_value()
         } else {
             self.context.i64_type().const_zero()
         };
 
         // 3. Compute `end`, defaulting to the base length.
         let end_val = if let Some(e) = end {
-            self.compile_expr(e).into_int_value()
+            let end_raw = self.compile_expr(e);
+            if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                return fallback;
+            }
+            end_raw.into_int_value()
         } else {
             let Some(len) = base_len else {
                 self.sess.emit_ice(

@@ -226,9 +226,18 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         let kind = self.ctx.type_registry.get(norm).clone();
 
         match kind {
-            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Function { .. } => {
-                self.ctx.sess.target.pointer_size
+            TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
+                let elem_norm = self.ctx.type_registry.normalize(elem);
+                if matches!(
+                    self.ctx.type_registry.get(elem_norm),
+                    TypeKind::TraitObject(..) | TypeKind::ClosureInterface { .. }
+                ) {
+                    self.ctx.sess.target.pointer_size * 2
+                } else {
+                    self.ctx.sess.target.pointer_size
+                }
             }
+            TypeKind::Function { .. } => self.ctx.sess.target.pointer_size,
             TypeKind::Slice { .. } | TypeKind::TraitObject(..) => {
                 self.ctx.sess.target.pointer_size * 2
             }

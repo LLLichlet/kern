@@ -135,6 +135,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     init,
                 } => {
                     let init_val = self.compile_expr(init);
+                    if self.current_block_is_terminated() {
+                        self.locals = saved_locals;
+                        return None;
+                    }
                     let llvm_ty = self.get_llvm_type(*ty);
                     // Always alloca first and let LLVM's mem2reg pass promote when possible.
                     let alloca =

@@ -245,7 +245,10 @@ impl<'a> SemaContext<'a> {
 
     pub fn builtin_trait_ty(&mut self, name: &str, args: Vec<TypeId>) -> Option<TypeId> {
         let def_id = self.builtin_def(name)?;
-        Some(self.type_registry.intern(crate::ty::TypeKind::TraitObject(def_id, args)))
+        Some(
+            self.type_registry
+                .intern(crate::ty::TypeKind::TraitObject(def_id, args)),
+        )
     }
 
     /// Generate a deterministic mangling suffix for a semantic type.
@@ -435,7 +438,7 @@ impl<'a> SemaContext<'a> {
         let empty_attrs: &[kernc_ast::Attribute] = &[]; // Reusable empty attribute slice.
         let (is_extern, attrs, parent_id) = match def {
             Def::Function(f) => (f.is_extern, f.attributes.as_slice(), f.parent),
-            Def::Global(g) => (g.is_extern, g.attributes.as_slice(), None),
+            Def::Global(g) => (g.is_extern, g.attributes.as_slice(), g.parent),
             Def::Struct(s) => (s.is_extern, s.attributes.as_slice(), None),
             Def::Enum(_) => (false, empty_attrs, None),
             Def::Union(_) => (false, empty_attrs, None),

@@ -204,6 +204,7 @@ pub struct GlobalDef {
     pub id: DefId,
     pub name: SymbolId,
     pub vis: Visibility,
+    pub parent: Option<DefId>,
     pub is_imported: bool,
     pub value: ast::Expr,
     pub is_static: bool,

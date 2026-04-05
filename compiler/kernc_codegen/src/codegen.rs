@@ -126,6 +126,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.asm_dialect = dialect;
     }
 
+    fn current_block_is_terminated(&self) -> bool {
+        self.builder
+            .get_insert_block()
+            .and_then(|block| block.get_terminator())
+            .is_some()
+    }
+
+    fn expr_terminated_fallback(
+        &mut self,
+        llvm_ty: crate::types::BasicTypeEnum<'ctx>,
+    ) -> Option<crate::values::BasicValueEnum<'ctx>> {
+        if self.current_block_is_terminated() {
+            Some(self.get_undef_val(llvm_ty))
+        } else {
+            None
+        }
+    }
+
     pub fn print_ir(&self) -> Result<(), String> {
         let ir = self.module.ir_string()?;
         print!("{}", ir);

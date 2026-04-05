@@ -57,7 +57,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expr_ty: TypeId,
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let cond_val = self.compile_expr(cond).into_int_value();
+        let cond_raw = self.compile_expr(cond);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+            return fallback;
+        }
+        let cond_val = cond_raw.into_int_value();
         let Some(parent_func) = self.current_function_for_control("if expression") else {
             return self.context.i8_type().const_zero().into();
         };
@@ -192,7 +196,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expr_ty: TypeId,
         expected_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let target_val = self.compile_expr(target).into_int_value();
+        let target_raw = self.compile_expr(target);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+            return fallback;
+        }
+        let target_val = target_raw.into_int_value();
         let Some(parent_func) = self.current_function_for_control("switch expression") else {
             return self.context.i8_type().const_zero().into();
         };
@@ -284,6 +292,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(crate) fn compile_return(&mut self, ret_val: Option<&MastExpr>) -> BasicValueEnum<'ctx> {
         if let Some(val) = ret_val {
             let llvm_val = self.compile_expr(val);
+            if self.current_block_is_terminated() {
+                return self.context.i8_type().const_zero().into();
+            }
             if self.is_void_type(val.ty) {
                 self.builder.build_return(None).unwrap();
             } else {

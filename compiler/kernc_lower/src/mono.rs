@@ -659,6 +659,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             } else {
                 TypeId::VOID // Empty unions can be modeled as `void` here.
             };
+            self.track_pure_enum_repr_in_type(field_ty);
 
             union_fields.push(MastField {
                 name: variant.name,

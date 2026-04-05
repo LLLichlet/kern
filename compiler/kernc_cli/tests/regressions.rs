@@ -43,7 +43,7 @@ fn helper() i32 {
     return 1;
 }
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     return 0;
 }
 "#;
@@ -120,6 +120,50 @@ extern fn main() i32 {
         "unused helper leaked into LLVM IR:\n{}",
         stdout
     );
+}
+
+#[test]
+fn compiles_same_private_const_name_in_multiple_modules() {
+    let output = compile_source_tree_with_args(
+        "kernc_private_const_module_scope",
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod left;
+mod right;
+
+extern fn main() i32 {
+    return left.value() + right.value();
+}
+"#,
+            ),
+            (
+                "left.rn",
+                r#"
+const SHARED = 10;
+
+pub fn value() i32 {
+    return SHARED as i32;
+}
+"#,
+            ),
+            (
+                "right.rn",
+                r#"
+const SHARED = 32;
+
+pub fn value() i32 {
+    return SHARED as i32;
+}
+"#,
+            ),
+        ],
+        &["-c"],
+    );
+
+    assert_success(&output, "kernc");
 }
 
 #[test]
@@ -207,6 +251,94 @@ extern fn main() i32 {
         stderr.contains("initial value assigned to `value` is never read"),
         "unexpected stderr:\n{}",
         stderr
+    );
+}
+
+#[test]
+fn pure_enum_payload_bound_from_match_compiles_and_runs() {
+    let output = build_and_run_source(
+        r#"
+type Kind = enum {
+    Root,
+    Section,
+};
+
+type MaybeKind = enum {
+    None,
+    Some: Kind,
+};
+
+fn unwrap_kind(value: MaybeKind) Kind {
+    return match (value) {
+        .{ Some: kind } => kind,
+        .None => Kind.Root,
+    };
+}
+
+extern fn main() i32 {
+    let kind = unwrap_kind(MaybeKind.{ Some: Kind.Section });
+    match (kind) {
+        .Root => return 1,
+        .Section => return 0,
+    }
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn method_returning_option_of_pure_enum_compiles_and_runs() {
+    let output = build_and_run_source(
+        r#"
+type Kind = enum {
+    Root,
+    Section,
+};
+
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+type Holder = struct {};
+
+impl Holder {
+    fn section_kind(flag: bool) Option[Kind] {
+        if (flag) {
+            return .{ Some: Kind.Section };
+        }
+        return .{ None };
+    }
+}
+
+extern fn main() i32 {
+    let holder = Holder.{};
+    let kind = match (holder.section_kind(true)) {
+        .{ Some: kind } => kind,
+        .None => Kind.Root,
+    };
+    match (kind) {
+        .Root => return 1,
+        .Section => return 0,
+    }
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
@@ -331,6 +463,72 @@ extern fn main() i32 {
 }
 
 #[test]
+fn kmeta_snapshot_keeps_cfg_gated_submodule_sources() {
+    let root = unique_temp_path("kernc_kmeta_cfg_submodule", "dir");
+    let lib_dir = root.join("lib");
+    let inner_dir = lib_dir.join("inner");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let inner_entry = inner_dir.join("init.rn");
+    let gated_entry = inner_dir.join("entry.rn");
+    let lib_object = root.join("pkg.o");
+
+    fs::create_dir_all(&inner_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+
+    fs::write(
+        &lib_entry,
+        r#"
+pub mod inner;
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &inner_entry,
+        r#"
+#[if(kern_rt)]
+pub mod entry;
+
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        &gated_entry,
+        r#"
+pub fn hidden() i32 {
+    return 7;
+}
+"#,
+    )
+    .unwrap();
+
+    let lib_entry_arg = lib_entry.to_string_lossy().into_owned();
+    let lib_object_arg = lib_object.to_string_lossy().into_owned();
+    let metadata_arg = metadata_dir.to_string_lossy().into_owned();
+    let output = run_kernc([
+        "-c",
+        "--root-module",
+        "pkg",
+        "--emit-kmeta",
+        metadata_arg.as_str(),
+        lib_entry_arg.as_str(),
+        "-o",
+        lib_object_arg.as_str(),
+    ]);
+    assert_success(&output, "kernc kmeta snapshot");
+
+    assert!(
+        metadata_dir.join("src/inner/entry.rn").is_file(),
+        "cfg-gated submodule source missing from kmeta snapshot"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn rejects_raw_source_tree_passed_via_imported_interface_alias() {
     let root = unique_temp_path("kernc_kmeta_reject_raw", "dir");
     let dep_dir = root.join("dep");
@@ -447,7 +645,7 @@ fn make_text(alloc: *mut std.mem.alloc.Allocator, text: []u8) Result[String, i32
     return .{ Ok: out };
 }
 
-extern fn main() i32 {
+extern fn main(_: [][]u8) i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
@@ -1014,6 +1212,54 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
+fn compiles_and_runs_trailing_commas_in_common_lists() {
+    let output = build_and_run_source(
+        r#"
+type Pair[T,] = struct {
+    left: T,
+    right: T,
+};
+
+type Choice = enum {
+    A,
+    B,
+};
+
+type Ops = trait {
+    run: fn(i32, i32,) i32,
+};
+
+fn add(a: i32, b: i32,) i32 {
+    return a + b;
+}
+
+fn sum_pair(pair: Pair[i32,],) i32 {
+    let values = [2]i32.{ pair.left, pair.right, };
+    match (pair.left) {
+        2, => return add(values.[0], values.[1],),
+        _ => return 1,
+    }
+}
+
+extern fn main() i32 {
+    let pair = Pair[i32,].{ left: 2, right: 3, };
+    if (sum_pair(pair,) == 5) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "trailing comma regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_defer_after_return_value_evaluation() {
     let output = build_and_run_source(
         r#"
@@ -1084,6 +1330,88 @@ extern fn main() i32 {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn compiles_returning_never_expression_without_emitting_extra_ret() {
+    let output = compile_source(
+        r#"
+fn fail() bool {
+    return @trap();
+}
+
+extern fn main() i32 {
+    let _ = fail();
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn compiles_generic_helper_returning_match_of_never_arms() {
+    let output = compile_source(
+        r#"
+type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};
+
+fn expect_ok[T, E](value: Result[T, E]) T {
+    match (value) {
+        .{ Ok: payload } => return payload,
+        .{ Err: _ } => {
+            return match (0) {
+                0 => @trap(),
+                _ => @trap(),
+            };
+        },
+    }
+}
+
+extern fn main() i32 {
+    let _ = expect_ok[i32, bool](.{ Ok: 7 });
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn compiles_never_in_let_initializer_without_emitting_store() {
+    let output = compile_source(
+        r#"
+extern fn main() i32 {
+    let x = @trap();
+    let _ = x;
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
+}
+
+#[test]
+fn compiles_never_in_call_argument_without_emitting_followup_call() {
+    let output = compile_source(
+        r#"
+fn consume(value: i32) void {
+    let _ = value;
+}
+
+extern fn main() i32 {
+    consume(@trap());
+    return 0;
+}
+"#,
+    );
+
+    assert_success(&output, "kernc");
 }
 
 #[test]
@@ -1218,6 +1546,82 @@ extern fn main(args: [][]u8) i32 {
         "kernc failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_mut_pointer_to_array_whole_value_assignment() {
+    let output = compile_source(
+        r#"
+fn replace(buf: *mut [4]u8) void {
+    buf.* = [4]u8.{ 1, 2, 3, 4 };
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_pointer_to_mut_array_element_assignment() {
+    let output = compile_source(
+        r#"
+fn write(buf: *[4]mut u8, index: usize, value: u8) void {
+    buf.*.[index] = value;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_element_assignment_through_mut_pointer_to_non_mut_array() {
+    let output = compile_source(
+        r#"
+fn write(buf: *mut [4]u8, index: usize, value: u8) void {
+    buf.*.[index] = value;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot assign to an immutable variable or location"),
+        "unexpected stderr:\n{}",
+        stderr
     );
 }
 

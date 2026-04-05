@@ -181,23 +181,29 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         args: &[MastExpr],
         expr_ty: TypeId,
     ) -> BasicValueEnum<'ctx> {
+        let llvm_ty = self.get_llvm_type(expr_ty);
         let mut llvm_args = Vec::new();
         for arg in args {
             llvm_args.push(self.compile_expr(arg));
+            if let Some(fallback) = self.expr_terminated_fallback(llvm_ty) {
+                return fallback;
+            }
         }
 
         let call_site = if let MastExprKind::FuncRef(mono_id) = callee.kind {
             let Some(llvm_func) = self.lookup_function_value(mono_id, callee.span) else {
-                let llvm_ty = self.get_llvm_type(expr_ty);
                 return self.get_undef_val(llvm_ty);
             };
             self.builder
                 .build_call(llvm_func, &llvm_args, "call_ret")
                 .unwrap()
         } else {
-            let ptr_val = self.compile_expr(callee).into_pointer_value();
+            let ptr_raw = self.compile_expr(callee);
+            if let Some(fallback) = self.expr_terminated_fallback(llvm_ty) {
+                return fallback;
+            }
+            let ptr_val = ptr_raw.into_pointer_value();
             let Some(fn_type) = self.llvm_fn_type_from_callable(callee.ty, callee.span) else {
-                let llvm_ty = self.get_llvm_type(expr_ty);
                 return self.get_undef_val(llvm_ty);
             };
 
@@ -208,7 +214,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         if self.call_never_returns(callee) || expr_ty == TypeId::NEVER {
             self.builder.build_unreachable().unwrap();
-            let llvm_ty = self.get_llvm_type(expr_ty);
             self.get_undef_val(llvm_ty)
         } else if expr_ty == TypeId::VOID || expr_ty == TypeId::ERROR {
             self.context.i8_type().const_zero().into()
@@ -224,6 +229,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         for arg_expr in &asm_block.input_args {
             let llvm_val = self.compile_expr(arg_expr);
+            if self.current_block_is_terminated() {
+                return self.context.i8_type().const_zero().into();
+            }
             arg_values.push(llvm_val);
             param_types.push(llvm_val.get_type());
         }
@@ -255,7 +263,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let asm_result = call_site.try_as_basic_value().unwrap_basic();
 
             for (i, ptr_expr) in asm_block.output_ptrs.iter().enumerate() {
-                let target_ptr = self.compile_expr(ptr_expr).into_pointer_value();
+                let target_ptr_raw = self.compile_expr(ptr_expr);
+                if self.current_block_is_terminated() {
+                    return self.context.i8_type().const_zero().into();
+                }
+                let target_ptr = target_ptr_raw.into_pointer_value();
 
                 let extracted_val = if asm_block.output_tys.len() == 1 {
                     asm_result
@@ -282,6 +294,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let val = self.compile_expr(operand);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+            return fallback;
+        }
 
         let intrinsic_name = match kind {
             BitIntrinsicKind::PopCount => "llvm.ctpop",
@@ -313,7 +328,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         ordering: AtomicOrdering,
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let ptr_raw = self.compile_expr(ptr);
+        if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+            return fallback;
+        }
+        let ptr_val = ptr_raw.into_pointer_value();
         let load = self
             .builder
             .build_load(expected_ty, ptr_val, "atomic_load")
@@ -330,8 +349,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         value: &MastExpr,
         ordering: AtomicOrdering,
     ) -> BasicValueEnum<'ctx> {
-        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let ptr_raw = self.compile_expr(ptr);
+        if self.current_block_is_terminated() {
+            return self.context.i8_type().const_zero().into();
+        }
+        let ptr_val = ptr_raw.into_pointer_value();
         let value_val = self.compile_expr(value);
+        if self.current_block_is_terminated() {
+            return self.context.i8_type().const_zero().into();
+        }
         let store = self.builder.build_store(ptr_val, value_val).unwrap();
         store.set_atomic_ordering(Self::llvm_atomic_ordering(ordering));
         self.context.i8_type().const_zero().into()
@@ -356,8 +382,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         ordering: AtomicOrdering,
     ) -> BasicValueEnum<'ctx> {
         let llvm_order = Self::llvm_atomic_ordering(ordering);
-        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let ptr_raw = self.compile_expr(ptr);
+        let llvm_ty = self.get_llvm_type(expr_ty);
+        if let Some(fallback) = self.expr_terminated_fallback(llvm_ty) {
+            return fallback;
+        }
+        let ptr_val = ptr_raw.into_pointer_value();
         let value_val = self.compile_expr(value);
+        if let Some(fallback) = self.expr_terminated_fallback(llvm_ty) {
+            return fallback;
+        }
 
         if matches!(
             self.type_registry
@@ -425,9 +459,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             failure,
         } = request;
 
-        let ptr_val = self.compile_expr(ptr).into_pointer_value();
+        let llvm_ty = self.get_llvm_type(expr_ty);
+        let ptr_raw = self.compile_expr(ptr);
+        if let Some(fallback) = self.expr_terminated_fallback(llvm_ty) {
+            return fallback;
+        }
+        let ptr_val = ptr_raw.into_pointer_value();
         let expected_val = self.compile_expr(expected);
+        if let Some(fallback) = self.expr_terminated_fallback(llvm_ty) {
+            return fallback;
+        }
         let desired_val = self.compile_expr(desired);
+        if let Some(fallback) = self.expr_terminated_fallback(llvm_ty) {
+            return fallback;
+        }
         let cas_pair = self
             .builder
             .build_cmpxchg(
@@ -444,7 +489,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     expected.span,
                     "Kern ICE (Codegen): cmpxchg result did not lower to an instruction value.",
                 );
-                let llvm_ty = self.get_llvm_type(expr_ty);
                 return self.get_undef_val(llvm_ty);
             };
             unsafe { LLVMSetWeak(cas_inst.as_value_ref(), 1) };
@@ -468,7 +512,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     norm_ty
                 ),
             );
-            let llvm_ty = self.get_llvm_type(expr_ty);
             return self.get_undef_val(llvm_ty);
         };
 

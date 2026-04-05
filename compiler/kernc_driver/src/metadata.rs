@@ -88,44 +88,7 @@ pub fn emit_package_metadata(
         &render_kmeta_docs_toml(&collect_kmeta_doc_items(ctx)),
     )?;
 
-    let mut stack = vec![root_id];
-    while let Some(module_id) = stack.pop() {
-        let Some(module) = module_def(ctx, module_id) else {
-            continue;
-        };
-        if module.is_imported {
-            continue;
-        }
-
-        let Some(source_path) = ctx
-            .sess
-            .source_manager
-            .get_file_path(module.file_id)
-            .cloned()
-        else {
-            return Err(format!(
-                "module `{}` is missing a source file",
-                ctx.resolve(module.name)
-            ));
-        };
-        let dest_path =
-            snapshot_path_for_module(module_id, &source_path, root_id, root_dir, output_root);
-        if let Some(parent) = dest_path.parent() {
-            fs::create_dir_all(parent)
-                .map_err(|err| format!("failed to create `{}`: {err}", parent.display()))?;
-        }
-        fs::copy(&source_path, &dest_path).map_err(|err| {
-            format!(
-                "failed to copy `{}` to `{}`: {err}",
-                source_path.display(),
-                dest_path.display()
-            )
-        })?;
-
-        let mut children = module.submodules.values().copied().collect::<Vec<_>>();
-        children.sort_by_key(|id| id.0);
-        stack.extend(children.into_iter().rev());
-    }
+    copy_source_snapshot_tree(&root_path, root_dir, output_root)?;
 
     Ok(())
 }
@@ -159,19 +122,60 @@ fn module_def<'a>(ctx: &'a SemaContext<'_>, id: DefId) -> Option<&'a ModuleDef> 
     }
 }
 
-fn snapshot_path_for_module(
-    module_id: DefId,
+fn snapshot_path_for_source(
     source_path: &Path,
-    root_id: DefId,
+    root_path: &Path,
     root_dir: &Path,
     output_root: &Path,
 ) -> PathBuf {
-    if module_id == root_id {
+    if source_path == root_path {
         return output_root.join(KMETA_SOURCE_ROOT).join("init.rn");
     }
 
     let relative = source_path.strip_prefix(root_dir).unwrap_or(source_path);
     output_root.join(KMETA_SOURCE_ROOT).join(relative)
+}
+
+fn copy_source_snapshot_tree(root_path: &Path, root_dir: &Path, output_root: &Path) -> Result<(), String> {
+    let mut pending = vec![root_dir.to_path_buf()];
+
+    while let Some(dir) = pending.pop() {
+        let entries = fs::read_dir(&dir)
+            .map_err(|err| format!("failed to read `{}`: {err}", dir.display()))?;
+        let mut paths = entries
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("failed to enumerate `{}`: {err}", dir.display()))?;
+        paths.sort();
+
+        for path in paths {
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            if !path.is_file() {
+                continue;
+            }
+            if path.extension().and_then(|ext| ext.to_str()) != Some("rn") {
+                continue;
+            }
+
+            let dest_path = snapshot_path_for_source(&path, root_path, root_dir, output_root);
+            if let Some(parent) = dest_path.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|err| format!("failed to create `{}`: {err}", parent.display()))?;
+            }
+            fs::copy(&path, &dest_path).map_err(|err| {
+                format!(
+                    "failed to copy `{}` to `{}`: {err}",
+                    path.display(),
+                    dest_path.display()
+                )
+            })?;
+        }
+    }
+
+    Ok(())
 }
 
 fn write_manifest(path: &Path, manifest: &KmetaManifest) -> Result<(), String> {

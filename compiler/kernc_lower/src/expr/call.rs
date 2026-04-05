@@ -94,9 +94,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .into_iter()
                 .filter_map(|variant| variant.payload_ty)
                 .any(|payload_ty| self.type_contains_generic_placeholders(payload_ty)),
-            TypeKind::Primitive(_)
-            | TypeKind::Error
-            | TypeKind::Module(_) => false,
+            TypeKind::Primitive(_) | TypeKind::Error | TypeKind::Module(_) => false,
         }
     }
 
@@ -776,7 +774,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(inner_ty);
 
-        self.lower_resolved_trait_method_call(recv, field, arg_masts, owner_trait_ty, norm_callee, span)
+        self.lower_resolved_trait_method_call(
+            recv,
+            field,
+            arg_masts,
+            owner_trait_ty,
+            norm_callee,
+            span,
+        )
     }
 
     pub(crate) fn lower_resolved_trait_method_call(
@@ -850,9 +855,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let owner_trait_norm = self.ctx.type_registry.normalize(owner_trait_ty);
             let owner_trait_filter = !self.type_contains_generic_placeholders(owner_trait_ty)
                 && matches!(
-                self.ctx.type_registry.get(owner_trait_norm),
-                TypeKind::TraitObject(..)
-            );
+                    self.ctx.type_registry.get(owner_trait_norm),
+                    TypeKind::TraitObject(..)
+                );
 
             for def in &self.ctx.defs {
                 if let Def::Impl(impl_def) = def {
@@ -1020,7 +1025,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     && func.is_intrinsic
                 {
                     arg_masts.insert(0, final_recv.clone());
-                    if let Some(kind) = self.lower_builtin_operator_intrinsic(func_id, &mut arg_masts)
+                    if let Some(kind) =
+                        self.lower_builtin_operator_intrinsic(func_id, &mut arg_masts)
                     {
                         return kind;
                     }

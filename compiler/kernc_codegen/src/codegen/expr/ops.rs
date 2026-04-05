@@ -68,8 +68,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         lhs: &MastExpr,
         rhs: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
+        let result_ty = self.get_llvm_type(lhs.ty);
         let l_val = self.compile_expr(lhs);
+        if let Some(fallback) = self.expr_terminated_fallback(result_ty) {
+            return fallback;
+        }
         let r_val = self.compile_expr(rhs);
+        if let Some(fallback) = self.expr_terminated_fallback(result_ty) {
+            return fallback;
+        }
         let span = lhs.span;
 
         if l_val.is_pointer_value() || r_val.is_pointer_value() {
@@ -453,7 +460,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         op: ast::UnaryOperator,
         operand: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
+        let result_ty = self.get_llvm_type(operand.ty);
         let op_val = self.compile_expr(operand);
+        if let Some(fallback) = self.expr_terminated_fallback(result_ty) {
+            return fallback;
+        }
         let span = operand.span; // Preserve source location for diagnostics.
 
         match op {
@@ -533,7 +544,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         rhs: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
         let ptr = self.compile_lvalue(lhs);
+        if self.current_block_is_terminated() {
+            return self.context.struct_type(&[], false).get_undef().into();
+        }
         let rhs_val = self.compile_expr(rhs);
+        if self.current_block_is_terminated() {
+            return self.context.struct_type(&[], false).get_undef().into();
+        }
         let span = lhs.span;
 
         if op == ast::AssignmentOperator::Assign {

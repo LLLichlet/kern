@@ -74,6 +74,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     // Addressing an rvalue materializes it on the stack first.
                     _ => {
                         let rval = self.compile_expr(operand);
+                        if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                            return fallback;
+                        }
                         let llvm_ty = self.get_llvm_type(operand.ty);
 
                         // Allocate an implicit temporary in the current function's entry block.
@@ -211,18 +214,51 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             MastExprKind::Fence { ordering } => self.compile_atomic_fence(*ordering),
             MastExprKind::Memcpy { dest, src, len } => {
-                let d = self.compile_expr(dest).into_pointer_value();
-                let s = self.compile_expr(src).into_pointer_value();
-                let l = self.compile_expr(len).into_int_value();
+                let d = self.compile_expr(dest);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                let s = self.compile_expr(src);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                let l = self.compile_expr(len);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
                 // Alignment 1 is the safest conservative choice; LLVM may optimize further.
-                self.builder.build_memcpy(d, 1, s, 1, l).unwrap();
+                self.builder
+                    .build_memcpy(
+                        d.into_pointer_value(),
+                        1,
+                        s.into_pointer_value(),
+                        1,
+                        l.into_int_value(),
+                    )
+                    .unwrap();
                 self.context.i8_type().const_zero().into() // Void return.
             }
             MastExprKind::Memset { dest, val, len } => {
-                let d = self.compile_expr(dest).into_pointer_value();
-                let v = self.compile_expr(val).into_int_value();
-                let l = self.compile_expr(len).into_int_value();
-                self.builder.build_memset(d, 1, v, l).unwrap();
+                let d = self.compile_expr(dest);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                let v = self.compile_expr(val);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                let l = self.compile_expr(len);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                self.builder
+                    .build_memset(
+                        d.into_pointer_value(),
+                        1,
+                        v.into_int_value(),
+                        l.into_int_value(),
+                    )
+                    .unwrap();
                 self.context.i8_type().const_zero().into() // Void return.
             }
             MastExprKind::SliceOp {

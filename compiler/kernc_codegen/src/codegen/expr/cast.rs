@@ -13,6 +13,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_llvm_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
         let val = self.compile_expr(operand);
+        if let Some(fallback) = self.expr_terminated_fallback(target_llvm_ty) {
+            return fallback;
+        }
         match kind {
             MastCastKind::Bitcast => {
                 if val.is_struct_value() && target_llvm_ty.is_pointer_type() {
@@ -124,6 +127,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     // Rvalues need stack storage before they can decay.
                     _ => {
                         let array_val = self.compile_expr(operand);
+                        if self.current_block_is_terminated() {
+                            return target_llvm_ty.const_zero();
+                        }
                         let array_llvm_ty = self.get_llvm_type(operand.ty);
                         let temp_ptr =
                             self.create_entry_block_alloca(array_llvm_ty, "tmp_array_for_slice");
@@ -186,6 +192,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let mut fat_ptr = fat_ptr_ty.const_zero();
 
         let data_val = self.compile_expr(data_ptr);
+        if self.current_block_is_terminated() {
+            return fat_ptr_ty.const_zero().into();
+        }
         fat_ptr = self
             .builder
             .build_insert_value(fat_ptr, data_val, 0, "fat_data")
@@ -193,6 +202,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .into_struct_value();
 
         let meta_val = self.compile_expr(meta);
+        if self.current_block_is_terminated() {
+            return fat_ptr_ty.const_zero().into();
+        }
         fat_ptr = self
             .builder
             .build_insert_value(fat_ptr, meta_val, 1, "fat_meta")
@@ -208,7 +220,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         index: u32,
         name: &str,
     ) -> BasicValueEnum<'ctx> {
-        let fat_ptr_val = self.compile_expr(fat_ptr_expr).into_struct_value();
+        let fat_ptr_raw = self.compile_expr(fat_ptr_expr);
+        let fat_ptr_llvm_ty = self.get_llvm_type(fat_ptr_expr.ty);
+        if let Some(fallback) = self.expr_terminated_fallback(fat_ptr_llvm_ty) {
+            return fallback;
+        }
+        let fat_ptr_val = fat_ptr_raw.into_struct_value();
         self.builder
             .build_extract_value(fat_ptr_val, index, name)
             .unwrap()

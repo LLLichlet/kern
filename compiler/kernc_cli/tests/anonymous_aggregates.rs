@@ -3,8 +3,7 @@ mod support;
 use std::fs;
 
 use support::{
-    assert_success, build_and_run, compile_source_with_args, repo_root, run_kernc,
-    unique_temp_path,
+    assert_success, build_and_run, compile_source_with_args, repo_root, run_kernc, unique_temp_path,
 };
 
 fn compile_source(source: &str) -> std::process::Output {

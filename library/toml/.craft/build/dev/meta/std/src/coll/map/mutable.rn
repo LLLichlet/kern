@@ -4,7 +4,6 @@
 //! keep rebuilds explicit so growth, compaction, and tombstone reuse all follow the same probing rules.
 
 use std.Option;
-use std.cmp.Eq;
 use std.hash.Hash;
 use std.mem.array_layout_of;
 use std.mem.alloc.Allocator;

@@ -36,6 +36,7 @@ pub type Var = struct {
     pub value: []u8,
 };
 
+#[if((libc and (os == "linux" or os == "darwin")) or os == "windows")]
 fn split_var(entry: []u8) Option[Var] {
     if (#entry == 0) {
         return .{ None };
@@ -61,6 +62,7 @@ fn split_var(entry: []u8) Option[Var] {
     return .{ None };
 }
 
+#[if((libc and (os == "linux" or os == "darwin")) or os == "windows")]
 fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
     let mut value = String.{};
     if (!value..&.push_str(alloc, ptr.[0 .. len])) {

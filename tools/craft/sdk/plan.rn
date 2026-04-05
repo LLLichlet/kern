@@ -50,6 +50,35 @@ pub type EnvValue = enum {
     None,
 };
 
+impl EnvValue : Eq[EnvValue] {
+    pub fn eq(other: EnvValue) bool {
+        match (self) {
+            .{ Some: lhs } => {
+                match (other) {
+                    .{ Some: rhs } => {
+                        if (#lhs != #rhs) {
+                            return false;
+                        }
+                        for (let mut i = 0; i < #lhs; i += 1) {
+                            if (lhs.[i] != rhs.[i]) {
+                                return false;
+                            }
+                        }
+                        return true;
+                    }
+                    .None => return false,
+                }
+            }
+            .None => {
+                match (other) {
+                    .{ Some: _ } => return false,
+                    .None => return true,
+                }
+            }
+        }
+    }
+}
+
 pub extern type Plan = struct {
     pub package: Package,
     pub workspace: Workspace,

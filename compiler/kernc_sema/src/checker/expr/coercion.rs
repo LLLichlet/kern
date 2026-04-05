@@ -810,6 +810,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let con_kind = self.ctx.type_registry.get(con_norm).clone();
 
         match (gen_kind, con_kind) {
+            (TypeKind::TypeVar(vid), _) => {
+                self.type_vars[vid as usize] = Some(concrete_ty);
+                true
+            }
+            (_, TypeKind::TypeVar(vid)) => {
+                self.type_vars[vid as usize] = Some(generic_ty);
+                true
+            }
             (TypeKind::Param(name), _) => {
                 if let Some(&existing_ty) = map.get(&name) {
                     existing_ty == concrete_ty
@@ -1088,6 +1096,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
+        if self.check_builtin_auto_trait_impl(source_ty, target_trait_ty) {
+            return true;
+        }
+
         // If a mutable pointer or slice lacks a direct impl, try its immutable form.
         let source_norm = self.resolve_tv(source_ty);
         let downgraded = match self.ctx.type_registry.get(source_norm).clone() {
@@ -1120,6 +1132,38 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
+    fn check_builtin_auto_trait_impl(&mut self, source_ty: TypeId, target_trait_ty: TypeId) -> bool {
+        let source_norm = self.resolve_tv(source_ty);
+        let target_norm = self.resolve_tv(target_trait_ty);
+
+        let TypeKind::TraitObject(trait_def_id, trait_args) =
+            self.ctx.type_registry.get(target_norm).clone()
+        else {
+            return false;
+        };
+
+        let Some(eq_def_id) = self.ctx.builtin_def("Eq") else {
+            return false;
+        };
+        if trait_def_id != eq_def_id || trait_args.len() != 1 || trait_args[0] != source_norm {
+            return false;
+        }
+
+        match self.ctx.type_registry.get(source_norm).clone() {
+            TypeKind::Enum(def_id, _) => {
+                let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
+                    return false;
+                };
+                def.variants.iter().all(|variant| variant.payload_type.is_none())
+            }
+            TypeKind::AnonymousEnum(anon) => anon
+                .variants
+                .iter()
+                .all(|variant| variant.payload_ty.is_none()),
+            _ => false,
+        }
+    }
+
     fn check_trait_impl_inner(
         &mut self,
         source_ty: TypeId,
@@ -1144,7 +1188,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         source_ty: TypeId,
         target_trait_ty: TypeId,
-        visited: &mut std::collections::HashSet<DefId>,
+        _visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
         for i in 0..self.ctx.active_bounds.len() {
             let (env_target, env_bounds) = self.ctx.active_bounds[i].clone();
@@ -1164,16 +1208,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 for inst_env_bound in instantiated_bounds {
                     let inst_norm = self.resolve_tv(inst_env_bound);
                     let target_norm = self.resolve_tv(target_trait_ty);
+                    let mut trait_map = HashMap::new();
 
-                    if inst_norm == target_norm || inst_env_bound == target_trait_ty {
+                    if inst_norm == target_norm
+                        || inst_env_bound == target_trait_ty
+                        || self.unify(inst_env_bound, target_trait_ty, &mut trait_map)
+                    {
                         return true;
                     }
 
-                    // Contextual bounds may themselves inherit supertraits.
-                    if let TypeKind::TraitObject(inst_def_id, _) =
-                        self.ctx.type_registry.get(inst_norm)
-                        && visited.insert(*inst_def_id)
-                        && self.check_trait_impl_inner(inst_env_bound, target_trait_ty, visited)
+                    if matches!(
+                        (
+                            self.ctx.type_registry.get(inst_norm),
+                            self.ctx.type_registry.get(target_norm)
+                        ),
+                        (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+                    ) && self.is_trait_object_upcast(inst_env_bound, target_trait_ty)
                     {
                         return true;
                     }
@@ -1188,7 +1238,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         source_ty: TypeId,
         target_trait_ty: TypeId,
-        visited: &mut std::collections::HashSet<DefId>,
+        _visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
         let impl_blocks: Vec<_> = self
             .ctx
@@ -1232,29 +1282,24 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
                     let inst_norm = self.resolve_tv(instantiated_trait_ty);
                     let target_norm = self.resolve_tv(target_trait_ty);
+                    let mut trait_map = HashMap::new();
 
-                    if inst_norm == target_norm || instantiated_trait_ty == target_trait_ty {
+                    if inst_norm == target_norm
+                        || instantiated_trait_ty == target_trait_ty
+                        || self.unify(instantiated_trait_ty, target_trait_ty, &mut trait_map)
+                    {
                         return true;
                     }
 
-                    if let TypeKind::TraitObject(inst_def_id, _) =
-                        self.ctx.type_registry.get(inst_norm)
-                        && visited.insert(*inst_def_id)
-                        && let Def::Trait(trait_def) = self.ctx.defs[inst_def_id.0 as usize].clone()
+                    if matches!(
+                        (
+                            self.ctx.type_registry.get(inst_norm),
+                            self.ctx.type_registry.get(target_norm)
+                        ),
+                        (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+                    ) && self.is_trait_object_upcast(instantiated_trait_ty, target_trait_ty)
                     {
-                        // Check inherited supertraits recursively.
-                        for &super_ty in &trait_def.resolved_supertraits {
-                            let inst_super_ty = {
-                                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                                subst.substitute(super_ty)
-                            };
-
-                            if inst_super_ty == target_trait_ty
-                                || self.check_trait_impl_inner(source_ty, inst_super_ty, visited)
-                            {
-                                return true;
-                            }
-                        }
+                        return true;
                     }
                 }
             }

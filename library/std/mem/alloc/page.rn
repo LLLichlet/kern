@@ -12,6 +12,7 @@ use ..Allocator;
 /// An allocator that requests memory directly from the OS page system.
 pub type Page = struct {};
 
+#[if(os == "windows")]
 const WINDOWS_PAGE_READWRITE = u32.{4};
 
 fn normalize_align(align: usize) usize {

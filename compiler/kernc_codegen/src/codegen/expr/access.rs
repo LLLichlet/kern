@@ -98,6 +98,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 field_idx,
             } => {
                 let struct_ptr = self.compile_lvalue(lhs);
+                if self.union_ids.contains(struct_id) {
+                    // Union fields all begin at offset 0 and share the same storage.
+                    // Under opaque pointers we can treat the union allocation itself as
+                    // the lvalue base for the selected field type.
+                    return struct_ptr;
+                }
                 let Some(struct_llvm_ty) =
                     self.lookup_struct_type(*struct_id, expr.span, "field l-value")
                 else {

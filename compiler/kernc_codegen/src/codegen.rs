@@ -46,6 +46,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     union_ids: std::collections::HashSet<MonoId>,
     globals: HashMap<MonoId, GlobalValue<'ctx>>,
     functions: HashMap<MonoId, FunctionValue<'ctx>>,
+    function_ret_tys: HashMap<MonoId, TypeId>,
 
     locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
     loop_targets: Vec<(
@@ -80,6 +81,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             union_ids: std::collections::HashSet::new(),
             globals: HashMap::new(),
             functions: HashMap::new(),
+            function_ret_tys: HashMap::new(),
             locals: HashMap::new(),
             loop_targets: Vec::new(),
             asm_dialect: InlineAsmDialect::Intel,
@@ -99,6 +101,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.anon_struct_map = module.anon_struct_map.clone();
         self.anon_union_map = module.anon_union_map.clone();
         self.anon_enum_map = module.anon_enum_map.clone();
+        self.function_ret_tys = module
+            .functions
+            .iter()
+            .map(|function| (function.id, function.ret_ty))
+            .collect();
 
         self.declare_structs(&module.structs);
         self.declare_globals(&module.globals);

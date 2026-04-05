@@ -1,5 +1,5 @@
 use std.Option;
-use std.cmp.{Eq, Comparable, Ord, Ordering};
+use std.cmp.{Comparable, Ord, Ordering};
 use std.hash.{Hash, hash_bytes};
 use ..String;
 

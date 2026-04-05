@@ -5,6 +5,121 @@ use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, GenericParam, TypeNode};
 use kernc_utils::Span;
 
+struct BuiltinMethodSpec<'a> {
+    name: &'a str,
+    params: Vec<TypeId>,
+    ret: TypeId,
+}
+
+struct BuiltinTraitSpec<'a> {
+    name: &'a str,
+    generics: Vec<GenericParam>,
+    supertraits: Vec<TypeId>,
+    methods: Vec<BuiltinMethodSpec<'a>>,
+}
+
+struct BuiltinOperatorTrait<'a> {
+    name: &'a str,
+    method_name: &'a str,
+    intrinsic_name: &'a str,
+}
+
+const BINARY_OPERATOR_TRAITS: &[BuiltinOperatorTrait<'_>] = &[
+    BuiltinOperatorTrait {
+        name: "Eq",
+        method_name: "eq",
+        intrinsic_name: "@eq",
+    },
+    BuiltinOperatorTrait {
+        name: "Lt",
+        method_name: "lt",
+        intrinsic_name: "@lt",
+    },
+    BuiltinOperatorTrait {
+        name: "Le",
+        method_name: "le",
+        intrinsic_name: "@le",
+    },
+    BuiltinOperatorTrait {
+        name: "Gt",
+        method_name: "gt",
+        intrinsic_name: "@gt",
+    },
+    BuiltinOperatorTrait {
+        name: "Ge",
+        method_name: "ge",
+        intrinsic_name: "@ge",
+    },
+    BuiltinOperatorTrait {
+        name: "Add",
+        method_name: "add",
+        intrinsic_name: "@add",
+    },
+    BuiltinOperatorTrait {
+        name: "Sub",
+        method_name: "sub",
+        intrinsic_name: "@sub",
+    },
+    BuiltinOperatorTrait {
+        name: "Mul",
+        method_name: "mul",
+        intrinsic_name: "@mul",
+    },
+    BuiltinOperatorTrait {
+        name: "Div",
+        method_name: "div",
+        intrinsic_name: "@div",
+    },
+    BuiltinOperatorTrait {
+        name: "Rem",
+        method_name: "rem",
+        intrinsic_name: "@rem",
+    },
+    BuiltinOperatorTrait {
+        name: "BitAnd",
+        method_name: "bit_and",
+        intrinsic_name: "@bitAnd",
+    },
+    BuiltinOperatorTrait {
+        name: "BitOr",
+        method_name: "bit_or",
+        intrinsic_name: "@bitOr",
+    },
+    BuiltinOperatorTrait {
+        name: "BitXor",
+        method_name: "bit_xor",
+        intrinsic_name: "@bitXor",
+    },
+    BuiltinOperatorTrait {
+        name: "Shl",
+        method_name: "shl",
+        intrinsic_name: "@shl",
+    },
+    BuiltinOperatorTrait {
+        name: "Shr",
+        method_name: "shr",
+        intrinsic_name: "@shr",
+    },
+];
+
+const UNARY_OPERATOR_TRAITS: &[BuiltinOperatorTrait<'_>] = &[
+    BuiltinOperatorTrait {
+        name: "Neg",
+        method_name: "neg",
+        intrinsic_name: "@neg",
+    },
+    BuiltinOperatorTrait {
+        name: "BitNot",
+        method_name: "bit_not",
+        intrinsic_name: "@bitNot",
+    },
+    BuiltinOperatorTrait {
+        name: "Not",
+        method_name: "not",
+        intrinsic_name: "@not",
+    },
+];
+
 pub struct BuiltinInjector<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
 }
@@ -15,19 +130,44 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     }
 
     pub fn inject(&mut self) {
-        // 1. Register builtin marker traits such as Integer and Float.
-        let int_trait_id = self.inject_builtin_trait("Integer");
-        let float_trait_id = self.inject_builtin_trait("Float");
-        // let add_trait_id = self.inject_builtin_trait("Add");
+        // 1. Register builtin marker traits and operator traits owned by the language.
+        let int_trait_id = self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "Integer",
+            generics: vec![],
+            supertraits: vec![],
+            methods: vec![],
+        });
+        let int_trait_ty = self.builtin_trait_ty_by_id(int_trait_id, vec![]);
+        let signed_int_trait_id = self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "SignedInteger",
+            generics: vec![],
+            supertraits: vec![int_trait_ty],
+            methods: vec![],
+        });
+        let unsigned_int_trait_id = self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "UnsignedInteger",
+            generics: vec![],
+            supertraits: vec![int_trait_ty],
+            methods: vec![],
+        });
+        let float_trait_id = self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "Float",
+            generics: vec![],
+            supertraits: vec![],
+            methods: vec![],
+        });
+        self.inject_operator_traits();
 
         // 2. Inject builtin impls for primitive types.
-        let int_types = [
+        let signed_int_types = [
             TypeId::I8,
             TypeId::I16,
             TypeId::I32,
             TypeId::I64,
             TypeId::I128,
             TypeId::ISIZE,
+        ];
+        let unsigned_int_types = [
             TypeId::U8,
             TypeId::U16,
             TypeId::U32,
@@ -35,14 +175,23 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             TypeId::U128,
             TypeId::USIZE,
         ];
-        for &ty in &int_types {
+        for &ty in &signed_int_types {
             self.inject_primitive_impl(ty, int_trait_id);
+            self.inject_primitive_impl(ty, signed_int_trait_id);
+            self.inject_integer_operator_impls(ty);
+        }
+        for &ty in &unsigned_int_types {
+            self.inject_primitive_impl(ty, int_trait_id);
+            self.inject_primitive_impl(ty, unsigned_int_trait_id);
+            self.inject_integer_operator_impls(ty);
         }
 
         let float_types = [TypeId::F32, TypeId::F64];
         for &ty in &float_types {
             self.inject_primitive_impl(ty, float_trait_id);
+            self.inject_float_operator_impls(ty);
         }
+        self.inject_bool_operator_impls();
 
         // 3. Register builtin intrinsic functions.
         self.inject_size_of();
@@ -78,33 +227,63 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
     // Injection helpers
     // ==========================================
 
-    fn inject_builtin_trait(&mut self, name: &str) -> DefId {
-        let name_id = self.ctx.intern(name);
+    fn new_builtin_param(&mut self, name: &str) -> GenericParam {
+        GenericParam {
+            name: self.ctx.intern(name),
+            span: Span::default(),
+        }
+    }
+
+    fn builtin_trait_ty_by_id(&mut self, trait_def_id: DefId, args: Vec<TypeId>) -> TypeId {
+        self.ctx
+            .type_registry
+            .intern(TypeKind::TraitObject(trait_def_id, args))
+    }
+
+    fn inject_builtin_trait(&mut self, spec: BuiltinTraitSpec<'_>) -> DefId {
+        let name_id = self.ctx.intern(spec.name);
         let def_id = DefId(self.ctx.defs.len() as u32);
+
+        let self_ty = self.builtin_trait_ty_by_id(def_id, vec![]);
+        let resolved_methods = spec
+            .methods
+            .iter()
+            .map(|method| {
+                let params = std::iter::once(self_ty)
+                    .chain(method.params.iter().copied())
+                    .collect::<Vec<_>>();
+                let sig = self.ctx.type_registry.intern(TypeKind::Function {
+                    params,
+                    ret: method.ret,
+                    is_variadic: false,
+                });
+                (self.ctx.intern(method.name), sig)
+            })
+            .collect();
 
         let trait_def = TraitDef {
             id: def_id,
             name: name_id,
             vis: Visibility::Public,
             is_imported: false,
-            generics: vec![],
+            generics: spec.generics,
             where_clauses: vec![],
             supertraits: vec![],
-            resolved_supertraits: vec![],
-            methods: vec![], // Builtin traits act as pure bounds and need no methods.
-            resolved_methods: vec![],
+            resolved_supertraits: spec.supertraits,
+            methods: vec![],
+            resolved_methods,
             is_builtin: true,
             span: Span::default(),
             docs: None,
         };
 
         self.ctx.add_def(Def::Trait(trait_def));
+        self.ctx.register_builtin_def(name_id, def_id);
 
-        let self_ty = self.ctx.type_registry.intern(TypeKind::Def(def_id, vec![]));
         let info = SymbolInfo {
             kind: SymbolKind::Trait,
             node_id: self.ctx.next_node_id(),
-            type_id: self_ty,
+            type_id: self.builtin_trait_ty_by_id(def_id, vec![]),
             def_id: Some(def_id),
             span: Default::default(),
             is_pub: true,
@@ -115,6 +294,105 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let _ = self.ctx.scopes.define(name_id, info);
 
         def_id
+    }
+
+    fn inject_operator_traits(&mut self) {
+        let rhs = self.new_builtin_param("Rhs");
+        let out = self.new_builtin_param("Out");
+        let rhs_ty = self.ctx.type_registry.intern(TypeKind::Param(rhs.name));
+        let out_ty = self.ctx.type_registry.intern(TypeKind::Param(out.name));
+
+        self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "Eq",
+            generics: vec![rhs.clone()],
+            supertraits: vec![],
+            methods: vec![BuiltinMethodSpec {
+                name: "eq",
+                params: vec![rhs_ty],
+                ret: TypeId::BOOL,
+            }],
+        });
+        self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "Lt",
+            generics: vec![rhs.clone()],
+            supertraits: vec![],
+            methods: vec![BuiltinMethodSpec {
+                name: "lt",
+                params: vec![rhs_ty],
+                ret: TypeId::BOOL,
+            }],
+        });
+        self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "Le",
+            generics: vec![rhs.clone()],
+            supertraits: vec![],
+            methods: vec![BuiltinMethodSpec {
+                name: "le",
+                params: vec![rhs_ty],
+                ret: TypeId::BOOL,
+            }],
+        });
+        self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "Gt",
+            generics: vec![rhs.clone()],
+            supertraits: vec![],
+            methods: vec![BuiltinMethodSpec {
+                name: "gt",
+                params: vec![rhs_ty],
+                ret: TypeId::BOOL,
+            }],
+        });
+        self.inject_builtin_trait(BuiltinTraitSpec {
+            name: "Ge",
+            generics: vec![rhs.clone()],
+            supertraits: vec![],
+            methods: vec![BuiltinMethodSpec {
+                name: "ge",
+                params: vec![rhs_ty],
+                ret: TypeId::BOOL,
+            }],
+        });
+
+        for spec in [
+            ("Add", "add", "@add"),
+            ("Sub", "sub", "@sub"),
+            ("Mul", "mul", "@mul"),
+            ("Div", "div", "@div"),
+            ("Rem", "rem", "@rem"),
+            ("BitAnd", "bit_and", "@bitAnd"),
+            ("BitOr", "bit_or", "@bitOr"),
+            ("BitXor", "bit_xor", "@bitXor"),
+            ("Shl", "shl", "@shl"),
+            ("Shr", "shr", "@shr"),
+        ] {
+            self.inject_builtin_trait(BuiltinTraitSpec {
+                name: spec.0,
+                generics: vec![rhs.clone(), out.clone()],
+                supertraits: vec![],
+                methods: vec![BuiltinMethodSpec {
+                    name: spec.1,
+                    params: vec![rhs_ty],
+                    ret: out_ty,
+                }],
+            });
+        }
+
+        for spec in [
+            ("Neg", "neg", "@neg"),
+            ("BitNot", "bit_not", "@bitNot"),
+            ("Not", "not", "@not"),
+        ] {
+            self.inject_builtin_trait(BuiltinTraitSpec {
+                name: spec.0,
+                generics: vec![out.clone()],
+                supertraits: vec![],
+                methods: vec![BuiltinMethodSpec {
+                    name: spec.1,
+                    params: vec![],
+                    ret: out_ty,
+                }],
+            });
+        }
     }
 
     fn inject_primitive_impl(&mut self, target_ty_id: TypeId, trait_def_id: DefId) {
@@ -138,10 +416,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         // Seed the real semantic types directly into the node-type cache.
         self.ctx.node_types.insert(target_node.id, target_ty_id);
 
-        let trait_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Def(trait_def_id, vec![]));
+        let trait_ty = self.builtin_trait_ty_by_id(trait_def_id, vec![]);
         self.ctx.node_types.insert(trait_node.id, trait_ty);
 
         let impl_def = ImplDef {
@@ -156,6 +431,221 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             span: Default::default(),
         };
         self.ctx.add_def(Def::Impl(impl_def));
+        self.ctx.global_impls.push(def_id);
+    }
+
+    fn inject_operator_impl(
+        &mut self,
+        target_ty_id: TypeId,
+        trait_name: &str,
+        trait_args: Vec<TypeId>,
+        method_name: &str,
+        _method_intrinsic_name: &str,
+        explicit_param_tys: Vec<TypeId>,
+        ret_ty: TypeId,
+    ) {
+        let Some(trait_def_id) = self.ctx.builtin_def(trait_name) else {
+            return;
+        };
+
+        let impl_id = DefId(self.ctx.defs.len() as u32);
+        let target_id = self.ctx.next_node_id();
+        let trait_id = self.ctx.next_node_id();
+
+        let target_node = TypeNode {
+            id: target_id,
+            span: Span::default(),
+            kind: ast::TypeKind::Infer,
+        };
+        let trait_node = TypeNode {
+            id: trait_id,
+            span: Span::default(),
+            kind: ast::TypeKind::Infer,
+        };
+
+        self.ctx.node_types.insert(target_node.id, target_ty_id);
+        let trait_ty = self.builtin_trait_ty_by_id(trait_def_id, trait_args.clone());
+        self.ctx.node_types.insert(trait_node.id, trait_ty);
+
+        let self_sym = self.ctx.intern("self");
+        let self_param_ty_node_id = self.ctx.next_node_id();
+        self.ctx.node_types.insert(self_param_ty_node_id, target_ty_id);
+        let mut params = vec![ast::FuncParam {
+            pattern: ast::BindingPattern {
+                name: self_sym,
+                name_span: Span::default(),
+                is_mut: false,
+                span: Span::default(),
+            },
+            type_node: TypeNode {
+                id: self_param_ty_node_id,
+                span: Span::default(),
+                kind: ast::TypeKind::Infer,
+            },
+            span: Span::default(),
+        }];
+
+        let mut sig_params = vec![target_ty_id];
+        for (index, param_ty) in explicit_param_tys.iter().copied().enumerate() {
+            let name = self.ctx.intern(&format!("arg{}", index));
+            let type_node_id = self.ctx.next_node_id();
+            self.ctx.node_types.insert(type_node_id, param_ty);
+            params.push(ast::FuncParam {
+                pattern: ast::BindingPattern {
+                    name,
+                    name_span: Span::default(),
+                    is_mut: false,
+                    span: Span::default(),
+                },
+                type_node: TypeNode {
+                    id: type_node_id,
+                    span: Span::default(),
+                    kind: ast::TypeKind::Infer,
+                },
+                span: Span::default(),
+            });
+            sig_params.push(param_ty);
+        }
+
+        let ret_type_id = self.ctx.next_node_id();
+        self.ctx.node_types.insert(ret_type_id, ret_ty);
+        let method_def_id = DefId(self.ctx.defs.len() as u32 + 1);
+        let name_id = self.ctx.intern(method_name);
+        let sig_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: sig_params,
+            ret: ret_ty,
+            is_variadic: false,
+        });
+
+        self.ctx.add_def(Def::Impl(ImplDef {
+            id: impl_id,
+            parent_module: None,
+            is_imported: false,
+            generics: vec![],
+            where_clauses: vec![],
+            target_type: target_node,
+            trait_type: Some(trait_node),
+            methods: vec![method_def_id],
+            span: Span::default(),
+        }));
+        self.ctx.global_impls.push(impl_id);
+        self.ctx.add_def(Def::Function(FunctionDef {
+            id: method_def_id,
+            name: name_id,
+            name_span: Span::default(),
+            vis: Visibility::Public,
+            parent: Some(impl_id),
+            is_imported: false,
+            generics: vec![],
+            where_clauses: vec![],
+            params,
+            ret_type: TypeNode {
+                id: ret_type_id,
+                span: Span::default(),
+                kind: ast::TypeKind::Infer,
+            },
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: true,
+            resolved_sig: Some(sig_ty),
+            span: Span::default(),
+            docs: None,
+            attributes: vec![],
+        }));
+    }
+
+    fn inject_integer_operator_impls(&mut self, ty: TypeId) {
+        self.inject_eq_like_impls(ty);
+        self.inject_binary_same_type_impls(
+            ty,
+            &["Add", "Sub", "Mul", "Div", "Rem", "BitAnd", "BitOr", "BitXor"],
+        );
+        self.inject_shift_impls(ty);
+        self.inject_unary_same_type_impl(ty, "Neg");
+        self.inject_unary_same_type_impl(ty, "BitNot");
+    }
+
+    fn inject_float_operator_impls(&mut self, ty: TypeId) {
+        self.inject_eq_like_impls(ty);
+        self.inject_binary_same_type_impls(ty, &["Add", "Sub", "Mul", "Div", "Rem"]);
+        self.inject_unary_same_type_impl(ty, "Neg");
+    }
+
+    fn inject_bool_operator_impls(&mut self) {
+        self.inject_eq_like_impls(TypeId::BOOL);
+        self.inject_unary_same_type_impl(TypeId::BOOL, "Not");
+    }
+
+    fn inject_eq_like_impls(&mut self, ty: TypeId) {
+        for spec in ["Eq", "Lt", "Le", "Gt", "Ge"] {
+            let descriptor = BINARY_OPERATOR_TRAITS
+                .iter()
+                .find(|entry| entry.name == spec)
+                .unwrap();
+            self.inject_operator_impl(
+                ty,
+                descriptor.name,
+                vec![ty],
+                descriptor.method_name,
+                descriptor.intrinsic_name,
+                vec![ty],
+                TypeId::BOOL,
+            );
+        }
+    }
+
+    fn inject_binary_same_type_impls(&mut self, ty: TypeId, trait_names: &[&str]) {
+        for trait_name in trait_names {
+            let descriptor = BINARY_OPERATOR_TRAITS
+                .iter()
+                .find(|entry| entry.name == *trait_name)
+                .unwrap();
+            self.inject_operator_impl(
+                ty,
+                descriptor.name,
+                vec![ty, ty],
+                descriptor.method_name,
+                descriptor.intrinsic_name,
+                vec![ty],
+                ty,
+            );
+        }
+    }
+
+    fn inject_shift_impls(&mut self, ty: TypeId) {
+        for trait_name in ["Shl", "Shr"] {
+            let descriptor = BINARY_OPERATOR_TRAITS
+                .iter()
+                .find(|entry| entry.name == trait_name)
+                .unwrap();
+            self.inject_operator_impl(
+                ty,
+                descriptor.name,
+                vec![ty, ty],
+                descriptor.method_name,
+                descriptor.intrinsic_name,
+                vec![ty],
+                ty,
+            );
+        }
+    }
+
+    fn inject_unary_same_type_impl(&mut self, ty: TypeId, trait_name: &str) {
+        let descriptor = UNARY_OPERATOR_TRAITS
+            .iter()
+            .find(|entry| entry.name == trait_name)
+            .unwrap();
+        self.inject_operator_impl(
+            ty,
+            descriptor.name,
+            vec![ty],
+            descriptor.method_name,
+            descriptor.intrinsic_name,
+            vec![],
+            ty,
+        );
     }
 
     // Inject `@sizeOf[T]() -> usize`.
@@ -359,10 +849,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             span: Default::default(),
             kind: ast::TypeKind::Infer,
         };
-        let trait_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::Def(int_trait_id, vec![]));
+        let trait_ty = self.builtin_trait_ty_by_id(int_trait_id, vec![]);
         self.ctx.node_types.insert(trait_node.id, trait_ty);
 
         let param_t = ast::GenericParam {
@@ -370,11 +857,17 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             span: Default::default(),
         };
 
+        let target_node = ast::TypeNode {
+            id: self.ctx.next_node_id(),
+            span: Default::default(),
+            kind: ast::TypeKind::Infer,
+        };
         let val_param_id = self.ctx.next_node_id();
         let ret_id = self.ctx.next_node_id();
 
         let sig_ty = {
             let t_ty = self.ctx.type_registry.intern(TypeKind::Param(param_t.name));
+            self.ctx.node_types.insert(target_node.id, t_ty);
             self.ctx.node_types.insert(val_param_id, t_ty);
             self.ctx.node_types.insert(ret_id, t_ty);
             self.ctx.type_registry.intern(TypeKind::Function {
@@ -392,7 +885,11 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             parent: None,
             is_imported: false,
             generics: vec![param_t],
-            where_clauses: vec![],
+            where_clauses: vec![ast::WhereClause {
+                span: Default::default(),
+                target_ty: target_node,
+                bounds: vec![trait_node],
+            }],
             params: vec![ast::FuncParam {
                 pattern: ast::BindingPattern {
                     name: self.ctx.intern("val"),

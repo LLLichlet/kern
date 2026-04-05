@@ -1,5 +1,4 @@
 use std.Option;
-use std.cmp.Eq;
 use std.hash.Hash;
 use std.coll.List;
 use std.mem.alloc.Allocator;

@@ -12,6 +12,7 @@ pub mod rt;
 pub mod os;
 pub mod env;
 pub mod dbg;
+pub mod test;
 pub mod cffi;
 pub mod mem;
 pub mod coll;
@@ -21,5 +22,5 @@ pub mod cmp;
 pub mod hash;
 
 pub use .dbg.{Result, Option};
-pub use .cmp.{Eq, eq, Ordering, LESS, EQUAL, GREATER, Comparable, Ord, ord_cmp};
+pub use .cmp.{eq, Ordering, LESS, EQUAL, GREATER, Comparable, Ord, ord_cmp};
 pub use .hash.{Hash, hash_of, hash_bytes, mix_u64, mix_u128};

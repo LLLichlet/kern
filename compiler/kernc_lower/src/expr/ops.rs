@@ -3,16 +3,284 @@ use std::collections::HashMap;
 
 use kernc_ast::{self as ast, Expr};
 use kernc_mast::*;
+use kernc_sema::def::Def;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn has_builtin_binary_fast_path(
+        &mut self,
+        op: ast::BinaryOperator,
+        lhs_ty: TypeId,
+        rhs_ty: TypeId,
+    ) -> bool {
+        let l_norm = self.ctx.type_registry.normalize(lhs_ty);
+        let r_norm = self.ctx.type_registry.normalize(rhs_ty);
+        let is_l_ptr = matches!(
+            self.ctx.type_registry.get(l_norm),
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        );
+        let is_r_ptr = matches!(
+            self.ctx.type_registry.get(r_norm),
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        );
+
+        match op {
+            ast::BinaryOperator::Add | ast::BinaryOperator::Subtract => {
+                if is_l_ptr || is_r_ptr {
+                    return true;
+                }
+
+                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+            }
+            ast::BinaryOperator::Multiply
+            | ast::BinaryOperator::Divide
+            | ast::BinaryOperator::Modulo => {
+                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+            }
+            ast::BinaryOperator::Equal | ast::BinaryOperator::NotEqual => {
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
+                {
+                    return true;
+                }
+                if l_norm == r_norm && self.is_pure_enum_type(l_norm) {
+                    return true;
+                }
+                is_l_ptr
+                    || is_r_ptr
+                    || (self.ctx.type_registry.is_integer(l_norm)
+                        && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+                    || (l_norm == TypeId::BOOL && r_norm == TypeId::BOOL)
+            }
+            ast::BinaryOperator::LessThan
+            | ast::BinaryOperator::GreaterThan
+            | ast::BinaryOperator::LessOrEqual
+            | ast::BinaryOperator::GreaterOrEqual => {
+                is_l_ptr
+                    || is_r_ptr
+                    || (self.ctx.type_registry.is_integer(l_norm)
+                        && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+                    || (l_norm == TypeId::BOOL && r_norm == TypeId::BOOL)
+            }
+            ast::BinaryOperator::LogicalAnd | ast::BinaryOperator::LogicalOr => true,
+            ast::BinaryOperator::BitwiseAnd
+            | ast::BinaryOperator::BitwiseOr
+            | ast::BinaryOperator::BitwiseXor
+            | ast::BinaryOperator::ShiftLeft
+            | ast::BinaryOperator::ShiftRight => {
+                self.ctx.type_registry.is_integer(l_norm) && l_norm == r_norm
+            }
+        }
+    }
+
+    fn is_pure_enum_type(&mut self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Enum(def_id, _) => {
+                let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
+                    return false;
+                };
+                def.variants.iter().all(|variant| variant.payload_type.is_none())
+            }
+            TypeKind::AnonymousEnum(anon) => anon
+                .variants
+                .iter()
+                .all(|variant| variant.payload_ty.is_none()),
+            _ => false,
+        }
+    }
+
+    fn has_builtin_unary_fast_path(&mut self, op: ast::UnaryOperator, operand_ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(operand_ty);
+        match op {
+            ast::UnaryOperator::Negate => {
+                self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm)
+            }
+            ast::UnaryOperator::LogicalNot => norm == TypeId::BOOL,
+            ast::UnaryOperator::BitwiseNot => self.ctx.type_registry.is_integer(norm),
+            ast::UnaryOperator::AddressOf
+            | ast::UnaryOperator::MutAddressOf
+            | ast::UnaryOperator::MetaOf
+            | ast::UnaryOperator::PointerDeRef => true,
+        }
+    }
+
+    fn binary_operator_trait_name(&self, op: ast::BinaryOperator) -> Option<&'static str> {
+        match op {
+            ast::BinaryOperator::Add => Some("Add"),
+            ast::BinaryOperator::Subtract => Some("Sub"),
+            ast::BinaryOperator::Multiply => Some("Mul"),
+            ast::BinaryOperator::Divide => Some("Div"),
+            ast::BinaryOperator::Modulo => Some("Rem"),
+            ast::BinaryOperator::Equal | ast::BinaryOperator::NotEqual => Some("Eq"),
+            ast::BinaryOperator::LessThan => Some("Lt"),
+            ast::BinaryOperator::LessOrEqual => Some("Le"),
+            ast::BinaryOperator::GreaterThan => Some("Gt"),
+            ast::BinaryOperator::GreaterOrEqual => Some("Ge"),
+            ast::BinaryOperator::BitwiseAnd => Some("BitAnd"),
+            ast::BinaryOperator::BitwiseOr => Some("BitOr"),
+            ast::BinaryOperator::BitwiseXor => Some("BitXor"),
+            ast::BinaryOperator::ShiftLeft => Some("Shl"),
+            ast::BinaryOperator::ShiftRight => Some("Shr"),
+            // `and` / `or` lower as builtin short-circuit control flow, not trait calls.
+            ast::BinaryOperator::LogicalAnd | ast::BinaryOperator::LogicalOr => None,
+        }
+    }
+
+    fn binary_operator_method_name(&mut self, op: ast::BinaryOperator) -> Option<SymbolId> {
+        Some(match op {
+            ast::BinaryOperator::Add => self.ctx.intern("add"),
+            ast::BinaryOperator::Subtract => self.ctx.intern("sub"),
+            ast::BinaryOperator::Multiply => self.ctx.intern("mul"),
+            ast::BinaryOperator::Divide => self.ctx.intern("div"),
+            ast::BinaryOperator::Modulo => self.ctx.intern("rem"),
+            ast::BinaryOperator::Equal | ast::BinaryOperator::NotEqual => self.ctx.intern("eq"),
+            ast::BinaryOperator::LessThan => self.ctx.intern("lt"),
+            ast::BinaryOperator::LessOrEqual => self.ctx.intern("le"),
+            ast::BinaryOperator::GreaterThan => self.ctx.intern("gt"),
+            ast::BinaryOperator::GreaterOrEqual => self.ctx.intern("ge"),
+            ast::BinaryOperator::BitwiseAnd => self.ctx.intern("bit_and"),
+            ast::BinaryOperator::BitwiseOr => self.ctx.intern("bit_or"),
+            ast::BinaryOperator::BitwiseXor => self.ctx.intern("bit_xor"),
+            ast::BinaryOperator::ShiftLeft => self.ctx.intern("shl"),
+            ast::BinaryOperator::ShiftRight => self.ctx.intern("shr"),
+            ast::BinaryOperator::LogicalAnd | ast::BinaryOperator::LogicalOr => return None,
+        })
+    }
+
+    fn unary_operator_trait_name(&self, op: ast::UnaryOperator) -> Option<&'static str> {
+        match op {
+            ast::UnaryOperator::Negate => Some("Neg"),
+            ast::UnaryOperator::LogicalNot => Some("Not"),
+            ast::UnaryOperator::BitwiseNot => Some("BitNot"),
+            // Keep memory/metadata operators owned by the language.
+            ast::UnaryOperator::AddressOf
+            | ast::UnaryOperator::MutAddressOf
+            | ast::UnaryOperator::MetaOf
+            | ast::UnaryOperator::PointerDeRef => None,
+        }
+    }
+
+    fn unary_operator_method_name(&mut self, op: ast::UnaryOperator) -> Option<SymbolId> {
+        Some(match op {
+            ast::UnaryOperator::Negate => self.ctx.intern("neg"),
+            ast::UnaryOperator::LogicalNot => self.ctx.intern("not"),
+            ast::UnaryOperator::BitwiseNot => self.ctx.intern("bit_not"),
+            ast::UnaryOperator::AddressOf
+            | ast::UnaryOperator::MutAddressOf
+            | ast::UnaryOperator::MetaOf
+            | ast::UnaryOperator::PointerDeRef => return None,
+        })
+    }
+
+    fn lower_custom_binary_operator(
+        &mut self,
+        lhs: MastExpr,
+        rhs: MastExpr,
+        op: ast::BinaryOperator,
+        result_ty: TypeId,
+        span: Span,
+    ) -> MastExprKind {
+        let Some(trait_name) = self.binary_operator_trait_name(op) else {
+            self.ctx.emit_ice(span, "missing builtin trait for binary operator lowering");
+            return MastExprKind::Trap;
+        };
+        let Some(method_name) = self.binary_operator_method_name(op) else {
+            self.ctx.emit_ice(span, "missing builtin method name for binary operator lowering");
+            return MastExprKind::Trap;
+        };
+        let trait_args = match op {
+            ast::BinaryOperator::Equal
+            | ast::BinaryOperator::NotEqual
+            | ast::BinaryOperator::LessThan
+            | ast::BinaryOperator::LessOrEqual
+            | ast::BinaryOperator::GreaterThan
+            | ast::BinaryOperator::GreaterOrEqual => vec![rhs.ty],
+            _ => vec![rhs.ty, result_ty],
+        };
+        let Some(owner_trait_ty) = self.ctx.builtin_trait_ty(trait_name, trait_args) else {
+            self.ctx.emit_ice(
+                span,
+                format!("missing builtin trait `{}` during lowering", trait_name),
+            );
+            return MastExprKind::Trap;
+        };
+        let callee_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: vec![lhs.ty, rhs.ty],
+            ret: result_ty,
+            is_variadic: false,
+        });
+        let call = self.lower_resolved_trait_method_call(
+            lhs,
+            method_name,
+            vec![rhs],
+            owner_trait_ty,
+            callee_ty,
+            span,
+        );
+
+        if op == ast::BinaryOperator::NotEqual {
+            return MastExprKind::Unary {
+                op: ast::UnaryOperator::LogicalNot,
+                operand: Box::new(MastExpr::new(TypeId::BOOL, call, span)),
+            };
+        }
+
+        call
+    }
+
+    fn lower_custom_unary_operator(
+        &mut self,
+        operand: MastExpr,
+        op: ast::UnaryOperator,
+        result_ty: TypeId,
+        span: Span,
+    ) -> MastExprKind {
+        let Some(trait_name) = self.unary_operator_trait_name(op) else {
+            self.ctx.emit_ice(span, "missing builtin trait for unary operator lowering");
+            return MastExprKind::Trap;
+        };
+        let Some(method_name) = self.unary_operator_method_name(op) else {
+            self.ctx.emit_ice(span, "missing builtin method name for unary operator lowering");
+            return MastExprKind::Trap;
+        };
+        let Some(owner_trait_ty) = self.ctx.builtin_trait_ty(trait_name, vec![result_ty]) else {
+            self.ctx.emit_ice(
+                span,
+                format!("missing builtin trait `{}` during lowering", trait_name),
+            );
+            return MastExprKind::Trap;
+        };
+        let callee_ty = self.ctx.type_registry.intern(TypeKind::Function {
+            params: vec![operand.ty],
+            ret: result_ty,
+            is_variadic: false,
+        });
+        self.lower_resolved_trait_method_call(
+            operand,
+            method_name,
+            vec![],
+            owner_trait_ty,
+            callee_ty,
+            span,
+        )
+    }
+
     pub(crate) fn lower_binary(
         &mut self,
         lhs: &Expr,
         op: ast::BinaryOperator,
         rhs: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
+        result_ty: TypeId,
         span: Span,
     ) -> MastExprKind {
         if op == ast::BinaryOperator::LogicalAnd {
@@ -96,11 +364,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             let r = self.lower_expr(rhs, subst_map, expected_r);
 
-            MastExprKind::Binary {
-                op,
-                lhs: Box::new(l),
-                rhs: Box::new(r),
+            if self.has_builtin_binary_fast_path(op, l.ty, r.ty) {
+                return MastExprKind::Binary {
+                    op,
+                    lhs: Box::new(l),
+                    rhs: Box::new(r),
+                };
             }
+
+            self.lower_custom_binary_operator(l, r, op, result_ty, span)
         }
     }
 
@@ -109,6 +381,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         op: ast::UnaryOperator,
         operand: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
+        result_ty: TypeId,
+        span: Span,
     ) -> MastExprKind {
         let op_mast = self.lower_expr(operand, subst_map, None);
 
@@ -160,10 +434,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
 
-            _ => MastExprKind::Unary {
+            _ if self.has_builtin_unary_fast_path(op, op_mast.ty) => MastExprKind::Unary {
                 op,
                 operand: Box::new(op_mast),
             },
+            _ => self.lower_custom_unary_operator(op_mast, op, result_ty, span),
         }
     }
 

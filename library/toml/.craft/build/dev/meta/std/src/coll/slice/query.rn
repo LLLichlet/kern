@@ -4,7 +4,7 @@
 //! keep borrowed sequence queries allocation-free and composable.
 
 use std.Option;
-use std.cmp.{Eq, Ord, Ordering, LESS, EQUAL, GREATER};
+use std.cmp.{Ord, Ordering, LESS, EQUAL, GREATER};
 
 impl[T] []T {
     /// Returns `true` when the slice has no elements.

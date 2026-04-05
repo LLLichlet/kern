@@ -161,10 +161,26 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let mut result_val = None;
         if let Some(result_expr) = &block.result {
             result_val = Some(self.compile_expr(result_expr));
+            let Some(result_block) = self.current_insert_block("block result expression") else {
+                self.locals = saved_locals;
+                return None;
+            };
+            if result_block.get_terminator().is_some() {
+                self.locals = saved_locals;
+                return None;
+            }
         }
 
         // 3. Run defers after computing the result but before leaving the block.
         for defer_expr in &block.defers {
+            let Some(defer_block) = self.current_insert_block("block defer") else {
+                self.locals = saved_locals;
+                return None;
+            };
+            if defer_block.get_terminator().is_some() {
+                self.locals = saved_locals;
+                return None;
+            }
             self.compile_expr(defer_expr);
         }
 

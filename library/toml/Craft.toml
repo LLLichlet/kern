@@ -6,3 +6,11 @@ publish = false
 
 [lib]
 root = "src/lib.rn"
+
+[[test]]
+name = "parse_smoke"
+root = "tests/parse_smoke.rn"
+
+[[test]]
+name = "parse_errors"
+root = "tests/parse_errors.rn"

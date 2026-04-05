@@ -13,6 +13,7 @@ mod build_plan;
 mod elaborate;
 mod execute;
 mod lockfile;
+mod operation_lock;
 mod resolver;
 mod script;
 mod source;

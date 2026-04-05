@@ -278,7 +278,7 @@ fn compiles_std_cmp_ord_bound_for_custom_impls() {
     let output = build_and_run(
         "kernc_trait_custom_ord_value_bound",
         r#"
-use std.cmp.{Eq, Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
+use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 
 type Key = struct {
     raw: i32,
@@ -379,6 +379,362 @@ extern fn main(args: [][]u8) i32 {
     assert!(
         output.status.success(),
         "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_generic_builtin_eq_operator_bound() {
+    let output = build_and_run(
+        "kernc_builtin_eq_operator_bound",
+        r#"
+type Mode = enum {
+    Fast,
+    Slow,
+};
+
+fn same[T](lhs: T, rhs: T) bool
+    where T: Eq[T],
+{
+    return lhs == rhs;
+}
+
+extern fn main(args: [][]u8) i32 {
+    if (!same(Mode.Fast, Mode.Fast)) {
+        return 1;
+    }
+    if (same(Mode.Fast, Mode.Slow)) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_generic_integer_marker_bound_for_bit_intrinsic() {
+    let output = build_and_run(
+        "kernc_integer_marker_bound",
+        r#"
+fn count_bits[T](value: T) T
+    where T: Integer,
+{
+    return @popCount(value);
+}
+
+extern fn main(args: [][]u8) i32 {
+    let count = count_bits(u32.{240});
+    if (count != u32.{4}) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_generic_bit_intrinsic_without_integer_bound() {
+    let output = compile_source(
+        r#"
+fn count_bits[T](value: T) T {
+    return @popCount(value);
+}
+
+extern fn main(args: [][]u8) i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Integer"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_using_float_marker_as_operator_capability() {
+    let output = compile_source(
+        r#"
+fn add_pair[T](lhs: T, rhs: T) T
+    where T: Float,
+{
+    return lhs + rhs;
+}
+
+extern fn main(args: [][]u8) i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Add[T, T]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn compiles_signed_and_unsigned_integer_marker_bounds() {
+    let output = build_and_run(
+        "kernc_signed_unsigned_markers",
+        r#"
+fn signed_id[T](value: T) T
+    where T: SignedInteger,
+{
+    return value;
+}
+
+fn unsigned_id[T](value: T) T
+    where T: UnsignedInteger,
+{
+    return value;
+}
+
+extern fn main(args: [][]u8) i32 {
+    if (signed_id(i32.{7}) != i32.{7}) {
+        return 1;
+    }
+    if (unsigned_id(u32.{9}) != u32.{9}) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_unsigned_type_for_signed_integer_marker() {
+    let output = compile_source(
+        r#"
+fn signed_id[T](value: T) T
+    where T: SignedInteger,
+{
+    return value;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = signed_id(u32.{1});
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("SignedInteger"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn signed_integer_marker_does_not_replace_neg_trait_bound() {
+    let output = compile_source(
+        r#"
+fn negate[T](value: T) T
+    where T: SignedInteger,
+{
+    return -value;
+}
+
+extern fn main(args: [][]u8) i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Neg[T]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn logical_operators_remain_short_circuit_control_flow() {
+    let output = build_and_run(
+        "kernc_logical_short_circuit",
+        r#"
+fn mark(counter: *mut i32, value: bool) bool {
+    counter.* += 1;
+    return value;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let mut calls = i32.{0};
+
+    if (false and mark(calls..&, true)) {
+        return 1;
+    }
+    if (calls != 0) {
+        return 2;
+    }
+
+    if (!(true or mark(calls..&, false))) {
+        return 3;
+    }
+    if (calls != 0) {
+        return 4;
+    }
+
+    if (!(true and mark(calls..&, true))) {
+        return 5;
+    }
+    if (calls != 1) {
+        return 6;
+    }
+
+    if (!(false or mark(calls..&, true))) {
+        return 7;
+    }
+    if (calls != 2) {
+        return 8;
+    }
+
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_generic_builtin_eq_operator_without_bound() {
+    let output = compile_source(
+        r#"
+fn same[T](lhs: T, rhs: T) bool {
+    return lhs == rhs;
+}
+
+extern fn main(args: [][]u8) i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Eq[T]"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runs_custom_builtin_add_operator_impl() {
+    let output = build_and_run(
+        "kernc_builtin_add_operator_impl",
+        r#"
+type Vec2 = struct {
+    x: i32,
+    y: i32,
+};
+
+impl Vec2 : Add[Vec2, Vec2] {
+    pub fn add(other: Vec2) Vec2 {
+        return Vec2.{ x: self.x + other.x, y: self.y + other.y };
+    }
+}
+
+fn plus[T](lhs: T, rhs: T) T
+    where T: Add[T, T],
+{
+    return lhs + rhs;
+}
+
+extern fn main(args: [][]u8) i32 {
+    let sum = plus(Vec2.{ x: 1, y: 2 }, Vec2.{ x: 3, y: 4 });
+    if (sum.x != 4) {
+        return 1;
+    }
+    if (sum.y != 6) {
+        return 2;
+    }
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+
+    assert!(
+        output.status.success(),
+        "program failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

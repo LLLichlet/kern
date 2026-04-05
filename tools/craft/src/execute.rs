@@ -243,7 +243,8 @@ pub fn run(
 ) -> Result<RunSummary> {
     build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Run)?;
     let action = find_link_action(action_plan, unit)?;
-    let status = Command::new(&action.artifact_path)
+    let executable_path = resolve_invocation_path(&action.artifact_path)?;
+    let status = Command::new(&executable_path)
         .current_dir(&build_plan.workspace_root)
         .status()
         .map_err(Error::from_io_plain)?;
@@ -270,7 +271,8 @@ pub fn test(
     let mut executed = 0;
     for unit in units {
         let action = find_link_action(action_plan, unit)?;
-        let status = Command::new(&action.artifact_path)
+        let executable_path = resolve_invocation_path(&action.artifact_path)?;
+        let status = Command::new(&executable_path)
             .current_dir(&build_plan.workspace_root)
             .status()
             .map_err(Error::from_io_plain)?;
@@ -343,6 +345,16 @@ fn ensure_parent_dir(path: &Path) -> Result<()> {
         fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
     }
     Ok(())
+}
+
+fn resolve_invocation_path(path: &Path) -> Result<PathBuf> {
+    if path.is_absolute() {
+        return Ok(path.to_path_buf());
+    }
+
+    Ok(std::env::current_dir()
+        .map_err(Error::from_io_plain)?
+        .join(path))
 }
 
 fn load_source_config(build_plan: &BuildPlan) -> Result<SourceConfigContext> {
@@ -1508,11 +1520,6 @@ fn link_objects_for_compile_action(
     push_link_object(&mut objects, &mut seen, &root_action.object_path);
 
     for package_id in required_local_packages(root_action, local_library_actions) {
-        if package_id.domain == root_action.domain
-            && package_id.package_id == root_action.package_id
-        {
-            continue;
-        }
         if let Some(action) = local_library_actions.get(&package_id) {
             push_link_object(&mut objects, &mut seen, &action.object_path);
         }
@@ -1586,6 +1593,7 @@ fn build_std_package(
         .join("std");
 
     ensure_parent_dir(&object_path)?;
+    ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
@@ -1909,6 +1917,101 @@ pub fn answer() i32 {
     }
 
     #[test]
+    fn builds_hosted_package_when_dependency_emits_generic_std_instantiations() {
+        let root = temp_dir("craft-exec-generic-std-linkage");
+        let app_dir = root.join("app");
+        let util_dir = root.join("util");
+        fs::create_dir_all(&app_dir).unwrap();
+        fs::create_dir_all(&util_dir).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app", "util"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+util = { path = "../util" }
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(app_dir.join("src")).unwrap();
+        fs::write(
+            app_dir.join("src/main.rn"),
+            r#"
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    if (util.is_truthy("true")) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            util_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "util"
+version = "0.1.0"
+kern = "0.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        fs::create_dir_all(util_dir.join("src")).unwrap();
+        fs::write(
+            util_dir.join("src/lib.rn"),
+            r#"
+pub fn is_truthy(value: []u8) bool {
+    return value.eq("true");
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let members = crate::workspace::load_members(&manifest_path, &manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+        let summary = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(summary.compile_actions, 2);
+        assert_eq!(summary.link_actions, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn builds_and_executes_test_units() {
         let root = temp_dir("craft-exec-test");
         fs::create_dir_all(root.join("tests")).unwrap();
@@ -1932,6 +2035,79 @@ root = "tests/smoke.rn"
 extern fn main(args: [][]u8) i32 {
     let _ = args;
     return 0;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Test,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+        let test_units = build_plan.packages[0]
+            .units
+            .iter()
+            .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)
+            .collect::<Vec<_>>();
+
+        let summary = test(&build_plan, &action_plan, &test_units).unwrap();
+        assert_eq!(summary.executed, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn tests_can_import_their_own_package_library() {
+        let root = temp_dir("craft-exec-test-self-lib");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("tests")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[lib]
+root = "src/lib.rn"
+
+[[test]]
+name = "smoke"
+root = "tests/smoke.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib.rn"),
+            r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("tests/smoke.rn"),
+            r#"
+use demo.answer;
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    if (answer() == 42) {
+        return 0;
+    }
+    return 1;
 }
 "#,
         )

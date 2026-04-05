@@ -8,6 +8,7 @@ use crate::execute;
 use crate::graph;
 use crate::lockfile;
 use crate::manifest::Manifest;
+use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
 use crate::source;
 use crate::workspace;
@@ -182,7 +183,11 @@ impl Renderer {
 }
 
 pub fn run() -> Result<()> {
-    match parse_args(env::args().skip(1))? {
+    run_command(parse_args(env::args().skip(1))?)
+}
+
+fn run_command(command: Command) -> Result<()> {
+    match command {
         Command::Help => {
             print!("{}", usage());
             Ok(())
@@ -193,10 +198,11 @@ pub fn run() -> Result<()> {
             ui,
         } => {
             let render = Renderer::new(ui);
-            let loaded = load_package_graph(
+            let (loaded, _workspace_lock) = load_locked_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Check,
                 &feature_selection,
+                "check",
             )?;
             let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
             let build_plan =
@@ -355,10 +361,11 @@ pub fn run() -> Result<()> {
             ui,
         } => {
             let render = Renderer::new(ui);
-            let loaded = load_package_graph(
+            let (loaded, _workspace_lock) = load_locked_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Lock,
                 &feature_selection,
+                "lock",
             )?;
             let (lock_path, lock_result) =
                 lockfile::sync_lockfile(&loaded.manifest_path, &loaded.elaboration)?;
@@ -404,10 +411,11 @@ pub fn run() -> Result<()> {
             ui,
         } => {
             let render = Renderer::new(ui);
-            let loaded = load_package_graph(
+            let (loaded, _workspace_lock) = load_locked_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Fetch,
                 &feature_selection,
+                "fetch",
             )?;
             let fetched = source::fetch_external_packages(
                 &loaded.manifest_path,
@@ -458,10 +466,11 @@ pub fn run() -> Result<()> {
             ui,
         } => {
             let render = Renderer::new(ui);
-            let loaded = load_package_graph(
+            let (loaded, _workspace_lock) = load_locked_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Build,
                 &feature_selection,
+                "build",
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
@@ -526,10 +535,11 @@ pub fn run() -> Result<()> {
             ui,
         } => {
             let render = Renderer::new(ui);
-            let loaded = load_package_graph(
+            let (loaded, _workspace_lock) = load_locked_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Build,
                 &feature_selection,
+                "doc",
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
@@ -600,10 +610,11 @@ pub fn run() -> Result<()> {
             ui,
         } => {
             let render = Renderer::new(ui);
-            let loaded = load_package_graph(
+            let (loaded, _workspace_lock) = load_locked_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Run,
                 &feature_selection,
+                "run",
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Run)?;
@@ -679,10 +690,11 @@ pub fn run() -> Result<()> {
             ui,
         } => {
             let render = Renderer::new(ui);
-            let loaded = load_package_graph(
+            let (loaded, _workspace_lock) = load_locked_package_graph(
                 path.as_deref(),
                 crate::script::ScriptCommand::Test,
                 &feature_selection,
+                "test",
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Test)?;
@@ -755,15 +767,18 @@ struct LoadedPackageGraph {
     elaboration: elaborate::ElaborationPlan,
 }
 
-fn load_package_graph(
+fn load_locked_package_graph(
     path: Option<&std::path::Path>,
     command: crate::script::ScriptCommand,
     feature_selection: &elaborate::FeatureSelection,
-) -> Result<LoadedPackageGraph> {
+    operation: &str,
+) -> Result<(LoadedPackageGraph, WorkspaceOperationLock)> {
     let manifest_path = discover::resolve_manifest_path(path)?;
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
+    let workspace_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let workspace_lock = WorkspaceOperationLock::acquire(workspace_root, operation)?;
     let elaboration = elaborate::plan(
         &manifest_path,
         &manifest,
@@ -778,13 +793,16 @@ fn load_package_graph(
         elaboration.packages.iter().map(|pkg| &pkg.plan),
     )?;
 
-    Ok(LoadedPackageGraph {
-        manifest_path,
-        manifest,
-        workspace_members,
-        package_graph,
-        elaboration,
-    })
+    Ok((
+        LoadedPackageGraph {
+            manifest_path,
+            manifest,
+            workspace_members,
+            package_graph,
+            elaboration,
+        },
+        workspace_lock,
+    ))
 }
 
 fn format_package_label(manifest: &Manifest) -> String {
@@ -1457,14 +1475,53 @@ examples
 #[cfg(test)]
 mod tests {
     use super::{
-        ColorChoice, Command, UiOptions, parse_args, summarize_check_sources,
+        ColorChoice, Command, UiOptions, parse_args, run_command, summarize_check_sources,
         summarize_source_security, validate_check_source_policy,
     };
+    use crate::elaborate::FeatureSelection;
     use crate::graph::SourceId;
     use crate::manifest::ReleaseSourcePolicy;
+    use crate::operation_lock::WorkspaceOperationLock;
     use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
     use crate::script::ProfileSelection;
+    use std::fs;
     use std::path::PathBuf;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn write_minimal_bin_package(root: &std::path::Path) {
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.rn"),
+            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+        )
+        .unwrap();
+    }
 
     #[test]
     fn parses_check_with_path_and_feature_options() {
@@ -1951,5 +2008,42 @@ rev = "abc123"
 
         validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
             .unwrap();
+    }
+
+    #[test]
+    fn check_command_waits_for_workspace_lock() {
+        let root = temp_dir("craft-cli-workspace-lock");
+        write_minimal_bin_package(&root);
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let root_for_holder = root.clone();
+
+        let holder = thread::spawn(move || {
+            let _lock = WorkspaceOperationLock::acquire(&root_for_holder, "build").unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+
+        ready_rx.recv().unwrap();
+        let root_for_check = root.clone();
+        let start = Instant::now();
+        let waiter = thread::spawn(move || {
+            run_command(Command::Check {
+                path: Some(root_for_check),
+                feature_selection: FeatureSelection::default(),
+                ui: UiOptions::default(),
+            })
+            .unwrap();
+            start.elapsed()
+        });
+
+        thread::sleep(Duration::from_millis(200));
+        release_tx.send(()).unwrap();
+
+        holder.join().unwrap();
+        let waited = waiter.join().unwrap();
+        assert!(waited >= Duration::from_millis(150));
+
+        let _ = fs::remove_dir_all(root);
     }
 }

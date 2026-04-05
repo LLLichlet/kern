@@ -108,9 +108,8 @@ pub fn rename(alloc: *mut Allocator, old_path: []u8, new_path: []u8) Result[bool
         .{ Err: err } => return .{ Err: err },
     };
 
-    let mut new_c_path = *mut u8.{undef};
-    match (alloc_c_path(alloc, new_path)) {
-        .{ Ok: ptr } => new_c_path = ptr,
+    let new_c_path = match (alloc_c_path(alloc, new_path)) {
+        .{ Ok: ptr } => ptr,
         .{ Err: err } => {
             free_c_path(alloc, old_path, old_c_path);
             return .{ Err: err };

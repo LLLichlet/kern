@@ -1,0 +1,79 @@
+//! Test assertion helpers.
+//!
+//! This module is intentionally separate from `std.dbg`:
+//! `dbg` is for diagnostics and low-level runtime failures, while `test`
+//! defines vocabulary for executable test targets.
+
+use std.io.{Printable, Writer, format_to, stderr};
+use std.{Option, Result};
+
+fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
+    let mut err_file = stderr();
+    let writer = *mut Writer.{ err_file..& };
+    let _ = writer.write(prefix);
+    format_to(writer, fmt, args);
+    let _ = writer.write("\n");
+}
+
+/// Fails the current test immediately after printing a diagnostic.
+pub fn fail(fmt: []u8, args: []*Printable) ! {
+    write_stderr("test failed: ", fmt, args);
+    @trap();
+}
+
+/// Fails the current test when `ok` is false.
+pub fn assert(ok: bool, fmt: []u8, args: []*Printable) void {
+    if (!ok) {
+        fail(fmt, args);
+    }
+}
+
+/// Fails unless `actual` equals `expected`.
+pub fn eq[T](actual: T, expected: T) void
+    where T: Eq[T],
+{
+    if (!(actual == expected)) {
+        fail("expected values to be equal", .{});
+    }
+}
+
+/// Fails when `actual` equals `unexpected`.
+pub fn not_eq[T](actual: T, unexpected: T) void
+    where T: Eq[T],
+{
+    if (actual == unexpected) {
+        fail("expected values to differ", .{});
+    }
+}
+
+/// Returns the payload from `Some(T)` or fails when the option is `None`.
+pub fn expect_some[T](value: Option[T]) T {
+    match (value) {
+        .{ Some: payload } => return payload,
+        .None => fail("expected option to contain a value", .{}),
+    }
+}
+
+/// Fails unless the option is `None`.
+pub fn expect_none[T](value: Option[T]) void {
+    match (value) {
+        .{ Some: _ } => fail("expected option to be empty", .{}),
+        .None => return,
+    }
+}
+
+/// Returns the payload from `Ok(T)` or fails when the result is `Err`.
+pub fn expect_ok[T, E](value: Result[T, E]) T {
+    match (value) {
+        .{ Ok: payload } => return payload,
+        .{ Err: _ } => fail("expected result to be ok", .{}),
+    }
+}
+
+/// Returns the payload from `Err(E)` or fails when the result is `Ok`.
+pub fn expect_err[T, E](value: Result[T, E]) E {
+    match (value) {
+        .{ Ok: _ } => fail("expected result to be err", .{}),
+        .{ Err: payload } => return payload,
+    }
+}

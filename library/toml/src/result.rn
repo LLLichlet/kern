@@ -1,5 +1,2 @@
-/// Minimal local result type for the standalone TOML package.
-pub type Result[T, E] = enum {
-    Ok: T,
-    Err: E,
-};
+/// Re-export the standard fallible result carrier from the standalone package.
+pub type Result[T, E] = std.Result[T, E];

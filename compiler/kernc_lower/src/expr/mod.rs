@@ -104,9 +104,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
 
             ExprKind::Binary { lhs, op, rhs } => {
-                self.lower_binary(lhs, *op, rhs, subst_map, expr.span)
+                self.lower_binary(lhs, *op, rhs, subst_map, concrete_ty, expr.span)
             }
-            ExprKind::Unary { op, operand } => self.lower_unary(*op, operand, subst_map),
+            ExprKind::Unary { op, operand } => {
+                self.lower_unary(*op, operand, subst_map, concrete_ty, expr.span)
+            }
 
             ExprKind::Call { callee, args } => self.lower_call(callee, args, subst_map, expr.span),
             ExprKind::FieldAccess { lhs, field, .. } => {

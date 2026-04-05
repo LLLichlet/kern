@@ -19,6 +19,23 @@ pub(crate) struct AtomicCasRequest<'a> {
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn call_never_returns(&mut self, callee: &MastExpr) -> bool {
+        if let MastExprKind::FuncRef(mono_id) = callee.kind
+            && self.function_ret_tys.get(&mono_id).copied() == Some(TypeId::NEVER)
+        {
+            return true;
+        }
+
+        let norm_ty = self.type_registry.normalize(callee.ty);
+        match self.type_registry.get(norm_ty) {
+            TypeKind::Function { ret, .. } | TypeKind::ClosureInterface { ret, .. } => {
+                *ret == TypeId::NEVER
+            }
+            TypeKind::FnDef(..) => false,
+            _ => false,
+        }
+    }
+
     fn llvm_atomic_ordering(ordering: AtomicOrdering) -> LlvmAtomicOrdering {
         match ordering {
             AtomicOrdering::Relaxed => LlvmAtomicOrdering::Monotonic,
@@ -189,7 +206,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap()
         };
 
-        if expr_ty == TypeId::VOID || expr_ty == TypeId::ERROR {
+        if self.call_never_returns(callee) || expr_ty == TypeId::NEVER {
+            self.builder.build_unreachable().unwrap();
+            let llvm_ty = self.get_llvm_type(expr_ty);
+            self.get_undef_val(llvm_ty)
+        } else if expr_ty == TypeId::VOID || expr_ty == TypeId::ERROR {
             self.context.i8_type().const_zero().into()
         } else {
             call_site.try_as_basic_value().unwrap_basic()

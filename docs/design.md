@@ -327,6 +327,54 @@ type Writer = trait {
 };
 ```
 
+Kern also reserves a small set of **language-owned builtin traits** for operations and type classification. These traits are part of the compiler's semantic model, not definitions that happen to live in the standard library.
+
+This distinction is deliberate:
+
+  * **No compiler/std coupling**: Core operator semantics do not depend on `std` or any special "core crate".
+  * **Clear generic constraints**: Generic code can state exactly which operations it needs, instead of relying on ad-hoc template-like behavior.
+  * **Freestanding consistency**: Builtin operations remain available even when no standard library is linked.
+
+Builtin traits currently split into two categories:
+
+  * **Capability traits**: These describe operators and can participate in overload resolution. Examples include `Eq[Rhs]`, `Lt[Rhs]`, `Add[Rhs, Out]`, `Sub[Rhs, Out]`, `Mul[Rhs, Out]`, `Div[Rhs, Out]`, `Rem[Rhs, Out]`, `BitAnd[Rhs, Out]`, `BitOr[Rhs, Out]`, `BitXor[Rhs, Out]`, `Shl[Rhs, Out]`, `Shr[Rhs, Out]`, `Neg[Out]`, `BitNot[Out]`, and `Not[Out]`.
+  * **Marker traits**: These classify type families but do not imply operator capability by themselves. Kern currently provides `Integer`, `SignedInteger`, `UnsignedInteger`, and `Float`.
+
+The important rule is that marker traits are **not** shorthand for operator support. For example, `where T: Float` does not imply `T: Add[T, T]`, and `where T: SignedInteger` does not imply `T: Neg[T]`. Generic code should constrain the exact capability it intends to use.
+
+This keeps the system explicit:
+
+  * use `Integer` / `SignedInteger` / `UnsignedInteger` / `Float` when classification is the point;
+  * use `Eq`, `Add`, `Neg`, and other operator traits when behavior is the point.
+
+### 6.4.1 Builtin Operators and Overloading Boundaries
+
+Kern supports operator overloading only for operators whose meaning is ordinary value computation.
+
+These operators are modeled through builtin capability traits:
+
+  * equality and ordering: `==`, `!=`, `<`, `<=`, `>`, `>=`
+  * arithmetic: `+`, `-`, `*`, `/`, `%`
+  * bitwise and shifts: `&`, `|`, `^`, `<<`, `>>`
+  * unary value operators: unary `-`, `~`, `!`
+
+Kern deliberately does **not** treat every piece of syntax as overloadable. The following remain language-owned and are not modeled as user-overridable traits:
+
+  * short-circuit boolean operators: `and`, `or`
+  * assignment family: `=`, `+=`, `-=`, `*=`, `/=`, `%=` and similar forms
+  * address-of operators: `.&`, `..&`
+  * dereference: `.*`
+  * metadata extraction: unary `#`
+
+The reason is semantic, not accidental:
+
+  * `and` / `or` define short-circuit control flow and must preserve evaluation order and conditional execution of the right-hand side.
+  * assignment forms mutate storage and belong to the language's lvalue and memory model.
+  * address-of and dereference are direct memory operations, not ordinary value-level methods.
+  * `#` exposes builtin runtime metadata for fat pointers and containers.
+
+This boundary is intentional. Kern wants operator overloading where it improves generic expressiveness, but it rejects the C++ pattern where syntax that carries control-flow or memory semantics quietly becomes arbitrary user code.
+
 ### 6.5 Trait Objects (Fat Pointers)
 
 A Trait Object is a runtime-dynamic fat pointer consisting of a data pointer and a VTable pointer. They are constructed using **Explicit Constructor Syntax**.
@@ -788,6 +836,8 @@ Mapped directly to single-cycle CPU instructions and highly optimized backend pr
   * `@bswap[T: Integer](val: T) -> T`: Reverses the byte order of an integer value (useful for endianness conversions).
   * `@memcpy(dest: *mut u8, src: *u8, len: usize) void`: Performs a highly-optimized bulk memory copy.
   * `@memset(dest: *mut u8, val: u8, len: usize) void`: Performs a highly-optimized bulk memory fill.
+
+The `Integer` bound here is a marker-style family constraint. It expresses that these intrinsics operate on integer types as a category. It does **not** mean `Integer` is the source of arithmetic or bitwise operator semantics. Operator syntax remains governed by the builtin capability traits described in Section 6.4.1.
 
 ### 14.4 Atomic Operations and Memory Ordering
 

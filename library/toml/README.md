@@ -9,13 +9,20 @@ parsing, document modeling, and configuration helpers.
 
 ## Status
 
-The current package is a minimal bootstrap:
+The package has moved past pure classification and now performs a lightweight,
+allocation-free validation pass:
 
-- `Craft.toml` defines an ordinary `craft` library package
-- `src/lib.rn` exposes the initial public API surface
-- `parse` performs lightweight document classification without allocation
+- blank lines and `#` comments
+- bare keys plus basic/literal quoted key segments in dotted key paths
+- `[table]` headers
+- integer, decimal float, boolean, basic/literal string, array, and inline table values
+- document summary counts for root keys, table-local keys, tables, and total items
 
-This keeps the package small, buildable, and ready for incremental expansion.
+It is still a bootstrap parser rather than a full TOML implementation:
+
+- multiline strings/arrays are not supported yet
+- datetimes and array-of-tables are not supported yet
+- parsing remains borrowed and allocation-free
 
 ## Layout
 
@@ -35,6 +42,7 @@ library/toml/
 ```bash
 cargo run -q -p craft -- check library/toml
 cargo run -q -p craft -- build library/toml
+cargo run -q -p craft -- test library/toml
 ```
 
 ## Design Direction
@@ -42,3 +50,4 @@ cargo run -q -p craft -- build library/toml
 - keep parsing and allocation policy explicit
 - keep the package usable outside `std`
 - let this package serve as a small official `craft` example
+- use it to dogfood `std`, `craft`, and compiler package-boundary behavior

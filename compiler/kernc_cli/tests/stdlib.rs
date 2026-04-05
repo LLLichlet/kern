@@ -9,6 +9,28 @@ use support::{
 };
 
 #[test]
+fn compile_only_std_program_emits_no_std_warnings() {
+    let output = compile_source_with_args(
+        "kernc_std_compile_no_warnings",
+        r#"
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    return 0;
+}
+"#,
+        &["--use-std"],
+    );
+    assert_success(&output, "kernc");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !stderr.contains("warning"),
+        "unexpected std warning noise during compile-only build:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_gpa_alignment_and_arena() {
     let output = build_and_run(
         "kernc_std_alloc",
@@ -244,6 +266,212 @@ extern fn main() i32 {
     let stderr = String::from_utf8_lossy(&run_output.stderr);
     assert!(
         stderr.contains("assertion failed: boom 42"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn runs_test_assertion_helpers() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_helpers",
+        r#"
+use std.test;
+
+extern fn main() i32 {
+    test.assert(true, "should not fail", .{});
+    test.eq(usize.{4}, usize.{4});
+    test.not_eq(usize.{4}, usize.{5});
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std.test helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn test_eq_failure_aborts_with_message() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_eq_fail",
+        r#"
+use std.test;
+
+extern fn main() i32 {
+    test.eq(usize.{4}, usize.{5});
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected std.test.eq failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(
+        stderr.contains("test failed: expected values to be equal"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn test_eq_supports_payloadless_user_enums() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_enum_eq",
+        r#"
+use std.test;
+
+type Mode = enum {
+    Fast,
+    Slow,
+};
+
+extern fn main() i32 {
+    test.eq(Mode.Fast, Mode.Fast);
+    test.not_eq(Mode.Fast, Mode.Slow);
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std.test to support payloadless enums:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn runs_test_option_and_result_helpers() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_option_result_helpers",
+        r#"
+use std.test;
+
+fn parse(flag: bool) std.Result[usize, i32] {
+    if (flag) {
+        return .{ Ok: 7 };
+    }
+    return .{ Err: -1 };
+}
+
+extern fn main() i32 {
+    let some = test.expect_some(std.Option[usize].{ Some: 9 });
+    test.eq(some, usize.{9});
+    test.expect_none(std.Option[usize].{ None });
+
+    let ok = test.expect_ok(parse(true));
+    test.eq(ok, usize.{7});
+
+    let err = test.expect_err(parse(false));
+    test.eq(err, i32.{-1});
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std.test option/result helpers to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn test_expect_some_failure_aborts_with_message() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_expect_some_fail",
+        r#"
+use std.test;
+
+extern fn main() i32 {
+    let _ = test.expect_some(std.Option[usize].{ None });
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected std.test.expect_some failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(
+        stderr.contains("test failed: expected option to contain a value"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn test_expect_err_failure_aborts_with_message() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_test_expect_err_fail",
+        r#"
+use std.test;
+
+extern fn main() i32 {
+    let _ = test.expect_err(std.Result[usize, i32].{ Ok: 3 });
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        !run_output.status.success(),
+        "expected std.test.expect_err failure to abort:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&run_output.stderr);
+    assert!(
+        stderr.contains("test failed: expected result to be err"),
         "unexpected stderr:\n{}",
         stderr
     );

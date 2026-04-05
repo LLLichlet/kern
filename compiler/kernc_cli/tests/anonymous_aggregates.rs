@@ -2,7 +2,10 @@ mod support;
 
 use std::fs;
 
-use support::{assert_success, compile_source_with_args, repo_root, run_kernc, unique_temp_path};
+use support::{
+    assert_success, build_and_run, compile_source_with_args, repo_root, run_kernc,
+    unique_temp_path,
+};
 
 fn compile_source(source: &str) -> std::process::Output {
     compile_source_with_args("kernc_test", source, &[])
@@ -206,5 +209,45 @@ extern fn main(args: [][]u8) i32 {
         stderr.contains("anonymous struct fields cannot be declared pub"),
         "unexpected stderr:\n{}",
         stderr
+    );
+}
+
+#[test]
+fn runs_union_field_reinterpretation_and_nested_lvalue_updates() {
+    let output = build_and_run(
+        "kernc_union_field_lvalue",
+        r#"
+type FloatBits = union {
+    f: f32,
+    i: u32,
+    bytes: [4]mut u8,
+};
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    let mut data = FloatBits.{ f: 3.14159 };
+    let raw_bits = data.i;
+    data.i = data.i ^ 0x80000000;
+    let negative_pi = data.f;
+    data.bytes.[0] = 0;
+
+    if (raw_bits == 0) {
+        return 1;
+    }
+    if (!(negative_pi < 0.0)) {
+        return 2;
+    }
+
+    return 0;
+}
+"#,
+        &["--use-std", "--link-profile", "hosted"],
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted union test failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
 }

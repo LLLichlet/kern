@@ -156,9 +156,8 @@ pub fn read_dir(alloc: *mut Allocator, path: []u8, visitor: *Fn(DirEntry) bool) 
         .{ Err: err } => return .{ Err: err },
     };
 
-    let mut search_c_path = *mut u8.{undef};
-    match (alloc_dir_search_path(alloc, path)) {
-        .{ Ok: ptr } => search_c_path = ptr,
+    let search_c_path = match (alloc_dir_search_path(alloc, path)) {
+        .{ Ok: ptr } => ptr,
         .{ Err: err } => {
             free_c_path(alloc, path, c_path);
             return .{ Err: err };

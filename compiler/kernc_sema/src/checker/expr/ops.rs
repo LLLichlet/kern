@@ -1,9 +1,263 @@
 use super::ExprChecker;
+use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{BinaryOperator, Expr, UnaryOperator};
 use kernc_utils::{DiagnosticCode, Span};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn fresh_type_var(&mut self) -> TypeId {
+        let vid = self.type_vars.len() as u32;
+        self.type_vars.push(None);
+        self.ctx.type_registry.intern(TypeKind::TypeVar(vid))
+    }
+
+    fn has_builtin_binary_fast_path(
+        &mut self,
+        op: BinaryOperator,
+        lhs_ty: TypeId,
+        rhs_ty: TypeId,
+    ) -> bool {
+        let l_norm = self.resolve_tv(lhs_ty);
+        let r_norm = self.resolve_tv(rhs_ty);
+        let is_l_ptr = matches!(
+            self.ctx.type_registry.get(l_norm),
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        );
+        let is_r_ptr = matches!(
+            self.ctx.type_registry.get(r_norm),
+            TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
+        );
+
+        match op {
+            BinaryOperator::Add | BinaryOperator::Subtract => {
+                if is_l_ptr || is_r_ptr {
+                    return true;
+                }
+
+                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+            }
+            BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo => {
+                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+            }
+            BinaryOperator::Equal | BinaryOperator::NotEqual => {
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
+                {
+                    return true;
+                }
+                if l_norm == r_norm && self.is_pure_enum_type(l_norm) {
+                    return true;
+                }
+                is_l_ptr
+                    || is_r_ptr
+                    || (self.ctx.type_registry.is_integer(l_norm)
+                        && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+                    || (l_norm == TypeId::BOOL && r_norm == TypeId::BOOL)
+            }
+            BinaryOperator::LessThan
+            | BinaryOperator::GreaterThan
+            | BinaryOperator::LessOrEqual
+            | BinaryOperator::GreaterOrEqual => {
+                if self.ctx.type_registry.is_void(l_norm) || self.ctx.type_registry.is_void(r_norm)
+                {
+                    return false;
+                }
+                is_l_ptr
+                    || is_r_ptr
+                    || (self.ctx.type_registry.is_integer(l_norm)
+                        && self.ctx.type_registry.is_integer(r_norm))
+                    || (self.ctx.type_registry.is_float(l_norm)
+                        && self.ctx.type_registry.is_float(r_norm))
+                    || (l_norm == TypeId::BOOL && r_norm == TypeId::BOOL)
+            }
+            BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => true,
+            BinaryOperator::BitwiseAnd
+            | BinaryOperator::BitwiseOr
+            | BinaryOperator::BitwiseXor
+            | BinaryOperator::ShiftLeft
+            | BinaryOperator::ShiftRight => {
+                self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm)
+            }
+        }
+    }
+
+    fn is_pure_enum_type(&mut self, ty: TypeId) -> bool {
+        let norm = self.resolve_tv(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Enum(def_id, _) => {
+                let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
+                    return false;
+                };
+                def.variants.iter().all(|variant| variant.payload_type.is_none())
+            }
+            TypeKind::AnonymousEnum(anon) => anon
+                .variants
+                .iter()
+                .all(|variant| variant.payload_ty.is_none()),
+            _ => false,
+        }
+    }
+
+    fn builtin_binary_trait_name(&self, op: BinaryOperator) -> Option<(&'static str, bool)> {
+        match op {
+            BinaryOperator::Add => Some(("Add", false)),
+            BinaryOperator::Subtract => Some(("Sub", false)),
+            BinaryOperator::Multiply => Some(("Mul", false)),
+            BinaryOperator::Divide => Some(("Div", false)),
+            BinaryOperator::Modulo => Some(("Rem", false)),
+            BinaryOperator::Equal | BinaryOperator::NotEqual => Some(("Eq", true)),
+            BinaryOperator::LessThan => Some(("Lt", true)),
+            BinaryOperator::LessOrEqual => Some(("Le", true)),
+            BinaryOperator::GreaterThan => Some(("Gt", true)),
+            BinaryOperator::GreaterOrEqual => Some(("Ge", true)),
+            BinaryOperator::BitwiseAnd => Some(("BitAnd", false)),
+            BinaryOperator::BitwiseOr => Some(("BitOr", false)),
+            BinaryOperator::BitwiseXor => Some(("BitXor", false)),
+            BinaryOperator::ShiftLeft => Some(("Shl", false)),
+            BinaryOperator::ShiftRight => Some(("Shr", false)),
+            // `and` / `or` are builtin bool-only short-circuit operators.
+            // Treating them as ordinary trait dispatch would either eagerly evaluate
+            // the RHS or force a separate lazy/thunk protocol into operator syntax.
+            BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => None,
+        }
+    }
+
+    fn builtin_unary_trait_name(&self, op: UnaryOperator) -> Option<(&'static str, bool)> {
+        match op {
+            UnaryOperator::Negate => Some(("Neg", false)),
+            UnaryOperator::LogicalNot => Some(("Not", false)),
+            UnaryOperator::BitwiseNot => Some(("BitNot", false)),
+            // Address-of, metadata access, and dereference carry memory/control-flow
+            // semantics and remain language-owned instead of overloadable traits.
+            UnaryOperator::AddressOf
+            | UnaryOperator::MutAddressOf
+            | UnaryOperator::MetaOf
+            | UnaryOperator::PointerDeRef => None,
+        }
+    }
+
+    fn require_builtin_binary_trait(
+        &mut self,
+        lhs: &Expr,
+        _rhs: &Expr,
+        lhs_ty: TypeId,
+        rhs_ty: TypeId,
+        op: BinaryOperator,
+        expected_ty: Option<TypeId>,
+    ) -> TypeId {
+        let Some((trait_name, returns_bool)) = self.builtin_binary_trait_name(op) else {
+            self.ctx.emit_ice(lhs.span, "missing builtin trait mapping for binary operator");
+            return TypeId::ERROR;
+        };
+
+        let out_ty = if returns_bool {
+            TypeId::BOOL
+        } else {
+            expected_ty.unwrap_or_else(|| self.fresh_type_var())
+        };
+
+        let trait_args = if returns_bool {
+            vec![rhs_ty]
+        } else {
+            vec![rhs_ty, out_ty]
+        };
+        let Some(target_trait_ty) = self.ctx.builtin_trait_ty(trait_name, trait_args) else {
+            self.ctx.emit_ice(
+                lhs.span,
+                format!("missing builtin operator trait `{}`", trait_name),
+            );
+            return TypeId::ERROR;
+        };
+
+        if self.check_trait_impl(lhs_ty, target_trait_ty) {
+            out_ty
+        } else {
+            let bound_hint = self.ctx.ty_to_string(target_trait_ty);
+            self.ctx
+                .struct_error(
+                    lhs.span,
+                    format!(
+                        "operator `{}` is not available for `{}` and `{}`",
+                        match op {
+                            BinaryOperator::Add => "+",
+                            BinaryOperator::Subtract => "-",
+                            BinaryOperator::Multiply => "*",
+                            BinaryOperator::Divide => "/",
+                            BinaryOperator::Modulo => "%",
+                            BinaryOperator::Equal => "==",
+                            BinaryOperator::NotEqual => "!=",
+                            BinaryOperator::LessThan => "<",
+                            BinaryOperator::GreaterThan => ">",
+                            BinaryOperator::LessOrEqual => "<=",
+                            BinaryOperator::GreaterOrEqual => ">=",
+                            BinaryOperator::LogicalAnd => "and",
+                            BinaryOperator::LogicalOr => "or",
+                            BinaryOperator::BitwiseAnd => "&",
+                            BinaryOperator::BitwiseOr => "|",
+                            BinaryOperator::BitwiseXor => "^",
+                            BinaryOperator::ShiftLeft => "<<",
+                            BinaryOperator::ShiftRight => ">>",
+                        },
+                        self.ctx.ty_to_string(lhs_ty),
+                        self.ctx.ty_to_string(rhs_ty)
+                    ),
+                )
+                .with_hint(format!(
+                    "add a builtin trait bound such as `{}` or implement it for the left-hand type",
+                    bound_hint
+                ))
+                .emit();
+            TypeId::ERROR
+        }
+    }
+
+    fn require_builtin_unary_trait(
+        &mut self,
+        operand: &Expr,
+        operand_ty: TypeId,
+        op: UnaryOperator,
+        expected_ty: Option<TypeId>,
+    ) -> TypeId {
+        let Some((trait_name, _)) = self.builtin_unary_trait_name(op) else {
+            self.ctx.emit_ice(operand.span, "missing builtin trait mapping for unary operator");
+            return TypeId::ERROR;
+        };
+
+        let out_ty = expected_ty.unwrap_or_else(|| self.fresh_type_var());
+        let Some(target_trait_ty) = self.ctx.builtin_trait_ty(trait_name, vec![out_ty]) else {
+            self.ctx.emit_ice(
+                operand.span,
+                format!("missing builtin operator trait `{}`", trait_name),
+            );
+            return TypeId::ERROR;
+        };
+
+        if self.check_trait_impl(operand_ty, target_trait_ty) {
+            out_ty
+        } else {
+            let bound_hint = self.ctx.ty_to_string(target_trait_ty);
+            self.ctx
+                .struct_error(
+                    operand.span,
+                    format!(
+                        "operator is not available for `{}`",
+                        self.ctx.ty_to_string(operand_ty)
+                    ),
+                )
+                .with_hint(format!(
+                    "add a builtin trait bound such as `{}` or implement it for the operand type",
+                    bound_hint
+                ))
+                .emit();
+            TypeId::ERROR
+        }
+    }
+
     pub fn check_binary(
         &mut self,
         lhs: &Expr,
@@ -99,11 +353,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return TypeId::ERROR;
                 }
 
-                // Normal numeric arithmetic.
-                if !self.check_coercion(rhs, l_norm, r_norm) {
-                    return TypeId::ERROR;
+                if self.has_builtin_binary_fast_path(op, l_norm, r_norm) {
+                    if !self.check_coercion(rhs, l_norm, r_norm) {
+                        return TypeId::ERROR;
+                    }
+                    return l_norm;
                 }
-                l_norm
+
+                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
             }
             Multiply | Divide | Modulo => {
                 if is_l_ptr || is_r_ptr {
@@ -125,17 +382,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return TypeId::ERROR;
                 }
-                if !self.check_coercion(rhs, l_norm, r_norm) {
-                    return TypeId::ERROR;
+                if self.has_builtin_binary_fast_path(op, l_norm, r_norm) {
+                    if !self.check_coercion(rhs, l_norm, r_norm) {
+                        return TypeId::ERROR;
+                    }
+                    return l_norm;
                 }
-                l_norm
+
+                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
             }
             Equal | NotEqual => {
                 // Allow `void == void`; constexpr will fold it to `true`.
-                if !self.check_coercion(rhs, l_norm, r_norm) {
-                    return TypeId::ERROR;
+                if self.has_builtin_binary_fast_path(op, l_norm, r_norm) {
+                    if !self.check_coercion(rhs, l_norm, r_norm) {
+                        return TypeId::ERROR;
+                    }
+                    return TypeId::BOOL;
                 }
-                TypeId::BOOL
+
+                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
             }
             LessThan | GreaterThan | LessOrEqual | GreaterOrEqual => {
                 // Ordering comparisons on `void` are never valid.
@@ -149,27 +414,34 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .emit();
                     return TypeId::ERROR;
                 }
-                if !self.check_coercion(rhs, l_norm, r_norm) {
-                    return TypeId::ERROR;
+                if self.has_builtin_binary_fast_path(op, l_norm, r_norm) {
+                    if !self.check_coercion(rhs, l_norm, r_norm) {
+                        return TypeId::ERROR;
+                    }
+                    return TypeId::BOOL;
                 }
-                TypeId::BOOL
+
+                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
             }
             LogicalAnd | LogicalOr => {
                 self.check_coercion(lhs, TypeId::BOOL, l_norm);
                 self.check_coercion(rhs, TypeId::BOOL, r_norm);
                 TypeId::BOOL
             }
-            _ => {
-                // Bitwise Ops
-                if !self.ctx.type_registry.is_integer(l_norm) {
-                    self.ctx
-                        .struct_error(lhs.span, "bitwise operations require integer types")
-                        .emit();
+            BitwiseAnd | BitwiseOr | BitwiseXor | ShiftLeft | ShiftRight => {
+                if self.has_builtin_binary_fast_path(op, l_norm, r_norm) {
+                    if !self.ctx.type_registry.is_integer(l_norm) {
+                        self.ctx
+                            .struct_error(lhs.span, "bitwise operations require integer types")
+                            .emit();
+                    }
+                    if !self.check_coercion(rhs, l_norm, r_norm) {
+                        return TypeId::ERROR;
+                    }
+                    return l_norm;
                 }
-                if !self.check_coercion(rhs, l_norm, r_norm) {
-                    return TypeId::ERROR;
-                }
-                l_norm
+
+                self.require_builtin_binary_trait(lhs, rhs, l_norm, r_norm, op, expected_ty)
             }
         }
     }
@@ -291,27 +563,25 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             UnaryOperator::Negate => {
                 let op_ty_id = self.resolve_tv(op_ty);
-                if !self.ctx.type_registry.is_integer(op_ty_id)
-                    && !self.ctx.type_registry.is_float(op_ty_id)
+                if self.ctx.type_registry.is_integer(op_ty_id)
+                    || self.ctx.type_registry.is_float(op_ty_id)
                 {
-                    self.ctx
-                        .struct_error(span, "negation requires a numeric type")
-                        .emit();
+                    return op_ty;
                 }
-                op_ty
+                self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)
             }
             UnaryOperator::LogicalNot => {
-                self.check_coercion(operand, TypeId::BOOL, op_ty);
-                TypeId::BOOL
+                if self.resolve_tv(op_ty) == TypeId::BOOL {
+                    return TypeId::BOOL;
+                }
+                self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)
             }
             UnaryOperator::BitwiseNot => {
                 let op_ty_id = self.resolve_tv(op_ty);
-                if !self.ctx.type_registry.is_integer(op_ty_id) {
-                    self.ctx
-                        .struct_error(span, "bitwise NOT requires an integer type")
-                        .emit();
+                if self.ctx.type_registry.is_integer(op_ty_id) {
+                    return op_ty;
                 }
-                op_ty
+                self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)
             }
         }
     }

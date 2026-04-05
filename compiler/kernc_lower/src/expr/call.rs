@@ -10,6 +10,96 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, NodeId, Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn builtin_trait_name(&mut self, trait_ty: TypeId) -> Option<String> {
+        let norm = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(def_id, _) = self.ctx.type_registry.get(norm).clone() else {
+            return None;
+        };
+        let Def::Trait(trait_def) = &self.ctx.defs[def_id.0 as usize] else {
+            return None;
+        };
+        if !trait_def.is_builtin {
+            return None;
+        }
+        Some(self.ctx.resolve(trait_def.name).to_string())
+    }
+
+    fn is_pure_enum_value_type(&mut self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Enum(def_id, _) => {
+                let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
+                    return false;
+                };
+                self.is_pure_enum(def)
+            }
+            TypeKind::AnonymousEnum(anon) => anon
+                .variants
+                .iter()
+                .all(|variant| variant.payload_ty.is_none()),
+            _ => false,
+        }
+    }
+
+    fn type_contains_generic_placeholders(&mut self, ty: TypeId) -> bool {
+        let norm = self.ctx.type_registry.normalize(ty);
+        match self.ctx.type_registry.get(norm).clone() {
+            TypeKind::Param(_) | TypeKind::TypeVar(_) => true,
+            TypeKind::Pointer { elem, .. }
+            | TypeKind::VolatilePtr { elem, .. }
+            | TypeKind::Slice { elem, .. }
+            | TypeKind::Alias(_, elem)
+            | TypeKind::AnonymousEnumPayload(elem) => self.type_contains_generic_placeholders(elem),
+            TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
+                self.type_contains_generic_placeholders(elem)
+            }
+            TypeKind::Def(_, args)
+            | TypeKind::Enum(_, args)
+            | TypeKind::EnumPayload(_, args)
+            | TypeKind::TraitObject(_, args)
+            | TypeKind::FnDef(_, args) => args
+                .into_iter()
+                .any(|arg| self.type_contains_generic_placeholders(arg)),
+            TypeKind::Function { params, ret, .. } => {
+                params
+                    .into_iter()
+                    .any(|param| self.type_contains_generic_placeholders(param))
+                    || self.type_contains_generic_placeholders(ret)
+            }
+            TypeKind::ClosureInterface { params, ret } => {
+                params
+                    .into_iter()
+                    .any(|param| self.type_contains_generic_placeholders(param))
+                    || self.type_contains_generic_placeholders(ret)
+            }
+            TypeKind::AnonymousState {
+                captures,
+                params,
+                ret,
+                ..
+            } => {
+                captures
+                    .into_iter()
+                    .any(|capture| self.type_contains_generic_placeholders(capture))
+                    || params
+                        .into_iter()
+                        .any(|param| self.type_contains_generic_placeholders(param))
+                    || self.type_contains_generic_placeholders(ret)
+            }
+            TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) => fields
+                .into_iter()
+                .any(|field| self.type_contains_generic_placeholders(field.ty)),
+            TypeKind::AnonymousEnum(anon) => anon
+                .variants
+                .into_iter()
+                .filter_map(|variant| variant.payload_ty)
+                .any(|payload_ty| self.type_contains_generic_placeholders(payload_ty)),
+            TypeKind::Primitive(_)
+            | TypeKind::Error
+            | TypeKind::Module(_) => false,
+        }
+    }
+
     fn maybe_lower_asm_call(
         &mut self,
         callee: &Expr,
@@ -137,6 +227,131 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
+    fn lower_builtin_operator_intrinsic(
+        &mut self,
+        fn_id: DefId,
+        arg_masts: &mut Vec<MastExpr>,
+    ) -> Option<MastExprKind> {
+        let Def::Function(func) = &self.ctx.defs[fn_id.0 as usize] else {
+            return None;
+        };
+        let parent_impl_id = func.parent?;
+        let Def::Impl(impl_def) = &self.ctx.defs[parent_impl_id.0 as usize] else {
+            return None;
+        };
+        let trait_node = impl_def.trait_type.as_ref()?;
+        let trait_ty = self
+            .ctx
+            .node_types
+            .get(&trait_node.id)
+            .copied()
+            .unwrap_or(TypeId::ERROR);
+        let norm_trait_ty = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, _) =
+            self.ctx.type_registry.get(norm_trait_ty).clone()
+        else {
+            return None;
+        };
+        let Def::Trait(trait_def) = &self.ctx.defs[trait_def_id.0 as usize] else {
+            return None;
+        };
+        if !trait_def.is_builtin {
+            return None;
+        }
+
+        let trait_name = self.ctx.resolve(trait_def.name);
+        match trait_name {
+            "Eq" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::Equal,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Lt" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::LessThan,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Le" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::LessOrEqual,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Gt" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::GreaterThan,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Ge" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::GreaterOrEqual,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Add" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::Add,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Sub" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::Subtract,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Mul" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::Multiply,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Div" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::Divide,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Rem" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::Modulo,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "BitAnd" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::BitwiseAnd,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "BitOr" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::BitwiseOr,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "BitXor" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::BitwiseXor,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Shl" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::ShiftLeft,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Shr" => Some(MastExprKind::Binary {
+                op: ast::BinaryOperator::ShiftRight,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "Neg" => Some(MastExprKind::Unary {
+                op: ast::UnaryOperator::Negate,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "BitNot" => Some(MastExprKind::Unary {
+                op: ast::UnaryOperator::BitwiseNot,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "Not" => Some(MastExprKind::Unary {
+                op: ast::UnaryOperator::LogicalNot,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            _ => None,
+        }
+    }
+
     fn lower_intrinsic_call(
         &mut self,
         fn_id: DefId,
@@ -144,14 +359,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         args: &[Expr],
         arg_masts: &mut Vec<MastExpr>,
     ) -> Option<MastExprKind> {
-        let Def::Function(f) = &self.ctx.defs[fn_id.0 as usize] else {
-            return None;
+        let (is_intrinsic, name_id) = match &self.ctx.defs[fn_id.0 as usize] {
+            Def::Function(f) => (f.is_intrinsic, f.name),
+            _ => return None,
         };
-        if !f.is_intrinsic {
+        if !is_intrinsic {
             return None;
         }
 
-        let name_str = self.ctx.resolve(f.name);
+        if let Some(operator_kind) = self.lower_builtin_operator_intrinsic(fn_id, arg_masts) {
+            return Some(operator_kind);
+        }
+
+        let name_str = self.ctx.resolve(name_id);
         match name_str {
             "@sizeOf" => {
                 let target_ty = self.intrinsic_generic_arg(callee_ty, 0);
@@ -534,7 +754,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         callee_id: NodeId,
         recv: MastExpr,
         field: SymbolId,
-        mut arg_masts: Vec<MastExpr>,
+        arg_masts: Vec<MastExpr>,
         norm_callee: TypeId,
         span: Span,
     ) -> MastExprKind {
@@ -556,6 +776,40 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(inner_ty);
 
+        self.lower_resolved_trait_method_call(recv, field, arg_masts, owner_trait_ty, norm_callee, span)
+    }
+
+    pub(crate) fn lower_resolved_trait_method_call(
+        &mut self,
+        recv: MastExpr,
+        field: SymbolId,
+        mut arg_masts: Vec<MastExpr>,
+        owner_trait_ty: TypeId,
+        norm_callee: TypeId,
+        span: Span,
+    ) -> MastExprKind {
+        let norm_base = self.ctx.type_registry.normalize(recv.ty);
+        let mut inner_ty = norm_base;
+        if let TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } =
+            self.ctx.type_registry.get(norm_base).clone()
+        {
+            inner_ty = elem;
+        }
+
+        let field_name = self.ctx.resolve(field).to_string();
+        if field_name == "eq"
+            && self.builtin_trait_name(owner_trait_ty).as_deref() == Some("Eq")
+            && arg_masts.len() == 1
+            && self.is_pure_enum_value_type(recv.ty)
+            && arg_masts[0].ty == recv.ty
+        {
+            return MastExprKind::Binary {
+                op: ast::BinaryOperator::Equal,
+                lhs: Box::new(recv),
+                rhs: Box::new(arg_masts.remove(0)),
+            };
+        }
+
         // 2. Choose dynamic (vtable) or static dispatch based on the recovered type.
         if let TypeKind::TraitObject(..) = self.ctx.type_registry.get(inner_ty) {
             // Hand the full fat pointer to the dynamic dispatcher so it can extract the vtable.
@@ -571,6 +825,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         } else if let TypeKind::FnDef(method_id, generics) =
             self.ctx.type_registry.get(norm_callee).clone()
         {
+            if let Def::Function(func) = &self.ctx.defs[method_id.0 as usize]
+                && func.is_intrinsic
+            {
+                arg_masts.insert(0, recv.clone());
+                if let Some(kind) = self.lower_builtin_operator_intrinsic(method_id, &mut arg_masts)
+                {
+                    return kind;
+                }
+            }
             self.lower_static_method_dispatch(
                 recv,
                 arg_masts,
@@ -584,6 +847,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             // After monomorphization, find the concrete impl globally.
             let mut target_func_id = None;
             let mut resolved_impl_args = Vec::new();
+            let owner_trait_norm = self.ctx.type_registry.normalize(owner_trait_ty);
+            let owner_trait_filter = !self.type_contains_generic_placeholders(owner_trait_ty)
+                && matches!(
+                self.ctx.type_registry.get(owner_trait_norm),
+                TypeKind::TraitObject(..)
+            );
 
             for def in &self.ctx.defs {
                 if let Def::Impl(impl_def) = def {
@@ -617,6 +886,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         }
 
                         if matched {
+                            if owner_trait_filter {
+                                let Some(trait_ast) = &impl_def.trait_type else {
+                                    continue;
+                                };
+                                let impl_trait_ty = self
+                                    .ctx
+                                    .node_types
+                                    .get(&trait_ast.id)
+                                    .copied()
+                                    .unwrap_or(TypeId::ERROR);
+                                if self.ctx.type_registry.normalize(impl_trait_ty)
+                                    != owner_trait_norm
+                                {
+                                    continue;
+                                }
+                            }
                             for &m_id in &impl_def.methods {
                                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
                                     && f.name == field
@@ -664,6 +949,37 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             && base_def_id == impl_def_id
                             && base_args.len() == impl_raw_args.len()
                         {
+                            if owner_trait_filter {
+                                let Some(trait_ast) = &impl_def.trait_type else {
+                                    continue;
+                                };
+                                let impl_trait_ty = self
+                                    .ctx
+                                    .node_types
+                                    .get(&trait_ast.id)
+                                    .copied()
+                                    .unwrap_or(TypeId::ERROR);
+                                let mut subst_map = HashMap::new();
+                                if let TypeKind::Def(_, impl_args) =
+                                    self.ctx.type_registry.get(norm_impl_target).clone()
+                                {
+                                    if impl_def.generics.len() == impl_args.len() {
+                                        for (param, arg) in
+                                            impl_def.generics.iter().zip(base_args.iter().copied())
+                                        {
+                                            subst_map.insert(param.name, arg);
+                                        }
+                                    }
+                                }
+                                let mut subst =
+                                    Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                                let inst_trait_ty = subst.substitute(impl_trait_ty);
+                                if self.ctx.type_registry.normalize(inst_trait_ty)
+                                    != owner_trait_norm
+                                {
+                                    continue;
+                                }
+                            }
                             resolved_impl_args = base_args.clone();
                             for &m_id in &impl_def.methods {
                                 if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
@@ -698,6 +1014,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         },
                         span,
                     );
+                }
+
+                if let Def::Function(func) = &self.ctx.defs[func_id.0 as usize]
+                    && func.is_intrinsic
+                {
+                    arg_masts.insert(0, final_recv.clone());
+                    if let Some(kind) = self.lower_builtin_operator_intrinsic(func_id, &mut arg_masts)
+                    {
+                        return kind;
+                    }
                 }
 
                 arg_masts.insert(0, final_recv);

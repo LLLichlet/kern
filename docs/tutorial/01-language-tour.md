@@ -125,6 +125,11 @@ impl *i32 : Base {
 The implicit receiver is `self`, but the receiver type is still explicit in the
 `impl` header. That keeps method dispatch rules easy to locate in code.
 
+For generic code, Kern also has language-owned builtin traits for operator
+capabilities such as `Eq[T]` and `Add[T, T]`, plus marker traits such as
+`Integer`, `SignedInteger`, `UnsignedInteger`, and `Float`. Marker traits are
+classification only; they do not imply operators by themselves.
+
 Trait objects are explicit values, not background magic. A common pattern is:
 
 ```kern
@@ -133,6 +138,8 @@ let object = *Base.{ value.& };
 ```
 
 Kern also supports trait-object upcasts when the supertrait relation is known.
+Short-circuit `and` / `or`, assignment forms, address-of, dereference, and `#`
+remain language-owned semantics rather than overloadable trait syntax.
 
 ## Closures
 

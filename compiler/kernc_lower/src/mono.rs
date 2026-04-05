@@ -212,10 +212,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.loop_frames = saved_loop_frames;
         self.local_statics = saved_local_statics;
 
+        let uses_odr_linkage = !def.generics.is_empty() && body.is_some() && !def.is_extern;
+
         let mast_fn = MastFunction {
             id,
             name: mangled_name,
-            linkage: MastLinkage::External,
+            // A generic instantiation may be emitted by multiple packages.
+            // Give those definitions ODR-style linkage so downstream linking
+            // can coalesce identical monomorphizations instead of failing.
+            linkage: if uses_odr_linkage {
+                MastLinkage::LinkOnceOdr
+            } else {
+                MastLinkage::External
+            },
             params: mast_params,
             ret_ty: conc_ret,
             body,

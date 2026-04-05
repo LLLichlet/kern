@@ -106,22 +106,6 @@ details = ""
 raw = "Indicates that both values compare as equal."
 
 [[item]]
-path = "std::cmp::Eq"
-kind = "trait"
-signature = "trait Eq"
-summary = "Equality comparison for a type."
-details = ""
-raw = "Equality comparison for a type."
-
-[[item]]
-path = "std::cmp::Eq::eq"
-kind = "trait_method"
-signature = "fn eq: fn(Eq, T) bool"
-summary = "Returns `true` when `self` and the argument should be treated as equal."
-details = ""
-raw = "Returns `true` when `self` and the argument should be treated as equal."
-
-[[item]]
 path = "std::cmp::GREATER"
 kind = "const"
 signature = "const GREATER: i32"
@@ -4211,4 +4195,76 @@ signature = "const SEQ_CST: u8"
 summary = "Sequentially consistent ordering."
 details = ""
 raw = "Sequentially consistent ordering."
+
+[[item]]
+path = "std::test"
+kind = "module"
+signature = "module test"
+summary = "Test assertion helpers."
+details = "This module is intentionally separate from `std.dbg`:\n`dbg` is for diagnostics and low-level runtime failures, while `test`\ndefines vocabulary for executable test targets."
+raw = "Test assertion helpers.\n\nThis module is intentionally separate from `std.dbg`:\n`dbg` is for diagnostics and low-level runtime failures, while `test`\ndefines vocabulary for executable test targets."
+
+[[item]]
+path = "std::test::assert"
+kind = "method"
+signature = "fn assert: fn(bool, []u8, []*Printable) void"
+summary = "Fails the current test when `ok` is false."
+details = ""
+raw = "Fails the current test when `ok` is false."
+
+[[item]]
+path = "std::test::eq"
+kind = "method"
+signature = "fn eq: fn(T, T) void"
+summary = "Fails unless `actual` equals `expected`."
+details = ""
+raw = "Fails unless `actual` equals `expected`."
+
+[[item]]
+path = "std::test::expect_err"
+kind = "method"
+signature = "fn expect_err: fn(Result[T, E]) E"
+summary = "Returns the payload from `Err(E)` or fails when the result is `Ok`."
+details = ""
+raw = "Returns the payload from `Err(E)` or fails when the result is `Ok`."
+
+[[item]]
+path = "std::test::expect_none"
+kind = "method"
+signature = "fn expect_none: fn(Option[T]) void"
+summary = "Fails unless the option is `None`."
+details = ""
+raw = "Fails unless the option is `None`."
+
+[[item]]
+path = "std::test::expect_ok"
+kind = "method"
+signature = "fn expect_ok: fn(Result[T, E]) T"
+summary = "Returns the payload from `Ok(T)` or fails when the result is `Err`."
+details = ""
+raw = "Returns the payload from `Ok(T)` or fails when the result is `Err`."
+
+[[item]]
+path = "std::test::expect_some"
+kind = "method"
+signature = "fn expect_some: fn(Option[T]) T"
+summary = "Returns the payload from `Some(T)` or fails when the option is `None`."
+details = ""
+raw = "Returns the payload from `Some(T)` or fails when the option is `None`."
+
+[[item]]
+path = "std::test::fail"
+kind = "method"
+signature = "fn fail: fn([]u8, []*Printable) !"
+summary = "Fails the current test immediately after printing a diagnostic."
+details = ""
+raw = "Fails the current test immediately after printing a diagnostic."
+
+[[item]]
+path = "std::test::not_eq"
+kind = "method"
+signature = "fn not_eq: fn(T, T) void"
+summary = "Fails when `actual` equals `unexpected`."
+details = ""
+raw = "Fails when `actual` equals `unexpected`."
 

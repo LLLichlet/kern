@@ -158,7 +158,7 @@ fn runs_hosted_program_using_custom_ord_tree_key() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.Tree;
-use std.cmp.{Eq, Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
+use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 use std.mem.alloc.{Page, GPA};
 
 type Key = struct {
@@ -372,7 +372,6 @@ fn runs_hosted_program_using_custom_hash_map_key_with_collisions() {
     let output = build_and_run_hosted(
         r#"
 use std.coll.Map;
-use std.cmp.Eq;
 use std.hash.Hash;
 use std.mem.alloc.{Page, GPA};
 

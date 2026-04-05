@@ -1,5 +1,5 @@
 use std.Option;
-use std.cmp.{Eq, Ord, Ordering};
+use std.cmp.{Ord, Ordering};
 use ..List;
 
 impl[T] *List[T] {

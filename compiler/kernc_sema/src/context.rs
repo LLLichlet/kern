@@ -13,6 +13,7 @@ pub struct SemaStructureSnapshot {
     pub node_types: HashMap<NodeId, TypeId>,
     pub atomic_orderings: HashMap<NodeId, AtomicOrdering>,
     pub trait_method_owners: HashMap<NodeId, TypeId>,
+    pub builtin_defs: HashMap<SymbolId, DefId>,
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
     pub global_impls: Vec<DefId>,
@@ -30,6 +31,7 @@ pub struct SemaContext<'a> {
     pub node_types: HashMap<NodeId, TypeId>,
     pub atomic_orderings: HashMap<NodeId, AtomicOrdering>,
     pub trait_method_owners: HashMap<NodeId, TypeId>,
+    pub builtin_defs: HashMap<SymbolId, DefId>,
     // Active trait bounds introduced by the current generic scope.
     pub active_bounds: Vec<(TypeId, Vec<TypeId>)>,
 
@@ -56,6 +58,7 @@ impl<'a> SemaContext<'a> {
             node_types: HashMap::new(),
             atomic_orderings: HashMap::new(),
             trait_method_owners: HashMap::new(),
+            builtin_defs: HashMap::new(),
             active_bounds: Vec::new(),
             defs: Vec::new(),
             scopes: SymbolTable::new(),
@@ -89,6 +92,7 @@ impl<'a> SemaContext<'a> {
             node_types: self.node_types.clone(),
             atomic_orderings: self.atomic_orderings.clone(),
             trait_method_owners: self.trait_method_owners.clone(),
+            builtin_defs: self.builtin_defs.clone(),
             defs: self.defs.clone(),
             scopes: self.scopes.clone(),
             global_impls: self.global_impls.clone(),
@@ -102,6 +106,7 @@ impl<'a> SemaContext<'a> {
         self.node_types = snapshot.node_types;
         self.atomic_orderings = snapshot.atomic_orderings;
         self.trait_method_owners = snapshot.trait_method_owners;
+        self.builtin_defs = snapshot.builtin_defs;
         self.active_bounds.clear();
         self.defs = snapshot.defs;
         self.scopes = snapshot.scopes;
@@ -227,6 +232,20 @@ impl<'a> SemaContext<'a> {
 
     pub fn semantic_definitions(&self) -> impl Iterator<Item = &SemanticDefinition> {
         self.semantic_definitions.values()
+    }
+
+    pub fn register_builtin_def(&mut self, name: SymbolId, def_id: DefId) {
+        self.builtin_defs.insert(name, def_id);
+    }
+
+    pub fn builtin_def(&mut self, name: &str) -> Option<DefId> {
+        let symbol = self.intern(name);
+        self.builtin_defs.get(&symbol).copied()
+    }
+
+    pub fn builtin_trait_ty(&mut self, name: &str, args: Vec<TypeId>) -> Option<TypeId> {
+        let def_id = self.builtin_def(name)?;
+        Some(self.type_registry.intern(crate::ty::TypeKind::TraitObject(def_id, args)))
     }
 
     /// Generate a deterministic mangling suffix for a semantic type.

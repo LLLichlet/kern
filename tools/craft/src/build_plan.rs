@@ -713,28 +713,52 @@ fn build_package_for_domain(
         build_local_dependencies,
         build_external_dependencies,
     ) = dependency_bindings_for_domain(domain, &source.resolved.dependencies);
+    let self_lib_dependency = source
+        .elaboration
+        .plan
+        .targets
+        .iter()
+        .any(|target| target.kind == TargetKind::Lib)
+        .then(|| LocalDependencyBinding {
+            domain,
+            dependency_name: source.resolved.id.name.clone(),
+            package_id: source.resolved.id.clone(),
+        });
     let units = source
         .elaboration
         .plan
         .targets
         .iter()
         .filter(|target| include_target_in_domain(domain, target.kind))
-        .map(|target| BuildUnit {
-            domain,
-            package_id: source.resolved.id.clone(),
-            target_kind: target.kind,
-            target_name: target.name.clone(),
-            source_root: SourceRootBinding::PackagePath(target.root.clone()),
-            artifact_kind: artifact_kind(target.kind),
-            artifact_name: artifact_name(&source.resolved.id, target.kind, target.name.as_deref()),
-            local_dependencies: unit_local_dependencies.clone(),
-            external_dependencies: unit_external_dependencies.clone(),
-            profile: source.elaboration.profile.clone(),
-            cfg: source.elaboration.plan.cfg.clone(),
-            define: source.elaboration.plan.define.clone(),
-            generated_files: Vec::new(),
-            build: BuildNodeBindings::default(),
-            link: LinkPlan::default(),
+        .map(|target| {
+            let mut local_dependencies = unit_local_dependencies.clone();
+            if target.kind != TargetKind::Lib
+                && let Some(self_lib_dependency) = &self_lib_dependency
+            {
+                local_dependencies.push(self_lib_dependency.clone());
+            }
+
+            BuildUnit {
+                domain,
+                package_id: source.resolved.id.clone(),
+                target_kind: target.kind,
+                target_name: target.name.clone(),
+                source_root: SourceRootBinding::PackagePath(target.root.clone()),
+                artifact_kind: artifact_kind(target.kind),
+                artifact_name: artifact_name(
+                    &source.resolved.id,
+                    target.kind,
+                    target.name.as_deref(),
+                ),
+                local_dependencies,
+                external_dependencies: unit_external_dependencies.clone(),
+                profile: source.elaboration.profile.clone(),
+                cfg: source.elaboration.plan.cfg.clone(),
+                define: source.elaboration.plan.define.clone(),
+                generated_files: Vec::new(),
+                build: BuildNodeBindings::default(),
+                link: LinkPlan::default(),
+            }
         })
         .collect();
 

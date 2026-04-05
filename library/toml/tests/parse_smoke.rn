@@ -1,0 +1,56 @@
+use std.test;
+use toml.{parse, DocumentKind};
+
+fn check_root_document() void {
+    let doc = test.expect_ok(parse(
+        "title = \"demo\"\ncount = 3\nratio = 1.25\nenabled = true\nnames = [\"a\", \"b\", 3]\nliteral = 'ok'\ndep = { path = \"../util\", package = \"util\" }\nsite.\"google.com\" = true\n"
+    ));
+    test.eq(doc.kind, DocumentKind.KeyValue);
+    test.eq(doc.item_count, usize.{8});
+    test.eq(doc.root_key_count, usize.{8});
+    test.eq(doc.table_key_count, usize.{0});
+    test.eq(doc.table_count, usize.{0});
+    test.assert(!doc.has_tables(), "expected root document without tables", .{});
+}
+
+fn check_table_document() void {
+    let doc = test.expect_ok(parse(
+        "[package]\nname = \"demo\"\nversion = 1.0\nfeatures = [\"cli\", \"fmt\"]\n"
+    ));
+    test.eq(doc.kind, DocumentKind.Table);
+    test.eq(doc.item_count, usize.{4});
+    test.eq(doc.root_key_count, usize.{0});
+    test.eq(doc.table_key_count, usize.{3});
+    test.eq(doc.table_count, usize.{1});
+    test.assert(doc.has_tables(), "expected table document to report tables", .{});
+    test.assert(doc.has_table_keys(), "expected table document to report table keys", .{});
+}
+
+fn check_mixed_document() void {
+    let doc = test.expect_ok(parse(
+        "title = \"demo\"\n[package]\nname = \"demo\"\nmembers = [[1, 2], [3, 4]]\n"
+    ));
+    test.eq(doc.kind, DocumentKind.Mixed);
+    test.eq(doc.root_key_count, usize.{1});
+    test.eq(doc.table_key_count, usize.{2});
+    test.eq(doc.table_count, usize.{1});
+}
+
+fn check_quoted_table_header() void {
+    let doc = test.expect_ok(parse(
+        "[target.\"cfg(unix)\"]\nlink = { lib = \"ssl\", search = [\"/usr/lib\"] }\n"
+    ));
+    test.eq(doc.kind, DocumentKind.Table);
+    test.eq(doc.root_key_count, usize.{0});
+    test.eq(doc.table_key_count, usize.{1});
+    test.eq(doc.table_count, usize.{1});
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    check_root_document();
+    check_table_document();
+    check_mixed_document();
+    check_quoted_table_header();
+    return 0;
+}

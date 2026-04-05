@@ -26,6 +26,7 @@ pub struct MastModule {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MastLinkage {
     External,
+    LinkOnceOdr,
     Internal,
 }
 

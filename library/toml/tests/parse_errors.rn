@@ -1,0 +1,64 @@
+use std.test;
+use toml.parse;
+
+fn check_array_of_tables_error() void {
+    let err = test.expect_err(parse("[[products]]\nname = \"hammer\"\n"));
+    test.assert(
+        err.message.eq("array-of-tables are not supported currently"),
+        "unexpected array-of-tables error: {}",
+        .{ err.message, }
+    );
+    test.eq(err.line, usize.{1});
+}
+
+fn check_empty_array_element_error() void {
+    let err = test.expect_err(parse("items = [1, , 2]\n"));
+    test.assert(
+        err.message.eq("array elements cannot be empty"),
+        "unexpected empty array error: {}",
+        .{ err.message, }
+    );
+    test.eq(err.line, usize.{1});
+}
+
+fn check_bad_float_error() void {
+    let err = test.expect_err(parse("ratio = 1.\n"));
+    test.assert(
+        err.message.eq(
+            "only integers, decimal floats, booleans, strings, arrays, and inline tables are supported currently"
+        ),
+        "unexpected malformed float error: {}",
+        .{ err.message, }
+    );
+    test.eq(err.line, usize.{1});
+}
+
+fn check_bad_quoted_key_error() void {
+    let err = test.expect_err(parse("site.\"google.com = true\n"));
+    test.assert(
+        err.message.eq("unterminated quoted key segment"),
+        "unexpected malformed quoted key error: {}",
+        .{ err.message, }
+    );
+    test.eq(err.line, usize.{1});
+}
+
+fn check_trailing_inline_table_comma_error() void {
+    let err = test.expect_err(parse("dep = { path = \"../util\", }\n"));
+    test.assert(
+        err.message.eq("inline table entries cannot be empty"),
+        "unexpected trailing comma error: {}",
+        .{ err.message, }
+    );
+    test.eq(err.line, usize.{1});
+}
+
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    check_array_of_tables_error();
+    check_empty_array_element_error();
+    check_bad_float_error();
+    check_bad_quoted_key_error();
+    check_trailing_inline_table_comma_error();
+    return 0;
+}

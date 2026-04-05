@@ -4,7 +4,6 @@
 //! keep probing, tombstones, and load-factor policy visible so higher layers stay predictable.
 
 use std.Option;
-use std.cmp.Eq;
 use std.hash.Hash;
 
 /// Control byte for an unused slot.

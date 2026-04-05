@@ -34,12 +34,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return true;
                 }
 
-                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                (self.ctx.type_registry.is_integer(l_norm)
+                    && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
                         && self.ctx.type_registry.is_float(r_norm))
             }
             BinaryOperator::Multiply | BinaryOperator::Divide | BinaryOperator::Modulo => {
-                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                (self.ctx.type_registry.is_integer(l_norm)
+                    && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
                         && self.ctx.type_registry.is_float(r_norm))
             }
@@ -81,7 +83,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             | BinaryOperator::BitwiseXor
             | BinaryOperator::ShiftLeft
             | BinaryOperator::ShiftRight => {
-                self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm)
+                self.ctx.type_registry.is_integer(l_norm)
+                    && self.ctx.type_registry.is_integer(r_norm)
             }
         }
     }
@@ -93,7 +96,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
                     return false;
                 };
-                def.variants.iter().all(|variant| variant.payload_type.is_none())
+                def.variants
+                    .iter()
+                    .all(|variant| variant.payload_type.is_none())
             }
             TypeKind::AnonymousEnum(anon) => anon
                 .variants
@@ -151,7 +156,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
     ) -> TypeId {
         let Some((trait_name, returns_bool)) = self.builtin_binary_trait_name(op) else {
-            self.ctx.emit_ice(lhs.span, "missing builtin trait mapping for binary operator");
+            self.ctx.emit_ice(
+                lhs.span,
+                "missing builtin trait mapping for binary operator",
+            );
             return TypeId::ERROR;
         };
 
@@ -224,7 +232,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         expected_ty: Option<TypeId>,
     ) -> TypeId {
         let Some((trait_name, _)) = self.builtin_unary_trait_name(op) else {
-            self.ctx.emit_ice(operand.span, "missing builtin trait mapping for unary operator");
+            self.ctx.emit_ice(
+                operand.span,
+                "missing builtin trait mapping for unary operator",
+            );
             return TypeId::ERROR;
         };
 

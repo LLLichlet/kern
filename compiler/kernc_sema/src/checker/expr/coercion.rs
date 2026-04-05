@@ -1132,7 +1132,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         false
     }
 
-    fn check_builtin_auto_trait_impl(&mut self, source_ty: TypeId, target_trait_ty: TypeId) -> bool {
+    fn check_builtin_auto_trait_impl(
+        &mut self,
+        source_ty: TypeId,
+        target_trait_ty: TypeId,
+    ) -> bool {
         let source_norm = self.resolve_tv(source_ty);
         let target_norm = self.resolve_tv(target_trait_ty);
 
@@ -1154,7 +1158,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
                     return false;
                 };
-                def.variants.iter().all(|variant| variant.payload_type.is_none())
+                def.variants
+                    .iter()
+                    .all(|variant| variant.payload_type.is_none())
             }
             TypeKind::AnonymousEnum(anon) => anon
                 .variants

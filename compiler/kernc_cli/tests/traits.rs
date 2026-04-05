@@ -473,11 +473,7 @@ extern fn main(args: [][]u8) i32 {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("Integer"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("Integer"), "unexpected stderr:\n{}", stderr);
 }
 
 #[test]
@@ -605,11 +601,7 @@ extern fn main(args: [][]u8) i32 {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("Neg[T]"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("Neg[T]"), "unexpected stderr:\n{}", stderr);
 }
 
 #[test]
@@ -689,11 +681,7 @@ extern fn main(args: [][]u8) i32 {
     );
 
     let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("Eq[T]"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
+    assert!(stderr.contains("Eq[T]"), "unexpected stderr:\n{}", stderr);
 }
 
 #[test]

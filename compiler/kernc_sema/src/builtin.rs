@@ -469,7 +469,9 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         let self_sym = self.ctx.intern("self");
         let self_param_ty_node_id = self.ctx.next_node_id();
-        self.ctx.node_types.insert(self_param_ty_node_id, target_ty_id);
+        self.ctx
+            .node_types
+            .insert(self_param_ty_node_id, target_ty_id);
         let mut params = vec![ast::FuncParam {
             pattern: ast::BindingPattern {
                 name: self_sym,
@@ -560,7 +562,9 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_eq_like_impls(ty);
         self.inject_binary_same_type_impls(
             ty,
-            &["Add", "Sub", "Mul", "Div", "Rem", "BitAnd", "BitOr", "BitXor"],
+            &[
+                "Add", "Sub", "Mul", "Div", "Rem", "BitAnd", "BitOr", "BitXor",
+            ],
         );
         self.inject_shift_impls(ty);
         self.inject_unary_same_type_impl(ty, "Neg");
@@ -1368,6 +1372,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 id: def_id,
                 name: name_id,
                 vis: Visibility::Private,
+                parent: None,
                 is_imported: true,
                 value: expr,
                 is_static: false,

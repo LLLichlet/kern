@@ -31,14 +31,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     return true;
                 }
 
-                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                (self.ctx.type_registry.is_integer(l_norm)
+                    && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
                         && self.ctx.type_registry.is_float(r_norm))
             }
             ast::BinaryOperator::Multiply
             | ast::BinaryOperator::Divide
             | ast::BinaryOperator::Modulo => {
-                (self.ctx.type_registry.is_integer(l_norm) && self.ctx.type_registry.is_integer(r_norm))
+                (self.ctx.type_registry.is_integer(l_norm)
+                    && self.ctx.type_registry.is_integer(r_norm))
                     || (self.ctx.type_registry.is_float(l_norm)
                         && self.ctx.type_registry.is_float(r_norm))
             }
@@ -88,7 +90,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
                     return false;
                 };
-                def.variants.iter().all(|variant| variant.payload_type.is_none())
+                def.variants
+                    .iter()
+                    .all(|variant| variant.payload_type.is_none())
             }
             TypeKind::AnonymousEnum(anon) => anon
                 .variants
@@ -190,11 +194,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExprKind {
         let Some(trait_name) = self.binary_operator_trait_name(op) else {
-            self.ctx.emit_ice(span, "missing builtin trait for binary operator lowering");
+            self.ctx
+                .emit_ice(span, "missing builtin trait for binary operator lowering");
             return MastExprKind::Trap;
         };
         let Some(method_name) = self.binary_operator_method_name(op) else {
-            self.ctx.emit_ice(span, "missing builtin method name for binary operator lowering");
+            self.ctx.emit_ice(
+                span,
+                "missing builtin method name for binary operator lowering",
+            );
             return MastExprKind::Trap;
         };
         let trait_args = match op {
@@ -245,11 +253,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> MastExprKind {
         let Some(trait_name) = self.unary_operator_trait_name(op) else {
-            self.ctx.emit_ice(span, "missing builtin trait for unary operator lowering");
+            self.ctx
+                .emit_ice(span, "missing builtin trait for unary operator lowering");
             return MastExprKind::Trap;
         };
         let Some(method_name) = self.unary_operator_method_name(op) else {
-            self.ctx.emit_ice(span, "missing builtin method name for unary operator lowering");
+            self.ctx.emit_ice(
+                span,
+                "missing builtin method name for unary operator lowering",
+            );
             return MastExprKind::Trap;
         };
         let Some(owner_trait_ty) = self.ctx.builtin_trait_ty(trait_name, vec![result_ty]) else {

@@ -42,6 +42,7 @@ pub(crate) fn materialize_analysis_inputs(
     action_plan: &ActionPlan,
 ) -> Result<()> {
     let source_config = load_source_config(build_plan)?;
+    let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
@@ -74,6 +75,7 @@ pub(crate) fn materialize_analysis_inputs(
             &source_config,
             &build_plan.workspace_root,
             crate::script::ScriptCommand::Build,
+            profile_selection,
             &build_plan.workspace_root,
             &mut built_std_packages,
             &mut built_external_packages,
@@ -141,6 +143,7 @@ fn build_with_command(
     command: crate::script::ScriptCommand,
 ) -> Result<ExecutionSummary> {
     let source_config = load_source_config(build_plan)?;
+    let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
@@ -161,6 +164,7 @@ fn build_with_command(
             &build_plan.workspace_root,
             &dep,
             command,
+            profile_selection,
             &build_plan.workspace_root,
             &mut built_std_packages,
             &mut built_external_packages,
@@ -190,6 +194,7 @@ fn build_with_command(
             &source_config,
             &build_plan.workspace_root,
             command,
+            profile_selection,
             &build_plan.workspace_root,
             &mut built_std_packages,
             &mut built_external_packages,
@@ -211,6 +216,7 @@ fn build_with_command(
             &source_config,
             &build_plan.workspace_root,
             command,
+            profile_selection,
             &build_plan.workspace_root,
             &mut built_std_packages,
             &mut built_external_packages,
@@ -379,6 +385,7 @@ fn ensure_compile_action_built(
     source_config: &SourceConfigContext,
     dependency_workspace_root: &Path,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &Path,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
@@ -406,6 +413,7 @@ fn ensure_compile_action_built(
                 source_config,
                 dependency_workspace_root,
                 command,
+                profile_selection,
                 std_workspace_root,
                 built_std_packages,
                 built_external_packages,
@@ -432,6 +440,7 @@ fn ensure_compile_action_built(
         source_config,
         dependency_workspace_root,
         command,
+        profile_selection,
         std_workspace_root,
         built_std_packages,
         built_external_packages,
@@ -501,6 +510,7 @@ fn execute_staged_actions(
     source_config: &SourceConfigContext,
     dependency_workspace_root: &Path,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &Path,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
@@ -530,6 +540,7 @@ fn execute_staged_actions(
             source_config,
             dependency_workspace_root,
             command,
+            profile_selection,
             std_workspace_root,
             built_std_packages,
             built_external_packages,
@@ -564,6 +575,7 @@ fn execute_staged_action(
     source_config: &SourceConfigContext,
     dependency_workspace_root: &Path,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &Path,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
@@ -601,6 +613,7 @@ fn execute_staged_action(
             source_config,
             dependency_workspace_root,
             command,
+            profile_selection,
             std_workspace_root,
             built_std_packages,
             built_external_packages,
@@ -635,6 +648,7 @@ fn execute_staged_action(
                             source_config,
                             dependency_workspace_root,
                             command,
+                            profile_selection,
                             std_workspace_root,
                             built_std_packages,
                             built_external_packages,
@@ -652,6 +666,7 @@ fn execute_staged_action(
                         source_config,
                         dependency_workspace_root,
                         command,
+                        profile_selection,
                         std_workspace_root,
                         built_std_packages,
                         built_external_packages,
@@ -709,6 +724,7 @@ fn ensure_link_action_built(
     source_config: &SourceConfigContext,
     dependency_workspace_root: &Path,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &Path,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
@@ -741,6 +757,7 @@ fn ensure_link_action_built(
         source_config,
         dependency_workspace_root,
         command,
+        profile_selection,
         std_workspace_root,
         built_std_packages,
         built_external_packages,
@@ -802,6 +819,7 @@ fn ensure_link_action_built(
         source_config,
         dependency_workspace_root,
         command,
+        profile_selection,
         std_workspace_root,
         built_std_packages,
         built_external_packages,
@@ -874,6 +892,7 @@ fn load_external_package_actions(
     dependency_workspace_root: &Path,
     dep: &ExternalPackageId,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
 ) -> Result<LoadedExternalPackage> {
     let fetched = fetch_external_package(source_config, dependency_workspace_root, dep)?;
     let manifest_path = fetched.cache_path.join("Craft.toml");
@@ -886,7 +905,10 @@ fn load_external_package_actions(
         &workspace_members,
         manifest.workspace.is_some(),
         command,
-        &FeatureSelection::default(),
+        &FeatureSelection {
+            profile: profile_selection,
+            ..Default::default()
+        },
     )?;
     let build_plan = crate::build_plan::derive(&elaboration, command)?;
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
@@ -910,6 +932,7 @@ fn build_external_package(
     dependency_workspace_root: &Path,
     dep: &ExternalPackageId,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &Path,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
@@ -927,8 +950,13 @@ fn build_external_package(
         )));
     }
 
-    let loaded =
-        load_external_package_actions(source_config, dependency_workspace_root, dep, command)?;
+    let loaded = load_external_package_actions(
+        source_config,
+        dependency_workspace_root,
+        dep,
+        command,
+        profile_selection,
+    )?;
     let root_library_action = root_external_library_action(dep, &loaded.local_library_actions)?;
     let required_library_actions = compile_actions_for_root(
         root_library_action,
@@ -943,6 +971,7 @@ fn build_external_package(
             &loaded.workspace_root,
             &child,
             command,
+            profile_selection,
             std_workspace_root,
             built_std_packages,
             built_external_packages,
@@ -967,6 +996,7 @@ fn build_external_package(
         &loaded.source_config,
         &loaded.workspace_root,
         command,
+        profile_selection,
         std_workspace_root,
         built_std_packages,
         built_external_packages,
@@ -1037,6 +1067,7 @@ fn ensure_external_tool_built(
     source_config: &SourceConfigContext,
     dependency_workspace_root: &Path,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &Path,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
@@ -1061,6 +1092,7 @@ fn ensure_external_tool_built(
         dependency_workspace_root,
         dependency_id,
         command,
+        profile_selection,
     )?;
     let root_link_action = root_external_bin_action(
         dependency_id,
@@ -1098,6 +1130,7 @@ fn ensure_external_tool_built(
             &loaded.workspace_root,
             &child,
             command,
+            profile_selection,
             std_workspace_root,
             built_std_packages,
             built_external_packages,
@@ -1120,6 +1153,7 @@ fn ensure_external_tool_built(
         &loaded.source_config,
         &loaded.workspace_root,
         command,
+        profile_selection,
         std_workspace_root,
         built_std_packages,
         built_external_packages,
@@ -1139,6 +1173,7 @@ fn ensure_external_tool_built(
         &loaded.source_config,
         &loaded.workspace_root,
         command,
+        profile_selection,
         std_workspace_root,
         built_std_packages,
         built_external_packages,
@@ -1403,6 +1438,7 @@ fn execute_compile_actions(
     source_config: &SourceConfigContext,
     dependency_workspace_root: &Path,
     command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
     std_workspace_root: &Path,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
@@ -1420,6 +1456,7 @@ fn execute_compile_actions(
             source_config,
             dependency_workspace_root,
             command,
+            profile_selection,
             std_workspace_root,
             built_std_packages,
             built_external_packages,
@@ -1606,6 +1643,13 @@ fn build_std_package(
     Ok(())
 }
 
+fn profile_selection_for_action_plan(action_plan: &ActionPlan) -> crate::script::ProfileSelection {
+    match action_plan.compile_actions.first().map(|action| action.profile.name.as_str()) {
+        Some("release") => crate::script::ProfileSelection::Release,
+        _ => crate::script::ProfileSelection::Dev,
+    }
+}
+
 fn push_link_object(objects: &mut Vec<PathBuf>, seen: &mut BTreeSet<PathBuf>, path: &Path) {
     if seen.insert(path.to_path_buf()) {
         objects.push(path.to_path_buf());
@@ -1672,6 +1716,7 @@ mod tests {
     use crate::workspace;
     use std::fs;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(prefix: &str) -> PathBuf {
@@ -2412,6 +2457,88 @@ pub fn answer() i32 {
             false,
             crate::script::ScriptCommand::Build,
             &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+        let summary = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(summary.compile_actions, 2);
+        assert_eq!(summary.link_actions, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn builds_package_with_direct_external_git_dependency_in_release_profile() {
+        let root = temp_dir("craft-exec-external-git-release");
+        let repo = root.join("log.git");
+        fs::create_dir_all(root.join("src")).unwrap();
+        init_git_package(
+            &repo,
+            r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+            r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+        );
+
+        fs::write(
+            root.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+log = {{ git = "{}", branch = "main", version = "1" }}
+"#,
+                toml_string_literal(&repo)
+            ),
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.rn"),
+            r#"
+extern fn main(args: [][]u8) i32 {
+    let _ = args;
+    if (log.answer() == 42) {
+        return 0;
+    }
+    return 1;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection {
+                profile: crate::script::ProfileSelection::Release,
+                ..Default::default()
+            },
         )
         .unwrap();
         let build_plan =
@@ -3249,5 +3376,35 @@ entry_module_path = "src/init.rn"
         );
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    fn init_git_package(repo: &Path, manifest: &str, lib_source: &str) {
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(repo.join("Craft.toml"), manifest).unwrap();
+        fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
+        run_git(repo, ["init", "--initial-branch=main"]);
+        run_git(repo, ["config", "user.name", "Craft Tests"]);
+        run_git(repo, ["config", "user.email", "craft-tests@example.invalid"]);
+        run_git(repo, ["add", "."]);
+        run_git(repo, ["commit", "-m", "initial"]);
+    }
+
+    fn toml_string_literal(path: &Path) -> String {
+        path.to_string_lossy().replace('\\', "\\\\")
+    }
+
+    fn run_git<const N: usize>(cwd: &Path, args: [&str; N]) {
+        let output = Command::new("git")
+            .args(["-c", "commit.gpgsign=false"])
+            .args(["-c", "tag.gpgSign=false"])
+            .args(args)
+            .current_dir(cwd)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 }

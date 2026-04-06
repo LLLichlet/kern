@@ -172,7 +172,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 publish = false
 
 [lib]

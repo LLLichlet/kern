@@ -633,7 +633,7 @@ mod tests {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 log = "1"
@@ -649,7 +649,7 @@ directory = "vendor-registry"
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -709,7 +709,7 @@ root = "src/lib.rn"
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -726,7 +726,7 @@ root = "src/lib.rn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 log = "1"
@@ -786,7 +786,7 @@ git = "{}"
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -803,7 +803,7 @@ root = "src/lib.rn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 log = "1"
@@ -874,7 +874,7 @@ branch = "main"
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -897,7 +897,7 @@ root = "src/lib.rn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 log = "1"
@@ -954,7 +954,7 @@ tag = "v1"
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -976,7 +976,7 @@ root = "src/lib.rn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 log = "1"

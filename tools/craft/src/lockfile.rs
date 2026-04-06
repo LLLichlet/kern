@@ -1235,7 +1235,7 @@ branch = "stable"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 env = ["{env_name}"]
@@ -1273,7 +1273,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -1342,7 +1342,7 @@ shared = "2"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 shared = { workspace = true }
@@ -1391,7 +1391,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -1437,7 +1437,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -1467,7 +1467,7 @@ kern = "0.6.6"
 [package]
 name = "app"
 version = "0.2.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -1516,7 +1516,7 @@ branch = "stable"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 shared = { workspace = true }
@@ -1607,7 +1607,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 env = ["{env_name}"]
@@ -1678,7 +1678,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "app"
 version = "0.2.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 env = ["{env_name}"]

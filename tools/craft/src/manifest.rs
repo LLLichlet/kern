@@ -1135,7 +1135,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -1196,7 +1196,7 @@ license = "MIT"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [profile.dev]
 opt = 7
@@ -1217,7 +1217,7 @@ opt = 7
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
@@ -1242,7 +1242,7 @@ shared = { workspace = true, features = ["simd"] }
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 shared = { workspace = true, version = "2" }
@@ -1285,7 +1285,7 @@ shared = { workspace = true }
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
@@ -1305,7 +1305,7 @@ env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 release-source-policy = "warn"
@@ -1329,7 +1329,7 @@ allow-insecure-source = ["mirror"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [source.default]
 directory = "vendor/default"
@@ -1372,7 +1372,7 @@ branch = "stable"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [source.default]
 "#,
@@ -1395,7 +1395,7 @@ kern = "0.6.6"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [source.default]
 directory = "vendor/default"
@@ -1420,7 +1420,7 @@ git = "https://example.com/default.git"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [source.default]
 git = "https://example.com/default.git"
@@ -1446,7 +1446,7 @@ tag = "v1"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [source.default]
 directory = "vendor/default"
@@ -1471,7 +1471,7 @@ rev = "abc123"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 env = ["1BAD-NAME"]
@@ -1492,7 +1492,7 @@ env = ["1BAD-NAME"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 release-source-policy = "strict"
@@ -1511,7 +1511,7 @@ release-source-policy = "strict"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 edition = "2027"
 "#,
             std::path::Path::new("Craft.toml"),
@@ -1573,7 +1573,7 @@ kern = "0.7"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [test]
 roots = ["tests/smoke.rn", "alt/smoke.rn"]
@@ -1595,7 +1595,7 @@ roots = ["tests/smoke.rn", "alt/smoke.rn"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [test]
 roots = ["tests/*"]
@@ -1614,7 +1614,7 @@ roots = ["tests/*"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[test]]
 name = "smoke"

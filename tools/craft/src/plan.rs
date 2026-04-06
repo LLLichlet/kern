@@ -384,7 +384,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 publish = false
 
 [lib]
@@ -408,7 +408,7 @@ root = "examples/hello.rn"
         let plan =
             PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
 
-        assert_eq!(plan.kern, "0.6.6");
+        assert_eq!(plan.kern, "0.6.7");
         assert_eq!(plan.manifest_path, Path::new("Craft.toml"));
         assert_eq!(plan.publish, Some(false));
         assert_eq!(plan.targets.len(), 4);
@@ -436,7 +436,7 @@ root = "examples/hello.rn"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
             Path::new("Craft.toml"),
         )
@@ -481,7 +481,7 @@ kern = "0.6.6"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 log = "1"

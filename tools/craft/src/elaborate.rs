@@ -490,7 +490,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -505,7 +505,7 @@ kern = "0.6.6"
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -575,7 +575,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [dependencies]
 log = "1"
@@ -639,7 +639,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -683,7 +683,7 @@ kern = "0.6.6"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -738,7 +738,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -805,7 +805,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 env = ["{env_name}"]
@@ -877,7 +877,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [craft]
 env = ["{env_name}"]
@@ -940,7 +940,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 "#,
         )
         .unwrap();
@@ -991,7 +991,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [features]
 default = ["tls"]
@@ -1050,7 +1050,7 @@ pub fn craft(p: *mut plan.Plan) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [features]
 default = ["missing"]
@@ -1089,7 +1089,7 @@ default = ["missing"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"

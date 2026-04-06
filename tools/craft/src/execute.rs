@@ -1733,7 +1733,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1765,7 +1765,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -1836,7 +1836,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1868,7 +1868,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -1939,7 +1939,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1971,7 +1971,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -2022,7 +2022,7 @@ pub fn is_truthy(value: []u8) bool {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [test]
 roots = ["tests/smoke.rn"]
@@ -2080,7 +2080,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -2161,7 +2161,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [test]
 roots = ["tests/cwd.rn"]
@@ -2245,7 +2245,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [test]
 roots = ["tests/env.rn"]
@@ -2330,7 +2330,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2385,7 +2385,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -2418,7 +2418,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -2473,7 +2473,7 @@ pub fn answer() i32 {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -2506,7 +2506,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -2531,7 +2531,7 @@ pub fn answer() i32 {
 [package]
 name = "corelog"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -2591,7 +2591,7 @@ pub fn base() i32 {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -2624,7 +2624,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "log"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -2652,7 +2652,7 @@ pub fn answer() i32 {
 [package]
 name = "corelog"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -2705,7 +2705,7 @@ pub fn base() i32 {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2766,7 +2766,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2829,7 +2829,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2908,7 +2908,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -3010,7 +3010,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -3040,7 +3040,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "codegen"
@@ -3116,7 +3116,7 @@ extern fn main(args: [][]u8) i32 {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -3182,7 +3182,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -3214,7 +3214,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "codegen"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "codegen"

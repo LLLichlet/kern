@@ -1292,7 +1292,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -1366,7 +1366,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1384,7 +1384,7 @@ log = "1"
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -1459,7 +1459,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1481,7 +1481,7 @@ cc = "1"
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -1559,7 +1559,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1587,7 +1587,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "codegen"
@@ -1677,7 +1677,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1705,7 +1705,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "alpha"
@@ -1785,7 +1785,7 @@ root = "src/beta.rn"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1816,7 +1816,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "codegen"
 version = "1"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "codegen"
@@ -1894,7 +1894,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "app"
@@ -1911,7 +1911,7 @@ foo = { path = "../util", package = "util" }
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [lib]
 root = "src/lib.rn"
@@ -1960,7 +1960,7 @@ root = "src/lib.rn"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [features]
 default = ["simd"]
@@ -2092,7 +2092,7 @@ pub fn build(b: *mut builder.Builder) void {{
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2176,7 +2176,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2252,7 +2252,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2323,7 +2323,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2398,7 +2398,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"
@@ -2476,7 +2476,7 @@ pub fn build(b: *mut builder.Builder) void {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"

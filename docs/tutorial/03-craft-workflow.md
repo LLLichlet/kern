@@ -39,7 +39,7 @@ demo/
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.6.6"
+kern = "0.6.7"
 
 [[bin]]
 name = "demo"

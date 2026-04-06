@@ -1196,7 +1196,7 @@ mod tests {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.6.6\"
+kern = \"0.6.7\"
 
 [features]
 experimental = []
@@ -1298,7 +1298,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.6.6\"
+kern = \"0.6.7\"
 
 [[bin]]
 name = \"app\"
@@ -1341,7 +1341,7 @@ root = \"src/main.rn\"
 [package]
 name = \"app\"
 version = \"0.1.1\"
-kern = \"0.6.6\"
+kern = \"0.6.7\"
 
 [[bin]]
 name = \"app\"

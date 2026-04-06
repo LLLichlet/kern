@@ -314,14 +314,11 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                 );
             }
             Def::Function(function) if !function.is_imported => {
+                let is_method = function_receiver_impl(ctx, function).is_some();
                 push_item(
                     &mut items,
                     def_path(ctx, function.id),
-                    if function.parent.is_some() {
-                        "method"
-                    } else {
-                        "function"
-                    },
+                    if is_method { "method" } else { "function" },
                     function_signature(ctx, function),
                     function.docs.as_ref(),
                 );
@@ -331,7 +328,13 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     &mut items,
                     def_path(ctx, def.id),
                     "struct",
-                    Some(format!("struct {}", ctx.resolve(def.name))),
+                    Some(type_signature(
+                        ctx,
+                        "struct",
+                        ctx.resolve(def.name),
+                        &def.generics,
+                        def.fields.iter(),
+                    )),
                     def.docs.as_ref(),
                 );
                 for field in &def.fields {
@@ -355,7 +358,13 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                     &mut items,
                     def_path(ctx, def.id),
                     "union",
-                    Some(format!("union {}", ctx.resolve(def.name))),
+                    Some(type_signature(
+                        ctx,
+                        "union",
+                        ctx.resolve(def.name),
+                        &def.generics,
+                        def.fields.iter(),
+                    )),
                     def.docs.as_ref(),
                 );
                 for field in &def.fields {
@@ -419,11 +428,7 @@ pub fn collect_kmeta_doc_items(ctx: &SemaContext<'_>) -> Vec<KmetaDocItem> {
                         "trait_method",
                         ctx.resolve(method.name),
                         method.docs.as_ref(),
-                        Some(format!(
-                            "fn {}: {}",
-                            ctx.resolve(method.name),
-                            type_node_label(ctx, &method.type_node)
-                        )),
+                        trait_method_signature(ctx, method),
                     );
                 }
             }
@@ -731,7 +736,7 @@ fn push_member_item(
         return;
     };
     items.push(KmetaDocItem {
-        path: format!("{}::{}", def_path(ctx, parent), name),
+        path: format!("{}.{}", def_path(ctx, parent), name),
         kind: kind.to_string(),
         signature,
         docs: normalize_doc(docs),
@@ -768,7 +773,7 @@ fn function_path(ctx: &SemaContext<'_>, function: &FunctionDef) -> String {
     if let Some(parent) = function.parent {
         match &ctx.defs[parent.0 as usize] {
             Def::Impl(impl_def) => format!(
-                "{}::{}",
+                "{}.{}",
                 impl_path(ctx, impl_def),
                 ctx.resolve(function.name)
             ),
@@ -781,13 +786,13 @@ fn function_path(ctx: &SemaContext<'_>, function: &FunctionDef) -> String {
 }
 
 fn impl_path(ctx: &SemaContext<'_>, impl_def: &ImplDef) -> String {
-    let mut target = type_node_label(ctx, &impl_def.target_type);
+    let mut target = type_path_label(ctx, &impl_def.target_type);
     if let Some(trait_type) = &impl_def.trait_type {
         target.push_str(" as ");
-        target.push_str(&type_node_label(ctx, trait_type));
+        target.push_str(&type_path_label(ctx, trait_type));
     }
     if let Some(module_id) = impl_def.parent_module {
-        format!("{}::{}", module_path(ctx, module_id), target)
+        format!("{}.{}", module_path(ctx, module_id), target)
     } else {
         target
     }
@@ -799,7 +804,7 @@ fn module_owned_path(
     module_id: Option<DefId>,
 ) -> String {
     if let Some(module_id) = module_id {
-        format!("{}::{}", module_path(ctx, module_id), ctx.resolve(name))
+        format!("{}.{}", module_path(ctx, module_id), ctx.resolve(name))
     } else {
         ctx.resolve(name).to_string()
     }
@@ -840,16 +845,138 @@ fn module_path(ctx: &SemaContext<'_>, module_id: DefId) -> String {
         current = module.parent;
     }
     names.reverse();
-    names.join("::")
+    names.join(".")
 }
 
 fn function_signature(ctx: &SemaContext<'_>, function: &FunctionDef) -> Option<String> {
-    let sig = function.resolved_sig?;
-    Some(format!(
-        "fn {}: {}",
-        ctx.resolve(function.name),
-        ctx.ty_to_string(sig)
-    ))
+    let mut out = String::new();
+    if function.is_extern {
+        out.push_str("extern ");
+    }
+    if function.is_const {
+        out.push_str("const ");
+    }
+    out.push_str("fn ");
+    out.push_str(ctx.resolve(function.name));
+    out.push_str(&generic_params_label(ctx, &function.generics));
+    out.push('(');
+
+    let mut params = Vec::new();
+    for param in &function.params {
+        params.push(format!(
+            "{}: {}",
+            ctx.resolve(param.pattern.name),
+            type_node_label(ctx, &param.type_node)
+        ));
+    }
+    if function.is_variadic {
+        params.push("...".to_string());
+    }
+    out.push_str(&params.join(", "));
+    out.push(')');
+    out.push(' ');
+    out.push_str(&type_node_label(ctx, &function.ret_type));
+    Some(out)
+}
+
+fn function_receiver_impl<'a>(
+    ctx: &'a SemaContext<'_>,
+    function: &FunctionDef,
+) -> Option<&'a ImplDef> {
+    let parent = function.parent?;
+    let Def::Impl(impl_def) = &ctx.defs[parent.0 as usize] else {
+        return None;
+    };
+    Some(impl_def)
+}
+
+fn generic_params_label(ctx: &SemaContext<'_>, generics: &[ast::GenericParam]) -> String {
+    if generics.is_empty() {
+        return String::new();
+    }
+    let names = generics
+        .iter()
+        .map(|param| ctx.resolve(param.name).to_string())
+        .collect::<Vec<_>>();
+    format!("[{}]", names.join(", "))
+}
+
+fn type_path_label(ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
+    let mut text = type_node_label(ctx, type_node);
+    loop {
+        let trimmed = text.trim_start();
+        if let Some(rest) = trimmed.strip_prefix("*mut ") {
+            text = rest.to_string();
+            continue;
+        }
+        if let Some(rest) = trimmed.strip_prefix('*') {
+            text = rest.trim_start().to_string();
+            continue;
+        }
+        break;
+    }
+    text
+}
+
+fn trait_method_signature(ctx: &SemaContext<'_>, method: &ast::StructFieldDef) -> Option<String> {
+    let ast::TypeKind::Function {
+        params,
+        ret,
+        is_variadic,
+    } = &method.type_node.kind
+    else {
+        return Some(format!(
+            "fn {}: {}",
+            ctx.resolve(method.name),
+            type_node_label(ctx, &method.type_node)
+        ));
+    };
+
+    let mut out = String::new();
+    out.push_str("fn ");
+    out.push_str(ctx.resolve(method.name));
+    out.push('(');
+    let mut rendered_params = Vec::new();
+    for param in params {
+        rendered_params.push(type_node_label(ctx, param));
+    }
+    if *is_variadic {
+        rendered_params.push("...".to_string());
+    }
+    out.push_str(&rendered_params.join(", "));
+    out.push(')');
+    out.push(' ');
+    if let Some(ret) = ret {
+        out.push_str(&type_node_label(ctx, ret));
+    } else {
+        out.push_str("void");
+    }
+    Some(out)
+}
+
+fn type_signature<'a>(
+    ctx: &SemaContext<'_>,
+    kind: &str,
+    name: &str,
+    generics: &[ast::GenericParam],
+    fields: impl Iterator<Item = &'a ast::StructFieldDef>,
+) -> String {
+    let public_fields = fields.filter(|field| field.is_pub).collect::<Vec<_>>();
+    let mut out = format!("{kind} {name}{}", generic_params_label(ctx, generics));
+    if public_fields.is_empty() {
+        return out;
+    }
+
+    out.push_str(" {\n");
+    for field in public_fields {
+        out.push_str("    pub ");
+        out.push_str(ctx.resolve(field.name));
+        out.push_str(": ");
+        out.push_str(&type_node_label(ctx, &field.type_node));
+        out.push_str(",\n");
+    }
+    out.push('}');
+    out
 }
 
 fn type_node_label(ctx: &SemaContext<'_>, type_node: &ast::TypeNode) -> String {
@@ -907,7 +1034,7 @@ mod tests {
     use super::collect_kmeta_doc_items;
     use kernc_ast as ast;
     use kernc_sema::SemaContext;
-    use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef, ModuleDef, Visibility};
+    use kernc_sema::def::{Def, DefId, FunctionDef, ImplDef, ModuleDef, StructDef, Visibility};
     use kernc_sema::scope::ScopeId;
     use kernc_utils::{NodeId, Session, Span};
     use std::collections::HashMap;
@@ -1017,8 +1144,139 @@ mod tests {
             .map(|item| item.path.as_str())
             .collect::<Vec<_>>();
 
-        assert!(paths.contains(&"root::Device::read"));
-        assert!(paths.contains(&"root::Device as Service::read"));
+        assert!(paths.contains(&"root.Device.read"));
+        assert!(paths.contains(&"root.Device as Service.read"));
+    }
+
+    #[test]
+    fn collect_kmeta_doc_items_treats_module_functions_as_functions() {
+        let mut session = Session::new();
+        let file_id = session
+            .source_manager
+            .add_file("doc_test.rn".to_string(), "Result".to_string());
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_name = ctx.intern("toml");
+        let parse_name = ctx.intern("parse");
+
+        let module_id = ctx.add_def(Def::Module(ModuleDef {
+            id: DefId(0),
+            name: root_name,
+            parent: None,
+            is_imported: false,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: vec![DefId(1)],
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+
+        let result_type = path_type(file_id, 0, 6, ctx.intern("Result"));
+        ctx.add_def(Def::Function(FunctionDef {
+            id: DefId(1),
+            name: parse_name,
+            name_span: Span::default(),
+            vis: Visibility::Public,
+            parent: Some(module_id),
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: result_type,
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: Some(doc_block("Parse a TOML document.")),
+            attributes: Vec::new(),
+        }));
+
+        let items = collect_kmeta_doc_items(&ctx);
+        let parse = items.iter().find(|item| item.path == "toml.parse").unwrap();
+        assert_eq!(parse.kind, "function");
+        assert_eq!(parse.signature.as_deref(), Some("fn parse() Result"));
+    }
+
+    #[test]
+    fn collect_kmeta_doc_items_include_public_struct_fields_in_signature() {
+        let mut session = Session::new();
+        let file_id = session
+            .source_manager
+            .add_file("doc_test.rn".to_string(), "Config bool i64".to_string());
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_name = ctx.intern("toml");
+        let config_name = ctx.intern("Config");
+        let enabled_name = ctx.intern("enabled");
+        let hidden_name = ctx.intern("hidden");
+        let bool_name = ctx.intern("bool");
+        let i64_name = ctx.intern("i64");
+
+        ctx.add_def(Def::Module(ModuleDef {
+            id: DefId(0),
+            name: root_name,
+            parent: None,
+            is_imported: false,
+            scope_id: ScopeId(0),
+            dir_path: PathBuf::new(),
+            file_id,
+            submodules: HashMap::new(),
+            items: vec![DefId(1)],
+            imports: Vec::new(),
+            is_init: true,
+            docs: None,
+        }));
+
+        let enabled_type = path_type(file_id, 7, 11, bool_name);
+        let hidden_type = path_type(file_id, 12, 15, i64_name);
+        ctx.add_def(Def::Struct(StructDef {
+            id: DefId(1),
+            name: config_name,
+            vis: Visibility::Public,
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            fields: vec![
+                ast::StructFieldDef {
+                    name: enabled_name,
+                    name_span: Span::default(),
+                    is_pub: true,
+                    docs: None,
+                    type_node: enabled_type,
+                    default_value: None,
+                    span: Span::default(),
+                },
+                ast::StructFieldDef {
+                    name: hidden_name,
+                    name_span: Span::default(),
+                    is_pub: false,
+                    docs: None,
+                    type_node: hidden_type,
+                    default_value: None,
+                    span: Span::default(),
+                },
+            ],
+            is_extern: false,
+            span: Span::default(),
+            docs: Some(doc_block("Public configuration shape.")),
+            attributes: Vec::new(),
+        }));
+
+        let items = collect_kmeta_doc_items(&ctx);
+        let config = items
+            .iter()
+            .find(|item| item.path == "toml.Config")
+            .unwrap();
+        let signature = config.signature.as_deref().unwrap();
+        assert!(signature.contains("struct Config {"));
+        assert!(signature.contains("pub enabled: bool,"));
+        assert!(!signature.contains("hidden"));
     }
 
     fn doc_block(text: &str) -> ast::DocBlock {

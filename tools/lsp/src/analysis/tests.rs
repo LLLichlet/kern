@@ -18,6 +18,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(0);
+const CURRENT_KERN_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[test]
 fn full_sync_replaces_document_text() {
@@ -3540,33 +3541,37 @@ fn resolve_analysis_uses_workspace_package_root_and_local_aliases() {
     .unwrap();
     fs::write(
         app_dir.join("Craft.toml"),
-        "\
+        format!(
+            "\
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [lib]
 root = \"src/lib.rn\"
 
 [dependencies]
-util = { path = \"../util\" }
-",
+util = {{ path = \"../util\" }}
+"
+        ),
     )
     .unwrap();
     fs::write(app_dir.join("src/lib.rn"), "mod sub;\n").unwrap();
     fs::write(app_dir.join("src/sub.rn"), "fn local() i32 { return 1; }\n").unwrap();
     fs::write(
         util_dir.join("Craft.toml"),
-        "\
+        format!(
+            "\
 [package]
 name = \"util\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [lib]
 root = \"src/lib.rn\"
-",
+"
+        ),
     )
     .unwrap();
     fs::write(
@@ -3622,15 +3627,17 @@ fn resolve_analysis_uses_craft_sdk_for_package_script_roots() {
     .unwrap();
     fs::write(
         app_dir.join("Craft.toml"),
-        "\
+        format!(
+            "\
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [lib]
 root = \"src/lib.rn\"
-",
+"
+        ),
     )
     .unwrap();
     fs::write(app_dir.join("src/lib.rn"), "pub fn helper() void {}\n").unwrap();
@@ -3674,16 +3681,18 @@ fn bin_only_package_with_std_import_keeps_diagnostics_local_to_the_target() {
 
     fs::write(
         root.join("Craft.toml"),
-        "\
+        format!(
+            "\
 [package]
 name = \"my_app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [[bin]]
 name = \"my_app\"
 root = \"src/main.rn\"
-",
+"
+        ),
     )
     .unwrap();
     fs::write(
@@ -3745,7 +3754,7 @@ fn resolve_analysis_applies_craft_cfg_and_define_values() {
 [package]
 name = \"my_app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [features]
 experimental = []
@@ -3885,7 +3894,7 @@ fn resolve_analysis_uses_persisted_craft_analysis_context_by_default() {
 [package]
 name = \"my_app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [features]
 experimental = []
@@ -4021,16 +4030,18 @@ fn resolve_analysis_matches_generated_source_root_from_persisted_context() {
 
     fs::write(
         root.join("Craft.toml"),
-        "\
+        format!(
+            "\
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [[bin]]
 name = \"app\"
 root = \"src/placeholder.rn\"
-",
+"
+        ),
     )
     .unwrap();
     fs::write(
@@ -4129,16 +4140,18 @@ fn resolve_analysis_maps_copied_template_sources_into_generated_root() {
 
     fs::write(
         root.join("Craft.toml"),
-        "\
+        format!(
+            "\
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"{CURRENT_KERN_VERSION}\"
 
 [[bin]]
 name = \"app\"
 root = \"src/placeholder.rn\"
-",
+"
+        ),
     )
     .unwrap();
     fs::write(

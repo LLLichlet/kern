@@ -2,7 +2,7 @@ use crate::build_plan::{ActionPlan, BuildPlan};
 use crate::error::{Error, Result};
 use crate::local_state;
 use kernc_driver::{KernDocSectionKind, KmetaDocItem, load_kmeta_docs, load_kmeta_manifest};
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -107,6 +107,7 @@ pub fn render_package_markdown(
     package_version: Option<&str>,
     items: &[KmetaDocItem],
 ) -> String {
+    let modules = collect_module_groups(package_name, items);
     let mut out = String::new();
     out.push_str("# ");
     out.push_str(package_name);
@@ -116,55 +117,18 @@ pub fn render_package_markdown(
         out.push('`');
     }
 
-    for item in items {
-        out.push_str("\n\n## `");
-        out.push_str(&item.path);
-        out.push_str("`\n");
-        out.push_str("\nKind: `");
-        out.push_str(&item.kind);
-        out.push('`');
+    out.push_str("\n\n<a id=\"navigation\"></a>");
+    out.push_str("\n\n## Navigation\n");
+    for module in &modules {
+        out.push_str("\n- [Module `");
+        out.push_str(&module.path);
+        out.push_str("`](#");
+        out.push_str(&module.anchor);
+        out.push(')');
+    }
 
-        if let Some(signature) = &item.signature {
-            out.push_str("\n\n```kern\n");
-            out.push_str(signature);
-            out.push_str("\n```");
-        }
-
-        if !item.docs.summary.is_empty() {
-            out.push_str("\n\n");
-            out.push_str(&item.docs.summary);
-        }
-        if !item.docs.details.is_empty() {
-            out.push_str("\n\n");
-            out.push_str(&item.docs.details);
-        }
-
-        for section in &item.docs.sections {
-            out.push_str("\n\n### ");
-            out.push_str(&section.title);
-            out.push('\n');
-
-            if !section.body.is_empty() {
-                out.push('\n');
-                if matches!(section.kind, KernDocSectionKind::Example) {
-                    out.push_str("```kern\n");
-                    out.push_str(&section.body);
-                    out.push_str("\n```");
-                } else {
-                    out.push_str(&section.body);
-                }
-            }
-
-            for entry in &section.entries {
-                out.push_str("\n- ");
-                if let Some(name) = &entry.name {
-                    out.push('`');
-                    out.push_str(name);
-                    out.push_str("`: ");
-                }
-                out.push_str(&entry.body);
-            }
-        }
+    for module in &modules {
+        render_module_markdown(&mut out, module);
     }
 
     out.push('\n');
@@ -172,7 +136,9 @@ pub fn render_package_markdown(
 }
 
 fn render_index_markdown(outputs: &[RenderedDoc]) -> String {
-    let mut out = String::from("# Workspace Docs\n");
+    let mut out = String::from(
+        "# Workspace Docs\n\nThis index links package-level docs across the workspace.\n",
+    );
     for output in outputs {
         let file = output
             .markdown_path
@@ -207,6 +173,335 @@ fn sanitize_segment(value: &str) -> String {
         .collect()
 }
 
+#[derive(Default)]
+struct ModuleDocGroup<'a> {
+    path: String,
+    anchor: String,
+    module_item: Option<&'a KmetaDocItem>,
+    types: Vec<&'a KmetaDocItem>,
+    values: Vec<&'a KmetaDocItem>,
+    impls: BTreeMap<String, Vec<&'a KmetaDocItem>>,
+    members: BTreeMap<String, Vec<&'a KmetaDocItem>>,
+}
+
+fn collect_module_groups<'a>(
+    package_name: &str,
+    items: &'a [KmetaDocItem],
+) -> Vec<ModuleDocGroup<'a>> {
+    let mut modules = BTreeMap::<String, ModuleDocGroup<'a>>::new();
+
+    for item in items {
+        let module_path = item_module_path(package_name, item);
+        let module = modules
+            .entry(module_path.clone())
+            .or_insert_with(|| ModuleDocGroup {
+                anchor: anchor_for("module", &module_path),
+                path: module_path.clone(),
+                ..ModuleDocGroup::default()
+            });
+
+        match item.kind.as_str() {
+            "module" => module.module_item = Some(item),
+            "struct" | "union" | "enum" | "trait" | "type" => module.types.push(item),
+            "function" | "const" | "static" => module.values.push(item),
+            "method" => {
+                let Some(owner_path) = owner_path(&item.path) else {
+                    continue;
+                };
+                module.impls.entry(owner_path).or_default().push(item);
+            }
+            "field" | "variant" | "trait_method" => {
+                let Some(owner_path) = owner_path(&item.path) else {
+                    continue;
+                };
+                module.members.entry(owner_path).or_default().push(item);
+            }
+            _ => module.values.push(item),
+        }
+    }
+
+    for module in modules.values_mut() {
+        module.types.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
+        module.values.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
+        for items in module.impls.values_mut() {
+            items.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
+        }
+        for items in module.members.values_mut() {
+            items.sort_by(|lhs, rhs| lhs.path.cmp(&rhs.path));
+        }
+    }
+
+    modules.into_values().collect()
+}
+
+fn render_module_markdown(out: &mut String, module: &ModuleDocGroup<'_>) {
+    out.push_str("\n\n<a id=\"");
+    out.push_str(&module.anchor);
+    out.push_str("\"></a>");
+    out.push_str("\n\n## Module `");
+    out.push_str(&module.path);
+    out.push_str("`\n");
+    out.push_str("\n[Back to navigation](#navigation)");
+
+    if let Some(item) = module.module_item {
+        if let Some(signature) = &item.signature {
+            out.push_str("\n\n```kern\n");
+            out.push_str(signature);
+            out.push_str("\n```");
+        }
+        render_doc_body(out, item, 3);
+    }
+
+    render_module_quick_links(out, module);
+
+    for item in &module.types {
+        render_item_markdown(
+            out,
+            item,
+            3,
+            &format!("{} `{}`", kind_heading(&item.kind), short_name(&item.path)),
+        );
+        if let Some(members) = module.members.get(&item.path) {
+            out.push_str("\n\n#### Members");
+            for member in members {
+                render_item_markdown(
+                    out,
+                    member,
+                    4,
+                    &format!(
+                        "{} `{}`",
+                        kind_heading(&member.kind),
+                        short_name(&member.path)
+                    ),
+                );
+            }
+        }
+    }
+
+    for item in &module.values {
+        render_item_markdown(
+            out,
+            item,
+            3,
+            &format!("{} `{}`", kind_heading(&item.kind), short_name(&item.path)),
+        );
+    }
+
+    for (owner_path, methods) in &module.impls {
+        let (impl_kind, impl_target) = impl_heading_parts(&module.path, owner_path);
+        out.push_str("\n\n<a id=\"");
+        out.push_str(&anchor_for("impl", owner_path));
+        out.push_str("\"></a>");
+        out.push_str("\n\n### ");
+        out.push_str(impl_kind);
+        out.push_str(" `");
+        out.push_str(&impl_target);
+        out.push_str("`\n");
+
+        if !methods.is_empty() {
+            out.push_str("\n\n#### Methods");
+            render_anchor_links(out, methods.iter().map(|method| {
+                (
+                    short_name(&method.path).to_string(),
+                    anchor_for("item", &method.path),
+                )
+            }));
+        }
+
+        for method in methods {
+            render_item_markdown(out, method, 4, &format!("`{}`", short_name(&method.path)));
+        }
+    }
+}
+
+fn render_module_quick_links(out: &mut String, module: &ModuleDocGroup<'_>) {
+    if module.types.is_empty() && module.values.is_empty() && module.impls.is_empty() {
+        return;
+    }
+
+    out.push_str("\n\n### Quick Links");
+    if !module.types.is_empty() {
+        out.push_str("\n\n#### Types");
+        render_anchor_links(
+            out,
+            module.types.iter().map(|item| {
+                (
+                    short_name(&item.path).to_string(),
+                    anchor_for("item", &item.path),
+                )
+            }),
+        );
+    }
+    if !module.values.is_empty() {
+        out.push_str("\n\n#### Values");
+        render_anchor_links(
+            out,
+            module.values.iter().map(|item| {
+                (
+                    short_name(&item.path).to_string(),
+                    anchor_for("item", &item.path),
+                )
+            }),
+        );
+    }
+    if !module.impls.is_empty() {
+        out.push_str("\n\n#### Impls");
+        render_anchor_links(
+            out,
+            module.impls.keys().map(|owner_path| {
+                (
+                    impl_display_name(&module.path, owner_path),
+                    anchor_for("impl", owner_path),
+                )
+            }),
+        );
+    }
+}
+
+fn render_anchor_links(out: &mut String, links: impl Iterator<Item = (String, String)>) {
+    for (label, anchor) in links {
+        out.push_str("\n- [`");
+        out.push_str(&label);
+        out.push_str("`](#");
+        out.push_str(&anchor);
+        out.push(')');
+    }
+}
+
+fn render_item_markdown(out: &mut String, item: &KmetaDocItem, level: usize, title: &str) {
+    out.push_str("\n\n<a id=\"");
+    out.push_str(&anchor_for("item", &item.path));
+    out.push_str("\"></a>");
+    out.push_str("\n\n");
+    out.push_str(&"#".repeat(level));
+    out.push(' ');
+    out.push_str(title);
+
+    if let Some(signature) = &item.signature {
+        out.push_str("\n\n```kern\n");
+        out.push_str(signature);
+        out.push_str("\n```");
+    }
+
+    render_doc_body(out, item, level + 1);
+}
+
+fn render_doc_body(out: &mut String, item: &KmetaDocItem, level: usize) {
+    if !item.docs.summary.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(&item.docs.summary);
+    }
+    if !item.docs.details.is_empty() {
+        out.push_str("\n\n");
+        out.push_str(&item.docs.details);
+    }
+
+    for section in &item.docs.sections {
+        out.push_str("\n\n");
+        out.push_str(&"#".repeat(level));
+        out.push(' ');
+        out.push_str(&section.title);
+        out.push('\n');
+
+        if !section.body.is_empty() {
+            out.push('\n');
+            if matches!(section.kind, KernDocSectionKind::Example) {
+                out.push_str("```kern\n");
+                out.push_str(&section.body);
+                out.push_str("\n```");
+            } else {
+                out.push_str(&section.body);
+            }
+        }
+
+        for entry in &section.entries {
+            out.push_str("\n- ");
+            if let Some(name) = &entry.name {
+                out.push('`');
+                out.push_str(name);
+                out.push_str("`: ");
+            }
+            out.push_str(&entry.body);
+        }
+    }
+}
+
+fn item_module_path(package_name: &str, item: &KmetaDocItem) -> String {
+    match item.kind.as_str() {
+        "module" => item.path.clone(),
+        "method" | "field" | "variant" | "trait_method" => owner_path(&item.path)
+            .and_then(|path| owner_path(&path))
+            .unwrap_or_else(|| package_name.to_string()),
+        _ => owner_path(&item.path).unwrap_or_else(|| package_name.to_string()),
+    }
+}
+
+fn owner_path(path: &str) -> Option<String> {
+    let (owner, _) = path.rsplit_once('.')?;
+    Some(owner.to_string())
+}
+
+fn short_name(path: &str) -> &str {
+    path.rsplit('.').next().unwrap_or(path)
+}
+
+fn relative_name(module_path: &str, path: &str) -> String {
+    if let Some(rest) = path.strip_prefix(module_path)
+        && let Some(rest) = rest.strip_prefix('.')
+    {
+        return rest.to_string();
+    }
+    path.to_string()
+}
+
+fn kind_heading(kind: &str) -> &'static str {
+    match kind {
+        "module" => "Module",
+        "struct" => "Struct",
+        "union" => "Union",
+        "enum" => "Enum",
+        "trait" => "Trait",
+        "type" => "Type",
+        "function" => "Function",
+        "method" => "Method",
+        "field" => "Field",
+        "variant" => "Variant",
+        "trait_method" => "Trait Method",
+        "const" => "Const",
+        "static" => "Static",
+        _ => "Item",
+    }
+}
+
+fn impl_display_name(module_path: &str, owner_path: &str) -> String {
+    let (kind, label) = impl_heading_parts(module_path, owner_path);
+    format!("{kind}: {label}")
+}
+
+fn impl_heading_parts<'a>(module_path: &str, owner_path: &'a str) -> (&'static str, String) {
+    let label = relative_name(module_path, owner_path);
+    if label.contains(" as ") {
+        return ("Trait Impl", label);
+    }
+    ("Inherent Impl", label)
+}
+
+fn anchor_for(prefix: &str, value: &str) -> String {
+    let mut out = String::from(prefix);
+    out.push('-');
+    for ch in value.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else {
+            out.push('-');
+        }
+    }
+    while out.contains("--") {
+        out = out.replace("--", "-");
+    }
+    out.trim_matches('-').to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::render_package_markdown;
@@ -217,30 +512,87 @@ mod tests {
         let markdown = render_package_markdown(
             "uart",
             Some("0.1.0"),
-            &[KmetaDocItem {
-                path: "uart::Uart::read".to_string(),
-                kind: "function".to_string(),
-                signature: Some("fn read: fn(u16) u8".to_string()),
-                docs: KernDoc {
-                    summary: "Read one byte from the receiver register.".to_string(),
-                    details: String::new(),
-                    sections: vec![KernDocSection {
-                        kind: KernDocSectionKind::Safety,
-                        title: "Safety".to_string(),
-                        body: String::new(),
-                        entries: vec![KernDocEntry {
-                            name: Some("self".to_string()),
-                            body: "must point to a mapped UART object.".to_string(),
-                        }],
-                    }],
-                    raw_text: String::new(),
+            &[
+                KmetaDocItem {
+                    path: "uart".to_string(),
+                    kind: "module".to_string(),
+                    signature: Some("module uart".to_string()),
+                    docs: KernDoc {
+                        summary: "UART package.".to_string(),
+                        details: String::new(),
+                        sections: Vec::new(),
+                        raw_text: String::new(),
+                    },
                 },
-            }],
+                KmetaDocItem {
+                    path: "uart.io".to_string(),
+                    kind: "module".to_string(),
+                    signature: Some("module io".to_string()),
+                    docs: KernDoc {
+                        summary: "I/O utilities.".to_string(),
+                        details: String::new(),
+                        sections: Vec::new(),
+                        raw_text: String::new(),
+                    },
+                },
+                KmetaDocItem {
+                    path: "uart.io.Uart".to_string(),
+                    kind: "struct".to_string(),
+                    signature: Some("struct Uart {\n    pub base: u16,\n}".to_string()),
+                    docs: KernDoc {
+                        summary: "Typed UART handle.".to_string(),
+                        details: String::new(),
+                        sections: Vec::new(),
+                        raw_text: String::new(),
+                    },
+                },
+                KmetaDocItem {
+                    path: "uart.io.Uart.read".to_string(),
+                    kind: "method".to_string(),
+                    signature: Some("fn read(self: Uart, port: u16) u8".to_string()),
+                    docs: KernDoc {
+                        summary: "Read one byte from the receiver register.".to_string(),
+                        details: String::new(),
+                        sections: vec![KernDocSection {
+                            kind: KernDocSectionKind::Safety,
+                            title: "Safety".to_string(),
+                            body: String::new(),
+                            entries: vec![KernDocEntry {
+                                name: Some("self".to_string()),
+                                body: "must point to a mapped UART object.".to_string(),
+                            }],
+                        }],
+                        raw_text: String::new(),
+                    },
+                },
+                KmetaDocItem {
+                    path: "uart.io.Uart as Reader.read".to_string(),
+                    kind: "method".to_string(),
+                    signature: Some("fn read(self: Uart) u8".to_string()),
+                    docs: KernDoc {
+                        summary: "Read through the reader trait.".to_string(),
+                        details: String::new(),
+                        sections: Vec::new(),
+                        raw_text: String::new(),
+                    },
+                },
+            ],
         );
 
         assert!(markdown.contains("# uart"));
-        assert!(markdown.contains("## `uart::Uart::read`"));
-        assert!(markdown.contains("```kern\nfn read: fn(u16) u8\n```"));
+        assert!(markdown.contains("## Navigation"));
+        assert!(markdown.contains("[Module `uart.io`](#module-uart-io)"));
+        assert!(markdown.contains("## Module `uart.io`"));
+        assert!(markdown.contains("### Quick Links"));
+        assert!(markdown.contains("#### Types"));
+        assert!(markdown.contains("#### Impls"));
+        assert!(markdown.contains("### Struct `Uart`"));
+        assert!(markdown.contains("### Inherent Impl `Uart`"));
+        assert!(markdown.contains("### Trait Impl `Uart as Reader`"));
+        assert!(markdown.contains("#### Methods"));
+        assert!(markdown.contains("#### `read`"));
+        assert!(!markdown.contains("Path: `uart.io.Uart.read`"));
+        assert!(markdown.contains("```kern\nfn read(self: Uart, port: u16) u8\n```"));
         assert!(markdown.contains("### Safety"));
         assert!(markdown.contains("- `self`: must point to a mapped UART object."));
     }

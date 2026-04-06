@@ -3,6 +3,7 @@ use std.coll.{List, String, bytes_eq};
 use std.mem.layout_of;
 use std.mem.alloc.Allocator;
 
+/// Errors returned by the editable TOML model.
 pub type ModelError = enum {
     OutOfMemory,
     KindConflict,
@@ -10,6 +11,7 @@ pub type ModelError = enum {
     InvalidDocument,
 };
 
+/// One TOML value stored in the owned document model.
 pub type Value = enum {
     Bool: bool,
     Integer: i64,
@@ -20,6 +22,7 @@ pub type Value = enum {
     InlineTable: *mut Table,
 };
 
+/// Mutable TOML array node used by the low-level owned model.
 pub type Array = struct {
     items: List[Value] = List[Value].{},
 };
@@ -29,10 +32,12 @@ type TableEntry = struct {
     value: Value,
 };
 
+/// Mutable TOML table node used by the low-level owned model.
 pub type Table = struct {
     entries: List[TableEntry] = List[TableEntry].{},
 };
 
+/// Distinguishes normal tables from array-of-tables sections in document order.
 pub type DocumentSectionKind = enum {
     Table,
     ArrayTable,
@@ -53,6 +58,12 @@ type DocumentSectionRef = enum {
     ArrayTable: usize,
 };
 
+/// Fully owned TOML document model.
+///
+/// Note:
+/// - all strings and nested containers are allocated from a caller-provided allocator
+/// - the document preserves section ordering for later rendering
+/// - use `Document` when you want the same model with internal lifetime management
 pub type OwnedDocument = struct {
     root_table: Table = Table.{},
     tables: List[TableSection] = List[TableSection].{},

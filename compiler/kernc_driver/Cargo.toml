@@ -6,6 +6,9 @@ authors.workspace = true
 license.workspace = true
 readme = "README.md"
 
+[lib]
+doctest = false
+
 [dependencies]
 kernc_db = { workspace = true }
 kernc_utils = { workspace = true }

@@ -18,11 +18,16 @@ The current server implements:
 
 - `initialize`
 - `initialized`
+- `$/setTrace`
+- `$/cancelRequest`
 - `shutdown`
 - `exit`
+- `workspace/didChangeConfiguration`
+- `workspace/didChangeWatchedFiles`
 - `textDocument/didOpen`
 - `textDocument/didChange`
 - `textDocument/didClose`
+- `textDocument/didSave`
 - `textDocument/publishDiagnostics`
 - `textDocument/documentSymbol`
 - `textDocument/definition`

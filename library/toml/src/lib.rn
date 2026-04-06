@@ -4,6 +4,11 @@
 //!
 //! Design:
 //! keep parsing, document modeling, and future allocation policy explicit.
+//!
+//! Note:
+//! - `scan` validates and classifies TOML without building an owned model
+//! - `parse` builds a managed editable document with internal storage
+//! - `render_document` renders a low-level owned document into TOML text
 
 mod document;
 mod error;

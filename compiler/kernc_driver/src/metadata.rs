@@ -753,6 +753,26 @@ body = "must point to a mapped UART object."
     }
 
     #[test]
+    fn parses_native_docs_toml_with_escaped_control_characters() {
+        let contents = r#"
+format_version = 1
+
+[[item]]
+path = "root::toml"
+kind = "module"
+summary = "Line one\nLine two"
+details = "Indented\tvalue"
+raw = "Line one\nLine two\r\nTabbed\tvalue"
+"#;
+
+        let docs = parse_docs(contents).expect("expected docs to parse");
+        assert_eq!(docs.len(), 1);
+        assert_eq!(docs[0].docs.summary, "Line one\nLine two");
+        assert_eq!(docs[0].docs.details, "Indented\tvalue");
+        assert_eq!(docs[0].docs.raw_text, "Line one\nLine two\r\nTabbed\tvalue");
+    }
+
+    #[test]
     fn metadata_output_lock_waits_for_release() {
         let root = temp_dir("kernc-kmeta-output-lock");
         let output_root = root.join("meta").join("std");
@@ -804,6 +824,9 @@ fn parse_quoted(raw: &str) -> Option<String> {
             match chars.next()? {
                 '\\' => out.push('\\'),
                 '"' => out.push('"'),
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
                 _ => return None,
             }
         } else {

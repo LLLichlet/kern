@@ -334,6 +334,10 @@ impl *mut Renderer {
     }
 }
 
+/// Renders an owned TOML document into a newly allocated UTF-8 string.
+///
+/// The caller owns the returned `String` and must deinitialize it with the
+/// same allocator when the buffer is no longer needed.
 pub fn render_document(alloc: *mut Allocator, doc: *OwnedDocument) Result[String, ModelError] {
     let mut renderer = Renderer.{ alloc: alloc };
     let result = renderer..&.render_document(doc);

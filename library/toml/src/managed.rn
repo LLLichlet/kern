@@ -22,16 +22,30 @@ type DocumentState = struct {
     doc: OwnedDocument,
 };
 
+/// Borrowing handle to a table stored inside a managed TOML document.
+///
+/// Note:
+/// - this handle does not own storage
+/// - the handle becomes invalid after the parent `Document` is deinitialized
 pub type TableRef = struct {
     alloc: *mut Allocator,
     table: *mut Table,
 };
 
+/// Borrowing handle to an array stored inside a managed TOML document.
+///
+/// Note:
+/// - this handle does not own storage
+/// - the handle becomes invalid after the parent `Document` is deinitialized
 pub type ArrayRef = struct {
     alloc: *mut Allocator,
     array: *mut Array,
 };
 
+/// Managed editable TOML document with internal arenas.
+///
+/// Use this wrapper when you want parsing, mutation, and rendering without
+/// threading an allocator through every call.
 pub type Document = struct {
     state: *mut DocumentState = 0,
 };
@@ -402,6 +416,7 @@ impl *Document {
         return self.state;
     }
 
+    /// Returns the mutable root table for the document.
     pub fn root() TableRef {
         let state = self.state_ref();
         return wrap_table(state_alloc(state), state.doc..&.root_mut());
@@ -499,6 +514,11 @@ impl *Document {
         return .{ Some: wrap_table(state_alloc(state), table as *mut Table) };
     }
 
+    /// Renders the current document into TOML text.
+    ///
+    /// Note:
+    /// - the returned bytes live in an internal scratch arena
+    /// - calling `render` again may invalidate the previous slice
     pub fn render() Result[[]u8, ModelError] {
         let state = self.state_ref();
         state.scratch..&.reset();
@@ -511,6 +531,9 @@ impl *Document {
 }
 
 impl *mut Document {
+    /// Ensures that `path` names a table and returns a handle to it.
+    ///
+    /// Missing parent tables are created as needed.
     pub fn ensure_table(path: []u8) Result[TableRef, ModelError] {
         let state = self.state;
         let result = state.doc..&.ensure_table(state_alloc(state), path);
@@ -522,6 +545,7 @@ impl *mut Document {
         return .{ Ok: table };
     }
 
+    /// Appends a new item to an array-of-tables section and returns it.
     pub fn append_array_table(path: []u8) Result[TableRef, ModelError] {
         let state = self.state;
         let result = state.doc..&.append_array_table(state_alloc(state), path);
@@ -552,6 +576,7 @@ impl *mut Document {
         return state.doc..&.remove_array_table_item(state_alloc(state), path, index);
     }
 
+    /// Releases all storage owned by the managed document.
     pub fn deinit() void {
         if ((self.state as usize) == 0) {
             return;
@@ -562,6 +587,10 @@ impl *mut Document {
     }
 }
 
+/// Parses TOML into a managed editable document.
+///
+/// This is the high-level entry point for callers that want owned storage,
+/// mutation helpers, and later rendering through `Document.render`.
 pub fn parse(text: []u8) Result[Document, ParseOwnedError] {
     let .{ Some: state } = alloc_state() else return .{ Err: .{ Model: ModelError.OutOfMemory } };
 

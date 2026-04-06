@@ -97,11 +97,11 @@ extern {
     fn __craft_plan_define_string(plan: *mut Plan, name: []u8, value: []u8) void;
     fn __craft_plan_set_lib_root(plan: *mut Plan, root: []u8) void;
     fn __craft_plan_add_bin(plan: *mut Plan, name: []u8, root: []u8) void;
-    fn __craft_plan_add_test(plan: *mut Plan, name: []u8, root: []u8) void;
+    fn __craft_plan_add_test(plan: *mut Plan, root: []u8) void;
     fn __craft_plan_add_example(plan: *mut Plan, name: []u8, root: []u8) void;
     fn __craft_plan_remove_lib(plan: *mut Plan) bool;
     fn __craft_plan_remove_bin(plan: *mut Plan, name: []u8) bool;
-    fn __craft_plan_remove_test(plan: *mut Plan, name: []u8) bool;
+    fn __craft_plan_remove_test(plan: *mut Plan, root: []u8) bool;
     fn __craft_plan_remove_example(plan: *mut Plan, name: []u8) bool;
     fn __craft_plan_dep_version(plan: *mut Plan, kind: DependencyKind, name: []u8, version: []u8) void;
     fn __craft_plan_dep_path(plan: *mut Plan, kind: DependencyKind, name: []u8, path: []u8) void;
@@ -145,8 +145,8 @@ impl *mut Plan {
         __craft_plan_add_bin(self, name, root);
     }
 
-    pub fn add_test(name: []u8, root: []u8) void {
-        __craft_plan_add_test(self, name, root);
+    pub fn add_test(root: []u8) void {
+        __craft_plan_add_test(self, root);
     }
 
     pub fn add_example(name: []u8, root: []u8) void {
@@ -161,8 +161,8 @@ impl *mut Plan {
         return __craft_plan_remove_bin(self, name);
     }
 
-    pub fn remove_test(name: []u8) bool {
-        return __craft_plan_remove_test(self, name);
+    pub fn remove_test(root: []u8) bool {
+        return __craft_plan_remove_test(self, root);
     }
 
     pub fn remove_example(name: []u8) bool {

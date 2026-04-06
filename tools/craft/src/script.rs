@@ -619,7 +619,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                 Ok(ConstValue::Void)
             }
             "__craft_plan_add_bin" => self.add_named_target(args, TargetKind::Bin, "bin"),
-            "__craft_plan_add_test" => self.add_named_target(args, TargetKind::Test, "test"),
+            "__craft_plan_add_test" => self.add_test_target(args),
             "__craft_plan_add_example" => {
                 self.add_named_target(args, TargetKind::Example, "example")
             }
@@ -630,7 +630,7 @@ impl ScriptHost for PackagePlanHost<'_> {
                 ))
             }
             "__craft_plan_remove_bin" => self.remove_named_target(args, TargetKind::Bin, "bin"),
-            "__craft_plan_remove_test" => self.remove_named_target(args, TargetKind::Test, "test"),
+            "__craft_plan_remove_test" => self.remove_test_target(args),
             "__craft_plan_remove_example" => {
                 self.remove_named_target(args, TargetKind::Example, "example")
             }
@@ -704,6 +704,15 @@ impl PackagePlanHost<'_> {
         Ok(ConstValue::Void)
     }
 
+    fn add_test_target(&mut self, args: &[ConstValue]) -> std::result::Result<ConstValue, String> {
+        let _ = expect_arg(args, 0, "plan receiver")?;
+        let root = expect_string(args, 1, "test root")?;
+        self.package_plan
+            .add_test_target(root)
+            .map_err(|err| err.to_string())?;
+        Ok(ConstValue::Void)
+    }
+
     fn remove_named_target(
         &mut self,
         args: &[ConstValue],
@@ -714,6 +723,17 @@ impl PackagePlanHost<'_> {
         let name = expect_string(args, 1, &format!("{label} name"))?;
         Ok(ConstValue::Bool(
             self.package_plan.remove_target(kind, Some(&name)),
+        ))
+    }
+
+    fn remove_test_target(
+        &mut self,
+        args: &[ConstValue],
+    ) -> std::result::Result<ConstValue, String> {
+        let _ = expect_arg(args, 0, "plan receiver")?;
+        let root = expect_string(args, 1, "test root")?;
+        Ok(ConstValue::Bool(
+            self.package_plan.remove_test_target(&root),
         ))
     }
 }

@@ -849,6 +849,11 @@ fn parse_test_roots(raw_value: &str) -> std::result::Result<Vec<NamedTarget>, St
     let roots = parse_string_array(raw_value)?;
     let mut targets = Vec::new();
     for root in roots {
+        if contains_glob_pattern(&root) {
+            return Err(format!(
+                "[test].roots does not support glob patterns, list files explicitly: `{root}`"
+            ));
+        }
         let path = Path::new(&root);
         let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
             return Err(format!(
@@ -866,6 +871,10 @@ fn parse_test_roots(raw_value: &str) -> std::result::Result<Vec<NamedTarget>, St
         });
     }
     Ok(targets)
+}
+
+fn contains_glob_pattern(path: &str) -> bool {
+    path.contains('*') || path.contains('?') || path.contains('[')
 }
 
 fn validate_named_targets(path: &Path, section: &str, targets: &[NamedTarget]) -> Result<()> {
@@ -1510,6 +1519,25 @@ roots = ["tests/smoke.rn", "alt/smoke.rn"]
             .validate(std::path::Path::new("Craft.toml"))
             .unwrap_err();
         assert!(err.to_string().contains("duplicate test file stem `smoke`"));
+    }
+
+    #[test]
+    fn rejects_glob_patterns_in_test_roots() {
+        let err = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[test]
+roots = ["tests/*"]
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("does not support glob patterns"));
     }
 
     #[test]

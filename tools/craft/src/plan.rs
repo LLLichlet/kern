@@ -184,6 +184,25 @@ impl PackagePlan {
         Ok(())
     }
 
+    pub fn add_test_target(&mut self, root: impl Into<String>) -> Result<()> {
+        let root = normalize_non_empty(root.into(), "test root")?;
+        let name = test_target_name(&root)?;
+        if self.targets.iter().any(|target| {
+            target.kind == TargetKind::Test && target.name.as_deref() == Some(name.as_str())
+        }) {
+            return Err(Error::Usage(format!(
+                "duplicate Test target `{name}` in package plan"
+            )));
+        }
+
+        self.targets.push(TargetPlan {
+            kind: TargetKind::Test,
+            name: Some(name),
+            root,
+        });
+        Ok(())
+    }
+
     pub fn remove_target(&mut self, kind: TargetKind, name: Option<&str>) -> bool {
         let original_len = self.targets.len();
         self.targets.retain(|target| {
@@ -195,6 +214,13 @@ impl PackagePlan {
                 })
         });
         self.targets.len() != original_len
+    }
+
+    pub fn remove_test_target(&mut self, root: &str) -> bool {
+        let Ok(name) = test_target_name(root) else {
+            return false;
+        };
+        self.remove_target(TargetKind::Test, Some(&name))
     }
 
     pub fn set_dependency_version(
@@ -314,6 +340,16 @@ fn normalize_non_empty(value: String, field: &str) -> Result<String> {
     Ok(value)
 }
 
+fn test_target_name(root: &str) -> Result<String> {
+    let path = Path::new(root);
+    let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+        return Err(Error::Usage(format!(
+            "test root `{root}` must end in a UTF-8 file name"
+        )));
+    };
+    normalize_non_empty(name.to_string(), "test target name")
+}
+
 fn promote_dependency_spec(spec: &mut DependencySpec) -> &mut DetailedDependency {
     if let DependencySpec::Version(version) = spec.clone() {
         *spec = DependencySpec::Detailed(DetailedDependency {
@@ -419,6 +455,7 @@ kern = "0.7"
         plan.set_lib_root("src/lib.rn").unwrap();
         plan.add_named_target(TargetKind::Bin, "demo", "src/main.rn")
             .unwrap();
+        plan.add_test_target("tests/smoke.rn").unwrap();
 
         assert_eq!(plan.cfg.get("simd"), Some(&PlanValue::Bool(true)));
         assert_eq!(
@@ -433,7 +470,9 @@ kern = "0.7"
             plan.define.get("mode"),
             Some(&PlanValue::String("strict".to_string()))
         );
-        assert_eq!(plan.target_count(), 2);
+        assert_eq!(plan.target_count(), 3);
+        assert!(plan.remove_test_target("tests/smoke.rn"));
+        assert!(!plan.remove_test_target("tests/smoke.rn"));
         assert!(plan.remove_target(TargetKind::Bin, Some("demo")));
         assert_eq!(plan.target_count(), 1);
         assert!(!plan.remove_target(TargetKind::Bin, Some("demo")));

@@ -45,8 +45,25 @@ fn check_managed_parse_mutate_render() void {
     test.eq(reparsed..&.array_table_len("products"), 1);
 }
 
+fn check_managed_parse_decodes_escaped_key_heads() void {
+    let mut doc = test.expect_ok(parse(
+        \\ "\u0061pp".name = "kern"
+        \\ "\u0061pp".enabled = true
+        \\
+    ));
+    defer doc..&.deinit();
+
+    test.assert(
+        test.expect_some(doc..&.get_path_string("app.name")).eq("kern"),
+        "unexpected decoded escaped key head value",
+        .{}
+    );
+    test.eq(test.expect_some(doc..&.get_path_bool("app.enabled")), true);
+}
+
 extern fn main(args: [][]u8) i32 {
     let _ = args;
     check_managed_parse_mutate_render();
+    check_managed_parse_decodes_escaped_key_heads();
     return 0;
 }

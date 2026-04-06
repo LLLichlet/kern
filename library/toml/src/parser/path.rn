@@ -294,7 +294,7 @@ fn next_full_path_segment(cursor: *mut FullPathCursor) Option[PathSegment] {
     }
 }
 
-fn first_full_path_segment(prefix: []u8, path: []u8) Option[PathSegment] {
+pub fn full_path_head(prefix: []u8, path: []u8) Option[PathSegment] {
     if (#prefix != 0) {
         return next_path_segment(prefix, 0);
     }
@@ -302,8 +302,8 @@ fn first_full_path_segment(prefix: []u8, path: []u8) Option[PathSegment] {
 }
 
 pub fn full_paths_share_head(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rhs_path: []u8) bool {
-    let .{ Some: lhs_segment } = first_full_path_segment(lhs_prefix, lhs_path) else return false;
-    let .{ Some: rhs_segment } = first_full_path_segment(rhs_prefix, rhs_path) else return false;
+    let .{ Some: lhs_segment } = full_path_head(lhs_prefix, lhs_path) else return false;
+    let .{ Some: rhs_segment } = full_path_head(rhs_prefix, rhs_path) else return false;
     return path_segments_equal(lhs_segment, rhs_segment);
 }
 

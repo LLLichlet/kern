@@ -1,5 +1,5 @@
-use std.Result;
-use std.coll.List;
+use std.{Option, Result};
+use std.coll.{List, String};
 use std.mem.alloc.{Allocator, Arena, Page};
 
 pub use ..{Array, Error, ModelError, OwnedDocument, ScanDocument, ScanDocumentKind, Table};
@@ -16,8 +16,8 @@ mod owned;
 
 use .common.{is_comment_line, next_statement, validate_source_text};
 use .key.{TableHeaderKind, parse_key_value, parse_table_header};
-use .path.{PathRelation, full_path_relation, full_paths_share_head};
-pub use .path.{PathSegment, next_path_segment};
+use .path.{PathRelation, full_path_head, full_path_relation, full_paths_share_head};
+pub use .path.{PathSegment, PathSegmentKind, next_path_segment};
 pub use .owned.{ParseOwnedError, parse_owned};
 
 type ParseStats = struct {
@@ -38,6 +38,9 @@ type Parser = struct {
     active_array_path: []u8 = "",
     seen_items: List[SeenItem] = List[SeenItem].{},
     using_seen_items: bool = true,
+    seen_buckets: List[SeenBucket] = List[SeenBucket].{},
+    slow_seen_items: List[SeenItem] = List[SeenItem].{},
+    using_seen_buckets: bool = true,
 };
 
 type SeenItemKind = enum {
@@ -52,7 +55,43 @@ type SeenItem = struct {
     kind: SeenItemKind,
 };
 
+type SeenBucket = struct {
+    head: String,
+    items: List[SeenItem] = List[SeenItem].{},
+};
+
 impl *mut Parser {
+    fn head_segment_needs_decode(segment: PathSegment) bool {
+        if (segment.kind != PathSegmentKind.BasicQuoted) {
+            return false;
+        }
+
+        for (let mut i = 0; i < #segment.text; i += 1) {
+            if (segment.text.[i] == b'\\') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    fn fast_head_key(item: SeenItem) Option[[]u8] {
+        let .{ Some: head } = full_path_head(item.scope, item.path) else return .{ None };
+        if (self.head_segment_needs_decode(head)) {
+            return .{ None };
+        }
+        return .{ Some: head.text };
+    }
+
+    fn find_bucket_index(head: []u8) Option[usize] {
+        let buckets = self.seen_buckets.&.as_slice();
+        for (let mut i = 0; i < #buckets; i += 1) {
+            if (buckets.[i].head.&.as_str().eq(head)) {
+                return .{ Some: i };
+            }
+        }
+        return .{ None };
+    }
+
     fn fail_semantic(message: []u8, line: usize, column: usize) Result[void, Error] {
         return .{ Err: Error.{
             message: message,
@@ -81,7 +120,87 @@ impl *mut Parser {
         }
         if (!self.seen_items..&.push(self.alloc, item)) {
             self.using_seen_items = false;
+            self.using_seen_buckets = false;
+            return;
         }
+
+        if (!self.using_seen_buckets) {
+            return;
+        }
+
+        match (self.fast_head_key(item)) {
+            .{ Some: head } => {
+                let bucket_index = match (self.find_bucket_index(head)) {
+                    .{ Some: index } => index,
+                    .None => {
+                        let mut bucket_head = String.{};
+                        if (!bucket_head..&.clone_from(self.alloc, head)) {
+                            bucket_head..&.deinit(self.alloc);
+                            self.using_seen_buckets = false;
+                            return;
+                        }
+                        if (!self.seen_buckets..&.push(self.alloc, SeenBucket.{ head: bucket_head })) {
+                            bucket_head..&.deinit(self.alloc);
+                            self.using_seen_buckets = false;
+                            return;
+                        }
+                        self.seen_buckets.len - 1
+                    },
+                };
+
+                let buckets = self.seen_buckets..&.as_mut_slice();
+                if (!buckets.[bucket_index].items..&.push(self.alloc, item)) {
+                    self.using_seen_buckets = false;
+                }
+            },
+            .None => {
+                if (!self.slow_seen_items..&.push(self.alloc, item)) {
+                    self.using_seen_buckets = false;
+                }
+            },
+        }
+    }
+
+    fn validate_previous_item(
+        item: SeenItem,
+        previous_item: SeenItem,
+        line_no: usize,
+        saw_same_array_table: *mut bool
+    ) Result[void, Error] {
+        if (!full_paths_share_head(item.scope, item.path, previous_item.scope, previous_item.path)) {
+            return .{ Ok: {} };
+        }
+
+        let relation = self.item_relation(item, previous_item);
+        if (
+            item.kind == SeenItemKind.ArrayTable and
+            previous_item.kind == SeenItemKind.ArrayTable and
+            relation == PathRelation.Equal
+        ) {
+            saw_same_array_table.* = true;
+        }
+
+        if (relation == PathRelation.Disjoint) {
+            return .{ Ok: {} };
+        }
+
+        return match (item.kind) {
+            .KeyValue => self.key_conflict(item, previous_item, relation, line_no),
+            .Table => self.table_conflict(
+                item,
+                previous_item,
+                relation,
+                line_no,
+                saw_same_array_table.*
+            ),
+            .ArrayTable => self.table_conflict(
+                item,
+                previous_item,
+                relation,
+                line_no,
+                saw_same_array_table.*
+            ),
+        };
     }
 
     fn key_conflict(item: SeenItem, previous_item: SeenItem, relation: PathRelation, line: usize) Result[void, Error] {
@@ -215,39 +334,55 @@ impl *mut Parser {
         let mut saw_same_array_table = false;
 
         for (let mut i = 0; i < #seen; i += 1) {
-            let previous_item = seen.[i];
-            if (!full_paths_share_head(item.scope, item.path, previous_item.scope, previous_item.path)) {
-                continue;
+            let conflict = self.validate_previous_item(
+                item,
+                seen.[i],
+                line_no,
+                saw_same_array_table..&
+            );
+            if (conflict.is_err()) {
+                return conflict;
             }
-            let relation = self.item_relation(item, previous_item);
-            if (
-                item.kind == SeenItemKind.ArrayTable and
-                previous_item.kind == SeenItemKind.ArrayTable and
-                relation == PathRelation.Equal
-            ) {
-                saw_same_array_table = true;
-            }
-            if (relation != PathRelation.Disjoint) {
-                let conflict = match (item.kind) {
-                    .KeyValue => self.key_conflict(item, previous_item, relation, line_no),
-                    .Table => self.table_conflict(
+        }
+
+        return .{ Ok: {} };
+    }
+
+    fn validate_bucketed_seen_item_semantics(item: SeenItem, line_no: usize) Result[void, Error] {
+        let .{ Some: head } = self.fast_head_key(item) else {
+            return self.validate_seen_item_semantics(item, line_no);
+        };
+
+        let mut saw_same_array_table = false;
+
+        match (self.find_bucket_index(head)) {
+            .{ Some: bucket } => {
+                let bucket_items = self.seen_buckets.&.as_slice().[bucket].items.&.as_slice();
+                for (let mut i = 0; i < #bucket_items; i += 1) {
+                    let conflict = self.validate_previous_item(
                         item,
-                        previous_item,
-                        relation,
+                        bucket_items.[i],
                         line_no,
-                        saw_same_array_table
-                    ),
-                    .ArrayTable => self.table_conflict(
-                        item,
-                        previous_item,
-                        relation,
-                        line_no,
-                        saw_same_array_table
-                    ),
-                };
-                if (conflict.is_err()) {
-                    return conflict;
+                        saw_same_array_table..&
+                    );
+                    if (conflict.is_err()) {
+                        return conflict;
+                    }
                 }
+            },
+            .None => {},
+        }
+
+        let slow = self.slow_seen_items.&.as_slice();
+        for (let mut i = 0; i < #slow; i += 1) {
+            let conflict = self.validate_previous_item(
+                item,
+                slow.[i],
+                line_no,
+                saw_same_array_table..&
+            );
+            if (conflict.is_err()) {
+                return conflict;
             }
         }
 
@@ -339,11 +474,23 @@ impl *mut Parser {
     }
 
     fn validate_item_semantics(item: SeenItem, line_no: usize) Result[void, Error] {
-        return if (self.using_seen_items) {
+        return if (self.using_seen_items and self.using_seen_buckets) {
+            self.validate_bucketed_seen_item_semantics(item, line_no)
+        } else if (self.using_seen_items) {
             self.validate_seen_item_semantics(item, line_no)
         } else {
             self.validate_item_semantics_from_source(item, line_no)
         };
+    }
+
+    fn deinit_seen_indexes() void {
+        let buckets = self.seen_buckets..&.as_mut_slice();
+        for (let mut i = 0; i < #buckets; i += 1) {
+            buckets.[i].head..&.deinit(self.alloc);
+            buckets.[i].items..&.deinit(self.alloc);
+        }
+        self.seen_buckets..&.deinit(self.alloc);
+        self.slow_seen_items..&.deinit(self.alloc);
     }
 
     fn handle_table_header(line: []u8, line_no: usize) Result[void, Error] {
@@ -508,5 +655,6 @@ pub fn scan(text: []u8) Result[ScanDocument, Error] {
     let alloc = *mut Allocator.{ arena };
     let mut parser = Parser.{ text: text, alloc: alloc };
     defer parser.seen_items..&.deinit(alloc);
+    defer parser..&.deinit_seen_indexes();
     return parser..&.parse_all();
 }

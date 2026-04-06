@@ -134,6 +134,20 @@ fn check_duplicate_key_error() void {
     test.eq(err.line, 2);
 }
 
+fn check_escaped_quoted_head_duplicate_key_error() void {
+    let err = test.expect_err(scan(
+        \\ "\u0061pp".name = "kern"
+        \\ app.name = "again"
+        \\
+    ));
+    test.assert(
+        err.message.eq("duplicate key path"),
+        "unexpected escaped-head duplicate key error: {}",
+        .{ err.message, }
+    );
+    test.eq(err.line, 2);
+}
+
 fn check_table_key_conflict_error() void {
     let err = test.expect_err(scan("a = 1\n[a]\nname = \"demo\"\n"));
     test.assert(
@@ -314,6 +328,7 @@ extern fn main(args: [][]u8) i32 {
     check_bad_quoted_key_error();
     check_trailing_inline_table_comma_error();
     check_duplicate_key_error();
+    check_escaped_quoted_head_duplicate_key_error();
     check_inline_table_duplicate_key_error();
     check_inline_table_parent_namespace_conflict_error();
     check_table_key_conflict_error();

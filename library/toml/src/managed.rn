@@ -49,12 +49,12 @@ fn wrap_array(alloc: *mut Allocator, array: *mut Array) ArrayRef {
 }
 
 fn alloc_state() Option[*mut DocumentState] {
-    let mut page = Page.{}..&;
+    let page = Page.{}..&;
     let .{ Some: raw } = page.alloc(layout_of[DocumentState]()) else return .{ None };
     let state = raw as *mut DocumentState;
     state.page = Page.{};
-    state.arena = Arena.{ backing: *mut Allocator.{ state.page..& } };
-    state.scratch = Arena.{ backing: *mut Allocator.{ state.page..& } };
+    state.arena = Arena.{ backing: state.page..& };
+    state.scratch = Arena.{ backing: state.page..& };
     state.doc = OwnedDocument.{};
     return .{ Some: state };
 }
@@ -63,7 +63,7 @@ fn free_state(state: *mut DocumentState) void {
     state.scratch..&.deinit();
     state.arena..&.deinit();
 
-    let mut page = Page.{}..&;
+    let page = Page.{}..&;
     page.free(state as *mut u8, layout_of[DocumentState]());
 }
 

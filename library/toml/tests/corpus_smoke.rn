@@ -38,13 +38,12 @@ fn load_fixture(alloc: *mut Allocator, category: []u8, name: []u8) String {
 }
 
 fn check_valid_fixture(name: []u8) void {
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
-    let mut source = load_fixture(alloc, "valid", name);
-    defer source..&.deinit(alloc);
+    let mut source = load_fixture(arena, "valid", name);
+    defer source..&.deinit(arena);
 
     let _ = test.expect_ok(scan(source.&.as_str()));
 
@@ -59,13 +58,12 @@ fn check_valid_fixture(name: []u8) void {
 }
 
 fn check_invalid_fixture(name: []u8) void {
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
-    let mut source = load_fixture(alloc, "invalid", name);
-    defer source..&.deinit(alloc);
+    let mut source = load_fixture(arena, "invalid", name);
+    defer source..&.deinit(arena);
 
     let _ = test.expect_err(scan(source.&.as_str()));
     let _ = test.expect_err(parse(source.&.as_str()));

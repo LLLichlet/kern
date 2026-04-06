@@ -1,6 +1,6 @@
 use std.test;
 use std.Option;
-use std.mem.alloc.{Allocator, Arena, Page};
+use std.mem.alloc.{Arena, Page};
 use toml.{Array, DocumentSectionKind, ModelError, OwnedDocument};
 
 fn expect_some_text(value: Option[[]u8], expected: []u8) void {
@@ -27,46 +27,45 @@ fn expect_array_text(array: *Array, index: usize, expected: []u8) void {
 }
 
 fn check_owned_document_queries_and_mutation() void {
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
-    defer doc..&.deinit(alloc);
+    defer doc..&.deinit(arena);
 
-    let _ = test.expect_ok(doc..&.root_mut().set_string(alloc, "title", "demo"));
-    let _ = test.expect_ok(doc..&.root_mut().set_integer(alloc, "edition", 2027));
-    let _ = test.expect_ok(doc..&.root_mut().set_float_text(alloc, "ratio", "1.25"));
-    let _ = test.expect_ok(doc..&.root_mut().set_datetime_text(alloc, "release", "1979-05-27T07:32:00Z"));
-    let _ = test.expect_ok(doc..&.root_mut().set_bool(alloc, "publish", false));
+    let _ = test.expect_ok(doc..&.root_mut().set_string(arena, "title", "demo"));
+    let _ = test.expect_ok(doc..&.root_mut().set_integer(arena, "edition", 2027));
+    let _ = test.expect_ok(doc..&.root_mut().set_float_text(arena, "ratio", "1.25"));
+    let _ = test.expect_ok(doc..&.root_mut().set_datetime_text(arena, "release", "1979-05-27T07:32:00Z"));
+    let _ = test.expect_ok(doc..&.root_mut().set_bool(arena, "publish", false));
 
-    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
-    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
-    let _ = test.expect_ok(package.set_string(alloc, "version", "0.1.0"));
+    let package = test.expect_ok(doc..&.ensure_table(arena, "package"));
+    let _ = test.expect_ok(package.set_string(arena, "name", "toml"));
+    let _ = test.expect_ok(package.set_string(arena, "version", "0.1.0"));
 
-    let dep = test.expect_ok(doc..&.root_mut().ensure_inline_table(alloc, "dep"));
-    let _ = test.expect_ok(dep.set_string(alloc, "path", "../util"));
-    let _ = test.expect_ok(dep.set_string(alloc, "package", "util"));
-    let _ = test.expect_ok(dep.set_path_string(alloc, "meta.license", "MIT"));
+    let dep = test.expect_ok(doc..&.root_mut().ensure_inline_table(arena, "dep"));
+    let _ = test.expect_ok(dep.set_string(arena, "path", "../util"));
+    let _ = test.expect_ok(dep.set_string(arena, "package", "util"));
+    let _ = test.expect_ok(dep.set_path_string(arena, "meta.license", "MIT"));
 
-    let features = test.expect_ok(package.ensure_array(alloc, "features"));
-    let _ = test.expect_ok(features.push_string(alloc, "parse"));
-    let _ = test.expect_ok(features.push_string(alloc, "model"));
+    let features = test.expect_ok(package.ensure_array(arena, "features"));
+    let _ = test.expect_ok(features.push_string(arena, "parse"));
+    let _ = test.expect_ok(features.push_string(arena, "model"));
 
-    let _ = test.expect_ok(doc..&.root_mut().set_path_integer(alloc, "server.port", 443));
-    let _ = test.expect_ok(doc..&.root_mut().set_path_bool(alloc, "server.tls.enabled", true));
-    let cipher_suites = test.expect_ok(doc..&.root_mut().ensure_path_array(alloc, "server.tls.cipher-suites"));
-    let _ = test.expect_ok(cipher_suites.push_string(alloc, "TLS_AES_128_GCM_SHA256"));
-    let _ = test.expect_ok(cipher_suites.push_string(alloc, "TLS_AES_256_GCM_SHA384"));
+    let _ = test.expect_ok(doc..&.root_mut().set_path_integer(arena, "server.port", 443));
+    let _ = test.expect_ok(doc..&.root_mut().set_path_bool(arena, "server.tls.enabled", true));
+    let cipher_suites = test.expect_ok(doc..&.root_mut().ensure_path_array(arena, "server.tls.cipher-suites"));
+    let _ = test.expect_ok(cipher_suites.push_string(arena, "TLS_AES_128_GCM_SHA256"));
+    let _ = test.expect_ok(cipher_suites.push_string(arena, "TLS_AES_256_GCM_SHA384"));
 
-    let product1 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
-    let _ = test.expect_ok(product1.set_string(alloc, "name", "hammer"));
-    let _ = test.expect_ok(product1.set_integer(alloc, "price", 9));
+    let product1 = test.expect_ok(doc..&.append_array_table(arena, "products"));
+    let _ = test.expect_ok(product1.set_string(arena, "name", "hammer"));
+    let _ = test.expect_ok(product1.set_integer(arena, "price", 9));
 
-    let product2 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
-    let _ = test.expect_ok(product2.set_string(alloc, "name", "nail"));
-    let _ = test.expect_ok(product2.set_bool(alloc, "available", true));
+    let product2 = test.expect_ok(doc..&.append_array_table(arena, "products"));
+    let _ = test.expect_ok(product2.set_string(arena, "name", "nail"));
+    let _ = test.expect_ok(product2.set_bool(arena, "available", true));
 
     expect_some_text(doc..&.root().get_string("title"), "demo");
     test.eq(test.expect_some(doc..&.root().get_integer("edition")), 2027);
@@ -94,54 +93,52 @@ fn check_owned_document_queries_and_mutation() void {
     let second_product = test.expect_some(doc..&.get_array_table("products", 1));
     expect_some_text(second_product.get_string("name"), "nail");
 
-    test.assert(dep.remove_path(alloc, "meta.license"), "expected nested removal to succeed", .{});
+    test.assert(dep.remove_path(arena, "meta.license"), "expected nested removal to succeed", .{});
     expect_none_text(dep.get_path_string("meta.license"));
-    test.assert(package.remove(alloc, "version"), "expected removal to succeed", .{});
+    test.assert(package.remove(arena, "version"), "expected removal to succeed", .{});
     expect_none_text(package.get_string("version"));
 }
 
 fn check_kind_conflicts() void {
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
-    defer doc..&.deinit(alloc);
+    defer doc..&.deinit(arena);
 
-    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
-    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
+    let package = test.expect_ok(doc..&.ensure_table(arena, "package"));
+    let _ = test.expect_ok(package.set_string(arena, "name", "toml"));
 
-    let dep = test.expect_ok(doc..&.root_mut().ensure_inline_table(alloc, "dep"));
-    let _ = test.expect_ok(dep.set_string(alloc, "path", "../util"));
+    let dep = test.expect_ok(doc..&.root_mut().ensure_inline_table(arena, "dep"));
+    let _ = test.expect_ok(dep.set_string(arena, "path", "../util"));
 
-    let table_conflict = test.expect_err(doc..&.append_array_table(alloc, "package"));
+    let table_conflict = test.expect_err(doc..&.append_array_table(arena, "package"));
     test.eq(table_conflict, ModelError.KindConflict);
 
-    let value_conflict = test.expect_err(doc..&.root_mut().ensure_array(alloc, "dep"));
+    let value_conflict = test.expect_err(doc..&.root_mut().ensure_array(arena, "dep"));
     test.eq(value_conflict, ModelError.KindConflict);
 }
 
 fn check_array_mutation_api() void {
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
-    defer doc..&.deinit(alloc);
+    defer doc..&.deinit(arena);
 
-    let items = test.expect_ok(doc..&.root_mut().ensure_array(alloc, "items"));
-    let _ = test.expect_ok(items.push_string(alloc, "alpha"));
-    let _ = test.expect_ok(items.push_integer(alloc, 1));
-    let _ = test.expect_ok(items.insert_bool(alloc, 1, true));
-    let _ = test.expect_ok(items.set_string(alloc, 0, "beta"));
-    let _ = test.expect_ok(items.set_integer(alloc, 2, 2));
+    let items = test.expect_ok(doc..&.root_mut().ensure_array(arena, "items"));
+    let _ = test.expect_ok(items.push_string(arena, "alpha"));
+    let _ = test.expect_ok(items.push_integer(arena, 1));
+    let _ = test.expect_ok(items.insert_bool(arena, 1, true));
+    let _ = test.expect_ok(items.set_string(arena, 0, "beta"));
+    let _ = test.expect_ok(items.set_integer(arena, 2, 2));
 
-    let nested = test.expect_ok(items.insert_array(alloc, 3));
-    let _ = test.expect_ok(nested.push_string(alloc, "inner"));
-    let meta = test.expect_ok(items.insert_inline_table(alloc, 4));
-    let _ = test.expect_ok(meta.set_bool(alloc, "ok", true));
+    let nested = test.expect_ok(items.insert_array(arena, 3));
+    let _ = test.expect_ok(nested.push_string(arena, "inner"));
+    let meta = test.expect_ok(items.insert_inline_table(arena, 4));
+    let _ = test.expect_ok(meta.set_bool(arena, "ok", true));
 
     test.eq(items.len(), 5);
     expect_some_text(test.expect_some(items.get(0)).as_string(), "beta");
@@ -156,40 +153,39 @@ fn check_array_mutation_api() void {
         true
     );
 
-    test.assert(items.remove(alloc, 1), "expected array removal to succeed", .{});
+    test.assert(items.remove(arena, 1), "expected array removal to succeed", .{});
     test.eq(items.len(), 4);
     test.eq(test.expect_some(test.expect_some(items.get(1)).as_integer()), 2);
 
-    items.truncate(alloc, 2);
+    items.truncate(arena, 2);
     test.eq(items.len(), 2);
     test.eq(test.expect_some(test.expect_some(items.get(1)).as_integer()), 2);
 
-    let bounds_err = test.expect_err(items.set_bool(alloc, 5, false));
+    let bounds_err = test.expect_err(items.set_bool(arena, 5, false));
     test.eq(bounds_err, ModelError.IndexOutOfBounds);
 
-    items.clear(alloc);
+    items.clear(arena);
     test.eq(items.len(), 0);
     test.assert(items.is_empty(), "expected cleared array to be empty", .{});
 }
 
 fn check_document_section_mutation() void {
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
-    defer doc..&.deinit(alloc);
+    defer doc..&.deinit(arena);
 
-    let package = test.expect_ok(doc..&.ensure_table(alloc, "package"));
-    let _ = test.expect_ok(package.set_string(alloc, "name", "toml"));
-    let profile = test.expect_ok(doc..&.ensure_table(alloc, "profile"));
-    let _ = test.expect_ok(profile.set_bool(alloc, "debug", true));
+    let package = test.expect_ok(doc..&.ensure_table(arena, "package"));
+    let _ = test.expect_ok(package.set_string(arena, "name", "toml"));
+    let profile = test.expect_ok(doc..&.ensure_table(arena, "profile"));
+    let _ = test.expect_ok(profile.set_bool(arena, "debug", true));
 
-    let product1 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
-    let _ = test.expect_ok(product1.set_string(alloc, "name", "hammer"));
-    let product2 = test.expect_ok(doc..&.append_array_table(alloc, "products"));
-    let _ = test.expect_ok(product2.set_string(alloc, "name", "nail"));
+    let product1 = test.expect_ok(doc..&.append_array_table(arena, "products"));
+    let _ = test.expect_ok(product1.set_string(arena, "name", "hammer"));
+    let product2 = test.expect_ok(doc..&.append_array_table(arena, "products"));
+    let _ = test.expect_ok(product2.set_string(arena, "name", "nail"));
 
     test.eq(doc..&.section_count(), 3);
     test.eq(test.expect_some(doc..&.section_kind(0)), DocumentSectionKind.Table);
@@ -203,23 +199,23 @@ fn check_document_section_mutation() void {
     test.assert(doc..&.contains_table("package"), "expected table section", .{});
     test.assert(doc..&.contains_array_table("products"), "expected array-table section", .{});
 
-    test.assert(doc..&.remove_array_table_item(alloc, "products", 0), "expected array-table item removal", .{});
+    test.assert(doc..&.remove_array_table_item(arena, "products", 0), "expected array-table item removal", .{});
     test.eq(doc..&.array_table_len("products"), 1);
     let remaining = test.expect_some(doc..&.get_array_table("products", 0));
     expect_some_text(remaining.get_string("name"), "nail");
 
-    test.assert(doc..&.remove_table(alloc, "profile"), "expected table section removal", .{});
+    test.assert(doc..&.remove_table(arena, "profile"), "expected table section removal", .{});
     test.eq(doc..&.section_count(), 2);
     test.assert(!doc..&.contains_table("profile"), "expected profile removal", .{});
     test.assert(doc..&.get_table("profile").is_none(), "expected removed profile lookup to fail", .{});
 
-    test.assert(doc..&.remove_array_table_item(alloc, "products", 0), "expected last array-table item removal", .{});
+    test.assert(doc..&.remove_array_table_item(arena, "products", 0), "expected last array-table item removal", .{});
     test.eq(doc..&.section_count(), 1);
     test.eq(doc..&.array_table_len("products"), 0);
     test.assert(!doc..&.contains_array_table("products"), "expected products section removal", .{});
 
-    test.assert(!doc..&.remove_table(alloc, "profile"), "expected duplicate removal to fail", .{});
-    test.assert(!doc..&.remove_array_table(alloc, "products"), "expected missing array-table removal to fail", .{});
+    test.assert(!doc..&.remove_table(arena, "profile"), "expected duplicate removal to fail", .{});
+    test.assert(!doc..&.remove_array_table(arena, "products"), "expected missing array-table removal to fail", .{});
 }
 
 extern fn main(args: [][]u8) i32 {

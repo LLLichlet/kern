@@ -673,12 +673,11 @@ pub fn scan(text: []u8) Result[ScanDocument, Error] {
             .{ Ok: _ } => {},
         }
     }
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = *mut Allocator.{ arena };
-    let mut parser = Parser.{ text: text, alloc: alloc };
-    defer parser.seen_items..&.deinit(alloc);
+    let mut parser = Parser.{ text: text, alloc: arena };
+    defer parser.seen_items..&.deinit(arena);
     defer parser..&.deinit_seen_indexes();
     return parser..&.parse_all();
 }

@@ -819,17 +819,15 @@ fn print_parse_error(err: ParseOwnedError) void {
 extern fn main(args: [][]u8) i32 {
     let _ = args;
 
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
-    let mut stdin = fs.stdin();
-    let mut input = match (stdin..&.read_to_string(alloc)) {
-        .{ Ok: input } => input,
-        .{ Err: _ } => return 1,
+    let stdin = fs.stdin()..&;
+    let .{ Ok: mut input } = stdin.read_to_string(arena) else {
+        return 1;
     };
-    defer input..&.deinit(alloc);
+    defer input..&.deinit(arena);
 
     let mut doc = match (parse(input.&.as_str())) {
         .{ Ok: doc } => doc,
@@ -840,13 +838,13 @@ extern fn main(args: [][]u8) i32 {
     };
     defer doc..&.deinit();
 
-    let mut root = match (build_json_tree(alloc, doc..&)) {
+    let mut root = match (build_json_tree(arena, doc..&)) {
         .{ Some: root } => root,
         .None => return 1,
     };
-    defer root..&.deinit(alloc);
+    defer root..&.deinit(arena);
 
-    if (!emit_json_stdout(alloc, root..&)) {
+    if (!emit_json_stdout(arena, root..&)) {
         return 1;
     }
     return 0;

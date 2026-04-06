@@ -125,14 +125,13 @@ fn print_parse_error(path: []u8, line: usize, column: usize, message: []u8) void
     let _ = stderr..&.write_all(" at ");
 
     let mut line_text = String.{};
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
-    if (append_usize(line_text..&, alloc, line) and line_text..&.push_str(alloc, ":") and append_usize(line_text..&, alloc, column)) {
+    if (append_usize(line_text..&, arena, line) and line_text..&.push_str(arena, ":") and append_usize(line_text..&, arena, column)) {
         let _ = stderr..&.write_all(line_text.&.as_str());
     }
-    line_text..&.deinit(alloc);
+    line_text..&.deinit(arena);
     let _ = stderr..&.write_all("\n");
 }
 
@@ -388,35 +387,31 @@ fn run_parse(
 extern fn main(args: [][]u8) i32 {
     let _ = args;
 
-    let mut page = Page.{}..&;
-    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    let page = Page.{}..&;
+    let arena = Arena.{ backing: page }..&;
     defer arena.deinit();
-    let alloc = arena;
 
-    let mut stdin = fs.stdin();
-    let mut manifest = match (stdin..&.read_to_string(alloc)) {
-        .{ Ok: text } => text,
-        .{ Err: _ } => {
-            print_usage();
-            return 1;
-        },
-    };
-    defer manifest..&.deinit(alloc);
-
-    let .{ Some: mut config } = parse_manifest(alloc, manifest.&.as_str()) else {
+    let stdin = fs.stdin()..&;
+    let .{ Ok: mut manifest } = stdin.read_to_string(arena) else {
         print_usage();
         return 1;
     };
-    defer config.paths..&.deinit(alloc);
+    defer manifest..&.deinit(arena);
 
-    let .{ Some: mut inputs } = load_inputs(alloc, config.paths.&.as_slice()) else {
+    let .{ Some: mut config } = parse_manifest(arena, manifest.&.as_str()) else {
+        print_usage();
         return 1;
     };
-    defer deinit_inputs(alloc, inputs..&);
+    defer config.paths..&.deinit(arena);
+
+    let .{ Some: mut inputs } = load_inputs(arena, config.paths.&.as_slice()) else {
+        return 1;
+    };
+    defer deinit_inputs(arena, inputs..&);
 
     let ok = match (config.mode) {
-        .Scan => run_scan(alloc, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
-        .Parse => run_parse(alloc, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
+        .Scan => run_scan(arena, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
+        .Parse => run_parse(arena, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
     };
     return if (ok) 0 else 1;
 }

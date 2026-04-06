@@ -325,6 +325,10 @@ pub fn count_newlines(value: []u8, start: usize, end: usize) usize {
 }
 
 pub fn strip_inline_comment(value: []u8) []u8 {
+    if (value.find_byte(b'#').is_none()) {
+        return value.trim_ascii_end();
+    }
+
     let mut array_depth = 0;
     let mut inline_table_depth = 0;
 
@@ -396,15 +400,44 @@ pub fn next_statement(text: []u8, start: usize, start_line: usize) Option[Statem
             continue;
         }
 
-        if (byte == b'"' or byte == b'\'') {
-            let .{ Some: end } = scan_value_string_end(text, i) else {
+        if (byte == b'"') {
+            let multiline = is_multiline_basic_string(text, i);
+            let end_result = if (multiline) {
+                scan_multiline_basic_string_end(text, i)
+            } else {
+                scan_basic_string_end(text, i)
+            };
+            let .{ Some: end } = end_result else {
                 return .{ Some: Statement.{
                     text: text.[start .. #text],
                     next: #text,
                     next_line: next_line + count_newlines(text, i, #text),
                 } };
             };
-            next_line += count_newlines(text, i, end);
+            if (multiline) {
+                next_line += count_newlines(text, i, end);
+            }
+            i = end - 1;
+            continue;
+        }
+
+        if (byte == b'\'') {
+            let multiline = is_multiline_literal_string(text, i);
+            let end_result = if (multiline) {
+                scan_multiline_literal_string_end(text, i)
+            } else {
+                scan_literal_string_end(text, i)
+            };
+            let .{ Some: end } = end_result else {
+                return .{ Some: Statement.{
+                    text: text.[start .. #text],
+                    next: #text,
+                    next_line: next_line + count_newlines(text, i, #text),
+                } };
+            };
+            if (multiline) {
+                next_line += count_newlines(text, i, end);
+            }
             i = end - 1;
             continue;
         }
@@ -476,42 +509,31 @@ pub fn trim_array_element(text: []u8) []u8 {
 }
 
 pub fn find_assignment(text: []u8) Option[usize] {
-    let mut array_depth = 0;
-    let mut inline_table_depth = 0;
-
     for (let mut i = 0; i < #text; i += 1) {
         let byte = text.[i];
-        if (byte == b'"' or byte == b'\'') {
-            let .{ Some: end } = scan_value_string_end(text, i) else return .{ None };
+        if (byte == b'"') {
+            let end_result = if (is_multiline_basic_string(text, i)) {
+                scan_multiline_basic_string_end(text, i)
+            } else {
+                scan_basic_string_end(text, i)
+            };
+            let .{ Some: end } = end_result else return .{ None };
             i = end - 1;
             continue;
         }
 
-        if (byte == b'[') {
-            array_depth += 1;
+        if (byte == b'\'') {
+            let end_result = if (is_multiline_literal_string(text, i)) {
+                scan_multiline_literal_string_end(text, i)
+            } else {
+                scan_literal_string_end(text, i)
+            };
+            let .{ Some: end } = end_result else return .{ None };
+            i = end - 1;
             continue;
         }
 
-        if (byte == b']') {
-            if (array_depth != 0) {
-                array_depth -= 1;
-            }
-            continue;
-        }
-
-        if (byte == b'{') {
-            inline_table_depth += 1;
-            continue;
-        }
-
-        if (byte == b'}') {
-            if (inline_table_depth != 0) {
-                inline_table_depth -= 1;
-            }
-            continue;
-        }
-
-        if (byte == b'=' and array_depth == 0 and inline_table_depth == 0) {
+        if (byte == b'=') {
             return .{ Some: i };
         }
     }

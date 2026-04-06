@@ -685,7 +685,7 @@ impl *mut Lowerer {
         line: usize,
         column_base: usize
     ) Result[void, ParseOwnedError] {
-        let value = strip_inline_comment(text).trim_ascii();
+        let value = text.trim_ascii();
         if (#value == 0) {
             return .{ Err: parse_error("expected a value after `=`", line, column_base) };
         }

@@ -1,4 +1,5 @@
 use std.{Option, Result};
+use std.coll.bytes_eq;
 use std.cmp.{Ordering, EQUAL, LESS, GREATER};
 use ..Error;
 use ..common.{
@@ -246,7 +247,7 @@ fn next_decoded_segment_byte(decoder: *mut SegmentDecoder) Option[u8] {
 }
 
 fn path_segments_equal(lhs: PathSegment, rhs: PathSegment) bool {
-    if (lhs.kind == rhs.kind and lhs.text.eq(rhs.text)) {
+    if (lhs.kind == rhs.kind and bytes_eq(lhs.text, rhs.text)) {
         return true;
     }
 
@@ -306,12 +307,49 @@ pub fn full_path_head(prefix: []u8, path: []u8) Option[PathSegment] {
 }
 
 pub fn full_paths_share_head(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rhs_path: []u8) bool {
+    if (#lhs_prefix == 0 and #rhs_prefix == 0) {
+        let .{ Some: lhs_segment } = next_path_segment(lhs_path, 0) else return false;
+        let .{ Some: rhs_segment } = next_path_segment(rhs_path, 0) else return false;
+        return path_segments_equal(lhs_segment, rhs_segment);
+    }
+
     let .{ Some: lhs_segment } = full_path_head(lhs_prefix, lhs_path) else return false;
     let .{ Some: rhs_segment } = full_path_head(rhs_prefix, rhs_path) else return false;
     return path_segments_equal(lhs_segment, rhs_segment);
 }
 
 pub fn compare_full_paths(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rhs_path: []u8) Ordering {
+    if (#lhs_prefix == 0 and #rhs_prefix == 0) {
+        let mut lhs_index = 0;
+        let mut rhs_index = 0;
+
+        for (;;) {
+            let lhs_segment = next_path_segment(lhs_path, lhs_index);
+            let rhs_segment = next_path_segment(rhs_path, rhs_index);
+            match (lhs_segment) {
+                .{ Some: lhs_segment } => match (rhs_segment) {
+                    .{ Some: rhs_segment } => {
+                        lhs_index = lhs_segment.next;
+                        rhs_index = rhs_segment.next;
+                        let ord = if (path_segments_equal(lhs_segment, rhs_segment)) {
+                            EQUAL
+                        } else {
+                            lhs_segment.text.lex_cmp(rhs_segment.text)
+                        };
+                        if (ord != EQUAL) {
+                            return ord;
+                        }
+                    },
+                    .None => return GREATER,
+                },
+                .None => match (rhs_segment) {
+                    .{ Some: _ } => return LESS,
+                    .None => return EQUAL,
+                },
+            }
+        }
+    }
+
     let mut lhs = FullPathCursor.{ prefix: lhs_prefix, path: lhs_path };
     let mut rhs = FullPathCursor.{ prefix: rhs_prefix, path: rhs_path };
 
@@ -341,6 +379,32 @@ pub fn compare_full_paths(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rh
 }
 
 pub fn full_path_relation(lhs_prefix: []u8, lhs_path: []u8, rhs_prefix: []u8, rhs_path: []u8) PathRelation {
+    if (#lhs_prefix == 0 and #rhs_prefix == 0) {
+        let mut lhs_index = 0;
+        let mut rhs_index = 0;
+
+        for (;;) {
+            let lhs_segment = next_path_segment(lhs_path, lhs_index);
+            let rhs_segment = next_path_segment(rhs_path, rhs_index);
+            match (lhs_segment) {
+                .{ Some: lhs_segment } => match (rhs_segment) {
+                    .{ Some: rhs_segment } => {
+                        lhs_index = lhs_segment.next;
+                        rhs_index = rhs_segment.next;
+                        if (!path_segments_equal(lhs_segment, rhs_segment)) {
+                            return PathRelation.Disjoint;
+                        }
+                    },
+                    .None => return PathRelation.Super,
+                },
+                .None => match (rhs_segment) {
+                    .{ Some: _ } => return PathRelation.Prefix,
+                    .None => return PathRelation.Equal,
+                },
+            }
+        }
+    }
+
     let mut lhs = FullPathCursor.{ prefix: lhs_prefix, path: lhs_path };
     let mut rhs = FullPathCursor.{ prefix: rhs_prefix, path: rhs_path };
 

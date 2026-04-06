@@ -1,5 +1,5 @@
 use std.{Option, Result};
-use std.coll.{List, String};
+use std.coll.{List, String, bytes_eq};
 use std.mem.alloc.Allocator;
 
 use ..common.{
@@ -108,7 +108,7 @@ impl *mut Lowerer {
     fn find_bucket_index(head: []u8) Option[usize] {
         let buckets = self.seen_buckets.&.as_slice();
         for (let mut i = 0; i < #buckets; i += 1) {
-            if (buckets.[i].head.&.as_str().eq(head)) {
+            if (bytes_eq(buckets.[i].head.&.as_str(), head)) {
                 return .{ Some: i };
             }
         }
@@ -742,8 +742,8 @@ impl *mut Lowerer {
             return assign_result;
         }
 
-        if (value.eq("true") or value.eq("false")) {
-            let result = map_model_error(table.set_bool(self.alloc, key, value.eq("true")));
+        if (bytes_eq(value, "true") or bytes_eq(value, "false")) {
+            let result = map_model_error(table.set_bool(self.alloc, key, bytes_eq(value, "true")));
             match (result) {
                 .{ Ok: _ } => return .{ Ok: {} },
                 .{ Err: err } => return .{ Err: err },
@@ -848,8 +848,8 @@ impl *mut Lowerer {
             return append_result;
         }
 
-        if (value.eq("true") or value.eq("false")) {
-            return map_model_error(array.push_bool(self.alloc, value.eq("true")));
+        if (bytes_eq(value, "true") or bytes_eq(value, "false")) {
+            return map_model_error(array.push_bool(self.alloc, bytes_eq(value, "true")));
         }
 
         if (is_integer_value(value)) {

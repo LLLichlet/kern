@@ -126,6 +126,7 @@ impl[T] []T
     where T: Eq[T],
 {
     /// Compares the slice contents against another slice for equality.
+    #[inline(always)]
     pub fn eq(other: []T) bool {
         if (#self != #other) return false;
         for (let mut i = 0; i < #self; i += 1) {
@@ -137,6 +138,7 @@ impl[T] []T
     }
 
     /// Returns `true` when the slice begins with `prefix`.
+    #[inline(always)]
     pub fn starts_with(prefix: []T) bool {
         if (#prefix > #self) return false;
         for (let mut i = 0; i < #prefix; i += 1) {
@@ -148,6 +150,7 @@ impl[T] []T
     }
 
     /// Returns `true` when the slice ends with `suffix`.
+    #[inline(always)]
     pub fn ends_with(suffix: []T) bool {
         if (#suffix > #self) return false;
         let start = #self - #suffix;
@@ -160,6 +163,7 @@ impl[T] []T
     }
 
     /// Returns the first position of `needle`.
+    #[inline(always)]
     pub fn find(needle: []T) Option[usize] {
         let needle_len = #needle;
         if (needle_len == 0) {

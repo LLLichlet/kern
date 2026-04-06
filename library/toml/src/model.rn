@@ -1,5 +1,5 @@
 use std.{Option, Result};
-use std.coll.{List, String};
+use std.coll.{List, String, bytes_eq};
 use std.mem.layout_of;
 use std.mem.alloc.Allocator;
 
@@ -224,7 +224,7 @@ fn path_suffix_after_prefix(path: []u8, prefix: []u8) Option[usize] {
             .None => return .{ Some: path_index },
             .{ Some: segment } => {
                 let .{ Some: path_segment } = next_path_segment(path, path_index) else return .{ None };
-                if (!path_segment.text.eq(segment.text)) {
+                if (!bytes_eq(path_segment.text, segment.text)) {
                     return .{ None };
                 }
                 path_index = path_segment.next;
@@ -555,7 +555,7 @@ impl *Table {
     fn find_index(key: []u8) Option[usize] {
         let entries = self.entries.&.as_slice();
         for (let mut i = 0; i < #entries; i += 1) {
-            if (entries.[i].key.&.as_str().eq(key)) {
+            if (bytes_eq(entries.[i].key.&.as_str(), key)) {
                 return .{ Some: i };
             }
         }
@@ -914,7 +914,7 @@ impl *OwnedDocument {
     fn find_table_index(path: []u8) Option[usize] {
         let tables = self.tables.&.as_slice();
         for (let mut i = 0; i < #tables; i += 1) {
-            if (tables.[i].path.&.as_str().eq(path)) {
+            if (bytes_eq(tables.[i].path.&.as_str(), path)) {
                 return .{ Some: i };
             }
         }
@@ -924,7 +924,7 @@ impl *OwnedDocument {
     fn find_array_table_index(path: []u8) Option[usize] {
         let sections = self.array_tables.&.as_slice();
         for (let mut i = 0; i < #sections; i += 1) {
-            if (sections.[i].path.&.as_str().eq(path)) {
+            if (bytes_eq(sections.[i].path.&.as_str(), path)) {
                 return .{ Some: i };
             }
         }

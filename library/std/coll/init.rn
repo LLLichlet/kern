@@ -11,6 +11,6 @@ mod tree;
 
 pub use .list.List;
 pub use .map.Map;
-pub use .slice.{find_byte, rfind_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
+pub use .slice.{bytes_eq, find_byte, rfind_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
 pub use .string.String;
 pub use .tree.Tree;

@@ -1,25 +1,30 @@
 use std.Option;
+use std.coll.bytes_eq;
 use std.cmp.{Comparable, Ord, Ordering};
 use std.hash.{Hash, hash_bytes};
 use ..String;
 
 impl *String {
     /// Compares the string contents against a byte slice.
+    #[inline(always)]
     pub fn eq(other: []u8) bool {
-        return self.as_str().eq(other);
+        return bytes_eq(self.as_str(), other);
     }
 
     /// Returns `true` when the string begins with `prefix`.
+    #[inline(always)]
     pub fn starts_with(prefix: []u8) bool {
         return self.as_str().starts_with(prefix);
     }
 
     /// Returns `true` when the string ends with `suffix`.
+    #[inline(always)]
     pub fn ends_with(suffix: []u8) bool {
         return self.as_str().ends_with(suffix);
     }
 
     /// Returns the first position of `needle`.
+    #[inline(always)]
     pub fn find(needle: []u8) Option[usize] {
         return self.as_str().find(needle);
     }

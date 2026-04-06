@@ -2,6 +2,67 @@
 
 use std.Option;
 
+const USIZE_BYTES = @sizeOf[usize]();
+
+#[inline(always)]
+fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
+    for (let mut i = 0; i < len; i += 1) {
+        if ((lhs + i).* != (rhs + i).*) {
+            return false;
+        }
+    }
+    return true;
+}
+
+#[inline(always)]
+fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
+    for (let mut i = 0; i < len; i += 1) {
+        if ((lhs + i).* != (rhs + i).*) {
+            return false;
+        }
+    }
+    return true;
+}
+
+#[inline(always)]
+pub fn bytes_eq(lhs: []u8, rhs: []u8) bool {
+    if (#lhs != #rhs) {
+        return false;
+    }
+
+    let len = #lhs;
+    if (len == 0) {
+        return true;
+    }
+
+    let lhs_ptr = lhs.[0].& as *u8;
+    let rhs_ptr = rhs.[0].& as *u8;
+    if (len < USIZE_BYTES) {
+        return eq_byte_range(lhs_ptr, rhs_ptr, len);
+    }
+
+    let mask = USIZE_BYTES - 1;
+    if ((((lhs_ptr as usize) ^ (rhs_ptr as usize)) & mask) != 0) {
+        return eq_byte_range(lhs_ptr, rhs_ptr, len);
+    }
+
+    let lhs_align = (lhs_ptr as usize) & mask;
+    let prefix = if (lhs_align == 0) 0 else USIZE_BYTES - lhs_align;
+    if (prefix != 0 and !eq_byte_range(lhs_ptr, rhs_ptr, prefix)) {
+        return false;
+    }
+
+    let word_len = (len - prefix) / USIZE_BYTES;
+    let lhs_words = (lhs_ptr + prefix) as *usize;
+    let rhs_words = (rhs_ptr + prefix) as *usize;
+    if (word_len != 0 and !eq_usize_range(lhs_words, rhs_words, word_len)) {
+        return false;
+    }
+
+    let tail_start = prefix + word_len * USIZE_BYTES;
+    return eq_byte_range(lhs_ptr + tail_start, rhs_ptr + tail_start, len - tail_start);
+}
+
 impl []u8 {
     /// Returns the first index of `byte`.
     pub fn find_byte(byte: u8) Option[usize] {

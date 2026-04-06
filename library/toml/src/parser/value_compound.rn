@@ -1,4 +1,5 @@
 use std.Result;
+use std.coll.bytes_eq;
 
 use ..Error;
 use ..common.{
@@ -428,7 +429,7 @@ pub fn validate_value(text: []u8, line: usize, column_base: usize) Result[Valida
         return validate_literal_string(value, line, column_base);
     }
 
-    if (value.eq("true") or value.eq("false")) {
+    if (bytes_eq(value, "true") or bytes_eq(value, "false")) {
         return valid();
     }
 

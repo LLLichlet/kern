@@ -1,4 +1,5 @@
 use std.Option;
+use std.coll.bytes_eq;
 
 fn is_decimal_digit(byte: u8) bool {
     return byte >= b'0' and byte <= b'9';
@@ -170,7 +171,7 @@ fn is_special_float_value(value: []u8) bool {
     }
 
     let tail = value.[start .. #value];
-    return tail.eq("inf") or tail.eq("nan");
+    return bytes_eq(tail, "inf") or bytes_eq(tail, "nan");
 }
 
 pub fn is_float_value(value: []u8) bool {

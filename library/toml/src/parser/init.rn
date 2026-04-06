@@ -1,5 +1,5 @@
 use std.{Option, Result};
-use std.coll.{List, String};
+use std.coll.{List, String, bytes_eq};
 use std.mem.alloc.{Allocator, Arena, Page};
 
 pub use ..{Array, Error, ModelError, OwnedDocument, ScanDocument, ScanDocumentKind, Table};
@@ -85,7 +85,7 @@ impl *mut Parser {
     fn find_bucket_index(head: []u8) Option[usize] {
         let buckets = self.seen_buckets.&.as_slice();
         for (let mut i = 0; i < #buckets; i += 1) {
-            if (buckets.[i].head.&.as_str().eq(head)) {
+            if (bytes_eq(buckets.[i].head.&.as_str(), head)) {
                 return .{ Some: i };
             }
         }

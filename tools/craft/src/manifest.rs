@@ -25,6 +25,13 @@ pub struct Package {
     pub version: String,
     pub kern: String,
     pub publish: Option<bool>,
+    pub description: Option<String>,
+    pub license: Option<String>,
+    pub authors: Vec<String>,
+    pub readme: Option<String>,
+    pub repository: Option<String>,
+    pub homepage: Option<String>,
+    pub documentation: Option<String>,
 }
 
 #[derive(Debug, Default)]
@@ -86,8 +93,13 @@ pub struct Workspace {
 #[derive(Debug, Default)]
 pub struct WorkspacePackage {
     pub version: Option<String>,
+    pub description: Option<String>,
     pub license: Option<String>,
     pub authors: Vec<String>,
+    pub readme: Option<String>,
+    pub repository: Option<String>,
+    pub homepage: Option<String>,
+    pub documentation: Option<String>,
 }
 
 const CURRENT_KERN_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -184,6 +196,7 @@ impl Manifest {
             validate_non_empty(path, "[package].kern", &package.kern)?;
             validate_kern_version(path, &package.kern)?;
             let _ = package.publish;
+            validate_optional_package_metadata(path, "[package]", package)?;
         }
 
         if let Some(craft) = &self.craft {
@@ -226,15 +239,7 @@ impl Manifest {
             }
             validate_dependencies(path, "[workspace.dependencies]", &workspace.dependencies)?;
             if let Some(package) = &workspace.package {
-                if let Some(version) = &package.version {
-                    validate_non_empty(path, "[workspace.package].version", version)?;
-                }
-                if let Some(license) = &package.license {
-                    validate_non_empty(path, "[workspace.package].license", license)?;
-                }
-                for author in &package.authors {
-                    validate_non_empty(path, "[workspace.package].authors[]", author)?;
-                }
+                validate_optional_workspace_package_metadata(path, "[workspace.package]", package)?;
             }
         }
 
@@ -322,6 +327,13 @@ fn assign_key_value(
                 "version" => package.version = parse_string(raw_value)?,
                 "kern" => package.kern = parse_string(raw_value)?,
                 "publish" => package.publish = Some(parse_bool(raw_value)?),
+                "description" => package.description = Some(parse_string(raw_value)?),
+                "license" => package.license = Some(parse_string(raw_value)?),
+                "authors" => package.authors = parse_string_array(raw_value)?,
+                "readme" => package.readme = Some(parse_string(raw_value)?),
+                "repository" => package.repository = Some(parse_string(raw_value)?),
+                "homepage" => package.homepage = Some(parse_string(raw_value)?),
+                "documentation" => package.documentation = Some(parse_string(raw_value)?),
                 _ => return Err(format!("unsupported [package] key `{key}`")),
             }
             Ok(())
@@ -405,8 +417,15 @@ fn assign_key_value(
                 .get_or_insert_with(WorkspacePackage::default);
             match key {
                 "version" => workspace_package.version = Some(parse_string(raw_value)?),
+                "description" => workspace_package.description = Some(parse_string(raw_value)?),
                 "license" => workspace_package.license = Some(parse_string(raw_value)?),
                 "authors" => workspace_package.authors = parse_string_array(raw_value)?,
+                "readme" => workspace_package.readme = Some(parse_string(raw_value)?),
+                "repository" => workspace_package.repository = Some(parse_string(raw_value)?),
+                "homepage" => workspace_package.homepage = Some(parse_string(raw_value)?),
+                "documentation" => {
+                    workspace_package.documentation = Some(parse_string(raw_value)?)
+                }
                 _ => return Err(format!("unsupported [workspace.package] key `{key}`")),
             }
             Ok(())
@@ -955,6 +974,63 @@ fn validate_profile(path: &Path, section: &str, profile: &Profile) -> Result<()>
     Ok(())
 }
 
+fn validate_optional_package_metadata(path: &Path, section: &str, package: &Package) -> Result<()> {
+    if let Some(description) = &package.description {
+        validate_non_empty(path, &format!("{section}.description"), description)?;
+    }
+    if let Some(license) = &package.license {
+        validate_non_empty(path, &format!("{section}.license"), license)?;
+    }
+    for author in &package.authors {
+        validate_non_empty(path, &format!("{section}.authors[]"), author)?;
+    }
+    if let Some(readme) = &package.readme {
+        validate_non_empty(path, &format!("{section}.readme"), readme)?;
+    }
+    if let Some(repository) = &package.repository {
+        validate_non_empty(path, &format!("{section}.repository"), repository)?;
+    }
+    if let Some(homepage) = &package.homepage {
+        validate_non_empty(path, &format!("{section}.homepage"), homepage)?;
+    }
+    if let Some(documentation) = &package.documentation {
+        validate_non_empty(path, &format!("{section}.documentation"), documentation)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_workspace_package_metadata(
+    path: &Path,
+    section: &str,
+    package: &WorkspacePackage,
+) -> Result<()> {
+    if let Some(version) = &package.version {
+        validate_non_empty(path, &format!("{section}.version"), version)?;
+    }
+    if let Some(description) = &package.description {
+        validate_non_empty(path, &format!("{section}.description"), description)?;
+    }
+    if let Some(license) = &package.license {
+        validate_non_empty(path, &format!("{section}.license"), license)?;
+    }
+    for author in &package.authors {
+        validate_non_empty(path, &format!("{section}.authors[]"), author)?;
+    }
+    if let Some(readme) = &package.readme {
+        validate_non_empty(path, &format!("{section}.readme"), readme)?;
+    }
+    if let Some(repository) = &package.repository {
+        validate_non_empty(path, &format!("{section}.repository"), repository)?;
+    }
+    if let Some(homepage) = &package.homepage {
+        validate_non_empty(path, &format!("{section}.homepage"), homepage)?;
+    }
+    if let Some(documentation) = &package.documentation {
+        validate_non_empty(path, &format!("{section}.documentation"), documentation)?;
+    }
+    Ok(())
+}
+
 fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {
         return Err(Error::Validation {
@@ -1015,6 +1091,11 @@ mod tests {
 name = "demo"
 version = "0.1.0"
 kern = "0.6.7"
+description = "Demo package"
+license = "MIT"
+authors = ["Demo <demo@example.com>"]
+readme = "README.md"
+repository = "https://example.com/demo"
 
 [lib]
 root = "src/lib.rn"
@@ -1037,7 +1118,9 @@ default = []
         )
         .unwrap();
 
-        assert_eq!(manifest.package.unwrap().name, "demo");
+        let package = manifest.package.as_ref().unwrap();
+        assert_eq!(package.name, "demo");
+        assert_eq!(package.description.as_deref(), Some("Demo package"));
         assert!(manifest.lib.is_some());
         assert_eq!(manifest.bin.len(), 1);
         assert_eq!(manifest.test.len(), 2);

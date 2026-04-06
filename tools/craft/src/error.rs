@@ -94,6 +94,11 @@ impl Error {
                         .to_string(),
                 )
             }
+            Self::Validation { message, .. }
+                if message.starts_with("publish requires a current release `Craft.lock`") =>
+            {
+                Some("run `craft lock --release` before `craft publish`".to_string())
+            }
             _ => None,
         }
     }

@@ -35,6 +35,11 @@ pub enum Command {
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
     },
+    Publish {
+        path: Option<PathBuf>,
+        feature_selection: elaborate::FeatureSelection,
+        ui: UiOptions,
+    },
     Doc {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
@@ -414,6 +419,59 @@ fn run_command(command: Command) -> Result<()> {
                 );
             }
             render.ok("fetch completed");
+
+            Ok(())
+        }
+        Command::Publish {
+            path,
+            feature_selection,
+            ui,
+        } => {
+            let render = Renderer::new(ui);
+            let (loaded, _workspace_lock) = load_locked_package_graph(
+                path.as_deref(),
+                crate::script::ScriptCommand::Lock,
+                &feature_selection,
+                "publish",
+            )?;
+            let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
+            validate_publish_lock_status(&loaded.manifest_path, lock_status)?;
+            let summary = publish_summary(
+                &loaded.manifest_path,
+                &loaded.manifest,
+                &loaded.workspace_members,
+            )?;
+            validate_publish_metadata(&summary)?;
+
+            render.header_with_path(
+                "publish",
+                &loaded.manifest,
+                &loaded.manifest_path,
+                &feature_selection,
+            );
+            render.summary(
+                "packages",
+                format!(
+                    "{} publishable package(s), {} blocked package(s)",
+                    summary.ready.len(),
+                    summary.blocked.len()
+                ),
+            );
+            render.summary("lockfile", "current (release)");
+            if render.verbose {
+                for package in &summary.ready {
+                    render.meta(
+                        "package",
+                        format!(
+                            "{} {} ({})",
+                            package.name,
+                            package.version,
+                            package.manifest_path.display()
+                        ),
+                    );
+                }
+            }
+            render.ok("publish check completed");
 
             Ok(())
         }
@@ -832,6 +890,27 @@ struct CheckSourceSummary {
     path_packages: usize,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PublishPackageSummary {
+    name: String,
+    version: String,
+    manifest_path: PathBuf,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PublishIssue {
+    package_name: String,
+    manifest_path: PathBuf,
+    missing_fields: Vec<&'static str>,
+    missing_readme_path: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PublishSummary {
+    ready: Vec<PublishPackageSummary>,
+    blocked: Vec<PublishIssue>,
+}
+
 fn summarize_check_sources(resolved: &crate::resolver::ResolvedGraph) -> CheckSourceSummary {
     let mut git_packages = 0usize;
     let mut path_packages = 0usize;
@@ -849,6 +928,213 @@ fn summarize_check_sources(resolved: &crate::resolver::ResolvedGraph) -> CheckSo
         git_packages,
         path_packages,
     }
+}
+
+fn validate_publish_lock_status(manifest_path: &Path, lock_status: lockfile::LockStatus) -> Result<()> {
+    if lock_status == lockfile::LockStatus::Current {
+        return Ok(());
+    }
+
+    Err(Error::Validation {
+        path: manifest_path.to_path_buf(),
+        message: "publish requires a current release `Craft.lock`; run `craft lock --release` first"
+            .to_string(),
+    })
+}
+
+fn publish_summary(
+    root_manifest_path: &Path,
+    root_manifest: &Manifest,
+    workspace_members: &[workspace::WorkspaceMember],
+) -> Result<PublishSummary> {
+    let workspace_defaults = root_manifest
+        .workspace
+        .as_ref()
+        .and_then(|workspace| workspace.package.as_ref());
+    let mut ready = Vec::new();
+    let mut blocked = Vec::new();
+
+    if let Some(package) = &root_manifest.package
+        && package.publish != Some(false)
+    {
+        classify_publish_package(
+            root_manifest_path,
+            root_manifest_path,
+            package,
+            workspace_defaults,
+            &mut ready,
+            &mut blocked,
+        )?;
+    }
+
+    for member in workspace_members {
+        let Some(package) = &member.manifest.package else {
+            continue;
+        };
+        if package.publish == Some(false) {
+            continue;
+        }
+        classify_publish_package(
+            root_manifest_path,
+            &member.manifest_path,
+            package,
+            workspace_defaults,
+            &mut ready,
+            &mut blocked,
+        )?;
+    }
+
+    if ready.is_empty() && blocked.is_empty() {
+        return Err(Error::Validation {
+            path: root_manifest_path.to_path_buf(),
+            message: "publish found no publishable packages; set `[package].publish = true` or omit `publish = false`"
+                .to_string(),
+        });
+    }
+
+    Ok(PublishSummary { ready, blocked })
+}
+
+fn validate_publish_metadata(summary: &PublishSummary) -> Result<()> {
+    if summary.blocked.is_empty() {
+        return Ok(());
+    }
+
+    let message = summary
+        .blocked
+        .iter()
+        .map(|issue| {
+            let mut parts = Vec::new();
+            if !issue.missing_fields.is_empty() {
+                parts.push(format!("missing {}", issue.missing_fields.join(", ")));
+            }
+            if let Some(path) = &issue.missing_readme_path {
+                parts.push(format!("readme not found at {}", path.display()));
+            }
+            format!(
+                "{} ({}): {}",
+                issue.package_name,
+                issue.manifest_path.display(),
+                parts.join("; ")
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(" | ");
+
+    Err(Error::Validation {
+        path: summary.blocked[0].manifest_path.clone(),
+        message: format!("publish metadata check failed: {message}"),
+    })
+}
+
+fn classify_publish_package(
+    root_manifest_path: &Path,
+    manifest_path: &Path,
+    package: &crate::manifest::Package,
+    defaults: Option<&crate::manifest::WorkspacePackage>,
+    ready: &mut Vec<PublishPackageSummary>,
+    blocked: &mut Vec<PublishIssue>,
+) -> Result<()> {
+    let mut missing_fields = Vec::new();
+    if publish_description(package, defaults).is_none() {
+        missing_fields.push("[package].description");
+    }
+    if publish_license(package, defaults).is_none() {
+        missing_fields.push("[package].license");
+    }
+    if publish_authors(package, defaults).is_none() {
+        missing_fields.push("[package].authors");
+    }
+    let readme = publish_readme(package, defaults);
+    if readme.is_none() {
+        missing_fields.push("[package].readme");
+    }
+    if publish_repository(package, defaults).is_none() {
+        missing_fields.push("[package].repository");
+    }
+
+    let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let workspace_root = root_manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let missing_readme_path = readme
+        .map(|(readme, inherited)| {
+            if inherited {
+                workspace_root.join(readme)
+            } else {
+                package_root.join(readme)
+            }
+        })
+        .filter(|path| !path.is_file());
+
+    if missing_fields.is_empty() && missing_readme_path.is_none() {
+        ready.push(PublishPackageSummary {
+            name: package.name.clone(),
+            version: package.version.clone(),
+            manifest_path: manifest_path.to_path_buf(),
+        });
+    } else {
+        blocked.push(PublishIssue {
+            package_name: package.name.clone(),
+            manifest_path: manifest_path.to_path_buf(),
+            missing_fields,
+            missing_readme_path,
+        });
+    }
+
+    Ok(())
+}
+
+fn publish_description<'a>(
+    package: &'a crate::manifest::Package,
+    defaults: Option<&'a crate::manifest::WorkspacePackage>,
+) -> Option<&'a str> {
+    package
+        .description
+        .as_deref()
+        .or_else(|| defaults.and_then(|defaults| defaults.description.as_deref()))
+}
+
+fn publish_license<'a>(
+    package: &'a crate::manifest::Package,
+    defaults: Option<&'a crate::manifest::WorkspacePackage>,
+) -> Option<&'a str> {
+    package
+        .license
+        .as_deref()
+        .or_else(|| defaults.and_then(|defaults| defaults.license.as_deref()))
+}
+
+fn publish_authors<'a>(
+    package: &'a crate::manifest::Package,
+    defaults: Option<&'a crate::manifest::WorkspacePackage>,
+) -> Option<&'a [String]> {
+    if !package.authors.is_empty() {
+        Some(package.authors.as_slice())
+    } else {
+        defaults
+            .filter(|defaults| !defaults.authors.is_empty())
+            .map(|defaults| defaults.authors.as_slice())
+    }
+}
+
+fn publish_readme<'a>(
+    package: &'a crate::manifest::Package,
+    defaults: Option<&'a crate::manifest::WorkspacePackage>,
+) -> Option<(&'a str, bool)> {
+    package.readme.as_deref().map(|value| (value, false)).or_else(|| {
+        defaults
+            .and_then(|defaults| defaults.readme.as_deref())
+            .map(|value| (value, true))
+    })
+}
+
+fn publish_repository<'a>(
+    package: &'a crate::manifest::Package,
+    defaults: Option<&'a crate::manifest::WorkspacePackage>,
+) -> Option<&'a str> {
+    package
+        .repository
+        .as_deref()
+        .or_else(|| defaults.and_then(|defaults| defaults.repository.as_deref()))
 }
 
 fn format_fetched_source_backend(package: &source::FetchedPackage) -> &'static str {
@@ -1086,6 +1372,15 @@ where
             feature_selection,
             ui,
         }),
+        "publish" => {
+            let mut feature_selection = feature_selection;
+            feature_selection.profile = crate::script::ProfileSelection::Release;
+            Ok(Command::Publish {
+                path,
+                feature_selection,
+                ui,
+            })
+        }
         "doc" => Ok(Command::Doc {
             path,
             feature_selection,
@@ -1231,6 +1526,7 @@ commands
   check  Validate `Craft.toml`, scripts, sources, and derived analysis inputs
   lock   Write a deterministic `Craft.lock` for the current package graph
   fetch  Materialize external package sources into the local `.craft` cache
+  publish  Run release-oriented publish readiness checks without uploading anywhere
   doc    Build library metadata and render native package docs to Markdown
   build  Build the selected package graph and print the derived action plan
   run    Build and run the single runnable `bin` target in the package graph
@@ -1412,6 +1708,29 @@ root = "src/main.rn"
                 assert_eq!(ui, UiOptions::default());
             }
             other => panic!("expected fetch command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_publish_and_forces_release_profile() {
+        let cmd = parse_args(["publish".to_string(), "demo".to_string()]).unwrap();
+
+        match cmd {
+            Command::Publish {
+                path,
+                feature_selection,
+                ui,
+            } => {
+                assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+                assert!(feature_selection.enable_default);
+                assert!(feature_selection.explicit.is_empty());
+                assert_eq!(
+                    feature_selection.profile,
+                    crate::script::ProfileSelection::Release
+                );
+                assert_eq!(ui, UiOptions::default());
+            }
+            other => panic!("expected publish command, got {other:?}"),
         }
     }
 
@@ -1674,6 +1993,135 @@ root = "src/main.rn"
         holder.join().unwrap();
         let waited = waiter.join().unwrap();
         assert!(waited >= Duration::from_millis(150));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publish_requires_current_release_lock_and_metadata() {
+        let root = temp_dir("craft-cli-publish");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+description = "Demo package"
+license = "MIT"
+authors = ["Demo <demo@example.com>"]
+readme = "README.md"
+repository = "https://example.com/demo"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("README.md"), "# demo\n").unwrap();
+        fs::write(
+            root.join("src/main.rn"),
+            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+        )
+        .unwrap();
+
+        let err = run_command(Command::Publish {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection {
+                profile: crate::script::ProfileSelection::Release,
+                ..Default::default()
+            },
+            ui: UiOptions::default(),
+        })
+        .unwrap_err();
+        assert!(err.to_string().contains("craft lock --release"));
+        assert!(!root.join("Craft.lock").exists());
+
+        run_command(Command::Lock {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection {
+                profile: crate::script::ProfileSelection::Release,
+                ..Default::default()
+            },
+            ui: UiOptions::default(),
+        })
+        .unwrap();
+
+        run_command(Command::Publish {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection {
+                profile: crate::script::ProfileSelection::Release,
+                ..Default::default()
+            },
+            ui: UiOptions::default(),
+        })
+        .unwrap();
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publish_accepts_workspace_package_metadata_for_members() {
+        let root = temp_dir("craft-cli-publish-workspace");
+        let member = root.join("member");
+        fs::create_dir_all(member.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["member"]
+
+[workspace.package]
+description = "Shared package metadata"
+license = "MIT"
+authors = ["Demo <demo@example.com>"]
+readme = "README.md"
+repository = "https://example.com/workspace"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("README.md"), "# workspace\n").unwrap();
+        fs::write(
+            member.join("Craft.toml"),
+            r#"
+[package]
+name = "member"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "member"
+root = "src/main.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            member.join("src/main.rn"),
+            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+        )
+        .unwrap();
+
+        run_command(Command::Lock {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection {
+                profile: crate::script::ProfileSelection::Release,
+                ..Default::default()
+            },
+            ui: UiOptions::default(),
+        })
+        .unwrap();
+
+        run_command(Command::Publish {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection {
+                profile: crate::script::ProfileSelection::Release,
+                ..Default::default()
+            },
+            ui: UiOptions::default(),
+        })
+        .unwrap();
 
         let _ = fs::remove_dir_all(root);
     }

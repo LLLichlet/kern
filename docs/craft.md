@@ -34,8 +34,12 @@ All machine-local state owned by `craft` lives under `.craft/`. That tree is
 derived state, not part of the reproducibility surface, and should not be
 checked into version control.
 
-`craft` maintains `.craft/.gitignore` automatically for new local state. If a
-repository already tracked files under `.craft/`, that is a one-time VCS
+`craft` maintains a root `.gitignore` entry for `.craft/` next to `Craft.toml`
+when it creates local state. The ignore rule belongs at the package or
+workspace root rather than inside `.craft/`, because the derived-state
+directory itself should be ignored as one unit.
+
+If a repository already tracked files under `.craft/`, that is a one-time VCS
 cleanup problem rather than a build reproducibility input, and those entries
 should be removed from the index.
 
@@ -213,6 +217,32 @@ Manifest rules:
 - features are additive
 - profile behavior is deterministic
 - target-specific or feature-specific elaboration belongs in either explicit manifest tables or `craft.rn`
+
+## Publish Readiness
+
+`craft publish` is a local release-readiness check. It does not upload
+anywhere, talk to a registry, or rewrite dependency state.
+
+The current rules are:
+
+- `craft publish` always evaluates the release profile
+- `craft publish` requires a current release `Craft.lock`
+- if the release lock is missing or stale, `craft publish` fails and tells the
+  user to run `craft lock --release`
+- `craft publish` does not silently create or refresh `Craft.lock`
+
+Required package metadata for a publishable package is:
+
+- `description`
+- `license`
+- `authors`
+- `readme`
+- `repository`
+
+These values may be declared directly under `[package]`. Workspace defaults may
+also be placed in `[workspace.package]` for shared package metadata. If
+`readme` comes from `[workspace.package]`, it is resolved relative to the
+workspace root. A package may opt out entirely with `publish = false`.
 
 ## Feature, Profile, And Command Inputs
 

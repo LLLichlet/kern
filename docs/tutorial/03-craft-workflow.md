@@ -16,7 +16,7 @@ The current implementation already covers:
 - workspace discovery
 - local and external package graph resolution
 - deterministic `Craft.lock` writing and freshness checks
-- source configuration for directory-backed and git-backed registries
+- direct `path` and `git` dependency resolution
 - `craft.rn` and `build.rn` discovery and validation
 - explicit build-plan derivation
 - `build`, `run`, and `test` execution through planned `kernc` actions
@@ -62,6 +62,7 @@ extern fn main(args: [][]u8) i32 {
 ```bash
 craft check
 craft lock
+craft publish
 craft build
 craft run
 craft test
@@ -72,6 +73,7 @@ What each command means:
 - `check`: parse, validate, discover, resolve, and report graph/build facts
 - `lock`: write or refresh `Craft.lock`
 - `fetch`: materialize external source trees into `.craft/sources`
+- `publish`: run release-oriented metadata and lockfile checks without uploading anywhere
 - `build`: derive and execute the build plan
 - `run`: build and run the selected executable target
 - `test`: derive and execute test targets
@@ -82,6 +84,16 @@ Feature and profile inputs are explicit:
 craft build --release
 craft check --no-default-features --features tls,simd
 ```
+
+For release checking, the intended flow is:
+
+```bash
+craft lock --release
+craft publish
+```
+
+`craft publish` does not write `Craft.lock` for you. It expects the release
+lock to already be current.
 
 ## `Craft.toml` First, Scripts Second
 

@@ -22,42 +22,28 @@ The current implementation now covers the first graph and lockfile milestones:
 - `workspace = true` dependency inheritance
 - deterministic `Craft.lock` writing via `craft lock`
 - `Craft.lock` loading, validation, and stale/current status reporting via `craft check`
+- release-oriented publish readiness checks via `craft publish`
 - build-plan derivation from normalized package targets and resolved dependencies
 - package-level `build.rn` discovery, validation, and per-target link-plan orchestration
 - host `craft build/run/test` execution through explicit `kernc` compile/link action graphs
-- explicit `[source.<name>]` manifest configuration for directory-backed or git-backed registries
 - `craft fetch` materialization of external sources into `.craft/sources`
 - canonicalized workspace identity for shared `.craft` locks and state paths
 - atomic writes for shared workspace state such as `Craft.lock` and `.craft/analysis.toml`
 - output-scoped locking for shared metadata snapshot directories
 
-`craft` keeps package discovery decentralized. A source is just a concrete tree that
-contains packages laid out as `<package>/<version>/...`, and that tree can come from:
+`craft` keeps package discovery decentralized by staying on concrete dependency
+edges:
 
-- `directory = "vendor/registry"` for local mirrors
-- `git = "https://.../registry.git"` with optional `branch`, `tag`, or `rev`
+- local dependencies use `path`
+- external dependencies use `git`
+- selectors such as `branch`, `tag`, or `rev` stay on that dependency entry
+- there is no registry table or source indirection layer
 
-This keeps the package protocol independent from any central service while still
-letting teams distribute source snapshots and mirrors over git.
+Derived tool state stays under `.craft/`, and `craft` maintains a root
+`.gitignore` entry for `.craft/` next to `Craft.toml`.
 
-For release and CI auditability, `craft fetch` now reports each external package's
-resolved backend, named source, selector, and concrete git revision when the
-source is git-backed.
-
-`Craft.lock` also records deterministic registry source identity from the manifest:
-the configured locator plus selector (`branch`, `tag`, `rev`, or default fetch).
-It does not depend on prior network fetch state.
-
-External package builds now resolve registry sources recursively. A package can
-define its own `[source.<name>]` bindings, and missing names fall back to the
-parent package's source configuration so transitive graphs stay composable.
-
-`craft check` surfaces lightweight source safety warnings for floating git inputs
-and insecure transports such as `http://` or `git://`.
-
-`craft check --release` upgrades those warnings into a release policy gate, and CI
-release smoke checks should exercise both allowed and rejected source fixtures.
-The gate defaults to `enforce`, but `[craft]` may explicitly downgrade it or
-allow specific source names for floating git or insecure transport cases.
+`craft publish` is also local-only. It checks for a current release
+`Craft.lock` plus required package metadata, but it does not upload anywhere or
+rewrite the lockfile implicitly.
 
 See [docs/craft.md](../../docs/craft.md) for the current design and behavior guide.

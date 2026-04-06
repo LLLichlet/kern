@@ -1282,9 +1282,8 @@ pub fn craft(p: *mut plan.Plan) void {{
             values.get("GREETING_MSG").map(String::as_str),
             Some("Hello from craft")
         );
-        let gitignore = fs::read_to_string(root.join(".craft").join(".gitignore")).unwrap();
-        assert!(gitignore.contains("*"));
-        assert!(gitignore.contains("!.gitignore"));
+        let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(gitignore.contains(".craft/"));
     }
 
     #[test]

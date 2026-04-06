@@ -33,7 +33,7 @@ analysis state.
 `.craft/analysis.toml` must not become a lockfile. It is allowed to be replaced,
 regenerated, or discarded at any time.
 
-`craft` should maintain `.craft/.gitignore` automatically so that derived
+`craft` should maintain a root `.gitignore` entry for `.craft/` so that derived
 artifacts under `.craft/` do not get committed by accident.
 
 ## Priority Rules

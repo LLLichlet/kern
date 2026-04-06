@@ -2035,9 +2035,8 @@ extern fn main(args: [][]u8) i32 {
 
         let summary = test(&build_plan, &action_plan, &test_units).unwrap();
         assert_eq!(summary.executed, 1);
-        let gitignore = fs::read_to_string(root.join(".craft").join(".gitignore")).unwrap();
-        assert!(gitignore.contains("*"));
-        assert!(gitignore.contains("!.gitignore"));
+        let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(gitignore.contains(".craft/"));
 
         let _ = fs::remove_dir_all(root);
     }

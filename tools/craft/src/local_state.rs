@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 const CRAFT_GITIGNORE_BLOCK: &str =
-    "# Managed by craft. Keep local derived state out of git.\n*\n!.gitignore\n";
+    "# Managed by craft. Keep local derived state out of git.\n.craft/\n";
 static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn ensure_dir(path: &Path) -> Result<()> {
@@ -45,14 +45,15 @@ pub(crate) fn write_file_atomic(path: &Path, contents: impl AsRef<[u8]>) -> Resu
 }
 
 fn ensure_craft_gitignore(path: &Path) -> Result<()> {
-    let Some(craft_dir) = path
+    let Some(workspace_root) = path
         .ancestors()
         .find(|ancestor| ancestor.file_name() == Some(OsStr::new(".craft")))
+        .and_then(Path::parent)
     else {
         return Ok(());
     };
 
-    let gitignore_path = craft_dir.join(".gitignore");
+    let gitignore_path = workspace_root.join(".gitignore");
     match fs::read_to_string(&gitignore_path) {
         Ok(contents) => {
             if ignores_all_craft_outputs(&contents) {
@@ -78,18 +79,12 @@ fn ensure_craft_gitignore(path: &Path) -> Result<()> {
 }
 
 fn ignores_all_craft_outputs(contents: &str) -> bool {
-    let mut ignore_all = false;
-    let mut keep_gitignore = false;
-
     for line in contents.lines().map(str::trim) {
-        if line == "*" {
-            ignore_all = true;
-        } else if line == "!.gitignore" {
-            keep_gitignore = true;
+        if line == ".craft/" || line == ".craft" {
+            return true;
         }
     }
-
-    ignore_all && keep_gitignore
+    false
 }
 
 fn atomic_temp_path(path: &Path) -> PathBuf {
@@ -134,9 +129,8 @@ mod tests {
 
         ensure_dir(&path).unwrap();
 
-        let gitignore = fs::read_to_string(root.join(".craft").join(".gitignore")).unwrap();
-        assert!(gitignore.contains("*"));
-        assert!(gitignore.contains("!.gitignore"));
+        let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
+        assert!(gitignore.contains(".craft/"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -146,15 +140,14 @@ mod tests {
         let root = temp_dir("craft-local-state-existing");
         let craft_root = root.join(".craft");
         fs::create_dir_all(&craft_root).unwrap();
-        let gitignore_path = craft_root.join(".gitignore");
+        let gitignore_path = root.join(".gitignore");
         fs::write(&gitignore_path, "# keep custom rule\n!README.md\n").unwrap();
 
         ensure_parent_dir(&craft_root.join("build").join("dev").join("artifact.o")).unwrap();
 
         let gitignore = fs::read_to_string(gitignore_path).unwrap();
         assert!(gitignore.contains("!README.md"));
-        assert!(gitignore.contains("*"));
-        assert!(gitignore.contains("!.gitignore"));
+        assert!(gitignore.contains(".craft/"));
 
         let _ = fs::remove_dir_all(root);
     }

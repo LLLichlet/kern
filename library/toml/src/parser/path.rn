@@ -36,10 +36,12 @@ type FullPathCursor = struct {
     index: usize = 0,
 };
 
+#[inline(always)]
 fn is_path_space(byte: u8) bool {
     return byte == b' ' or byte == b'\t';
 }
 
+#[inline(always)]
 fn skip_path_space(text: []u8, start: usize) usize {
     let mut i = start;
     for (; i < #text; i += 1) {
@@ -50,6 +52,7 @@ fn skip_path_space(text: []u8, start: usize) usize {
     return i;
 }
 
+#[inline(always)]
 pub fn next_path_segment(text: []u8, start: usize) Option[PathSegment] {
     let mut i = skip_path_space(text, start);
     if (i == #text) {
@@ -270,6 +273,7 @@ fn path_segments_equal(lhs: PathSegment, rhs: PathSegment) bool {
     }
 }
 
+#[inline(always)]
 fn next_full_path_segment(cursor: *mut FullPathCursor) Option[PathSegment] {
     for (;;) {
         let text = if (cursor.using_prefix) cursor.prefix else cursor.path;

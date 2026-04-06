@@ -27,6 +27,7 @@ pub fn is_comment_line(line: []u8) bool {
     return #line != 0 and line.[0] == b'#';
 }
 
+#[inline(always)]
 pub fn is_bare_key_char(byte: u8) bool {
     return (
         (byte >= b'a' and byte <= b'z') or
@@ -160,6 +161,7 @@ pub fn skip_ascii_space(text: []u8, start: usize) usize {
     return i;
 }
 
+#[inline(always)]
 pub fn scan_basic_string_end(value: []u8, start: usize) Option[usize] {
     if (start >= #value or value.[start] != b'"') {
         return .{ None };

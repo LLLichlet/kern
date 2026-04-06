@@ -125,10 +125,12 @@ impl[T] []T {
 impl[T] []T
     where T: Eq[T],
 {
+    #[inline(always)]
     fn elem_eq(lhs: T, rhs: T) bool {
         return lhs.eq(rhs);
     }
 
+    #[inline(always)]
     fn matches_at(index: usize, needle: []T) bool {
         for (let mut j = 0; j < #needle; j += 1) {
             if (!self.elem_eq(self.[index + j], needle.[j])) {
@@ -139,18 +141,21 @@ impl[T] []T
     }
 
     /// Compares the slice contents against another slice for equality.
+    #[inline(always)]
     pub fn eq(other: []T) bool {
         if (#self != #other) return false;
         return self.starts_with(other);
     }
 
     /// Returns `true` when the slice begins with `prefix`.
+    #[inline(always)]
     pub fn starts_with(prefix: []T) bool {
         if (#prefix > #self) return false;
         return self.matches_at(0, prefix);
     }
 
     /// Returns `true` when the slice ends with `suffix`.
+    #[inline(always)]
     pub fn ends_with(suffix: []T) bool {
         if (#suffix > #self) return false;
         return self.matches_at(#self - #suffix, suffix);

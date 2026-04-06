@@ -1,2 +1,0 @@
-/// Re-export the standard fallible result carrier from the standalone package.
-pub type Result[T, E] = std.Result[T, E];

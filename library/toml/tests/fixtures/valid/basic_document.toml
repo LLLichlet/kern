@@ -1,4 +1,0 @@
-title = "demo"
-enabled = true
-dep = { path = "../util", package = "util" }
-site."google.com" = true

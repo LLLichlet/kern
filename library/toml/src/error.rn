@@ -1,6 +1,0 @@
-/// Parsing error for the bootstrap TOML package.
-pub type Error = struct {
-    pub message: []u8,
-    pub line: usize,
-    pub column: usize,
-};

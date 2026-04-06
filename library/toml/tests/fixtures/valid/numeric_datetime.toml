@@ -1,9 +1,0 @@
-hex = 0x2A
-oct = 0o755
-bin = 0b1010
-special = +inf
-other = -nan
-birthday = 1979-05-27
-wake = 07:32:00
-local = 1979-05-27T07:32:00.125
-release = 1979-05-27T07:32:00Z

@@ -127,7 +127,7 @@ enum Section {
     Source(String),
     Lib,
     Bin(usize),
-    Test(usize),
+    Test,
     Example(usize),
     Dependencies,
     DevDependencies,
@@ -241,7 +241,7 @@ impl Manifest {
         }
 
         validate_named_targets(path, "[[bin]]", &self.bin)?;
-        validate_named_targets(path, "[[test]]", &self.test)?;
+        validate_test_targets(path, &self.test)?;
         validate_named_targets(path, "[[example]]", &self.example)?;
 
         validate_dependencies(path, "[dependencies]", &self.dependencies)?;
@@ -294,10 +294,6 @@ impl Manifest {
                 self.bin.push(NamedTarget::default());
                 Ok(Section::Bin(self.bin.len() - 1))
             }
-            "[[test]]" => {
-                self.test.push(NamedTarget::default());
-                Ok(Section::Test(self.test.len() - 1))
-            }
             "[[example]]" => {
                 self.example.push(NamedTarget::default());
                 Ok(Section::Example(self.example.len() - 1))
@@ -332,6 +328,7 @@ fn enter_table_section(
             manifest.lib.get_or_insert_with(LibTarget::default);
             Ok(Section::Lib)
         }
+        "[test]" => Ok(Section::Test),
         "[dependencies]" => Ok(Section::Dependencies),
         "[dev-dependencies]" => Ok(Section::DevDependencies),
         "[build-dependencies]" => Ok(Section::BuildDependencies),
@@ -423,9 +420,7 @@ fn assign_key_value(
         Section::Bin(index) => {
             assign_named_target(&mut manifest.bin[*index], "[[bin]]", key, raw_value)
         }
-        Section::Test(index) => {
-            assign_named_target(&mut manifest.test[*index], "[[test]]", key, raw_value)
-        }
+        Section::Test => assign_test_targets(manifest, key, raw_value),
         Section::Example(index) => {
             assign_named_target(&mut manifest.example[*index], "[[example]]", key, raw_value)
         }
@@ -513,6 +508,18 @@ fn assign_named_target(
         "name" => target.name = parse_string(raw_value)?,
         "root" => target.root = parse_string(raw_value)?,
         _ => return Err(format!("unsupported {section} key `{key}`")),
+    }
+    Ok(())
+}
+
+fn assign_test_targets(
+    manifest: &mut Manifest,
+    key: &str,
+    raw_value: &str,
+) -> std::result::Result<(), String> {
+    match key {
+        "roots" => manifest.test = parse_test_roots(raw_value)?,
+        _ => return Err(format!("unsupported [test] key `{key}`")),
     }
     Ok(())
 }
@@ -838,6 +845,29 @@ fn split_top_level(input: &str, separator: char) -> Vec<&str> {
     parts
 }
 
+fn parse_test_roots(raw_value: &str) -> std::result::Result<Vec<NamedTarget>, String> {
+    let roots = parse_string_array(raw_value)?;
+    let mut targets = Vec::new();
+    for root in roots {
+        let path = Path::new(&root);
+        let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            return Err(format!(
+                "[test].roots entries must end in a UTF-8 file name, found `{root}`"
+            ));
+        };
+        if name.is_empty() {
+            return Err(format!(
+                "[test].roots entries must provide a non-empty file stem, found `{root}`"
+            ));
+        }
+        targets.push(NamedTarget {
+            name: name.to_string(),
+            root,
+        });
+    }
+    Ok(targets)
+}
+
 fn validate_named_targets(path: &Path, section: &str, targets: &[NamedTarget]) -> Result<()> {
     let mut names = BTreeSet::new();
     for target in targets {
@@ -847,6 +877,20 @@ fn validate_named_targets(path: &Path, section: &str, targets: &[NamedTarget]) -
             return Err(Error::Validation {
                 path: path.to_path_buf(),
                 message: format!("duplicate target name `{}` in {section}", target.name),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn validate_test_targets(path: &Path, targets: &[NamedTarget]) -> Result<()> {
+    let mut names = BTreeSet::new();
+    for target in targets {
+        validate_non_empty(path, "[test].roots[]", &target.root)?;
+        if !names.insert(target.name.as_str()) {
+            return Err(Error::Validation {
+                path: path.to_path_buf(),
+                message: format!("duplicate test file stem `{}` in [test].roots", target.name),
             });
         }
     }
@@ -1086,6 +1130,9 @@ root = "src/lib.rn"
 name = "demo"
 root = "src/main.rn"
 
+[test]
+roots = ["tests/smoke.rn", "tests/env.rn"]
+
 [dependencies]
 log = "1"
 alloc = { path = "../alloc", features = ["arena"] }
@@ -1100,6 +1147,9 @@ default = []
         assert_eq!(manifest.package.unwrap().name, "demo");
         assert!(manifest.lib.is_some());
         assert_eq!(manifest.bin.len(), 1);
+        assert_eq!(manifest.test.len(), 2);
+        assert_eq!(manifest.test[0].name, "smoke");
+        assert_eq!(manifest.test[1].name, "env");
         assert_eq!(manifest.dependencies.len(), 2);
     }
 
@@ -1438,5 +1488,50 @@ release-source-policy = "strict"
         .unwrap_err();
 
         assert!(err.to_string().contains("release-source-policy"));
+    }
+
+    #[test]
+    fn rejects_duplicate_test_file_stems() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[test]
+roots = ["tests/smoke.rn", "alt/smoke.rn"]
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let err = manifest
+            .validate(std::path::Path::new("Craft.toml"))
+            .unwrap_err();
+        assert!(err.to_string().contains("duplicate test file stem `smoke`"));
+    }
+
+    #[test]
+    fn rejects_legacy_array_style_test_targets() {
+        let err = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.7"
+
+[[test]]
+name = "smoke"
+root = "tests/smoke.rn"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unsupported array table `[[test]]`")
+        );
     }
 }

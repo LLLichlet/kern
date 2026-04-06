@@ -2024,9 +2024,8 @@ name = "demo"
 version = "0.1.0"
 kern = "0.7"
 
-[[test]]
-name = "smoke"
-root = "tests/smoke.rn"
+[test]
+roots = ["tests/smoke.rn"]
 "#,
         )
         .unwrap();
@@ -2086,9 +2085,8 @@ kern = "0.7"
 [lib]
 root = "src/lib.rn"
 
-[[test]]
-name = "smoke"
-root = "tests/smoke.rn"
+[test]
+roots = ["tests/smoke.rn"]
 "#,
         )
         .unwrap();
@@ -2165,9 +2163,8 @@ name = "app"
 version = "0.1.0"
 kern = "0.7"
 
-[[test]]
-name = "cwd"
-root = "tests/cwd.rn"
+[test]
+roots = ["tests/cwd.rn"]
 "#,
         )
         .unwrap();
@@ -2250,9 +2247,8 @@ name = "app"
 version = "0.1.0"
 kern = "0.7"
 
-[[test]]
-name = "env"
-root = "tests/env.rn"
+[test]
+roots = ["tests/env.rn"]
 "#,
         )
         .unwrap();

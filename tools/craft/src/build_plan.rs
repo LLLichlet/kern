@@ -1301,9 +1301,8 @@ root = "src/lib.rn"
 name = "app"
 root = "src/main.rn"
 
-[[test]]
-name = "smoke"
-root = "tests/smoke.rn"
+[test]
+roots = ["tests/smoke.rn"]
 "#,
         )
         .unwrap();
@@ -1971,9 +1970,8 @@ simd = []
 name = "demo"
 root = "src/main.rn"
 
-[[test]]
-name = "smoke"
-root = "tests/smoke.rn"
+[test]
+roots = ["tests/smoke.rn"]
 "#,
         )
         .unwrap();

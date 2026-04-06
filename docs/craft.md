@@ -153,7 +153,7 @@ The current schema direction includes:
 - `[craft]`
 - `[lib]`
 - `[[bin]]`
-- `[[test]]`
+- `[test]`
 - `[[example]]`
 - `[dependencies]`
 - `[dev-dependencies]`
@@ -207,6 +207,7 @@ debug = false
 Manifest rules:
 
 - targets are explicit
+- test targets are listed under `[test].roots`, and each test name is derived from its file stem
 - source roots are explicit
 - dependency sources are explicit
 - `build-dependencies` belong to the host build domain rather than the final target domain

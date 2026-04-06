@@ -361,9 +361,8 @@ root = "src/lib.rn"
 name = "demo"
 root = "src/main.rn"
 
-[[test]]
-name = "smoke"
-root = "tests/smoke.rn"
+[test]
+roots = ["tests/smoke.rn"]
 
 [[example]]
 name = "hello"
@@ -390,6 +389,11 @@ root = "examples/hello.rn"
             target.kind == TargetKind::Bin
                 && target.name.as_deref() == Some("demo")
                 && target.root == "src/main.rn"
+        }));
+        assert!(plan.targets.iter().any(|target| {
+            target.kind == TargetKind::Test
+                && target.name.as_deref() == Some("smoke")
+                && target.root == "tests/smoke.rn"
         }));
     }
 

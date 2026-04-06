@@ -46,6 +46,45 @@ should be removed from the index.
 - introducing implicit dependency or target policy
 - allowing pre-lock scripts to smuggle in hidden machine state
 
+## Concurrency And Derived-State Rules
+
+`craft` must treat `.craft/` as shared derived state that can be touched by
+multiple toolchain entry points over time. That means concurrency rules are part
+of the design, not an implementation detail.
+
+The current rules are:
+
+- workspace-scoped operations take a workspace lock under `.craft/lock/`
+- workspace identity is based on the canonicalized `Craft.toml` path, not on the
+  textual path the user typed
+- single-file shared state such as `Craft.lock` and `.craft/analysis.toml` must
+  be written atomically
+- shared artifact directories such as metadata snapshots must not rely on
+  `remove_dir_all + recreate` without an output-specific lock
+- stale locks may be reclaimed only when the recorded owner process is no longer
+  alive
+
+This split is intentional.
+
+- workspace locks serialize commands that mutate shared workspace state at the
+  command level
+- artifact/output locks protect narrower shared outputs that may also be reached
+  by lower-level compiler entry points
+- atomic file replacement prevents readers from observing truncated or partially
+  rewritten state files
+
+When adding new `.craft/` state, the default policy should be:
+
+1. decide whether the state is workspace-wide, output-wide, or private to one
+   action
+2. if it is shared, define the lock scope explicitly
+3. if it is a file, prefer atomic replacement
+4. if it is a directory tree, avoid in-place destructive rewrites unless the
+   tree is covered by a dedicated output lock
+
+If a new feature cannot state its lock scope and replacement strategy clearly,
+its state model is still underspecified.
+
 ## Phase Model
 
 The package pipeline is split into four explicit artifacts:

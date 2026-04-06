@@ -27,6 +27,9 @@ The current implementation now covers the first graph and lockfile milestones:
 - host `craft build/run/test` execution through explicit `kernc` compile/link action graphs
 - explicit `[source.<name>]` manifest configuration for directory-backed or git-backed registries
 - `craft fetch` materialization of external sources into `.craft/sources`
+- canonicalized workspace identity for shared `.craft` locks and state paths
+- atomic writes for shared workspace state such as `Craft.lock` and `.craft/analysis.toml`
+- output-scoped locking for shared metadata snapshot directories
 
 `craft` keeps package discovery decentralized. A source is just a concrete tree that
 contains packages laid out as `<package>/<version>/...`, and that tree can come from:

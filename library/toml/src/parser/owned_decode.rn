@@ -10,7 +10,7 @@ use ..common.{
     scan_multiline_literal_string_end,
     strip_inline_comment,
 };
-use ..path.{PathSegment, PathSegmentKind};
+use ..path.{PathSegment, PathSegmentKind, validate_key_path};
 use ..owned.ParseOwnedError;
 use ..{Error, ModelError};
 
@@ -573,14 +573,20 @@ pub fn parse_integer_i64(value: []u8, line: usize, column_base: usize) Result[i6
     return .{ Ok: acc as i64 };
 }
 
-pub fn split_key_value(line: []u8, line_no: usize) Result[SplitKeyValue, ParseOwnedError] {
+pub fn split_key_value(line: []u8, line_no: usize, column_base: usize) Result[SplitKeyValue, ParseOwnedError] {
     let trimmed = strip_inline_comment(line).trim_ascii();
     let .{ Some: eq_index } = find_assignment(trimmed) else {
         return .{ Err: parse_error("expected `key = value` or `[table]`", line_no, 1) };
     };
 
+    let key = trimmed.[0 .. eq_index].trim_ascii_end();
+    match (validate_key_path(key, line_no, column_base)) {
+        .{ Ok: _ } => {},
+        .{ Err: err } => return .{ Err: .{ Parse: err } },
+    }
+
     return .{ Ok: SplitKeyValue.{
-        key: trimmed.[0 .. eq_index].trim_ascii_end(),
+        key: key,
         value: trimmed.[eq_index + 1 .. #trimmed],
         value_column: eq_index + 2,
     } };

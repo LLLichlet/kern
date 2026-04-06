@@ -71,6 +71,11 @@ fn check_invalid_fixture(name: []u8) void {
     let _ = test.expect_err(parse(source.&.as_str()));
 }
 
+fn check_invalid_source(source: []u8) void {
+    let _ = test.expect_err(scan(source));
+    let _ = test.expect_err(parse(source));
+}
+
 extern fn main(args: [][]u8) i32 {
     let _ = args;
 
@@ -93,6 +98,11 @@ extern fn main(args: [][]u8) i32 {
     for (let mut i = 0; i < #invalid; i += 1) {
         check_invalid_fixture(invalid.[i]);
     }
+
+    check_invalid_source("bare!key = 123\n");
+    check_invalid_source("\"\"\"key\"\"\" = 1\n");
+    check_invalid_source("partial\"quoted\" = 5\n");
+    check_invalid_source("a b = 1\n");
 
     return 0;
 }

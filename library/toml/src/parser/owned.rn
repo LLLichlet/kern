@@ -1082,7 +1082,7 @@ impl *mut Lowerer {
                 return .{ Err: parse_error("inline table entries cannot be empty", line, column_base + entry_start + 1) };
             }
 
-            let split = match (split_key_value(entry, line)) {
+            let split = match (split_key_value(entry, line, column_base + entry_start + 1)) {
                 .{ Ok: split } => split,
                 .{ Err: err } => return .{ Err: err },
             };
@@ -1152,7 +1152,7 @@ impl *mut Lowerer {
     }
 
     fn handle_key_value(line: []u8, line_no: usize) Result[void, ParseOwnedError] {
-        let split = match (split_key_value(line, line_no)) {
+        let split = match (split_key_value(line, line_no, 1)) {
             .{ Ok: split } => split,
             .{ Err: err } => return .{ Err: err },
         };

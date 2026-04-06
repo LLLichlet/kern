@@ -5,7 +5,11 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 PKG="$ROOT/library/toml"
 CRAFT="$ROOT/target/debug/craft"
 BIN="$PKG/.craft/build/release/target/out/toml-0.1.0/bin/toml-bench"
-CORPUS_DIR="$PKG/tests/upstream/toml-test/v2.1.0/tests/valid"
+if [[ -d "$PKG/tests/upstream/toml-test/latest/valid" ]]; then
+  CORPUS_DIR="$PKG/tests/upstream/toml-test/latest/valid"
+else
+  CORPUS_DIR="$PKG/tests/upstream/toml-test/v2.1.0/tests/valid"
+fi
 LARGE_FIXTURE="${TMPDIR:-/tmp}/kern_toml_bench_large.toml"
 TIME_BIN="/usr/bin/time"
 

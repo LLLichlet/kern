@@ -54,8 +54,32 @@ fn skip_path_space(text: []u8, start: usize) usize {
 }
 
 #[inline(always)]
+fn finish_path_segment(text: []u8, end: usize) usize {
+    if (end == #text) {
+        return end;
+    }
+
+    let byte = text.[end];
+    if (byte == b'.') {
+        return end + 1;
+    }
+    if (!is_path_space(byte)) {
+        return end;
+    }
+
+    let i = skip_path_space(text, end);
+    if (i < #text and text.[i] == b'.') {
+        return i + 1;
+    }
+    return i;
+}
+
+#[inline(always)]
 pub fn next_path_segment(text: []u8, start: usize) Option[PathSegment] {
-    let mut i = skip_path_space(text, start);
+    let mut i = start;
+    if (i < #text and is_path_space(text.[i])) {
+        i = skip_path_space(text, i);
+    }
     if (i == #text) {
         return .{ None };
     }
@@ -64,27 +88,19 @@ pub fn next_path_segment(text: []u8, start: usize) Option[PathSegment] {
     let segment_start = i;
     if (byte == b'"') {
         let .{ Some: end } = scan_basic_string_end(text, i) else return .{ None };
-        i = skip_path_space(text, end);
-        if (i < #text and text.[i] == b'.') {
-            i += 1;
-        }
         return .{ Some: PathSegment.{
             text: text.[segment_start + 1 .. end - 1],
             kind: PathSegmentKind.BasicQuoted,
-            next: i,
+            next: finish_path_segment(text, end),
         } };
     }
 
     if (byte == b'\'') {
         let .{ Some: end } = scan_literal_string_end(text, i) else return .{ None };
-        i = skip_path_space(text, end);
-        if (i < #text and text.[i] == b'.') {
-            i += 1;
-        }
         return .{ Some: PathSegment.{
             text: text.[segment_start + 1 .. end - 1],
             kind: PathSegmentKind.LiteralQuoted,
-            next: i,
+            next: finish_path_segment(text, end),
         } };
     }
 
@@ -98,16 +114,10 @@ pub fn next_path_segment(text: []u8, start: usize) Option[PathSegment] {
         return .{ None };
     }
 
-    let segment_end = i;
-    i = skip_path_space(text, i);
-    if (i < #text and text.[i] == b'.') {
-        i += 1;
-    }
-
     return .{ Some: PathSegment.{
-        text: text.[segment_start .. segment_end],
+        text: text.[segment_start .. i],
         kind: PathSegmentKind.Bare,
-        next: i,
+        next: finish_path_segment(text, i),
     } };
 }
 

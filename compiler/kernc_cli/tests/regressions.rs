@@ -157,6 +157,69 @@ extern fn main() i32 {
 }
 
 #[test]
+fn indexes_const_arrays_through_their_global_storage() {
+    let source = r#"
+const TABLE = [4]u8.{ 1, 2, 3, 4 };
+
+extern fn main() i32 {
+    return TABLE.[2] as i32;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_const_array_index_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("constant [4 x i8] c\"\\01\\02\\03\\04\""),
+        "expected a constant global array in LLVM IR, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("ptr @_K4root5TABLE"),
+        "expected index access to address the global const directly, got:\n{}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("tmp_materialized_lvalue"),
+        "const array indexing unexpectedly materialized a stack temporary:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn folds_const_fn_array_initializers_into_global_data() {
+    let source = r#"
+const fn build() [4]mut u8 {
+    let mut table = [4]mut u8.{ 0; 4 };
+    table.[2] = 7;
+    return table;
+}
+
+const TABLE = build();
+
+extern fn main(_: [][]u8) i32 {
+    return TABLE.[2] as i32;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_const_fn_array_init_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("@_K4root5TABLE = global [4 x i8] c\"\\00\\00\\07\\00\""),
+        "expected folded global array initializer in LLVM IR, got:\n{}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("@_K4root5TABLE = global [4 x i8] zeroinitializer"),
+        "const fn array initializer unexpectedly fell back to zero initialization:\n{}",
+        stdout
+    );
+}
+
+#[test]
 fn compiles_same_private_const_name_in_multiple_modules() {
     let output = compile_source_tree_with_args(
         "kernc_private_const_module_scope",

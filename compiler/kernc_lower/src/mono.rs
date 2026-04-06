@@ -9,6 +9,36 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn lower_const_value_expr(
+        &mut self,
+        value: &ConstValue,
+        ty: TypeId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        match value {
+            ConstValue::Int(v) => Some(MastExpr::new(ty, MastExprKind::Integer(*v as u128), span)),
+            ConstValue::Float(f) => Some(MastExpr::new(ty, MastExprKind::Float(*f), span)),
+            ConstValue::Bool(b) => Some(MastExpr::new(ty, MastExprKind::Bool(*b), span)),
+            ConstValue::String(s) => Some(MastExpr::new(ty, self.lower_string_literal(s, span), span)),
+            ConstValue::Array(items) => {
+                let elem_ty = match self.ctx.type_registry.get(self.ctx.type_registry.normalize(ty)) {
+                    TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => *elem,
+                    _ => return None,
+                };
+
+                let mut elems = Vec::with_capacity(items.len());
+                for item in items {
+                    elems.push(self.lower_const_value_expr(item, elem_ty, span)?);
+                }
+
+                Some(MastExpr::new(ty, MastExprKind::ArrayInit(elems), span))
+            }
+            ConstValue::Undef => Some(MastExpr::new(ty, MastExprKind::Undef, span)),
+            ConstValue::Void => Some(MastExpr::new(ty, MastExprKind::Undef, span)),
+            _ => None,
+        }
+    }
+
     fn placeholder_function(&mut self, id: MonoId, name: String) {
         if self.module.functions.iter().any(|func| func.id == id) {
             return;
@@ -774,18 +804,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let folded = {
                 let mut ce = ConstEvaluator::new(self.ctx);
                 if let Ok(val) = ce.eval_inner(&g.value, 0) {
-                    match val {
-                        ConstValue::Int(v) => {
-                            Some(MastExpr::new(ty, MastExprKind::Integer(v as u128), g.span))
-                        }
-                        ConstValue::Float(f) => {
-                            Some(MastExpr::new(ty, MastExprKind::Float(f), g.span))
-                        }
-                        ConstValue::Bool(b) => {
-                            Some(MastExpr::new(ty, MastExprKind::Bool(b), g.span))
-                        }
-                        _ => Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty))),
-                    }
+                    self.lower_const_value_expr(&val, ty, g.span)
+                        .or_else(|| Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty))))
                 } else {
                     Some(self.lower_expr(&g.value, &HashMap::new(), Some(ty)))
                 }

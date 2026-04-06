@@ -53,14 +53,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             ConstValue::String(s) => {
                                 Some(self.lower_string_literal(&s, const_expr.span))
                             }
-                            _ => {
-                                let inlined_mast = self.lower_expr(
-                                    &const_expr,
-                                    &std::collections::HashMap::new(),
-                                    None,
-                                );
-                                Some(inlined_mast.kind)
-                            }
+                            _ => None,
                         }
                     } else {
                         None
@@ -207,11 +200,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                         ConstValue::String(s) => {
                                             Some(self.lower_string_literal(&s, const_expr.span))
                                         }
-                                        _ => {
-                                            let inlined_mast =
-                                                self.lower_expr(&const_expr, &HashMap::new(), None);
-                                            Some(inlined_mast.kind)
-                                        }
+                                        _ => None,
                                     }
                                 } else {
                                     None

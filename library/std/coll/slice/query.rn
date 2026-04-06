@@ -125,40 +125,38 @@ impl[T] []T {
 impl[T] []T
     where T: Eq[T],
 {
-    #[inline(always)]
-    fn elem_eq(lhs: T, rhs: T) bool {
-        return lhs.eq(rhs);
-    }
-
-    #[inline(always)]
-    fn matches_at(index: usize, needle: []T) bool {
-        for (let mut j = 0; j < #needle; j += 1) {
-            if (!self.elem_eq(self.[index + j], needle.[j])) {
+    /// Compares the slice contents against another slice for equality.
+    pub fn eq(other: []T) bool {
+        if (#self != #other) return false;
+        for (let mut i = 0; i < #self; i += 1) {
+            if (!self.[i].eq(other.[i])) {
                 return false;
             }
         }
         return true;
     }
 
-    /// Compares the slice contents against another slice for equality.
-    #[inline(always)]
-    pub fn eq(other: []T) bool {
-        if (#self != #other) return false;
-        return self.starts_with(other);
-    }
-
     /// Returns `true` when the slice begins with `prefix`.
-    #[inline(always)]
     pub fn starts_with(prefix: []T) bool {
         if (#prefix > #self) return false;
-        return self.matches_at(0, prefix);
+        for (let mut i = 0; i < #prefix; i += 1) {
+            if (!self.[i].eq(prefix.[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// Returns `true` when the slice ends with `suffix`.
-    #[inline(always)]
     pub fn ends_with(suffix: []T) bool {
         if (#suffix > #self) return false;
-        return self.matches_at(#self - #suffix, suffix);
+        let start = #self - #suffix;
+        for (let mut i = 0; i < #suffix; i += 1) {
+            if (!self.[start + i].eq(suffix.[i])) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// Returns the first position of `needle`.
@@ -172,8 +170,21 @@ impl[T] []T
         }
 
         let last_start = #self - needle_len;
+        let first = needle.[0];
         for (let mut i = 0; i <= last_start; i += 1) {
-            if (self.matches_at(i, needle)) {
+            if (!self.[i].eq(first)) {
+                continue;
+            }
+
+            let mut matched = true;
+            for (let mut j = 1; j < needle_len; j += 1) {
+                if (!self.[i + j].eq(needle.[j])) {
+                    matched = false;
+                    break;
+                }
+            }
+
+            if (matched) {
                 return .{ Some: i };
             }
         }

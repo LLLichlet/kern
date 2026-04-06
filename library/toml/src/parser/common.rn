@@ -27,15 +27,28 @@ pub fn is_comment_line(line: []u8) bool {
     return #line != 0 and line.[0] == b'#';
 }
 
+const fn build_bare_key_char_table() [256]mut u8 {
+    let mut table = [256]mut u8.{ 0; 256 };
+
+    for (let mut i = b'0' as usize; i <= b'9' as usize; i += 1) {
+        table.[i] = 1;
+    }
+    for (let mut i = b'A' as usize; i <= b'Z' as usize; i += 1) {
+        table.[i] = 1;
+    }
+    for (let mut i = b'a' as usize; i <= b'z' as usize; i += 1) {
+        table.[i] = 1;
+    }
+    table.[b'-' as usize] = 1;
+    table.[b'_' as usize] = 1;
+    return table;
+}
+
+const BARE_KEY_CHAR_TABLE = build_bare_key_char_table();
+
 #[inline(always)]
 pub fn is_bare_key_char(byte: u8) bool {
-    return (
-        (byte >= b'a' and byte <= b'z') or
-        (byte >= b'A' and byte <= b'Z') or
-        (byte >= b'0' and byte <= b'9') or
-        byte == b'-' or
-        byte == b'_'
-    );
+    return BARE_KEY_CHAR_TABLE.[byte as usize] != 0;
 }
 
 pub fn is_ascii_space(byte: u8) bool {

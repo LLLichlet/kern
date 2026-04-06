@@ -37,8 +37,21 @@ pub fn bytes_eq(lhs: []u8, rhs: []u8) bool {
 
     let lhs_ptr = lhs.[0].& as *u8;
     let rhs_ptr = rhs.[0].& as *u8;
+    if (lhs_ptr.* != rhs_ptr.*) {
+        return false;
+    }
+    if (len == 1) {
+        return true;
+    }
+    if ((lhs_ptr + len - 1).* != (rhs_ptr + len - 1).*) {
+        return false;
+    }
+    if (len == 2) {
+        return true;
+    }
+
     if (len < USIZE_BYTES) {
-        return eq_byte_range(lhs_ptr, rhs_ptr, len);
+        return eq_byte_range(lhs_ptr + 1, rhs_ptr + 1, len - 2);
     }
 
     let mask = USIZE_BYTES - 1;

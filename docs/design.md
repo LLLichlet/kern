@@ -810,7 +810,7 @@ A comma-separated list of tags attached to the AST for compiler side-effects. Me
 
   * `cold`: Marks a function as rarely executed, moving it out of the hot instruction cache and optimizing branching.
   * `naked`: Instructs the compiler to omit the standard function prologue and epilogue. Strictly used for hardware interrupt handlers and contextual context-switching alongside `@asm`.
-  * `inline(always)` / `inline(never)`: *(Planned)* Overrides the LLVM inliner's heuristic.
+  * `inline(always)` / `inline(never)`: Overrides the LLVM inliner's heuristic for a specific function.
 
 -----
 

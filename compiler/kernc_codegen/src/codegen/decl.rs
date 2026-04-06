@@ -405,6 +405,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let mut llvm_symbol_name = f.name.clone();
             let mut is_cold = false;
             let mut is_naked = false;
+            let mut inline_kind = None;
             let mut link_section = None;
 
             for attr in &f.attributes {
@@ -419,6 +420,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             && let ast::ExprKind::String(s) = &expr.kind
                         {
                             link_section = Some(s.clone());
+                        } else if name_str == "inline"
+                            && let ast::ExprKind::Identifier(mode) = &expr.kind
+                        {
+                            let mode_name = self.resolve_symbol(*mode);
+                            if mode_name == "always" {
+                                inline_kind = Some("alwaysinline");
+                            } else if mode_name == "never" {
+                                inline_kind = Some("noinline");
+                            }
                         }
                     }
                     ast::MetaItem::Marker(id) => {
@@ -457,6 +467,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let kind_id = Attribute::get_named_enum_kind_id("naked");
                 let naked_attr = self.context.create_enum_attribute(kind_id, 0);
                 llvm_func.add_attribute(AttributeLoc::Function, naked_attr);
+            }
+            if let Some(attr_name) = inline_kind {
+                let kind_id = Attribute::get_named_enum_kind_id(attr_name);
+                let inline_attr = self.context.create_enum_attribute(kind_id, 0);
+                llvm_func.add_attribute(AttributeLoc::Function, inline_attr);
             }
             if let Some(sec) = link_section {
                 llvm_func.as_global_value().set_section(Some(&sec));

@@ -123,6 +123,40 @@ extern fn main() i32 {
 }
 
 #[test]
+fn emits_inline_attributes_in_llvm_ir() {
+    let source = r#"
+#[inline(always)]
+fn hot_add(lhs: i32, rhs: i32) i32 {
+    return lhs + rhs;
+}
+
+#[inline(never)]
+fn cold_add(lhs: i32, rhs: i32) i32 {
+    return lhs + rhs;
+}
+
+extern fn main() i32 {
+    return hot_add(1, 2) + cold_add(3, 4);
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_inline_attrs_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("alwaysinline"),
+        "expected alwaysinline in LLVM IR, got:\n{}",
+        stdout
+    );
+    assert!(
+        stdout.contains("noinline"),
+        "expected noinline in LLVM IR, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
 fn compiles_same_private_const_name_in_multiple_modules() {
     let output = compile_source_tree_with_args(
         "kernc_private_const_module_scope",

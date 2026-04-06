@@ -506,6 +506,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 src: Box::new(arg_masts.remove(0)),
                 len: Box::new(arg_masts.remove(0)),
             }),
+            "@memmove" => Some(MastExprKind::Memmove {
+                dest: Box::new(arg_masts.remove(0)),
+                src: Box::new(arg_masts.remove(0)),
+                len: Box::new(arg_masts.remove(0)),
+            }),
             "@memset" => Some(MastExprKind::Memset {
                 dest: Box::new(arg_masts.remove(0)),
                 val: Box::new(arg_masts.remove(0)),

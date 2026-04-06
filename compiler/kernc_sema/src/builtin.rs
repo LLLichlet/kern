@@ -24,6 +24,37 @@ struct BuiltinOperatorTrait<'a> {
     intrinsic_name: &'a str,
 }
 
+#[derive(Clone, Copy)]
+enum MemoryIntrinsicKind {
+    Memcpy,
+    Memmove,
+    Memset,
+}
+
+impl MemoryIntrinsicKind {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Memcpy => "@memcpy",
+            Self::Memmove => "@memmove",
+            Self::Memset => "@memset",
+        }
+    }
+
+    fn src_or_value_type(self, ptr_u8: TypeId) -> TypeId {
+        match self {
+            Self::Memcpy | Self::Memmove => ptr_u8,
+            Self::Memset => TypeId::U8,
+        }
+    }
+
+    fn src_or_value_name(self) -> &'static str {
+        match self {
+            Self::Memcpy | Self::Memmove => "src",
+            Self::Memset => "val",
+        }
+    }
+}
+
 const BINARY_OPERATOR_TRAITS: &[BuiltinOperatorTrait<'_>] = &[
     BuiltinOperatorTrait {
         name: "Eq",
@@ -202,8 +233,9 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_bitwise("@ctz", int_trait_id);
         self.inject_void_intrinsic("@trap", true);
         self.inject_void_intrinsic("@breakpoint", false);
-        self.inject_memory_intrinsic("@memcpy", true);
-        self.inject_memory_intrinsic("@memset", false);
+        self.inject_memory_intrinsic(MemoryIntrinsicKind::Memcpy);
+        self.inject_memory_intrinsic(MemoryIntrinsicKind::Memmove);
+        self.inject_memory_intrinsic(MemoryIntrinsicKind::Memset);
         self.inject_atomic_load();
         self.inject_atomic_store();
         self.inject_atomic_cas("@atomicCas");
@@ -1012,7 +1044,8 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         let _ = self.ctx.scopes.define(name_id, info);
     }
 
-    fn inject_memory_intrinsic(&mut self, name: &str, is_memcpy: bool) {
+    fn inject_memory_intrinsic(&mut self, kind: MemoryIntrinsicKind) {
+        let name = kind.name();
         let name_id = self.ctx.intern(name);
         let def_id = DefId(self.ctx.defs.len() as u32);
 
@@ -1033,19 +1066,14 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
         let sig_ty = {
             self.ctx.node_types.insert(param_dest_id, ptr_mut_u8);
-            self.ctx.node_types.insert(
-                param_src_val_id,
-                if is_memcpy { ptr_u8 } else { TypeId::U8 },
-            );
+            self.ctx
+                .node_types
+                .insert(param_src_val_id, kind.src_or_value_type(ptr_u8));
             self.ctx.node_types.insert(param_len_id, TypeId::USIZE);
             self.ctx.node_types.insert(ret_id, TypeId::VOID);
 
             self.ctx.type_registry.intern(TypeKind::Function {
-                params: vec![
-                    ptr_mut_u8,
-                    if is_memcpy { ptr_u8 } else { TypeId::U8 },
-                    TypeId::USIZE,
-                ],
+                params: vec![ptr_mut_u8, kind.src_or_value_type(ptr_u8), TypeId::USIZE],
                 ret: TypeId::VOID,
                 is_variadic: false,
             })
@@ -1077,7 +1105,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 },
                 ast::FuncParam {
                     pattern: ast::BindingPattern {
-                        name: self.ctx.intern(if is_memcpy { "src" } else { "val" }),
+                        name: self.ctx.intern(kind.src_or_value_name()),
                         name_span: Default::default(),
                         is_mut: false,
                         span: Default::default(),

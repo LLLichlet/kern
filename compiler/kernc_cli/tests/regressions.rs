@@ -220,6 +220,52 @@ extern fn main(_: [][]u8) i32 {
 }
 
 #[test]
+fn emits_llvm_memmove_for_memmove_intrinsic() {
+    let source = r#"
+extern fn main() i32 {
+    let buf = [4]mut u8.{ 1, 2, 3, 4 };
+    @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
+    return 0;
+}
+"#;
+
+    let output = emit_llvm_ir_with_args("kernc_memmove_ir", source, &[]);
+    assert_success(&output, "kernc");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("llvm.memmove"),
+        "expected llvm.memmove in LLVM IR, got:\n{}",
+        stdout
+    );
+}
+
+#[test]
+fn runs_memmove_intrinsic_with_overlapping_ranges() {
+    let output = build_and_run_source(
+        r#"
+extern fn main() i32 {
+    let buf = [4]mut u8.{ 1, 2, 3, 4 };
+    @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
+
+    if (buf.[0] != 1) return 1;
+    if (buf.[1] != 1) return 2;
+    if (buf.[2] != 2) return 3;
+    if (buf.[3] != 3) return 4;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn compiles_same_private_const_name_in_multiple_modules() {
     let output = compile_source_tree_with_args(
         "kernc_private_const_module_scope",

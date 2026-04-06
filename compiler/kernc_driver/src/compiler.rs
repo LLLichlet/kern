@@ -963,6 +963,11 @@ mod tests {
                     + count_assignments_in_expr(src)
                     + count_assignments_in_expr(len)
             }
+            MastExprKind::Memmove { dest, src, len } => {
+                count_assignments_in_expr(dest)
+                    + count_assignments_in_expr(src)
+                    + count_assignments_in_expr(len)
+            }
             MastExprKind::Memset { dest, val, len } => {
                 count_assignments_in_expr(dest)
                     + count_assignments_in_expr(val)

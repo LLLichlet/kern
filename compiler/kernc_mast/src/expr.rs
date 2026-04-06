@@ -196,6 +196,11 @@ pub enum MastExprKind {
         src: Box<MastExpr>,
         len: Box<MastExpr>,
     },
+    Memmove {
+        dest: Box<MastExpr>,
+        src: Box<MastExpr>,
+        len: Box<MastExpr>,
+    },
     Memset {
         dest: Box<MastExpr>,
         val: Box<MastExpr>,

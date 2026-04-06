@@ -238,6 +238,30 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .unwrap();
                 self.context.i8_type().const_zero().into() // Void return.
             }
+            MastExprKind::Memmove { dest, src, len } => {
+                let d = self.compile_expr(dest);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                let s = self.compile_expr(src);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                let l = self.compile_expr(len);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {
+                    return fallback;
+                }
+                self.builder
+                    .build_memmove(
+                        d.into_pointer_value(),
+                        1,
+                        s.into_pointer_value(),
+                        1,
+                        l.into_int_value(),
+                    )
+                    .unwrap();
+                self.context.i8_type().const_zero().into() // Void return.
+            }
             MastExprKind::Memset { dest, val, len } => {
                 let d = self.compile_expr(dest);
                 if let Some(fallback) = self.expr_terminated_fallback(expected_llvm_ty) {

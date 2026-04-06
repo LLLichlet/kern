@@ -844,6 +844,7 @@ Mapped directly to single-cycle CPU instructions and highly optimized backend pr
   * `@ctz[T: Integer](val: T) -> T`: Count trailing zeros.
   * `@bswap[T: Integer](val: T) -> T`: Reverses the byte order of an integer value (useful for endianness conversions).
   * `@memcpy(dest: *mut u8, src: *u8, len: usize) void`: Performs a highly-optimized bulk memory copy.
+  * `@memmove(dest: *mut u8, src: *u8, len: usize) void`: Performs an overlap-safe bulk memory move.
   * `@memset(dest: *mut u8, val: u8, len: usize) void`: Performs a highly-optimized bulk memory fill.
 
 The `Integer` bound here is a marker-style family constraint. It expresses that these intrinsics operate on integer types as a category. It does **not** mean `Integer` is the source of arithmetic or bitwise operator semantics. Operator syntax remains governed by the builtin capability traits described in Section 6.4.1.

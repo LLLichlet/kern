@@ -4,7 +4,8 @@ use llvm_sys::core::{
     LLVMBuildCondBr, LLVMBuildExtractValue, LLVMBuildFAdd, LLVMBuildFCmp, LLVMBuildFDiv,
     LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPCast, LLVMBuildFPToSI, LLVMBuildFPToUI, LLVMBuildFRem,
     LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp, LLVMBuildInsertValue,
-    LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2, LLVMBuildMemCpy, LLVMBuildMemSet,
+    LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2, LLVMBuildMemCpy, LLVMBuildMemMove,
+    LLVMBuildMemSet,
     LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot, LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast,
     LLVMBuildPtrDiff2, LLVMBuildPtrToInt, LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSDiv,
     LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem, LLVMBuildShl, LLVMBuildStore,
@@ -338,6 +339,26 @@ impl<'ctx> Builder<'ctx> {
                 value.as_value_ref(),
                 size.as_value_ref(),
                 align,
+            )
+        }))
+    }
+
+    pub fn build_memmove(
+        &self,
+        dest: PointerValue<'ctx>,
+        dest_align: u32,
+        src: PointerValue<'ctx>,
+        src_align: u32,
+        size: IntValue<'ctx>,
+    ) -> LlvmResult<PointerValue<'ctx>> {
+        Ok(PointerValue::new(unsafe {
+            LLVMBuildMemMove(
+                self.raw,
+                dest.as_value_ref(),
+                dest_align,
+                src.as_value_ref(),
+                src_align,
+                size.as_value_ref(),
             )
         }))
     }

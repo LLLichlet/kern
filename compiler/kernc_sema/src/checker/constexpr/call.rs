@@ -411,7 +411,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             }
             "@intCast" => self.eval_int_cast(&generic_args, args, depth, span),
             "@bswap" => self.eval_bswap(&generic_args, args, depth, span),
-            "@memcpy" | "@memset" => {
+            "@memcpy" | "@memmove" | "@memset" => {
                 self.ctx
                     .struct_error(
                         span,

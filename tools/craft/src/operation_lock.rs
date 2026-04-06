@@ -12,6 +12,13 @@ pub(crate) struct WorkspaceOperationLock {
     path: PathBuf,
 }
 
+#[derive(Clone, Copy, Debug)]
+struct LockOwner {
+    pid: u32,
+    #[cfg(unix)]
+    start_ticks: Option<u64>,
+}
+
 impl WorkspaceOperationLock {
     pub(crate) fn acquire(workspace_root: &Path, operation: &str) -> Result<Self> {
         let path = workspace_lock_path(workspace_root);
@@ -56,12 +63,16 @@ fn lock_contents(operation: &str) -> String {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
-    format!(
+    let pid = std::process::id();
+    let mut contents = format!(
         "pid={}\noperation={}\ncreated_unix_ms={}\n",
-        std::process::id(),
-        operation,
-        created_ms
-    )
+        pid, operation, created_ms
+    );
+    #[cfg(unix)]
+    if let Some(start_ticks) = read_process_start_ticks(pid) {
+        contents.push_str(&format!("start_ticks={start_ticks}\n"));
+    }
+    contents
 }
 
 fn workspace_lock_path(workspace_root: &Path) -> PathBuf {
@@ -72,11 +83,11 @@ fn workspace_lock_path(workspace_root: &Path) -> PathBuf {
 }
 
 fn reclaim_stale_lock(path: &Path) -> Result<bool> {
-    let Some(holder_pid) = read_lock_pid(path)? else {
+    let Some(owner) = read_lock_owner(path)? else {
         return Ok(false);
     };
 
-    if process_is_alive(holder_pid) {
+    if lock_owner_is_alive(owner) {
         return Ok(false);
     }
 
@@ -87,36 +98,63 @@ fn reclaim_stale_lock(path: &Path) -> Result<bool> {
     }
 }
 
-fn read_lock_pid(path: &Path) -> Result<Option<u32>> {
+fn read_lock_owner(path: &Path) -> Result<Option<LockOwner>> {
     let contents = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
         Err(err) => return Err(Error::from_io(path, err)),
     };
 
+    let mut pid = None;
+    #[cfg(unix)]
+    let mut start_ticks = None;
     for line in contents.lines() {
-        let Some(raw_pid) = line.strip_prefix("pid=") else {
+        if let Some(raw_pid) = line.strip_prefix("pid=") {
+            pid = raw_pid.parse::<u32>().ok();
             continue;
-        };
-        return Ok(raw_pid.parse::<u32>().ok());
+        }
+        #[cfg(unix)]
+        if let Some(raw_start_ticks) = line.strip_prefix("start_ticks=") {
+            start_ticks = raw_start_ticks.parse::<u64>().ok();
+        }
     }
 
-    Ok(None)
+    Ok(pid.map(|pid| LockOwner {
+        pid,
+        #[cfg(unix)]
+        start_ticks,
+    }))
 }
 
 #[cfg(unix)]
-fn process_is_alive(pid: u32) -> bool {
-    Path::new("/proc").join(pid.to_string()).exists()
+fn lock_owner_is_alive(owner: LockOwner) -> bool {
+    let Some(current_start_ticks) = read_process_start_ticks(owner.pid) else {
+        return false;
+    };
+
+    match owner.start_ticks {
+        Some(lock_start_ticks) => current_start_ticks == lock_start_ticks,
+        None => owner.pid != std::process::id(),
+    }
 }
 
 #[cfg(not(unix))]
-fn process_is_alive(_pid: u32) -> bool {
+fn lock_owner_is_alive(_owner: LockOwner) -> bool {
     true
+}
+
+#[cfg(unix)]
+fn read_process_start_ticks(pid: u32) -> Option<u64> {
+    let path = Path::new("/proc").join(pid.to_string()).join("stat");
+    let contents = fs::read_to_string(path).ok()?;
+    let end = contents.rfind(") ")?;
+    let fields = contents[end + 2..].split_whitespace().collect::<Vec<_>>();
+    fields.get(19)?.parse::<u64>().ok()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkspaceOperationLock, workspace_lock_path};
+    use super::{WorkspaceOperationLock, read_process_start_ticks, workspace_lock_path};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::mpsc;
@@ -158,6 +196,31 @@ mod tests {
         let _lock = WorkspaceOperationLock::acquire(&root, "build").unwrap();
         let contents = fs::read_to_string(&lock_path).unwrap();
         assert!(contents.contains(&format!("pid={}", std::process::id())));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reclaims_lock_when_pid_matches_but_start_time_differs() {
+        let root = temp_dir("craft-workspace-lock-pid-reuse");
+        let lock_path = workspace_lock_path(&root);
+        fs::create_dir_all(lock_path.parent().unwrap()).unwrap();
+        let pid = std::process::id();
+        let current_start_ticks = read_process_start_ticks(pid).unwrap();
+        fs::write(
+            &lock_path,
+            format!(
+                "pid={pid}\noperation=test\nstart_ticks={}\n",
+                current_start_ticks.saturating_sub(1)
+            ),
+        )
+        .unwrap();
+
+        let _lock = WorkspaceOperationLock::acquire(&root, "build").unwrap();
+        let contents = fs::read_to_string(&lock_path).unwrap();
+        assert!(contents.contains(&format!("pid={pid}")));
+        assert!(contents.contains(&format!("start_ticks={current_start_ticks}")));
 
         let _ = fs::remove_dir_all(root);
     }

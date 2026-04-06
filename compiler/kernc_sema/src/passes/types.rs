@@ -1071,6 +1071,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             return true;
         }
 
+        self.ensure_where_clause_types_resolved(def_id, &generics, &where_clauses);
+
         let mut map = HashMap::new();
         for (param, arg_ty) in generics.iter().zip(arg_tys.iter()) {
             map.insert(param.name, *arg_ty);
@@ -1127,6 +1129,91 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         ok
     }
 
+    pub(crate) fn ensure_impl_signature_types_resolved(&mut self, impl_id: DefId) {
+        let Def::Impl(impl_def) = self.ctx.defs[impl_id.0 as usize].clone() else {
+            return;
+        };
+        let Some(parent_module) = impl_def.parent_module else {
+            return;
+        };
+        let Def::Module(module_def) = &self.ctx.defs[parent_module.0 as usize] else {
+            return;
+        };
+
+        let have_target = self.ctx.node_types.contains_key(&impl_def.target_type.id);
+        let have_trait = impl_def
+            .trait_type
+            .as_ref()
+            .is_none_or(|trait_ty| self.ctx.node_types.contains_key(&trait_ty.id));
+        let have_bounds = impl_def.where_clauses.iter().all(|clause| {
+            self.ctx.node_types.contains_key(&clause.target_ty.id)
+                && clause
+                    .bounds
+                    .iter()
+                    .all(|bound| self.ctx.node_types.contains_key(&bound.id))
+        });
+        if have_target && have_trait && have_bounds {
+            return;
+        }
+
+        let parent_scope = module_def.scope_id;
+        self.ctx.scopes.set_current_scope(parent_scope);
+        let impl_scope = self.ctx.scopes.enter_scope();
+        self.bind_generics(&impl_def.generics, impl_scope);
+        self.resolve_where_clauses(&impl_def.where_clauses, impl_scope);
+
+        let target_ty = self.resolve_type(&impl_def.target_type, impl_scope);
+        self.bind_self_type(target_ty, impl_scope, impl_def.span);
+        if let Some(trait_ty) = &impl_def.trait_type {
+            self.resolve_type(trait_ty, impl_scope);
+        }
+
+        self.ctx.scopes.exit_scope();
+        self.ctx.scopes.set_current_scope(parent_scope);
+    }
+
+    fn ensure_where_clause_types_resolved(
+        &mut self,
+        def_id: DefId,
+        generics: &[ast::GenericParam],
+        where_clauses: &[ast::WhereClause],
+    ) {
+        let needs_resolution = where_clauses.iter().any(|clause| {
+            !self.ctx.node_types.contains_key(&clause.target_ty.id)
+                || clause
+                    .bounds
+                    .iter()
+                    .any(|bound| !self.ctx.node_types.contains_key(&bound.id))
+        });
+        if !needs_resolution {
+            return;
+        }
+
+        let Some(owner_scope) = self.def_owner_module_scope(def_id) else {
+            return;
+        };
+
+        self.ctx.scopes.set_current_scope(owner_scope);
+        let item_scope = self.ctx.scopes.enter_scope();
+
+        if let Def::Trait(trait_def) = &self.ctx.defs[def_id.0 as usize] {
+            let self_args = generics
+                .iter()
+                .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
+                .collect();
+            let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
+                def_id,
+                self_args,
+            ));
+            self.bind_self_type(self_ty, item_scope, trait_def.span);
+        }
+
+        self.bind_generics(generics, item_scope);
+        self.resolve_where_clauses(where_clauses, item_scope);
+        self.ctx.scopes.exit_scope();
+        self.ctx.scopes.set_current_scope(owner_scope);
+    }
+
     fn generic_def_bounds_info(
         &self,
         def_id: DefId,
@@ -1169,6 +1256,19 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             )),
             _ => None,
         }
+    }
+
+    fn def_owner_module_scope(&self, def_id: DefId) -> Option<ScopeId> {
+        self.ctx.defs.iter().find_map(|def| {
+            let Def::Module(module) = def else {
+                return None;
+            };
+            if module.items.contains(&def_id) {
+                Some(module.scope_id)
+            } else {
+                None
+            }
+        })
     }
 
     fn type_contains_params(&mut self, ty: TypeId) -> bool {

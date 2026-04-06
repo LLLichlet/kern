@@ -123,6 +123,25 @@ extern fn main() i32 {
 }
 
 #[test]
+fn resolves_imported_generic_bounds_for_struct_field_literals() {
+    let source = r#"
+use std.coll.Map;
+
+type Wrap = struct {
+    item: Map[u64, i32],
+};
+
+extern fn main(_: [][]u8) i32 {
+    let _ = Wrap.{ item: Map[u64, i32].{} };
+    return 0;
+}
+"#;
+
+    let output = compile_source_with_std(source);
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn emits_inline_attributes_in_llvm_ir() {
     let source = r#"
 #[inline(always)]

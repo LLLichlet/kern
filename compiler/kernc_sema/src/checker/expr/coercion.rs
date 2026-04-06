@@ -1,6 +1,7 @@
 use super::ExprChecker;
 use crate::checker::Substituter;
 use crate::def::{Def, DefId};
+use crate::passes::TypeResolver;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{Expr, ExprKind, UnaryOperator};
 use kernc_utils::{DiagnosticCode, Span, SymbolId};
@@ -1261,6 +1262,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         for impl_def in impl_blocks {
             if let Some(trait_ast) = &impl_def.trait_type {
+                {
+                    let mut resolver = TypeResolver::new(self.ctx);
+                    resolver.ensure_impl_signature_types_resolved(impl_def.id);
+                }
                 let impl_target_ty = self
                     .ctx
                     .node_types

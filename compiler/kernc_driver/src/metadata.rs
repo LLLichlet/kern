@@ -6,13 +6,29 @@ use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
 use std::collections::BTreeMap;
 use std::fs;
+use std::fs::OpenOptions;
+use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::thread;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub const KMETA_MANIFEST_FILE: &str = "Kmeta.toml";
 pub const KMETA_DOCS_FILE: &str = "Kmeta.docs.toml";
 const KMETA_FORMAT_VERSION: u32 = 2;
 const KMETA_KIND_SOURCE_SNAPSHOT: &str = "source_snapshot";
 const KMETA_SOURCE_ROOT: &str = "src";
+const KMETA_OUTPUT_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+struct MetadataOutputLock {
+    path: PathBuf,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MetadataLockOwner {
+    pid: u32,
+    #[cfg(unix)]
+    start_ticks: Option<u64>,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KmetaManifest {
@@ -48,6 +64,7 @@ pub fn emit_package_metadata(
     package_name: &str,
     package_version: Option<&str>,
 ) -> Result<(), String> {
+    let _lock = MetadataOutputLock::acquire(output_root)?;
     let Some(root_id) = ctx.root_module else {
         return Err("missing root module while emitting kmeta metadata".to_string());
     };
@@ -122,6 +139,157 @@ fn module_def<'a>(ctx: &'a SemaContext<'_>, id: DefId) -> Option<&'a ModuleDef> 
     }
 }
 
+impl MetadataOutputLock {
+    fn acquire(output_root: &Path) -> Result<Self, String> {
+        let path = metadata_output_lock_path(output_root);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|err| format!("failed to create `{}`: {err}", parent.display()))?;
+        }
+
+        loop {
+            match try_acquire_metadata_output_lock(&path, output_root) {
+                Ok(lock) => return Ok(lock),
+                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                    if reclaim_stale_metadata_output_lock(&path)? {
+                        continue;
+                    }
+                    thread::sleep(KMETA_OUTPUT_LOCK_POLL_INTERVAL);
+                }
+                Err(err) => {
+                    return Err(format!(
+                        "failed to lock kmeta output `{}`: {err}",
+                        output_root.display()
+                    ));
+                }
+            }
+        }
+    }
+}
+
+impl Drop for MetadataOutputLock {
+    fn drop(&mut self) {
+        if let Err(err) = fs::remove_file(&self.path)
+            && err.kind() != ErrorKind::NotFound
+        {
+            let _ = err;
+        }
+    }
+}
+
+fn metadata_output_lock_path(output_root: &Path) -> PathBuf {
+    let lock_name = output_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| format!(".{name}.kmeta.lock"))
+        .unwrap_or_else(|| ".kmeta.lock".to_string());
+    output_root
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(lock_name)
+}
+
+fn try_acquire_metadata_output_lock(
+    path: &Path,
+    output_root: &Path,
+) -> std::io::Result<MetadataOutputLock> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    file.write_all(metadata_lock_contents(output_root).as_bytes())?;
+    file.sync_all()?;
+    Ok(MetadataOutputLock {
+        path: path.to_path_buf(),
+    })
+}
+
+fn metadata_lock_contents(output_root: &Path) -> String {
+    let created_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let pid = std::process::id();
+    let mut contents = format!(
+        "pid={}\noutput={}\ncreated_unix_ms={}\n",
+        pid,
+        output_root.display(),
+        created_ms
+    );
+    #[cfg(unix)]
+    if let Some(start_ticks) = read_process_start_ticks(pid) {
+        contents.push_str(&format!("start_ticks={start_ticks}\n"));
+    }
+    contents
+}
+
+fn reclaim_stale_metadata_output_lock(path: &Path) -> Result<bool, String> {
+    let Some(owner) = read_metadata_lock_owner(path)? else {
+        return Ok(false);
+    };
+
+    if metadata_lock_owner_is_alive(owner) {
+        return Ok(false);
+    }
+
+    match fs::remove_file(path) {
+        Ok(()) => Ok(true),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(true),
+        Err(err) => Err(format!("failed to clear stale `{}`: {err}", path.display())),
+    }
+}
+
+fn read_metadata_lock_owner(path: &Path) -> Result<Option<MetadataLockOwner>, String> {
+    let contents = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(err) if err.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(format!("failed to read `{}`: {err}", path.display())),
+    };
+
+    let mut pid = None;
+    #[cfg(unix)]
+    let mut start_ticks = None;
+    for line in contents.lines() {
+        if let Some(raw_pid) = line.strip_prefix("pid=") {
+            pid = raw_pid.parse::<u32>().ok();
+            continue;
+        }
+        #[cfg(unix)]
+        if let Some(raw_start_ticks) = line.strip_prefix("start_ticks=") {
+            start_ticks = raw_start_ticks.parse::<u64>().ok();
+        }
+    }
+
+    Ok(pid.map(|pid| MetadataLockOwner {
+        pid,
+        #[cfg(unix)]
+        start_ticks,
+    }))
+}
+
+#[cfg(unix)]
+fn metadata_lock_owner_is_alive(owner: MetadataLockOwner) -> bool {
+    let Some(current_start_ticks) = read_process_start_ticks(owner.pid) else {
+        return false;
+    };
+
+    match owner.start_ticks {
+        Some(lock_start_ticks) => current_start_ticks == lock_start_ticks,
+        None => owner.pid != std::process::id(),
+    }
+}
+
+#[cfg(not(unix))]
+fn metadata_lock_owner_is_alive(_owner: MetadataLockOwner) -> bool {
+    true
+}
+
+#[cfg(unix)]
+fn read_process_start_ticks(pid: u32) -> Option<u64> {
+    let path = Path::new("/proc").join(pid.to_string()).join("stat");
+    let contents = fs::read_to_string(path).ok()?;
+    let end = contents.rfind(") ")?;
+    let fields = contents[end + 2..].split_whitespace().collect::<Vec<_>>();
+    fields.get(19)?.parse::<u64>().ok()
+}
+
 fn snapshot_path_for_source(
     source_path: &Path,
     root_path: &Path,
@@ -136,7 +304,11 @@ fn snapshot_path_for_source(
     output_root.join(KMETA_SOURCE_ROOT).join(relative)
 }
 
-fn copy_source_snapshot_tree(root_path: &Path, root_dir: &Path, output_root: &Path) -> Result<(), String> {
+fn copy_source_snapshot_tree(
+    root_path: &Path,
+    root_dir: &Path,
+    output_root: &Path,
+) -> Result<(), String> {
     let mut pending = vec![root_dir.to_path_buf()];
 
     while let Some(dir) = pending.pop() {
@@ -527,7 +699,22 @@ fn quote(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_docs;
+    use super::{MetadataOutputLock, metadata_output_lock_path, parse_docs};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::mpsc;
+    use std::thread;
+    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
 
     #[test]
     fn parses_native_docs_toml_with_nested_sections() {
@@ -563,6 +750,45 @@ body = "must point to a mapped UART object."
             docs[0].docs.sections[0].entries[0].name.as_deref(),
             Some("self")
         );
+    }
+
+    #[test]
+    fn metadata_output_lock_waits_for_release() {
+        let root = temp_dir("kernc-kmeta-output-lock");
+        let output_root = root.join("meta").join("std");
+        let lock_path = metadata_output_lock_path(&output_root);
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let output_root_for_holder = output_root.clone();
+
+        let holder = thread::spawn(move || {
+            let _lock = MetadataOutputLock::acquire(&output_root_for_holder).unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+
+        ready_rx.recv().unwrap();
+        assert!(lock_path.is_file(), "expected metadata lock file to exist");
+
+        let output_root_for_waiter = output_root.clone();
+        let start = Instant::now();
+        let waiter = thread::spawn(move || {
+            let _lock = MetadataOutputLock::acquire(&output_root_for_waiter).unwrap();
+            start.elapsed()
+        });
+
+        thread::sleep(Duration::from_millis(200));
+        release_tx.send(()).unwrap();
+
+        holder.join().unwrap();
+        let waited = waiter.join().unwrap();
+        assert!(waited >= Duration::from_millis(150));
+        assert!(
+            !lock_path.exists(),
+            "expected metadata lock file to be removed after release"
+        );
+
+        let _ = fs::remove_dir_all(root);
     }
 }
 

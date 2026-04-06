@@ -2,6 +2,8 @@ mod support;
 
 use std::fs;
 use std::process::Command;
+use std::sync::{Arc, Barrier};
+use std::thread;
 
 use support::{
     assert_success, build_and_run, compile_source_tree_with_args, compile_source_with_args,
@@ -686,6 +688,82 @@ pub fn hidden() i32 {
         metadata_dir.join("src/inner/entry.rn").is_file(),
         "cfg-gated submodule source missing from kmeta snapshot"
     );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn concurrent_kmeta_snapshot_writers_serialize_on_output_lock() {
+    let root = unique_temp_path("kernc_kmeta_parallel", "dir");
+    let lib_dir = root.join("lib");
+    let metadata_dir = root.join("kmeta");
+    let lib_entry = lib_dir.join("init.rn");
+    let object_a = root.join("pkg-a.o");
+    let object_b = root.join("pkg-b.o");
+
+    fs::create_dir_all(&lib_dir).unwrap();
+    fs::create_dir_all(&metadata_dir).unwrap();
+    fs::write(metadata_dir.join("stale.txt"), "stale").unwrap();
+
+    let mut root_source = String::new();
+    for i in 0..96 {
+        let module_name = format!("m{i:03}");
+        root_source.push_str(&format!("pub mod {module_name};\n"));
+        fs::write(
+            lib_dir.join(format!("{module_name}.rn")),
+            format!(
+                r#"
+pub fn answer() i32 {{
+    return {i};
+}}
+"#
+            ),
+        )
+        .unwrap();
+    }
+    fs::write(&lib_entry, root_source).unwrap();
+
+    let entry_arg = lib_entry.to_string_lossy().into_owned();
+    let metadata_arg = metadata_dir.to_string_lossy().into_owned();
+    let object_a_arg = object_a.to_string_lossy().into_owned();
+    let object_b_arg = object_b.to_string_lossy().into_owned();
+    let repo_root = support::repo_root();
+    let barrier = Arc::new(Barrier::new(3));
+
+    let spawn = |object_arg: String| {
+        let barrier = Arc::clone(&barrier);
+        let entry_arg = entry_arg.clone();
+        let metadata_arg = metadata_arg.clone();
+        let repo_root = repo_root.clone();
+        thread::spawn(move || {
+            barrier.wait();
+            Command::new(env!("CARGO_BIN_EXE_kernc"))
+                .current_dir(repo_root)
+                .args([
+                    "-c",
+                    "--root-module",
+                    "pkg",
+                    "--emit-kmeta",
+                    metadata_arg.as_str(),
+                    entry_arg.as_str(),
+                    "-o",
+                    object_arg.as_str(),
+                ])
+                .output()
+                .unwrap()
+        })
+    };
+
+    let compile_a = spawn(object_a_arg);
+    let compile_b = spawn(object_b_arg);
+    barrier.wait();
+
+    let output_a = compile_a.join().unwrap();
+    let output_b = compile_b.join().unwrap();
+    assert_success(&output_a, "kernc concurrent kmeta writer A");
+    assert_success(&output_b, "kernc concurrent kmeta writer B");
+    assert!(metadata_dir.join("Kmeta.toml").is_file());
+    assert!(metadata_dir.join("src/init.rn").is_file());
 
     let _ = fs::remove_dir_all(&root);
 }

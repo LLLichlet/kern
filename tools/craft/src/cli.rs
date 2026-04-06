@@ -1508,7 +1508,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [[bin]]
 name = "demo"
@@ -1874,7 +1874,7 @@ root = "src/main.rn"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [source.default]
 git = "https://example.com/default.git"
@@ -1959,7 +1959,7 @@ tag = "v1"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [craft]
 release-source-policy = "warn"

@@ -172,8 +172,7 @@ Example:
 [package]
 name = "http"
 version = "0.1.0"
-kern = "0.7"
-edition = "2027"
+kern = "0.6.6"
 publish = false
 
 [lib]
@@ -207,6 +206,8 @@ debug = false
 Manifest rules:
 
 - targets are explicit
+- `[package].kern` must match the current installed Kern toolchain version exactly
+- `Craft.toml` does not expose an `edition` field before Kern 1.0
 - test targets are listed under `[test].roots`, and each test name is derived from its file stem
 - source roots are explicit
 - dependency sources are explicit

@@ -11,7 +11,6 @@ pub struct PackagePlan {
     pub package_id: PackageId,
     pub manifest_path: PathBuf,
     pub kern: String,
-    pub edition: Option<String>,
     pub publish: Option<bool>,
     pub targets: Vec<TargetPlan>,
     pub dependencies: BTreeMap<String, DependencySpec>,
@@ -89,7 +88,6 @@ impl PackagePlan {
             package_id: package_id.clone(),
             manifest_path: manifest_path.to_path_buf(),
             kern: package.kern.clone(),
-            edition: package.edition.clone(),
             publish: package.publish,
             targets,
             dependencies: manifest.dependencies.clone(),
@@ -386,8 +384,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
-edition = "2027"
+kern = "0.6.6"
 publish = false
 
 [lib]
@@ -411,9 +408,8 @@ root = "examples/hello.rn"
         let plan =
             PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
 
-        assert_eq!(plan.kern, "0.7");
+        assert_eq!(plan.kern, "0.6.6");
         assert_eq!(plan.manifest_path, Path::new("Craft.toml"));
-        assert_eq!(plan.edition.as_deref(), Some("2027"));
         assert_eq!(plan.publish, Some(false));
         assert_eq!(plan.targets.len(), 4);
         assert!(
@@ -440,7 +436,7 @@ root = "examples/hello.rn"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 "#,
             Path::new("Craft.toml"),
         )
@@ -485,7 +481,7 @@ kern = "0.7"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 log = "1"

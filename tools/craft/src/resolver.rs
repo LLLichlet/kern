@@ -138,7 +138,7 @@ members = ["app", "tool"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 log = "1"
@@ -151,7 +151,7 @@ log = "1"
 [package]
 name = "tool"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 log = "1"
@@ -202,7 +202,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 util = { path = "../util" }
@@ -216,7 +216,7 @@ log = "1"
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 "#,
         )
         .unwrap();

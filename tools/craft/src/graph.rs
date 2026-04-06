@@ -424,7 +424,7 @@ members = ["app", "util"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 util = { path = "../util" }
@@ -438,7 +438,7 @@ log = "1"
 [package]
 name = "util"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 "#,
         )
         .unwrap();
@@ -494,7 +494,7 @@ shared = "2"
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
@@ -550,7 +550,7 @@ members = ["app"]
 [package]
 name = "app"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 shared = { workspace = true }

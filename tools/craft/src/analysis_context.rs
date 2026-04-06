@@ -1145,7 +1145,7 @@ fn escape_string(value: &str) -> String {
 mod tests {
     use super::{load_current_analysis_context, sync_analysis_context};
     use crate::build_plan;
-    use crate::elaborate::{plan, FeatureSelection};
+    use crate::elaborate::{FeatureSelection, plan};
     use crate::manifest::Manifest;
     use crate::workspace::load_members;
     use std::fs;
@@ -1196,7 +1196,7 @@ mod tests {
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"0.6.6\"
 
 [features]
 experimental = []
@@ -1298,7 +1298,7 @@ pub fn craft(p: *mut plan.Plan) void {{
 [package]
 name = \"app\"
 version = \"0.1.0\"
-kern = \"0.7\"
+kern = \"0.6.6\"
 
 [[bin]]
 name = \"app\"
@@ -1341,7 +1341,7 @@ root = \"src/main.rn\"
 [package]
 name = \"app\"
 version = \"0.1.1\"
-kern = \"0.7\"
+kern = \"0.6.6\"
 
 [[bin]]
 name = \"app\"
@@ -1350,8 +1350,10 @@ root = \"src/main.rn\"
         )
         .unwrap();
 
-        assert!(load_current_analysis_context(&manifest_path, &root)
-            .unwrap()
-            .is_none());
+        assert!(
+            load_current_analysis_context(&manifest_path, &root)
+                .unwrap()
+                .is_none()
+        );
     }
 }

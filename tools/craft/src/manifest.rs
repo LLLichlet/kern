@@ -25,7 +25,6 @@ pub struct Package {
     pub name: String,
     pub version: String,
     pub kern: String,
-    pub edition: Option<String>,
     pub publish: Option<bool>,
 }
 
@@ -114,10 +113,11 @@ pub struct Workspace {
 #[derive(Debug, Default)]
 pub struct WorkspacePackage {
     pub version: Option<String>,
-    pub edition: Option<String>,
     pub license: Option<String>,
     pub authors: Vec<String>,
 }
+
+const CURRENT_KERN_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[derive(Clone, Debug)]
 enum Section {
@@ -210,9 +210,7 @@ impl Manifest {
             validate_non_empty(path, "[package].name", &package.name)?;
             validate_non_empty(path, "[package].version", &package.version)?;
             validate_non_empty(path, "[package].kern", &package.kern)?;
-            if let Some(edition) = &package.edition {
-                validate_non_empty(path, "[package].edition", edition)?;
-            }
+            validate_kern_version(path, &package.kern)?;
             let _ = package.publish;
         }
 
@@ -272,9 +270,6 @@ impl Manifest {
             if let Some(package) = &workspace.package {
                 if let Some(version) = &package.version {
                     validate_non_empty(path, "[workspace.package].version", version)?;
-                }
-                if let Some(edition) = &package.edition {
-                    validate_non_empty(path, "[workspace.package].edition", edition)?;
                 }
                 if let Some(license) = &package.license {
                     validate_non_empty(path, "[workspace.package].license", license)?;
@@ -376,7 +371,6 @@ fn assign_key_value(
                 "name" => package.name = parse_string(raw_value)?,
                 "version" => package.version = parse_string(raw_value)?,
                 "kern" => package.kern = parse_string(raw_value)?,
-                "edition" => package.edition = Some(parse_string(raw_value)?),
                 "publish" => package.publish = Some(parse_bool(raw_value)?),
                 _ => return Err(format!("unsupported [package] key `{key}`")),
             }
@@ -480,7 +474,6 @@ fn assign_key_value(
                 .get_or_insert_with(WorkspacePackage::default);
             match key {
                 "version" => workspace_package.version = Some(parse_string(raw_value)?),
-                "edition" => workspace_package.edition = Some(parse_string(raw_value)?),
                 "license" => workspace_package.license = Some(parse_string(raw_value)?),
                 "authors" => workspace_package.authors = parse_string_array(raw_value)?,
                 _ => return Err(format!("unsupported [workspace.package] key `{key}`")),
@@ -1055,6 +1048,18 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_kern_version(path: &Path, value: &str) -> Result<()> {
+    if value != CURRENT_KERN_VERSION {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!(
+                "[package].kern must match the current toolchain version `{CURRENT_KERN_VERSION}`, found `{value}`"
+            ),
+        });
+    }
+    Ok(())
+}
+
 fn parse_release_source_policy(
     raw_value: &str,
 ) -> std::result::Result<ReleaseSourcePolicy, String> {
@@ -1130,7 +1135,7 @@ mod tests {
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [lib]
 root = "src/lib.rn"
@@ -1191,7 +1196,7 @@ license = "MIT"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [profile.dev]
 opt = 7
@@ -1212,7 +1217,7 @@ opt = 7
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 shared = { workspace = true, features = ["simd"] }
@@ -1237,7 +1242,7 @@ shared = { workspace = true, features = ["simd"] }
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [dependencies]
 shared = { workspace = true, version = "2" }
@@ -1280,7 +1285,7 @@ shared = { workspace = true }
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [craft]
 env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
@@ -1300,7 +1305,7 @@ env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [craft]
 release-source-policy = "warn"
@@ -1324,7 +1329,7 @@ allow-insecure-source = ["mirror"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [source.default]
 directory = "vendor/default"
@@ -1367,7 +1372,7 @@ branch = "stable"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [source.default]
 "#,
@@ -1390,7 +1395,7 @@ kern = "0.7"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [source.default]
 directory = "vendor/default"
@@ -1415,7 +1420,7 @@ git = "https://example.com/default.git"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [source.default]
 git = "https://example.com/default.git"
@@ -1441,7 +1446,7 @@ tag = "v1"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [source.default]
 directory = "vendor/default"
@@ -1466,7 +1471,7 @@ rev = "abc123"
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [craft]
 env = ["1BAD-NAME"]
@@ -1487,7 +1492,7 @@ env = ["1BAD-NAME"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [craft]
 release-source-policy = "strict"
@@ -1500,13 +1505,75 @@ release-source-policy = "strict"
     }
 
     #[test]
-    fn rejects_duplicate_test_file_stems() {
+    fn rejects_package_edition_field() {
+        let err = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.6"
+edition = "2027"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unsupported [package] key `edition`")
+        );
+    }
+
+    #[test]
+    fn rejects_workspace_package_edition_field() {
+        let err = Manifest::parse(
+            r#"
+[workspace]
+members = ["app"]
+
+[workspace.package]
+edition = "2027"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("unsupported [workspace.package] key `edition`")
+        );
+    }
+
+    #[test]
+    fn rejects_mismatched_kern_version() {
         let manifest = Manifest::parse(
             r#"
 [package]
 name = "demo"
 version = "0.1.0"
 kern = "0.7"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let err = manifest
+            .validate(std::path::Path::new("Craft.toml"))
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("must match the current toolchain version")
+        );
+    }
+
+    #[test]
+    fn rejects_duplicate_test_file_stems() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.6"
 
 [test]
 roots = ["tests/smoke.rn", "alt/smoke.rn"]
@@ -1528,7 +1595,7 @@ roots = ["tests/smoke.rn", "alt/smoke.rn"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [test]
 roots = ["tests/*"]
@@ -1547,7 +1614,7 @@ roots = ["tests/*"]
 [package]
 name = "demo"
 version = "0.1.0"
-kern = "0.7"
+kern = "0.6.6"
 
 [[test]]
 name = "smoke"

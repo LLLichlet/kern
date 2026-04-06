@@ -1,5 +1,8 @@
 #!/bin/bash
-set -e
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+cd "${ROOT}"
 
 # Avoid AppleDouble metadata files when packaging on macOS runners.
 export COPYFILE_DISABLE=1

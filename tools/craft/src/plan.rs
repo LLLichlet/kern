@@ -254,20 +254,22 @@ impl PackagePlan {
         let path = normalize_non_empty(path.into(), "dependency path")?;
         let dep = self.promote_dependency(kind, name);
         dep.path = Some(path);
+        dep.git = None;
         dep.workspace = None;
         Ok(())
     }
 
-    pub fn set_dependency_registry(
+    pub fn set_dependency_git(
         &mut self,
         kind: DependencyKind,
         name: &str,
-        registry: impl Into<String>,
+        git: impl Into<String>,
     ) -> Result<()> {
         let name = normalize_non_empty(name.to_string(), "dependency name")?;
-        let registry = normalize_non_empty(registry.into(), "dependency registry")?;
+        let git = normalize_non_empty(git.into(), "dependency git")?;
         let dep = self.promote_dependency(kind, name);
-        dep.registry = Some(registry);
+        dep.path = None;
+        dep.git = Some(git);
         dep.workspace = None;
         Ok(())
     }
@@ -277,7 +279,7 @@ impl PackagePlan {
         let dep = self.promote_dependency(kind, name);
         dep.version = None;
         dep.path = None;
-        dep.registry = None;
+        dep.git = None;
         dep.workspace = Some(true);
         Ok(())
     }
@@ -484,7 +486,7 @@ version = "0.1.0"
 kern = "0.6.7"
 
 [dependencies]
-log = "1"
+log = { path = "../log", version = "1" }
 "#,
             Path::new("Craft.toml"),
         )
@@ -494,7 +496,7 @@ log = "1"
             PackagePlan::from_manifest(Path::new("Craft.toml"), &package_id(), &manifest).unwrap();
         plan.set_dependency_path(DependencyKind::Normal, "log", "../vendor/log")
             .unwrap();
-        plan.set_dependency_registry(DependencyKind::Normal, "log", "corp")
+        plan.set_dependency_git(DependencyKind::Normal, "log", "https://example.com/log.git")
             .unwrap();
         plan.set_dependency_version(DependencyKind::Dev, "insta", "2")
             .unwrap();
@@ -504,8 +506,8 @@ log = "1"
         match plan.dependencies(DependencyKind::Normal).get("log") {
             Some(DependencySpec::Detailed(dep)) => {
                 assert_eq!(dep.version.as_deref(), Some("1"));
-                assert_eq!(dep.path.as_deref(), Some("../vendor/log"));
-                assert_eq!(dep.registry.as_deref(), Some("corp"));
+                assert_eq!(dep.path, None);
+                assert_eq!(dep.git.as_deref(), Some("https://example.com/log.git"));
                 assert_eq!(dep.workspace, None);
             }
             other => panic!("expected detailed dependency, got {other:?}"),
@@ -522,7 +524,7 @@ log = "1"
                 assert_eq!(dep.workspace, Some(true));
                 assert_eq!(dep.version, None);
                 assert_eq!(dep.path, None);
-                assert_eq!(dep.registry, None);
+                assert_eq!(dep.git, None);
             }
             other => panic!("expected workspace dependency, got {other:?}"),
         }

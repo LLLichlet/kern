@@ -105,7 +105,7 @@ extern {
     fn __craft_plan_remove_example(plan: *mut Plan, name: []u8) bool;
     fn __craft_plan_dep_version(plan: *mut Plan, kind: DependencyKind, name: []u8, version: []u8) void;
     fn __craft_plan_dep_path(plan: *mut Plan, kind: DependencyKind, name: []u8, path: []u8) void;
-    fn __craft_plan_dep_registry(plan: *mut Plan, kind: DependencyKind, name: []u8, registry: []u8) void;
+    fn __craft_plan_dep_git(plan: *mut Plan, kind: DependencyKind, name: []u8, git: []u8) void;
     fn __craft_plan_dep_workspace(plan: *mut Plan, kind: DependencyKind, name: []u8) void;
     fn __craft_plan_remove_dep(plan: *mut Plan, kind: DependencyKind, name: []u8) bool;
 }
@@ -177,8 +177,8 @@ impl *mut Plan {
         __craft_plan_dep_path(self, kind, name, path);
     }
 
-    pub fn dep_registry(kind: DependencyKind, name: []u8, registry: []u8) void {
-        __craft_plan_dep_registry(self, kind, name, registry);
+    pub fn dep_git(kind: DependencyKind, name: []u8, git: []u8) void {
+        __craft_plan_dep_git(self, kind, name, git);
     }
 
     pub fn dep_workspace(kind: DependencyKind, name: []u8) void {

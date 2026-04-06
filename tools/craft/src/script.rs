@@ -654,13 +654,13 @@ impl ScriptHost for PackagePlanHost<'_> {
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }
-            "__craft_plan_dep_registry" => {
+            "__craft_plan_dep_git" => {
                 let _ = expect_arg(args, 0, "plan receiver")?;
                 let kind = expect_dependency_kind(args, 1, "dependency kind")?;
                 let name = expect_string(args, 2, "dependency name")?;
-                let registry = expect_string(args, 3, "dependency registry")?;
+                let git = expect_string(args, 3, "dependency git")?;
                 self.package_plan
-                    .set_dependency_registry(kind, &name, registry)
+                    .set_dependency_git(kind, &name, git)
                     .map_err(|err| err.to_string())?;
                 Ok(ConstValue::Void)
             }

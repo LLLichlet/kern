@@ -564,7 +564,7 @@ use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
     p.cfg_bool("workspace_policy", true);
-    p.dep_registry(plan.DependencyKind.{ normal }, "log", "workspace");
+    p.dep_git(plan.DependencyKind.{ normal }, "log", "https://example.com/workspace-log.git");
 }
 "#,
         )
@@ -578,7 +578,7 @@ version = "0.1.0"
 kern = "0.6.7"
 
 [dependencies]
-log = "1"
+log = { git = "https://example.com/log.git", tag = "v1" }
 "#,
         )
         .unwrap();
@@ -588,7 +588,7 @@ log = "1"
 use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
-    p.dep_registry(plan.DependencyKind.{ normal }, "log", "package");
+    p.dep_git(plan.DependencyKind.{ normal }, "log", "https://example.com/package-log.git");
 }
 "#,
         )
@@ -621,8 +621,8 @@ pub fn craft(p: *mut plan.Plan) void {
                         if target.package_name == "log"
                             && matches!(
                                 &target.source,
-                                crate::graph::SourceId::Registry { name }
-                                    if name.as_deref() == Some("package")
+                                crate::graph::SourceId::GitDependency { git, .. }
+                                    if git == "https://example.com/package-log.git"
                             )
                 )
         }));
@@ -1095,8 +1095,8 @@ kern = "0.6.7"
 root = "src/lib.rn"
 
 [dependencies]
-log = "1"
-trace = "1"
+log = { git = "https://example.com/log.git", version = "1" }
+trace = { git = "https://example.com/trace.git", version = "1" }
 "#,
         )
         .unwrap();
@@ -1119,8 +1119,9 @@ pub fn craft(p: *mut plan.Plan) void {
     }
     p.set_lib_root("src/alt_lib.rn");
     p.add_bin("demo", "src/main.rn");
-    p.dep_registry(plan.DependencyKind.{ normal }, "log", "corp");
+    p.dep_git(plan.DependencyKind.{ normal }, "log", "https://example.com/corp-log.git");
     p.dep_path(plan.DependencyKind.{ normal }, "trace", "vendor/trace");
+    p.dep_git(plan.DependencyKind.{ dev }, "insta", "https://example.com/insta.git");
     p.dep_version(plan.DependencyKind.{ dev }, "insta", "2");
 }
 "#,
@@ -1174,8 +1175,8 @@ pub fn craft(p: *mut plan.Plan) void {
                             && target.version.as_deref() == Some("1")
                             && matches!(
                                 &target.source,
-                                crate::graph::SourceId::Registry { name }
-                                    if name.as_deref() == Some("corp")
+                                crate::graph::SourceId::GitDependency { git, .. }
+                                    if git == "https://example.com/corp-log.git"
                             )
                 )
         }));

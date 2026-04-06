@@ -90,7 +90,7 @@ impl Error {
                 if message.starts_with("release source policy rejected:") =>
             {
                 Some(
-                    "pin floating git sources with `rev` or `tag`, switch insecure URLs to HTTPS, or relax `[craft].release-source-policy`"
+                    "pin git sources with `rev` or `tag`, and prefer secure HTTPS URLs"
                         .to_string(),
                 )
             }

@@ -2,10 +2,8 @@ use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
 use crate::local_state;
-use crate::manifest::Manifest;
 use crate::plan::TargetKind;
 use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
-use crate::source;
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -157,9 +155,6 @@ impl Lockfile {
         let root = &resolved.workspace_root;
         let manifest = relative_display(root, manifest_path);
         let manifest_digest = digest_file(manifest_path)?;
-        let root_manifest = Manifest::load(manifest_path)?;
-        root_manifest.validate(manifest_path)?;
-
         let mut packages = Vec::new();
         let mut package_targets = Vec::new();
         let mut external_packages = Vec::new();
@@ -236,8 +231,8 @@ impl Lockfile {
                 source_kind: source_kind(&package.id.source).to_string(),
                 source_value: source_value(&package.id.source),
                 version: package.id.version.clone(),
-                source_locator: source_locator(&root_manifest, &package.id.source),
-                source_selector: source_selector(&root_manifest, &package.id.source),
+                source_locator: source_locator(&package.id.source),
+                source_selector: source_selector(&package.id.source),
             });
         }
 
@@ -829,10 +824,23 @@ fn package_lock_id(id: &PackageId) -> String {
         SourceId::PathDependency { path } => {
             format!("{} {} path:{path}", id.name, id.version)
         }
-        SourceId::Registry { name: Some(name) } => {
-            format!("{} {} registry:{name}", id.name, id.version)
+        SourceId::GitDependency {
+            git,
+            rev,
+            branch,
+            tag,
+        } => {
+            let selector = if let Some(rev) = rev {
+                format!("rev:{rev}")
+            } else if let Some(branch) = branch {
+                format!("branch:{branch}")
+            } else if let Some(tag) = tag {
+                format!("tag:{tag}")
+            } else {
+                "default".to_string()
+            };
+            format!("{} {} git:{}#{selector}", id.name, id.version, git)
         }
-        SourceId::Registry { name: None } => format!("{} {} registry", id.name, id.version),
     }
 }
 
@@ -842,14 +850,26 @@ fn external_package_lock_id(id: &ExternalPackageId) -> String {
             Some(version) => format!("{} {} path:{path}", id.package_name, version),
             None => format!("{} path:{path}", id.package_name),
         },
-        SourceId::Registry { name: Some(name) } => match &id.version {
-            Some(version) => format!("{} {} registry:{name}", id.package_name, version),
-            None => format!("{} registry:{name}", id.package_name),
-        },
-        SourceId::Registry { name: None } => match &id.version {
-            Some(version) => format!("{} {} registry", id.package_name, version),
-            None => format!("{} registry", id.package_name),
-        },
+        SourceId::GitDependency {
+            git,
+            rev,
+            branch,
+            tag,
+        } => {
+            let selector = if let Some(rev) = rev {
+                format!("rev:{rev}")
+            } else if let Some(branch) = branch {
+                format!("branch:{branch}")
+            } else if let Some(tag) = tag {
+                format!("tag:{tag}")
+            } else {
+                "default".to_string()
+            };
+            match &id.version {
+                Some(version) => format!("{} {} git:{}#{selector}", id.package_name, version, git),
+                None => format!("{} git:{}#{selector}", id.package_name, git),
+            }
+        }
         SourceId::WorkspaceMember { path } => match &id.version {
             Some(version) => format!("{} {} workspace-member:{path}", id.package_name, version),
             None => format!("{} workspace-member:{path}", id.package_name),
@@ -866,7 +886,7 @@ fn source_kind(source: &SourceId) -> &'static str {
         SourceId::Root => "root",
         SourceId::WorkspaceMember { .. } => "workspace-member",
         SourceId::PathDependency { .. } => "path",
-        SourceId::Registry { .. } => "registry",
+        SourceId::GitDependency { .. } => "git",
     }
 }
 
@@ -875,28 +895,38 @@ fn source_value(source: &SourceId) -> Option<String> {
         SourceId::Root => None,
         SourceId::WorkspaceMember { path } => Some(path.clone()),
         SourceId::PathDependency { path } => Some(path.clone()),
-        SourceId::Registry { name } => name.clone(),
+        SourceId::GitDependency { git, .. } => Some(git.clone()),
     }
 }
 
-fn source_locator(manifest: &Manifest, source: &SourceId) -> Option<String> {
-    let SourceId::Registry { name } = source else {
-        return None;
-    };
-    manifest
-        .sources
-        .get(name.as_deref().unwrap_or("default"))
-        .and_then(source::source_locator)
+fn source_locator(source: &SourceId) -> Option<String> {
+    if let SourceId::GitDependency { git, .. } = source {
+        return Some(git.clone());
+    }
+    None
 }
 
-fn source_selector(manifest: &Manifest, source: &SourceId) -> Option<String> {
-    let SourceId::Registry { name } = source else {
-        return None;
-    };
-    manifest
-        .sources
-        .get(name.as_deref().unwrap_or("default"))
-        .and_then(source::source_selector)
+fn source_selector(source: &SourceId) -> Option<String> {
+    if let SourceId::GitDependency {
+        rev,
+        branch,
+        tag,
+        ..
+    } = source
+    {
+        return Some(
+            if let Some(rev) = rev {
+                format!("rev:{rev}")
+            } else if let Some(branch) = branch {
+                format!("branch:{branch}")
+            } else if let Some(tag) = tag {
+                format!("tag:{tag}")
+            } else {
+                "default".to_string()
+            },
+        );
+    }
+    None
 }
 
 fn relative_display(root: &Path, path: &Path) -> String {
@@ -1101,7 +1131,7 @@ fn validate_digest(path: &Path, field: &str, value: &str) -> Result<()> {
 
 fn validate_source_kind(path: &Path, field: &str, value: &str) -> Result<()> {
     match value {
-        "root" | "workspace-member" | "path" | "registry" => Ok(()),
+        "root" | "workspace-member" | "path" | "git" => Ok(()),
         _ => Err(Error::LockfileValidation {
             path: path.to_path_buf(),
             message: format!("{field} has unsupported source kind `{value}`"),
@@ -1207,11 +1237,7 @@ mod tests {
 members = ["app", "util"]
 
 [workspace.dependencies]
-shared = "2"
-
-[source.default]
-git = "https://example.com/shared.git"
-branch = "stable"
+shared = { git = "https://example.com/shared.git", branch = "stable", version = "2" }
 "#,
         )
         .unwrap();
@@ -1310,7 +1336,7 @@ kern = "0.6.7"
         assert!(rendered.contains("target-id = \"util 0.1.0 workspace-member:util\""));
         assert!(rendered.contains("name = \"shared\""));
         assert!(rendered.contains("target = \"external\""));
-        assert!(rendered.contains("id = \"shared 2 registry\""));
+        assert!(rendered.contains("id = \"shared 2 git:https://example.com/shared.git#branch:stable\""));
         assert!(rendered.contains("source-locator = \"https://example.com/shared.git\""));
         assert!(rendered.contains("source-selector = \"branch:stable\""));
         assert!(rendered.contains("manifest-digest = \"fnv1a64:"));
@@ -1332,7 +1358,7 @@ kern = "0.6.7"
 members = ["app"]
 
 [workspace.dependencies]
-shared = "2"
+shared = { git = "https://example.com/shared.git", tag = "v2", version = "2" }
 "#,
         )
         .unwrap();
@@ -1490,7 +1516,7 @@ kern = "0.6.7"
     }
 
     #[test]
-    fn lockfile_status_tracks_registry_source_identity_changes() {
+    fn lockfile_status_tracks_git_source_identity_changes() {
         let root = temp_dir("craft-lockfile-source-identity");
         let app_dir = root.join("app");
         fs::create_dir_all(&app_dir).unwrap();
@@ -1502,11 +1528,7 @@ kern = "0.6.7"
 members = ["app"]
 
 [workspace.dependencies]
-shared = "2"
-
-[source.default]
-git = "https://example.com/shared.git"
-branch = "stable"
+shared = { git = "https://example.com/shared.git", branch = "stable", version = "2" }
 "#,
         )
         .unwrap();
@@ -1550,11 +1572,7 @@ shared = { workspace = true }
 members = ["app"]
 
 [workspace.dependencies]
-shared = "2"
-
-[source.default]
-git = "https://example.com/shared.git"
-rev = "abc123"
+shared = { git = "https://example.com/shared.git", rev = "abc123", version = "2" }
 "#,
         )
         .unwrap();
@@ -1728,10 +1746,13 @@ manifest = "app/Craft.toml"
 manifest-digest = "fnv1a64:1234567890abcdef"
 
 [[external-package]]
-id = "util 0.1.0 registry"
+id = "util 0.1.0 git:https://example.com/util.git#tag:v1"
 name = "util"
-source = "registry"
+source = "git"
+source-value = "https://example.com/util.git"
 version = "0.1.0"
+source-locator = "https://example.com/util.git"
+source-selector = "tag:v1"
 
 [[dependency]]
 from = "app 0.1.0 workspace-member:app"
@@ -1739,7 +1760,7 @@ kind = "normal"
 name = "util"
 package = "util"
 target = "external"
-target-id = "missing 0.1.0 registry"
+target-id = "missing 0.1.0 git:https://example.com/missing.git#tag:v1"
 "#,
         )
         .unwrap();

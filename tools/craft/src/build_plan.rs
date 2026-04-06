@@ -978,7 +978,9 @@ fn build_external_tool_index(
     };
 
     let mut index = BTreeMap::new();
-    for fetched in source::fetch_external_packages(manifest_path, manifest, &resolved)? {
+    let _ = manifest_path;
+    let _ = manifest;
+    for fetched in source::fetch_external_packages(&resolved)? {
         let external_manifest_path = fetched.cache_path.join("Craft.toml");
         let external_manifest = Manifest::load(&external_manifest_path)?;
         external_manifest.validate(&external_manifest_path)?;
@@ -1349,8 +1351,10 @@ roots = ["tests/smoke.rn"]
         let root = temp_dir("craft-build-plan-deps");
         let app_dir = root.join("app");
         let util_dir = root.join("util");
+        let log_dir = root.join("vendor").join("log");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&util_dir).unwrap();
+        fs::create_dir_all(log_dir.join("src")).unwrap();
 
         fs::write(
             root.join("Craft.toml"),
@@ -1374,7 +1378,7 @@ root = "src/main.rn"
 
 [dependencies]
 util = { path = "../util" }
-log = "1"
+log = { path = "../vendor/log", version = "1" }
 "#,
         )
         .unwrap();
@@ -1391,6 +1395,20 @@ root = "src/lib.rn"
 "#,
         )
         .unwrap();
+        fs::write(
+            log_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(log_dir.join("src/lib.rn"), "pub fn answer() i32 { return 42; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1442,8 +1460,12 @@ root = "src/lib.rn"
         let root = temp_dir("craft-build-plan-build-deps");
         let app_dir = root.join("app");
         let util_dir = root.join("util");
+        let log_dir = root.join("vendor").join("log");
+        let cc_dir = root.join("vendor").join("cc");
         fs::create_dir_all(&app_dir).unwrap();
         fs::create_dir_all(&util_dir).unwrap();
+        fs::create_dir_all(log_dir.join("src")).unwrap();
+        fs::create_dir_all(cc_dir.join("src")).unwrap();
 
         fs::write(
             root.join("Craft.toml"),
@@ -1467,11 +1489,11 @@ root = "src/main.rn"
 
 [dependencies]
 util = { path = "../util" }
-log = "1"
+log = { path = "../vendor/log", version = "1" }
 
 [build-dependencies]
 util_build = { path = "../util", package = "util" }
-cc = "1"
+cc = { path = "../vendor/cc", version = "1" }
 "#,
         )
         .unwrap();
@@ -1488,6 +1510,34 @@ root = "src/lib.rn"
 "#,
         )
         .unwrap();
+        fs::write(
+            log_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(log_dir.join("src/lib.rn"), "pub fn answer() i32 { return 42; }\n").unwrap();
+        fs::write(
+            cc_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "cc"
+version = "1"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(cc_dir.join("src/lib.rn"), "pub fn tool() i32 { return 1; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1774,8 +1824,7 @@ root = "src/beta.rn"
     #[test]
     fn build_tool_lookup_supports_external_build_dependency_tools() {
         let root = temp_dir("craft-build-plan-external-tools");
-        let registry_root = root.join("vendor-registry");
-        let tool_root = registry_root.join("codegen").join("1");
+        let tool_root = root.join("vendor").join("codegen");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(&tool_root).unwrap();
 
@@ -1792,10 +1841,7 @@ name = "app"
 root = "src/main.rn"
 
 [build-dependencies]
-codegen = "1"
-
-[source.default]
-directory = "vendor-registry"
+codegen = { path = "vendor/codegen", version = "1" }
 "#,
         )
         .unwrap();
@@ -1846,16 +1892,17 @@ root = "src/main.rn"
             &root
                 .join(".craft")
                 .join("sources")
-                .join("registry")
-                .join("default")
-                .join("codegen")
-                .join("1"),
+                .join("path")
+                .join("vendor_codegen")
+                .join("codegen"),
             &crate::script::host_target(),
             crate::graph::BuildDomain::Target,
             &PackageId {
                 name: "codegen".to_string(),
                 version: "1".to_string(),
-                source: crate::graph::SourceId::Registry { name: None },
+                source: crate::graph::SourceId::PathDependency {
+                    path: "vendor/codegen".to_string(),
+                },
             },
             "dev",
             TargetKind::Bin,

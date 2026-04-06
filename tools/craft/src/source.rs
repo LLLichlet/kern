@@ -1,9 +1,8 @@
 use crate::error::{Error, Result};
 use crate::graph::SourceId;
 use crate::local_state;
-use crate::manifest::{Manifest, SourceConfig};
+use crate::manifest::Manifest;
 use crate::resolver::{ExternalPackageId, ResolvedGraph};
-use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -34,7 +33,6 @@ pub enum FetchStatus {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FetchedSource {
     pub backend: FetchedSourceBackend,
-    pub source_name: Option<String>,
     pub locator: String,
     pub selector: Option<FetchedGitSelector>,
     pub resolved_revision: Option<String>,
@@ -43,8 +41,7 @@ pub struct FetchedSource {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FetchedSourceBackend {
     PathDependency,
-    DirectoryRegistry,
-    GitRegistry,
+    GitDependency,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,8 +56,7 @@ impl FetchedSourceBackend {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::PathDependency => "path",
-            Self::DirectoryRegistry => "directory",
-            Self::GitRegistry => "git",
+            Self::GitDependency => "git",
         }
     }
 }
@@ -77,78 +73,12 @@ struct ResolvedSourcePath {
     identity: FetchedSource,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct SourceLookup<'a> {
-    pub manifest_path: &'a Path,
-    pub sources: &'a BTreeMap<String, SourceConfig>,
-}
-
-pub fn source_backend(source: &SourceConfig) -> &'static str {
-    if source.directory.is_some() {
-        "directory"
-    } else if source.git.is_some() {
-        "git"
-    } else {
-        "missing"
-    }
-}
-
-pub fn source_locator(source: &SourceConfig) -> Option<String> {
-    source.directory.clone().or_else(|| source.git.clone())
-}
-
-pub fn source_selector(source: &SourceConfig) -> Option<String> {
-    if let Some(rev) = &source.rev {
-        Some(format!("rev:{rev}"))
-    } else if let Some(branch) = &source.branch {
-        Some(format!("branch:{branch}"))
-    } else if let Some(tag) = &source.tag {
-        Some(format!("tag:{tag}"))
-    } else if source.git.is_some() {
-        Some("default".to_string())
-    } else {
-        None
-    }
-}
-
-pub fn is_insecure_source_locator(locator: &str) -> bool {
-    locator.starts_with("http://") || locator.starts_with("git://")
-}
-
-pub fn fetch_external_packages(
-    manifest_path: &Path,
-    manifest: &Manifest,
-    resolved: &ResolvedGraph,
-) -> Result<Vec<FetchedPackage>> {
-    fetch_external_packages_with_lookup(
-        &[SourceLookup {
-            manifest_path,
-            sources: &manifest.sources,
-        }],
-        resolved,
-    )
-}
-
-pub fn fetch_external_packages_with_lookup(
-    lookup_chain: &[SourceLookup<'_>],
-    resolved: &ResolvedGraph,
-) -> Result<Vec<FetchedPackage>> {
-    let primary_manifest_path = lookup_chain
-        .first()
-        .map(|entry| entry.manifest_path)
-        .unwrap_or_else(|| Path::new("Craft.toml"));
+pub fn fetch_external_packages(resolved: &ResolvedGraph) -> Result<Vec<FetchedPackage>> {
     let cache_root = resolved.workspace_root.join(".craft").join("sources");
     let mut packages = Vec::new();
-    let mut prepared_sources = BTreeMap::new();
 
     for package in &resolved.external_packages {
-        let resolved_source = source_path_for_external(
-            primary_manifest_path,
-            lookup_chain,
-            resolved,
-            &package.id,
-            &mut prepared_sources,
-        )?;
+        let resolved_source = source_path_for_external(resolved, &package.id)?;
         let cache_path = cache_path_for_external(&cache_root, &package.id)?;
         let status = materialize_tree(&resolved_source.source_path, &cache_path)?;
         validate_fetched_manifest(&cache_path)?;
@@ -181,11 +111,8 @@ pub fn summarize_fetch(packages: &[FetchedPackage]) -> FetchSummary {
 }
 
 fn source_path_for_external(
-    primary_manifest_path: &Path,
-    lookup_chain: &[SourceLookup<'_>],
     resolved: &ResolvedGraph,
     package: &ExternalPackageId,
-    prepared_sources: &mut BTreeMap<String, PreparedSource>,
 ) -> Result<ResolvedSourcePath> {
     match &package.source {
         SourceId::PathDependency { path } => {
@@ -196,7 +123,6 @@ fn source_path_for_external(
             Ok(ResolvedSourcePath {
                 identity: FetchedSource {
                     backend: FetchedSourceBackend::PathDependency,
-                    source_name: None,
                     locator: source_path.display().to_string(),
                     selector: None,
                     resolved_revision: None,
@@ -204,43 +130,28 @@ fn source_path_for_external(
                 source_path,
             })
         }
-        SourceId::Registry { name } => {
-            let source_name = name.as_deref().unwrap_or("default");
-            let (config_root, source) = lookup_chain
-                .iter()
-                .find_map(|entry| {
-                    entry.sources.get(source_name).map(|source| {
-                        (
-                            entry
-                                .manifest_path
-                                .parent()
-                                .unwrap_or_else(|| Path::new(".")),
-                            source,
-                        )
-                    })
-                })
-                .ok_or_else(|| Error::Validation {
-                    path: primary_manifest_path.to_path_buf(),
-                    message: format!(
-                        "external package `{}` requires `[source.{source_name}]`",
-                        package.package_name
-                    ),
-                })?;
-            let prepared = prepared_named_source_root(
-                config_root,
+        SourceId::GitDependency {
+            git,
+            rev,
+            branch,
+            tag,
+        } => {
+            let prepared = prepare_git_dependency_root(
                 &resolved.workspace_root,
-                source_name,
-                source,
-                prepared_sources,
+                &resolved.workspace_root,
+                package.package_name.as_str(),
+                git,
+                rev.as_deref(),
+                branch.as_deref(),
+                tag.as_deref(),
             )?;
-            let source_path = named_source_package_path(config_root, &prepared.root, package)?;
             Ok(ResolvedSourcePath {
-                source_path,
+                source_path: prepared.root,
                 identity: prepared.identity,
             })
         }
         SourceId::Root | SourceId::WorkspaceMember { .. } => Err(Error::Validation {
-            path: primary_manifest_path.to_path_buf(),
+            path: resolved.workspace_root.join("Craft.toml"),
             message: format!(
                 "unsupported external source kind for `{}`",
                 package.package_name
@@ -249,97 +160,19 @@ fn source_path_for_external(
     }
 }
 
-fn prepared_named_source_root(
+fn prepare_git_dependency_root(
     config_root: &Path,
     workspace_root: &Path,
-    source_name: &str,
-    source: &SourceConfig,
-    prepared_sources: &mut BTreeMap<String, PreparedSource>,
+    package_name: &str,
+    git_url: &str,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
 ) -> Result<PreparedSource> {
-    let key = format!(
-        "{source_name}:{}:{}:{}:{}:{}:{}",
-        config_root.display(),
-        source.directory.as_deref().unwrap_or(""),
-        source.git.as_deref().unwrap_or(""),
-        source.rev.as_deref().unwrap_or(""),
-        source.branch.as_deref().unwrap_or(""),
-        source.tag.as_deref().unwrap_or("")
-    );
-    if let Some(root) = prepared_sources.get(&key) {
-        return Ok(root.clone());
-    }
-
-    let prepared = if let Some(directory) = &source.directory {
-        let root = config_root.join(directory);
-        PreparedSource {
-            root,
-            identity: FetchedSource {
-                backend: FetchedSourceBackend::DirectoryRegistry,
-                source_name: Some(source_name.to_string()),
-                locator: source_locator(source).unwrap_or_else(|| directory.clone()),
-                selector: None,
-                resolved_revision: None,
-            },
-        }
-    } else if source.git.is_some() {
-        prepare_git_source_root(config_root, workspace_root, source_name, source)?
-    } else {
-        return Err(Error::Validation {
-            path: config_root.join("Craft.toml"),
-            message: format!("[source.{source_name}] must declare either `directory` or `git`"),
-        });
-    };
-
-    let canonical = prepared
-        .root
-        .canonicalize()
-        .map_err(|err| Error::from_io(&prepared.root, err))?;
-    let prepared = PreparedSource {
-        root: canonical.clone(),
-        identity: FetchedSource {
-            locator: canonical.display().to_string(),
-            ..prepared.identity
-        },
-    };
-    prepared_sources.insert(key, prepared.clone());
-    Ok(prepared)
-}
-
-fn named_source_package_path(
-    config_root: &Path,
-    source_root: &Path,
-    package: &ExternalPackageId,
-) -> Result<PathBuf> {
-    let Some(version) = &package.version else {
-        return Err(Error::Validation {
-            path: config_root.join("Craft.toml"),
-            message: format!(
-                "registry package `{}` must resolve to an explicit version before fetch",
-                package.package_name
-            ),
-        });
-    };
-
-    let package_root = source_root.join(&package.package_name).join(version);
-    package_root
-        .canonicalize()
-        .map_err(|err| Error::from_io(&package_root, err))
-}
-
-fn prepare_git_source_root(
-    config_root: &Path,
-    workspace_root: &Path,
-    source_name: &str,
-    source: &SourceConfig,
-) -> Result<PreparedSource> {
-    let git_url = source.git.as_deref().ok_or_else(|| Error::Validation {
-        path: config_root.join("Craft.toml"),
-        message: format!("[source.{source_name}] must declare `git`"),
-    })?;
     let cache_root = workspace_root
         .join(".craft")
-        .join("git-sources")
-        .join(source_name)
+        .join("git-dependencies")
+        .join(sanitize_segment(package_name))
         .join(format!(
             "{:016x}",
             fnv1a64_update(0xcbf29ce484222325, git_url.as_bytes())
@@ -352,56 +185,60 @@ fn prepare_git_source_root(
         local_state::ensure_parent_dir(&cache_root)?;
         run_git(
             config_root,
-            [
-                "clone",
-                "--no-checkout",
-                git_url,
-                &cache_root.to_string_lossy(),
-            ],
+            ["clone", "--no-checkout", git_url, &cache_root.to_string_lossy()],
         )?;
     }
 
     run_git(&cache_root, ["remote", "set-url", "origin", git_url])?;
-    git_fetch(&cache_root, source)?;
-    git_checkout_selected_ref(&cache_root, source)?;
+    git_fetch_ref(&cache_root, rev, branch, tag)?;
+    git_checkout_ref(&cache_root, rev, branch, tag)?;
     run_git(&cache_root, ["clean", "-ffdqx"])?;
     let resolved_revision = git_head_revision(&cache_root)?;
     Ok(PreparedSource {
         root: cache_root,
         identity: FetchedSource {
-            backend: FetchedSourceBackend::GitRegistry,
-            source_name: Some(source_name.to_string()),
-            locator: source_locator(source).unwrap_or_else(|| git_url.to_string()),
-            selector: Some(git_selector(source)),
+            backend: FetchedSourceBackend::GitDependency,
+            locator: git_url.to_string(),
+            selector: Some(git_selector_from_parts(rev, branch, tag)),
             resolved_revision: Some(resolved_revision),
         },
     })
 }
 
-fn git_fetch(repo_root: &Path, source: &SourceConfig) -> Result<()> {
-    if let Some(rev) = &source.rev {
+fn git_fetch_ref(
+    repo_root: &Path,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
+) -> Result<()> {
+    if let Some(rev) = rev {
         run_git(repo_root, ["fetch", "--tags", "--force", "origin", rev])
-    } else if let Some(branch) = &source.branch {
+    } else if let Some(branch) = branch {
         run_git(
             repo_root,
-            ["fetch", "--tags", "--force", "origin", branch.as_str()],
+            ["fetch", "--tags", "--force", "origin", branch],
         )
-    } else if let Some(tag) = &source.tag {
+    } else if let Some(tag) = tag {
         run_git(
             repo_root,
-            ["fetch", "--tags", "--force", "origin", tag.as_str()],
+            ["fetch", "--tags", "--force", "origin", tag],
         )
     } else {
         run_git(repo_root, ["fetch", "--tags", "--force", "origin"])
     }
 }
 
-fn git_checkout_selected_ref(repo_root: &Path, source: &SourceConfig) -> Result<()> {
-    let target = if let Some(rev) = &source.rev {
-        rev.clone()
-    } else if let Some(branch) = &source.branch {
+fn git_checkout_ref(
+    repo_root: &Path,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
+) -> Result<()> {
+    let target = if let Some(rev) = rev {
+        rev.to_string()
+    } else if let Some(branch) = branch {
         format!("origin/{branch}")
-    } else if let Some(tag) = &source.tag {
+    } else if let Some(tag) = tag {
         format!("refs/tags/{tag}")
     } else {
         "FETCH_HEAD".to_string()
@@ -412,13 +249,17 @@ fn git_checkout_selected_ref(repo_root: &Path, source: &SourceConfig) -> Result<
     )
 }
 
-fn git_selector(source: &SourceConfig) -> FetchedGitSelector {
-    if let Some(rev) = &source.rev {
-        FetchedGitSelector::Rev(rev.clone())
-    } else if let Some(branch) = &source.branch {
-        FetchedGitSelector::Branch(branch.clone())
-    } else if let Some(tag) = &source.tag {
-        FetchedGitSelector::Tag(tag.clone())
+fn git_selector_from_parts(
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
+) -> FetchedGitSelector {
+    if let Some(rev) = rev {
+        FetchedGitSelector::Rev(rev.to_string())
+    } else if let Some(branch) = branch {
+        FetchedGitSelector::Branch(branch.to_string())
+    } else if let Some(tag) = tag {
+        FetchedGitSelector::Tag(tag.to_string())
     } else {
         FetchedGitSelector::Default
     }
@@ -480,13 +321,27 @@ fn cache_path_for_external(cache_root: &Path, package: &ExternalPackageId) -> Re
             .join("path")
             .join(sanitize_segment(path))
             .join(package.package_name.as_str())),
-        SourceId::Registry { name } => Ok(cache_root
-            .join("registry")
-            .join(name.as_deref().unwrap_or("default"))
-            .join(package.package_name.as_str())
-            .join(package.version.as_deref().ok_or_else(|| {
-                Error::Usage("registry fetch requires a concrete version".to_string())
-            })?)),
+        SourceId::GitDependency {
+            git,
+            rev,
+            branch,
+            tag,
+        } => {
+            let selector = if let Some(rev) = rev {
+                format!("rev-{rev}")
+            } else if let Some(branch) = branch {
+                format!("branch-{branch}")
+            } else if let Some(tag) = tag {
+                format!("tag-{tag}")
+            } else {
+                "default".to_string()
+            };
+            Ok(cache_root
+                .join("git")
+                .join(sanitize_segment(git))
+                .join(sanitize_segment(&selector))
+                .join(package.package_name.as_str()))
+        }
         SourceId::Root | SourceId::WorkspaceMember { .. } => Err(Error::Usage(
             "cannot materialize local package sources as external sources".to_string(),
         )),
@@ -622,10 +477,9 @@ mod tests {
     }
 
     #[test]
-    fn fetches_registry_packages_from_directory_sources() {
-        let root = temp_dir("craft-fetch-registry");
-        let registry_root = root.join("vendor-registry");
-        let package_root = registry_root.join("log").join("1");
+    fn fetches_path_dependencies() {
+        let root = temp_dir("craft-fetch-path");
+        let package_root = root.join("vendor").join("log");
         fs::create_dir_all(package_root.join("src")).unwrap();
         fs::write(
             root.join("Craft.toml"),
@@ -636,10 +490,7 @@ version = "0.1.0"
 kern = "0.6.7"
 
 [dependencies]
-log = "1"
-
-[source.default]
-directory = "vendor-registry"
+log = { path = "vendor/log", version = "1" }
 "#,
         )
         .unwrap();
@@ -656,11 +507,7 @@ root = "src/lib.rn"
 "#,
         )
         .unwrap();
-        fs::write(
-            package_root.join("src/lib.rn"),
-            "pub fn x() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(package_root.join("src/lib.rn"), "pub fn x() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -674,50 +521,23 @@ root = "src/lib.rn"
         )
         .unwrap();
 
-        let fetched =
-            fetch_external_packages(&manifest_path, &manifest, &elaboration.resolved_graph)
-                .unwrap();
+        let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
         assert_eq!(fetched.len(), 1);
         assert_eq!(fetched[0].status, FetchStatus::Created);
-        assert_eq!(
-            fetched[0].source.backend,
-            FetchedSourceBackend::DirectoryRegistry
-        );
-        assert_eq!(fetched[0].source.source_name.as_deref(), Some("default"));
+        assert_eq!(fetched[0].source.backend, FetchedSourceBackend::PathDependency);
         assert_eq!(fetched[0].source.selector, None);
         assert_eq!(fetched[0].source.resolved_revision, None);
         assert!(fetched[0].cache_path.join("Craft.toml").is_file());
-        let gitignore = fs::read_to_string(root.join(".craft").join(".gitignore")).unwrap();
-        assert!(gitignore.contains("*"));
-        assert!(gitignore.contains("!.gitignore"));
-        let summary = summarize_fetch(&fetched);
-        assert_eq!(summary.created, 1);
+        assert_eq!(summarize_fetch(&fetched).created, 1);
 
         let _ = fs::remove_dir_all(root);
     }
 
     #[test]
-    fn fetches_registry_packages_from_git_sources() {
-        let root = temp_dir("craft-fetch-git-registry");
-        let registry_repo = root.join("registry.git");
-        init_git_registry(
-            &registry_repo,
-            &[
-                (
-                    "log/1/Craft.toml",
-                    r#"
-[package]
-name = "log"
-version = "1"
-kern = "0.6.7"
-
-[lib]
-root = "src/lib.rn"
-"#,
-                ),
-                ("log/1/src/lib.rn", "pub fn x() i32 { return 0; }\n"),
-            ],
-        );
+    fn fetches_and_updates_git_dependencies() {
+        let root = temp_dir("craft-fetch-git");
+        let repo = root.join("log.git");
+        init_git_package(&repo, "pub fn x() i32 { return 0; }\n");
 
         fs::write(
             root.join("Craft.toml"),
@@ -729,12 +549,9 @@ version = "0.1.0"
 kern = "0.6.7"
 
 [dependencies]
-log = "1"
-
-[source.default]
-git = "{}"
+log = {{ git = "{}", branch = "main", version = "1" }}
 "#,
-                toml_string_literal(&registry_repo)
+                toml_string_literal(&repo)
             ),
         )
         .unwrap();
@@ -751,109 +568,25 @@ git = "{}"
         )
         .unwrap();
 
-        let fetched =
-            fetch_external_packages(&manifest_path, &manifest, &elaboration.resolved_graph)
-                .unwrap();
-        assert_eq!(fetched.len(), 1);
+        let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
         assert_eq!(fetched[0].status, FetchStatus::Created);
-        assert_eq!(fetched[0].source.backend, FetchedSourceBackend::GitRegistry);
-        assert_eq!(fetched[0].source.source_name.as_deref(), Some("default"));
-        assert_eq!(
-            fetched[0].source.selector,
-            Some(FetchedGitSelector::Default)
-        );
-        assert_eq!(
-            fetched[0].source.resolved_revision.as_deref(),
-            Some(git_head(&registry_repo).as_str())
-        );
-        assert!(fetched[0].cache_path.join("Craft.toml").is_file());
-        assert_eq!(
-            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
-            "pub fn x() i32 { return 0; }\n"
-        );
-    }
-
-    #[test]
-    fn updates_git_source_cache_when_registry_revision_changes() {
-        let root = temp_dir("craft-fetch-git-update");
-        let registry_repo = root.join("registry.git");
-        init_git_registry(
-            &registry_repo,
-            &[
-                (
-                    "log/1/Craft.toml",
-                    r#"
-[package]
-name = "log"
-version = "1"
-kern = "0.6.7"
-
-[lib]
-root = "src/lib.rn"
-"#,
-                ),
-                ("log/1/src/lib.rn", "pub fn x() i32 { return 0; }\n"),
-            ],
-        );
-
-        fs::write(
-            root.join("Craft.toml"),
-            format!(
-                r#"
-[package]
-name = "app"
-version = "0.1.0"
-kern = "0.6.7"
-
-[dependencies]
-log = "1"
-
-[source.default]
-git = "{}"
-branch = "main"
-"#,
-                toml_string_literal(&registry_repo)
-            ),
-        )
-        .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Lock,
-            &FeatureSelection::default(),
-        )
-        .unwrap();
-
-        let fetched =
-            fetch_external_packages(&manifest_path, &manifest, &elaboration.resolved_graph)
-                .unwrap();
-        assert_eq!(fetched[0].status, FetchStatus::Created);
+        assert_eq!(fetched[0].source.backend, FetchedSourceBackend::GitDependency);
         assert_eq!(
             fetched[0].source.selector,
             Some(FetchedGitSelector::Branch("main".to_string()))
         );
         assert_eq!(
             fetched[0].source.resolved_revision.as_deref(),
-            Some(git_head(&registry_repo).as_str())
+            Some(git_head(&repo).as_str())
         );
 
-        commit_git_registry(
-            &registry_repo,
-            &[("log/1/src/lib.rn", "pub fn x() i32 { return 1; }\n")],
-        );
+        commit_git_package(&repo, "pub fn x() i32 { return 1; }\n");
 
-        let fetched =
-            fetch_external_packages(&manifest_path, &manifest, &elaboration.resolved_graph)
-                .unwrap();
+        let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
         assert_eq!(fetched[0].status, FetchStatus::Updated);
         assert_eq!(
             fetched[0].source.resolved_revision.as_deref(),
-            Some(git_head(&registry_repo).as_str())
+            Some(git_head(&repo).as_str())
         );
         assert_eq!(
             normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
@@ -861,16 +594,11 @@ branch = "main"
         );
     }
 
-    #[test]
-    fn fetches_registry_packages_from_git_tag_selector() {
-        let root = temp_dir("craft-fetch-git-tag");
-        let registry_repo = root.join("registry.git");
-        init_git_registry(
-            &registry_repo,
-            &[
-                (
-                    "log/1/Craft.toml",
-                    r#"
+    fn init_git_package(repo: &PathBuf, lib_source: &str) {
+        fs::create_dir_all(repo.join("src")).unwrap();
+        fs::write(
+            repo.join("Craft.toml"),
+            r#"
 [package]
 name = "log"
 version = "1"
@@ -879,164 +607,12 @@ kern = "0.6.7"
 [lib]
 root = "src/lib.rn"
 "#,
-                ),
-                ("log/1/src/lib.rn", "pub fn x() i32 { return 0; }\n"),
-            ],
-        );
-        let tagged_revision = git_head(&registry_repo);
-        run_git(&registry_repo, ["tag", "v1"]).unwrap();
-        commit_git_registry(
-            &registry_repo,
-            &[("log/1/src/lib.rn", "pub fn x() i32 { return 1; }\n")],
-        );
-
-        fs::write(
-            root.join("Craft.toml"),
-            format!(
-                r#"
-[package]
-name = "app"
-version = "0.1.0"
-kern = "0.6.7"
-
-[dependencies]
-log = "1"
-
-[source.default]
-git = "{}"
-tag = "v1"
-"#,
-                toml_string_literal(&registry_repo)
-            ),
         )
         .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Lock,
-            &FeatureSelection::default(),
-        )
-        .unwrap();
-
-        let fetched =
-            fetch_external_packages(&manifest_path, &manifest, &elaboration.resolved_graph)
-                .unwrap();
-        assert_eq!(fetched[0].status, FetchStatus::Created);
-        assert_eq!(
-            fetched[0].source.selector,
-            Some(FetchedGitSelector::Tag("v1".to_string()))
-        );
-        assert_eq!(
-            fetched[0].source.resolved_revision.as_deref(),
-            Some(tagged_revision.as_str())
-        );
-        assert_eq!(
-            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
-            "pub fn x() i32 { return 0; }\n"
-        );
-    }
-
-    #[test]
-    fn fetches_registry_packages_from_exact_git_revision() {
-        let root = temp_dir("craft-fetch-git-rev");
-        let registry_repo = root.join("registry.git");
-        init_git_registry(
-            &registry_repo,
-            &[
-                (
-                    "log/1/Craft.toml",
-                    r#"
-[package]
-name = "log"
-version = "1"
-kern = "0.6.7"
-
-[lib]
-root = "src/lib.rn"
-"#,
-                ),
-                ("log/1/src/lib.rn", "pub fn x() i32 { return 0; }\n"),
-            ],
-        );
-        let pinned_revision = git_head(&registry_repo);
-        commit_git_registry(
-            &registry_repo,
-            &[("log/1/src/lib.rn", "pub fn x() i32 { return 1; }\n")],
-        );
-
-        fs::write(
-            root.join("Craft.toml"),
-            format!(
-                r#"
-[package]
-name = "app"
-version = "0.1.0"
-kern = "0.6.7"
-
-[dependencies]
-log = "1"
-
-[source.default]
-git = "{}"
-rev = "{}"
-"#,
-                toml_string_literal(&registry_repo),
-                pinned_revision
-            ),
-        )
-        .unwrap();
-
-        let manifest_path = root.join("Craft.toml");
-        let manifest = Manifest::load(&manifest_path).unwrap();
-        let elaboration = plan(
-            &manifest_path,
-            &manifest,
-            &[],
-            false,
-            crate::script::ScriptCommand::Lock,
-            &FeatureSelection::default(),
-        )
-        .unwrap();
-
-        let fetched =
-            fetch_external_packages(&manifest_path, &manifest, &elaboration.resolved_graph)
-                .unwrap();
-        assert_eq!(fetched[0].status, FetchStatus::Created);
-        assert_eq!(
-            fetched[0].source.selector,
-            Some(FetchedGitSelector::Rev(pinned_revision.clone()))
-        );
-        assert_eq!(
-            fetched[0].source.resolved_revision.as_deref(),
-            Some(pinned_revision.as_str())
-        );
-        assert_eq!(
-            normalized_text_file(&fetched[0].cache_path.join("src/lib.rn")),
-            "pub fn x() i32 { return 0; }\n"
-        );
-    }
-
-    fn init_git_registry(repo: &PathBuf, files: &[(&str, &str)]) {
-        fs::create_dir_all(repo).unwrap();
+        fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
         run_git(repo, ["init", "--initial-branch=main"]).unwrap();
         run_git(repo, ["config", "user.name", "Craft Tests"]).unwrap();
-        run_git(
-            repo,
-            ["config", "user.email", "craft-tests@example.invalid"],
-        )
-        .unwrap();
-        for (relative, contents) in files {
-            let path = repo.join(relative);
-            if let Some(parent) = path.parent() {
-                fs::create_dir_all(parent).unwrap();
-            }
-            fs::write(path, contents).unwrap();
-        }
+        run_git(repo, ["config", "user.email", "craft-tests@example.invalid"]).unwrap();
         run_git(repo, ["add", "."]).unwrap();
         run_git(repo, ["commit", "-m", "initial"]).unwrap();
     }
@@ -1049,10 +625,8 @@ rev = "{}"
         fs::read_to_string(path).unwrap().replace("\r\n", "\n")
     }
 
-    fn commit_git_registry(repo: &PathBuf, files: &[(&str, &str)]) {
-        for (relative, contents) in files {
-            fs::write(repo.join(relative), contents).unwrap();
-        }
+    fn commit_git_package(repo: &PathBuf, lib_source: &str) {
+        fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
         run_git(repo, ["add", "."]).unwrap();
         run_git(repo, ["commit", "-m", "update"]).unwrap();
     }

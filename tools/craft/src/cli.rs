@@ -81,7 +81,6 @@ enum Tone {
     Accent,
     Muted,
     Ok,
-    Warn,
     Build,
     Link,
     Generate,
@@ -159,10 +158,6 @@ impl Renderer {
         println!("{} {message}", self.paint(Tone::Ok, "[ok]"));
     }
 
-    fn warn(&self, message: impl Display) {
-        println!("{} {message}", self.paint(Tone::Warn, "[warn]"));
-    }
-
     fn paint(&self, tone: Tone, text: &str) -> String {
         if !self.color_enabled {
             return text.to_string();
@@ -172,7 +167,6 @@ impl Renderer {
             Tone::Accent => "1;36",
             Tone::Muted => "2",
             Tone::Ok => "1;32",
-            Tone::Warn => "1;33",
             Tone::Build => "1;34",
             Tone::Link => "1;35",
             Tone::Generate => "1;36",
@@ -228,14 +222,7 @@ fn run_command(command: Command) -> Result<()> {
                 .iter()
                 .map(|pkg| pkg.dependencies.len())
                 .sum::<usize>();
-            let source_summary =
-                summarize_check_sources(&loaded.manifest, &loaded.elaboration.resolved_graph);
-            let security_summary = summarize_source_security(&loaded.manifest);
-            validate_check_source_policy(
-                &loaded.manifest_path,
-                &feature_selection,
-                &security_summary,
-            )?;
+            let source_summary = summarize_check_sources(&loaded.elaboration.resolved_graph);
             let dependency_summary = format!(
                 "normal {}, dev {}, build {}",
                 loaded
@@ -295,29 +282,11 @@ fn run_command(command: Command) -> Result<()> {
             render.summary(
                 "sources",
                 format!(
-                    "{} binding(s), {} registry package(s), {} path package(s), {} warning(s)",
-                    source_summary.configured,
-                    source_summary.registry_packages,
+                    "{} git package(s), {} path package(s)",
+                    source_summary.git_packages,
                     source_summary.path_packages,
-                    security_summary.warning_count()
                 ),
             );
-            if render.verbose && !source_summary.registry_bindings.is_empty() {
-                render.meta(
-                    "registries",
-                    source_summary
-                        .registry_bindings
-                        .iter()
-                        .map(|binding| {
-                            format!(
-                                "{}({};packages={})",
-                                binding.name, binding.backend, binding.package_count
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-            }
             if render.verbose {
                 render.meta(
                     "scripts",
@@ -339,14 +308,6 @@ fn run_command(command: Command) -> Result<()> {
                     lockfile::LockStatus::Stale => "stale",
                 },
             );
-            if !security_summary.warnings.is_empty() {
-                for warning in &security_summary.warnings {
-                    render.warn(format!("source policy: {warning}"));
-                }
-            }
-            if render.verbose && !security_summary.suppressed.is_empty() {
-                render.meta("exceptions", security_summary.suppressed.join(", "));
-            }
             if render.verbose && build_plan.generated_file_count() > 0 {
                 render.section("generated");
             }
@@ -417,11 +378,7 @@ fn run_command(command: Command) -> Result<()> {
                 &feature_selection,
                 "fetch",
             )?;
-            let fetched = source::fetch_external_packages(
-                &loaded.manifest_path,
-                &loaded.manifest,
-                &loaded.elaboration.resolved_graph,
-            )?;
+            let fetched = source::fetch_external_packages(&loaded.elaboration.resolved_graph)?;
             let summary = source::summarize_fetch(&fetched);
 
             render.header_with_path(
@@ -450,7 +407,7 @@ fn run_command(command: Command) -> Result<()> {
                     format_external_package_label(&package.id),
                     format!(
                         "from {} [{}] -> {}",
-                        format_fetched_source_name(package),
+                        package.source.locator,
                         format_fetched_source_backend(package),
                         package.cache_path.display()
                     ),
@@ -870,208 +827,32 @@ fn format_external_package_label(package: &crate::resolver::ExternalPackageId) -
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct CheckSourceSummary {
-    configured: usize,
-    directory_sources: usize,
     git_sources: usize,
-    registry_packages: usize,
+    git_packages: usize,
     path_packages: usize,
-    missing_sources: usize,
-    registry_bindings: Vec<CheckSourceBinding>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct CheckSourceBinding {
-    name: String,
-    backend: &'static str,
-    package_count: usize,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SourceSecuritySummary {
-    policy_mode: crate::manifest::ReleaseSourcePolicy,
-    floating_git_sources: usize,
-    insecure_transport_sources: usize,
-    warnings: Vec<String>,
-    suppressed: Vec<String>,
-    release_blockers: Vec<String>,
-}
-
-impl SourceSecuritySummary {
-    fn warning_count(&self) -> usize {
-        self.warnings.len()
-    }
-
-    fn release_blockers(&self) -> &[String] {
-        &self.release_blockers
-    }
-}
-
-fn summarize_check_sources(
-    manifest: &Manifest,
-    resolved: &crate::resolver::ResolvedGraph,
-) -> CheckSourceSummary {
-    let mut registry_counts = std::collections::BTreeMap::new();
+fn summarize_check_sources(resolved: &crate::resolver::ResolvedGraph) -> CheckSourceSummary {
+    let mut git_packages = 0usize;
     let mut path_packages = 0usize;
 
     for package in &resolved.external_packages {
         match &package.id.source {
             crate::graph::SourceId::PathDependency { .. } => path_packages += 1,
-            crate::graph::SourceId::Registry { name } => {
-                let name = name.as_deref().unwrap_or("default").to_string();
-                *registry_counts.entry(name).or_insert(0usize) += 1;
-            }
+            crate::graph::SourceId::GitDependency { .. } => git_packages += 1,
             crate::graph::SourceId::Root | crate::graph::SourceId::WorkspaceMember { .. } => {}
         }
     }
 
-    let directory_sources = manifest
-        .sources
-        .values()
-        .filter(|source| source.directory.is_some())
-        .count();
-    let git_sources = manifest
-        .sources
-        .values()
-        .filter(|source| source.git.is_some())
-        .count();
-    let mut missing_sources = 0usize;
-    let registry_bindings = registry_counts
-        .into_iter()
-        .map(|(name, package_count)| {
-            let backend = manifest
-                .sources
-                .get(&name)
-                .map(source_binding_backend)
-                .unwrap_or_else(|| {
-                    missing_sources += 1;
-                    "missing"
-                });
-            CheckSourceBinding {
-                name,
-                backend,
-                package_count,
-            }
-        })
-        .collect::<Vec<_>>();
-
     CheckSourceSummary {
-        configured: manifest.sources.len(),
-        directory_sources,
-        git_sources,
-        registry_packages: resolved
-            .external_packages
-            .iter()
-            .filter(|package| matches!(package.id.source, crate::graph::SourceId::Registry { .. }))
-            .count(),
+        git_sources: git_packages,
+        git_packages,
         path_packages,
-        missing_sources,
-        registry_bindings,
     }
-}
-
-fn source_binding_backend(source: &crate::manifest::SourceConfig) -> &'static str {
-    source::source_backend(source)
-}
-
-fn summarize_source_security(manifest: &Manifest) -> SourceSecuritySummary {
-    let policy_mode = manifest
-        .craft
-        .as_ref()
-        .and_then(|craft| craft.release_source_policy)
-        .unwrap_or(crate::manifest::ReleaseSourcePolicy::Enforce);
-    let allow_floating_git = manifest
-        .craft
-        .as_ref()
-        .map(|craft| {
-            craft
-                .allow_floating_git
-                .iter()
-                .map(String::as_str)
-                .collect::<std::collections::BTreeSet<_>>()
-        })
-        .unwrap_or_default();
-    let allow_insecure_source = manifest
-        .craft
-        .as_ref()
-        .map(|craft| {
-            craft
-                .allow_insecure_source
-                .iter()
-                .map(String::as_str)
-                .collect::<std::collections::BTreeSet<_>>()
-        })
-        .unwrap_or_default();
-    let mut floating_git_sources = 0usize;
-    let mut insecure_transport_sources = 0usize;
-    let mut warnings = Vec::new();
-    let mut suppressed = Vec::new();
-
-    for (name, source) in &manifest.sources {
-        if let Some(locator) = source::source_locator(source)
-            && source::is_insecure_source_locator(&locator)
-        {
-            insecure_transport_sources += 1;
-            let label = format!("{name}(insecure-transport)");
-            if allow_insecure_source.contains(name.as_str()) {
-                suppressed.push(label);
-            } else {
-                warnings.push(label);
-            }
-        }
-        if source.git.is_some() && source.rev.is_none() && source.tag.is_none() {
-            floating_git_sources += 1;
-            let label = format!("{name}(floating-git)");
-            if allow_floating_git.contains(name.as_str()) {
-                suppressed.push(label);
-            } else {
-                warnings.push(label);
-            }
-        }
-    }
-
-    let release_blockers = match policy_mode {
-        crate::manifest::ReleaseSourcePolicy::Enforce => warnings.clone(),
-        crate::manifest::ReleaseSourcePolicy::Warn | crate::manifest::ReleaseSourcePolicy::Off => {
-            Vec::new()
-        }
-    };
-
-    SourceSecuritySummary {
-        policy_mode,
-        floating_git_sources,
-        insecure_transport_sources,
-        warnings,
-        suppressed,
-        release_blockers,
-    }
-}
-
-fn validate_check_source_policy(
-    manifest_path: &std::path::Path,
-    selection: &elaborate::FeatureSelection,
-    summary: &SourceSecuritySummary,
-) -> Result<()> {
-    if selection.profile != crate::script::ProfileSelection::Release
-        || summary.release_blockers().is_empty()
-    {
-        return Ok(());
-    }
-
-    Err(Error::Validation {
-        path: manifest_path.to_path_buf(),
-        message: format!(
-            "release source policy rejected: {}",
-            summary.release_blockers().join(", ")
-        ),
-    })
 }
 
 fn format_fetched_source_backend(package: &source::FetchedPackage) -> &'static str {
     package.source.backend.as_str()
-}
-
-fn format_fetched_source_name(package: &source::FetchedPackage) -> &str {
-    package.source.source_name.as_deref().unwrap_or("<none>")
 }
 
 fn format_action_label(
@@ -1474,16 +1255,11 @@ examples
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ColorChoice, Command, UiOptions, parse_args, run_command, summarize_check_sources,
-        summarize_source_security, validate_check_source_policy,
-    };
+    use super::{ColorChoice, Command, UiOptions, parse_args, run_command, summarize_check_sources};
     use crate::elaborate::FeatureSelection;
     use crate::graph::SourceId;
-    use crate::manifest::ReleaseSourcePolicy;
     use crate::operation_lock::WorkspaceOperationLock;
     use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
-    use crate::script::ProfileSelection;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::mpsc;
@@ -1781,22 +1557,7 @@ root = "src/main.rn"
     }
 
     #[test]
-    fn summarizes_check_sources_by_backend_and_binding() {
-        let mut manifest = crate::manifest::Manifest::default();
-        manifest.sources.insert(
-            "default".to_string(),
-            crate::manifest::SourceConfig {
-                directory: Some("vendor/default".to_string()),
-                ..Default::default()
-            },
-        );
-        manifest.sources.insert(
-            "corp".to_string(),
-            crate::manifest::SourceConfig {
-                git: Some("https://example.com/corp.git".to_string()),
-                ..Default::default()
-            },
-        );
+    fn summarizes_check_sources_by_backend() {
         let resolved = ResolvedGraph {
             workspace_root: PathBuf::from("."),
             packages: Vec::new(),
@@ -1804,15 +1565,23 @@ root = "src/main.rn"
                 ResolvedExternalPackage {
                     id: ExternalPackageId {
                         package_name: "log".to_string(),
-                        source: SourceId::Registry { name: None },
+                        source: SourceId::GitDependency {
+                            git: "https://example.com/log.git".to_string(),
+                            rev: None,
+                            branch: Some("main".to_string()),
+                            tag: None,
+                        },
                         version: Some("1".to_string()),
                     },
                 },
                 ResolvedExternalPackage {
                     id: ExternalPackageId {
                         package_name: "net".to_string(),
-                        source: SourceId::Registry {
-                            name: Some("corp".to_string()),
+                        source: SourceId::GitDependency {
+                            git: "https://example.com/net.git".to_string(),
+                            rev: None,
+                            branch: None,
+                            tag: Some("v2".to_string()),
                         },
                         version: Some("2".to_string()),
                     },
@@ -1826,188 +1595,13 @@ root = "src/main.rn"
                         version: None,
                     },
                 },
-                ResolvedExternalPackage {
-                    id: ExternalPackageId {
-                        package_name: "missing".to_string(),
-                        source: SourceId::Registry {
-                            name: Some("missing".to_string()),
-                        },
-                        version: Some("1".to_string()),
-                    },
-                },
             ],
         };
 
-        let summary = summarize_check_sources(&manifest, &resolved);
-        assert_eq!(summary.configured, 2);
-        assert_eq!(summary.directory_sources, 1);
-        assert_eq!(summary.git_sources, 1);
-        assert_eq!(summary.registry_packages, 3);
+        let summary = summarize_check_sources(&resolved);
+        assert_eq!(summary.git_sources, 2);
+        assert_eq!(summary.git_packages, 2);
         assert_eq!(summary.path_packages, 1);
-        assert_eq!(summary.missing_sources, 1);
-        assert_eq!(
-            summary.registry_bindings,
-            vec![
-                super::CheckSourceBinding {
-                    name: "corp".to_string(),
-                    backend: "git",
-                    package_count: 1,
-                },
-                super::CheckSourceBinding {
-                    name: "default".to_string(),
-                    backend: "directory",
-                    package_count: 1,
-                },
-                super::CheckSourceBinding {
-                    name: "missing".to_string(),
-                    backend: "missing",
-                    package_count: 1,
-                },
-            ]
-        );
-    }
-
-    #[test]
-    fn summarizes_source_security_warnings() {
-        let manifest = crate::manifest::Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[source.default]
-git = "https://example.com/default.git"
-branch = "main"
-
-[source.insecure]
-git = "http://example.com/unsafe.git"
-rev = "abc123"
-
-[source.pinned]
-git = "https://example.com/pinned.git"
-tag = "v1"
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let summary = summarize_source_security(&manifest);
-        assert_eq!(summary.policy_mode, ReleaseSourcePolicy::Enforce);
-        assert_eq!(summary.floating_git_sources, 1);
-        assert_eq!(summary.insecure_transport_sources, 1);
-        assert_eq!(
-            summary.warnings,
-            vec![
-                "default(floating-git)".to_string(),
-                "insecure(insecure-transport)".to_string(),
-            ]
-        );
-        assert!(summary.suppressed.is_empty());
-    }
-
-    #[test]
-    fn release_check_policy_rejects_source_warnings() {
-        let summary = super::SourceSecuritySummary {
-            policy_mode: ReleaseSourcePolicy::Enforce,
-            floating_git_sources: 1,
-            insecure_transport_sources: 0,
-            warnings: vec!["default(floating-git)".to_string()],
-            suppressed: Vec::new(),
-            release_blockers: vec!["default(floating-git)".to_string()],
-        };
-        let selection = crate::elaborate::FeatureSelection {
-            profile: ProfileSelection::Release,
-            ..Default::default()
-        };
-
-        let err =
-            validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
-                .unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("release source policy rejected: default(floating-git)")
-        );
-    }
-
-    #[test]
-    fn dev_check_policy_allows_source_warnings() {
-        let summary = super::SourceSecuritySummary {
-            policy_mode: ReleaseSourcePolicy::Enforce,
-            floating_git_sources: 1,
-            insecure_transport_sources: 1,
-            warnings: vec![
-                "default(floating-git)".to_string(),
-                "insecure(insecure-transport)".to_string(),
-            ],
-            suppressed: Vec::new(),
-            release_blockers: vec![
-                "default(floating-git)".to_string(),
-                "insecure(insecure-transport)".to_string(),
-            ],
-        };
-        let selection = crate::elaborate::FeatureSelection::default();
-
-        validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
-            .unwrap();
-    }
-
-    #[test]
-    fn summarize_source_security_respects_allowlists_and_warn_mode() {
-        let manifest = crate::manifest::Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[craft]
-release-source-policy = "warn"
-allow-floating-git = ["default"]
-allow-insecure-source = ["insecure"]
-
-[source.default]
-git = "https://example.com/default.git"
-branch = "main"
-
-[source.insecure]
-git = "http://example.com/unsafe.git"
-rev = "abc123"
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let summary = summarize_source_security(&manifest);
-        assert_eq!(summary.policy_mode, ReleaseSourcePolicy::Warn);
-        assert!(summary.warnings.is_empty());
-        assert_eq!(
-            summary.suppressed,
-            vec![
-                "default(floating-git)".to_string(),
-                "insecure(insecure-transport)".to_string(),
-            ]
-        );
-        assert!(summary.release_blockers.is_empty());
-    }
-
-    #[test]
-    fn release_check_policy_allows_warn_mode_with_findings() {
-        let summary = super::SourceSecuritySummary {
-            policy_mode: ReleaseSourcePolicy::Warn,
-            floating_git_sources: 1,
-            insecure_transport_sources: 0,
-            warnings: vec!["default(floating-git)".to_string()],
-            suppressed: Vec::new(),
-            release_blockers: Vec::new(),
-        };
-        let selection = crate::elaborate::FeatureSelection {
-            profile: ProfileSelection::Release,
-            ..Default::default()
-        };
-
-        validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
-            .unwrap();
     }
 
     #[test]

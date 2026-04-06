@@ -117,7 +117,7 @@ mod tests {
     }
 
     #[test]
-    fn deduplicates_shared_external_dependencies() {
+    fn deduplicates_shared_external_git_dependencies() {
         let root = temp_dir("craft-resolver-dedupe");
         let app_dir = root.join("app");
         let tool_dir = root.join("tool");
@@ -141,7 +141,7 @@ version = "0.1.0"
 kern = "0.6.7"
 
 [dependencies]
-log = "1"
+log = { git = "https://example.com/log.git", tag = "v1" }
 "#,
         )
         .unwrap();
@@ -154,7 +154,7 @@ version = "0.1.0"
 kern = "0.6.7"
 
 [dependencies]
-log = "1"
+log = { git = "https://example.com/log.git", tag = "v1" }
 "#,
         )
         .unwrap();
@@ -168,14 +168,11 @@ log = "1"
         assert_eq!(resolved.packages.len(), 2);
         assert_eq!(resolved.external_packages.len(), 1);
         assert_eq!(resolved.external_packages[0].id.package_name, "log");
-        assert_eq!(
-            resolved.external_packages[0].id.source,
-            SourceId::Registry { name: None }
-        );
-        assert_eq!(
-            resolved.external_packages[0].id.version.as_deref(),
-            Some("1")
-        );
+        assert!(matches!(
+            &resolved.external_packages[0].id.source,
+            SourceId::GitDependency { git, tag, .. }
+                if git == "https://example.com/log.git" && tag.as_deref() == Some("v1")
+        ));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -206,7 +203,7 @@ kern = "0.6.7"
 
 [dependencies]
 util = { path = "../util" }
-log = "1"
+log = { git = "https://example.com/log.git", branch = "main" }
 "#,
         )
         .unwrap();
@@ -244,7 +241,12 @@ kern = "0.6.7"
                     &dep.target,
                     ResolvedDependencyTarget::External(pkg)
                         if pkg.package_name == "log"
-                            && pkg.source == SourceId::Registry { name: None }
+                            && matches!(
+                                &pkg.source,
+                                SourceId::GitDependency { git, branch, .. }
+                                    if git == "https://example.com/log.git"
+                                        && branch.as_deref() == Some("main")
+                            )
                 )
         }));
 

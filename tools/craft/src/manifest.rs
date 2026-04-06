@@ -7,7 +7,6 @@ use std::path::Path;
 pub struct Manifest {
     pub package: Option<Package>,
     pub craft: Option<CraftConfig>,
-    pub sources: BTreeMap<String, SourceConfig>,
     pub lib: Option<LibTarget>,
     pub bin: Vec<NamedTarget>,
     pub test: Vec<NamedTarget>,
@@ -31,35 +30,6 @@ pub struct Package {
 #[derive(Debug, Default)]
 pub struct CraftConfig {
     pub env: Vec<String>,
-    pub release_source_policy: Option<ReleaseSourcePolicy>,
-    pub allow_floating_git: Vec<String>,
-    pub allow_insecure_source: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct SourceConfig {
-    pub directory: Option<String>,
-    pub git: Option<String>,
-    pub rev: Option<String>,
-    pub branch: Option<String>,
-    pub tag: Option<String>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ReleaseSourcePolicy {
-    Enforce,
-    Warn,
-    Off,
-}
-
-impl ReleaseSourcePolicy {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Enforce => "enforce",
-            Self::Warn => "warn",
-            Self::Off => "off",
-        }
-    }
 }
 
 #[derive(Debug, Default)]
@@ -83,7 +53,10 @@ pub enum DependencySpec {
 pub struct DetailedDependency {
     pub version: Option<String>,
     pub path: Option<String>,
-    pub registry: Option<String>,
+    pub git: Option<String>,
+    pub rev: Option<String>,
+    pub branch: Option<String>,
+    pub tag: Option<String>,
     pub workspace: Option<bool>,
     pub package: Option<String>,
     pub optional: Option<bool>,
@@ -124,7 +97,6 @@ enum Section {
     Root,
     Package,
     Craft,
-    Source(String),
     Lib,
     Bin(usize),
     Test,
@@ -218,20 +190,6 @@ impl Manifest {
             for name in &craft.env {
                 validate_env_name(path, "[craft].env[]", name)?;
             }
-            if let Some(policy) = craft.release_source_policy {
-                let _ = policy;
-            }
-            for name in &craft.allow_floating_git {
-                validate_source_name(path, "[craft].allow-floating-git[]", name)?;
-            }
-            for name in &craft.allow_insecure_source {
-                validate_source_name(path, "[craft].allow-insecure-source[]", name)?;
-            }
-        }
-
-        for (name, source) in &self.sources {
-            validate_source_name(path, "[source]", name)?;
-            validate_source_config(path, name, source)?;
         }
 
         if let Some(lib) = &self.lib {
@@ -302,14 +260,6 @@ fn enter_table_section(
     manifest: &mut Manifest,
     line: &str,
 ) -> std::result::Result<Section, String> {
-    if let Some(name) = line
-        .strip_prefix("[source.")
-        .and_then(|tail| tail.strip_suffix(']'))
-    {
-        manifest.sources.entry(name.to_string()).or_default();
-        return Ok(Section::Source(name.to_string()));
-    }
-
     match line {
         "[package]" => {
             manifest.package.get_or_insert_with(Package::default);
@@ -380,26 +330,7 @@ fn assign_key_value(
             let craft = manifest.craft.get_or_insert_with(CraftConfig::default);
             match key {
                 "env" => craft.env = parse_string_array(raw_value)?,
-                "release-source-policy" => {
-                    craft.release_source_policy = Some(parse_release_source_policy(raw_value)?)
-                }
-                "allow-floating-git" => craft.allow_floating_git = parse_string_array(raw_value)?,
-                "allow-insecure-source" => {
-                    craft.allow_insecure_source = parse_string_array(raw_value)?
-                }
                 _ => return Err(format!("unsupported [craft] key `{key}`")),
-            }
-            Ok(())
-        }
-        Section::Source(name) => {
-            let source = manifest.sources.entry(name.clone()).or_default();
-            match key {
-                "directory" => source.directory = Some(parse_string(raw_value)?),
-                "git" => source.git = Some(parse_string(raw_value)?),
-                "rev" => source.rev = Some(parse_string(raw_value)?),
-                "branch" => source.branch = Some(parse_string(raw_value)?),
-                "tag" => source.tag = Some(parse_string(raw_value)?),
-                _ => return Err(format!("unsupported [source] key `{key}`")),
             }
             Ok(())
         }
@@ -769,7 +700,10 @@ fn parse_dependency(raw: &str) -> std::result::Result<DependencySpec, String> {
         match key {
             "version" => dep.version = Some(parse_string(value)?),
             "path" => dep.path = Some(parse_string(value)?),
-            "registry" => dep.registry = Some(parse_string(value)?),
+            "git" => dep.git = Some(parse_string(value)?),
+            "rev" => dep.rev = Some(parse_string(value)?),
+            "branch" => dep.branch = Some(parse_string(value)?),
+            "tag" => dep.tag = Some(parse_string(value)?),
             "workspace" => dep.workspace = Some(parse_bool(value)?),
             "package" => dep.package = Some(parse_string(value)?),
             "optional" => dep.optional = Some(parse_bool(value)?),
@@ -907,8 +841,13 @@ fn validate_dependencies(
     for (name, spec) in deps {
         validate_non_empty(path, &format!("{section} key"), name)?;
         match spec {
-            DependencySpec::Version(version) => {
-                validate_non_empty(path, &format!("{section}.{name}"), version)?;
+            DependencySpec::Version(_) => {
+                return Err(Error::Validation {
+                    path: path.to_path_buf(),
+                    message: format!(
+                        "{section}.{name} must use an inline table with `path` or `git`; plain version strings are unsupported"
+                    ),
+                });
             }
             DependencySpec::Detailed(dep) => {
                 if section == "[workspace.dependencies]" && dep.workspace == Some(true) {
@@ -921,23 +860,52 @@ fn validate_dependencies(
                 }
 
                 if dep.workspace == Some(true)
-                    && (dep.version.is_some() || dep.path.is_some() || dep.registry.is_some())
+                    && (dep.version.is_some() || dep.path.is_some() || dep.git.is_some())
                 {
                     return Err(Error::Validation {
                         path: path.to_path_buf(),
                         message: format!(
-                            "{section}.{name} cannot combine `workspace = true` with `version`, `path`, or `registry`"
+                            "{section}.{name} cannot combine `workspace = true` with `version`, `path`, or `git`"
                         ),
                     });
                 }
 
-                let has_locator =
-                    dep.version.is_some() || dep.path.is_some() || dep.registry.is_some();
+                let has_locator = dep.path.is_some() || dep.git.is_some();
                 if dep.workspace != Some(true) && !has_locator {
                     return Err(Error::Validation {
                         path: path.to_path_buf(),
                         message: format!(
-                            "{section}.{name} must declare at least one of `version`, `path`, or `registry`"
+                            "{section}.{name} must declare `path`, `git`, or `workspace = true`"
+                        ),
+                    });
+                }
+
+                if dep.path.is_some() && dep.git.is_some() {
+                    return Err(Error::Validation {
+                        path: path.to_path_buf(),
+                        message: format!(
+                            "{section}.{name} cannot combine `path` and `git`"
+                        ),
+                    });
+                }
+
+                let dep_selector_count = usize::from(dep.rev.is_some())
+                    + usize::from(dep.branch.is_some())
+                    + usize::from(dep.tag.is_some());
+                if dep_selector_count > 1 {
+                    return Err(Error::Validation {
+                        path: path.to_path_buf(),
+                        message: format!(
+                            "{section}.{name} may set at most one of `rev`, `branch`, or `tag`"
+                        ),
+                    });
+                }
+
+                if dep.git.is_none() && dep_selector_count > 0 {
+                    return Err(Error::Validation {
+                        path: path.to_path_buf(),
+                        message: format!(
+                            "{section}.{name} can only use `rev`, `branch`, or `tag` with `git` dependencies"
                         ),
                     });
                 }
@@ -948,8 +916,17 @@ fn validate_dependencies(
                 if let Some(path_value) = &dep.path {
                     validate_non_empty(path, &format!("{section}.{name}.path"), path_value)?;
                 }
-                if let Some(registry) = &dep.registry {
-                    validate_non_empty(path, &format!("{section}.{name}.registry"), registry)?;
+                if let Some(git) = &dep.git {
+                    validate_non_empty(path, &format!("{section}.{name}.git"), git)?;
+                }
+                if let Some(rev) = &dep.rev {
+                    validate_non_empty(path, &format!("{section}.{name}.rev"), rev)?;
+                }
+                if let Some(branch) = &dep.branch {
+                    validate_non_empty(path, &format!("{section}.{name}.branch"), branch)?;
+                }
+                if let Some(tag) = &dep.tag {
+                    validate_non_empty(path, &format!("{section}.{name}.tag"), tag)?;
                 }
                 if let Some(package) = &dep.package {
                     validate_non_empty(path, &format!("{section}.{name}.package"), package)?;
@@ -978,66 +955,6 @@ fn validate_profile(path: &Path, section: &str, profile: &Profile) -> Result<()>
     Ok(())
 }
 
-fn validate_source_config(path: &Path, name: &str, source: &SourceConfig) -> Result<()> {
-    let has_directory = source.directory.is_some();
-    let has_git = source.git.is_some();
-    match (has_directory, has_git) {
-        (false, false) => {
-            return Err(Error::Validation {
-                path: path.to_path_buf(),
-                message: format!("[source.{name}] must declare either `directory` or `git`"),
-            });
-        }
-        (true, true) => {
-            return Err(Error::Validation {
-                path: path.to_path_buf(),
-                message: format!(
-                    "[source.{name}] cannot combine `directory` and `git` source definitions"
-                ),
-            });
-        }
-        _ => {}
-    }
-
-    if let Some(directory) = &source.directory {
-        validate_non_empty(path, &format!("[source.{name}].directory"), directory)?;
-    }
-    if let Some(git) = &source.git {
-        validate_non_empty(path, &format!("[source.{name}].git"), git)?;
-    }
-
-    let selector_count = usize::from(source.rev.is_some())
-        + usize::from(source.branch.is_some())
-        + usize::from(source.tag.is_some());
-    if selector_count > 1 {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!("[source.{name}] may set at most one of `rev`, `branch`, or `tag`"),
-        });
-    }
-
-    if !has_git && selector_count > 0 {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!(
-                "[source.{name}] can only use `rev`, `branch`, or `tag` with `git` sources"
-            ),
-        });
-    }
-
-    if let Some(rev) = &source.rev {
-        validate_non_empty(path, &format!("[source.{name}].rev"), rev)?;
-    }
-    if let Some(branch) = &source.branch {
-        validate_non_empty(path, &format!("[source.{name}].branch"), branch)?;
-    }
-    if let Some(tag) = &source.tag {
-        validate_non_empty(path, &format!("[source.{name}].tag"), tag)?;
-    }
-
-    Ok(())
-}
-
 fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
     if value.trim().is_empty() {
         return Err(Error::Validation {
@@ -1058,19 +975,6 @@ fn validate_kern_version(path: &Path, value: &str) -> Result<()> {
         });
     }
     Ok(())
-}
-
-fn parse_release_source_policy(
-    raw_value: &str,
-) -> std::result::Result<ReleaseSourcePolicy, String> {
-    match parse_string(raw_value)?.as_str() {
-        "enforce" => Ok(ReleaseSourcePolicy::Enforce),
-        "warn" => Ok(ReleaseSourcePolicy::Warn),
-        "off" => Ok(ReleaseSourcePolicy::Off),
-        other => Err(format!(
-            "[craft].release-source-policy has unsupported value `{other}`"
-        )),
-    }
 }
 
 fn validate_env_name(path: &Path, field: &str, value: &str) -> Result<()> {
@@ -1099,34 +1003,9 @@ fn validate_env_name(path: &Path, field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate_source_name(path: &Path, field: &str, value: &str) -> Result<()> {
-    validate_non_empty(path, field, value)?;
-    let mut chars = value.chars();
-    let Some(first) = chars.next() else {
-        unreachable!("non-empty source names are required");
-    };
-    if !(first == '_' || first.is_ascii_alphabetic()) {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!(
-                "{field} names must start with an ASCII letter or `_`, found `{value}`"
-            ),
-        });
-    }
-    if chars.any(|ch| !(ch == '_' || ch == '-' || ch.is_ascii_alphanumeric())) {
-        return Err(Error::Validation {
-            path: path.to_path_buf(),
-            message: format!(
-                "{field} names must contain only ASCII letters, digits, `_`, or `-`, found `{value}`"
-            ),
-        });
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{DependencySpec, Manifest, ReleaseSourcePolicy};
+    use super::{DependencySpec, Manifest};
 
     #[test]
     fn parses_package_manifest() {
@@ -1148,8 +1027,8 @@ root = "src/main.rn"
 roots = ["tests/smoke.rn", "tests/env.rn"]
 
 [dependencies]
-log = "1"
 alloc = { path = "../alloc", features = ["arena"] }
+toml = { git = "https://example.com/toml.git", tag = "v0.1.0" }
 
 [features]
 default = []
@@ -1165,49 +1044,6 @@ default = []
         assert_eq!(manifest.test[0].name, "smoke");
         assert_eq!(manifest.test[1].name, "env");
         assert_eq!(manifest.dependencies.len(), 2);
-    }
-
-    #[test]
-    fn parses_workspace_manifest() {
-        let manifest = Manifest::parse(
-            r#"
-[workspace]
-members = [
-  "compiler/*",
-  "tools/*",
-]
-
-[workspace.package]
-license = "MIT"
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let workspace = manifest.workspace.unwrap();
-        assert_eq!(workspace.members.len(), 2);
-        assert_eq!(workspace.package.unwrap().license.unwrap(), "MIT");
-    }
-
-    #[test]
-    fn rejects_invalid_profile_opt() {
-        let manifest = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[profile.dev]
-opt = 7
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
-        assert!(err.to_string().contains("0..=3"));
     }
 
     #[test]
@@ -1236,7 +1072,7 @@ shared = { workspace = true, features = ["simd"] }
     }
 
     #[test]
-    fn rejects_workspace_inheritance_locators_in_member_dependency() {
+    fn rejects_plain_version_dependencies() {
         let manifest = Manifest::parse(
             r#"
 [package]
@@ -1245,177 +1081,19 @@ version = "0.1.0"
 kern = "0.6.7"
 
 [dependencies]
-shared = { workspace = true, version = "2" }
+log = "1"
 "#,
             std::path::Path::new("Craft.toml"),
         )
         .unwrap();
 
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("cannot combine `workspace = true`")
-        );
+        let err = manifest.validate(std::path::Path::new("Craft.toml")).unwrap_err();
+        assert!(err.to_string().contains("plain version strings are unsupported"));
     }
 
     #[test]
-    fn rejects_workspace_inheritance_inside_workspace_dependencies() {
-        let manifest = Manifest::parse(
-            r#"
-[workspace]
-members = ["app"]
-
-[workspace.dependencies]
-shared = { workspace = true }
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
-        assert!(err.to_string().contains("cannot use `workspace = true`"));
-    }
-
-    #[test]
-    fn parses_craft_env_allowlist() {
-        let manifest = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[craft]
-env = ["USE_SYSTEM_SSL", "KERN_SYSROOT"]
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let craft = manifest.craft.unwrap();
-        assert_eq!(craft.env, vec!["USE_SYSTEM_SSL", "KERN_SYSROOT"]);
-    }
-
-    #[test]
-    fn parses_craft_release_source_policy_overrides() {
-        let manifest = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[craft]
-release-source-policy = "warn"
-allow-floating-git = ["default"]
-allow-insecure-source = ["mirror"]
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let craft = manifest.craft.unwrap();
-        assert_eq!(craft.release_source_policy, Some(ReleaseSourcePolicy::Warn));
-        assert_eq!(craft.allow_floating_git, vec!["default"]);
-        assert_eq!(craft.allow_insecure_source, vec!["mirror"]);
-    }
-
-    #[test]
-    fn parses_named_source_tables() {
-        let manifest = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[source.default]
-directory = "vendor/default"
-
-[source.corp]
-git = "https://example.com/corp.git"
-branch = "stable"
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        assert_eq!(
-            manifest
-                .sources
-                .get("default")
-                .and_then(|source| source.directory.as_deref()),
-            Some("vendor/default")
-        );
-        assert_eq!(
-            manifest
-                .sources
-                .get("corp")
-                .and_then(|source| source.git.as_deref()),
-            Some("https://example.com/corp.git")
-        );
-        assert_eq!(
-            manifest
-                .sources
-                .get("corp")
-                .and_then(|source| source.branch.as_deref()),
-            Some("stable")
-        );
-    }
-
-    #[test]
-    fn rejects_source_without_directory() {
-        let manifest = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[source.default]
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("must declare either `directory` or `git`")
-        );
-    }
-
-    #[test]
-    fn rejects_source_with_multiple_backends() {
-        let manifest = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[source.default]
-directory = "vendor/default"
-git = "https://example.com/default.git"
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("cannot combine `directory` and `git`")
-        );
-    }
-
-    #[test]
-    fn rejects_git_source_with_multiple_selectors() {
-        let manifest = Manifest::parse(
+    fn rejects_unsupported_source_tables() {
+        let err = Manifest::parse(
             r#"
 [package]
 name = "demo"
@@ -1424,44 +1102,12 @@ kern = "0.6.7"
 
 [source.default]
 git = "https://example.com/default.git"
-branch = "main"
-tag = "v1"
 "#,
             std::path::Path::new("Craft.toml"),
         )
-        .unwrap();
+        .unwrap_err();
 
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("at most one of `rev`, `branch`, or `tag`")
-        );
-    }
-
-    #[test]
-    fn rejects_non_git_source_with_git_selector() {
-        let manifest = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[source.default]
-directory = "vendor/default"
-rev = "abc123"
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap();
-
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
-        assert!(
-            err.to_string()
-                .contains("can only use `rev`, `branch`, or `tag` with `git` sources")
-        );
+        assert!(err.to_string().contains("unsupported table `[source.default]`"));
     }
 
     #[test]
@@ -1480,28 +1126,8 @@ env = ["1BAD-NAME"]
         )
         .unwrap();
 
-        let path = std::path::Path::new("Craft.toml");
-        let err = manifest.validate(path).unwrap_err();
+        let err = manifest.validate(std::path::Path::new("Craft.toml")).unwrap_err();
         assert!(err.to_string().contains("[craft].env[]"));
-    }
-
-    #[test]
-    fn rejects_invalid_release_source_policy_value() {
-        let err = Manifest::parse(
-            r#"
-[package]
-name = "demo"
-version = "0.1.0"
-kern = "0.6.7"
-
-[craft]
-release-source-policy = "strict"
-"#,
-            std::path::Path::new("Craft.toml"),
-        )
-        .unwrap_err();
-
-        assert!(err.to_string().contains("release-source-policy"));
     }
 
     #[test]

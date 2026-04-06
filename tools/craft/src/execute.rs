@@ -112,13 +112,7 @@ struct LoadedExternalPackage {
 
 #[derive(Debug)]
 struct SourceConfigContext {
-    scopes: Vec<SourceConfigScope>,
-}
-
-#[derive(Debug, Clone)]
-struct SourceConfigScope {
-    manifest_path: PathBuf,
-    sources: BTreeMap<String, crate::manifest::SourceConfig>,
+    _private: (),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -367,34 +361,13 @@ fn load_source_config(build_plan: &BuildPlan) -> Result<SourceConfigContext> {
     Ok(source_config_context(manifest_path, manifest))
 }
 
-fn source_config_context(manifest_path: PathBuf, manifest: Manifest) -> SourceConfigContext {
-    SourceConfigContext {
-        scopes: vec![SourceConfigScope {
-            manifest_path,
-            sources: manifest.sources.clone(),
-        }],
-    }
+fn source_config_context(_manifest_path: PathBuf, _manifest: Manifest) -> SourceConfigContext {
+    SourceConfigContext { _private: () }
 }
 
 impl SourceConfigContext {
-    fn with_child(&self, manifest_path: PathBuf, manifest: &Manifest) -> Self {
-        let mut scopes = Vec::with_capacity(self.scopes.len() + 1);
-        scopes.push(SourceConfigScope {
-            manifest_path,
-            sources: manifest.sources.clone(),
-        });
-        scopes.extend(self.scopes.iter().cloned());
-        Self { scopes }
-    }
-
-    fn lookup_chain(&self) -> Vec<source::SourceLookup<'_>> {
-        self.scopes
-            .iter()
-            .map(|scope| source::SourceLookup {
-                manifest_path: &scope.manifest_path,
-                sources: &scope.sources,
-            })
-            .collect()
+    fn with_child(&self, _manifest_path: PathBuf, _manifest: &Manifest) -> Self {
+        Self { _private: () }
     }
 }
 
@@ -1043,13 +1016,13 @@ fn fetch_external_package(
     dependency_workspace_root: &Path,
     dep: &ExternalPackageId,
 ) -> Result<source::FetchedPackage> {
+    let _ = source_config;
     let resolved = ResolvedGraph {
         workspace_root: dependency_workspace_root.to_path_buf(),
         packages: Vec::new(),
         external_packages: vec![ResolvedExternalPackage { id: dep.clone() }],
     };
-    let lookup_chain = source_config.lookup_chain();
-    let mut fetched = source::fetch_external_packages_with_lookup(&lookup_chain, &resolved)?;
+    let mut fetched = source::fetch_external_packages(&resolved)?;
     fetched.pop().ok_or_else(|| {
         Error::Execution(format!(
             "failed to fetch external package `{}`",
@@ -2372,10 +2345,9 @@ extern fn main(args: [][]u8) i32 {
     }
 
     #[test]
-    fn builds_package_with_direct_external_registry_dependency() {
+    fn builds_package_with_direct_external_path_dependency() {
         let root = temp_dir("craft-exec-external-direct");
-        let registry_root = root.join("vendor-registry");
-        let log_root = registry_root.join("log").join("1");
+        let log_root = root.join("vendor").join("log");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(log_root.join("src")).unwrap();
 
@@ -2392,10 +2364,7 @@ name = "app"
 root = "src/main.rn"
 
 [dependencies]
-log = "1"
-
-[source.default]
-directory = "vendor-registry"
+log = { path = "vendor/log", version = "1" }
 "#,
         )
         .unwrap();
@@ -2458,11 +2427,10 @@ pub fn answer() i32 {
     }
 
     #[test]
-    fn builds_and_runs_hosted_package_with_transitive_external_registry_dependency() {
+    fn builds_and_runs_hosted_package_with_transitive_external_path_dependency() {
         let root = temp_dir("craft-exec-external-transitive");
-        let registry_root = root.join("vendor-registry");
-        let log_root = registry_root.join("log").join("1");
-        let corelog_root = registry_root.join("corelog").join("1");
+        let log_root = root.join("vendor").join("log");
+        let corelog_root = log_root.join("vendor").join("corelog");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(log_root.join("src")).unwrap();
         fs::create_dir_all(corelog_root.join("src")).unwrap();
@@ -2480,10 +2448,7 @@ name = "app"
 root = "src/main.rn"
 
 [dependencies]
-log = "1"
-
-[source.default]
-directory = "vendor-registry"
+log = { path = "vendor/log", version = "1" }
 "#,
         )
         .unwrap();
@@ -2512,7 +2477,7 @@ kern = "0.6.7"
 root = "src/lib.rn"
 
 [dependencies]
-corelog = "1"
+corelog = { path = "vendor/corelog", version = "1" }
 "#,
         )
         .unwrap();
@@ -2575,12 +2540,10 @@ pub fn base() i32 {
     }
 
     #[test]
-    fn builds_and_runs_external_package_with_package_local_registry_source() {
+    fn builds_and_runs_external_package_with_nested_path_dependency() {
         let root = temp_dir("craft-exec-external-package-local-source");
-        let registry_root = root.join("vendor-registry");
-        let log_root = registry_root.join("log").join("1");
-        let nested_registry_root = log_root.join("vendor-nested");
-        let corelog_root = nested_registry_root.join("corelog").join("1");
+        let log_root = root.join("vendor").join("log");
+        let corelog_root = log_root.join("vendor-nested").join("corelog");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(log_root.join("src")).unwrap();
         fs::create_dir_all(corelog_root.join("src")).unwrap();
@@ -2598,10 +2561,7 @@ name = "app"
 root = "src/main.rn"
 
 [dependencies]
-log = "1"
-
-[source.default]
-directory = "vendor-registry"
+log = { path = "vendor/log", version = "1" }
 "#,
         )
         .unwrap();
@@ -2630,10 +2590,7 @@ kern = "0.6.7"
 root = "src/lib.rn"
 
 [dependencies]
-corelog = { version = "1", registry = "nested" }
-
-[source.nested]
-directory = "vendor-nested"
+corelog = { path = "vendor-nested/corelog", version = "1" }
 "#,
         )
         .unwrap();
@@ -3172,8 +3129,7 @@ pub fn build(b: *mut builder.Builder) void {
     #[test]
     fn builds_and_runs_hosted_package_with_generated_source_from_external_host_tool() {
         let root = temp_dir("craft-exec-external-host-tool-generated");
-        let registry_root = root.join("vendor-registry");
-        let tool_root = registry_root.join("codegen").join("1");
+        let tool_root = root.join("vendor").join("codegen");
         fs::create_dir_all(root.join("src")).unwrap();
         fs::create_dir_all(tool_root.join("src")).unwrap();
         fs::write(
@@ -3189,10 +3145,7 @@ name = "app"
 root = "src/placeholder.rn"
 
 [build-dependencies]
-codegen = "1"
-
-[source.default]
-directory = "vendor-registry"
+codegen = { path = "vendor/codegen", version = "1" }
 "#,
         )
         .unwrap();

@@ -106,7 +106,7 @@ use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
     if (p.target.os == .windows) {
-        p.dep_registry(.normal, "win32", "default");
+        p.dep_git(.normal, "win32", "https://example.com/win32.git");
     }
 
     if (p.feature_enabled("simd")) {
@@ -152,26 +152,47 @@ pub fn build(b: *mut builder.Builder) void {
 The builder API also supports generated files, copied package assets, staged
 artifact files, and tool-produced outputs.
 
-## Sources And Release Policy
+## External Dependencies
 
-External sources are configured explicitly:
+External dependencies are declared directly on the dependency itself:
 
 ```toml
-[source.default]
-directory = "vendor/registry"
+[dependencies]
+log = { path = "../log" }
 ```
 
 or:
 
 ```toml
-[source.default]
-git = "https://example.com/registry.git"
-tag = "v1"
+[dependencies]
+log = { git = "https://example.com/log.git", tag = "v1" }
 ```
 
-The release-policy machinery already exists. `craft check --release` can warn or
-reject floating git inputs and insecure transports depending on `[craft]`
-policy.
+For packages that should share one declaration across a workspace, put the
+`path` or `git` dependency in `[workspace.dependencies]` and reference it with
+`workspace = true` from members:
+
+```toml
+[workspace.dependencies]
+log = { git = "https://example.com/log.git", tag = "v1", version = "1" }
+
+[dependencies]
+log = { workspace = true }
+```
+
+The source model is intentionally narrow:
+
+- local packages use `path`
+- external packages use `git`
+- plain version strings are not a source model
+- there is no registry table, source binding table, or release-source policy layer
+
+Selectors such as `rev`, `branch`, or `tag` stay on the dependency entry:
+
+```toml
+[dependencies]
+log = { git = "https://example.com/log.git", tag = "v1", version = "1" }
+```
 
 ## Practical Advice
 

@@ -17,7 +17,12 @@ pub enum SourceId {
     Root,
     WorkspaceMember { path: String },
     PathDependency { path: String },
-    Registry { name: Option<String> },
+    GitDependency {
+        git: String,
+        rev: Option<String>,
+        branch: Option<String>,
+        tag: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -323,11 +328,12 @@ fn dependency_target(
     spec: &DependencySpec,
 ) -> Result<DependencyTarget> {
     match spec {
-        DependencySpec::Version(version) => Ok(DependencyTarget::External(ExternalDependency {
-            package_name: dependency_name.to_string(),
-            source: SourceId::Registry { name: None },
-            version: Some(version.clone()),
-        })),
+        DependencySpec::Version(_) => Err(Error::Validation {
+            path: package_root.join("Craft.toml"),
+            message: format!(
+                "dependency `{dependency_name}` must use `path` or `git`; plain version strings are unsupported"
+            ),
+        }),
         DependencySpec::Detailed(dep) => {
             let package_name = dep
                 .package
@@ -350,13 +356,25 @@ fn dependency_target(
                 }));
             }
 
-            Ok(DependencyTarget::External(ExternalDependency {
-                package_name,
-                source: SourceId::Registry {
-                    name: dep.registry.clone(),
-                },
-                version: dep.version.clone(),
-            }))
+            if let Some(git) = &dep.git {
+                return Ok(DependencyTarget::External(ExternalDependency {
+                    package_name,
+                    source: SourceId::GitDependency {
+                        git: git.clone(),
+                        rev: dep.rev.clone(),
+                        branch: dep.branch.clone(),
+                        tag: dep.tag.clone(),
+                    },
+                    version: dep.version.clone(),
+                }));
+            }
+
+            Err(Error::Validation {
+                path: package_root.join("Craft.toml"),
+                message: format!(
+                    "dependency `{dependency_name}` must declare `path` or `git`"
+                ),
+            })
         }
     }
 }
@@ -403,7 +421,7 @@ mod tests {
     }
 
     #[test]
-    fn builds_graph_for_workspace_and_local_path_dependencies() {
+    fn builds_graph_for_workspace_path_and_git_dependencies() {
         let root = temp_dir("craft-graph");
         let app_dir = root.join("app");
         let util_dir = root.join("util");
@@ -428,7 +446,7 @@ kern = "0.6.7"
 
 [dependencies]
 util = { path = "../util" }
-log = "1"
+toml = { git = "https://example.com/toml.git", tag = "v0.1.0" }
 "#,
         )
         .unwrap();
@@ -460,11 +478,16 @@ kern = "0.6.7"
                 && matches!(&dep.target, DependencyTarget::Local(pkg) if pkg.name == "util")
         }));
         assert!(app.dependencies.iter().any(|dep| {
-            dep.dependency_name == "log"
+            dep.dependency_name == "toml"
                 && matches!(
                     &dep.target,
                     DependencyTarget::External(ext)
-                        if ext.source == SourceId::Registry { name: None }
+                        if matches!(
+                            &ext.source,
+                            SourceId::GitDependency { git, tag, .. }
+                                if git == "https://example.com/toml.git"
+                                    && tag.as_deref() == Some("v0.1.0")
+                        )
                 )
         }));
 
@@ -484,7 +507,7 @@ kern = "0.6.7"
 members = ["app"]
 
 [workspace.dependencies]
-shared = "2"
+shared = { git = "https://example.com/shared.git", rev = "abc123" }
 "#,
         )
         .unwrap();
@@ -521,8 +544,12 @@ shared = { workspace = true, features = ["simd"] }
         assert_eq!(shared.package_name, "shared");
         match &shared.target {
             DependencyTarget::External(ext) => {
-                assert_eq!(ext.source, SourceId::Registry { name: None });
-                assert_eq!(ext.version.as_deref(), Some("2"));
+                assert!(matches!(
+                    &ext.source,
+                    SourceId::GitDependency { git, rev, .. }
+                        if git == "https://example.com/shared.git"
+                            && rev.as_deref() == Some("abc123")
+                ));
             }
             other => panic!("expected external dependency, got {other:?}"),
         }

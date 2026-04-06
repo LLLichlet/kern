@@ -87,8 +87,7 @@ pub fn sync_analysis_context(
     let context =
         AnalysisContext::from_inputs(manifest_path, elaboration, build_plan, feature_selection)?;
     let path = analysis_context_path(&build_plan.workspace_root);
-    local_state::ensure_parent_dir(&path)?;
-    fs::write(&path, context.render()).map_err(|err| Error::from_io(&path, err))?;
+    local_state::write_file_atomic(&path, context.render())?;
     Ok(path)
 }
 
@@ -1146,7 +1145,7 @@ fn escape_string(value: &str) -> String {
 mod tests {
     use super::{load_current_analysis_context, sync_analysis_context};
     use crate::build_plan;
-    use crate::elaborate::{FeatureSelection, plan};
+    use crate::elaborate::{plan, FeatureSelection};
     use crate::manifest::Manifest;
     use crate::workspace::load_members;
     use std::fs;
@@ -1351,10 +1350,8 @@ root = \"src/main.rn\"
         )
         .unwrap();
 
-        assert!(
-            load_current_analysis_context(&manifest_path, &root)
-                .unwrap()
-                .is_none()
-        );
+        assert!(load_current_analysis_context(&manifest_path, &root)
+            .unwrap()
+            .is_none());
     }
 }

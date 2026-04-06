@@ -1,6 +1,7 @@
 use crate::elaborate::ElaborationPlan;
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId, SourceId};
+use crate::local_state;
 use crate::manifest::Manifest;
 use crate::plan::TargetKind;
 use crate::resolver::{ExternalPackageId, ResolvedDependencyTarget};
@@ -124,7 +125,7 @@ pub fn sync_lockfile(
         LockWriteResult::Created
     };
 
-    fs::write(&lock_path, expected.render()).map_err(|err| Error::from_io(&lock_path, err))?;
+    local_state::write_file_atomic(&lock_path, expected.render())?;
     Ok((lock_path, result))
 }
 
@@ -1174,7 +1175,7 @@ fn escape_string(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{LockStatus, LockWriteResult, Lockfile, lock_status, sync_lockfile};
+    use super::{lock_status, sync_lockfile, LockStatus, LockWriteResult, Lockfile};
     use crate::elaborate::plan;
     use crate::manifest::Manifest;
     use crate::workspace::load_members;

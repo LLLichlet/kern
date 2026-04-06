@@ -2,10 +2,13 @@ use crate::error::{Error, Result};
 use std::ffi::OsStr;
 use std::fs;
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const CRAFT_GITIGNORE_BLOCK: &str =
     "# Managed by craft. Keep local derived state out of git.\n*\n!.gitignore\n";
+static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn ensure_dir(path: &Path) -> Result<()> {
     fs::create_dir_all(path).map_err(|err| Error::from_io(path, err))?;
@@ -16,6 +19,28 @@ pub(crate) fn ensure_parent_dir(path: &Path) -> Result<()> {
     if let Some(parent) = path.parent() {
         ensure_dir(parent)?;
     }
+    Ok(())
+}
+
+pub(crate) fn write_file_atomic(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
+    ensure_parent_dir(path)?;
+
+    let temp_path = atomic_temp_path(path);
+    let write_result = fs::write(&temp_path, contents);
+    if let Err(err) = write_result {
+        let _ = fs::remove_file(&temp_path);
+        return Err(Error::from_io(&temp_path, err));
+    }
+
+    #[cfg(windows)]
+    if path.exists() {
+        fs::remove_file(path).map_err(|err| Error::from_io(path, err))?;
+    }
+
+    fs::rename(&temp_path, path).map_err(|err| {
+        let _ = fs::remove_file(&temp_path);
+        Error::from_io(path, err)
+    })?;
     Ok(())
 }
 
@@ -67,9 +92,27 @@ fn ignores_all_craft_outputs(contents: &str) -> bool {
     ignore_all && keep_gitignore
 }
 
+fn atomic_temp_path(path: &Path) -> PathBuf {
+    let file_name = path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("tmp");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let counter = ATOMIC_WRITE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    path.parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(
+            ".{file_name}.tmp-{}-{nonce}-{counter}",
+            std::process::id()
+        ))
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ensure_dir, ensure_parent_dir};
+    use super::{ensure_dir, ensure_parent_dir, write_file_atomic};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -112,6 +155,19 @@ mod tests {
         assert!(gitignore.contains("!README.md"));
         assert!(gitignore.contains("*"));
         assert!(gitignore.contains("!.gitignore"));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn atomic_write_replaces_existing_file_contents() {
+        let root = temp_dir("craft-local-state-atomic-write");
+        let path = root.join(".craft").join("analysis.toml");
+
+        write_file_atomic(&path, "version = 1\n").unwrap();
+        write_file_atomic(&path, "version = 2\n").unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "version = 2\n");
 
         let _ = fs::remove_dir_all(root);
     }

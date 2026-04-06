@@ -1,6 +1,6 @@
 use std.test;
 use std.Option;
-use std.mem.alloc.{Allocator, GPA, Page};
+use std.mem.alloc.{Allocator, Arena, Page};
 use toml.{Array, DocumentSectionKind, ModelError, OwnedDocument};
 
 fn expect_some_text(value: Option[[]u8], expected: []u8) void {
@@ -28,9 +28,9 @@ fn expect_array_text(array: *Array, index: usize, expected: []u8) void {
 
 fn check_owned_document_queries_and_mutation() void {
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
     defer doc..&.deinit(alloc);
@@ -102,9 +102,9 @@ fn check_owned_document_queries_and_mutation() void {
 
 fn check_kind_conflicts() void {
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
     defer doc..&.deinit(alloc);
@@ -124,9 +124,9 @@ fn check_kind_conflicts() void {
 
 fn check_array_mutation_api() void {
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
     defer doc..&.deinit(alloc);
@@ -174,9 +174,9 @@ fn check_array_mutation_api() void {
 
 fn check_document_section_mutation() void {
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
     defer doc..&.deinit(alloc);

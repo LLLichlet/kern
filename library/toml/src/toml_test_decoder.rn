@@ -1,8 +1,8 @@
 use std.Option;
 use std.coll.String;
 use std.fs;
-use std.mem.alloc.{Allocator, GPA, Page};
-use toml.{Array, OwnedDocument, ParseOwnedError, Table, Value, parse_owned};
+use std.mem.alloc.{Allocator, Arena, Page};
+use toml.{Array, Document, ParseOwnedError, Table, TableRef, Value, parse};
 
 fn append_u64(out: *mut String, alloc: *mut Allocator, value: u64) bool {
     if (value == 0) {
@@ -552,6 +552,23 @@ fn copy_toml_value_into_json_array(
     }
 }
 
+fn copy_toml_table_ref_into_json(alloc: *mut Allocator, source: TableRef, dest: *mut Table) bool {
+    for (let mut i = 0; i < source.len(); i += 1) {
+        let key = match (source.key_at(i)) {
+            .{ Some: key } => key,
+            .None => return false,
+        };
+        let value = match (source.value_at(i)) {
+            .{ Some: value } => value,
+            .None => return false,
+        };
+        if (!copy_toml_value_into_json_table(alloc, dest, key, value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
 fn copy_toml_table_into_json(alloc: *mut Allocator, source: *Table, dest: *mut Table) bool {
     for (let mut i = 0; i < source.len(); i += 1) {
         let key = match (source.key_at(i)) {
@@ -582,10 +599,10 @@ fn copy_toml_array_into_json(alloc: *mut Allocator, source: *Array, dest: *mut A
     return true;
 }
 
-fn build_json_tree(alloc: *mut Allocator, doc: *OwnedDocument) Option[Table] {
+fn build_json_tree(alloc: *mut Allocator, doc: *Document) Option[Table] {
     let mut root = Table.{};
 
-    if (!copy_toml_table_into_json(alloc, doc.root(), root..&)) {
+    if (!copy_toml_table_ref_into_json(alloc, doc.root(), root..&)) {
         root..&.deinit(alloc);
         return .{ None };
     }
@@ -619,7 +636,7 @@ fn build_json_tree(alloc: *mut Allocator, doc: *OwnedDocument) Option[Table] {
                     root..&.deinit(alloc);
                     return .{ None };
                 };
-                if (!copy_toml_table_into_json(alloc, source, target)) {
+                if (!copy_toml_table_ref_into_json(alloc, source, target)) {
                     root..&.deinit(alloc);
                     return .{ None };
                 }
@@ -652,7 +669,7 @@ fn build_json_tree(alloc: *mut Allocator, doc: *OwnedDocument) Option[Table] {
                             return .{ None };
                         },
                     };
-                    if (!copy_toml_table_into_json(alloc, source, item)) {
+                    if (!copy_toml_table_ref_into_json(alloc, source, item)) {
                         root..&.deinit(alloc);
                         return .{ None };
                     }
@@ -803,9 +820,9 @@ extern fn main(args: [][]u8) i32 {
     let _ = args;
 
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut stdin = fs.stdin();
     let mut input = match (stdin..&.read_to_string(alloc)) {
@@ -814,14 +831,14 @@ extern fn main(args: [][]u8) i32 {
     };
     defer input..&.deinit(alloc);
 
-    let mut doc = match (parse_owned(alloc, input.&.as_str())) {
+    let mut doc = match (parse(input.&.as_str())) {
         .{ Ok: doc } => doc,
         .{ Err: err } => {
             print_parse_error(err);
             return 1;
         },
     };
-    defer doc..&.deinit(alloc);
+    defer doc..&.deinit();
 
     let mut root = match (build_json_tree(alloc, doc..&)) {
         .{ Some: root } => root,

@@ -11,9 +11,9 @@ use ..{
     Result,
     Table,
     Value,
-    parse_owned,
     render_document,
 };
+use ..parser.parse_owned;
 
 type DocumentState = struct {
     page: Page,

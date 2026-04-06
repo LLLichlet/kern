@@ -32,10 +32,6 @@ name = "render_smoke"
 root = "tests/render_smoke.rn"
 
 [[test]]
-name = "parse_owned_smoke"
-root = "tests/parse_owned_smoke.rn"
-
-[[test]]
 name = "managed_smoke"
 root = "tests/managed_smoke.rn"
 

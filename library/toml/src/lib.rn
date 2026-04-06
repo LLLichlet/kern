@@ -17,6 +17,6 @@ pub use .document.{ScanDocument, ScanDocumentKind};
 pub use .error.Error;
 pub use .managed.{ArrayRef, Document, TableRef, parse};
 pub use .model.{Array, DocumentSectionKind, ModelError, OwnedDocument, Table, Value};
-pub use .parser.{ParseOwnedError, parse_owned, scan};
+pub use .parser.{ParseOwnedError, scan};
 pub use .render.render_document;
 pub use .result.Result;

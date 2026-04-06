@@ -37,7 +37,6 @@ and mutation:
 - `OwnedDocument` section mutation with `ensure_table`, `append_array_table`, `remove_table`, `remove_array_table`, and single-item array-table removal
 - `OwnedDocument` path lookups across root keys and named tables via `get_path_*` and `get_table_path`
 - `Array` for explicit owned TOML arrays with typed push/insert/set/remove/clear helpers
-- `parse_owned` for the lower-level explicit-allocation path into `OwnedDocument`
 - `render_document` for deterministic TOML emission from the owned model
 - low-level owned APIs take a caller-supplied allocator and report `ModelError`
 
@@ -61,7 +60,7 @@ The underlying model still uses ordered `List` storage rather than `Map` or
 
 It is still a bootstrap parser rather than a full TOML implementation:
 
-- `parse` and `parse_owned` are implemented for the current bootstrap surface, including nested table and array-table headers under array-of-tables
+- `parse` is implemented for the current bootstrap surface, including nested table and array-table headers under array-of-tables
 - rendering is deterministic but not round-trip preserving yet
 - `scan` remains borrowed and allocation-free
 
@@ -125,8 +124,8 @@ go install github.com/toml-lang/toml-test/v2/cmd/toml-test@latest
 
 The package also ships a `toml-bench` binary plus `scripts/run_bench.sh`:
 
-- `toml-bench` performs repeated `scan`, `parse`, or low-level `parse_owned`
-  runs over one or more input files and prints a checksum so the work is not
+- `toml-bench` performs repeated `scan` or `parse` runs over one or more input
+  files and prints a checksum so the work is not
   optimized away. It reads a small manifest from stdin rather than using
   positional CLI arguments.
 - `run_bench.sh` builds the release binary, runs it over the upstream valid
@@ -138,13 +137,12 @@ Example custom runs:
 ```bash
 library/toml/scripts/run_bench.sh scan 500 path/to/file.toml
 library/toml/scripts/run_bench.sh parse 500 path/to/file.toml
-library/toml/scripts/run_bench.sh parse-owned 100 path/to/file.toml
 ```
 
 ## Design Direction
 
 - make `parse(text)` the package's best default rather than an allocator-shaped API
-- keep `scan(text)` and `parse_owned(alloc, text)` as lower-level escape hatches
+- keep `scan(text)` as the lower-level escape hatch
 - keep the package usable outside `std`
 - let this package serve as a small official `craft` example
 - use it to dogfood `std`, `craft`, and compiler package-boundary behavior

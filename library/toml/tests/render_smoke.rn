@@ -1,12 +1,12 @@
 use std.test;
-use std.mem.alloc.{Allocator, GPA, Page};
+use std.mem.alloc.{Allocator, Arena, Page};
 use toml.{OwnedDocument, render_document};
 
 fn check_render_document_smoke() void {
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
     defer doc..&.deinit(alloc);
@@ -79,9 +79,9 @@ fn check_render_document_smoke() void {
 
 fn check_render_after_section_removal() void {
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut doc = OwnedDocument.{};
     defer doc..&.deinit(alloc);

@@ -3,15 +3,13 @@ use std.fs;
 use std.time;
 use std.num.USIZE_MAX;
 use std.coll.{List, String};
-use std.mem.alloc.{Allocator, Arena, GPA, Page};
+use std.mem.alloc.{Allocator, Arena, Page};
 
-use toml.{ModelError, ParseOwnedError, parse, parse_owned, scan};
+use toml.{ModelError, ParseOwnedError, parse, scan};
 
 type BenchMode = enum {
     Scan,
     Parse,
-    ParseOwned,
-    ParseOwnedArena,
 };
 
 type BenchConfig = struct {
@@ -72,8 +70,6 @@ fn mode_name(mode: BenchMode) []u8 {
     return match (mode) {
         .Scan => "scan",
         .Parse => "parse",
-        .ParseOwned => "parse-owned",
-        .ParseOwnedArena => "parse-owned-arena",
     };
 }
 
@@ -130,9 +126,9 @@ fn print_parse_error(path: []u8, line: usize, column: usize, message: []u8) void
 
     let mut line_text = String.{};
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
     if (append_usize(line_text..&, alloc, line) and line_text..&.push_str(alloc, ":") and append_usize(line_text..&, alloc, column)) {
         let _ = stderr..&.write_all(line_text.&.as_str());
     }
@@ -146,12 +142,6 @@ fn parse_mode(text: []u8) Option[BenchMode] {
     }
     if (text.eq("parse")) {
         return .{ Some: BenchMode.Parse };
-    }
-    if (text.eq("parse-owned")) {
-        return .{ Some: BenchMode.ParseOwned };
-    }
-    if (text.eq("parse-owned-arena")) {
-        return .{ Some: BenchMode.ParseOwnedArena };
     }
     return .{ None };
 }
@@ -283,12 +273,12 @@ fn load_inputs(
     return .{ Some: inputs };
 }
 
-fn print_parse_owned_error(path: []u8, err: ParseOwnedError) void {
+fn print_parse_document_error(path: []u8, err: ParseOwnedError) void {
     match (err) {
         .{ Parse: parse_err } => print_parse_error(path, parse_err.line, parse_err.column, parse_err.message),
         .{ Model: model_err } => {
             let mut stderr = fs.stderr();
-            let _ = stderr..&.write_all("parse-owned failed for ");
+            let _ = stderr..&.write_all("parse failed for ");
             let _ = stderr..&.write_all(path);
             let _ = stderr..&.write_all(": model ");
             let _ = stderr..&.write_all(model_error_name(model_err));
@@ -367,7 +357,7 @@ fn run_parse(
             let mut doc = match (parse(inputs.[i].&.as_str())) {
                 .{ Ok: doc } => doc,
                 .{ Err: err } => {
-                    print_parse_owned_error(paths.[i], err);
+                    print_parse_document_error(paths.[i], err);
                     return false;
                 },
             };
@@ -395,99 +385,13 @@ fn run_parse(
     return true;
 }
 
-fn run_parse_owned(
-    alloc: *mut Allocator,
-    paths: [][]u8,
-    inputs: []String,
-    iterations: usize
-) bool {
-    let mut checksum = 0;
-    let started = time.now();
-
-    for (let mut iter = 0; iter < iterations; iter += 1) {
-        for (let mut i = 0; i < #inputs; i += 1) {
-            let mut doc = match (parse_owned(alloc, inputs.[i].&.as_str())) {
-                .{ Ok: doc } => doc,
-                .{ Err: err } => {
-                    print_parse_owned_error(paths.[i], err);
-                    return false;
-                },
-            };
-
-            checksum += doc..&.root().len();
-            checksum += doc..&.section_count();
-            doc..&.deinit(alloc);
-        }
-    }
-
-    let mut total_bytes = 0;
-    for (let mut i = 0; i < #inputs; i += 1) {
-        total_bytes += #inputs.[i].&.as_str();
-    }
-
-    print_summary(
-        alloc,
-        BenchMode.ParseOwned,
-        iterations,
-        #inputs,
-        total_bytes,
-        checksum,
-        started.elapsed()
-    );
-    return true;
-}
-
-fn run_parse_owned_arena(
-    alloc: *mut Allocator,
-    paths: [][]u8,
-    inputs: []String,
-    iterations: usize
-) bool {
-    let mut checksum = 0;
-    let started = time.now();
-    let mut arena = Arena.{ backing: alloc };
-    defer arena..&.deinit();
-
-    for (let mut iter = 0; iter < iterations; iter += 1) {
-        for (let mut i = 0; i < #inputs; i += 1) {
-            let mut doc = match (parse_owned(arena..&, inputs.[i].&.as_str())) {
-                .{ Ok: doc } => doc,
-                .{ Err: err } => {
-                    print_parse_owned_error(paths.[i], err);
-                    return false;
-                },
-            };
-
-            checksum += doc..&.root().len();
-            checksum += doc..&.section_count();
-            arena..&.reset();
-        }
-    }
-
-    let mut total_bytes = 0;
-    for (let mut i = 0; i < #inputs; i += 1) {
-        total_bytes += #inputs.[i].&.as_str();
-    }
-
-    print_summary(
-        alloc,
-        BenchMode.ParseOwnedArena,
-        iterations,
-        #inputs,
-        total_bytes,
-        checksum,
-        started.elapsed()
-    );
-    return true;
-}
-
 extern fn main(args: [][]u8) i32 {
     let _ = args;
 
     let mut page = Page.{}..&;
-    let mut gpa = GPA.{ backing: page }..&;
-    defer gpa.deinit();
-    let alloc = gpa;
+    let mut arena = Arena.{ backing: *mut Allocator.{ page } }..&;
+    defer arena.deinit();
+    let alloc = arena;
 
     let mut stdin = fs.stdin();
     let mut manifest = match (stdin..&.read_to_string(alloc)) {
@@ -513,18 +417,6 @@ extern fn main(args: [][]u8) i32 {
     let ok = match (config.mode) {
         .Scan => run_scan(alloc, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
         .Parse => run_parse(alloc, config.paths.&.as_slice(), inputs.&.as_slice(), config.iterations),
-        .ParseOwned => run_parse_owned(
-            alloc,
-            config.paths.&.as_slice(),
-            inputs.&.as_slice(),
-            config.iterations
-        ),
-        .ParseOwnedArena => run_parse_owned_arena(
-            alloc,
-            config.paths.&.as_slice(),
-            inputs.&.as_slice(),
-            config.iterations
-        ),
     };
     return if (ok) 0 else 1;
 }

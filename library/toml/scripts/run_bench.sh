@@ -69,7 +69,7 @@ generate_large_fixture
 
 if [[ $# -gt 0 ]]; then
   if [[ $# -lt 3 ]]; then
-    echo "usage: run_bench.sh <scan|parse|parse-owned|parse-owned-arena> <iterations> <file> [<file>...]"
+    echo "usage: run_bench.sh <scan|parse> <iterations> <file> [<file>...]"
     exit 1
   fi
   run_case "custom" "$@"
@@ -85,13 +85,9 @@ fi
 if [[ ${#CORPUS_FILES[@]} -gt 0 ]]; then
   run_case "scan upstream corpus" scan 50 "${CORPUS_FILES[@]}"
   run_case "parse upstream corpus" parse 50 "${CORPUS_FILES[@]}"
-  run_case "parse-owned upstream corpus" parse-owned 10 "${CORPUS_FILES[@]}"
-  run_case "parse-owned-arena upstream corpus" parse-owned-arena 10 "${CORPUS_FILES[@]}"
 else
   echo "warning: upstream toml-test corpus not found at $CORPUS_DIR"
 fi
 
 run_case "scan synthetic large fixture" scan 100 "$LARGE_FIXTURE"
 run_case "parse synthetic large fixture" parse 100 "$LARGE_FIXTURE"
-run_case "parse-owned synthetic large fixture" parse-owned 20 "$LARGE_FIXTURE"
-run_case "parse-owned-arena synthetic large fixture" parse-owned-arena 20 "$LARGE_FIXTURE"

@@ -1,5 +1,6 @@
 use std.{Option, Result};
 use std.coll.{List, String, bytes_eq};
+use std.hash.hash_bytes;
 use std.mem.alloc.{Allocator, Arena, Page};
 
 pub use ..{Array, Error, ModelError, OwnedDocument, ScanDocument, ScanDocumentKind, Table};
@@ -39,8 +40,10 @@ type Parser = struct {
     seen_items: List[SeenItem] = List[SeenItem].{},
     using_seen_items: bool = true,
     seen_buckets: List[SeenBucket] = List[SeenBucket].{},
+    seen_bucket_hashes: List[u64] = List[u64].{},
     slow_seen_items: List[SeenItem] = List[SeenItem].{},
     using_seen_buckets: bool = true,
+    using_seen_bucket_hashes: bool = true,
 };
 
 type SeenItemKind = enum {
@@ -84,6 +87,20 @@ impl *mut Parser {
 
     fn find_bucket_index(head: []u8) Option[usize] {
         let buckets = self.seen_buckets.&.as_slice();
+        if (self.using_seen_bucket_hashes) {
+            let hashes = self.seen_bucket_hashes.&.as_slice();
+            let hash = hash_bytes(head);
+            for (let mut i = 0; i < #buckets; i += 1) {
+                if (hashes.[i] != hash) {
+                    continue;
+                }
+                if (bytes_eq(buckets.[i].head.&.as_str(), head)) {
+                    return .{ Some: i };
+                }
+            }
+            return .{ None };
+        }
+
         for (let mut i = 0; i < #buckets; i += 1) {
             if (bytes_eq(buckets.[i].head.&.as_str(), head)) {
                 return .{ Some: i };
@@ -143,6 +160,12 @@ impl *mut Parser {
                             bucket_head..&.deinit(self.alloc);
                             self.using_seen_buckets = false;
                             return;
+                        }
+                        if (
+                            self.using_seen_bucket_hashes and
+                            !self.seen_bucket_hashes..&.push(self.alloc, hash_bytes(head))
+                        ) {
+                            self.using_seen_bucket_hashes = false;
                         }
                         self.seen_buckets.len - 1
                     },
@@ -490,6 +513,7 @@ impl *mut Parser {
             buckets.[i].items..&.deinit(self.alloc);
         }
         self.seen_buckets..&.deinit(self.alloc);
+        self.seen_bucket_hashes..&.deinit(self.alloc);
         self.slow_seen_items..&.deinit(self.alloc);
     }
 

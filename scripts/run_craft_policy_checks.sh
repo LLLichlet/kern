@@ -7,8 +7,19 @@ ALLOWED_EXCEPTION_FIXTURE="${ROOT}/tools/craft/fixtures/release-policy/allowed-e
 BLOCKED_FIXTURE="${ROOT}/tools/craft/fixtures/release-policy/blocked"
 
 CURRENT_KERN_VERSION="$(
-    sed -n '/^\[workspace\.package\]/,/^\[/{s/^version = "\(.*\)"$/\1/p}' "${ROOT}/Cargo.toml" \
-        | head -n 1
+    python3 - "${ROOT}/Cargo.toml" <<'PY'
+import pathlib
+import re
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+match = re.search(
+    r"(?ms)^\[workspace\.package\]\s.*?^version = \"([^\"]+)\"$",
+    source,
+)
+if match:
+    print(match.group(1))
+PY
 )"
 
 if [[ -z "${CURRENT_KERN_VERSION}" ]]; then

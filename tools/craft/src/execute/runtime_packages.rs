@@ -124,7 +124,7 @@ pub(super) fn build_std_package(
     inject_driver_condition_defines(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let std_fingerprint = build_fingerprint(&[
-        "std_runtime_layout=v3".to_string(),
+        "std_runtime_layout=v4".to_string(),
         "kind=compile-std".to_string(),
         format!("toolchain={toolchain_digest}"),
         format!("profile={profile}"),
@@ -183,7 +183,6 @@ pub(super) fn build_std_package(
             ],
             interface_aliases: {
                 let mut aliases = built_sys.interface_aliases.clone();
-                aliases.insert("rt".to_string(), built_rt.metadata_root_path);
                 aliases.insert("sys".to_string(), built_sys.metadata_root_path);
                 aliases
             },

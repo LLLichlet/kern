@@ -1,7 +1,8 @@
 //! Kern standard library.
 //!
 //! `std` is the high-level batteries-included layer built on top of `base`,
-//! `sys`, and `rt`.
+//! and `sys`. Foundation facilities remain in `base`, provider-facing APIs
+//! remain in `sys`, and startup glue remains in `rt`.
 
 pub mod io;
 pub mod fs;

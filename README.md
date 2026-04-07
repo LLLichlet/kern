@@ -15,7 +15,7 @@ Kern is built on the observation that languages often trade off abstraction capa
 * **Explicit over Implicit:** Mutability is a property of storage, not the type itself (`let mut x`). Pointer math is strictly typed. All type conversions require the explicit `as` operator. Return values cannot be silently ignored.
 * **Zero-Cost Abstractions:** Features like monomorphized Generics, Algebraic Data Types (`enum`), and strictly Stateless Lambdas compile down to highly optimized, flat LLVM IR with zero runtime overhead.
 * **Mechanism Trinity:** Kern relies on three core mechanisms to maintain its philosophy: a strictly explicit module tree (`mod`), strongly-typed zero-cost generics, and precise state management via exhaustive `match` blocks.
-* **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies—ideal for kernel development.
+* **Freestanding by Default:** Kern assumes nothing about your target environment. It is a pure bare-metal compiler with zero OS dependencies鈥攊deal for kernel development.
 
 ## Compiler Architecture (Workspace)
 
@@ -29,13 +29,25 @@ The `kernc` compiler is built as a highly decoupled, multi-pass Rust workspace. 
 * `kernc_driver` & `kernc_cli`: Manages the compilation session, external linkage, and user-facing CLI.
 * `kernc_utils`: Handles rigorous internal diagnostics, span tracking, and ICE (Internal Compiler Error) reporting.
 
+## Official Library Layers
+
+Kern ships four explicit public library layers:
+
+* `base`: runtime-independent foundation types, containers, and allocation building blocks.
+* `sys`: operating-system and provider boundaries.
+* `rt`: startup and minimal runtime glue.
+* `std`: high-level user-facing facilities built on top of `base` and `sys`.
+
+`std` no longer mirrors `base`, `sys`, or `rt` namespaces. Low-level code should import the owning layer directly.
+
 ## A Taste of Kern (v0.6.7)
 
 Kern elegantly combines low-level hardware control with high-level expression. The following example demonstrates explicit storage mutability, structured inline assembly, exhaustive pattern matching, and the elided initialization syntax.
 
 ```kern
 // main.rn
-use std.{io, Result};
+use std.io;
+use base.Result;
 
 // 1. Traits (Implicit 'self')
 type HardwareDevice = trait {

@@ -21,9 +21,9 @@
 
 ## 1\. Core Philosophy and Manifesto
 
-**Kern** is a systems‑level language for operating system kernels, embedded firmware, and high‑performance infrastructure.
+**Kern** is a systems鈥憀evel language for operating system kernels, embedded firmware, and high鈥憄erformance infrastructure.
 
-Kern’s design is based on the observation that languages trade off **abstraction capability** against **policy constraints**. Kern aims to occupy the fourth quadrant: **high abstraction, low policy**.
+Kern鈥檚 design is based on the observation that languages trade off **abstraction capability** against **policy constraints**. Kern aims to occupy the fourth quadrant: **high abstraction, low policy**.
 
 ### 1.1 Core Values
 
@@ -48,7 +48,7 @@ To achieve "high abstraction, low policy", Kern provides three core mechanisms:
 2.  **Generics** - strongly-typed code reuse via monomorphisation (zero runtime cost).
 3.  **Enum Types & Pattern Matching** - precise state management without implicit control flow.
 
-### 1.2 Non‑Goals
+### 1.2 Non鈥慓oals
 
   * **Compile-time enforced memory safety** - no borrow checker.
   * **Standard library design** - Kern is freestanding.
@@ -58,7 +58,7 @@ To achieve "high abstraction, low policy", Kern provides three core mechanisms:
 
 ### 2.1 Primitive Types
 
-  * **Integers**: `i8`, `i16`, `i32`, `i64`, `i128` (signed); `u8`, `u16`, `u32`, `u64`, `u128` (unsigned); `usize`, `isize` (pointer‑sized).
+  * **Integers**: `i8`, `i16`, `i32`, `i64`, `i128` (signed); `u8`, `u16`, `u32`, `u64`, `u128` (unsigned); `usize`, `isize` (pointer鈥憇ized).
   * **Floats**: `f32`, `f64`.
   * **Boolean**: `bool` (1 byte).
   * **Never**: `!` (diverging computations).
@@ -244,7 +244,7 @@ type Payload = union {
 };
 ```
 
-No active‑field tracking; no default values.
+No active鈥慺ield tracking; no default values.
 
 ### 5.3 Simple Enum (formerly Enums)
 
@@ -488,7 +488,7 @@ for (;;) { ... }                // infinite loop
 
 ### 7.4 Defer
 
-Executes an expression or block when the **current lexical scope (block `{\}`)** exits (LIFO). `defer` is strictly block‑scoped, not function‑scoped.
+Executes an expression or block when the **current lexical scope (block `{\}`)** exits (LIFO). `defer` is strictly block鈥憇coped, not function鈥憇coped.
 
 ```kern
 let ptr = malloc(1024);
@@ -552,18 +552,18 @@ Paths are navigated strictly:
   * **Absolute import**: `use std.io.File;`
   * **Relative import (Current)**: `use .utils;` (Starts from the current module)
   * **Relative import (Parent)**: `use ..common.types;` (Starts from the parent module)
-  * **Grouped imports**: `use std.os.{Handle, write, exit};`
+  * **Grouped imports**: `use sys.os.{Handle, write, exit};`
 
 ### 8.3 Facade Pattern and Re-exports (`pub use`)
 
 Kern supports the Facade pattern via `pub use`. This allows you to construct a clean, unified public API while keeping the internal module layout complex and conditionally compiled.
 
 ```kern
-// std/os/init.rn
+// sys/os/init.rn
 #[if(os == "linux")]
 mod linux;
 
-// Re-export symbols from the private `linux` module to the public `std.os` API
+// Re-export symbols from the private `linux` module to the public `sys.os` API
 #[if(os == "linux")]
 pub use .linux.{Handle, get_stdout_handle, write, exit};
 ```

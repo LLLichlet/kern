@@ -54,11 +54,23 @@ The main knobs are:
 
 `--library-bundle std` injects the `std` module alias if one is not already provided manually.
 
-The `std` lookup order is:
+The official shipped library roots are:
+
+- `base`: foundation facilities
+- `sys`: operating-system and provider boundaries
+- `rt`: startup/runtime glue
+- `std`: high-level user-facing facilities
+
+`kernc` auto-injects `base`, `sys`, and `std` as needed for normal builds. `rt` is not injected by bundle selection alone; it is injected only when a runtime entry contract is active.
+
+The official library lookup order is:
 
 1. `KERN_STD_PATH`
-2. a path relative to the current executable
-3. `library/std` in the repository layout
+2. `KERN_BASE_PATH`
+3. `KERN_SYS_PATH`
+4. `KERN_RT_PATH`
+
+Each root then falls back to a path relative to the current executable and finally to `library/<name>` in the repository layout.
 
 These flags are orthogonal. Library availability, program-entry semantics, runtime-provider selection, and libc linkage are configured independently.
 

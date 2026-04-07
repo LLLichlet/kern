@@ -4,7 +4,7 @@ The integration suite for `kernc` lives in this directory and is organized by be
 
 - `anonymous_aggregates.rs`: anonymous struct/union/enum coverage.
 - `atomics.rs`: atomic intrinsics and ordering validation.
-- `collections.rs`: hosted `std.coll` execution coverage.
+- `collections.rs`: hosted `base.coll` execution coverage.
 - `filesystem.rs`: hosted `std.fs` execution coverage.
 - `regressions.rs`: targeted compiler/runtime regressions.
 - `stdlib.rs`: standard library, driver, and platform runtime coverage.

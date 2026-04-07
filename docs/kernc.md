@@ -108,19 +108,37 @@ Prefer the structured runtime/library flags:
 
 `--library-bundle std` enables the Kern standard library bundle and automatically maps `std` if no manual `-M std=...` mapping is provided.
 
-`kernc` resolves the standard library path in this order:
+The official library roots are:
+
+- `base`: runtime-independent foundation facilities
+- `sys`: provider and OS boundaries
+- `rt`: startup and minimal runtime glue
+- `std`: high-level user-facing facilities
+
+Automatic alias injection intentionally exposes only the public library surface:
+
+- `base` is injected when the selected bundle or runtime contract needs foundation facilities
+- `sys` is injected when the selected bundle or runtime/provider contract needs provider-facing facilities
+- `std` is injected only for `--library-bundle std`
+- `rt` is not injected by library bundle selection alone; `kernc` injects it only as the companion runtime root when `runtime_entry != none`
+
+`kernc` resolves the official library paths through these environment variables first:
 
 1. `KERN_STD_PATH`
-2. A path relative to the current executable
-3. `library/std` in the repository layout
+2. `KERN_BASE_PATH`
+3. `KERN_SYS_PATH`
+4. `KERN_RT_PATH`
 
-When the selected runtime or provider needs the official runtime layers, `kernc` injects `base`, `sys`, and `rt` as needed unless the user already mapped them explicitly.
+Each root then falls back to a path relative to the current executable and finally to `library/<name>` in the repository layout.
+
+When the selected runtime or provider needs the official library layers, `kernc` injects `base` and `sys` as needed unless the user already mapped them explicitly.
 
 The intended model is:
 
 - library choice is independent from startup ownership
 - libc linkage is independent from whether `std` is available
 - startup shims live under `rt`, not under `std`
+- low-level APIs stay in their owning layer instead of being mirrored through `std`
 
 When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: **u8) i32`.
 

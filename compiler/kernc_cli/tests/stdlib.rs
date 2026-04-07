@@ -30,6 +30,116 @@ fn main() i32 {
 }
 
 #[test]
+fn std_bundle_does_not_expose_legacy_std_coll_module() {
+    let output = compile_source_with_args(
+        "kernc_std_legacy_coll_module",
+        r#"
+use std.coll.List;
+
+fn main() i32 {
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+    assert!(
+        !output.status.success(),
+        "expected std.coll import to fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("std.coll") || stderr.contains("coll"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn std_bundle_alone_does_not_auto_inject_rt_module() {
+    let output = compile_source_with_args(
+        "kernc_std_hidden_rt_module",
+        r#"
+use rt.mem.memmove;
+
+fn main() i32 {
+    let _ = memmove;
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+    assert!(
+        !output.status.success(),
+        "expected implicit rt import to fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("rt") || stderr.contains("module"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runtime_entry_injects_rt_companion_root() {
+    let output = compile_source_with_args(
+        "kernc_rt_companion_root",
+        r#"
+use rt.mem.memmove;
+
+fn main() i32 {
+    let _ = memmove;
+    return 0;
+}
+"#,
+        &[
+            "--library-bundle",
+            "std",
+            "--runtime-entry",
+            "rt",
+            "--runtime-provider",
+            "toolchain",
+        ],
+    );
+    assert_success(&output, "kernc rt companion root");
+}
+
+#[test]
+fn std_bundle_does_not_expose_page_allocator_through_base_alloc() {
+    let output = compile_source_with_args(
+        "kernc_base_alloc_page_removed",
+        r#"
+use base.mem.alloc.Page;
+
+fn main() i32 {
+    let _ = Page.{};
+    return 0;
+}
+"#,
+        &["--library-bundle", "std"],
+    );
+    assert!(
+        !output.status.success(),
+        "expected base.mem.alloc.Page import to fail:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("Page") || stderr.contains("alloc"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_gpa_alignment_and_arena() {
     let output = build_and_run(
         "kernc_std_alloc",

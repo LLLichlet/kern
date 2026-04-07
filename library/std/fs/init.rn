@@ -1,7 +1,7 @@
 //! Filesystem operations.
 //!
 //! This module keeps path handling, directory walking, and file I/O in UTF-8
-//! slice form while delegating platform translation to `std.os`.
+//! slice form while delegating platform translation to `sys.os`.
 //!
 //! Design:
 //! keep allocation and OS conversion explicit at the public boundary.

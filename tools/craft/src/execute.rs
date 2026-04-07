@@ -11,8 +11,8 @@ use kernc_driver::{
 };
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
-    inject_driver_condition_defines, maybe_inject_base_alias, maybe_inject_rt_alias,
-    maybe_inject_std_alias, maybe_inject_sys_alias,
+    inject_driver_condition_defines, maybe_inject_base_alias, maybe_inject_std_alias,
+    maybe_inject_sys_alias,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -86,7 +86,6 @@ fn inject_target_library_aliases(options: &mut CompileOptions) {
         return;
     }
     maybe_inject_base_alias(options);
-    maybe_inject_rt_alias(options);
     maybe_inject_sys_alias(options);
     if !options.module_interface_aliases.contains_key("std") {
         maybe_inject_std_alias(options);

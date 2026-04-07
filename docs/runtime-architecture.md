@@ -95,6 +95,14 @@ This keeps the roles clear:
 - startup/runtime glue stays in `rt`
 - reusable high-level facilities stay in `std`
 
+The practical rule is:
+
+- `std` may depend on `base` and `sys`
+- `rt` stays a separate runtime-owned layer and is not mirrored through `std`
+- low-level modules such as allocators, collection primitives, ABI helpers, and page-backed memory stay in their owning layer instead of being duplicated under `std`
+
+As part of this cleanup, legacy mirror modules such as `std.coll`, `std.mem`, `std.cmp`, `std.hash`, `std.num`, `std.cffi`, `std.os`, and `std.rt` are removed. Code should import `base.*`, `sys.*`, or `rt.*` directly when it needs those boundaries.
+
 Kern should not grow a Rust-style semantic split where the compiler secretly relies on a special crate boundary. Library layering remains a normal toolchain and package-architecture problem.
 
 ## Tooling Model
@@ -136,7 +144,8 @@ Done in this refactor:
 - `Craft.toml` supports a package-level `[runtime]` section
 - `rt` owns startup/runtime glue
 - `sys` owns platform/provider boundaries
-- `std` is layered on top of `base`, `sys`, and `rt`
+- `std` is layered on top of `base` and `sys` without mirroring their namespaces
+- `rt` is treated as a runtime companion layer injected only when a runtime entry contract is selected
 
 ## Next Steps
 

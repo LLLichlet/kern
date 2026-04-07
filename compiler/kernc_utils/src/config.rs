@@ -122,6 +122,34 @@ impl LibraryBundle {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OfficialLibrary {
+    Base,
+    Rt,
+    Sys,
+    Std,
+}
+
+impl OfficialLibrary {
+    const fn alias(self) -> &'static str {
+        match self {
+            Self::Base => "base",
+            Self::Rt => "rt",
+            Self::Sys => "sys",
+            Self::Std => "std",
+        }
+    }
+
+    const fn env_var(self) -> &'static str {
+        match self {
+            Self::Base => "KERN_BASE_PATH",
+            Self::Rt => "KERN_RT_PATH",
+            Self::Sys => "KERN_SYS_PATH",
+            Self::Std => "KERN_STD_PATH",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct TargetMachine {
     pub triple: Triple,
@@ -246,104 +274,62 @@ impl Default for CompileOptions {
     }
 }
 
-pub fn resolve_std_path() -> PathBuf {
-    if let Ok(custom_std) = env::var("KERN_STD_PATH") {
-        return PathBuf::from(custom_std);
+fn resolve_official_library_path(library: OfficialLibrary) -> PathBuf {
+    if let Ok(custom_path) = env::var(library.env_var()) {
+        return PathBuf::from(custom_path);
     }
 
     if let Ok(exe_path) = env::current_exe()
         && let Some(exe_dir) = exe_path.parent()
     {
         for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("library/std");
+            let candidate = ancestor.join("library").join(library.alias());
             if candidate.join("init.rn").is_file() {
                 return candidate;
             }
         }
         for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("lib/kern/std");
+            let candidate = ancestor.join("lib/kern").join(library.alias());
             if candidate.join("init.rn").is_file() {
                 return candidate;
             }
         }
     }
 
-    PathBuf::from("library/std")
+    PathBuf::from("library").join(library.alias())
+}
+
+pub fn resolve_std_path() -> PathBuf {
+    resolve_official_library_path(OfficialLibrary::Std)
 }
 
 pub fn resolve_base_path() -> PathBuf {
-    if let Ok(custom_base) = env::var("KERN_BASE_PATH") {
-        return PathBuf::from(custom_base);
-    }
-
-    if let Ok(exe_path) = env::current_exe()
-        && let Some(exe_dir) = exe_path.parent()
-    {
-        for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("library/base");
-            if candidate.join("init.rn").is_file() {
-                return candidate;
-            }
-        }
-        for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("lib/kern/base");
-            if candidate.join("init.rn").is_file() {
-                return candidate;
-            }
-        }
-    }
-
-    PathBuf::from("library/base")
+    resolve_official_library_path(OfficialLibrary::Base)
 }
 
 pub fn resolve_rt_path() -> PathBuf {
-    if let Ok(custom_rt) = env::var("KERN_RT_PUBLIC_PATH") {
-        return PathBuf::from(custom_rt);
-    }
-
-    if let Ok(exe_path) = env::current_exe()
-        && let Some(exe_dir) = exe_path.parent()
-    {
-        for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("library/rt");
-            if candidate.join("init.rn").is_file() {
-                return candidate;
-            }
-        }
-        for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("lib/kern/rt");
-            if candidate.join("init.rn").is_file() {
-                return candidate;
-            }
-        }
-    }
-
-    PathBuf::from("library/rt")
+    resolve_official_library_path(OfficialLibrary::Rt)
 }
 
 pub fn resolve_sys_path() -> PathBuf {
-    if let Ok(custom_sys) = env::var("KERN_SYS_PATH") {
-        return PathBuf::from(custom_sys);
+    resolve_official_library_path(OfficialLibrary::Sys)
+}
+
+fn ensure_official_library_alias(options: &mut CompileOptions, library: OfficialLibrary) {
+    if options.module_aliases.contains_key(library.alias()) {
+        return;
     }
 
-    if let Ok(exe_path) = env::current_exe()
-        && let Some(exe_dir) = exe_path.parent()
-    {
-        for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("library/sys");
-            if candidate.join("init.rn").is_file() {
-                return candidate;
-            }
-        }
-        for ancestor in exe_dir.ancestors() {
-            let candidate = ancestor.join("lib/kern/sys");
-            if candidate.join("init.rn").is_file() {
-                return candidate;
-            }
-        }
-    }
-
-    PathBuf::from("library/sys")
+    let path = match library {
+        OfficialLibrary::Base => resolve_base_path(),
+        OfficialLibrary::Rt => resolve_rt_path(),
+        OfficialLibrary::Sys => resolve_sys_path(),
+        OfficialLibrary::Std => resolve_std_path(),
+    };
+    options.module_aliases.insert(
+        library.alias().to_string(),
+        path.to_string_lossy().to_string(),
+    );
 }
 
 pub fn maybe_inject_base_alias(options: &mut CompileOptions) {
@@ -357,25 +343,17 @@ pub fn maybe_inject_base_alias(options: &mut CompileOptions) {
         return;
     }
 
-    let base_path = resolve_base_path();
-    options
-        .module_aliases
-        .insert("base".to_string(), base_path.to_string_lossy().to_string());
+    ensure_official_library_alias(options, OfficialLibrary::Base);
 }
 
 pub fn maybe_inject_rt_alias(options: &mut CompileOptions) {
-    let wants_rt = matches!(
-        options.library_bundle,
-        LibraryBundle::Base | LibraryBundle::Std
-    ) || !matches!(options.runtime_entry, RuntimeEntry::None);
-    if !wants_rt || options.module_aliases.contains_key("rt") {
+    if matches!(options.runtime_entry, RuntimeEntry::None)
+        || options.module_aliases.contains_key("rt")
+    {
         return;
     }
 
-    let rt_path = resolve_rt_path();
-    options
-        .module_aliases
-        .insert("rt".to_string(), rt_path.to_string_lossy().to_string());
+    ensure_official_library_alias(options, OfficialLibrary::Rt);
 }
 
 pub fn maybe_inject_sys_alias(options: &mut CompileOptions) {
@@ -387,10 +365,7 @@ pub fn maybe_inject_sys_alias(options: &mut CompileOptions) {
         return;
     }
 
-    let sys_path = resolve_sys_path();
-    options
-        .module_aliases
-        .insert("sys".to_string(), sys_path.to_string_lossy().to_string());
+    ensure_official_library_alias(options, OfficialLibrary::Sys);
 }
 
 pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
@@ -400,10 +375,7 @@ pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
         return;
     }
 
-    let std_path = resolve_std_path();
-    options
-        .module_aliases
-        .insert("std".to_string(), std_path.to_string_lossy().to_string());
+    ensure_official_library_alias(options, OfficialLibrary::Std);
 }
 
 pub fn inject_default_library_aliases(options: &mut CompileOptions) {

@@ -23,7 +23,7 @@ The current `v0.6.7` tree already has a fairly solid core:
 - the language model in `docs/design.md`
 - the `kernc` compile/link workflow
 - the compiler pipeline from parse to sema to lowering to LLVM
-- the standard library layout under `library/std`
+- the official library layering under `library/base`, `library/sys`, `library/rt`, and `library/std`
 - the current `kern-lsp` editor loop
 
 `craft` is already usable, but its policy and ecosystem surface still need to be
@@ -55,7 +55,7 @@ The repository splits cleanly into four layers:
 - `compiler/`: the language implementation
 - `tools/craft`: package graph, lockfile, build planning, execution
 - `tools/lsp`: editor-facing analysis server
-- `library/std`: the standard library written in Kern
+- `library/`: the official Kern libraries (`base`, `sys`, `rt`, `std`)
 
 Inside `compiler/`, the mental model is:
 

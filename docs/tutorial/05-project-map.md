@@ -11,8 +11,10 @@ responsibility boundaries are actually clean.
 compiler/     language implementation
 tools/craft/  package manager and builder
 tools/lsp/    language server
-library/std/  standard library
-library/toml/ independent package example
+library/base/ runtime-independent foundation library
+library/sys/  operating-system and provider boundary layer
+library/rt/   startup and minimal runtime glue
+library/std/  high-level user-facing library
 examples/     small language probes
 docs/         design and user-facing documents
 ```

@@ -609,6 +609,8 @@ Startup ownership still belongs to the surrounding runtime/link environment:
   * a hosted C runtime may own initial process startup and call `main`
   * a freestanding object build may choose `runtime_entry = none`, in which case no special program entry is required
 
+Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through the ordinary `sys` OS/provider boundary, while libc remains an optional external provider choice rather than a semantic prerequisite for the language or standard library.
+
 When a runtime entry contract is enabled, the root `main` definition looks like:
 
 ```kern

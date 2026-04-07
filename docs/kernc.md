@@ -137,6 +137,7 @@ The intended model is:
 
 - library choice is independent from startup ownership
 - libc linkage is independent from whether `std` is available
+- hosted process access is provided through `sys`, not implied by libc linkage
 - startup shims live under `rt`, not under `std`
 - low-level APIs stay in their owning layer instead of being mirrored through `std`
 

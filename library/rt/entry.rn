@@ -35,6 +35,11 @@ extern fn _start_darwin(argc: usize, argv: **u8) void {
     os.exit(kern_entry_posix(argc as i32, argv))
 }
 
+#[if(runtime_entry == "rt" and os == "linux")]
+extern fn kern_entry_linux(argc: i32, argv: **u8) void {
+    os.exit(kern_entry_posix(argc, argv));
+}
+
 #[if((runtime_entry == "crt" or rt_role == "entry") and (os == "linux" or os == "darwin"))]
 extern fn main(argc: i32, argv: **u8) i32 {
     return kern_entry_posix(argc, argv);

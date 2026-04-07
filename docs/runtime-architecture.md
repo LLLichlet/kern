@@ -115,9 +115,9 @@ Kern should not grow a Rust-style semantic split where the compiler secretly rel
 - `--runtime-provider`
 - `--runtime-libc`
 - `--library-bundle`
-- `--entry` for raw linker entry selection when needed
+- `--entry-symbol` for raw linker entry selection when needed
 
-`--entry` is intentionally lower-level than `runtime_entry`. It controls the final linker entry symbol and remains valid even when `runtime_entry = none`, which keeps naked freestanding builds fully explicit.
+`--entry-symbol` is intentionally lower-level than `runtime_entry`. It controls the final linker entry symbol and remains valid even when `runtime_entry = none`, which keeps naked freestanding builds fully explicit.
 
 ### `craft`
 

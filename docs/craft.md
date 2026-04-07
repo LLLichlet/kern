@@ -236,7 +236,7 @@ The current rules are:
 - `craft publish` always evaluates the release profile
 - `craft publish` requires a current release `Craft.lock`
 - if the release lock is missing or stale, `craft publish` fails and tells the
-  user to run `craft lock --release`
+  user to run `craft lock --profile release`
 - `craft publish` does not silently create or refresh `Craft.lock`
 
 Required package metadata for a publishable package is:
@@ -258,11 +258,14 @@ Feature selection is part of elaboration and build planning, not an afterthought
 
 The current command surface accepts:
 
+- `--project-path <path>`
+- `--profile <dev|release>`
 - `--no-default-features`
 - `--features <a,b,c>`
 
 These inputs affect:
 
+- manifest discovery
 - `craft.rn` evaluation
 - normalized package targets and dependencies
 - lockfile freshness

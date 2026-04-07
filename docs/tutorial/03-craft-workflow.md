@@ -81,14 +81,15 @@ What each command means:
 Feature and profile inputs are explicit:
 
 ```bash
-craft build --release
+craft build --profile release
+craft check --project-path path/to/pkg
 craft check --no-default-features --features tls,simd
 ```
 
 For release checking, the intended flow is:
 
 ```bash
-craft lock --release
+craft lock --profile release
 craft publish
 ```
 

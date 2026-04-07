@@ -72,7 +72,7 @@ Split compile and link explicitly:
 
 ```bash
 kernc -c --runtime-entry rt --runtime-provider toolchain --library-bundle std app.rn -o app.o
-kernc --link-only --link-input app.o --entry _start -o app
+kernc --link-only --link-input app.o --entry-symbol _start -o app
 ```
 
 ## Source and Module Configuration
@@ -89,10 +89,10 @@ kernc --runtime-entry rt --library-bundle std src/main.rn -o app
 
 ### Module Aliases
 
-Use `-M <name=path>` to map a module root name to a physical path:
+Use `--module-path <name=path>` to map a module root name to a physical path:
 
 ```bash
-kernc -M std=./library/std app.rn
+kernc --module-path std=./library/std app.rn
 ```
 
 This is the core mechanism for wiring module roots into the compiler. It is intentionally explicit and package-manager-friendly.
@@ -106,7 +106,7 @@ Prefer the structured runtime/library flags:
 - `--runtime-libc <yes|no>`
 - `--library-bundle <none|base|std>`
 
-`--library-bundle std` enables the Kern standard library bundle and automatically maps `std` if no manual `-M std=...` mapping is provided.
+`--library-bundle std` enables the Kern standard library bundle and automatically maps `std` if no manual `--module-path std=...` mapping is provided.
 
 The official library roots are:
 
@@ -185,15 +185,15 @@ Use `--asm-dialect intel` or `--asm-dialect att` to configure inline assembly fo
 
 ### Conditional Compilation Defines
 
-Use `-D <key=value>` to feed custom values into compile-time attribute pruning:
+Use `--define <key=value>` to feed custom values into compile-time attribute pruning:
 
 ```bash
-kernc -D debug_mode=true -D board=qemu app.rn
+kernc --define debug_mode=true --define board=qemu app.rn
 ```
 
 These values are available to `#[if(...)]` and `#![if(...)]` conditions handled by the frontend pruning pass.
 
-In addition to user-provided `-D` values, `kernc` injects a small set of driver-controlled condition variables:
+In addition to user-provided `--define` values, `kernc` injects a small set of driver-controlled condition variables:
 
 - `runtime_entry`: one of `"none"`, `"rt"`, or `"crt"`
 - `runtime_provider`: one of `"none"`, `"toolchain"`, or `"libc"`
@@ -223,10 +223,10 @@ This split is intentional. Symbol shape belongs to the language and semantic pip
 
 ### Linker Driver
 
-Use `--cc <cmd>` or `--linker <cmd>` to select the linker driver command:
+Use `--link-driver <cmd>` to select the linker driver command:
 
 ```bash
-kernc --linker clang --runtime-entry rt --library-bundle std app.rn -o app
+kernc --link-driver clang --runtime-entry rt --library-bundle std app.rn -o app
 ```
 
 ### Additional Link Inputs
@@ -271,11 +271,11 @@ kernc --link-only \
 
 ### Entry Symbol
 
-Use `--entry <symbol>` to set the final linker entry symbol explicitly. This is independent from the language-level `main` contract and can be used in naked freestanding builds where `runtime_entry = none`.
+Use `--entry-symbol <symbol>` to set the final linker entry symbol explicitly. This is independent from the language-level `main` contract and can be used in naked freestanding builds where `runtime_entry = none`.
 
 ```bash
 kernc --link-only \
-  --entry boot_main \
+  --entry-symbol boot_main \
   --link-input kernel.o \
   -o kernel.bin
 ```
@@ -309,7 +309,7 @@ Split the pipeline explicitly:
 
 ```bash
 kernc -c --target x86_64-unknown-linux-gnu app.rn -o app.o
-kernc --link-only --link-input app.o --entry boot_main --link-arg ... -o app
+kernc --link-only --link-input app.o --entry-symbol boot_main --link-arg ... -o app
 ```
 
 ### Future Package Manager Integration
@@ -330,8 +330,11 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 - `-o <file>`: write output to `<file>`
 - `-c`: emit linker input and skip the final system link step
 - `--link-only`: skip frontend/codegen and invoke the linker driver only
-- `-D <key=val>`: define a variable for conditional compilation
-- `-M <name=path>`: map a module name to a physical directory
+- `--define <key=val>`: define a variable for conditional compilation
+- `--module-path <name=path>`: map a module name to a physical directory
+- `--module-interface-path <name=path>`: map a module name to an imported metadata root
+- `--metadata-output <dir>`: emit a module metadata snapshot directory
+- `--module-root-name <name>`: override the compiled root module name
 - `-O0` to `-O3`: select optimization level
 
 ### Targeting and Code Generation
@@ -342,18 +345,20 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 
 ### Linking
 
-- `--cc <cmd>`: set the linker driver command
-- `--linker <cmd>`: alias for `--cc`
+- `--link-driver <cmd>`: set the linker driver command
 - `--runtime-entry <m>`: select `none`, `rt`, or `crt`
 - `--runtime-provider <p>`: select `none`, `toolchain`, or `libc`
 - `--runtime-libc <yes|no>`: control whether libc is linked
 - `--library-bundle <b>`: select `none`, `base`, or `std`
 - `--link-input <path>`: add an extra linker input
+- `--link-search <dir>`: add a linker search path
+- `--link-lib <name>`: link against a library
 - `-L <dir>`: add a linker search path
 - `-l <name>`: link against a library
 - `--link-arg <arg>`: pass a raw linker argument
-- `--entry <symbol>`: set the final linker entry symbol explicitly
+- `--entry-symbol <symbol>`: set the final linker entry symbol explicitly
 - `--print-link-command`: print the resolved link command
+- `--timings`: print compiler phase timings
 
 ### Information
 
@@ -365,4 +370,3 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 - [Runtime And Library Architecture](./runtime-architecture.md)
 - [Kern Language Design Document](./design.md)
 - [Project README](../README.md)
-

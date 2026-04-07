@@ -545,7 +545,7 @@ mod windows;
 Absolute paths in Kern are resolved through two precise roots:
 
 1.  **Compiler Root Directory**: The root module entry point provided to `kernc` (e.g., treating the project root similar to `crate::`).
-2.  **CLI Alias Mappings**: External package paths explicitly mapped via compiler options (e.g., `-M std=./libs/std` allows `use std.io;`).
+2.  **CLI Alias Mappings**: External package paths explicitly mapped via compiler options (e.g., `--module-path std=./libs/std` allows `use std.io;`).
 
 Paths are navigated strictly:
 
@@ -798,7 +798,7 @@ Kern strictly enforces single-responsibility for attribute brackets. The content
 
 #### 1\. Conditional Compilation (`if(...)`)
 
-Uses a strict boolean evaluator at compile-time. If the condition evaluates to `false`, the target node (or file) is entirely pruned before semantic analysis. It supports logical operators (`and`, `or`, `not`) and checking custom compiler flags (`-D key=value`).
+Uses a strict boolean evaluator at compile-time. If the condition evaluates to `false`, the target node (or file) is entirely pruned before semantic analysis. It supports logical operators (`and`, `or`, `not`) and checking custom compiler flags (`--define key=value`).
 
 ```kern
 #![if(os == "bare_metal")]

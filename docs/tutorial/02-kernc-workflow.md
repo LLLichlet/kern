@@ -74,21 +74,21 @@ Each root then falls back to a path relative to the current executable and final
 
 These flags are orthogonal. Library availability, program-entry semantics, runtime-provider selection, and libc linkage are configured independently.
 
-### `-M name=path`
+### `--module-path name=path`
 
 Maps a module root to a concrete directory. This is the key escape hatch when
 you want full explicit control.
 
 ```bash
-kernc -M std=./library/std app.rn
+kernc --module-path std=./library/std app.rn
 ```
 
-### `-I name=path` and `--emit-kmeta`
+### `--module-interface-path name=path` and `--metadata-output`
 
 These are for module interface snapshots:
 
-- `--emit-kmeta <dir>` writes a kmeta export tree
-- `-I name=path` imports a kmeta root
+- `--metadata-output <dir>` writes a metadata export tree
+- `--module-interface-path name=path` imports a metadata root
 
 This matters when you want explicit interface-style builds without teaching
 `kernc` package-manager behavior.
@@ -110,7 +110,7 @@ Use this when you want to stay close to bare-metal assumptions:
 
 ```bash
 kernc -c kernel.rn -o kernel.o
-kernc --link-only --link-input kernel.o --entry boot_main --link-arg -nostdlib -o kernel
+kernc --link-only --link-input kernel.o --entry-symbol boot_main --link-arg -nostdlib -o kernel
 ```
 
 Splitting compile and link is especially useful when debugging symbol export,
@@ -129,10 +129,10 @@ That is often the fastest way to answer "is the front end wrong, or is lowering
 
 ## Conditional Compilation Inputs
 
-`kernc` accepts `-D key=value` pairs that feed frontend pruning and conditions.
+`kernc` accepts `--define key=value` pairs that feed frontend pruning and conditions.
 
 ```bash
-kernc -D board=qemu -D debug_mode=true app.rn
+kernc --define board=qemu --define debug_mode=true app.rn
 ```
 
 The driver also injects some condition values itself, including:
@@ -154,7 +154,7 @@ When something feels wrong, debug in this order:
 1. run `kernc` directly instead of going through higher-level tooling
 2. reduce the case to one entry `.rn` file
 3. switch to `-c` or `--emit-llvm`
-4. make module aliases explicit with `-M`
+4. make module aliases explicit with `--module-path`
 5. only after that bring `craft` back into the picture
 
 This order keeps the problem close to the compiler boundary.

@@ -48,7 +48,7 @@ cargo run -p kern-lsp
 Useful startup overrides:
 
 ```bash
-kern-lsp --library-bundle none -M std=./library/std
+kern-lsp --library-bundle none --module-path std=./library/std
 ```
 
 The server currently supports `file://` URIs and UTF-16 positions.
@@ -94,7 +94,7 @@ For practical day-to-day use, this is the easiest way to drive `kern-lsp`.
 ## Good LSP Debugging Habits
 
 1. confirm the same file compiles through `kernc`
-2. confirm the server was started with the expected `--library-bundle` or `-M` inputs
+2. confirm the server was started with the expected `--library-bundle` or `--module-path` inputs
 3. test the behavior on a saved file first
 4. only after that inspect protocol-layer or client-layer issues
 

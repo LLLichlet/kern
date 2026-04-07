@@ -3,9 +3,11 @@ name = "blocked"
 version = "0.1.0"
 kern = "0.6.7"
 
+[workspace]
+members = []
+
 [lib]
 root = "src/lib.rn"
 
-[source.default]
-git = "http://example.com/registry.git"
-branch = "main"
+[workspace.dependencies]
+default = { git = "http://example.com/registry.git", branch = "main" }

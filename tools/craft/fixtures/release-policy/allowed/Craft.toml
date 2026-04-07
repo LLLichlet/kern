@@ -3,9 +3,11 @@ name = "allowed"
 version = "0.1.0"
 kern = "0.6.7"
 
+[workspace]
+members = []
+
 [lib]
 root = "src/lib.rn"
 
-[source.default]
-git = "https://example.com/registry.git"
-tag = "v1"
+[workspace.dependencies]
+default = { git = "https://example.com/registry.git", tag = "v1" }

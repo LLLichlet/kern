@@ -7,9 +7,11 @@ kern = "0.6.7"
 release-source-policy = "enforce"
 allow-floating-git = ["default"]
 
+[workspace]
+members = []
+
 [lib]
 root = "src/lib.rn"
 
-[source.default]
-git = "https://example.com/registry.git"
-branch = "main"
+[workspace.dependencies]
+default = { git = "https://example.com/registry.git", branch = "main" }

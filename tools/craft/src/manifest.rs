@@ -39,6 +39,26 @@ pub struct Package {
 #[derive(Debug, Default)]
 pub struct CraftConfig {
     pub env: Vec<String>,
+    pub release_source_policy: Option<ReleaseSourcePolicy>,
+    pub allow_floating_git: Vec<String>,
+    pub allow_insecure_source: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReleaseSourcePolicy {
+    Enforce,
+    Warn,
+    Off,
+}
+
+impl ReleaseSourcePolicy {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Enforce => "enforce",
+            Self::Warn => "warn",
+            Self::Off => "off",
+        }
+    }
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -233,6 +253,15 @@ impl Manifest {
             for name in &craft.env {
                 validate_env_name(path, "[craft].env[]", name)?;
             }
+            if let Some(policy) = craft.release_source_policy {
+                let _ = policy;
+            }
+            for name in &craft.allow_floating_git {
+                validate_source_name(path, "[craft].allow-floating-git[]", name)?;
+            }
+            for name in &craft.allow_insecure_source {
+                validate_source_name(path, "[craft].allow-insecure-source[]", name)?;
+            }
         }
 
         if let Some(runtime) = &self.runtime {
@@ -383,6 +412,13 @@ fn assign_key_value(
             let craft = manifest.craft.get_or_insert_with(CraftConfig::default);
             match key {
                 "env" => craft.env = parse_string_array(raw_value)?,
+                "release-source-policy" => {
+                    craft.release_source_policy = Some(parse_release_source_policy(raw_value)?)
+                }
+                "allow-floating-git" => craft.allow_floating_git = parse_string_array(raw_value)?,
+                "allow-insecure-source" => {
+                    craft.allow_insecure_source = parse_string_array(raw_value)?
+                }
                 _ => return Err(format!("unsupported [craft] key `{key}`")),
             }
             Ok(())
@@ -1101,6 +1137,19 @@ fn validate_non_empty(path: &Path, field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn parse_release_source_policy(
+    raw_value: &str,
+) -> std::result::Result<ReleaseSourcePolicy, String> {
+    match parse_string(raw_value)?.as_str() {
+        "enforce" => Ok(ReleaseSourcePolicy::Enforce),
+        "warn" => Ok(ReleaseSourcePolicy::Warn),
+        "off" => Ok(ReleaseSourcePolicy::Off),
+        other => Err(format!(
+            "[craft].release-source-policy has unsupported value `{other}`"
+        )),
+    }
+}
+
 fn validate_kern_version(path: &Path, value: &str) -> Result<()> {
     if value != CURRENT_KERN_VERSION {
         return Err(Error::Validation {
@@ -1139,9 +1188,34 @@ fn validate_env_name(path: &Path, field: &str, value: &str) -> Result<()> {
     Ok(())
 }
 
+fn validate_source_name(path: &Path, field: &str, value: &str) -> Result<()> {
+    validate_non_empty(path, field, value)?;
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        unreachable!("non-empty source names are required");
+    };
+    if !(first == '_' || first.is_ascii_alphabetic()) {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{field} names must start with an ASCII letter or `_`, found `{value}`"
+            ),
+        });
+    }
+    if chars.any(|ch| !(ch == '_' || ch == '-' || ch.is_ascii_alphanumeric())) {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!(
+                "{field} names must contain only ASCII letters, digits, `_`, or `-`, found `{value}`"
+            ),
+        });
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{DependencySpec, Manifest};
+    use super::{DependencySpec, Manifest, ReleaseSourcePolicy};
     use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
 
     #[test]
@@ -1282,6 +1356,52 @@ env = ["1BAD-NAME"]
             .validate(std::path::Path::new("Craft.toml"))
             .unwrap_err();
         assert!(err.to_string().contains("[craft].env[]"));
+    }
+
+    #[test]
+    fn parses_craft_release_source_policy_overrides() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[craft]
+release-source-policy = "warn"
+allow-floating-git = ["default"]
+allow-insecure-source = ["mirror"]
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let craft = manifest.craft.as_ref().unwrap();
+        assert_eq!(craft.release_source_policy, Some(ReleaseSourcePolicy::Warn));
+        assert_eq!(craft.allow_floating_git, vec!["default"]);
+        assert_eq!(craft.allow_insecure_source, vec!["mirror"]);
+    }
+
+    #[test]
+    fn rejects_invalid_release_source_policy_value() {
+        let err = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[craft]
+release-source-policy = "strict"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("release-source-policy has unsupported value")
+        );
     }
 
     #[test]

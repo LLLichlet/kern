@@ -12,6 +12,7 @@ use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
 use crate::source;
 use crate::workspace;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fmt::Display;
 use std::io::IsTerminal;
@@ -287,6 +288,12 @@ fn run_command(command: Command) -> Result<()> {
             if render.verbose {
                 render.meta("deps", dependency_summary);
             }
+            let security_summary = summarize_source_security(&loaded.manifest);
+            validate_check_source_policy(
+                &loaded.manifest_path,
+                &feature_selection,
+                &security_summary,
+            )?;
             render.summary(
                 "sources",
                 format!(
@@ -294,6 +301,22 @@ fn run_command(command: Command) -> Result<()> {
                     source_summary.git_packages, source_summary.path_packages,
                 ),
             );
+            if render.verbose
+                || !security_summary.warnings.is_empty()
+                || !security_summary.suppressed.is_empty()
+            {
+                render.meta(
+                    "source-policy",
+                    format!(
+                        "mode {}, warnings {}, suppressed {}, floating git {}, insecure transport {}",
+                        security_summary.policy_mode.as_str(),
+                        security_summary.warning_count(),
+                        security_summary.suppressed_count(),
+                        security_summary.floating_git_sources,
+                        security_summary.insecure_transport_sources
+                    ),
+                );
+            }
             if render.verbose {
                 render.meta(
                     "scripts",
@@ -897,6 +920,30 @@ struct CheckSourceSummary {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+struct SourceSecuritySummary {
+    policy_mode: crate::manifest::ReleaseSourcePolicy,
+    floating_git_sources: usize,
+    insecure_transport_sources: usize,
+    warnings: Vec<String>,
+    suppressed: Vec<String>,
+    release_blockers: Vec<String>,
+}
+
+impl SourceSecuritySummary {
+    fn warning_count(&self) -> usize {
+        self.warnings.len()
+    }
+
+    fn suppressed_count(&self) -> usize {
+        self.suppressed.len()
+    }
+
+    fn release_blockers(&self) -> &[String] {
+        self.release_blockers.as_slice()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 struct PublishPackageSummary {
     name: String,
     version: String,
@@ -934,6 +981,135 @@ fn summarize_check_sources(resolved: &crate::resolver::ResolvedGraph) -> CheckSo
         git_packages,
         path_packages,
     }
+}
+
+fn summarize_source_security(manifest: &Manifest) -> SourceSecuritySummary {
+    let policy_mode = manifest
+        .craft
+        .as_ref()
+        .and_then(|craft| craft.release_source_policy)
+        .unwrap_or(crate::manifest::ReleaseSourcePolicy::Enforce);
+    let allow_floating_git = manifest
+        .craft
+        .as_ref()
+        .map(|craft| {
+            craft
+                .allow_floating_git
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let allow_insecure_source = manifest
+        .craft
+        .as_ref()
+        .map(|craft| {
+            craft
+                .allow_insecure_source
+                .iter()
+                .map(String::as_str)
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+    let mut floating_git_sources = 0usize;
+    let mut insecure_transport_sources = 0usize;
+    let mut warnings = Vec::new();
+    let mut suppressed = Vec::new();
+
+    for (name, dep) in release_policy_dependencies(manifest) {
+        let Some(git) = dep.git.as_deref() else {
+            continue;
+        };
+
+        if is_insecure_git_source(git) {
+            insecure_transport_sources += 1;
+            let label = format!("{name}(insecure-transport)");
+            if allow_insecure_source.contains(name.as_str()) {
+                suppressed.push(label);
+            } else {
+                warnings.push(label);
+            }
+        }
+
+        if dep.rev.is_none() && dep.tag.is_none() {
+            floating_git_sources += 1;
+            let label = format!("{name}(floating-git)");
+            if allow_floating_git.contains(name.as_str()) {
+                suppressed.push(label);
+            } else {
+                warnings.push(label);
+            }
+        }
+    }
+
+    let release_blockers = match policy_mode {
+        crate::manifest::ReleaseSourcePolicy::Enforce => warnings.clone(),
+        crate::manifest::ReleaseSourcePolicy::Warn | crate::manifest::ReleaseSourcePolicy::Off => {
+            Vec::new()
+        }
+    };
+
+    SourceSecuritySummary {
+        policy_mode,
+        floating_git_sources,
+        insecure_transport_sources,
+        warnings,
+        suppressed,
+        release_blockers,
+    }
+}
+
+fn release_policy_dependencies<'a>(
+    manifest: &'a Manifest,
+) -> BTreeMap<String, &'a crate::manifest::DetailedDependency> {
+    let mut dependencies = BTreeMap::new();
+
+    if let Some(workspace) = &manifest.workspace {
+        collect_release_policy_dependencies(&mut dependencies, &workspace.dependencies);
+    }
+    collect_release_policy_dependencies(&mut dependencies, &manifest.dependencies);
+    collect_release_policy_dependencies(&mut dependencies, &manifest.dev_dependencies);
+    collect_release_policy_dependencies(&mut dependencies, &manifest.build_dependencies);
+
+    dependencies
+}
+
+fn collect_release_policy_dependencies<'a>(
+    out: &mut BTreeMap<String, &'a crate::manifest::DetailedDependency>,
+    section: &'a BTreeMap<String, crate::manifest::DependencySpec>,
+) {
+    for (name, spec) in section {
+        let crate::manifest::DependencySpec::Detailed(dep) = spec else {
+            continue;
+        };
+        if dep.git.is_some() {
+            out.entry(name.clone()).or_insert(dep);
+        }
+    }
+}
+
+fn is_insecure_git_source(locator: &str) -> bool {
+    locator.starts_with("http://")
+}
+
+fn validate_check_source_policy(
+    manifest_path: &Path,
+    selection: &elaborate::FeatureSelection,
+    summary: &SourceSecuritySummary,
+) -> Result<()> {
+    if selection.profile != crate::script::ProfileSelection::Release
+        || summary.release_blockers().is_empty()
+    {
+        return Ok(());
+    }
+
+    Err(Error::Validation {
+        path: manifest_path.to_path_buf(),
+        message: format!(
+            "release source policy rejected: {}",
+            summary.release_blockers().join(", ")
+        ),
+    })
 }
 
 fn validate_publish_lock_status(
@@ -1667,9 +1843,11 @@ examples
 mod tests {
     use super::{
         ColorChoice, Command, UiOptions, parse_args, run_command, summarize_check_sources,
+        summarize_source_security, validate_check_source_policy,
     };
     use crate::elaborate::FeatureSelection;
     use crate::graph::SourceId;
+    use crate::manifest::{Manifest, ReleaseSourcePolicy};
     use crate::operation_lock::WorkspaceOperationLock;
     use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
     use std::fs;
@@ -2071,6 +2249,80 @@ root = "src/main.rn"
         assert_eq!(summary.git_sources, 2);
         assert_eq!(summary.git_packages, 2);
         assert_eq!(summary.path_packages, 1);
+    }
+
+    #[test]
+    fn summarize_source_security_respects_allowlists_and_warn_mode() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[craft]
+release-source-policy = "warn"
+allow-floating-git = ["default"]
+allow-insecure-source = ["insecure"]
+
+[workspace]
+members = []
+
+[workspace.dependencies]
+default = { git = "https://example.com/default.git", branch = "main" }
+insecure = { git = "http://example.com/insecure.git", branch = "main" }
+blocked = { git = "https://example.com/blocked.git", branch = "main" }
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let summary = summarize_source_security(&manifest);
+        assert_eq!(summary.policy_mode, ReleaseSourcePolicy::Warn);
+        assert_eq!(summary.floating_git_sources, 3);
+        assert_eq!(summary.insecure_transport_sources, 1);
+        assert_eq!(
+            summary.warnings,
+            vec![
+                "blocked(floating-git)".to_string(),
+                "insecure(floating-git)".to_string(),
+            ]
+        );
+        assert_eq!(
+            summary.suppressed,
+            vec![
+                "default(floating-git)".to_string(),
+                "insecure(insecure-transport)".to_string(),
+            ]
+        );
+        assert!(summary.release_blockers().is_empty());
+    }
+
+    #[test]
+    fn validate_check_source_policy_rejects_release_blockers() {
+        let summary = super::SourceSecuritySummary {
+            policy_mode: ReleaseSourcePolicy::Enforce,
+            floating_git_sources: 1,
+            insecure_transport_sources: 1,
+            warnings: vec![
+                "default(floating-git)".to_string(),
+                "default(insecure-transport)".to_string(),
+            ],
+            suppressed: Vec::new(),
+            release_blockers: vec![
+                "default(floating-git)".to_string(),
+                "default(insecure-transport)".to_string(),
+            ],
+        };
+        let selection = FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        };
+
+        let err =
+            validate_check_source_policy(std::path::Path::new("Craft.toml"), &selection, &summary)
+                .unwrap_err();
+        assert!(err.to_string().contains("release source policy rejected"));
     }
 
     #[test]

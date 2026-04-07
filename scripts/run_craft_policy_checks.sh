@@ -23,7 +23,17 @@ prepare_fixture() {
     local source_dir="$1"
     local dest_dir="${TMP_ROOT}/$(basename "${source_dir}")"
     cp -r "${source_dir}" "${dest_dir}"
-    sed -i "s/^kern = \".*\"$/kern = \"${CURRENT_KERN_VERSION}\"/" "${dest_dir}/Craft.toml"
+    python3 - "${dest_dir}/Craft.toml" "${CURRENT_KERN_VERSION}" <<'PY'
+import pathlib
+import re
+import sys
+
+path = pathlib.Path(sys.argv[1])
+version = sys.argv[2]
+source = path.read_text(encoding="utf-8")
+updated = re.sub(r'^kern = ".*"$', f'kern = "{version}"', source, flags=re.MULTILINE)
+path.write_text(updated, encoding="utf-8")
+PY
     printf '%s\n' "${dest_dir}"
 }
 
@@ -32,14 +42,14 @@ ALLOWED_EXCEPTION_PATH="$(prepare_fixture "${ALLOWED_EXCEPTION_FIXTURE}")"
 BLOCKED_PATH="$(prepare_fixture "${BLOCKED_FIXTURE}")"
 
 echo "Running craft release policy allow fixture..."
-cargo run -p craft -- check --release "${ALLOWED_PATH}"
+cargo run -p craft -- check --project-path "${ALLOWED_PATH}" --profile release
 
 echo "Running craft release policy allow-exception fixture..."
-cargo run -p craft -- check --release "${ALLOWED_EXCEPTION_PATH}"
+cargo run -p craft -- check --project-path "${ALLOWED_EXCEPTION_PATH}" --profile release
 
 echo "Running craft release policy block fixture..."
 LOG_FILE="$(mktemp)"
-if cargo run -p craft -- check --release "${BLOCKED_PATH}" >"${LOG_FILE}" 2>&1; then
+if cargo run -p craft -- check --project-path "${BLOCKED_PATH}" --profile release >"${LOG_FILE}" 2>&1; then
     cat "${LOG_FILE}"
     rm -f "${LOG_FILE}"
     echo "craft release policy fixture unexpectedly passed: ${BLOCKED_PATH}" >&2

@@ -1,6 +1,32 @@
 $AllowedFixture = "tools/craft/fixtures/release-policy/allowed"
 $AllowedExceptionFixture = "tools/craft/fixtures/release-policy/allowed-exception"
 $BlockedFixture = "tools/craft/fixtures/release-policy/blocked"
+$WorkspaceManifest = "Cargo.toml"
+
+$WorkspaceManifestLines = Get-Content $WorkspaceManifest
+$CurrentKernVersion = $null
+$InWorkspacePackage = $false
+foreach ($Line in $WorkspaceManifestLines) {
+    if ($Line -match '^\[workspace\.package\]') {
+        $InWorkspacePackage = $true
+        continue
+    }
+    if ($InWorkspacePackage -and $Line -match '^\[') {
+        break
+    }
+    if ($InWorkspacePackage -and $Line -match '^version = "(.*)"$') {
+        $CurrentKernVersion = $Matches[1]
+        break
+    }
+}
+
+if (-not $CurrentKernVersion) {
+    Write-Error "failed to resolve current workspace version from $WorkspaceManifest"
+    exit 1
+}
+
+$TempRoot = Join-Path $env:TEMP ("craft-policy-" + [guid]::NewGuid().ToString())
+New-Item -ItemType Directory -Path $TempRoot | Out-Null
 
 function Invoke-CargoCapture {
     param(
@@ -35,22 +61,47 @@ function Invoke-CargoCapture {
     }
 }
 
+function Prepare-Fixture {
+    param(
+        [string]$SourceDir
+    )
+
+    $Destination = Join-Path $TempRoot ([System.IO.Path]::GetFileName($SourceDir))
+    Copy-Item -Recurse -Force $SourceDir $Destination
+
+    $ManifestPath = Join-Path $Destination "Craft.toml"
+    $ManifestSource = Get-Content $ManifestPath -Raw
+    $UpdatedManifest = [System.Text.RegularExpressions.Regex]::Replace(
+        $ManifestSource,
+        '^kern = ".*"$',
+        "kern = `"$CurrentKernVersion`"",
+        [System.Text.RegularExpressions.RegexOptions]::Multiline
+    )
+    Set-Content -Path $ManifestPath -Value $UpdatedManifest -NoNewline
+
+    return $Destination
+}
+
+$AllowedPath = Prepare-Fixture $AllowedFixture
+$AllowedExceptionPath = Prepare-Fixture $AllowedExceptionFixture
+$BlockedPath = Prepare-Fixture $BlockedFixture
+
 Write-Host "Running craft release policy allow fixture..."
-cargo run -p craft -- check --release $AllowedFixture
+cargo run -p craft -- check --project-path $AllowedPath --profile release
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
 Write-Host "Running craft release policy allow-exception fixture..."
-cargo run -p craft -- check --release $AllowedExceptionFixture
+cargo run -p craft -- check --project-path $AllowedExceptionPath --profile release
 if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
 }
 
 Write-Host "Running craft release policy block fixture..."
-$Result = Invoke-CargoCapture -Arguments @("run", "-p", "craft", "--", "check", "--release", $BlockedFixture)
+$Result = Invoke-CargoCapture -Arguments @("run", "-p", "craft", "--", "check", "--project-path", $BlockedPath, "--profile", "release")
 if ($Result.ExitCode -eq 0) {
-    Write-Error "craft release policy fixture unexpectedly passed: $BlockedFixture"
+    Write-Error "craft release policy fixture unexpectedly passed: $BlockedPath"
     exit 1
 }
 if (-not $Result.Output.Contains("release source policy rejected")) {
@@ -65,3 +116,4 @@ if (-not $Result.Output.Contains("release source policy rejected")) {
 }
 
 Write-Host "craft release policy fixtures passed"
+Remove-Item -Recurse -Force $TempRoot -ErrorAction SilentlyContinue

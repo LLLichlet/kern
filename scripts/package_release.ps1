@@ -40,6 +40,9 @@ New-Item -ItemType Directory -Force -Path "$DistName\lib\kern" | Out-Null
 Copy-Item "target\release\kernc.exe" -Destination "$DistName\bin\"
 Copy-Item "target\release\craft.exe" -Destination "$DistName\bin\"
 Copy-Item "target\release\kern-lsp.exe" -Destination "$DistName\bin\"
+Copy-Item -Recurse "library\base" -Destination "$DistName\lib\kern\"
+Copy-Item -Recurse "library\rt" -Destination "$DistName\lib\kern\"
+Copy-Item -Recurse "library\sys" -Destination "$DistName\lib\kern\"
 Copy-Item -Recurse "library\std" -Destination "$DistName\lib\kern\"
 Copy-Item "README.md", "LICENSE" -Destination "$DistName\"
 

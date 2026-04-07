@@ -110,6 +110,27 @@ pub fn summarize_fetch(packages: &[FetchedPackage]) -> FetchSummary {
     summary
 }
 
+pub fn analysis_source_root_for_external(
+    workspace_root: &Path,
+    package: &ExternalPackageId,
+) -> Result<Option<PathBuf>> {
+    match &package.source {
+        SourceId::PathDependency { path } => {
+            let absolute = workspace_root.join(path);
+            let source_path = absolute
+                .canonicalize()
+                .map_err(|err| Error::from_io(&absolute, err))?;
+            Ok(Some(source_path))
+        }
+        SourceId::GitDependency { .. } => {
+            let cache_root = workspace_root.join(".craft").join("sources");
+            let cache_path = cache_path_for_external(&cache_root, package)?;
+            Ok(cache_path.is_dir().then_some(cache_path))
+        }
+        SourceId::Root | SourceId::WorkspaceMember { .. } => Ok(None),
+    }
+}
+
 fn source_path_for_external(
     resolved: &ResolvedGraph,
     package: &ExternalPackageId,

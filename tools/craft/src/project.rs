@@ -174,10 +174,11 @@ impl AnalysisProject {
                 .map(|node| {
                     let mut aliases = BTreeMap::new();
                     let mut visited = BTreeSet::new();
-                    collect_local_module_aliases(
+                    collect_dependency_module_aliases(
                         node,
                         &graph_index,
                         &package_index,
+                        &package_graph.workspace_root,
                         &mut visited,
                         &mut aliases,
                     );
@@ -746,36 +747,72 @@ fn package_entry(
     })
 }
 
-fn collect_local_module_aliases<'a>(
+fn collect_dependency_module_aliases<'a>(
     node: &'a crate::graph::PackageNode,
     graph_index: &BTreeMap<PackageId, &'a crate::graph::PackageNode>,
     package_index: &BTreeMap<PackageId, &PackageEntry>,
+    workspace_root: &Path,
     visited: &mut BTreeSet<PackageId>,
     aliases: &mut BTreeMap<String, PathBuf>,
 ) {
     for dependency in &node.dependencies {
-        let DependencyTarget::Local(package_id) = &dependency.target else {
-            continue;
-        };
-        if !visited.insert(package_id.clone()) {
-            continue;
-        }
+        match &dependency.target {
+            DependencyTarget::Local(package_id) => {
+                if !visited.insert(package_id.clone()) {
+                    continue;
+                }
 
-        if let Some(package) = package_index.get(package_id) {
-            if let Some(lib_root) = &package.lib_root {
-                aliases.insert(dependency.dependency_name.clone(), lib_root.clone());
+                if let Some(package) = package_index.get(package_id) {
+                    if let Some(lib_root) = &package.lib_root {
+                        aliases.insert(dependency.dependency_name.clone(), lib_root.clone());
+                    }
+                    if let Some(dep_node) = graph_index.get(package_id) {
+                        collect_dependency_module_aliases(
+                            dep_node,
+                            graph_index,
+                            package_index,
+                            workspace_root,
+                            visited,
+                            aliases,
+                        );
+                    }
+                }
             }
-            if let Some(dep_node) = graph_index.get(package_id) {
-                collect_local_module_aliases(
-                    dep_node,
-                    graph_index,
-                    package_index,
-                    visited,
-                    aliases,
-                );
+            DependencyTarget::External(package_id) => {
+                if let Some(lib_root) =
+                    external_dependency_lib_root(workspace_root, package_id).as_ref()
+                {
+                    aliases.insert(dependency.dependency_name.clone(), lib_root.clone());
+                }
             }
         }
     }
+}
+
+fn external_dependency_lib_root(
+    workspace_root: &Path,
+    package_id: &crate::graph::ExternalDependency,
+) -> Option<PathBuf> {
+    let external_package_id = crate::resolver::ExternalPackageId {
+        package_name: package_id.package_name.clone(),
+        source: package_id.source.clone(),
+        version: package_id.version.clone(),
+    };
+    let package_root =
+        crate::source::analysis_source_root_for_external(workspace_root, &external_package_id)
+            .ok()
+            .flatten()?;
+    let manifest_path = package_root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).ok()?;
+    manifest.validate(&manifest_path).ok()?;
+    let entry = package_entry(
+        &manifest_path,
+        &manifest,
+        external_package_id.source.clone(),
+        Some(package_root),
+    )
+    .ok()?;
+    entry.lib_root
 }
 
 #[cfg(test)]
@@ -908,6 +945,65 @@ root = \"src/lib.rn\"
             resolved.compile_options.root_module_name,
             Some("app".to_string())
         );
+        assert_eq!(
+            resolved
+                .compile_options
+                .module_aliases
+                .get("util")
+                .and_then(|path| normalize_test_optional_path(Some(path))),
+            Some(normalize_test_path(&util_dir.join("src/lib.rn")))
+        );
+    }
+
+    #[test]
+    fn resolves_external_path_dependency_aliases_for_analysis() {
+        let root = temp_dir("craft-project-external-analysis");
+        let deps_dir = root.join("deps");
+        let app_dir = root.join("app");
+        let util_dir = deps_dir.join("util");
+        fs::create_dir_all(app_dir.join("src")).unwrap();
+        fs::create_dir_all(util_dir.join("src")).unwrap();
+
+        fs::write(
+            app_dir.join("Craft.toml"),
+            "\
+[package]
+name = \"app\"
+version = \"0.1.0\"
+kern = \"0.6.7\"
+
+[lib]
+root = \"src/lib.rn\"
+
+[dependencies]
+util = { path = \"../deps/util\" }
+",
+        )
+        .unwrap();
+        fs::write(app_dir.join("src/lib.rn"), "use util;\n").unwrap();
+        fs::write(
+            util_dir.join("Craft.toml"),
+            "\
+[package]
+name = \"util\"
+version = \"0.1.0\"
+kern = \"0.6.7\"
+
+[lib]
+root = \"src/lib.rn\"
+",
+        )
+        .unwrap();
+        fs::write(
+            util_dir.join("src/lib.rn"),
+            "pub fn helper() i32 { return 1; }\n",
+        )
+        .unwrap();
+
+        let project = AnalysisProject::load_from_manifest(&app_dir.join("Craft.toml")).unwrap();
+        let resolved =
+            project.resolve_for_file(&app_dir.join("src/lib.rn"), &CompileOptions::default());
+
         assert_eq!(
             resolved
                 .compile_options

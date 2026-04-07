@@ -481,7 +481,7 @@ fn impl_display_name(module_path: &str, owner_path: &str) -> String {
     format!("{kind}: {label}")
 }
 
-fn impl_heading_parts<'a>(module_path: &str, owner_path: &'a str) -> (&'static str, String) {
+fn impl_heading_parts(module_path: &str, owner_path: &str) -> (&'static str, String) {
     let label = relative_name(module_path, owner_path);
     if label.contains(" as ") {
         return ("Trait Impl", label);

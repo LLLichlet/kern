@@ -1054,7 +1054,6 @@ fn ensure_link_action_built(
     )?;
     options.linker_inputs = linker_inputs
         .iter()
-        .cloned()
         .map(|path| path.to_string_lossy().to_string())
         .collect();
     options.linker_libraries = action.link.system_libs.clone();

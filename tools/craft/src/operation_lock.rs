@@ -69,13 +69,17 @@ fn lock_contents(operation: &str) -> String {
         .unwrap_or_default()
         .as_millis();
     let pid = std::process::id();
-    let mut contents = format!(
+    let contents = format!(
         "pid={}\noperation={}\ncreated_unix_ms={}\n",
         pid, operation, created_ms
     );
     #[cfg(unix)]
-    if let Some(start_ticks) = read_process_start_ticks(pid) {
-        contents.push_str(&format!("start_ticks={start_ticks}\n"));
+    {
+        let mut contents = contents;
+        if let Some(start_ticks) = read_process_start_ticks(pid) {
+            contents.push_str(&format!("start_ticks={start_ticks}\n"));
+        }
+        return contents;
     }
     contents
 }
@@ -144,7 +148,8 @@ fn lock_owner_is_alive(owner: LockOwner) -> bool {
 }
 
 #[cfg(not(unix))]
-fn lock_owner_is_alive(_owner: LockOwner) -> bool {
+fn lock_owner_is_alive(owner: LockOwner) -> bool {
+    let _ = owner.pid;
     true
 }
 

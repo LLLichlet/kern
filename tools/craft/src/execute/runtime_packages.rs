@@ -566,7 +566,7 @@ pub(super) fn build_rt_entry_package(
             &object_path,
             entry_fingerprint,
             &inputs,
-            &[object_path.clone()],
+            std::slice::from_ref(&object_path),
         )?;
         execution_summary.record_action(
             ActionTimingKind::Compile,

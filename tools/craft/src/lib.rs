@@ -10,6 +10,7 @@ pub mod project;
 pub mod workspace;
 
 mod build_plan;
+mod build_state;
 mod elaborate;
 mod execute;
 mod local_state;

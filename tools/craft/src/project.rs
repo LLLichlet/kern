@@ -7,7 +7,9 @@ use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::script::{ProfileSelection, ScriptCommand};
 use crate::workspace::{self, WorkspaceMember};
-use kernc_utils::config::{CompileOptions, maybe_inject_std_alias};
+use kernc_utils::config::{
+    CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider, inject_default_library_aliases,
+};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -82,6 +84,7 @@ impl AnalysisProject {
         let mut compile_options = base_options.clone();
         let mut input_file = file.to_path_buf();
         let mut resolved_package = None;
+        let mut resolved_target_kind = None;
         let mut matched_values = None;
         let mut source_path_aliases = BTreeMap::new();
 
@@ -98,6 +101,7 @@ impl AnalysisProject {
             matched_values = Some(matched.compile_time_values);
             source_path_aliases = matched.source_path_aliases;
             resolved_package = Some(matched.package);
+            resolved_target_kind = Some(matched.target_kind);
             for (name, path) in &matched.package.module_aliases {
                 compile_options
                     .module_aliases
@@ -118,10 +122,21 @@ impl AnalysisProject {
             }
             if package.lib_root.as_ref() == Some(&input_file) {
                 compile_options.root_module_name = Some(package.id.name.clone());
+                resolved_target_kind = Some(TargetKind::Lib);
             }
         }
 
-        maybe_inject_std_alias(&mut compile_options);
+        if let Some(target_kind) = resolved_target_kind {
+            apply_target_runtime_defaults(&mut compile_options, target_kind);
+        }
+
+        if let Some(package) = resolved_package
+            && let Ok(manifest) = Manifest::load(&package.manifest_path)
+        {
+            manifest.apply_runtime_options(&mut compile_options);
+        }
+
+        inject_default_library_aliases(&mut compile_options);
         if let Some(values) = matched_values {
             for (name, value) in values {
                 compile_options.custom_defines.entry(name).or_insert(value);
@@ -384,6 +399,23 @@ impl AnalysisProject {
             &feature_selection,
         )?;
         build_plan::derive(&elaboration, ScriptCommand::Build)
+    }
+}
+
+fn apply_target_runtime_defaults(options: &mut CompileOptions, target_kind: TargetKind) {
+    match target_kind {
+        TargetKind::Lib => {
+            options.runtime_entry = RuntimeEntry::None;
+            options.runtime_provider = RuntimeProvider::None;
+            options.runtime_libc = false;
+            options.library_bundle = LibraryBundle::Std;
+        }
+        TargetKind::Bin | TargetKind::Test | TargetKind::Example => {
+            options.runtime_entry = RuntimeEntry::Crt;
+            options.runtime_provider = RuntimeProvider::Toolchain;
+            options.runtime_libc = true;
+            options.library_bundle = LibraryBundle::Std;
+        }
     }
 }
 
@@ -1159,7 +1191,7 @@ pub fn craft(p: *mut plan.Plan) void {{
         .unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "extern fn main() i32 { return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
 
@@ -1246,7 +1278,7 @@ pub fn craft(p: *mut plan.Plan) void {{
         .unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "extern fn main() i32 { return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
 
@@ -1323,7 +1355,7 @@ use craft.builder;
 pub fn build(b: *mut builder.Builder) void {
     let generated = b.emit_generated(
         \"src/main.rn\",
-        \"extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\\n\"
+        \"fn main() i32 { return 0; }\\n\"
     );
     b.set_source_root(generated);
     b.cfg_bool(\"generated\", true);
@@ -1408,7 +1440,7 @@ root = \"src/placeholder.rn\"
         .unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "mod build_info;\nextern fn main(args: [][]u8) i32 { let _ = args; let _ = build_info.MAGIC_NUMBER; return 0; }\n",
+            "mod build_info;\nfn main() i32 { let _ = build_info.MAGIC_NUMBER; return 0; }\n",
         )
         .unwrap();
         fs::write(
@@ -1509,7 +1541,7 @@ pub fn craft(p: *mut plan.Plan) void {
         .unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "extern fn main() i32 { return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
 
@@ -1565,3 +1597,5 @@ kern = \"0.6.7\"
         assert_eq!(manifest, root.join("Craft.toml"));
     }
 }
+
+

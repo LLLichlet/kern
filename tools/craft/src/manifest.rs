@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
@@ -7,6 +8,7 @@ use std::path::Path;
 pub struct Manifest {
     pub package: Option<Package>,
     pub craft: Option<CraftConfig>,
+    pub runtime: Option<RuntimeConfig>,
     pub lib: Option<LibTarget>,
     pub bin: Vec<NamedTarget>,
     pub test: Vec<NamedTarget>,
@@ -37,6 +39,14 @@ pub struct Package {
 #[derive(Debug, Default)]
 pub struct CraftConfig {
     pub env: Vec<String>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct RuntimeConfig {
+    pub entry: Option<RuntimeEntry>,
+    pub provider: Option<RuntimeProvider>,
+    pub libc: Option<bool>,
+    pub bundle: Option<LibraryBundle>,
 }
 
 #[derive(Debug, Default)]
@@ -109,6 +119,7 @@ enum Section {
     Root,
     Package,
     Craft,
+    Runtime,
     Lib,
     Bin(usize),
     Test,
@@ -135,6 +146,25 @@ impl Manifest {
             .as_ref()
             .map(|craft| craft.env.as_slice())
             .unwrap_or(&[])
+    }
+
+    pub fn apply_runtime_options(&self, options: &mut CompileOptions) {
+        let Some(runtime) = &self.runtime else {
+            return;
+        };
+
+        if let Some(entry) = runtime.entry {
+            options.runtime_entry = entry;
+        }
+        if let Some(provider) = runtime.provider {
+            options.runtime_provider = provider;
+        }
+        if let Some(libc) = runtime.libc {
+            options.runtime_libc = libc;
+        }
+        if let Some(bundle) = runtime.bundle {
+            options.library_bundle = bundle;
+        }
     }
 
     pub(crate) fn parse(source: &str, path: &Path) -> Result<Self> {
@@ -203,6 +233,13 @@ impl Manifest {
             for name in &craft.env {
                 validate_env_name(path, "[craft].env[]", name)?;
             }
+        }
+
+        if let Some(runtime) = &self.runtime {
+            let _ = runtime.entry;
+            let _ = runtime.provider;
+            let _ = runtime.libc;
+            let _ = runtime.bundle;
         }
 
         if let Some(lib) = &self.lib {
@@ -274,6 +311,10 @@ fn enter_table_section(
             manifest.craft.get_or_insert_with(CraftConfig::default);
             Ok(Section::Craft)
         }
+        "[runtime]" => {
+            manifest.runtime.get_or_insert_with(RuntimeConfig::default);
+            Ok(Section::Runtime)
+        }
         "[lib]" => {
             manifest.lib.get_or_insert_with(LibTarget::default);
             Ok(Section::Lib)
@@ -343,6 +384,17 @@ fn assign_key_value(
             match key {
                 "env" => craft.env = parse_string_array(raw_value)?,
                 _ => return Err(format!("unsupported [craft] key `{key}`")),
+            }
+            Ok(())
+        }
+        Section::Runtime => {
+            let runtime = manifest.runtime.get_or_insert_with(RuntimeConfig::default);
+            match key {
+                "entry" => runtime.entry = Some(parse_runtime_entry(raw_value)?),
+                "provider" => runtime.provider = Some(parse_runtime_provider(raw_value)?),
+                "libc" => runtime.libc = Some(parse_bool(raw_value)?),
+                "bundle" => runtime.bundle = Some(parse_library_bundle(raw_value)?),
+                _ => return Err(format!("unsupported [runtime] key `{key}`")),
             }
             Ok(())
         }
@@ -423,9 +475,7 @@ fn assign_key_value(
                 "readme" => workspace_package.readme = Some(parse_string(raw_value)?),
                 "repository" => workspace_package.repository = Some(parse_string(raw_value)?),
                 "homepage" => workspace_package.homepage = Some(parse_string(raw_value)?),
-                "documentation" => {
-                    workspace_package.documentation = Some(parse_string(raw_value)?)
-                }
+                "documentation" => workspace_package.documentation = Some(parse_string(raw_value)?),
                 _ => return Err(format!("unsupported [workspace.package] key `{key}`")),
             }
             Ok(())
@@ -687,6 +737,18 @@ fn parse_bool(raw: &str) -> std::result::Result<bool, String> {
     }
 }
 
+fn parse_runtime_entry(raw: &str) -> std::result::Result<RuntimeEntry, String> {
+    RuntimeEntry::parse(&parse_string(raw)?)
+}
+
+fn parse_runtime_provider(raw: &str) -> std::result::Result<RuntimeProvider, String> {
+    RuntimeProvider::parse(&parse_string(raw)?)
+}
+
+fn parse_library_bundle(raw: &str) -> std::result::Result<LibraryBundle, String> {
+    LibraryBundle::parse(&parse_string(raw)?)
+}
+
 fn parse_u8(raw: &str) -> std::result::Result<u8, String> {
     raw.trim()
         .parse::<u8>()
@@ -902,9 +964,7 @@ fn validate_dependencies(
                 if dep.path.is_some() && dep.git.is_some() {
                     return Err(Error::Validation {
                         path: path.to_path_buf(),
-                        message: format!(
-                            "{section}.{name} cannot combine `path` and `git`"
-                        ),
+                        message: format!("{section}.{name} cannot combine `path` and `git`"),
                     });
                 }
 
@@ -1082,6 +1142,7 @@ fn validate_env_name(path: &Path, field: &str, value: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{DependencySpec, Manifest};
+    use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
 
     #[test]
     fn parses_package_manifest() {
@@ -1170,8 +1231,13 @@ log = "1"
         )
         .unwrap();
 
-        let err = manifest.validate(std::path::Path::new("Craft.toml")).unwrap_err();
-        assert!(err.to_string().contains("plain version strings are unsupported"));
+        let err = manifest
+            .validate(std::path::Path::new("Craft.toml"))
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("plain version strings are unsupported")
+        );
     }
 
     #[test]
@@ -1190,7 +1256,10 @@ git = "https://example.com/default.git"
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("unsupported table `[source.default]`"));
+        assert!(
+            err.to_string()
+                .contains("unsupported table `[source.default]`")
+        );
     }
 
     #[test]
@@ -1209,8 +1278,64 @@ env = ["1BAD-NAME"]
         )
         .unwrap();
 
-        let err = manifest.validate(std::path::Path::new("Craft.toml")).unwrap_err();
+        let err = manifest
+            .validate(std::path::Path::new("Craft.toml"))
+            .unwrap_err();
         assert!(err.to_string().contains("[craft].env[]"));
+    }
+
+    #[test]
+    fn parses_runtime_section() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "crt"
+provider = "libc"
+libc = true
+bundle = "std"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let runtime = manifest.runtime.as_ref().expect("expected runtime section");
+        assert_eq!(runtime.entry, Some(RuntimeEntry::Crt));
+        assert_eq!(runtime.provider, Some(RuntimeProvider::Libc));
+        assert_eq!(runtime.libc, Some(true));
+        assert_eq!(runtime.bundle, Some(LibraryBundle::Std));
+    }
+
+    #[test]
+    fn runtime_section_applies_to_compile_options() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "rt"
+provider = "toolchain"
+libc = false
+bundle = "std"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let mut options = CompileOptions::default();
+        manifest.apply_runtime_options(&mut options);
+
+        assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
+        assert_eq!(options.runtime_provider, RuntimeProvider::Toolchain);
+        assert!(!options.runtime_libc);
+        assert_eq!(options.library_bundle, LibraryBundle::Std);
     }
 
     #[test]

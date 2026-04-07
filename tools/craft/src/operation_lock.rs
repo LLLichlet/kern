@@ -154,7 +154,9 @@ fn read_process_start_ticks(pid: u32) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
-    use super::{WorkspaceOperationLock, read_process_start_ticks, workspace_lock_path};
+    #[cfg(unix)]
+    use super::read_process_start_ticks;
+    use super::{WorkspaceOperationLock, workspace_lock_path};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::mpsc;

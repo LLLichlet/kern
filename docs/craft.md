@@ -155,6 +155,7 @@ The current schema direction includes:
 
 - `[package]`
 - `[craft]`
+- `[runtime]`
 - `[lib]`
 - `[[bin]]`
 - `[test]`
@@ -177,6 +178,12 @@ name = "http"
 version = "0.1.0"
 kern = "0.6.7"
 publish = false
+
+[runtime]
+entry = "rt"
+provider = "toolchain"
+libc = false
+bundle = "std"
 
 [lib]
 root = "src/lib.rn"
@@ -211,6 +218,7 @@ Manifest rules:
 - targets are explicit
 - `[package].kern` must match the current installed Kern toolchain version exactly
 - `Craft.toml` does not expose an `edition` field before Kern 1.0
+- `[runtime]` is the package-level place to declare startup/library policy
 - test targets are listed under `[test].roots`, and each test name is derived from its file stem
 - external dependencies must be explicit `path` or `git` entries; plain version strings are not a source model
 - `build-dependencies` belong to the host build domain rather than the final target domain

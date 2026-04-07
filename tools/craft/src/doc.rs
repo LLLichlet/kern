@@ -300,12 +300,15 @@ fn render_module_markdown(out: &mut String, module: &ModuleDocGroup<'_>) {
 
         if !methods.is_empty() {
             out.push_str("\n\n#### Methods");
-            render_anchor_links(out, methods.iter().map(|method| {
-                (
-                    short_name(&method.path).to_string(),
-                    anchor_for("item", &method.path),
-                )
-            }));
+            render_anchor_links(
+                out,
+                methods.iter().map(|method| {
+                    (
+                        short_name(&method.path).to_string(),
+                        anchor_for("item", &method.path),
+                    )
+                }),
+            );
         }
 
         for method in methods {

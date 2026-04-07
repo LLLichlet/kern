@@ -15,8 +15,12 @@ pub struct PackageId {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SourceId {
     Root,
-    WorkspaceMember { path: String },
-    PathDependency { path: String },
+    WorkspaceMember {
+        path: String,
+    },
+    PathDependency {
+        path: String,
+    },
     GitDependency {
         git: String,
         rev: Option<String>,
@@ -371,9 +375,7 @@ fn dependency_target(
 
             Err(Error::Validation {
                 path: package_root.join("Craft.toml"),
-                message: format!(
-                    "dependency `{dependency_name}` must declare `path` or `git`"
-                ),
+                message: format!("dependency `{dependency_name}` must declare `path` or `git`"),
             })
         }
     }

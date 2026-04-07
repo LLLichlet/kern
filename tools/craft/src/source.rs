@@ -169,13 +169,25 @@ fn prepare_git_dependency_root(
     branch: Option<&str>,
     tag: Option<&str>,
 ) -> Result<PreparedSource> {
+    if let Some(local_repo_root) = resolve_local_git_repo(config_root, git_url) {
+        return prepare_local_git_dependency_root(
+            workspace_root,
+            package_name,
+            &local_repo_root,
+            rev,
+            branch,
+            tag,
+        );
+    }
+
+    let git_locator = git_url.to_string();
     let cache_root = workspace_root
         .join(".craft")
         .join("git-dependencies")
         .join(sanitize_segment(package_name))
         .join(format!(
             "{:016x}",
-            fnv1a64_update(0xcbf29ce484222325, git_url.as_bytes())
+            fnv1a64_update(0xcbf29ce484222325, git_locator.as_bytes())
         ));
 
     if !cache_root.join(".git").is_dir() {
@@ -185,11 +197,19 @@ fn prepare_git_dependency_root(
         local_state::ensure_parent_dir(&cache_root)?;
         run_git(
             config_root,
-            ["clone", "--no-checkout", git_url, &cache_root.to_string_lossy()],
+            [
+                "clone",
+                "--no-checkout",
+                git_locator.as_str(),
+                &cache_root.to_string_lossy(),
+            ],
         )?;
     }
 
-    run_git(&cache_root, ["remote", "set-url", "origin", git_url])?;
+    run_git(
+        &cache_root,
+        ["remote", "set-url", "origin", git_locator.as_str()],
+    )?;
     git_fetch_ref(&cache_root, rev, branch, tag)?;
     git_checkout_ref(&cache_root, rev, branch, tag)?;
     run_git(&cache_root, ["clean", "-ffdqx"])?;
@@ -205,6 +225,115 @@ fn prepare_git_dependency_root(
     })
 }
 
+fn prepare_local_git_dependency_root(
+    workspace_root: &Path,
+    package_name: &str,
+    repo_root: &Path,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
+) -> Result<PreparedSource> {
+    let repo_root = repo_root
+        .canonicalize()
+        .map_err(|err| Error::from_io(repo_root, err))?;
+    let cache_root = workspace_root
+        .join(".craft")
+        .join("git-dependencies")
+        .join(sanitize_segment(package_name))
+        .join(format!(
+            "{:016x}",
+            fnv1a64_update(0xcbf29ce484222325, repo_root.to_string_lossy().as_bytes())
+        ));
+
+    let head_revision = git_head_revision(&repo_root)?;
+    validate_local_git_selector(&repo_root, &head_revision, rev, branch, tag)?;
+
+    if cache_root.exists() {
+        fs::remove_dir_all(&cache_root).map_err(|err| Error::from_io(&cache_root, err))?;
+    }
+    local_state::ensure_parent_dir(&cache_root)?;
+    copy_git_worktree(repo_root.as_path(), &cache_root)?;
+
+    Ok(PreparedSource {
+        root: cache_root,
+        identity: FetchedSource {
+            backend: FetchedSourceBackend::GitDependency,
+            locator: repo_root.display().to_string(),
+            selector: Some(git_selector_from_parts(rev, branch, tag)),
+            resolved_revision: Some(head_revision),
+        },
+    })
+}
+
+fn validate_local_git_selector(
+    repo_root: &Path,
+    head_revision: &str,
+    rev: Option<&str>,
+    branch: Option<&str>,
+    tag: Option<&str>,
+) -> Result<()> {
+    let selector_revision = if let Some(rev) = rev {
+        Some(rev.to_string())
+    } else if let Some(branch) = branch {
+        Some(git_output(
+            repo_root,
+            ["rev-parse", &format!("refs/heads/{branch}")],
+        )?)
+    } else if let Some(tag) = tag {
+        Some(git_output(
+            repo_root,
+            ["rev-parse", &format!("refs/tags/{tag}")],
+        )?)
+    } else {
+        None
+    };
+
+    if let Some(selector_revision) = selector_revision
+        && selector_revision.trim() != head_revision.trim()
+    {
+        return Err(Error::Execution(format!(
+            "local git dependency `{}` must be checked out at `{}` before it can be used",
+            repo_root.display(),
+            selector_revision.trim()
+        )));
+    }
+
+    Ok(())
+}
+
+fn copy_git_worktree(source: &Path, dest: &Path) -> Result<()> {
+    local_state::ensure_dir(dest)?;
+    for entry in fs::read_dir(source).map_err(|err| Error::from_io(source, err))? {
+        let entry = entry.map_err(Error::from_io_plain)?;
+        let file_type = entry.file_type().map_err(Error::from_io_plain)?;
+        let source_path = entry.path();
+        let dest_path = dest.join(entry.file_name());
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == ".git" || name == ".craft" {
+            continue;
+        }
+        if file_type.is_dir() {
+            copy_git_worktree(&source_path, &dest_path)?;
+        } else if file_type.is_file() {
+            fs::copy(&source_path, &dest_path).map_err(|err| Error::from_io(&dest_path, err))?;
+        }
+    }
+    Ok(())
+}
+
+fn resolve_local_git_repo(config_root: &Path, git_url: &str) -> Option<PathBuf> {
+    let direct_path = Path::new(git_url);
+    let resolved = if direct_path.is_absolute() {
+        Some(direct_path.to_path_buf())
+    } else {
+        let candidate = config_root.join(direct_path);
+        candidate.exists().then_some(candidate)
+    };
+    let path = resolved?;
+    path.join(".git").exists().then_some(path)
+}
+
 fn git_fetch_ref(
     repo_root: &Path,
     rev: Option<&str>,
@@ -214,15 +343,9 @@ fn git_fetch_ref(
     if let Some(rev) = rev {
         run_git(repo_root, ["fetch", "--tags", "--force", "origin", rev])
     } else if let Some(branch) = branch {
-        run_git(
-            repo_root,
-            ["fetch", "--tags", "--force", "origin", branch],
-        )
+        run_git(repo_root, ["fetch", "--tags", "--force", "origin", branch])
     } else if let Some(tag) = tag {
-        run_git(
-            repo_root,
-            ["fetch", "--tags", "--force", "origin", tag],
-        )
+        run_git(repo_root, ["fetch", "--tags", "--force", "origin", tag])
     } else {
         run_git(repo_root, ["fetch", "--tags", "--force", "origin"])
     }
@@ -327,19 +450,15 @@ fn cache_path_for_external(cache_root: &Path, package: &ExternalPackageId) -> Re
             branch,
             tag,
         } => {
-            let selector = if let Some(rev) = rev {
-                format!("rev-{rev}")
-            } else if let Some(branch) = branch {
-                format!("branch-{branch}")
-            } else if let Some(tag) = tag {
-                format!("tag-{tag}")
-            } else {
-                "default".to_string()
-            };
+            let selector =
+                git_selector_cache_key(rev.as_deref(), branch.as_deref(), tag.as_deref());
             Ok(cache_root
                 .join("git")
-                .join(sanitize_segment(git))
-                .join(sanitize_segment(&selector))
+                .join(format!(
+                    "{:016x}",
+                    fnv1a64_update(0xcbf29ce484222325, git.as_bytes())
+                ))
+                .join(selector)
                 .join(package.package_name.as_str()))
         }
         SourceId::Root | SourceId::WorkspaceMember { .. } => Err(Error::Usage(
@@ -453,6 +572,28 @@ fn sanitize_segment(value: &str) -> String {
         .collect()
 }
 
+fn git_selector_cache_key(rev: Option<&str>, branch: Option<&str>, tag: Option<&str>) -> String {
+    if let Some(rev) = rev {
+        return format!(
+            "rev-{:016x}",
+            fnv1a64_update(0xcbf29ce484222325, rev.as_bytes())
+        );
+    }
+    if let Some(branch) = branch {
+        return format!(
+            "branch-{:016x}",
+            fnv1a64_update(0xcbf29ce484222325, branch.as_bytes())
+        );
+    }
+    if let Some(tag) = tag {
+        return format!(
+            "tag-{:016x}",
+            fnv1a64_update(0xcbf29ce484222325, tag.as_bytes())
+        );
+    }
+    "default".to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -507,7 +648,11 @@ root = "src/lib.rn"
 "#,
         )
         .unwrap();
-        fs::write(package_root.join("src/lib.rn"), "pub fn x() i32 { return 0; }\n").unwrap();
+        fs::write(
+            package_root.join("src/lib.rn"),
+            "pub fn x() i32 { return 0; }\n",
+        )
+        .unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -524,7 +669,10 @@ root = "src/lib.rn"
         let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
         assert_eq!(fetched.len(), 1);
         assert_eq!(fetched[0].status, FetchStatus::Created);
-        assert_eq!(fetched[0].source.backend, FetchedSourceBackend::PathDependency);
+        assert_eq!(
+            fetched[0].source.backend,
+            FetchedSourceBackend::PathDependency
+        );
         assert_eq!(fetched[0].source.selector, None);
         assert_eq!(fetched[0].source.resolved_revision, None);
         assert!(fetched[0].cache_path.join("Craft.toml").is_file());
@@ -570,7 +718,10 @@ log = {{ git = "{}", branch = "main", version = "1" }}
 
         let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
         assert_eq!(fetched[0].status, FetchStatus::Created);
-        assert_eq!(fetched[0].source.backend, FetchedSourceBackend::GitDependency);
+        assert_eq!(
+            fetched[0].source.backend,
+            FetchedSourceBackend::GitDependency
+        );
         assert_eq!(
             fetched[0].source.selector,
             Some(FetchedGitSelector::Branch("main".to_string()))
@@ -612,7 +763,11 @@ root = "src/lib.rn"
         fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
         run_git(repo, ["init", "--initial-branch=main"]).unwrap();
         run_git(repo, ["config", "user.name", "Craft Tests"]).unwrap();
-        run_git(repo, ["config", "user.email", "craft-tests@example.invalid"]).unwrap();
+        run_git(
+            repo,
+            ["config", "user.email", "craft-tests@example.invalid"],
+        )
+        .unwrap();
         run_git(repo, ["add", "."]).unwrap();
         run_git(repo, ["commit", "-m", "initial"]).unwrap();
     }

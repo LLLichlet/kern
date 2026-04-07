@@ -140,6 +140,7 @@ pub struct ActionPlan {
 pub struct CompileAction {
     pub domain: BuildDomain,
     pub package_id: PackageId,
+    pub manifest_path: PathBuf,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
     pub artifact_name: String,
@@ -166,6 +167,7 @@ pub enum CompileSourceInput {
 pub struct LinkAction {
     pub domain: BuildDomain,
     pub package_id: PackageId,
+    pub manifest_path: PathBuf,
     pub package_root_path: PathBuf,
     pub target_kind: TargetKind,
     pub target_name: Option<String>,
@@ -373,6 +375,7 @@ impl BuildPlan {
                 compile_actions.push(CompileAction {
                     domain: unit.domain,
                     package_id: unit.package_id.clone(),
+                    manifest_path: package.manifest_path.clone(),
                     target_kind: unit.target_kind,
                     target_name: unit.target_name.clone(),
                     artifact_name: unit.artifact_name.clone(),
@@ -432,6 +435,7 @@ impl BuildPlan {
                 link_actions.push(LinkAction {
                     domain: unit.domain,
                     package_id: unit.package_id.clone(),
+                    manifest_path: package.manifest_path.clone(),
                     package_root_path: unit.package_root_path.clone(),
                     target_kind: unit.target_kind,
                     target_name: unit.target_name.clone(),
@@ -1408,7 +1412,11 @@ root = "src/lib.rn"
 "#,
         )
         .unwrap();
-        fs::write(log_dir.join("src/lib.rn"), "pub fn answer() i32 { return 42; }\n").unwrap();
+        fs::write(
+            log_dir.join("src/lib.rn"),
+            "pub fn answer() i32 { return 42; }\n",
+        )
+        .unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1523,7 +1531,11 @@ root = "src/lib.rn"
 "#,
         )
         .unwrap();
-        fs::write(log_dir.join("src/lib.rn"), "pub fn answer() i32 { return 42; }\n").unwrap();
+        fs::write(
+            log_dir.join("src/lib.rn"),
+            "pub fn answer() i32 { return 42; }\n",
+        )
+        .unwrap();
         fs::write(
             cc_dir.join("Craft.toml"),
             r#"
@@ -1537,7 +1549,11 @@ root = "src/lib.rn"
 "#,
         )
         .unwrap();
-        fs::write(cc_dir.join("src/lib.rn"), "pub fn tool() i32 { return 1; }\n").unwrap();
+        fs::write(
+            cc_dir.join("src/lib.rn"),
+            "pub fn tool() i32 { return 1; }\n",
+        )
+        .unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -2155,7 +2171,7 @@ use craft.builder;
 pub fn build(b: *mut builder.Builder) void {
     let root = b.emit_generated(
         "src/main.rn",
-        "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n"
+        "fn main() i32 { return 0; }\n"
     );
     b.set_source_root(root);
     b.cfg_bool("generated", true);
@@ -2233,7 +2249,7 @@ root = "src/placeholder.rn"
         .unwrap();
         fs::write(
             root.join("templates").join("main.rn"),
-            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
         fs::write(
@@ -2314,7 +2330,7 @@ use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
     let helper = b.stage_generated("tmp/value.txt", "41\n");
-    let source = b.stage_generated("src/main.rn", "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n");
+    let source = b.stage_generated("src/main.rn", "fn main() i32 { return 0; }\n");
     b.depend(source, helper);
     b.set_source_root_from(source);
 }
@@ -2585,3 +2601,4 @@ pub fn build(b: *mut builder.Builder) void {
         let _ = fs::remove_dir_all(root);
     }
 }
+

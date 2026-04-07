@@ -65,6 +65,7 @@ pub enum Command {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct UiOptions {
     verbose: bool,
+    timings: bool,
     color: ColorChoice,
 }
 
@@ -78,6 +79,7 @@ pub enum ColorChoice {
 
 struct Renderer {
     verbose: bool,
+    timings: bool,
     color_enabled: bool,
 }
 
@@ -106,6 +108,7 @@ impl Renderer {
 
         Self {
             verbose: ui.verbose,
+            timings: ui.timings,
             color_enabled,
         }
     }
@@ -288,8 +291,7 @@ fn run_command(command: Command) -> Result<()> {
                 "sources",
                 format!(
                     "{} git package(s), {} path package(s)",
-                    source_summary.git_packages,
-                    source_summary.path_packages,
+                    source_summary.git_packages, source_summary.path_packages,
                 ),
             );
             if render.verbose {
@@ -537,6 +539,7 @@ fn run_command(command: Command) -> Result<()> {
             print_compile_actions(&render, &action_plan);
             print_link_actions(&render, &action_plan);
             let execution = execute::build(&build_plan, &action_plan)?;
+            render_execution_timings(&render, &execution);
             render.ok(format!(
                 "build completed (compile {}, link {})",
                 execution.compile_actions, execution.link_actions
@@ -612,6 +615,7 @@ fn run_command(command: Command) -> Result<()> {
                     );
                 }
             }
+            render_execution_timings(&render, &execution);
             render.ok(format!(
                 "doc generation completed (compile {}, link {})",
                 execution.compile_actions, execution.link_actions
@@ -692,6 +696,7 @@ fn run_command(command: Command) -> Result<()> {
             print_compile_actions_for_unit(&render, &action_plan, run_unit);
             print_link_actions_for_unit(&render, &action_plan, run_unit);
             let execution = execute::run(&build_plan, &action_plan, run_unit)?;
+            render_execution_timings(&render, &execution.build);
             render.ok(format!(
                 "run completed ({})",
                 execution.executable.display()
@@ -764,6 +769,7 @@ fn run_command(command: Command) -> Result<()> {
                 print_link_actions_for_unit(&render, &action_plan, unit);
             }
             let execution = execute::test(&build_plan, &action_plan, &tests)?;
+            render_execution_timings(&render, &execution.build);
             render.ok(format!(
                 "test run completed ({} executed)",
                 execution.executed
@@ -930,15 +936,19 @@ fn summarize_check_sources(resolved: &crate::resolver::ResolvedGraph) -> CheckSo
     }
 }
 
-fn validate_publish_lock_status(manifest_path: &Path, lock_status: lockfile::LockStatus) -> Result<()> {
+fn validate_publish_lock_status(
+    manifest_path: &Path,
+    lock_status: lockfile::LockStatus,
+) -> Result<()> {
     if lock_status == lockfile::LockStatus::Current {
         return Ok(());
     }
 
     Err(Error::Validation {
         path: manifest_path.to_path_buf(),
-        message: "publish requires a current release `Craft.lock`; run `craft lock --release` first"
-            .to_string(),
+        message:
+            "publish requires a current release `Craft.lock`; run `craft lock --release` first"
+                .to_string(),
     })
 }
 
@@ -1054,7 +1064,9 @@ fn classify_publish_package(
     }
 
     let package_root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
-    let workspace_root = root_manifest_path.parent().unwrap_or_else(|| Path::new("."));
+    let workspace_root = root_manifest_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
     let missing_readme_path = readme
         .map(|(readme, inherited)| {
             if inherited {
@@ -1120,11 +1132,15 @@ fn publish_readme<'a>(
     package: &'a crate::manifest::Package,
     defaults: Option<&'a crate::manifest::WorkspacePackage>,
 ) -> Option<(&'a str, bool)> {
-    package.readme.as_deref().map(|value| (value, false)).or_else(|| {
-        defaults
-            .and_then(|defaults| defaults.readme.as_deref())
-            .map(|value| (value, true))
-    })
+    package
+        .readme
+        .as_deref()
+        .map(|value| (value, false))
+        .or_else(|| {
+            defaults
+                .and_then(|defaults| defaults.readme.as_deref())
+                .map(|value| (value, true))
+        })
 }
 
 fn publish_repository<'a>(
@@ -1339,6 +1355,53 @@ fn print_link_action(render: &Renderer, action: &build_plan::LinkAction, artifac
     );
 }
 
+fn render_execution_timings(render: &Renderer, summary: &execute::ExecutionSummary) {
+    if !render.timings || summary.phase_timings.is_empty() {
+        return;
+    }
+
+    render.summary("time", format_duration(summary.total_duration()));
+    render.summary("phases", format_phase_timings(&summary.phase_timings));
+
+    if !render.verbose {
+        return;
+    }
+
+    render.section("timings");
+    for action in &summary.action_timings {
+        let tone = match action.kind {
+            execute::ActionTimingKind::Compile => Tone::Build,
+            execute::ActionTimingKind::Link => Tone::Link,
+        };
+        render.action(
+            tone,
+            "time",
+            &action.label,
+            format_phase_timings(&action.phase_timings),
+        );
+    }
+}
+
+fn format_phase_timings(phases: &[kernc_driver::PhaseTiming]) -> String {
+    phases
+        .iter()
+        .map(|phase| format!("{} {}", phase.name, format_duration(phase.duration)))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn format_duration(duration: std::time::Duration) -> String {
+    if duration.as_secs() >= 1 {
+        format!("{:.3}s", duration.as_secs_f64())
+    } else if duration.as_millis() >= 1 {
+        format!("{:.3}ms", duration.as_secs_f64() * 1_000.0)
+    } else if duration.as_micros() >= 1 {
+        format!("{:.3}us", duration.as_secs_f64() * 1_000_000.0)
+    } else {
+        format!("{}ns", duration.as_nanos())
+    }
+}
+
 fn parse_args<I>(args: I) -> Result<Command>
 where
     I: IntoIterator<Item = String>,
@@ -1421,6 +1484,11 @@ fn parse_command_options(
         let arg = &args[idx];
         if arg == "--verbose" || arg == "-v" {
             ui.verbose = true;
+            idx += 1;
+            continue;
+        }
+        if arg == "--timings" || arg == "--time" {
+            ui.timings = true;
             idx += 1;
             continue;
         }
@@ -1519,7 +1587,7 @@ craft
 
 usage
   craft help
-  craft <command> [path] [--release] [--no-default-features] [--features <FEATURES>] [--verbose] [--color <WHEN>]
+  craft <command> [path] [--release] [--no-default-features] [--features <FEATURES>] [--verbose] [--timings] [--color <WHEN>]
 
 commands
   help   Show this help text
@@ -1537,6 +1605,7 @@ options
   --no-default-features    Disable the implicit `default` feature
   --features <FEATURES>    Enable a comma-separated feature list
   --verbose, -v            Print detailed action logs instead of the default compact summary
+  --timings, --time        Print aggregated compiler/linker phase timings
   --color <WHEN>           Color mode: auto, always, never
   --no-color               Alias for `--color never`
 
@@ -1544,6 +1613,7 @@ examples
   craft check
   craft build path/to/pkg --release
   craft doc --verbose
+  craft build --timings
   craft run --features tls,simd
   craft build --verbose --color always
 "
@@ -1551,7 +1621,9 @@ examples
 
 #[cfg(test)]
 mod tests {
-    use super::{ColorChoice, Command, UiOptions, parse_args, run_command, summarize_check_sources};
+    use super::{
+        ColorChoice, Command, UiOptions, parse_args, run_command, summarize_check_sources,
+    };
     use crate::elaborate::FeatureSelection;
     use crate::graph::SourceId;
     use crate::operation_lock::WorkspaceOperationLock;
@@ -1590,7 +1662,7 @@ root = "src/main.rn"
         .unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
     }
@@ -1803,6 +1875,7 @@ root = "src/main.rn"
                     ui,
                     UiOptions {
                         verbose: true,
+                        timings: false,
                         color: ColorChoice::Auto,
                     }
                 );
@@ -1826,7 +1899,27 @@ root = "src/main.rn"
                     ui,
                     UiOptions {
                         verbose: true,
+                        timings: false,
                         color: ColorChoice::Always,
+                    }
+                );
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parses_timings_flag() {
+        let cmd = parse_args(["build".to_string(), "--timings".to_string()]).unwrap();
+
+        match cmd {
+            Command::Build { ui, .. } => {
+                assert_eq!(
+                    ui,
+                    UiOptions {
+                        verbose: false,
+                        timings: true,
+                        color: ColorChoice::Auto,
                     }
                 );
             }
@@ -1844,6 +1937,7 @@ root = "src/main.rn"
                     ui,
                     UiOptions {
                         verbose: false,
+                        timings: false,
                         color: ColorChoice::Never,
                     }
                 );
@@ -2023,7 +2117,7 @@ root = "src/main.rn"
         fs::write(root.join("README.md"), "# demo\n").unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
 
@@ -2099,7 +2193,7 @@ root = "src/main.rn"
         .unwrap();
         fs::write(
             member.join("src/main.rn"),
-            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
 
@@ -2126,3 +2220,4 @@ root = "src/main.rn"
         let _ = fs::remove_dir_all(root);
     }
 }
+

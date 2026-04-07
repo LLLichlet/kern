@@ -908,23 +908,18 @@ fn source_locator(source: &SourceId) -> Option<String> {
 
 fn source_selector(source: &SourceId) -> Option<String> {
     if let SourceId::GitDependency {
-        rev,
-        branch,
-        tag,
-        ..
+        rev, branch, tag, ..
     } = source
     {
-        return Some(
-            if let Some(rev) = rev {
-                format!("rev:{rev}")
-            } else if let Some(branch) = branch {
-                format!("branch:{branch}")
-            } else if let Some(tag) = tag {
-                format!("tag:{tag}")
-            } else {
-                "default".to_string()
-            },
-        );
+        return Some(if let Some(rev) = rev {
+            format!("rev:{rev}")
+        } else if let Some(branch) = branch {
+            format!("branch:{branch}")
+        } else if let Some(tag) = tag {
+            format!("tag:{tag}")
+        } else {
+            "default".to_string()
+        });
     }
     None
 }
@@ -1336,7 +1331,9 @@ kern = "0.6.7"
         assert!(rendered.contains("target-id = \"util 0.1.0 workspace-member:util\""));
         assert!(rendered.contains("name = \"shared\""));
         assert!(rendered.contains("target = \"external\""));
-        assert!(rendered.contains("id = \"shared 2 git:https://example.com/shared.git#branch:stable\""));
+        assert!(
+            rendered.contains("id = \"shared 2 git:https://example.com/shared.git#branch:stable\"")
+        );
         assert!(rendered.contains("source-locator = \"https://example.com/shared.git\""));
         assert!(rendered.contains("source-selector = \"branch:stable\""));
         assert!(rendered.contains("manifest-digest = \"fnv1a64:"));

@@ -1,6 +1,7 @@
 use crate::build_plan::{
     ActionPlan, BuildPlan, BuildUnit, CompileAction, LinkAction, StagedAction, StagedActionKind,
 };
+use crate::build_state;
 use crate::elaborate::{self, FeatureSelection};
 use crate::error::{Error, Result};
 use crate::graph::{BuildDomain, PackageId};
@@ -8,29 +9,155 @@ use crate::manifest::Manifest;
 use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
 use crate::source;
 use crate::workspace;
-use kernc_driver::{CompilerDriver, KMETA_MANIFEST_FILE, load_kmeta_manifest};
+use kernc_driver::{
+    CompileReport, CompilerDriver, KMETA_MANIFEST_FILE, PhaseTiming, load_kmeta_manifest,
+};
 use kernc_utils::config::{
-    CompileOptions, DriverMode, LinkProfile, inject_driver_condition_defines, resolve_std_path,
+    CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
+    inject_driver_condition_defines, maybe_inject_base_alias, maybe_inject_rt_alias,
+    maybe_inject_std_alias, maybe_inject_sys_alias, resolve_base_path, resolve_rt_path,
+    resolve_std_path, resolve_sys_path,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionSummary {
     pub compile_actions: usize,
     pub link_actions: usize,
+    pub phase_timings: Vec<PhaseTiming>,
+    pub action_timings: Vec<ActionTiming>,
+}
+
+fn target_runtime_entry(target_kind: crate::plan::TargetKind) -> RuntimeEntry {
+    match target_kind {
+        crate::plan::TargetKind::Lib => RuntimeEntry::None,
+        crate::plan::TargetKind::Bin
+        | crate::plan::TargetKind::Test
+        | crate::plan::TargetKind::Example => RuntimeEntry::Crt,
+    }
+}
+
+fn target_runtime_provider(target_kind: crate::plan::TargetKind) -> RuntimeProvider {
+    match target_kind {
+        crate::plan::TargetKind::Lib => RuntimeProvider::None,
+        crate::plan::TargetKind::Bin
+        | crate::plan::TargetKind::Test
+        | crate::plan::TargetKind::Example => RuntimeProvider::Toolchain,
+    }
+}
+
+fn target_library_bundle(_target_kind: crate::plan::TargetKind) -> LibraryBundle {
+    LibraryBundle::Std
+}
+
+fn target_runtime_libc(target_kind: crate::plan::TargetKind) -> bool {
+    !matches!(target_kind, crate::plan::TargetKind::Lib)
+}
+
+fn default_target_compile_options(target_kind: crate::plan::TargetKind) -> CompileOptions {
+    CompileOptions {
+        runtime_entry: target_runtime_entry(target_kind),
+        runtime_provider: target_runtime_provider(target_kind),
+        runtime_libc: target_runtime_libc(target_kind),
+        library_bundle: target_library_bundle(target_kind),
+        ..CompileOptions::default()
+    }
+}
+
+fn inject_target_library_aliases(options: &mut CompileOptions) {
+    if options.module_interface_aliases.contains_key("std") {
+        return;
+    }
+    maybe_inject_base_alias(options);
+    maybe_inject_rt_alias(options);
+    maybe_inject_sys_alias(options);
+    if !options.module_interface_aliases.contains_key("std") {
+        maybe_inject_std_alias(options);
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ActionTimingKind {
+    Compile,
+    Link,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionTiming {
+    pub kind: ActionTimingKind,
+    pub label: String,
+    pub phase_timings: Vec<PhaseTiming>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunSummary {
     pub executable: PathBuf,
+    pub build: ExecutionSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TestSummary {
     pub executed: usize,
+    pub build: ExecutionSummary,
+}
+
+impl ExecutionSummary {
+    pub fn total_duration(&self) -> Duration {
+        self.phase_timings
+            .iter()
+            .map(|phase| phase.duration)
+            .sum::<Duration>()
+    }
+
+    fn absorb(&mut self, other: ExecutionSummary) {
+        self.compile_actions += other.compile_actions;
+        self.link_actions += other.link_actions;
+        for phase in other.phase_timings {
+            if let Some(existing) = self
+                .phase_timings
+                .iter_mut()
+                .find(|existing| existing.name == phase.name)
+            {
+                existing.duration += phase.duration;
+            } else {
+                self.phase_timings.push(phase);
+            }
+        }
+        self.action_timings.extend(other.action_timings);
+    }
+
+    fn record_action(
+        &mut self,
+        kind: ActionTimingKind,
+        label: impl Into<String>,
+        phase_timings: Vec<PhaseTiming>,
+    ) {
+        if phase_timings.is_empty() {
+            return;
+        }
+
+        for phase in &phase_timings {
+            if let Some(existing) = self
+                .phase_timings
+                .iter_mut()
+                .find(|existing| existing.name == phase.name)
+            {
+                existing.duration += phase.duration;
+            } else {
+                self.phase_timings.push(*phase);
+            }
+        }
+
+        self.action_timings.push(ActionTiming {
+            kind,
+            label: label.into(),
+            phase_timings,
+        });
+    }
 }
 
 pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<ExecutionSummary> {
@@ -44,10 +171,12 @@ pub(crate) fn materialize_analysis_inputs(
     let source_config = load_source_config(build_plan)?;
     let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
+    let mut summary = ExecutionSummary::default();
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
         &mut built_std_packages,
+        &mut summary,
     )?;
     let mut built_external_packages = BTreeMap::new();
     let mut built_external_tools = BTreeMap::new();
@@ -83,6 +212,7 @@ pub(crate) fn materialize_analysis_inputs(
             &mut external_build_stack,
             &mut compiled,
             &mut linked,
+            &mut summary,
         )?;
     }
 
@@ -100,6 +230,14 @@ struct BuiltExternalPackage {
 struct BuiltStdPackage {
     metadata_root_path: PathBuf,
     link_objects: Vec<PathBuf>,
+    interface_aliases: BTreeMap<String, PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BuiltLibraryPackage {
+    metadata_root_path: PathBuf,
+    object_path: PathBuf,
+    interface_aliases: BTreeMap<String, PathBuf>,
 }
 
 #[derive(Debug)]
@@ -145,18 +283,16 @@ fn build_with_command(
     let source_config = load_source_config(build_plan)?;
     let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
+    let mut external_summary = ExecutionSummary::default();
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
         &mut built_std_packages,
+        &mut external_summary,
     )?;
     let mut built_external_packages = BTreeMap::new();
     let mut built_external_tools = BTreeMap::new();
     let mut external_build_stack = BTreeSet::new();
-    let mut external_summary = ExecutionSummary {
-        compile_actions: 0,
-        link_actions: 0,
-    };
 
     for dep in requested_external_dependencies(action_plan) {
         build_external_package(
@@ -180,6 +316,7 @@ fn build_with_command(
     let mut compiled = BTreeSet::new();
     let mut linked = BTreeSet::new();
     let mut staged_outputs = BTreeSet::new();
+    let mut local_summary = ExecutionSummary::default();
 
     for action in &action_plan.link_actions {
         if action.domain != BuildDomain::Target {
@@ -203,6 +340,7 @@ fn build_with_command(
             &mut compiled,
             &mut linked,
             &mut staged_outputs,
+            &mut local_summary,
         )?;
     }
     for action in &action_plan.compile_actions {
@@ -227,13 +365,12 @@ fn build_with_command(
             &mut staged_outputs,
             action_plan,
             &compile_action_index,
+            &mut local_summary,
         )?;
     }
 
-    Ok(ExecutionSummary {
-        compile_actions: external_summary.compile_actions + action_plan.compile_count(),
-        link_actions: external_summary.link_actions + action_plan.link_count(),
-    })
+    external_summary.absorb(local_summary);
+    Ok(external_summary)
 }
 
 pub fn run(
@@ -241,7 +378,7 @@ pub fn run(
     action_plan: &ActionPlan,
     unit: &BuildUnit,
 ) -> Result<RunSummary> {
-    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Run)?;
+    let build = build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Run)?;
     let action = find_link_action(action_plan, unit)?;
     let executable_path = resolve_invocation_path(&action.artifact_path)?;
     let status = runtime_command(&executable_path, action, &build_plan.workspace_root)
@@ -257,6 +394,7 @@ pub fn run(
 
     Ok(RunSummary {
         executable: action.artifact_path.clone(),
+        build,
     })
 }
 
@@ -265,7 +403,7 @@ pub fn test(
     action_plan: &ActionPlan,
     units: &[&BuildUnit],
 ) -> Result<TestSummary> {
-    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Test)?;
+    let build = build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Test)?;
 
     let mut executed = 0;
     for unit in units {
@@ -284,7 +422,7 @@ pub fn test(
         executed += 1;
     }
 
-    Ok(TestSummary { executed })
+    Ok(TestSummary { executed, build })
 }
 
 fn runtime_command(executable_path: &Path, action: &LinkAction, workspace_root: &Path) -> Command {
@@ -339,6 +477,13 @@ fn compile_time_defines(
     Ok(values)
 }
 
+fn apply_manifest_runtime_options(manifest_path: &Path, options: &mut CompileOptions) -> Result<()> {
+    let manifest = Manifest::load(manifest_path)?;
+    manifest.validate(manifest_path)?;
+    manifest.apply_runtime_options(options);
+    Ok(())
+}
+
 fn plan_value_string(value: &crate::plan::PlanValue) -> String {
     match value {
         crate::plan::PlanValue::Bool(value) => value.to_string(),
@@ -348,6 +493,181 @@ fn plan_value_string(value: &crate::plan::PlanValue) -> String {
 
 fn ensure_parent_dir(path: &Path) -> Result<()> {
     crate::local_state::ensure_parent_dir(path)
+}
+
+fn prepare_output_path(path: &Path, expects_directory: bool) -> Result<()> {
+    if expects_directory {
+        if path.is_file() {
+            fs::remove_file(path).map_err(|err| Error::from_io(path, err))?;
+        } else if path.is_dir() {
+            fs::remove_dir_all(path).map_err(|err| Error::from_io(path, err))?;
+        }
+        return Ok(());
+    }
+
+    if path.is_dir() {
+        fs::remove_dir_all(path).map_err(|err| Error::from_io(path, err))?;
+    }
+    Ok(())
+}
+
+fn profile_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
+    match profile.opt {
+        0 => OptLevel::O0,
+        1 => OptLevel::O1,
+        2 => OptLevel::O2,
+        _ => OptLevel::O3,
+    }
+}
+
+fn build_fingerprint(lines: &[String]) -> String {
+    build_state::hash_string(&lines.join("\n"))
+}
+
+fn map_fingerprint_lines(
+    label: &str,
+    values: &std::collections::HashMap<String, String>,
+) -> Vec<String> {
+    let mut entries = values.iter().collect::<Vec<_>>();
+    entries.sort_by(|lhs, rhs| lhs.0.cmp(rhs.0));
+    entries
+        .into_iter()
+        .map(|(key, value)| format!("{label}:{key}={value}"))
+        .collect()
+}
+
+fn compile_action_fingerprint(
+    action: &CompileAction,
+    options: &CompileOptions,
+    toolchain_digest: &str,
+) -> String {
+    let mut lines = vec![
+        "kind=compile".to_string(),
+        format!("toolchain={toolchain_digest}"),
+        format!("target={}", options.target.triple),
+        format!("source={}", action.source_path().display()),
+        format!("object={}", action.object_path.display()),
+        format!("profile={}", action.profile.name),
+        format!("opt={}", action.profile.opt),
+        format!("debug={}", action.profile.debug),
+        format!(
+            "root={}",
+            options.root_module_name.as_deref().unwrap_or_default()
+        ),
+        format!("runtime_entry={}", options.runtime_entry.as_str()),
+        format!("runtime_provider={}", options.runtime_provider.as_str()),
+        format!("runtime_libc={}", options.runtime_libc),
+        format!("library_bundle={}", options.library_bundle.as_str()),
+    ];
+    if let Some(metadata_output) = options.metadata_output.as_deref() {
+        lines.push(format!("metadata={metadata_output}"));
+    }
+    lines.extend(map_fingerprint_lines("define", &options.custom_defines));
+    lines.extend(map_fingerprint_lines(
+        "ifalias",
+        &options.module_interface_aliases,
+    ));
+    build_fingerprint(&lines)
+}
+
+fn link_action_fingerprint(
+    action: &LinkAction,
+    options: &CompileOptions,
+    linker_inputs: &[PathBuf],
+    toolchain_digest: &str,
+) -> String {
+    let mut lines = vec![
+        "kind=link".to_string(),
+        format!("toolchain={toolchain_digest}"),
+        format!("artifact={}", action.artifact_path.display()),
+        format!("linker={}", options.linker_cmd),
+    ];
+    lines.extend(
+        linker_inputs
+            .iter()
+            .map(|path| format!("input={}", path.display())),
+    );
+    lines.extend(
+        options
+            .linker_search_paths
+            .iter()
+            .map(|path| format!("search={path}")),
+    );
+    lines.extend(
+        options
+            .linker_libraries
+            .iter()
+            .map(|library| format!("lib={library}")),
+    );
+    lines.extend(options.linker_args.iter().map(|arg| format!("arg={arg}")));
+    build_fingerprint(&lines)
+}
+
+fn write_compile_action_state(
+    action: &CompileAction,
+    report: &CompileReport,
+    fingerprint: String,
+) -> Result<()> {
+    let mut inputs = report.loaded_sources.clone();
+    inputs.sort();
+    inputs.dedup();
+
+    let mut outputs = vec![action.object_path.clone()];
+    if let Some(metadata_path) = &action.metadata_path {
+        outputs.push(metadata_path.clone());
+    }
+
+    build_state::record_action_state(&action.object_path, fingerprint, &inputs, &outputs)
+}
+
+fn compile_action_label(action: &CompileAction) -> String {
+    format!(
+        "{}:{} -> {}",
+        action.package_id.name,
+        action.source_path().display(),
+        action.object_path.display()
+    )
+}
+
+fn link_action_label(action: &LinkAction) -> String {
+    format!(
+        "{}:{}",
+        action.package_id.name,
+        action.artifact_path.display()
+    )
+}
+
+fn std_compile_action_label(profile: &str) -> String {
+    format!("std ({profile})")
+}
+
+fn rt_compile_action_label(profile: &str) -> String {
+    format!("rt ({profile})")
+}
+
+fn base_compile_action_label(profile: &str) -> String {
+    format!("base ({profile})")
+}
+
+fn sys_compile_action_label(profile: &str) -> String {
+    format!("sys ({profile})")
+}
+
+fn rt_entry_compile_action_label(profile: &str) -> String {
+    format!("rt-entry ({profile})")
+}
+
+fn interface_alias_strings(aliases: &BTreeMap<String, PathBuf>) -> HashMap<String, String> {
+    aliases
+        .iter()
+        .map(|(name, path)| (name.clone(), path.to_string_lossy().to_string()))
+        .collect()
+}
+
+fn extend_interface_aliases(options: &mut CompileOptions, aliases: &BTreeMap<String, PathBuf>) {
+    options
+        .module_interface_aliases
+        .extend(interface_alias_strings(aliases));
 }
 
 fn resolve_invocation_path(path: &Path) -> Result<PathBuf> {
@@ -396,9 +716,10 @@ fn ensure_compile_action_built(
     staged_outputs: &mut BTreeSet<PathBuf>,
     action_plan: &ActionPlan,
     compile_action_index: &BTreeMap<ActionKey, CompileAction>,
-) -> Result<()> {
+    execution_summary: &mut ExecutionSummary,
+) -> Result<bool> {
     if compiled.contains(&action.object_path) {
-        return Ok(());
+        return Ok(false);
     }
 
     for dep in &action.local_dependencies {
@@ -424,6 +745,7 @@ fn ensure_compile_action_built(
                 staged_outputs,
                 action_plan,
                 compile_action_index,
+                execution_summary,
             )?;
         }
     }
@@ -448,6 +770,7 @@ fn ensure_compile_action_built(
         external_build_stack,
         compiled,
         linked,
+        execution_summary,
     )?;
     ensure_parent_dir(&action.object_path)?;
     ensure_parent_dir(&action.artifact_path)?;
@@ -467,34 +790,50 @@ fn ensure_compile_action_built(
             .then(|| action.package_id.name.clone()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        use_std: true,
-        link_profile: LinkProfile::Hosted,
-        ..CompileOptions::default()
+        opt_level: profile_opt_level(&action.profile),
+        ..default_target_compile_options(action.target_kind)
     };
+    apply_manifest_runtime_options(&action.manifest_path, &mut options)?;
     apply_host_linker_env(&mut options);
-    inject_driver_condition_defines(&mut options);
     options.module_interface_aliases = compile_module_aliases(
         action,
         local_library_actions,
         built_std_packages.get(&action.profile.name),
         built_external_packages,
     )?;
+    inject_target_library_aliases(&mut options);
+    inject_driver_condition_defines(&mut options);
     options.custom_defines.extend(compile_time_defines(
         &action.cfg,
         &action.define,
         action.source_path(),
     )?);
+    let toolchain_digest = build_state::current_process_digest()?;
+    let fingerprint = compile_action_fingerprint(action, &options, &toolchain_digest);
+
+    if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
+        compiled.insert(action.object_path.clone());
+        return Ok(false);
+    }
 
     let driver = CompilerDriver::new(options);
-    if !driver.compile() {
+    let Some(report) = driver.compile_with_report() else {
         return Err(Error::Execution(format!(
             "compile failed for `{}`",
             action.source_path().display()
         )));
-    }
+    };
+
+    write_compile_action_state(action, &report, fingerprint)?;
 
     compiled.insert(action.object_path.clone());
-    Ok(())
+    execution_summary.compile_actions += 1;
+    execution_summary.record_action(
+        ActionTimingKind::Compile,
+        compile_action_label(action),
+        report.phase_timings,
+    );
+    Ok(true)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -518,6 +857,7 @@ fn execute_staged_actions(
     external_build_stack: &mut BTreeSet<ExternalPackageId>,
     compiled: &mut BTreeSet<PathBuf>,
     linked: &mut BTreeSet<PathBuf>,
+    execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
     let action_index = build_nodes
         .iter()
@@ -548,6 +888,7 @@ fn execute_staged_actions(
             external_build_stack,
             compiled,
             linked,
+            execution_summary,
         )?;
     }
     if let Some(required_path) = required_path
@@ -583,10 +924,11 @@ fn execute_staged_action(
     external_build_stack: &mut BTreeSet<ExternalPackageId>,
     compiled: &mut BTreeSet<PathBuf>,
     linked: &mut BTreeSet<PathBuf>,
-) -> Result<()> {
+    execution_summary: &mut ExecutionSummary,
+) -> Result<bool> {
     let output_path = PathBuf::from(&action.output);
     if staged_outputs.contains(&output_path) {
-        return Ok(());
+        return Ok(false);
     }
     if !active.insert(action.id) {
         return Err(Error::Execution(format!(
@@ -621,19 +963,18 @@ fn execute_staged_action(
             external_build_stack,
             compiled,
             linked,
+            execution_summary,
         )?;
     }
     active.remove(&action.id);
-    if !staged_outputs.insert(output_path.clone()) {
-        return Ok(());
-    }
-
-    ensure_parent_dir(&output_path)?;
-
-    match &action.kind {
-        StagedActionKind::WriteFile { contents } => {
-            fs::write(&output_path, contents).map_err(|err| Error::from_io(&output_path, err))?;
-        }
+    let toolchain_digest = build_state::current_process_digest()?;
+    let mut input_paths = Vec::new();
+    let fingerprint = match &action.kind {
+        StagedActionKind::WriteFile { contents } => build_fingerprint(&[
+            "kind=write".to_string(),
+            format!("output={}", output_path.display()),
+            format!("contents={}", build_state::hash_string(contents)),
+        ]),
         StagedActionKind::RunTool { tool, args } => {
             let tool_path = PathBuf::from(&tool.executable_path);
             match &tool.origin {
@@ -657,6 +998,7 @@ fn execute_staged_action(
                             compiled,
                             linked,
                             staged_outputs,
+                            execution_summary,
                         )?;
                     }
                 }
@@ -672,9 +1014,55 @@ fn execute_staged_action(
                         built_external_packages,
                         built_external_tools,
                         external_build_stack,
+                        execution_summary,
                     )?;
                 }
             }
+            input_paths.push(tool_path.clone());
+            let mut lines = vec![
+                "kind=run-tool".to_string(),
+                format!("toolchain={toolchain_digest}"),
+                format!("tool={}", tool_path.display()),
+                format!("output={}", output_path.display()),
+            ];
+            lines.extend(args.iter().map(|arg| format!("arg={arg}")));
+            build_fingerprint(&lines)
+        }
+        StagedActionKind::CopyFile { source } => {
+            let input_path = PathBuf::from(source);
+            input_paths.push(input_path.clone());
+            build_fingerprint(&[
+                "kind=copy-file".to_string(),
+                format!("input={}", input_path.display()),
+                format!("output={}", output_path.display()),
+            ])
+        }
+        StagedActionKind::CopyDirectory { source } => {
+            let input_path = PathBuf::from(source);
+            input_paths.push(input_path.clone());
+            build_fingerprint(&[
+                "kind=copy-dir".to_string(),
+                format!("input={}", input_path.display()),
+                format!("output={}", output_path.display()),
+            ])
+        }
+    };
+
+    if build_state::action_state_is_current(&output_path, &fingerprint)? {
+        staged_outputs.insert(output_path);
+        return Ok(false);
+    }
+
+    ensure_parent_dir(&output_path)?;
+
+    match &action.kind {
+        StagedActionKind::WriteFile { contents } => {
+            prepare_output_path(&output_path, false)?;
+            fs::write(&output_path, contents).map_err(|err| Error::from_io(&output_path, err))?;
+        }
+        StagedActionKind::RunTool { tool, args } => {
+            prepare_output_path(&output_path, false)?;
+            let tool_path = PathBuf::from(&tool.executable_path);
             let output = Command::new(&tool_path)
                 .args(args)
                 .output()
@@ -690,6 +1078,7 @@ fn execute_staged_action(
                 .map_err(|err| Error::from_io(&output_path, err))?;
         }
         StagedActionKind::CopyFile { source } => {
+            prepare_output_path(&output_path, false)?;
             let input_path = PathBuf::from(source);
             fs::copy(&input_path, &output_path).map_err(|err| {
                 Error::Execution(format!(
@@ -700,6 +1089,7 @@ fn execute_staged_action(
             })?;
         }
         StagedActionKind::CopyDirectory { source } => {
+            prepare_output_path(&output_path, true)?;
             let input_path = PathBuf::from(source);
             copy_dir_all(&input_path, &output_path).map_err(|err| {
                 Error::Execution(format!(
@@ -711,7 +1101,14 @@ fn execute_staged_action(
         }
     }
 
-    Ok(())
+    build_state::record_action_state(
+        &output_path,
+        fingerprint,
+        &input_paths,
+        std::slice::from_ref(&output_path),
+    )?;
+    staged_outputs.insert(output_path);
+    Ok(true)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -733,9 +1130,10 @@ fn ensure_link_action_built(
     compiled: &mut BTreeSet<PathBuf>,
     linked: &mut BTreeSet<PathBuf>,
     staged_outputs: &mut BTreeSet<PathBuf>,
-) -> Result<()> {
+    execution_summary: &mut ExecutionSummary,
+) -> Result<bool> {
     if linked.contains(&action.artifact_path) {
-        return Ok(());
+        return Ok(false);
     }
     let compile_action = compile_action_index
         .get(&ActionKey {
@@ -768,6 +1166,7 @@ fn ensure_link_action_built(
         staged_outputs,
         action_plan,
         compile_action_index,
+        execution_summary,
     )?;
 
     ensure_parent_dir(&action.artifact_path)?;
@@ -776,21 +1175,22 @@ fn ensure_link_action_built(
         output_file: action.artifact_path.to_string_lossy().to_string(),
         driver_mode: DriverMode::LinkOnly,
         report_progress: false,
-        link_profile: LinkProfile::Hosted,
-        use_std: true,
-        ..CompileOptions::default()
+        ..default_target_compile_options(action.target_kind)
     };
+    apply_manifest_runtime_options(&action.manifest_path, &mut options)?;
     apply_host_linker_env(&mut options);
-    options.linker_inputs = link_inputs_for_action(
+    let linker_inputs = link_inputs_for_action(
         action,
         action_plan,
         local_library_actions,
         built_std_packages,
         built_external_packages,
-    )?
-    .into_iter()
-    .map(|path| path.to_string_lossy().to_string())
-    .collect();
+    )?;
+    options.linker_inputs = linker_inputs
+        .iter()
+        .cloned()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
     options.linker_libraries = action.link.system_libs.clone();
     options.linker_search_paths = action.link.search_paths.clone();
     options.linker_args = action.link.args.clone();
@@ -798,14 +1198,34 @@ fn ensure_link_action_built(
         options.linker_args.push("-framework".to_string());
         options.linker_args.push(framework.clone());
     }
+    let toolchain_digest = build_state::current_process_digest()?;
+    let fingerprint = link_action_fingerprint(action, &options, &linker_inputs, &toolchain_digest);
+    let linked_now = if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
+        false
+    } else {
+        let driver = CompilerDriver::new(options);
+        let Some(report) = driver.compile_with_report() else {
+            return Err(Error::Execution(format!(
+                "link failed for `{}`",
+                action.artifact_path.display()
+            )));
+        };
+        build_state::record_action_state(
+            &action.artifact_path,
+            fingerprint,
+            &linker_inputs,
+            std::slice::from_ref(&action.artifact_path),
+        )?;
+        execution_summary.link_actions += 1;
+        execution_summary.record_action(
+            ActionTimingKind::Link,
+            link_action_label(action),
+            report.phase_timings,
+        );
+        true
+    };
 
-    let driver = CompilerDriver::new(options);
-    if !driver.compile() {
-        return Err(Error::Execution(format!(
-            "link failed for `{}`",
-            action.artifact_path.display()
-        )));
-    }
+    linked.insert(action.artifact_path.clone());
 
     execute_staged_actions(
         action.artifact_outputs.as_slice(),
@@ -827,9 +1247,9 @@ fn ensure_link_action_built(
         external_build_stack,
         compiled,
         linked,
+        execution_summary,
     )?;
-    linked.insert(action.artifact_path.clone());
-    Ok(())
+    Ok(linked_now)
 }
 
 fn copy_dir_all(source: &Path, dest: &Path) -> std::result::Result<(), String> {
@@ -985,9 +1405,10 @@ fn build_external_package(
         std_workspace_root,
         &required_library_actions,
         built_std_packages,
+        external_summary,
     )?;
 
-    execute_compile_actions(
+    let compile_summary = execute_compile_actions(
         &required_library_actions,
         &loaded.action_plan,
         &loaded.compile_action_index,
@@ -1003,6 +1424,7 @@ fn build_external_package(
         built_external_tools,
         external_build_stack,
     )?;
+    external_summary.absorb(compile_summary);
 
     let root_library_action = root_external_library_action(dep, &loaded.local_library_actions)?;
     let metadata_root_path = root_library_action.metadata_path.clone().ok_or_else(|| {
@@ -1036,7 +1458,6 @@ fn build_external_package(
             module_aliases,
         },
     );
-    external_summary.compile_actions += required_library_actions.len();
     external_build_stack.remove(dep);
     Ok(())
 }
@@ -1073,6 +1494,7 @@ fn ensure_external_tool_built(
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     built_external_tools: &mut BTreeMap<ExternalToolKey, PathBuf>,
     external_build_stack: &mut BTreeSet<ExternalPackageId>,
+    execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
     let crate::script::BuildScriptToolOrigin::ExternalPackage { dependency_id, .. } = &tool.origin
     else {
@@ -1120,10 +1542,7 @@ fn ensure_external_tool_built(
     );
     let required_external_dependencies =
         required_external_dependencies(root_compile_action, &loaded.local_library_actions);
-    let mut external_summary = ExecutionSummary {
-        compile_actions: 0,
-        link_actions: 0,
-    };
+    let mut external_summary = ExecutionSummary::default();
     for child in required_external_dependencies {
         build_external_package(
             &loaded.source_config,
@@ -1143,8 +1562,9 @@ fn ensure_external_tool_built(
         std_workspace_root,
         &required_compile_actions,
         built_std_packages,
+        &mut external_summary,
     )?;
-    execute_compile_actions(
+    let compile_summary = execute_compile_actions(
         &required_compile_actions,
         &loaded.action_plan,
         &loaded.compile_action_index,
@@ -1160,10 +1580,12 @@ fn ensure_external_tool_built(
         built_external_tools,
         external_build_stack,
     )?;
+    external_summary.absorb(compile_summary);
 
     let mut compiled = BTreeSet::new();
     let mut linked = BTreeSet::new();
     let mut staged_outputs = BTreeSet::new();
+    let mut summary = ExecutionSummary::default();
     ensure_link_action_built(
         root_link_action,
         &loaded.action_plan,
@@ -1182,7 +1604,10 @@ fn ensure_external_tool_built(
         &mut compiled,
         &mut linked,
         &mut staged_outputs,
+        &mut summary,
     )?;
+    execution_summary.absorb(external_summary);
+    execution_summary.absorb(summary);
     built_external_tools.insert(tool_key, PathBuf::from(&tool.executable_path));
     Ok(())
 }
@@ -1345,6 +1770,7 @@ fn module_alias_paths(
     let mut aliases = BTreeMap::new();
     if let Some(std_package) = std_package {
         aliases.insert("std".to_string(), std_package.metadata_root_path.clone());
+        aliases.extend(std_package.interface_aliases.clone());
     }
     let mut visited_local = BTreeSet::new();
     let mut visited_external = BTreeSet::new();
@@ -1444,12 +1870,13 @@ fn execute_compile_actions(
     built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     built_external_tools: &mut BTreeMap<ExternalToolKey, PathBuf>,
     external_build_stack: &mut BTreeSet<ExternalPackageId>,
-) -> Result<()> {
+) -> Result<ExecutionSummary> {
     let mut compiled = BTreeSet::new();
     let mut linked = BTreeSet::new();
     let mut staged_outputs = BTreeSet::new();
+    let mut summary = ExecutionSummary::default();
     for action in actions {
-        ensure_compile_action_built(
+        let _ = ensure_compile_action_built(
             action,
             local_library_actions,
             link_action_index,
@@ -1467,9 +1894,10 @@ fn execute_compile_actions(
             &mut staged_outputs,
             action_plan,
             compile_action_index,
+            &mut summary,
         )?;
     }
-    Ok(())
+    Ok(summary)
 }
 
 fn collect_external_dependencies(
@@ -1559,13 +1987,19 @@ fn ensure_std_packages_for_actions(
     workspace_root: &Path,
     actions: &[CompileAction],
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
+    execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
     let profiles = actions
         .iter()
         .map(|action| action.profile.name.clone())
         .collect::<BTreeSet<_>>();
     for profile in profiles {
-        build_std_package(workspace_root, &profile, built_std_packages)?;
+        build_std_package(
+            workspace_root,
+            &profile,
+            built_std_packages,
+            execution_summary,
+        )?;
     }
     Ok(())
 }
@@ -1574,6 +2008,7 @@ fn build_std_package(
     workspace_root: &Path,
     profile: &str,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
+    execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
     if built_std_packages.contains_key(profile) {
         return Ok(());
@@ -1587,6 +2022,14 @@ fn build_std_package(
             source_path.display()
         )));
     }
+    let built_rt = build_rt_package(workspace_root, profile, execution_summary)?;
+    let built_sys = build_sys_package(workspace_root, profile, execution_summary)?;
+    let rt_entry_object_path = build_rt_entry_package(
+        workspace_root,
+        profile,
+        execution_summary,
+        &built_sys,
+    )?;
 
     let object_path = workspace_root
         .join(".craft")
@@ -1615,36 +2058,487 @@ fn build_std_package(
         root_module_name: Some("std".to_string()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        use_std: true,
-        link_profile: LinkProfile::Hosted,
+        opt_level: if profile == "release" {
+            OptLevel::O3
+        } else {
+            OptLevel::O0
+        },
+        library_bundle: LibraryBundle::Std,
         ..CompileOptions::default()
     };
     apply_host_linker_env(&mut options);
-    inject_driver_condition_defines(&mut options);
     options
         .module_aliases
         .insert("std".to_string(), std_root.to_string_lossy().to_string());
+    extend_interface_aliases(&mut options, &built_sys.interface_aliases);
+    options.module_interface_aliases.insert(
+        "sys".to_string(),
+        built_sys.metadata_root_path.to_string_lossy().to_string(),
+    );
+    inject_driver_condition_defines(&mut options);
+    let toolchain_digest = build_state::current_process_digest()?;
+    let std_fingerprint = build_fingerprint(&[
+        "std_runtime_layout=v3".to_string(),
+        "kind=compile-std".to_string(),
+        format!("toolchain={toolchain_digest}"),
+        format!("profile={profile}"),
+        format!("source={}", source_path.display()),
+        format!("object={}", object_path.display()),
+        format!("metadata={}", metadata_root_path.display()),
+        format!("rt_meta={}", built_rt.metadata_root_path.display()),
+        format!("rt_obj={}", built_rt.object_path.display()),
+        format!("sys_meta={}", built_sys.metadata_root_path.display()),
+        format!("sys_obj={}", built_sys.object_path.display()),
+        format!("rt_entry_obj={}", rt_entry_object_path.display()),
+    ]);
 
-    let driver = CompilerDriver::new(options);
-    if !driver.compile() {
-        return Err(Error::Execution(format!(
-            "compile failed for standard library `{}`",
-            source_path.display()
-        )));
+    if !build_state::action_state_is_current(&object_path, &std_fingerprint)? {
+        let driver = CompilerDriver::new(options);
+        let Some(report) = driver.compile_with_report() else {
+            return Err(Error::Execution(format!(
+                "compile failed for standard library `{}`",
+                source_path.display()
+            )));
+        };
+
+        let mut inputs = report.loaded_sources;
+        inputs.sort();
+        inputs.dedup();
+        build_state::record_action_state(
+            &object_path,
+            std_fingerprint,
+            &inputs,
+            &[object_path.clone(), metadata_root_path.clone()],
+        )?;
+        execution_summary.record_action(
+            ActionTimingKind::Compile,
+            std_compile_action_label(profile),
+            report.phase_timings,
+        );
     }
 
     built_std_packages.insert(
         profile.to_string(),
         BuiltStdPackage {
             metadata_root_path,
-            link_objects: vec![object_path],
+            link_objects: vec![
+                object_path,
+                built_rt.object_path.clone(),
+                built_sys.object_path.clone(),
+                workspace_root
+                    .join(".craft")
+                    .join("build")
+                    .join(profile)
+                    .join("obj")
+                    .join("base")
+                    .join("lib")
+                    .join("base.o"),
+                rt_entry_object_path,
+            ],
+            interface_aliases: {
+                let mut aliases = built_sys.interface_aliases.clone();
+                aliases.insert("rt".to_string(), built_rt.metadata_root_path);
+                aliases.insert("sys".to_string(), built_sys.metadata_root_path);
+                aliases
+            },
         },
     );
     Ok(())
 }
 
+fn build_rt_package(
+    workspace_root: &Path,
+    profile: &str,
+    execution_summary: &mut ExecutionSummary,
+) -> Result<BuiltLibraryPackage> {
+    let rt_root = resolve_rt_path();
+    let source_path = rt_root.join("init.rn");
+    if !source_path.is_file() {
+        return Err(Error::Execution(format!(
+            "rt library root `{}` is missing",
+            source_path.display()
+        )));
+    }
+
+    let object_path = workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("obj")
+        .join("rt")
+        .join("lib")
+        .join("rt.o");
+    let metadata_root_path = workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("meta")
+        .join("rt");
+
+    ensure_parent_dir(&object_path)?;
+    ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
+
+    let mut options = CompileOptions {
+        input_file: Some(source_path.to_string_lossy().to_string()),
+        output_file: object_path.to_string_lossy().to_string(),
+        metadata_output: Some(metadata_root_path.to_string_lossy().to_string()),
+        metadata_package_name: Some("rt".to_string()),
+        metadata_package_version: None,
+        root_module_name: Some("rt".to_string()),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        opt_level: if profile == "release" {
+            OptLevel::O3
+        } else {
+            OptLevel::O0
+        },
+        ..CompileOptions::default()
+    };
+    apply_host_linker_env(&mut options);
+    options
+        .module_aliases
+        .insert("rt".to_string(), rt_root.to_string_lossy().to_string());
+    inject_driver_condition_defines(&mut options);
+    let toolchain_digest = build_state::current_process_digest()?;
+    let rt_fingerprint = build_fingerprint(&[
+        "rt_runtime_layout=v1".to_string(),
+        "kind=compile-rt".to_string(),
+        format!("toolchain={toolchain_digest}"),
+        format!("profile={profile}"),
+        format!("source={}", source_path.display()),
+        format!("object={}", object_path.display()),
+        format!("metadata={}", metadata_root_path.display()),
+    ]);
+
+    if !build_state::action_state_is_current(&object_path, &rt_fingerprint)? {
+        let driver = CompilerDriver::new(options);
+        let Some(report) = driver.compile_with_report() else {
+            return Err(Error::Execution(format!(
+                "compile failed for rt library `{}`",
+                source_path.display()
+            )));
+        };
+
+        let mut inputs = report.loaded_sources;
+        inputs.sort();
+        inputs.dedup();
+        build_state::record_action_state(
+            &object_path,
+            rt_fingerprint,
+            &inputs,
+            &[object_path.clone(), metadata_root_path.clone()],
+        )?;
+        execution_summary.record_action(
+            ActionTimingKind::Compile,
+            rt_compile_action_label(profile),
+            report.phase_timings,
+        );
+    }
+
+    Ok(BuiltLibraryPackage {
+        metadata_root_path,
+        object_path,
+        interface_aliases: BTreeMap::new(),
+    })
+}
+
+fn build_base_package(
+    workspace_root: &Path,
+    profile: &str,
+    execution_summary: &mut ExecutionSummary,
+) -> Result<BuiltLibraryPackage> {
+    let base_root = resolve_base_path();
+    let source_path = base_root.join("init.rn");
+    if !source_path.is_file() {
+        return Err(Error::Execution(format!(
+            "base library root `{}` is missing",
+            source_path.display()
+        )));
+    }
+
+    let object_path = workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("obj")
+        .join("base")
+        .join("lib")
+        .join("base.o");
+    let metadata_root_path = workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("meta")
+        .join("base");
+
+    ensure_parent_dir(&object_path)?;
+    ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
+
+    let mut options = CompileOptions {
+        input_file: Some(source_path.to_string_lossy().to_string()),
+        output_file: object_path.to_string_lossy().to_string(),
+        metadata_output: Some(metadata_root_path.to_string_lossy().to_string()),
+        metadata_package_name: Some("base".to_string()),
+        metadata_package_version: None,
+        root_module_name: Some("base".to_string()),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        opt_level: if profile == "release" {
+            OptLevel::O3
+        } else {
+            OptLevel::O0
+        },
+        library_bundle: LibraryBundle::Base,
+        ..CompileOptions::default()
+    };
+    apply_host_linker_env(&mut options);
+    options
+        .module_aliases
+        .insert("base".to_string(), base_root.to_string_lossy().to_string());
+    inject_driver_condition_defines(&mut options);
+    let toolchain_digest = build_state::current_process_digest()?;
+    let base_fingerprint = build_fingerprint(&[
+        "base_runtime_layout=v1".to_string(),
+        "kind=compile-base".to_string(),
+        format!("toolchain={toolchain_digest}"),
+        format!("profile={profile}"),
+        format!("source={}", source_path.display()),
+        format!("object={}", object_path.display()),
+        format!("metadata={}", metadata_root_path.display()),
+    ]);
+
+    if !build_state::action_state_is_current(&object_path, &base_fingerprint)? {
+        let driver = CompilerDriver::new(options);
+        let Some(report) = driver.compile_with_report() else {
+            return Err(Error::Execution(format!(
+                "compile failed for base library `{}`",
+                source_path.display()
+            )));
+        };
+
+        let mut inputs = report.loaded_sources;
+        inputs.sort();
+        inputs.dedup();
+        build_state::record_action_state(
+            &object_path,
+            base_fingerprint,
+            &inputs,
+            &[object_path.clone(), metadata_root_path.clone()],
+        )?;
+        execution_summary.record_action(
+            ActionTimingKind::Compile,
+            base_compile_action_label(profile),
+            report.phase_timings,
+        );
+    }
+
+    Ok(BuiltLibraryPackage {
+        metadata_root_path,
+        object_path,
+        interface_aliases: BTreeMap::new(),
+    })
+}
+
+fn build_sys_package(
+    workspace_root: &Path,
+    profile: &str,
+    execution_summary: &mut ExecutionSummary,
+) -> Result<BuiltLibraryPackage> {
+    let sys_root = resolve_sys_path();
+    let source_path = sys_root.join("init.rn");
+    if !source_path.is_file() {
+        return Err(Error::Execution(format!(
+            "sys library root `{}` is missing",
+            source_path.display()
+        )));
+    }
+    let built_base = build_base_package(workspace_root, profile, execution_summary)?;
+
+    let object_path = workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("obj")
+        .join("sys")
+        .join("lib")
+        .join("sys.o");
+    let metadata_root_path = workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("meta")
+        .join("sys");
+
+    ensure_parent_dir(&object_path)?;
+    ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
+
+    let mut options = CompileOptions {
+        input_file: Some(source_path.to_string_lossy().to_string()),
+        output_file: object_path.to_string_lossy().to_string(),
+        metadata_output: Some(metadata_root_path.to_string_lossy().to_string()),
+        metadata_package_name: Some("sys".to_string()),
+        metadata_package_version: None,
+        root_module_name: Some("sys".to_string()),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        opt_level: if profile == "release" {
+            OptLevel::O3
+        } else {
+            OptLevel::O0
+        },
+        library_bundle: LibraryBundle::Base,
+        ..CompileOptions::default()
+    };
+    apply_host_linker_env(&mut options);
+    options
+        .module_aliases
+        .insert("sys".to_string(), sys_root.to_string_lossy().to_string());
+    extend_interface_aliases(&mut options, &built_base.interface_aliases);
+    options.module_interface_aliases.insert(
+        "base".to_string(),
+        built_base.metadata_root_path.to_string_lossy().to_string(),
+    );
+    inject_driver_condition_defines(&mut options);
+    let toolchain_digest = build_state::current_process_digest()?;
+    let sys_fingerprint = build_fingerprint(&[
+        "sys_runtime_layout=v1".to_string(),
+        "kind=compile-sys".to_string(),
+        format!("toolchain={toolchain_digest}"),
+        format!("profile={profile}"),
+        format!("source={}", source_path.display()),
+        format!("object={}", object_path.display()),
+        format!("metadata={}", metadata_root_path.display()),
+        format!("base_meta={}", built_base.metadata_root_path.display()),
+        format!("base_obj={}", built_base.object_path.display()),
+    ]);
+
+    if !build_state::action_state_is_current(&object_path, &sys_fingerprint)? {
+        let driver = CompilerDriver::new(options);
+        let Some(report) = driver.compile_with_report() else {
+            return Err(Error::Execution(format!(
+                "compile failed for sys library `{}`",
+                source_path.display()
+            )));
+        };
+
+        let mut inputs = report.loaded_sources;
+        inputs.sort();
+        inputs.dedup();
+        build_state::record_action_state(
+            &object_path,
+            sys_fingerprint,
+            &inputs,
+            &[object_path.clone(), metadata_root_path.clone()],
+        )?;
+        execution_summary.record_action(
+            ActionTimingKind::Compile,
+            sys_compile_action_label(profile),
+            report.phase_timings,
+        );
+    }
+
+    let mut interface_aliases = built_base.interface_aliases.clone();
+    interface_aliases.insert("base".to_string(), built_base.metadata_root_path);
+    Ok(BuiltLibraryPackage {
+        metadata_root_path,
+        object_path,
+        interface_aliases,
+    })
+}
+
+fn build_rt_entry_package(
+    workspace_root: &Path,
+    profile: &str,
+    execution_summary: &mut ExecutionSummary,
+    built_sys: &BuiltLibraryPackage,
+) -> Result<PathBuf> {
+    let source_path = resolve_rt_path().join("entry.rn");
+    if !source_path.is_file() {
+        return Err(Error::Execution(format!(
+            "rt entry source `{}` is missing",
+            source_path.display()
+        )));
+    }
+
+    let object_path = workspace_root
+        .join(".craft")
+        .join("build")
+        .join(profile)
+        .join("obj")
+        .join("rt")
+        .join("entry")
+        .join("rt_entry.o");
+
+    ensure_parent_dir(&object_path)?;
+
+    let mut options = CompileOptions {
+        input_file: Some(source_path.to_string_lossy().to_string()),
+        output_file: object_path.to_string_lossy().to_string(),
+        root_module_name: Some("rt_entry".to_string()),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        opt_level: if profile == "release" {
+            OptLevel::O3
+        } else {
+            OptLevel::O0
+        },
+        ..CompileOptions::default()
+    };
+    options.custom_defines.insert(
+        "rt_role".to_string(),
+        "entry".to_string(),
+    );
+    extend_interface_aliases(&mut options, &built_sys.interface_aliases);
+    options.module_interface_aliases.insert(
+        "sys".to_string(),
+        built_sys.metadata_root_path.to_string_lossy().to_string(),
+    );
+    inject_driver_condition_defines(&mut options);
+    let toolchain_digest = build_state::current_process_digest()?;
+    let entry_fingerprint = build_fingerprint(&[
+        "rt_runtime_layout=v1".to_string(),
+        "kind=compile-rt-entry".to_string(),
+        format!("toolchain={toolchain_digest}"),
+        format!("profile={profile}"),
+        format!("source={}", source_path.display()),
+        format!("object={}", object_path.display()),
+        format!("sys_meta={}", built_sys.metadata_root_path.display()),
+    ]);
+
+    if !build_state::action_state_is_current(&object_path, &entry_fingerprint)? {
+        let driver = CompilerDriver::new(options);
+        let Some(report) = driver.compile_with_report() else {
+            return Err(Error::Execution(format!(
+                "compile failed for rt hosted entry `{}`",
+                source_path.display()
+            )));
+        };
+
+        let mut inputs = report.loaded_sources;
+        inputs.sort();
+        inputs.dedup();
+        build_state::record_action_state(
+            &object_path,
+            entry_fingerprint,
+            &inputs,
+            &[object_path.clone()],
+        )?;
+        execution_summary.record_action(
+            ActionTimingKind::Compile,
+            rt_entry_compile_action_label(profile),
+            report.phase_timings,
+        );
+    }
+
+    Ok(object_path)
+}
+
 fn profile_selection_for_action_plan(action_plan: &ActionPlan) -> crate::script::ProfileSelection {
-    match action_plan.compile_actions.first().map(|action| action.profile.name.as_str()) {
+    match action_plan
+        .compile_actions
+        .first()
+        .map(|action| action.profile.name.as_str())
+    {
         Some("release") => crate::script::ProfileSelection::Release,
         _ => crate::script::ProfileSelection::Dev,
     }
@@ -1766,8 +2660,7 @@ util = { path = "../util" }
         fs::write(
             app_dir.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (util.answer() == 42) {
         return 0;
     }
@@ -1869,8 +2762,7 @@ foo = { path = "../util", package = "util" }
         fs::write(
             app_dir.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (foo.answer() == 42) {
         return 0;
     }
@@ -1972,8 +2864,7 @@ util = { path = "../util" }
         fs::write(
             app_dir.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (util.is_truthy("true")) {
         return 0;
     }
@@ -2050,8 +2941,7 @@ roots = ["tests/smoke.rn"]
         fs::write(
             root.join("tests/smoke.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return 0;
 }
 "#,
@@ -2121,8 +3011,7 @@ pub fn answer() i32 {
             r#"
 use demo.answer;
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (answer() == 42) {
         return 0;
     }
@@ -2190,10 +3079,10 @@ roots = ["tests/cwd.rn"]
             app_dir.join("tests/cwd.rn"),
             r#"
 use std.fs;
-use std.mem.alloc.{Allocator, GPA, Page};
+use base.mem.alloc.{Allocator, GPA};
+use sys.mem.Page;
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     let mut page = Page.{};
     let mut gpa = GPA.{ backing: *mut Allocator.{ page..& } };
     defer gpa..&.deinit();
@@ -2273,10 +3162,10 @@ roots = ["tests/env.rn"]
             app_dir.join("tests/env.rn"),
             r#"
 use std.env;
-use std.mem.alloc.{Allocator, GPA, Page};
+use base.mem.alloc.{Allocator, GPA};
+use sys.mem.Page;
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     let mut page = Page.{};
     let mut gpa = GPA.{ backing: *mut Allocator.{ page..& } };
     defer gpa..&.deinit();
@@ -2358,8 +3247,7 @@ root = "src/main.rn"
         fs::write(
             root.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return 0;
 }
 "#,
@@ -2384,6 +3272,174 @@ extern fn main(args: [][]u8) i32 {
         let summary = build(&build_plan, &action_plan).unwrap();
         assert_eq!(summary.compile_actions, 1);
         assert_eq!(summary.link_actions, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn incremental_build_skips_unchanged_actions() {
+        let root = temp_dir("craft-exec-incremental-skip");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/main.rn"),
+            r#"
+fn main() i32 {
+    return 0;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+        let first = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(first.compile_actions, 1);
+        assert_eq!(first.link_actions, 1);
+
+        let second = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(second.compile_actions, 0);
+        assert_eq!(second.link_actions, 0);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn incremental_build_rebuilds_only_changed_workspace_actions() {
+        let root = temp_dir("craft-exec-incremental-workspace");
+        let app_dir = root.join("app");
+        let util_dir = root.join("util");
+        fs::create_dir_all(app_dir.join("src")).unwrap();
+        fs::create_dir_all(util_dir.join("src")).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app", "util"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+util = { path = "../util" }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            util_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "util"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("src/main.rn"),
+            r#"
+fn main() i32 {
+    return util.answer();
+}
+"#,
+        )
+        .unwrap();
+        fs::write(
+            util_dir.join("src/lib.rn"),
+            r#"
+pub fn answer() i32 {
+    return 41;
+}
+"#,
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &members,
+            true,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+        let first = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(first.compile_actions, 2);
+        assert_eq!(first.link_actions, 1);
+
+        fs::write(
+            app_dir.join("src/main.rn"),
+            r#"
+fn main() i32 {
+    return util.answer() + 1;
+}
+"#,
+        )
+        .unwrap();
+        let app_changed = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(app_changed.compile_actions, 1);
+        assert_eq!(app_changed.link_actions, 1);
+
+        fs::write(
+            util_dir.join("src/lib.rn"),
+            r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+        )
+        .unwrap();
+        let dep_changed = build(&build_plan, &action_plan).unwrap();
+        assert_eq!(dep_changed.compile_actions, 2);
+        assert_eq!(dep_changed.link_actions, 1);
 
         let _ = fs::remove_dir_all(root);
     }
@@ -2415,8 +3471,7 @@ log = { path = "vendor/log", version = "1" }
         fs::write(
             root.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (log.answer() == 42) {
         return 0;
     }
@@ -2516,8 +3571,7 @@ log = {{ git = "{}", branch = "main", version = "1" }}
         fs::write(
             root.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (log.answer() == 42) {
         return 0;
     }
@@ -2581,8 +3635,7 @@ log = { path = "vendor/log", version = "1" }
         fs::write(
             root.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (log.answer() == 42) {
         return 0;
     }
@@ -2694,8 +3747,7 @@ log = { path = "vendor/log", version = "1" }
         fs::write(
             root.join("src/main.rn"),
             r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     if (log.answer() == 42) {
         return 0;
     }
@@ -2804,7 +3856,7 @@ use craft.builder;
 pub fn build(b: *mut builder.Builder) void {
     let path = b.emit_generated(
         "src/main.rn",
-        "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n"
+        "fn main() i32 { return 0; }\n"
     );
     b.set_source_root(path);
     b.define_bool("generated", true);
@@ -2859,7 +3911,7 @@ root = "src/main.rn"
         .unwrap();
         fs::write(
             root.join("templates").join("main.rn"),
-            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
         fs::write(
@@ -2922,7 +3974,7 @@ root = "src/main.rn"
         .unwrap();
         fs::write(
             root.join("src").join("main.rn"),
-            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
         fs::write(
@@ -3001,7 +4053,7 @@ root = "src/main.rn"
         .unwrap();
         fs::write(
             root.join("src").join("main.rn"),
-            "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
         fs::write(
@@ -3137,11 +4189,10 @@ root = "src/main.rn"
 use std.io;
 use std.io.Writer;
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     let mut out = io.stdout();
     let writer = *mut Writer.{ out..& };
-    let _ = writer.write("extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n");
+    let _ = writer.write("fn main() i32 { return 0; }\n");
     return 0;
 }
 "#,
@@ -3184,7 +4235,7 @@ extern fn main(args: [][]u8) i32 {
         };
         assert!(Path::new(source_root).is_file());
         let generated = fs::read_to_string(source_root).unwrap();
-        assert!(generated.contains("extern fn main"));
+        assert!(generated.contains("fn main() i32"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -3213,7 +4264,7 @@ root = "src/placeholder.rn"
 use craft.builder;
 
 pub fn build(b: *mut builder.Builder) void {
-    let helper = b.stage_generated("tmp/main.template.rn", "extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n");
+    let helper = b.stage_generated("tmp/main.template.rn", "fn main() i32 { return 0; }\n");
     let source = b.stage_copy_output(helper, "src/main.rn");
     b.set_source_root_from(source);
 }
@@ -3307,11 +4358,10 @@ root = "src/main.rn"
 use std.io;
 use std.io.Writer;
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     let mut out = io.stdout();
     let writer = *mut Writer.{ out..& };
-    let _ = writer.write("extern fn main(args: [][]u8) i32 { let _ = args; return 0; }\n");
+    let _ = writer.write("fn main() i32 { return 0; }\n");
     return 0;
 }
 "#,
@@ -3346,7 +4396,7 @@ extern fn main(args: [][]u8) i32 {
         };
         assert!(Path::new(source_root).is_file());
         let generated = fs::read_to_string(source_root).unwrap();
-        assert!(generated.contains("extern fn main"));
+        assert!(generated.contains("fn main() i32"));
 
         let _ = fs::remove_dir_all(root);
     }
@@ -3384,7 +4434,10 @@ entry_module_path = "src/init.rn"
         fs::write(repo.join("src/lib.rn"), lib_source).unwrap();
         run_git(repo, ["init", "--initial-branch=main"]);
         run_git(repo, ["config", "user.name", "Craft Tests"]);
-        run_git(repo, ["config", "user.email", "craft-tests@example.invalid"]);
+        run_git(
+            repo,
+            ["config", "user.email", "craft-tests@example.invalid"],
+        );
         run_git(repo, ["add", "."]);
         run_git(repo, ["commit", "-m", "initial"]);
     }
@@ -3408,3 +4461,5 @@ entry_module_path = "src/init.rn"
         );
     }
 }
+
+

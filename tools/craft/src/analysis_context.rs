@@ -1233,7 +1233,7 @@ pub fn craft(p: *mut plan.Plan) void {{
         .unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "extern fn main() i32 { return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
 
@@ -1307,7 +1307,7 @@ root = \"src/main.rn\"
         .unwrap();
         fs::write(
             root.join("src/main.rn"),
-            "extern fn main() i32 { return 0; }\n",
+            "fn main() i32 { return 0; }\n",
         )
         .unwrap();
 
@@ -1356,3 +1356,4 @@ root = \"src/main.rn\"
         );
     }
 }
+

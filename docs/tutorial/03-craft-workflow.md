@@ -51,7 +51,7 @@ root = "src/main.rn"
 ```kern
 use std.io;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     io.println("demo", .{});
     return 0;
 }
@@ -215,3 +215,4 @@ log = { git = "https://example.com/log.git", tag = "v1", version = "1" }
 
 That last point is especially important. `craft` should orchestrate `kernc`, not
 replace your understanding of it.
+

@@ -1231,11 +1231,7 @@ pub fn craft(p: *mut plan.Plan) void {{
             ),
         )
         .unwrap();
-        fs::write(
-            root.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1305,11 +1301,7 @@ root = \"src/main.rn\"
 ",
         )
         .unwrap();
-        fs::write(
-            root.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1356,4 +1348,3 @@ root = \"src/main.rn\"
         );
     }
 }
-

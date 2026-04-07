@@ -179,7 +179,10 @@ fn initialize_negotiates_capabilities_from_client_support() {
         messages[0]["result"]["capabilities"]["codeActionProvider"],
         false
     );
-    assert_eq!(messages[0]["result"]["capabilities"]["renameProvider"], true);
+    assert_eq!(
+        messages[0]["result"]["capabilities"]["renameProvider"],
+        true
+    );
     assert!(
         messages[0]["result"]["capabilities"]
             .get("semanticTokensProvider")

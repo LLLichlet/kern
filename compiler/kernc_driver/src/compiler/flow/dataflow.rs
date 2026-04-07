@@ -330,8 +330,10 @@ pub(super) fn materialize_reaching_definitions(
         .iter()
         .map(|node| AnalysisFlowReaching {
             node_id: node.id,
-            reaching_in: reaching.reaching_in[node.id.index()].collect_definitions(&reaching.domain),
-            reaching_out: reaching.reaching_out[node.id.index()].collect_definitions(&reaching.domain),
+            reaching_in: reaching.reaching_in[node.id.index()]
+                .collect_definitions(&reaching.domain),
+            reaching_out: reaching.reaching_out[node.id.index()]
+                .collect_definitions(&reaching.domain),
         })
         .collect()
 }
@@ -369,9 +371,7 @@ pub(super) fn collect_binding_summaries(
 
         liveness.live_in[node_index].for_each_set_bit(|binding_index| {
             let binding_id = AnalysisFlowBindingId(binding_index);
-            summaries[binding_id.index()]
-                .live_node_ids
-                .push(node.id);
+            summaries[binding_id.index()].live_node_ids.push(node.id);
         });
         liveness.live_out[node_index].for_each_set_bit(|binding_index| {
             let binding_id = AnalysisFlowBindingId(binding_index);

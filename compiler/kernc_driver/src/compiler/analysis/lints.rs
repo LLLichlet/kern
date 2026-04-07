@@ -223,8 +223,8 @@ impl CompilerDriver {
                         || exported_via_pub_use
                         || ctx.resolve(function.name) == "main"
                         || preserve_package_export_root;
-                    let is_warnable =
-                        self.is_lintable_free_function(ctx, function) && function.vis == Visibility::Private;
+                    let is_warnable = self.is_lintable_free_function(ctx, function)
+                        && function.vis == Visibility::Private;
 
                     nodes.insert(
                         function.id,
@@ -251,9 +251,8 @@ impl CompilerDriver {
                         || global.is_extern
                         || self.item_has_export_name(&global.attributes, ctx)
                         || exported_via_pub_use;
-                    let preserve_package_export_root =
-                        self.options.metadata_output.is_some()
-                            && (global.vis == Visibility::Public || exported_via_pub_use);
+                    let preserve_package_export_root = self.options.metadata_output.is_some()
+                        && (global.vis == Visibility::Public || exported_via_pub_use);
 
                     nodes.insert(
                         global.id,

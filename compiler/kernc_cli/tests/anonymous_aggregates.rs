@@ -249,5 +249,3 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
-
-

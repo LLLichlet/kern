@@ -558,7 +558,8 @@ fn compiles_std_hello_world_in_compile_only_mode() {
     let object_arg = object.to_string_lossy().into_owned();
     let args = vec![
         "-c",
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         source_arg.as_str(),
         "-o",
         object_arg.as_str(),
@@ -591,7 +592,8 @@ fn compiles_std_hello_world_to_unicode_object_path() {
     let object_arg = object.to_string_lossy().into_owned();
     let args = vec![
         "-c",
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         source_arg.as_str(),
         "-o",
         object_arg.as_str(),
@@ -635,7 +637,8 @@ fn main() i32 {
 
     let compile_output = run_kernc([
         "-c",
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "crt",
         "--runtime-provider",
@@ -656,7 +659,8 @@ fn main() i32 {
 
     let link_output = run_kernc([
         "--link-only",
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "crt",
         "--runtime-provider",
@@ -710,7 +714,8 @@ fn main() i32 {
     let source_arg = source_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let args = vec![
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "crt",
         "--runtime-provider",
@@ -801,7 +806,8 @@ extern fn bridge_impl(args: [][]u8) i32 {
     let source_arg = main_source.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let output = run_kernc([
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "crt",
         "--runtime-provider",
@@ -854,7 +860,8 @@ fn main() i32 {
     let source_arg = source_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let output = run_kernc([
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "crt",
         "--runtime-provider",
@@ -920,7 +927,8 @@ fn main() i32 {    let value = run_cb(.[]() i32 {
     let object_arg = object_path.to_string_lossy().into_owned();
     let output = run_kernc([
         "-c",
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "crt",
         "--runtime-provider",
@@ -980,7 +988,8 @@ fn links_windows_rt_program_with_std_using_toolchain_provider() {
     let source_arg = source.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let output = run_kernc([
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "rt",
         "--runtime-provider",
@@ -1284,7 +1293,6 @@ fn main(argc: i32, argv: **u8) i32 {
     let _ = fs::remove_file(&executable_path);
 }
 
-
 #[test]
 fn runs_windows_rt_program_with_unicode_command_line_arguments() {
     if !cfg!(windows) {
@@ -1363,12 +1371,7 @@ extern fn start() void {
     ExitProcess(0);
 }
 "#,
-        &[
-            "--entry",
-            "mainCRTStartup",
-            "-l",
-            "kernel32",
-        ],
+        &["--entry", "mainCRTStartup", "-l", "kernel32"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -1465,7 +1468,8 @@ fn main() i32 {
     let source_arg = source_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let args = vec![
-        "--library-bundle", "std",
+        "--library-bundle",
+        "std",
         "--runtime-entry",
         "crt",
         "--runtime-provider",
@@ -1499,4 +1503,3 @@ fn main() i32 {
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
 }
-

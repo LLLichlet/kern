@@ -1249,10 +1249,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> bool {
         let trait_impl_ids = self.ctx.trait_impls.clone();
         for impl_id in trait_impl_ids {
-            let Some(impl_ptr) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
-                Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                _ => None,
-            }) else {
+            let Some(impl_ptr) = self
+                .ctx
+                .defs
+                .get(impl_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                    _ => None,
+                })
+            else {
                 continue;
             };
 

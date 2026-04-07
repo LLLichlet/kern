@@ -376,10 +376,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     self.instantiate_function(id, &[]);
                 }
                 LowerRootAction::LowerGlobal(id) => {
-                    let Some(global_ptr) = self.ctx.defs.get(id.0 as usize).and_then(|def| match def {
-                        Def::Global(global) => Some(std::ptr::from_ref(global)),
-                        _ => None,
-                    }) else {
+                    let Some(global_ptr) =
+                        self.ctx.defs.get(id.0 as usize).and_then(|def| match def {
+                            Def::Global(global) => Some(std::ptr::from_ref(global)),
+                            _ => None,
+                        })
+                    else {
                         continue;
                     };
 

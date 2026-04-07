@@ -138,8 +138,14 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
                 ("      expr_control_block", expr.control_block),
                 ("      expr_control_if", expr.control_if),
                 ("      expr_control_match", expr.control_match),
-                ("        expr_control_match_patterns", expr.control_match_patterns),
-                ("        expr_control_match_bodies", expr.control_match_bodies),
+                (
+                    "        expr_control_match_patterns",
+                    expr.control_match_patterns,
+                ),
+                (
+                    "        expr_control_match_bodies",
+                    expr.control_match_bodies,
+                ),
                 (
                     "        expr_control_match_exhaustiveness",
                     expr.control_match_exhaustiveness,
@@ -412,7 +418,9 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         // dispatch below while avoiding cloning whole AST-backed definitions.
         unsafe {
             match &*def {
-                Def::Function(f) => self.check_function(f, parent_scope, FunctionBodyKind::TopLevel),
+                Def::Function(f) => {
+                    self.check_function(f, parent_scope, FunctionBodyKind::TopLevel)
+                }
                 Def::Impl(i) => {
                     let started = Instant::now();
                     self.check_impl(i, parent_scope);
@@ -478,12 +486,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     //          Item Checkers
     // ==========================================
 
-    fn check_function(
-        &mut self,
-        f: &FunctionDef,
-        parent_scope: ScopeId,
-        kind: FunctionBodyKind,
-    ) {
+    fn check_function(&mut self, f: &FunctionDef, parent_scope: ScopeId, kind: FunctionBodyKind) {
         let function_started = Instant::now();
         if f.is_const && f.is_extern {
             self.ctx

@@ -1660,11 +1660,7 @@ root = "src/main.rn"
 "#,
         )
         .unwrap();
-        fs::write(
-            root.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
     }
 
     #[test]
@@ -2115,11 +2111,7 @@ root = "src/main.rn"
         )
         .unwrap();
         fs::write(root.join("README.md"), "# demo\n").unwrap();
-        fs::write(
-            root.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let err = run_command(Command::Publish {
             path: Some(root.clone()),
@@ -2191,11 +2183,7 @@ root = "src/main.rn"
 "#,
         )
         .unwrap();
-        fs::write(
-            member.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
         run_command(Command::Lock {
             path: Some(root.clone()),
@@ -2220,4 +2208,3 @@ root = "src/main.rn"
         let _ = fs::remove_dir_all(root);
     }
 }
-

@@ -3,7 +3,11 @@ mod support;
 use support::{build_and_run, compile_source_with_args};
 
 fn compile_source_with_std(source: &str) -> std::process::Output {
-    compile_source_with_args("kernc_std_coll_compile", source, &["--library-bundle", "std"])
+    compile_source_with_args(
+        "kernc_std_coll_compile",
+        source,
+        &["--library-bundle", "std"],
+    )
 }
 
 fn build_and_run_hosted(source: &str) -> std::process::Output {
@@ -1944,5 +1948,3 @@ fn main() i32 {
         stderr
     );
 }
-
-

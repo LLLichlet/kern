@@ -15,7 +15,11 @@ fn compile_source(source: &str) -> std::process::Output {
 }
 
 fn compile_source_with_std(source: &str) -> std::process::Output {
-    compile_source_with_args("kernc_regression_std_test", source, &["--library-bundle", "std"])
+    compile_source_with_args(
+        "kernc_regression_std_test",
+        source,
+        &["--library-bundle", "std"],
+    )
 }
 
 fn compile_source_tree(entry: &str, files: &[(&str, &str)]) -> std::process::Output {
@@ -23,11 +27,7 @@ fn compile_source_tree(entry: &str, files: &[(&str, &str)]) -> std::process::Out
 }
 
 fn build_and_run_source(source: &str) -> std::process::Output {
-    build_and_run(
-        "kernc_regression_run",
-        source,
-        &["--runtime-libc", "yes"],
-    )
+    build_and_run("kernc_regression_run", source, &["--runtime-libc", "yes"])
 }
 
 fn build_and_run_source_with_std(source: &str) -> std::process::Output {
@@ -2124,5 +2124,3 @@ pub fn make() Bag {
         stderr
     );
 }
-
-

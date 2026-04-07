@@ -1189,11 +1189,7 @@ pub fn craft(p: *mut plan.Plan) void {{
             ),
         )
         .unwrap();
-        fs::write(
-            root.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
         let mut options = CompileOptions::default();
@@ -1276,11 +1272,7 @@ pub fn craft(p: *mut plan.Plan) void {{
             ),
         )
         .unwrap();
-        fs::write(
-            root.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
         let manifest_path = root.join("Craft.toml");
         let manifest = Manifest::load(&manifest_path).unwrap();
@@ -1539,11 +1531,7 @@ pub fn craft(p: *mut plan.Plan) void {
 ",
         )
         .unwrap();
-        fs::write(
-            root.join("src/main.rn"),
-            "fn main() i32 { return 0; }\n",
-        )
-        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
 
         analysis_context::sync_project_analysis_context(
             &root.join("Craft.toml"),
@@ -1597,5 +1585,3 @@ kern = \"0.6.7\"
         assert_eq!(manifest, root.join("Craft.toml"));
     }
 }
-
-

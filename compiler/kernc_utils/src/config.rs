@@ -347,13 +347,13 @@ pub fn resolve_sys_path() -> PathBuf {
 }
 
 pub fn maybe_inject_base_alias(options: &mut CompileOptions) {
-    let wants_base = matches!(options.library_bundle, LibraryBundle::Base | LibraryBundle::Std)
-        || !matches!(options.runtime_entry, RuntimeEntry::None)
+    let wants_base = matches!(
+        options.library_bundle,
+        LibraryBundle::Base | LibraryBundle::Std
+    ) || !matches!(options.runtime_entry, RuntimeEntry::None)
         || !matches!(options.runtime_provider, RuntimeProvider::None)
         || runtime_links_libc(options);
-    if !wants_base
-        || options.module_aliases.contains_key("base")
-    {
+    if !wants_base || options.module_aliases.contains_key("base") {
         return;
     }
 
@@ -364,17 +364,18 @@ pub fn maybe_inject_base_alias(options: &mut CompileOptions) {
 }
 
 pub fn maybe_inject_rt_alias(options: &mut CompileOptions) {
-    let wants_rt = matches!(options.library_bundle, LibraryBundle::Base | LibraryBundle::Std)
-        || !matches!(options.runtime_entry, RuntimeEntry::None);
+    let wants_rt = matches!(
+        options.library_bundle,
+        LibraryBundle::Base | LibraryBundle::Std
+    ) || !matches!(options.runtime_entry, RuntimeEntry::None);
     if !wants_rt || options.module_aliases.contains_key("rt") {
         return;
     }
 
     let rt_path = resolve_rt_path();
-    options.module_aliases.insert(
-        "rt".to_string(),
-        rt_path.to_string_lossy().to_string(),
-    );
+    options
+        .module_aliases
+        .insert("rt".to_string(), rt_path.to_string_lossy().to_string());
 }
 
 pub fn maybe_inject_sys_alias(options: &mut CompileOptions) {
@@ -387,10 +388,9 @@ pub fn maybe_inject_sys_alias(options: &mut CompileOptions) {
     }
 
     let sys_path = resolve_sys_path();
-    options.module_aliases.insert(
-        "sys".to_string(),
-        sys_path.to_string_lossy().to_string(),
-    );
+    options
+        .module_aliases
+        .insert("sys".to_string(), sys_path.to_string_lossy().to_string());
 }
 
 pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
@@ -464,9 +464,10 @@ pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
     options
         .custom_defines
         .insert("libc".to_string(), runtime_links_libc(options).to_string());
-    options
-        .custom_defines
-        .insert("crt_startup".to_string(), runtime_uses_crt_startup(options).to_string());
+    options.custom_defines.insert(
+        "crt_startup".to_string(),
+        runtime_uses_crt_startup(options).to_string(),
+    );
     options
         .custom_defines
         .entry("rt_role".to_string())

@@ -368,12 +368,15 @@ impl<'a> SemaContext<'a> {
     }
 
     pub fn def_parent_module(&self, def_id: DefId) -> Option<DefId> {
-        self.parent_modules_by_def.get(&def_id).copied().or_else(|| {
-            self.defs.iter().find_map(|def| match def {
-                Def::Module(module) if module.items.contains(&def_id) => Some(module.id),
-                _ => None,
+        self.parent_modules_by_def
+            .get(&def_id)
+            .copied()
+            .or_else(|| {
+                self.defs.iter().find_map(|def| match def {
+                    Def::Module(module) if module.items.contains(&def_id) => Some(module.id),
+                    _ => None,
+                })
             })
-        })
     }
 
     pub fn def_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
@@ -396,12 +399,12 @@ impl<'a> SemaContext<'a> {
                 | Some(Def::Enum(_))
                 | Some(Def::Trait(_))
                 | Some(Def::TypeAlias(_))
-                | Some(Def::Impl(_)) => self
-                    .def_parent_module(def_id)
-                    .and_then(|module_id| match self.defs.get(module_id.0 as usize) {
+                | Some(Def::Impl(_)) => self.def_parent_module(def_id).and_then(|module_id| {
+                    match self.defs.get(module_id.0 as usize) {
                         Some(Def::Module(module)) => Some(module.scope_id),
                         _ => None,
-                    }),
+                    }
+                }),
                 _ => None,
             }
         })
@@ -421,7 +424,12 @@ impl<'a> SemaContext<'a> {
     }
 
     pub fn configured_runtime_entry(&self) -> RuntimeEntry {
-        match self.sess.custom_defines.get("runtime_entry").map(String::as_str) {
+        match self
+            .sess
+            .custom_defines
+            .get("runtime_entry")
+            .map(String::as_str)
+        {
             Some("rt") => RuntimeEntry::Rt,
             Some("crt") => RuntimeEntry::Crt,
             _ => RuntimeEntry::None,

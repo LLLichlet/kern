@@ -50,7 +50,11 @@ impl MastModule {
         let mut stats = MastWorkloadStats {
             structs: self.structs.len(),
             globals: self.globals.len(),
-            globals_with_init: self.globals.iter().filter(|global| global.init.is_some()).count(),
+            globals_with_init: self
+                .globals
+                .iter()
+                .filter(|global| global.init.is_some())
+                .count(),
             functions: self.functions.len(),
             function_bodies: self
                 .functions
@@ -331,10 +335,7 @@ fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
         }
 
         crate::MastExprKind::SliceOp {
-            lhs,
-            start,
-            end,
-            ..
+            lhs, start, end, ..
         } => {
             visit_expr(lhs, stats);
             if let Some(start) = start {

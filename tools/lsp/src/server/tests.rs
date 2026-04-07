@@ -10,12 +10,12 @@ pub(super) use crate::protocol::{
     DidOpenTextDocumentParams, IncomingMessage, InitializeResultOptions, JSONRPC_VERSION,
 };
 pub(super) use crate::transport::{MessageReader, MessageWriter};
-pub(super) use serde_json::{json, Value};
+pub(super) use serde_json::{Value, json};
 pub(super) use std::fs;
 pub(super) use std::io::Cursor;
 pub(super) use std::path::PathBuf;
-pub(super) use std::time::{SystemTime, UNIX_EPOCH};
 use std::sync::atomic::{AtomicU64, Ordering};
+pub(super) use std::time::{SystemTime, UNIX_EPOCH};
 
 static UNIQUE_COUNTER: AtomicU64 = AtomicU64::new(0);
 

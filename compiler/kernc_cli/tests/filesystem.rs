@@ -1635,4 +1635,3 @@ fn main() i32 {{
     let _ = fs::remove_file(&file_path);
     let _ = fs::remove_dir_all(&temp_root);
 }
-

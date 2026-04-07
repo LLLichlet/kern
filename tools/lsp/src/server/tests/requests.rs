@@ -35,7 +35,11 @@ fn document_highlight_request_returns_same_file_spans() {
         highlights[2]["range"]["start"],
         json!({ "line": 1, "character": 34 })
     );
-    assert!(highlights.iter().all(|highlight| highlight["kind"] == json!(1)));
+    assert!(
+        highlights
+            .iter()
+            .all(|highlight| highlight["kind"] == json!(1))
+    );
 }
 
 #[test]

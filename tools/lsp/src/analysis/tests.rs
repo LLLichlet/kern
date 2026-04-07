@@ -1,4 +1,4 @@
-﻿use super::semantic::{SemanticModifiers, SemanticTokenTypes};
+use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
     AnalysisEngine, AnalysisSettings, byte_offset_to_position, cleared_uris, file_path_to_uri,
     position_to_byte_offset, uri_to_file_path,
@@ -5168,7 +5168,3 @@ fn assert_token(
         position
     );
 }
-
-
-
-

@@ -330,12 +330,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.update_type(u.name, union_ty);
     }
 
-    fn resolve_trait_item(
-        &mut self,
-        item_id: DefId,
-        t: &TraitResolveSpec,
-        parent_scope: ScopeId,
-    ) {
+    fn resolve_trait_item(&mut self, item_id: DefId, t: &TraitResolveSpec, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let trait_scope = self.ctx.scopes.enter_scope();
 

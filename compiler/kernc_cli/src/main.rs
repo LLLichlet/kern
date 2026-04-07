@@ -1,8 +1,8 @@
 use kernc_driver::CompilerDriver;
 use kernc_utils::config::{
-    AsmDialect, CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry,
-    RuntimeProvider, TargetMachine, inject_default_library_aliases,
-    inject_driver_condition_defines, validate_runtime_options,
+    AsmDialect, CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
+    TargetMachine, inject_default_library_aliases, inject_driver_condition_defines,
+    validate_runtime_options,
 };
 use std::env;
 use std::path::Path;
@@ -156,7 +156,11 @@ fn set_default_output_file(options: &mut CompileOptions) {
     }
 }
 
-fn validate_mode_inputs(program_name: &str, options: &CompileOptions, positional_source: &Option<String>) {
+fn validate_mode_inputs(
+    program_name: &str,
+    options: &CompileOptions,
+    positional_source: &Option<String>,
+) {
     if options.driver_mode.needs_source_input() && positional_source.is_none() {
         eprintln!("Error: No input file specified.");
         print_usage(program_name);
@@ -228,8 +232,7 @@ fn parse_args() -> CompileOptions {
                 options.runtime_entry = parse_runtime_entry(&mode);
             }
             "--runtime-provider" => {
-                let provider =
-                    next_option_value(&mut args, "--runtime-provider", "provider");
+                let provider = next_option_value(&mut args, "--runtime-provider", "provider");
                 options.runtime_provider = parse_runtime_provider(&provider);
             }
             "--runtime-libc" => {

@@ -38,9 +38,9 @@ fn parse_args() -> Result<CompileOptions, String> {
                 std::process::exit(0);
             }
             "--library-bundle" => {
-                let value = args
-                    .next()
-                    .ok_or_else(|| "expected `none`, `base`, or `std` after `--library-bundle`".to_string())?;
+                let value = args.next().ok_or_else(|| {
+                    "expected `none`, `base`, or `std` after `--library-bundle`".to_string()
+                })?;
                 options.library_bundle = match value.as_str() {
                     "none" => LibraryBundle::None,
                     "base" => LibraryBundle::Base,
@@ -48,7 +48,7 @@ fn parse_args() -> Result<CompileOptions, String> {
                     _ => {
                         return Err(format!(
                             "invalid library bundle `{value}`; expected `none`, `base`, or `std`"
-                        ))
+                        ));
                     }
                 };
             }

@@ -2,9 +2,9 @@ use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{Duration, Instant};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
 use kernc_db::{Database, Input, Memo, Query};
@@ -174,10 +174,7 @@ impl FrontendDatabase {
 
         let mut timings = FrontendLoadTimings::default();
         let read_started = Instant::now();
-        let Some(source) = self
-            .source_texts
-            .get(&self.db, normalized.to_path_buf())?
-        else {
+        let Some(source) = self.source_texts.get(&self.db, normalized.to_path_buf())? else {
             return Ok(None);
         };
         timings.read_source = read_started.elapsed();

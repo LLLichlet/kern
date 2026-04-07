@@ -76,10 +76,14 @@ impl<'a> TokenStream<'a> {
         }
 
         // Pop the front of the lookahead buffer.
-        let token = self.buffer.get(self.buffer_start).copied().unwrap_or(Token {
-            tag: TokenType::Eof,
-            span: self.last_span,
-        });
+        let token = self
+            .buffer
+            .get(self.buffer_start)
+            .copied()
+            .unwrap_or(Token {
+                tag: TokenType::Eof,
+                span: self.last_span,
+            });
         self.buffer_start += 1;
         if self.buffer_start >= 64 && self.buffer_start * 2 >= self.buffer.len() {
             self.buffer.drain(..self.buffer_start);

@@ -58,7 +58,10 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         [
             ("    load_normalize_path", self.timings.normalize_path),
             ("    load_read_source", self.timings.frontend_read_source),
-            ("    load_ensure_file_id", self.timings.frontend_ensure_file_id),
+            (
+                "    load_ensure_file_id",
+                self.timings.frontend_ensure_file_id,
+            ),
             ("    load_parse", self.timings.frontend_parse),
             ("    load_prune", self.timings.frontend_prune),
             (
@@ -231,8 +234,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 self.ctx.sess,
                 &abs_path,
                 self.collect_docs,
-            )
-        {
+            ) {
             Ok(Some((parsed, timings))) => {
                 self.timings.frontend_read_source += timings.read_source;
                 self.timings.frontend_ensure_file_id += timings.ensure_file_id;
@@ -365,8 +367,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         }
 
         let exists = self.frontend.source_exists(path);
-        self.path_exists_cache
-            .insert(path.to_path_buf(), exists);
+        self.path_exists_cache.insert(path.to_path_buf(), exists);
         exists
     }
 }

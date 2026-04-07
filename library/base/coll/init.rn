@@ -1,0 +1,16 @@
+//! Collection types and slice helpers.
+//!
+//! The standard collections stay allocation-explicit and favor simple,
+//! inspectable representations over hidden policy.
+
+mod list;
+mod map;
+mod slice;
+mod string;
+mod tree;
+
+pub use .list.List;
+pub use .map.Map;
+pub use .slice.{bytes_eq, find_byte, rfind_byte, contains_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
+pub use .string.String;
+pub use .tree.Tree;

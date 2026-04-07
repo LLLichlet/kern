@@ -3,8 +3,8 @@
 //! Design:
 //! keep in-place sequence mutation small and explicit.
 
-use std.mem.layout_of;
-use std.rt.mem.memmove;
+use base.mem.layout_of;
+use rt.mem.memmove;
 
 impl[T] []mut T {
     /// Swaps the elements at `lhs` and `rhs`.

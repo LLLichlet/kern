@@ -10,7 +10,7 @@ fn repeat_twice(cb: *mut Fn() void) void {
     cb();
     cb();
 }
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let sum = apply_operation(.[](a: i32, b: i32) i32 {
         return a + b;
     }, 10, 20);

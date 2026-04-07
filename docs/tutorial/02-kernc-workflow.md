@@ -26,15 +26,15 @@ The CLI exposes four mutually exclusive modes:
 Examples:
 
 ```bash
-kernc --use-std --link-profile hosted examples/hello_world.rn -o hello
+kernc --library-bundle std --runtime-entry crt --runtime-libc yes examples/hello_world.rn -o hello
 ```
 
 ```bash
-kernc -c --use-std examples/hello_world.rn -o hello.o
+kernc -c --library-bundle std --runtime-entry crt --runtime-libc yes examples/hello_world.rn -o hello.o
 ```
 
 ```bash
-kernc --emit-llvm --use-std examples/hello_world.rn
+kernc --emit-llvm --library-bundle std --runtime-entry crt --runtime-libc yes examples/hello_world.rn
 ```
 
 ```bash
@@ -43,26 +43,24 @@ kernc --link-only --link-input hello.o -o hello
 
 ## The Flags You Will Use Most
 
-### `--use-std`
+### Runtime and library flags
 
-Injects the `std` module alias if one is not already provided manually.
+The main knobs are:
 
-The lookup order is:
+- `--library-bundle <none|base|std>`
+- `--runtime-entry <none|rt|crt>`
+- `--runtime-provider <none|toolchain|libc>`
+- `--runtime-libc <yes|no>`
+
+`--library-bundle std` injects the `std` module alias if one is not already provided manually.
+
+The `std` lookup order is:
 
 1. `KERN_STD_PATH`
 2. a path relative to the current executable
 3. `library/std` in the repository layout
 
-### `--link-profile`
-
-Selects default link behavior:
-
-- `kern`
-- `freestanding`
-- `hosted`
-- `none`
-
-This is separate from language semantics. It is driver policy.
+These flags are orthogonal. Library availability, program-entry semantics, runtime-provider selection, and libc linkage are configured independently.
 
 ### `-M name=path`
 
@@ -90,7 +88,7 @@ This matters when you want explicit interface-style builds without teaching
 Use this when you are exploring language behavior quickly on your own machine:
 
 ```bash
-kernc --use-std --link-profile hosted scratch.rn -o scratch
+kernc --library-bundle std --runtime-entry crt --runtime-libc yes scratch.rn -o scratch
 ./scratch
 ```
 
@@ -99,8 +97,8 @@ kernc --use-std --link-profile hosted scratch.rn -o scratch
 Use this when you want to stay close to bare-metal assumptions:
 
 ```bash
-kernc -c --use-std --link-profile kern kernel.rn -o kernel.o
-kernc --link-only --link-profile kern --link-input kernel.o -o kernel
+kernc -c kernel.rn -o kernel.o
+kernc --link-only --link-input kernel.o --entry boot_main --link-arg -nostdlib -o kernel
 ```
 
 Splitting compile and link is especially useful when debugging symbol export,
@@ -127,10 +125,12 @@ kernc -D board=qemu -D debug_mode=true app.rn
 
 The driver also injects some condition values itself, including:
 
-- `link_profile`
-- `hosted`
+- `runtime_entry`
+- `runtime_provider`
+- `library_bundle`
 - `libc`
-- `kern_rt`
+- `crt_startup`
+- `rt_role`
 
 That allows the standard library and user code to prune configuration-specific
 items without inventing hidden global state.
@@ -150,7 +150,7 @@ This order keeps the problem close to the compiler boundary.
 ## Common Mistakes
 
 - passing a source file together with `--link-only`
-- assuming `--use-std` also implies hosted linking
+- assuming `--library-bundle std` also implies hosted startup or libc linkage
 - assuming `let mut` grants write permission through every access path
 - forgetting that `kernc` currently handles one explicit source entry at a time
 

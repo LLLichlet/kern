@@ -1,6 +1,6 @@
 //! Common filesystem types.
 
-use std.os;
+use sys.os;
 
 /// Filesystem errors used by `std.fs`.
 pub type Error = enum {

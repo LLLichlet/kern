@@ -3,10 +3,10 @@
 //! Design:
 //! keep normalization lexical and avoid hidden filesystem queries.
 
-use std.Result;
-use std.Option;
-use std.mem.alloc.Allocator;
-use std.coll.{String, List};
+use base.Result;
+use base.Option;
+use base.mem.alloc.Allocator;
+use base.coll.{String, List};
 use ..types.Error;
 
 /// Returns `true` when `byte` is treated as a path separator on the current platform.

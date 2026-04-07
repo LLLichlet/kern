@@ -1,0 +1,84 @@
+//! Mutable slice helpers.
+//!
+//! Design:
+//! keep in-place sequence mutation small and explicit.
+
+use base.mem.{layout_of, memmove};
+
+impl[T] []mut T {
+    /// Swaps the elements at `lhs` and `rhs`.
+    pub fn swap(lhs: usize, rhs: usize) bool {
+        if (lhs >= #self or rhs >= #self) {
+            return false;
+        }
+        if (lhs == rhs) {
+            return true;
+        }
+
+        let tmp = self.[lhs];
+        self.[lhs] = self.[rhs];
+        self.[rhs] = tmp;
+        return true;
+    }
+
+    /// Swaps every element with the matching position in `other`.
+    pub fn swap_with_slice(other: []mut T) bool {
+        if (#self != #other) {
+            return false;
+        }
+
+        for (let mut i = 0; i < #self; i += 1) {
+            let tmp = self.[i];
+            self.[i] = other.[i];
+            other.[i] = tmp;
+        }
+        return true;
+    }
+
+    /// Overwrites every element with `value`.
+    pub fn fill(value: T) void {
+        for (let mut i = 0; i < #self; i += 1) {
+            self.[i] = value;
+        }
+    }
+
+    /// Visits every element mutably.
+    pub fn for_each_mut(visitor: *Fn(*mut T) void) void {
+        for (let mut i = 0; i < #self; i += 1) {
+            visitor(self.[i]..&);
+        }
+    }
+
+    /// Copies all elements from `source` into `self`.
+    pub fn copy_from(source: []T) bool {
+        if (#self != #source) {
+            return false;
+        }
+        if (#self == 0) {
+            return true;
+        }
+
+        let elem_size = layout_of[T]().size;
+        if (elem_size == 0) {
+            return true;
+        }
+
+        let bytes = #self * elem_size;
+        let _ = memmove(self.[0]..& as *mut u8, source.[0].& as *u8, bytes);
+        return true;
+    }
+
+    /// Reverses the slice in place.
+    pub fn reverse() void {
+        let mut left = 0;
+        let mut right = #self;
+        for (; left < right; ) {
+            right -= 1;
+            if (left >= right) {
+                return;
+            }
+            let _ = self.swap(left, right);
+            left += 1;
+        }
+    }
+}

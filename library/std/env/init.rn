@@ -3,11 +3,11 @@
 //! Public APIs in this module keep names and values as UTF-8 byte slices or
 //! owned `String` values while platform-specific enumeration stays internal.
 
-use std.Option;
-use std.cffi;
-use std.coll.String;
-use std.mem.array_layout_of;
-use std.mem.alloc.Allocator;
+use base.Option;
+use base.abi;
+use base.coll.String;
+use base.mem.array_layout_of;
+use base.mem.alloc.Allocator;
 
 #[if(libc and (os == "linux" or os == "darwin"))]
 extern {
@@ -74,20 +74,20 @@ fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
 
 #[if(libc and (os == "linux" or os == "darwin"))]
 fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
-    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return .{ None };
-    defer cffi.cstr.free_z(alloc, name, c_name);
+    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .{ None };
+    defer abi.cstr.free_z(alloc, name, c_name);
 
     let value_ptr = libc_getenv(c_name);
     if ((value_ptr as usize) == 0) {
         return .{ None };
     }
-    return clone_c_value(alloc, value_ptr, cffi.cstr.len(value_ptr));
+    return clone_c_value(alloc, value_ptr, abi.cstr.len(value_ptr));
 }
 
 #[if(os == "windows")]
 fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
-    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return .{ None };
-    defer cffi.cstr.free_z(alloc, name, c_name);
+    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .{ None };
+    defer abi.cstr.free_z(alloc, name, c_name);
 
     let required = GetEnvironmentVariableA(c_name, 0, 0) as usize;
     if (required == 0) {
@@ -108,16 +108,16 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
 
 #[if(libc and (os == "linux" or os == "darwin"))]
 fn has_posix(alloc: *mut Allocator, name: []u8) bool {
-    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return false;
-    defer cffi.cstr.free_z(alloc, name, c_name);
+    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return false;
+    defer abi.cstr.free_z(alloc, name, c_name);
 
     return (libc_getenv(c_name) as usize) != 0;
 }
 
 #[if(os == "windows")]
 fn has_windows(alloc: *mut Allocator, name: []u8) bool {
-    let .{ Some: c_name } = cffi.cstr.alloc_z(alloc, name) else return false;
-    defer cffi.cstr.free_z(alloc, name, c_name);
+    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return false;
+    defer abi.cstr.free_z(alloc, name, c_name);
 
     return (GetEnvironmentVariableA(c_name, 0, 0) as usize) != 0;
 }
@@ -136,7 +136,7 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
             return total;
         }
 
-        let entry = entry_ptr.[0 .. cffi.cstr.len(entry_ptr)];
+        let entry = entry_ptr.[0 .. abi.cstr.len(entry_ptr)];
         match (split_var(entry)) {
             .{ Some: var } => {
                 total += 1;
@@ -164,7 +164,7 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
     let mut cursor = block;
     let mut total = 0;
     for (;;) {
-        let len = cffi.cstr.len(cursor);
+        let len = abi.cstr.len(cursor);
         if (len == 0) {
             return total;
         }

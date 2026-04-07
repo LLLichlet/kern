@@ -1,0 +1,4 @@
+#[if(rt_role != "entry")]
+pub mod mem;
+#[if(runtime_entry != "none" or rt_role == "entry")]
+mod entry;

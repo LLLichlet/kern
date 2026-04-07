@@ -3,11 +3,11 @@
 //! `List[T]` is the standard owned sequence type. It stores elements in a
 //! contiguous buffer and grows geometrically.
 
-use std.mem.alloc.Allocator;
-use std.mem.{Layout, layout_of, array_layout_of};
-use std.Option;
-use std.num.USIZE_MAX;
-use std.rt.mem.memmove;
+use base.mem.alloc.Allocator;
+use base.mem.{Layout, layout_of, array_layout_of};
+use base.Option;
+use base.num.USIZE_MAX;
+use rt.mem.memmove;
 
 mod query;
 mod fmt;

@@ -3,17 +3,17 @@
 //! Design:
 //! keep traversal explicit, return visited counts, and leave path ownership with the caller.
 
-use std.Result;
-use std.Option;
-use std.os;
-use std.mem.array_layout_of;
-use std.mem.alloc.Allocator;
+use base.Result;
+use base.Option;
+use sys.os;
+use base.mem.array_layout_of;
+use base.mem.alloc.Allocator;
 use ..types.{Error, FileType, DirEntry};
 use ..path.{is_path_separator, root_prefix_len, trim_trailing_separators, build_child_path};
 use ..c_path.{alloc_c_path, free_c_path};
 use ..file.{metadata, is_dir, remove_file};
 
-fn dir_search_path_layout(path: []u8) Option[std.mem.Layout] {
+fn dir_search_path_layout(path: []u8) Option[base.mem.Layout] {
     #[if(os == "windows")]
     {
         let needs_sep = if (#path == 0) true else !is_path_separator(path.[#path - 1]);

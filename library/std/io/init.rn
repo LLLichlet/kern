@@ -8,7 +8,7 @@ mod traits;
 mod fmt;
 
 use std.fs;
-use std.os;
+use sys.os;
 
 pub use .fmt.{format_to, print, println};
 pub use .traits.{Printable, Writer};

@@ -1,9 +1,10 @@
-use std.coll.String;
-use std.mem.alloc.{Page, GPA};
-use std.mem.Allocator;
+use base.coll.String;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+use base.mem.Allocator;
 use std.io;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let pa = Page.{}..&;
     let gpa = GPA.{ backing: pa }..&;
 
@@ -16,7 +17,7 @@ extern fn main(args: [][]u8) i32 {
     
     io.println("Message: {}", .{ greeting, });
     
-    // 字符串比较
+    // 瀛楃涓叉瘮杈?
     if (greeting.eq("Hello, Kern World!")) {
         io.println("Match successful!", .{});
     }

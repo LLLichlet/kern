@@ -1,0 +1,5 @@
+//! Provider-owned virtual memory primitives.
+
+mod page;
+
+pub use .page.Page;

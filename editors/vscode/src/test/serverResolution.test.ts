@@ -103,7 +103,7 @@ test("falls back to PATH when no concrete server is found", () => {
     const resolution = resolveServerCommand(
         {
             configuredPath: "",
-            configuredArgs: ["--use-std"],
+            configuredArgs: ["--library-bundle", "std"],
             workspaceRoots: [{ fsPath: "/workspace", name: "demo" }],
             extensionPath: "/extension",
             nodePlatform: "linux",
@@ -115,7 +115,7 @@ test("falls back to PATH when no concrete server is found", () => {
     assert.deepEqual(resolution, {
         kind: "resolved",
         command: "kern-lsp",
-        args: ["--use-std"],
+        args: ["--library-bundle", "std"],
         source: "PATH",
     });
 });

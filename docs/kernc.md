@@ -47,19 +47,19 @@ These modes are mutually exclusive.
 Build a Kern program with the Kern standard library:
 
 ```bash
-kernc --use-std examples/hello_world.rn -o hello
+kernc --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello
 ```
 
 Compile only and keep the object file:
 
 ```bash
-kernc -c --use-std examples/hello_world.rn -o hello.o
+kernc -c --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello.o
 ```
 
 Inspect generated LLVM IR:
 
 ```bash
-kernc --emit-llvm --use-std examples/hello_world.rn
+kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.rn
 ```
 
 Link an existing object file:
@@ -71,8 +71,8 @@ kernc --link-only --link-input hello.o -o hello
 Split compile and link explicitly:
 
 ```bash
-kernc -c --use-std app.rn -o app.o
-kernc --link-only --link-profile kern --link-input app.o -o app
+kernc -c --runtime-entry rt --runtime-provider toolchain --library-bundle std app.rn -o app.o
+kernc --link-only --link-input app.o --entry _start -o app
 ```
 
 ## Source and Module Configuration
@@ -82,7 +82,7 @@ kernc --link-only --link-profile kern --link-input app.o -o app
 Compile modes accept one positional `.rn` input file:
 
 ```bash
-kernc --use-std src/main.rn -o app
+kernc --runtime-entry rt --library-bundle std src/main.rn -o app
 ```
 
 `--link-only` does not accept a source input. Use `--link-input` instead.
@@ -97,9 +97,16 @@ kernc -M std=./library/std app.rn
 
 This is the core mechanism for wiring module roots into the compiler. It is intentionally explicit and package-manager-friendly.
 
-### Standard Library Injection
+### Runtime And Library Axes
 
-`--use-std` enables the Kern standard library and automatically maps `std` if no manual `-M std=...` mapping is provided.
+Prefer the structured runtime/library flags:
+
+- `--runtime-entry <none|rt|crt>`
+- `--runtime-provider <none|toolchain|libc>`
+- `--runtime-libc <yes|no>`
+- `--library-bundle <none|base|std>`
+
+`--library-bundle std` enables the Kern standard library bundle and automatically maps `std` if no manual `-M std=...` mapping is provided.
 
 `kernc` resolves the standard library path in this order:
 
@@ -107,11 +114,17 @@ This is the core mechanism for wiring module roots into the compiler. It is inte
 2. A path relative to the current executable
 3. `library/std` in the repository layout
 
-`--use-std` can be combined with hosted C library linkage.
+When the selected runtime or provider needs the official runtime layers, `kernc` injects `base`, `sys`, and `rt` as needed unless the user already mapped them explicitly.
 
-When `--link-profile hosted` (or `--link-libc`) is active, `kernc` still injects `std`. Whether `std` provides the startup shim is controlled separately from whether libc is linked.
+The intended model is:
 
-On non-Windows targets, `--use-std --link-profile hosted` keeps libc available but lets `std.rt` own process startup, so the exported `main` symbol must still match the `std.rt` contract (`extern fn main(args: [][]u8) i32`). On Windows hosted builds, CRT startup remains in charge for now.
+- library choice is independent from startup ownership
+- libc linkage is independent from whether `std` is available
+- startup shims live under `rt`, not under `std`
+
+When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: **u8) i32`.
+
+`kernc` no longer exposes legacy compatibility aliases for runtime/library policy. Configure the four structured axes directly.
 
 ## Compilation Controls
 
@@ -138,7 +151,7 @@ Use one of:
 Use `--target <triple>` to select a target triple:
 
 ```bash
-kernc --target x86_64-unknown-linux-gnu --use-std app.rn -o app
+kernc --target x86_64-unknown-linux-gnu --runtime-entry rt --library-bundle std app.rn -o app
 ```
 
 The target triple affects:
@@ -164,10 +177,12 @@ These values are available to `#[if(...)]` and `#![if(...)]` conditions handled 
 
 In addition to user-provided `-D` values, `kernc` injects a small set of driver-controlled condition variables:
 
-- `link_profile`: one of `"kern"`, `"freestanding"`, `"hosted"`, or `"none"`
-- `hosted`: `true` when using the hosted link profile
-- `libc`: currently mirrors `hosted`
-- `kern_rt`: `true` when `std` should provide Kern runtime entry shims
+- `runtime_entry`: one of `"none"`, `"rt"`, or `"crt"`
+- `runtime_provider`: one of `"none"`, `"toolchain"`, or `"libc"`
+- `library_bundle`: one of `"none"`, `"base"`, or `"std"`
+- `libc`: `true` when libc linkage is enabled
+- `crt_startup`: `true` when CRT startup owns initial process entry
+- `rt_role`: toolchain-controlled role selection for `rt`
 
 ## Linking Model
 
@@ -186,30 +201,6 @@ At the driver level:
 
 This split is intentional. Symbol shape belongs to the language and semantic pipeline. Final artifact composition belongs to the driver and, eventually, to higher-level tooling.
 
-## Link Profiles
-
-Use `--link-profile <profile>` to select the default link policy:
-
-- `kern`: Kern-oriented defaults. This is the current default.
-- `freestanding`: no hosted runtime assumptions, but without Kern-specific platform libraries.
-- `hosted`: hosted C environment defaults.
-- `none`: no default link flags at all.
-
-Examples:
-
-```bash
-kernc --link-profile hosted app.rn -o app
-```
-
-```bash
-kernc --link-only --link-profile none --link-input app.o --link-arg -Wl,--gc-sections -o app
-```
-
-Compatibility aliases:
-
-- `--link-libc` is equivalent to `--link-profile hosted`
-- `--no-default-link-flags` is equivalent to `--link-profile none`
-
 ## Explicit Linker Configuration
 
 ### Linker Driver
@@ -217,7 +208,7 @@ Compatibility aliases:
 Use `--cc <cmd>` or `--linker <cmd>` to select the linker driver command:
 
 ```bash
-kernc --linker clang --use-std app.rn -o app
+kernc --linker clang --runtime-entry rt --library-bundle std app.rn -o app
 ```
 
 ### Additional Link Inputs
@@ -254,7 +245,6 @@ Use `--link-arg <arg>` when an exact driver argument must be forwarded:
 
 ```bash
 kernc --link-only \
-  --link-profile none \
   --link-input app.o \
   --link-arg -nostdlib \
   --link-arg -Wl,--gc-sections \
@@ -263,11 +253,10 @@ kernc --link-only \
 
 ### Entry Symbol
 
-Use `--entry <symbol>` to override the default entry symbol used by `kernc`'s platform link profiles:
+Use `--entry <symbol>` to set the final linker entry symbol explicitly. This is independent from the language-level `main` contract and can be used in naked freestanding builds where `runtime_entry = none`.
 
 ```bash
 kernc --link-only \
-  --link-profile freestanding \
   --entry boot_main \
   --link-input kernel.o \
   -o kernel.bin
@@ -280,7 +269,6 @@ Use `--print-link-command` to inspect the resolved system linker invocation:
 ```bash
 kernc --link-only \
   --print-link-command \
-  --link-profile kern \
   --link-input app.o \
   -o app
 ```
@@ -294,7 +282,7 @@ This is especially useful for build scripts and future package-manager integrati
 Use compile-and-link directly:
 
 ```bash
-kernc --use-std app.rn -o app
+kernc --runtime-entry rt --library-bundle std app.rn -o app
 ```
 
 ### Build-System Integration
@@ -303,7 +291,7 @@ Split the pipeline explicitly:
 
 ```bash
 kernc -c --target x86_64-unknown-linux-gnu app.rn -o app.o
-kernc --link-only --link-profile none --link-input app.o --link-arg ... -o app
+kernc --link-only --link-input app.o --entry boot_main --link-arg ... -o app
 ```
 
 ### Future Package Manager Integration
@@ -338,19 +326,16 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 
 - `--cc <cmd>`: set the linker driver command
 - `--linker <cmd>`: alias for `--cc`
-- `--link-profile <p>`: select `kern`, `freestanding`, `hosted`, or `none`
+- `--runtime-entry <m>`: select `none`, `rt`, or `crt`
+- `--runtime-provider <p>`: select `none`, `toolchain`, or `libc`
+- `--runtime-libc <yes|no>`: control whether libc is linked
+- `--library-bundle <b>`: select `none`, `base`, or `std`
 - `--link-input <path>`: add an extra linker input
 - `-L <dir>`: add a linker search path
 - `-l <name>`: link against a library
 - `--link-arg <arg>`: pass a raw linker argument
-- `--entry <symbol>`: override the entry symbol used by `kernc`
+- `--entry <symbol>`: set the final linker entry symbol explicitly
 - `--print-link-command`: print the resolved link command
-- `--no-default-link-flags`: alias for `--link-profile none`
-- `--link-libc`: alias for `--link-profile hosted`
-
-### Standard Library
-
-- `--use-std`: enable the Kern standard library; hosted links automatically prune `std.rt` entry shims
 
 ### Information
 
@@ -359,5 +344,7 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 
 ## See Also
 
+- [Runtime And Library Architecture](./runtime-architecture.md)
 - [Kern Language Design Document](./design.md)
 - [Project README](../README.md)
+

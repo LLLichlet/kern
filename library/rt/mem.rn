@@ -1,0 +1,42 @@
+#[export_name("memcpy")]
+pub extern fn memcpy(dest: *mut u8, src: *u8, len: usize) *mut u8 {
+    for (let mut i = 0; i < len; i += 1) {
+        let d = dest + i;
+        let s = src + i;
+        d.* = s.*;
+    }
+    return dest;
+}
+
+#[export_name("memset")]
+pub extern fn memset(dest: *mut u8, val: i32, len: usize) *mut u8 {
+    let v = val as u8;
+
+    for (let mut i = usize.{0}; i < len; i += 1) {
+        let d = dest + i;
+        d.* = v;
+    }
+    return dest;
+}
+
+#[export_name("memmove")]
+pub extern fn memmove(dest: *mut u8, src: *u8, len: usize) *mut u8 {
+    let d_addr = dest as usize;
+    let s_addr = src as usize;
+
+    if (d_addr > s_addr and d_addr < (s_addr + len)) {
+        for (let mut i = len; i > 0; ) {
+            i -= 1;
+            let d = dest + i;
+            let s = src + i;
+            d.* = s.*;
+        }
+    } else {
+        for (let mut i = 0; i < len; i += 1) {
+            let d = dest + i;
+            let s = src + i;
+            d.* = s.*;
+        }
+    }
+    return dest;
+}

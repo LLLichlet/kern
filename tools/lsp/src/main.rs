@@ -3,7 +3,7 @@ mod protocol;
 mod server;
 mod transport;
 
-use kernc_utils::config::CompileOptions;
+use kernc_utils::config::{CompileOptions, LibraryBundle};
 
 fn main() {
     let options = match parse_args() {
@@ -26,7 +26,7 @@ fn main() {
 
 fn parse_args() -> Result<CompileOptions, String> {
     let mut options = CompileOptions {
-        use_std: true,
+        library_bundle: LibraryBundle::Std,
         ..CompileOptions::default()
     };
 
@@ -37,8 +37,21 @@ fn parse_args() -> Result<CompileOptions, String> {
                 print_usage();
                 std::process::exit(0);
             }
-            "--use-std" => options.use_std = true,
-            "--no-use-std" => options.use_std = false,
+            "--library-bundle" => {
+                let value = args
+                    .next()
+                    .ok_or_else(|| "expected `none`, `base`, or `std` after `--library-bundle`".to_string())?;
+                options.library_bundle = match value.as_str() {
+                    "none" => LibraryBundle::None,
+                    "base" => LibraryBundle::Base,
+                    "std" => LibraryBundle::Std,
+                    _ => {
+                        return Err(format!(
+                            "invalid library bundle `{value}`; expected `none`, `base`, or `std`"
+                        ))
+                    }
+                };
+            }
             "--features" => {
                 let value = args
                     .next()
@@ -95,11 +108,10 @@ fn usage() -> &'static str {
 kern-lsp - Kern language server
 
 USAGE:
-    kern-lsp [--use-std|--no-use-std] [--features <a,b>] [--no-default-features] [-M <name=path>]... [-I <name=path>]...
+    kern-lsp [--library-bundle <none|base|std>] [--features <a,b>] [--no-default-features] [-M <name=path>]... [-I <name=path>]...
 
 OPTIONS:
-    --use-std        Enable std injection for analysis (default)
-    --no-use-std     Disable std injection for analysis
+    --library-bundle Select the injected library bundle for analysis (default: std)
     --features <a,b> Enable explicit `craft` features for project analysis
     --no-default-features
                      Disable default `craft` features for project analysis

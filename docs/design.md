@@ -42,17 +42,17 @@ Kern’s design is based on the observation that languages trade off **abstracti
 
 #### 3\. Mechanism Trinity
 
-To achieve “high abstraction, low policy”, Kern provides three core mechanisms:
+To achieve "high abstraction, low policy", Kern provides three core mechanisms:
 
-1.  **Module system** – modern namespaces and visibility control.
-2.  **Generics** – strongly‑typed code reuse via monomorphisation (zero runtime cost).
-3.  **Enum Types & Pattern Matching** – precise state management without implicit control flow.
+1.  **Module system** - modern namespaces and visibility control.
+2.  **Generics** - strongly-typed code reuse via monomorphisation (zero runtime cost).
+3.  **Enum Types & Pattern Matching** - precise state management without implicit control flow.
 
 ### 1.2 Non‑Goals
 
-  * **Compile‑time enforced memory safety** – no borrow checker.
-  * **Standard library design** – Kern is freestanding.
-  * **Optimisation that exploits undefined behaviour** – ambiguous behaviour (integer overflow, uninitialised reads) is either defined or a compile‑time error.
+  * **Compile-time enforced memory safety** - no borrow checker.
+  * **Standard library design** - Kern is freestanding.
+  * **Optimisation that exploits undefined behaviour** - ambiguous behaviour (integer overflow, uninitialised reads) is either defined or a compile-time error.
 
 ## 2\. Type System
 
@@ -62,7 +62,7 @@ To achieve “high abstraction, low policy”, Kern provides three core mechanis
   * **Floats**: `f32`, `f64`.
   * **Boolean**: `bool` (1 byte).
   * **Never**: `!` (diverging computations).
-  * **Void**: `void` – A zero-sized type (ZST). It represents the absence of a meaningful value. Used primarily as the default return type for functions that produce no data, or to construct untyped raw pointers (`*mut void` / `*void`) for FFI and memory allocation.
+  * **Void**: `void` - A zero-sized type (ZST). It represents the absence of a meaningful value. Used primarily as the default return type for functions that produce no data, or to construct untyped raw pointers (`*mut void` / `*void`) for FFI and memory allocation.
 
 ### 2.2 Mutability Model
 
@@ -101,8 +101,8 @@ In Kern, a pointer is still just a first-class value type. It can be stored, pas
 
 ### 2.4 Arrays and Slices
 
-  * **Arrays**: `[N]T` – Fixed-size value type.
-  * **Slices**: `[]T` or `[]mut T` – A fat pointer containing a pointer and a `usize` length.
+  * **Arrays**: `[N]T` - Fixed-size value type.
+  * **Slices**: `[]T` or `[]mut T` - A fat pointer containing a pointer and a `usize` length.
   * **Explicit Slice Permissions**: Slicing follows the same permission split as address-of.
       * `arr.[a .. b]` produces `[]T` (read-only slice view).
       * `arr..[a .. b]` produces `[]mut T` (mutable slice view), and requires the base storage to have mutable element/write permission.
@@ -478,12 +478,12 @@ let result = match (val) {
 
 ### 7.3 For Loops
 
-Only `for` (no `while`, `do‑while`).
+Only `for` (no `while`, `do-while`).
 
 ```kern
-for (let i = 0; i < 10; i += 1) { … }
-for (; cond ;) { … }          // while
-for (;;) { … }                // infinite loop
+for (let i = 0; i < 10; i += 1) { ... }
+for (; cond ;) { ... }          // while
+for (;;) { ... }                // infinite loop
 ```
 
 ### 7.4 Defer
@@ -505,7 +505,7 @@ Kern strictly mandates that returned values cannot be implicitly ignored to prev
   * `expr;` evaluates to `void`. Dropping a non-void return value by simply appending a semicolon is a compiler error.
 
 **Evaluation Order with Defer:**
-When a block `{ … }` evaluates as an expression and contains `defer` statements, the exact exit sequence is:
+When a block `{ ... }` evaluates as an expression and contains `defer` statements, the exact exit sequence is:
 
 1.  **Evaluate**: Compute the value of the final expression.
 2.  **Execute**: Run all `defer` statements registered in the current block in LIFO order.
@@ -586,30 +586,43 @@ The `extern` keyword acts as an explicit ABI boundary contract: it forces the co
 
 This top-level form is specifically for **exported ABI definitions** such as runtime entry points or functions intentionally exposed to C/Assembly. It is not the syntax for importing foreign symbols.
 
-**No Builtin Entry Symbol:**
-Kern the language does **not** have a builtin entry function. The compiler does not grant `main`, `_start`, `start`, `mainCRTStartup`, or any other symbol privileged language status.
+**Root Program Entry Symbol:**
+Kern remains freestanding by default, but when a runtime entry contract is enabled the compiler treats the root `main` as a special program-entry symbol.
 
-Those names only become meaningful at an ABI boundary:
+The legal forms are:
 
-  * The operating system or loader may require a specific startup symbol such as `_start`.
-  * A runtime layer such as `std.rt` may choose to look up a raw symbol named `main`.
-  * A hosted C runtime may itself expect a C ABI symbol such as `main`.
+  * `fn main() i32`
+  * `fn main(argc: i32, argv: **u8) i32`
 
-In all three cases, this is a property of the surrounding runtime/link environment, not of Kern's core semantics. `main` remains just an ordinary function name unless some external ABI contract chooses to use it.
+This is intentionally narrow:
 
-When a Kern runtime path such as `std.rt` is responsible for startup, that runtime may in turn call an exported `main` symbol:
+  * `main` must live in the root module
+  * `main` must not be `extern`
+  * `main` must not be generic
+  * `main` must return `i32`
+
+The special treatment applies only to `main` under program-entry mode. Other exported ABI symbols still require explicit ABI-facing declarations and attributes.
+
+Startup ownership still belongs to the surrounding runtime/link environment:
+
+  * a toolchain-owned runtime path such as `rt` may own startup and call the compiler-synthesized main adapter
+  * a hosted C runtime may own initial process startup and call `main`
+  * a freestanding object build may choose `runtime_entry = none`, in which case no special program entry is required
+
+When a runtime entry contract is enabled, the root `main` definition looks like:
 
 ```kern
 use std.io;
 
-// `extern` prevents mangling so the surrounding runtime can bind this symbol exactly.
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     io.println("hello, {}!", .{"world",});
     0
 }
 ```
 
-This does **not** mean Kern itself "recognizes main". It only means the selected runtime/startup contract chose to consume that exact exported symbol.
+This does **not** mean arbitrary function names gain runtime meaning. It means the selected runtime entry contract consumes the root `main` definition when program-entry mode is enabled.
+
+For argument-bearing `main`, Kern uses the explicit low-level ABI `argc: i32, argv: **u8`. Higher-level wrappers belong in ordinary libraries such as `std.proc`, not in the compiler-owned entry contract itself.
 
 ### 9.2 Importing External Functions and Statics
 
@@ -617,7 +630,7 @@ External C functions can use the `...` syntax to support C-style variadic argume
 
 Kern intentionally splits the two directions of ABI usage:
 
-* **Exporting** uses a top-level definition such as `extern fn main(args: [][]u8) i32 { ... }`.
+* **Exporting** uses a top-level definition such as `fn main() i32 { ... }`.
 * **Importing** uses an `extern { ... }` block such as `extern { fn printf(format: *u8, ...) i32; }`.
 
 Single imported functions or statics must still use an `extern` block; they are not written as standalone `extern fn foo(...);` items.

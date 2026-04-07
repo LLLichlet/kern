@@ -39,7 +39,7 @@ fn is_on(v: enum: u32 { Off = 0, On = 1, Error: i32 }) bool {
     }
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let pair = Pair.{ x: 4, y: 5 };
     let word = Word.{ int: 9 };
     let c_word = CWord.{ int: 11 };
@@ -53,3 +53,4 @@ extern fn main(args: [][]u8) i32 {
     }
     return 0;
 }
+

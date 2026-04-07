@@ -1,0 +1,12 @@
+//! Foundation allocators.
+//!
+//! `base.mem.alloc` owns allocator traits and reusable heap strategies. Raw
+//! page acquisition belongs to `sys.mem`.
+
+mod allocator;
+mod gpa;
+mod arena;
+
+pub use .allocator.Allocator;
+pub use .gpa.GPA;
+pub use .arena.Arena;

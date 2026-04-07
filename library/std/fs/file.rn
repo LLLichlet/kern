@@ -1,10 +1,10 @@
 //! File operations and owned file handles.
 
-use std.Result;
-use std.Option;
-use std.os;
-use std.mem.alloc.Allocator;
-use std.coll.String;
+use base.Result;
+use base.Option;
+use sys.os;
+use base.mem.alloc.Allocator;
+use base.coll.String;
 use ..types.{Error, File, Metadata, OpenOptions};
 use ..c_path.{alloc_c_path, free_c_path};
 

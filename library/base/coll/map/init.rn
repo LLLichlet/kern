@@ -1,0 +1,10 @@
+//! Hash-map storage.
+//!
+//! `Map[K, V]` uses open addressing and explicit allocation through a caller
+//! supplied allocator.
+
+mod base;
+mod mutable;
+mod query;
+
+pub use .base.Map;

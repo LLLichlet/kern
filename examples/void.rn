@@ -1,34 +1,34 @@
 use std.io.println;
 fn process_erased_ptr(ptr: *mut void) void {
-    // *void 指针算术
+    // *void 鎸囬拡绠楁湳
     let offset_ptr = ptr + 10;
     
-    // *void 比较运算
+    // *void 姣旇緝杩愮畻
     if (ptr == offset_ptr) {
         println("Success: *void pointer arithmetic scaled by 0 leaves address unchanged.", .{});
     }
 
-    // *void 的解引用
-    // 解引用一个虚空指针，应该安全地返回虚空值 void.{}，且不触发物理内存读取
+    // *void 鐨勮В寮曠敤
+    // 瑙ｅ紩鐢ㄤ竴涓櫄绌烘寚閽堬紝搴旇瀹夊叏鍦拌繑鍥炶櫄绌哄€?void.{}锛屼笖涓嶈Е鍙戠墿鐞嗗唴瀛樿鍙?
     let val = ptr.*; 
     if (val == void.{}) {
         println("Success: Dereferencing *void yields void.{{}}", .{});
     }
 }
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     println("--- Kern Void ZST Test ---", .{});
-    // ZST 的内存排布 (@sizeOf 应该为 0)
+    // ZST 鐨勫唴瀛樻帓甯?(@sizeOf 搴旇涓?0)
     let size = @sizeOf[void]();
     let arr_size = @sizeOf[[100]void]();
     println("Size of void: {} (Expected: 0)", .{size,});
     println("Size of [100]void: {} (Expected: 0)", .{arr_size,});
-    // 边界自然转换
+    // 杈圭晫鑷劧杞崲
     let mut real_data = i32.{0xDEADBEEF};
     let specific_ptr = real_data..&; // *mut i32
 
     process_erased_ptr(specific_ptr);
 
-    // 利用 BNC 和 Elided Literal 构造原生 Null 指针
+    // 鍒╃敤 BNC 鍜?Elided Literal 鏋勯€犲師鐢?Null 鎸囬拡
     let null_ptr = *mut void.{0};
     if (null_ptr == *mut void.{0}) {
         println("Success: Created and compared NULL pointers using *void.{0}.", .{});

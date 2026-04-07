@@ -60,8 +60,9 @@ plus a small set of compiler-guided semantic repairs.
 Current limitations:
 
 - only `file://` URIs are supported
-- analysis defaults to `--use-std`, but this can now be overridden at server
-  startup with `--no-use-std`, `-M name=path`, and `-I name=path`
+- analysis defaults to `--library-bundle std`, but this can be overridden at
+  server startup with `--library-bundle <none|base|std>`, `-M name=path`, and
+  `-I name=path`
 - semantic tokens do not yet cover every semantic reference class
 - code actions are intentionally limited to safe, local edits
 - formatting and workspace-wide indexing are not implemented yet
@@ -116,7 +117,7 @@ the compiled `kern-lsp` binary over stdio.
 Useful analysis overrides:
 
 ```bash
-kern-lsp --no-use-std -M std=./library/std
+kern-lsp --library-bundle none -M std=./library/std
 ```
 
 As of the `0.6.7` release cycle, the repository also carries a first-party

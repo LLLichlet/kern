@@ -5,7 +5,7 @@
 //! defines vocabulary for executable test targets.
 
 use std.io.{Printable, Writer, format_to, stderr};
-use std.{Option, Result};
+use base.{Option, Result};
 
 fn write_stderr(prefix: []u8, fmt: []u8, args: []*Printable) void {
     let mut err_file = stderr();

@@ -1,0 +1,60 @@
+//! Process invocation helpers.
+//!
+//! This module exposes the raw `argc/argv` program entry ABI through an
+//! explicit borrowed wrapper rather than hiding it behind allocation or slices.
+
+use base.Option;
+use base.abi;
+
+/// A borrowed unmanaged view over process arguments.
+///
+/// `argv` points to a C-style array of zero-terminated UTF-8 byte strings that
+/// remains valid for the duration of `main`.
+pub type Args = struct {
+    count: i32,
+    values: **u8,
+};
+
+/// Wraps raw process entry arguments in a borrowed view.
+pub fn args(argc: i32, argv: **u8) Args {
+    return .{ count: argc, values: argv };
+}
+
+impl Args {
+    /// Returns the raw argument count reported by the entry runtime.
+    pub fn argc() i32 {
+        return self.count;
+    }
+
+    /// Returns the number of arguments as `usize`.
+    pub fn len() usize {
+        if (self.count <= i32.{0}) {
+            return 0;
+        }
+        return self.count as usize;
+    }
+
+    /// Returns `true` when no arguments are present.
+    pub fn is_empty() bool {
+        return self.count <= i32.{0};
+    }
+
+    /// Returns the raw argument vector pointer.
+    pub fn argv() **u8 {
+        return self.values;
+    }
+
+    /// Returns the zero-terminated pointer for one argument.
+    pub fn raw(index: usize) Option[*u8] {
+        if (index >= self.len()) {
+            return .{ None };
+        }
+        return .{ Some: (self.values + index).* };
+    }
+
+    /// Returns one argument as a borrowed UTF-8 byte slice.
+    pub fn get(index: usize) Option[[]u8] {
+        let .{ Some: arg } = self.raw(index) else return .{ None };
+        return .{ Some: arg.[0 .. abi.cstr.len(arg)] };
+    }
+}

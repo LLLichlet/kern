@@ -2,9 +2,9 @@
 //!
 //! `String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`.
 
-use std.mem.alloc.Allocator;
-use std.coll.List;
-use std.Option;
+use base.mem.alloc.Allocator;
+use base.coll.List;
+use base.Option;
 
 mod query;
 mod fmt;

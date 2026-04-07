@@ -21,7 +21,7 @@ That design goal explains most of the syntax:
 ```kern
 use std.io;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     io.println("hello, {}!", .{"world",});
     0
 }
@@ -30,16 +30,17 @@ extern fn main(args: [][]u8) i32 {
 Compile it with:
 
 ```bash
-kernc --use-std --link-profile hosted examples/hello_world.rn -o hello
+kernc --library-bundle std --runtime-entry crt --runtime-libc yes examples/hello_world.rn -o hello
 ```
 
 Important observations:
 
-- `main` is declared with `extern fn`, which marks a C ABI entry boundary.
+- `main` is a root entry definition with a fixed signature such as `fn main() i32`
+  or `fn main(argc: i32, argv: **u8) i32` when `runtime_entry != none`
 - string literals are `[]u8`
 - the final expression can be the return value
-- `--use-std` and `--link-profile hosted` are two separate choices:
-  `std` injection and hosted C runtime linkage
+- `--library-bundle std`, `--runtime-entry crt`, and `--runtime-libc yes` are
+  separate choices: library injection, startup ownership, and libc linkage
 
 ## Bindings And Mutability
 
@@ -205,3 +206,4 @@ good default for compiler and tooling predictability.
 
 After this chapter, move directly to the `kernc` workflow. Learning Kern is much
 easier once you can compile small experiments quickly.
+

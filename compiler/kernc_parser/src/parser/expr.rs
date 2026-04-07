@@ -251,7 +251,7 @@ impl<'a> Parser<'a> {
             }),
             TokenType::DotLBracket => self.parse_closure_expr(span),
             _ => {
-                let text = self.session.source_manager.slice_source(span).to_string();
+                let text = self.source_slice(span).to_string();
                 self.add_error(span, format!("Expected expression, found '{}'", text));
                 Err(ParseError)
             }

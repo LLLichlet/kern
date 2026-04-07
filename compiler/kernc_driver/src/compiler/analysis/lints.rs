@@ -7,7 +7,16 @@ impl CompilerDriver {
         references: &[(Span, Span)],
         flow: &FlowModel,
     ) {
-        for item in self.collect_unused_private_items(ctx, references, flow) {
+        let reachability = self.compute_module_item_reachability(ctx, references, flow);
+        self.emit_unused_private_item_warnings_with_reachability(ctx, &reachability);
+    }
+
+    pub(super) fn emit_unused_private_item_warnings_with_reachability(
+        &self,
+        ctx: &mut SemaContext<'_>,
+        reachability: &ModuleItemReachability,
+    ) {
+        for item in self.collect_unused_private_items_from_reachability(ctx, reachability) {
             ctx.struct_warning(item.definition_span, unused_item_message(&item))
                 .with_code(kernc_utils::DiagnosticCode::UnusedPrivateItem)
                 .with_tag(kernc_utils::DiagnosticTag::Unnecessary)
@@ -23,6 +32,14 @@ impl CompilerDriver {
         flow: &FlowModel,
     ) -> Vec<AnalysisUnusedItem> {
         let reachability = self.compute_module_item_reachability(ctx, references, flow);
+        self.collect_unused_private_items_from_reachability(ctx, &reachability)
+    }
+
+    pub(super) fn collect_unused_private_items_from_reachability(
+        &self,
+        ctx: &SemaContext<'_>,
+        reachability: &ModuleItemReachability,
+    ) -> Vec<AnalysisUnusedItem> {
         if reachability.nodes.is_empty() {
             return Vec::new();
         }
@@ -48,6 +65,7 @@ impl CompilerDriver {
             return ModuleItemReachability {
                 nodes,
                 reachable: std::collections::HashSet::new(),
+                lowered_reachable: std::collections::HashSet::new(),
             };
         }
 
@@ -62,6 +80,11 @@ impl CompilerDriver {
         let mut reachable = nodes
             .values()
             .filter(|node| node.is_root)
+            .map(|node| node.def_id)
+            .collect::<std::collections::HashSet<_>>();
+        let mut lowered_reachable = nodes
+            .values()
+            .filter(|node| node.is_lower_root)
             .map(|node| node.def_id)
             .collect::<std::collections::HashSet<_>>();
         let mut edges = std::collections::HashMap::<DefId, std::collections::HashSet<DefId>>::new();
@@ -82,21 +105,14 @@ impl CompilerDriver {
             edges.entry(caller).or_default().insert(callee);
         }
 
-        let mut worklist = reachable.iter().copied().collect::<Vec<_>>();
-        let mut cursor = 0;
-        while let Some(def_id) = worklist.get(cursor).copied() {
-            cursor += 1;
-            let Some(callees) = edges.get(&def_id) else {
-                continue;
-            };
-            for callee in callees {
-                if reachable.insert(*callee) {
-                    worklist.push(*callee);
-                }
-            }
-        }
+        propagate_reachability(&edges, &mut reachable);
+        propagate_reachability(&edges, &mut lowered_reachable);
 
-        ModuleItemReachability { nodes, reachable }
+        ModuleItemReachability {
+            nodes,
+            reachable,
+            lowered_reachable,
+        }
     }
 
     pub(super) fn emit_unused_binding_warnings(&self, ctx: &mut SemaContext<'_>, flow: &FlowModel) {
@@ -186,18 +202,29 @@ impl CompilerDriver {
         for def in &ctx.defs {
             match def {
                 kernc_sema::def::Def::Function(function) => {
-                    if !self.is_lintable_free_function(ctx, function) {
+                    if function.is_imported || function.is_intrinsic {
                         continue;
                     }
 
                     if function.body.is_none() {
                         continue;
                     }
+                    let exported_via_pub_use =
+                        self.item_is_publicly_exported(function.id, function.name_span, ctx);
                     let is_root = function.vis == Visibility::Public
                         || function.is_extern
                         || self.item_has_export_name(&function.attributes, ctx)
-                        || self.item_is_publicly_exported(function.id, function.name_span, ctx)
+                        || exported_via_pub_use
                         || ctx.resolve(function.name) == "main";
+                    let preserve_package_export_root = self.options.metadata_output.is_some()
+                        && (function.vis == Visibility::Public || exported_via_pub_use);
+                    let is_lower_root = function.is_extern
+                        || self.item_has_export_name(&function.attributes, ctx)
+                        || exported_via_pub_use
+                        || ctx.resolve(function.name) == "main"
+                        || preserve_package_export_root;
+                    let is_warnable =
+                        self.is_lintable_free_function(ctx, function) && function.vis == Visibility::Private;
 
                     nodes.insert(
                         function.id,
@@ -206,7 +233,8 @@ impl CompilerDriver {
                             name_span: function.name_span,
                             kind: ReachabilityItemKind::Function,
                             is_root,
-                            is_warnable: function.vis == Visibility::Private,
+                            is_lower_root,
+                            is_warnable,
                         },
                     );
                 }
@@ -217,10 +245,15 @@ impl CompilerDriver {
                     let Some(&name_span) = scope_spans.get(&global.id) else {
                         continue;
                     };
+                    let exported_via_pub_use =
+                        self.item_is_publicly_exported(global.id, name_span, ctx);
                     let is_root = global.vis == Visibility::Public
                         || global.is_extern
                         || self.item_has_export_name(&global.attributes, ctx)
-                        || self.item_is_publicly_exported(global.id, name_span, ctx);
+                        || exported_via_pub_use;
+                    let preserve_package_export_root =
+                        self.options.metadata_output.is_some()
+                            && (global.vis == Visibility::Public || exported_via_pub_use);
 
                     nodes.insert(
                         global.id,
@@ -233,6 +266,10 @@ impl CompilerDriver {
                                 ReachabilityItemKind::Constant
                             },
                             is_root,
+                            is_lower_root: global.is_extern
+                                || self.item_has_export_name(&global.attributes, ctx)
+                                || exported_via_pub_use
+                                || preserve_package_export_root,
                             is_warnable: global.vis == Visibility::Private,
                         },
                     );
@@ -326,6 +363,25 @@ impl CompilerDriver {
                 })
             }
             _ => None,
+        }
+    }
+}
+
+fn propagate_reachability(
+    edges: &std::collections::HashMap<DefId, std::collections::HashSet<DefId>>,
+    reachable: &mut std::collections::HashSet<DefId>,
+) {
+    let mut worklist = reachable.iter().copied().collect::<Vec<_>>();
+    let mut cursor = 0;
+    while let Some(def_id) = worklist.get(cursor).copied() {
+        cursor += 1;
+        let Some(callees) = edges.get(&def_id) else {
+            continue;
+        };
+        for callee in callees {
+            if reachable.insert(*callee) {
+                worklist.push(*callee);
+            }
         }
     }
 }

@@ -19,9 +19,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ConstValue::Int(v) => Some(MastExpr::new(ty, MastExprKind::Integer(*v as u128), span)),
             ConstValue::Float(f) => Some(MastExpr::new(ty, MastExprKind::Float(*f), span)),
             ConstValue::Bool(b) => Some(MastExpr::new(ty, MastExprKind::Bool(*b), span)),
-            ConstValue::String(s) => Some(MastExpr::new(ty, self.lower_string_literal(s, span), span)),
+            ConstValue::String(s) => {
+                Some(MastExpr::new(ty, self.lower_string_literal(s, span), span))
+            }
             ConstValue::Array(items) => {
-                let elem_ty = match self.ctx.type_registry.get(self.ctx.type_registry.normalize(ty)) {
+                let elem_ty = match self
+                    .ctx
+                    .type_registry
+                    .get(self.ctx.type_registry.normalize(ty))
+                {
                     TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => *elem,
                     _ => return None,
                 };

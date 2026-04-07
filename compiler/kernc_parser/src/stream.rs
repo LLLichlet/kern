@@ -1,11 +1,11 @@
 use kernc_lexer::{Token, TokenType, Tokenizer};
 use kernc_utils::Span;
-use std::collections::VecDeque;
 
 pub struct TokenStream<'a> {
     lexer: Tokenizer<'a>,
     /// Buffered tokens that support arbitrary lookahead.
-    buffer: VecDeque<Token>,
+    buffer: Vec<Token>,
+    buffer_start: usize,
     /// Span of the most recently consumed token, used for diagnostics.
     last_span: Span,
 }
@@ -14,17 +14,18 @@ impl<'a> TokenStream<'a> {
     pub fn new(lexer: Tokenizer<'a>) -> Self {
         Self {
             lexer,
-            buffer: VecDeque::new(),
+            buffer: Vec::new(),
+            buffer_start: 0,
             last_span: Span::default(),
         }
     }
 
     /// Fill the buffer until it contains at least `n + 1` items or EOF is reached.
     fn fill_buffer(&mut self, n: usize) {
-        while self.buffer.len() <= n {
+        while self.buffer.len().saturating_sub(self.buffer_start) <= n {
             let token = self.lexer.next_token();
             let is_eof = token.tag == TokenType::Eof;
-            self.buffer.push_back(token);
+            self.buffer.push(token);
 
             // Once EOF is buffered, all later lookups reuse the same sentinel token.
             if is_eof {
@@ -39,8 +40,9 @@ impl<'a> TokenStream<'a> {
         self.fill_buffer(n);
 
         // If the requested index is past the buffered tail, return EOF.
-        if n >= self.buffer.len() {
-            return self.buffer.back().copied().unwrap_or({
+        let buffered_len = self.buffer.len().saturating_sub(self.buffer_start);
+        if n >= buffered_len {
+            return self.buffer.last().copied().unwrap_or({
                 // This should be unreachable unless buffer management regressed.
                 Token {
                     tag: TokenType::Eof,
@@ -49,7 +51,7 @@ impl<'a> TokenStream<'a> {
             });
         }
 
-        self.buffer[n]
+        self.buffer[self.buffer_start + n]
     }
 
     /// Peek the current token.
@@ -65,17 +67,24 @@ impl<'a> TokenStream<'a> {
     /// Consume and return the current token.
     pub fn bump(&mut self) -> Token {
         // Fast path for the common case with no buffered lookahead.
-        if self.buffer.is_empty() {
+        if self.buffer_start >= self.buffer.len() {
+            self.buffer.clear();
+            self.buffer_start = 0;
             let t = self.lexer.next_token();
             self.last_span = t.span;
             return t;
         }
 
         // Pop the front of the lookahead buffer.
-        let token = self.buffer.pop_front().unwrap_or(Token {
+        let token = self.buffer.get(self.buffer_start).copied().unwrap_or(Token {
             tag: TokenType::Eof,
             span: self.last_span,
         });
+        self.buffer_start += 1;
+        if self.buffer_start >= 64 && self.buffer_start * 2 >= self.buffer.len() {
+            self.buffer.drain(..self.buffer_start);
+            self.buffer_start = 0;
+        }
         self.last_span = token.span;
         token
     }

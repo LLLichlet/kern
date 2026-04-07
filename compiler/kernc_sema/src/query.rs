@@ -5,7 +5,9 @@ use crate::scope::SymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast as ast;
 use kernc_utils::{Span, SymbolId};
+use std::borrow::Cow;
 use std::collections::{HashMap, HashSet};
+use std::time::Instant;
 
 #[derive(Debug, Clone)]
 pub struct MemberCandidate {
@@ -18,14 +20,20 @@ pub struct MemberCandidate {
 }
 
 #[derive(Debug, Clone, Default)]
-pub struct MemberQueryEnv {
-    active_bounds: Vec<(TypeId, Vec<TypeId>)>,
+pub struct MemberQueryEnv<'a> {
+    active_bounds: Cow<'a, [(TypeId, Vec<TypeId>)]>,
 }
 
-impl MemberQueryEnv {
-    pub fn from_active_bounds(bounds: &[(TypeId, Vec<TypeId>)]) -> Self {
+impl<'a> MemberQueryEnv<'a> {
+    pub fn from_active_bounds(bounds: &'a [(TypeId, Vec<TypeId>)]) -> Self {
         Self {
-            active_bounds: bounds.to_vec(),
+            active_bounds: Cow::Borrowed(bounds),
+        }
+    }
+
+    pub fn from_active_bounds_owned(bounds: &[(TypeId, Vec<TypeId>)]) -> Self {
+        Self {
+            active_bounds: Cow::Owned(bounds.to_vec()),
         }
     }
 
@@ -45,7 +53,7 @@ impl MemberQueryEnv {
                 .iter()
                 .filter_map(|bound| ctx.node_types.get(&bound.id).copied())
                 .collect();
-            self.active_bounds.push((target_ty, bounds));
+            self.active_bounds.to_mut().push((target_ty, bounds));
         }
     }
 
@@ -58,11 +66,11 @@ impl MemberQueryEnv {
     }
 
     pub fn truncate(&mut self, len: usize) {
-        self.active_bounds.truncate(len);
+        self.active_bounds.to_mut().truncate(len);
     }
 
     fn active_bounds(&self) -> &[(TypeId, Vec<TypeId>)] {
-        &self.active_bounds
+        self.active_bounds.as_ref()
     }
 }
 
@@ -74,6 +82,36 @@ pub struct MemberResolution {
 
 pub struct MemberQuery<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct SearchTypes {
+    values: [TypeId; 3],
+    len: usize,
+}
+
+impl SearchTypes {
+    fn new(first: TypeId) -> Self {
+        Self {
+            values: [first; 3],
+            len: 1,
+        }
+    }
+
+    fn push_if_absent(&mut self, ty: TypeId) {
+        if self.values[..self.len].contains(&ty) {
+            return;
+        }
+
+        if let Some(slot) = self.values.get_mut(self.len) {
+            *slot = ty;
+            self.len += 1;
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = TypeId> + '_ {
+        self.values[..self.len].iter().copied()
+    }
 }
 
 impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
@@ -98,7 +136,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         &mut self,
         current_module_id: Option<DefId>,
         receiver_ty: TypeId,
-        env: &MemberQueryEnv,
+        env: &MemberQueryEnv<'_>,
     ) -> Vec<MemberCandidate> {
         let mut candidates = Vec::new();
         let base_norm = base_type(self.ctx, receiver_ty);
@@ -108,7 +146,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return candidates;
         }
 
-        for search_norm in self.search_types(receiver_ty) {
+        let search_types = self.search_types(receiver_ty);
+        for search_norm in search_types.iter() {
             match self.ctx.type_registry.get(search_norm).clone() {
                 TypeKind::Def(def_id, generic_args) => {
                     self.collect_named_type_field_candidates(
@@ -156,7 +195,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         current_module_id: Option<DefId>,
         receiver_ty: TypeId,
         member_name: SymbolId,
-        env: &MemberQueryEnv,
+        env: &MemberQueryEnv<'_>,
         access_span: Span,
     ) -> Option<MemberResolution> {
         let base_norm = base_type(self.ctx, receiver_ty);
@@ -165,7 +204,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return self.resolve_module_member(current_module_id, module_def_id, member_name);
         }
 
-        for search_norm in self.search_types(receiver_ty) {
+        let search_types = self.search_types(receiver_ty);
+        for search_norm in search_types.iter() {
             if let Some(resolution) = self.resolve_named_member_in_type(
                 current_module_id,
                 search_norm,
@@ -181,26 +221,26 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         None
     }
 
-    fn search_types(&mut self, receiver_ty: TypeId) -> Vec<TypeId> {
+    fn search_types(&mut self, receiver_ty: TypeId) -> SearchTypes {
         let receiver_norm = self.ctx.type_registry.normalize(receiver_ty);
         let base_norm = base_type(self.ctx, receiver_ty);
-        let mut search_tys = vec![receiver_norm];
+        let mut search_tys = SearchTypes::new(receiver_norm);
 
         match self.ctx.type_registry.get(receiver_norm).clone() {
             TypeKind::Pointer { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::Pointer {
+                search_tys.push_if_absent(self.ctx.type_registry.intern(TypeKind::Pointer {
                     is_mut: false,
                     elem,
                 }));
             }
             TypeKind::VolatilePtr { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
+                search_tys.push_if_absent(self.ctx.type_registry.intern(TypeKind::VolatilePtr {
                     is_mut: false,
                     elem,
                 }));
             }
             TypeKind::Slice { is_mut: true, elem } => {
-                search_tys.push(self.ctx.type_registry.intern(TypeKind::Slice {
+                search_tys.push_if_absent(self.ctx.type_registry.intern(TypeKind::Slice {
                     is_mut: false,
                     elem,
                 }));
@@ -208,9 +248,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             _ => {}
         }
 
-        if !search_tys.contains(&base_norm) {
-            search_tys.push(base_norm);
-        }
+        search_tys.push_if_absent(base_norm);
 
         search_tys
     }
@@ -314,56 +352,64 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         generic_args: &[TypeId],
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        match self.ctx.defs[def_id.0 as usize].clone() {
-            Def::Struct(struct_def) => {
-                for field in &struct_def.fields {
-                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
-                        continue;
-                    }
+        let Some(def_ptr) = self.ctx.defs.get(def_id.0 as usize).map(std::ptr::from_ref) else {
+            return;
+        };
 
-                    let ty = self.apply_generics_to_field(
-                        &struct_def.generics,
-                        generic_args,
-                        field.type_node.id,
-                    );
-                    push_member_candidate(
-                        candidates,
-                        MemberCandidate {
-                            name: field.name,
-                            kind: SymbolKind::Var,
-                            type_id: ty,
-                            def_id: None,
-                            definition_span: field.name_span,
-                            is_mut: false,
-                        },
-                    );
-                }
-            }
-            Def::Union(union_def) => {
-                for field in &union_def.fields {
-                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
-                        continue;
-                    }
+        // Safety: member queries do not mutate `ctx.defs`; using raw pointers here avoids
+        // cloning whole AST-backed definitions on every field lookup.
+        unsafe {
+            match &*def_ptr {
+                Def::Struct(struct_def) => {
+                    for field in &struct_def.fields {
+                        if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                            continue;
+                        }
 
-                    let ty = self.apply_generics_to_field(
-                        &union_def.generics,
-                        generic_args,
-                        field.type_node.id,
-                    );
-                    push_member_candidate(
-                        candidates,
-                        MemberCandidate {
-                            name: field.name,
-                            kind: SymbolKind::Var,
-                            type_id: ty,
-                            def_id: None,
-                            definition_span: field.name_span,
-                            is_mut: false,
-                        },
-                    );
+                        let ty = self.apply_generics_to_field(
+                            &struct_def.generics,
+                            generic_args,
+                            field.type_node.id,
+                        );
+                        push_member_candidate(
+                            candidates,
+                            MemberCandidate {
+                                name: field.name,
+                                kind: SymbolKind::Var,
+                                type_id: ty,
+                                def_id: None,
+                                definition_span: field.name_span,
+                                is_mut: false,
+                            },
+                        );
+                    }
                 }
+                Def::Union(union_def) => {
+                    for field in &union_def.fields {
+                        if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                            continue;
+                        }
+
+                        let ty = self.apply_generics_to_field(
+                            &union_def.generics,
+                            generic_args,
+                            field.type_node.id,
+                        );
+                        push_member_candidate(
+                            candidates,
+                            MemberCandidate {
+                                name: field.name,
+                                kind: SymbolKind::Var,
+                                type_id: ty,
+                                def_id: None,
+                                definition_span: field.name_span,
+                                is_mut: false,
+                            },
+                        );
+                    }
+                }
+                _ => {}
             }
-            _ => {}
         }
     }
 
@@ -375,92 +421,97 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         member_name: SymbolId,
         access_span: Span,
     ) -> Option<MemberCandidate> {
-        match self.ctx.defs[def_id.0 as usize].clone() {
-            Def::Struct(struct_def) => {
-                let field = struct_def
-                    .fields
-                    .iter()
-                    .find(|field| field.name == member_name)?;
-                if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
-                    self.ctx
-                        .struct_error(
-                            access_span,
-                            format!(
-                                "field `{}` of type `{}` is private",
-                                self.ctx.resolve(member_name),
-                                self.ctx.resolve(struct_def.name)
-                            ),
-                        )
-                        .with_hint(
-                            "mark the field `pub`, or access it from within the defining module",
-                        )
-                        .emit();
-                    return Some(MemberCandidate {
+        let def_ptr = self.ctx.defs.get(def_id.0 as usize).map(std::ptr::from_ref)?;
+
+        // Safety: semantic definition storage is immutable while member queries run.
+        unsafe {
+            match &*def_ptr {
+                Def::Struct(struct_def) => {
+                    let field = struct_def
+                        .fields
+                        .iter()
+                        .find(|field| field.name == member_name)?;
+                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                        self.ctx
+                            .struct_error(
+                                access_span,
+                                format!(
+                                    "field `{}` of type `{}` is private",
+                                    self.ctx.resolve(member_name),
+                                    self.ctx.resolve(struct_def.name)
+                                ),
+                            )
+                            .with_hint(
+                                "mark the field `pub`, or access it from within the defining module",
+                            )
+                            .emit();
+                        return Some(MemberCandidate {
+                            name: member_name,
+                            kind: SymbolKind::Var,
+                            type_id: TypeId::ERROR,
+                            def_id: None,
+                            definition_span: field.name_span,
+                            is_mut: false,
+                        });
+                    }
+
+                    Some(MemberCandidate {
                         name: member_name,
                         kind: SymbolKind::Var,
-                        type_id: TypeId::ERROR,
+                        type_id: self.apply_generics_to_field(
+                            &struct_def.generics,
+                            generic_args,
+                            field.type_node.id,
+                        ),
                         def_id: None,
                         definition_span: field.name_span,
                         is_mut: false,
-                    });
+                    })
                 }
+                Def::Union(union_def) => {
+                    let field = union_def
+                        .fields
+                        .iter()
+                        .find(|field| field.name == member_name)?;
+                    if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                        self.ctx
+                            .struct_error(
+                                access_span,
+                                format!(
+                                    "field `{}` of type `{}` is private",
+                                    self.ctx.resolve(member_name),
+                                    self.ctx.resolve(union_def.name)
+                                ),
+                            )
+                            .with_hint(
+                                "mark the field `pub`, or access it from within the defining module",
+                            )
+                            .emit();
+                        return Some(MemberCandidate {
+                            name: member_name,
+                            kind: SymbolKind::Var,
+                            type_id: TypeId::ERROR,
+                            def_id: None,
+                            definition_span: field.name_span,
+                            is_mut: false,
+                        });
+                    }
 
-                Some(MemberCandidate {
-                    name: member_name,
-                    kind: SymbolKind::Var,
-                    type_id: self.apply_generics_to_field(
-                        &struct_def.generics,
-                        generic_args,
-                        field.type_node.id,
-                    ),
-                    def_id: None,
-                    definition_span: field.name_span,
-                    is_mut: false,
-                })
-            }
-            Def::Union(union_def) => {
-                let field = union_def
-                    .fields
-                    .iter()
-                    .find(|field| field.name == member_name)?;
-                if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
-                    self.ctx
-                        .struct_error(
-                            access_span,
-                            format!(
-                                "field `{}` of type `{}` is private",
-                                self.ctx.resolve(member_name),
-                                self.ctx.resolve(union_def.name)
-                            ),
-                        )
-                        .with_hint(
-                            "mark the field `pub`, or access it from within the defining module",
-                        )
-                        .emit();
-                    return Some(MemberCandidate {
+                    Some(MemberCandidate {
                         name: member_name,
                         kind: SymbolKind::Var,
-                        type_id: TypeId::ERROR,
+                        type_id: self.apply_generics_to_field(
+                            &union_def.generics,
+                            generic_args,
+                            field.type_node.id,
+                        ),
                         def_id: None,
                         definition_span: field.name_span,
                         is_mut: false,
-                    });
+                    })
                 }
-
-                Some(MemberCandidate {
-                    name: member_name,
-                    kind: SymbolKind::Var,
-                    type_id: self.apply_generics_to_field(
-                        &union_def.generics,
-                        generic_args,
-                        field.type_node.id,
-                    ),
-                    def_id: None,
-                    definition_span: field.name_span,
-                    is_mut: false,
-                })
+                _ => None,
             }
-            _ => None,
         }
     }
 
@@ -473,6 +524,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         env: &MemberQueryEnv,
         access_span: Span,
     ) -> Option<MemberResolution> {
+        let started = Instant::now();
         if let TypeKind::TraitObject(trait_def_id, trait_args) =
             self.ctx.type_registry.get(search_norm).clone()
             && let Some(resolution) = self.resolve_trait_object_method_named(
@@ -483,9 +535,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 Some(access_span),
             )
         {
+            self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
             return Some(resolution);
         }
+        self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
 
+        let started = Instant::now();
         if let TypeKind::Def(def_id, generic_args) = self.ctx.type_registry.get(search_norm).clone()
             && let Some(candidate) = self.resolve_named_type_field(
                 current_module_id,
@@ -495,11 +550,13 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 access_span,
             )
         {
+            self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
             return Some(MemberResolution {
                 candidate,
                 owner_trait_ty: None,
             });
         }
+        self.ctx.expr_timing_stats.access_field_query_named_type += started.elapsed();
 
         if let TypeKind::AnonymousStruct(_, fields) | TypeKind::AnonymousUnion(_, fields) =
             self.ctx.type_registry.get(search_norm).clone()
@@ -518,46 +575,58 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             });
         }
 
+        let started = Instant::now();
         if let Some(resolution) =
             self.resolve_bound_member(search_norm, receiver_ty, member_name, env, access_span)
         {
+            self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
             return Some(resolution);
         }
+        self.ctx.expr_timing_stats.access_field_query_bound += started.elapsed();
 
-        self.resolve_named_impl_method(search_norm, member_name)
+        let started = Instant::now();
+        let resolution = self
+            .resolve_named_impl_method(search_norm, member_name)
             .map(|candidate| MemberResolution {
                 candidate,
                 owner_trait_ty: None,
-            })
+            });
+        self.ctx.expr_timing_stats.access_field_query_impl += started.elapsed();
+        resolution
     }
 
     fn collect_bound_method_candidates(
         &mut self,
         search_norm: TypeId,
         receiver_ty: TypeId,
-        env: &MemberQueryEnv,
+        env: &MemberQueryEnv<'_>,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let bounds = env.active_bounds().to_vec();
-        let mut checker = ExprChecker::new(self.ctx, None);
-
-        for (env_target, bound_tys) in bounds {
-            let mut map = HashMap::new();
-            if !checker.unify(env_target, search_norm, &mut map) {
+        let mut map = HashMap::new();
+        let mut instantiated_bounds = Vec::new();
+        for (env_target, bound_tys) in env.active_bounds() {
+            map.clear();
+            instantiated_bounds.clear();
+            let matched = {
+                let mut checker = ExprChecker::new(self.ctx, None);
+                if !checker.unify(*env_target, search_norm, &mut map) {
+                    false
+                } else {
+                    if map.is_empty() {
+                        instantiated_bounds.extend(bound_tys.iter().copied());
+                    } else {
+                        let mut subst = Substituter::new(&mut checker.ctx.type_registry, &map);
+                        for bound in bound_tys.iter().copied() {
+                            instantiated_bounds.push(subst.substitute(bound));
+                        }
+                    }
+                    true
+                }
+            };
+            if !matched {
                 continue;
             }
-
-            let instantiated_bounds = {
-                let mut subst = Substituter::new(&mut checker.ctx.type_registry, &map);
-                bound_tys
-                    .into_iter()
-                    .map(|bound| subst.substitute(bound))
-                    .collect::<Vec<_>>()
-            };
-
-            drop(checker);
-
-            for bound_ty in instantiated_bounds {
+            for bound_ty in instantiated_bounds.iter().copied() {
                 let bound_norm = self.ctx.type_registry.normalize(bound_ty);
                 if let TypeKind::TraitObject(trait_def_id, trait_args) =
                     self.ctx.type_registry.get(bound_norm).clone()
@@ -570,8 +639,6 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     );
                 }
             }
-
-            checker = ExprChecker::new(self.ctx, None);
         }
     }
 
@@ -580,29 +647,34 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         search_norm: TypeId,
         receiver_ty: TypeId,
         member_name: SymbolId,
-        env: &MemberQueryEnv,
+        env: &MemberQueryEnv<'_>,
         access_span: Span,
     ) -> Option<MemberResolution> {
-        let bounds = env.active_bounds().to_vec();
-        let mut checker = ExprChecker::new(self.ctx, None);
-
-        for (env_target, bound_tys) in bounds {
-            let mut map = HashMap::new();
-            if !checker.unify(env_target, search_norm, &mut map) {
+        let mut map = HashMap::new();
+        let mut instantiated_bounds = Vec::new();
+        for (env_target, bound_tys) in env.active_bounds() {
+            map.clear();
+            instantiated_bounds.clear();
+            let matched = {
+                let mut checker = ExprChecker::new(self.ctx, None);
+                if !checker.unify(*env_target, search_norm, &mut map) {
+                    false
+                } else {
+                    if map.is_empty() {
+                        instantiated_bounds.extend(bound_tys.iter().copied());
+                    } else {
+                        let mut subst = Substituter::new(&mut checker.ctx.type_registry, &map);
+                        for bound in bound_tys.iter().copied() {
+                            instantiated_bounds.push(subst.substitute(bound));
+                        }
+                    }
+                    true
+                }
+            };
+            if !matched {
                 continue;
             }
-
-            let instantiated_bounds = {
-                let mut subst = Substituter::new(&mut checker.ctx.type_registry, &map);
-                bound_tys
-                    .into_iter()
-                    .map(|bound| subst.substitute(bound))
-                    .collect::<Vec<_>>()
-            };
-
-            drop(checker);
-
-            for bound_ty in instantiated_bounds {
+            for bound_ty in instantiated_bounds.iter().copied() {
                 let bound_norm = self.ctx.type_registry.normalize(bound_ty);
                 if let TypeKind::TraitObject(trait_def_id, trait_args) =
                     self.ctx.type_registry.get(bound_norm).clone()
@@ -617,8 +689,6 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     return Some(resolution);
                 }
             }
-
-            checker = ExprChecker::new(self.ctx, None);
         }
 
         None
@@ -629,25 +699,60 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let impl_blocks: Vec<_> = self
-            .ctx
-            .global_impls
-            .iter()
-            .filter_map(|&id| match &self.ctx.defs[id.0 as usize] {
-                Def::Impl(impl_def) => Some(impl_def.clone()),
-                _ => None,
-            })
-            .collect();
-
         let mut checker = ExprChecker::new(self.ctx, None);
-        for impl_def in impl_blocks {
+        let mut map = HashMap::new();
+        let impl_count = checker.ctx.global_impls.len();
+        for impl_index in 0..impl_count {
+            let impl_id = checker.ctx.global_impls[impl_index];
+            let Some(impl_ptr) = checker
+                .ctx
+                .defs
+                .get(impl_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+
+            // Safety: queries do not mutate `defs`; avoid cloning every impl block just to inspect it.
+            let impl_def = unsafe { &*impl_ptr };
             let impl_target_ty = checker
                 .ctx
                 .node_types
                 .get(&impl_def.target_type.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let mut map = HashMap::new();
+
+            if impl_def.generics.is_empty() && impl_def.where_clauses.is_empty() {
+                if checker.ctx.type_registry.normalize(impl_target_ty) != receiver_norm {
+                    continue;
+                }
+
+                for method_id in &impl_def.methods {
+                    let Def::Function(function) = &checker.ctx.defs[method_id.0 as usize] else {
+                        continue;
+                    };
+                    let type_id = checker
+                        .ctx
+                        .type_registry
+                        .intern(TypeKind::FnDef(*method_id, Vec::new()));
+                    push_member_candidate(
+                        candidates,
+                        MemberCandidate {
+                            name: function.name,
+                            kind: SymbolKind::Function,
+                            type_id,
+                            def_id: Some(*method_id),
+                            definition_span: function.name_span,
+                            is_mut: false,
+                        },
+                    );
+                }
+                continue;
+            }
+            map.clear();
 
             if !checker.unify(impl_target_ty, receiver_norm, &mut map) {
                 continue;
@@ -690,25 +795,68 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         member_name: SymbolId,
     ) -> Option<MemberCandidate> {
-        let impl_blocks: Vec<_> = self
-            .ctx
-            .global_impls
-            .iter()
-            .filter_map(|&id| match &self.ctx.defs[id.0 as usize] {
-                Def::Impl(impl_def) => Some(impl_def.clone()),
-                _ => None,
-            })
-            .collect();
-
         let mut checker = ExprChecker::new(self.ctx, None);
-        for impl_def in impl_blocks {
+        let mut map = HashMap::new();
+        let method_ids_ptr = checker
+            .ctx
+            .impl_methods_by_name
+            .get(&member_name)
+            .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()))?;
+
+        // Safety: method-name indexes are immutable during member lookup.
+        let method_ids = unsafe { &*method_ids_ptr };
+        for &method_id in method_ids {
+            let Some((impl_id, function_name_span)) = checker
+                .ctx
+                .defs
+                .get(method_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Function(function) => function.parent.map(|parent| (parent, function.name_span)),
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+
+            let Some(impl_ptr) = checker
+                .ctx
+                .defs
+                .get(impl_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                    _ => None,
+                })
+            else {
+                continue;
+            };
+
+            // Safety: queries only read semantic definitions.
+            let impl_def = unsafe { &*impl_ptr };
             let impl_target_ty = checker
                 .ctx
                 .node_types
                 .get(&impl_def.target_type.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let mut map = HashMap::new();
+
+            if impl_def.generics.is_empty() && impl_def.where_clauses.is_empty() {
+                if checker.ctx.type_registry.normalize(impl_target_ty) != receiver_norm {
+                    continue;
+                }
+
+                return Some(MemberCandidate {
+                    name: member_name,
+                    kind: SymbolKind::Function,
+                    type_id: checker
+                        .ctx
+                        .type_registry
+                        .intern(TypeKind::FnDef(method_id, Vec::new())),
+                    def_id: Some(method_id),
+                    definition_span: function_name_span,
+                    is_mut: false,
+                });
+            }
+            map.clear();
 
             if !checker.unify(impl_target_ty, receiver_norm, &mut map) {
                 continue;
@@ -723,26 +871,17 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .map(|param| map.get(&param.name).copied().unwrap_or(TypeId::ERROR))
                 .collect::<Vec<_>>();
 
-            for method_id in &impl_def.methods {
-                let Def::Function(function) = &checker.ctx.defs[method_id.0 as usize] else {
-                    continue;
-                };
-                if function.name != member_name {
-                    continue;
-                }
-
-                return Some(MemberCandidate {
-                    name: member_name,
-                    kind: SymbolKind::Function,
-                    type_id: checker
-                        .ctx
-                        .type_registry
-                        .intern(TypeKind::FnDef(*method_id, resolved_impl_args)),
-                    def_id: Some(*method_id),
-                    definition_span: function.name_span,
-                    is_mut: false,
-                });
-            }
+            return Some(MemberCandidate {
+                name: member_name,
+                kind: SymbolKind::Function,
+                type_id: checker
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(method_id, resolved_impl_args)),
+                def_id: Some(method_id),
+                definition_span: function_name_span,
+                is_mut: false,
+            });
         }
 
         None
@@ -796,9 +935,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return;
         }
 
-        let Def::Trait(trait_def) = self.ctx.defs[trait_def_id.0 as usize].clone() else {
+        let Some(trait_ptr) = self
+            .ctx
+            .defs
+            .get(trait_def_id.0 as usize)
+            .and_then(|def| match def {
+                Def::Trait(trait_def) => Some(std::ptr::from_ref(trait_def)),
+                _ => None,
+            })
+        else {
             return;
         };
+        // Safety: trait definitions are immutable during semantic member queries.
+        let trait_def = unsafe { &*trait_ptr };
         let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
             .generics
             .iter()
@@ -879,9 +1028,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return None;
         }
 
-        let Def::Trait(trait_def) = self.ctx.defs[trait_def_id.0 as usize].clone() else {
+        let Some(trait_ptr) = self
+            .ctx
+            .defs
+            .get(trait_def_id.0 as usize)
+            .and_then(|def| match def {
+                Def::Trait(trait_def) => Some(std::ptr::from_ref(trait_def)),
+                _ => None,
+            })
+        else {
             return None;
         };
+        // Safety: trait definitions are immutable during member resolution.
+        let trait_def = unsafe { &*trait_ptr };
         let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
             .generics
             .iter()
@@ -1025,16 +1184,14 @@ fn base_type(ctx: &SemaContext<'_>, mut ty: TypeId) -> TypeId {
 }
 
 fn def_owner_module_id(ctx: &SemaContext<'_>, def_id: DefId) -> Option<DefId> {
-    ctx.defs.iter().find_map(|def| {
-        let Def::Module(module) = def else {
-            return None;
-        };
-        if module.items.contains(&def_id) {
-            Some(module.id)
-        } else {
-            None
+    match ctx.defs.get(def_id.0 as usize) {
+        Some(Def::Struct(def)) => def.parent_module,
+        Some(Def::Union(def)) => def.parent_module,
+        Some(Def::Enum(_)) | Some(Def::Trait(_)) | Some(Def::TypeAlias(_)) => {
+            ctx.def_parent_module(def_id)
         }
-    })
+        _ => None,
+    }
 }
 
 fn trait_method_span(trait_def: &crate::def::TraitDef, method_name: SymbolId) -> Span {

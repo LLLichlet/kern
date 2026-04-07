@@ -7,6 +7,7 @@ mod signature;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
 use kernc_codegen::{CodeGenerator, Context, InlineAsmDialect};
@@ -28,6 +29,19 @@ pub type SourceOverrides = HashMap<PathBuf, String>;
 pub struct AnalysisReport {
     pub session: Session,
     pub succeeded: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompileReport {
+    pub loaded_sources: Vec<PathBuf>,
+    pub phase_timings: Vec<PhaseTiming>,
+    pub mast_workload: Option<kernc_mast::MastWorkloadStats>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhaseTiming {
+    pub name: &'static str,
+    pub duration: Duration,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -518,6 +532,13 @@ pub struct StructureArtifact {
     completion_model: completion::CompletionModel,
 }
 
+#[derive(Clone)]
+pub(super) struct CompileStructureArtifact {
+    pub(super) session: Session,
+    pub(super) snapshot: SemaStructureSnapshot,
+    pub(super) phase_timings: Vec<PhaseTiming>,
+}
+
 pub struct CompilerDriver {
     pub options: CompileOptions,
     frontend: FrontendDatabase,
@@ -644,38 +665,79 @@ impl CompilerDriver {
     }
 
     pub fn compile(&self) -> bool {
+        match self.compile_with_report() {
+            Some(report) => {
+                if self.options.report_timings {
+                    Self::print_phase_timings(&report.phase_timings);
+                    Self::print_mast_workload(report.mast_workload.as_ref());
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn compile_with_report(&self) -> Option<CompileReport> {
+        let mut phase_timings = Vec::new();
         if self.options.driver_mode == DriverMode::LinkOnly {
-            return self.link_only();
+            let linked = Self::measure_phase(&mut phase_timings, "link", || self.link_only());
+            return linked.then(|| CompileReport {
+                loaded_sources: Vec::new(),
+                phase_timings,
+                mast_workload: None,
+            });
         }
 
         let Some(input_file) = self.options.input_file.as_deref() else {
             eprintln!("Error: compile mode requires a source input.");
-            return false;
+            return None;
         };
 
-        let mut session = Session::new();
-        let Some(mut ctx) = self.analyze(&mut session, input_file) else {
-            return false;
-        };
+        let structure = Self::measure_phase(&mut phase_timings, "analyze_structure", || {
+            self.analyze_compile_structure(input_file, &SourceOverrides::new())
+        })?;
+        phase_timings.extend(structure.phase_timings.iter().copied());
+        let mut session = structure.session.clone();
 
-        let Some(mast_module) = self.lower_module(&mut ctx) else {
-            return false;
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot.clone());
+        let body_pipeline = self.run_body_pipeline_with_report(&mut ctx)?;
+        phase_timings.extend(body_pipeline.phase_timings.iter().copied());
+        let loaded_sources = ctx
+            .sess
+            .source_manager
+            .files()
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
+
+        let Some(mast_module) = Self::measure_phase(&mut phase_timings, "lower", || {
+            self.lower_module_with_flow(
+                &mut ctx,
+                &body_pipeline.flow_lowering_hints,
+                &body_pipeline.lowered_module_items,
+            )
+        }) else {
+            return None;
         };
+        let mast_workload = mast_module.workload_stats();
 
         if let Some(metadata_output) = self.options.metadata_output.as_deref()
-            && let Err(err) = metadata::emit_package_metadata(
-                &ctx,
-                Path::new(metadata_output),
-                self.options
-                    .metadata_package_name
-                    .as_deref()
-                    .or(self.options.root_module_name.as_deref())
-                    .unwrap_or("root"),
-                self.options.metadata_package_version.as_deref(),
-            )
+            && let Err(err) = Self::measure_phase(&mut phase_timings, "emit_kmeta", || {
+                metadata::emit_package_metadata(
+                    &ctx,
+                    Path::new(metadata_output),
+                    self.options
+                        .metadata_package_name
+                        .as_deref()
+                        .or(self.options.root_module_name.as_deref())
+                        .unwrap_or("root"),
+                    self.options.metadata_package_version.as_deref(),
+                )
+            })
         {
             eprintln!("Error: Failed to emit kmeta snapshot: {}", err);
-            return false;
+            return None;
         }
 
         let codegen_ctx = Context::create();
@@ -690,18 +752,25 @@ impl CompilerDriver {
             AsmDialect::Intel => InlineAsmDialect::Intel,
             AsmDialect::Att => InlineAsmDialect::ATT,
         });
-
-        codegen.compile(&mast_module);
+        Self::measure_phase(&mut phase_timings, "codegen", || {
+            codegen.compile(&mast_module)
+        });
 
         if self.options.driver_mode == DriverMode::EmitLlvmIr {
-            return match codegen.print_ir() {
+            return match Self::measure_phase(&mut phase_timings, "emit_llvm_ir", || {
+                codegen.print_ir()
+            }) {
                 Ok(()) => {
                     Self::print_buffered_diagnostics(ctx.sess);
-                    true
+                    Some(CompileReport {
+                        loaded_sources,
+                        phase_timings,
+                        mast_workload: Some(mast_workload),
+                    })
                 }
                 Err(err) => {
                     eprintln!("Error: Failed to print LLVM IR: {}", err);
-                    false
+                    None
                 }
             };
         }
@@ -710,12 +779,24 @@ impl CompilerDriver {
         let link_input_path = self.prepare_link_input_path(&target);
         let _guard = self.temp_link_input_guard(&link_input_path);
 
-        if let Err(err) =
+        let emit_report = match Self::measure_phase(&mut phase_timings, "emit_object", || {
             codegen.emit_to_file(&target.triple, &link_input_path, self.options.opt_level)
-        {
-            eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
-            return false;
-        }
+        }) {
+            Ok(report) => report,
+            Err(err) => {
+                eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                return None;
+            }
+        };
+        phase_timings.extend(
+            emit_report
+                .timings
+                .into_iter()
+                .map(|timing| PhaseTiming {
+                    name: timing.name,
+                    duration: timing.duration,
+                }),
+        );
 
         if self.options.driver_mode.emits_linker_input() {
             Self::print_buffered_diagnostics(ctx.sess);
@@ -725,15 +806,24 @@ impl CompilerDriver {
                     self.options.output_file
                 );
             }
-            return true;
+            return Some(CompileReport {
+                loaded_sources,
+                phase_timings,
+                mast_workload: Some(mast_workload),
+            });
         }
 
-        let linked =
-            self.run_link_command(Some(&link_input_path), &target, "Successfully compiled");
+        let linked = Self::measure_phase(&mut phase_timings, "link", || {
+            self.run_link_command(Some(&link_input_path), &target, "Successfully compiled")
+        });
         if linked {
             Self::print_buffered_diagnostics(ctx.sess);
         }
-        linked
+        linked.then(|| CompileReport {
+            loaded_sources,
+            phase_timings,
+            mast_workload: Some(mast_workload),
+        })
     }
 
     pub fn analyze<'a>(
@@ -773,17 +863,27 @@ impl CompilerDriver {
             .ok()
     }
 
+    #[cfg(test)]
     fn lower_module<'a>(&self, ctx: &mut SemaContext<'a>) -> Option<kernc_mast::MastModule> {
         let references = ctx.identifier_references().to_vec();
         let module_item_definition_spans = self.module_item_definition_spans(ctx);
         let flow_model = flow::FlowModel::collect(ctx, &module_item_definition_spans, &references);
+        let flow_lowering_hints = flow_model.lowering_hints(ctx);
         let reachable_items = self
             .compute_module_item_reachability(ctx, &references, &flow_model)
-            .reachable;
-        let flow_lowering_hints = flow_model.lowering_hints(ctx);
+            .lowered_reachable;
+        self.lower_module_with_flow(ctx, &flow_lowering_hints, &reachable_items)
+    }
+
+    fn lower_module_with_flow<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        flow_lowering_hints: &kernc_lower::FlowLoweringHints,
+        reachable_items: &std::collections::HashSet<DefId>,
+    ) -> Option<kernc_mast::MastModule> {
         let mut lowerer = Lowerer::new(ctx);
-        lowerer.set_reachable_module_items(reachable_items);
-        lowerer.set_flow_lowering_hints(flow_lowering_hints);
+        lowerer.set_reachable_module_items(reachable_items.clone());
+        lowerer.set_flow_lowering_hints(flow_lowering_hints.clone());
         let module = lowerer.lower_all();
         if !Self::report_diagnostics_if_errors(lowerer.context()) {
             return None;
@@ -810,6 +910,82 @@ impl CompilerDriver {
     fn print_buffered_diagnostics(session: &Session) {
         if !session.diagnostics.is_empty() {
             session.print_diagnostics();
+        }
+    }
+
+    fn measure_phase<T, F>(phase_timings: &mut Vec<PhaseTiming>, name: &'static str, f: F) -> T
+    where
+        F: FnOnce() -> T,
+    {
+        let started = Instant::now();
+        let value = f();
+        phase_timings.push(PhaseTiming {
+            name,
+            duration: started.elapsed(),
+        });
+        value
+    }
+
+    fn print_phase_timings(phase_timings: &[PhaseTiming]) {
+        if phase_timings.is_empty() {
+            return;
+        }
+
+        println!("Phase timings:");
+        for phase in phase_timings {
+            println!(
+                "  {:<18} {}",
+                phase.name,
+                Self::format_duration(phase.duration)
+            );
+        }
+        let total = phase_timings
+            .iter()
+            .filter(|phase| !phase.name.starts_with(' '))
+            .map(|phase| phase.duration)
+            .sum::<Duration>();
+        println!("  {:<18} {}", "total", Self::format_duration(total));
+    }
+
+    fn print_mast_workload(mast_workload: Option<&kernc_mast::MastWorkloadStats>) {
+        let Some(stats) = mast_workload else {
+            return;
+        };
+
+        println!("MAST workload:");
+        for (name, value) in [
+            ("  structs", stats.structs),
+            ("  globals", stats.globals),
+            ("  globals_with_init", stats.globals_with_init),
+            ("  functions", stats.functions),
+            ("  function_bodies", stats.function_bodies),
+            ("  extern_functions", stats.extern_functions),
+            ("  blocks", stats.blocks),
+            ("  statements", stats.statements),
+            ("  let_statements", stats.let_statements),
+            ("  expr_statements", stats.expr_statements),
+            ("  defers", stats.defers),
+            ("  expressions", stats.expressions),
+            ("  calls", stats.calls),
+            ("  branches", stats.branches),
+            ("  loops", stats.loops),
+            ("  switches", stats.switches),
+            ("  returns", stats.returns),
+            ("  assignments", stats.assignments),
+        ] {
+            println!("  {:<18} {}", name, value);
+        }
+    }
+
+    fn format_duration(duration: Duration) -> String {
+        if duration.as_secs() >= 1 {
+            format!("{:.3}s", duration.as_secs_f64())
+        } else if duration.as_millis() >= 1 {
+            format!("{:.3}ms", duration.as_secs_f64() * 1_000.0)
+        } else if duration.as_micros() >= 1 {
+            format!("{:.3}us", duration.as_secs_f64() * 1_000_000.0)
+        } else {
+            format!("{}ns", duration.as_nanos())
         }
     }
 
@@ -2931,6 +3107,94 @@ mod tests {
             MastExprKind::Var(name) => assert_eq!(ctx.resolve(*name), "seed"),
             other => panic!("expected seed return, got {:?}", other),
         }
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn lowering_std_hello_world_prunes_unreachable_file_methods() {
+        let root = std::env::temp_dir().join(format!(
+            "kern_lower_std_hello_world_{}_{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(&root).unwrap();
+        let main = root.join("main.rn");
+        fs::write(
+            &main,
+            concat!(
+                "use std.io;\n",
+                "\n",
+                "extern fn main(argc: i32, argv: **u8) i32 {\n",
+                "    let _ = argc;\n",
+                "    let _ = argv;\n",
+                "    io.println(\"hello, {}!\", .{\"world\",});\n",
+                "    return 0;\n",
+                "}\n",
+            ),
+        )
+        .unwrap();
+
+        let mut options = CompileOptions::default();
+        options.library_bundle = kernc_utils::config::LibraryBundle::Std;
+        kernc_utils::config::inject_default_library_aliases(&mut options);
+        kernc_utils::config::inject_driver_condition_defines(&mut options);
+        let driver = CompilerDriver::new(options);
+        let structure = driver
+            .analyze_compile_structure(main.to_str().unwrap(), &SourceOverrides::new())
+            .expect("expected compile structure");
+        let mut session = structure.session.clone();
+        let mut ctx = driver.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot);
+        let body_pipeline = driver
+            .run_body_pipeline_with_report(&mut ctx)
+            .expect("expected body pipeline");
+        let lowered_roots = body_pipeline
+            .lowered_module_items
+            .iter()
+            .map(|&def_id| ctx.get_export_name(def_id, &[]))
+            .collect::<std::collections::BTreeSet<_>>();
+        let module = driver
+            .lower_module_with_flow(
+                &mut ctx,
+                &body_pipeline.flow_lowering_hints,
+                &body_pipeline.lowered_module_items,
+            )
+            .expect("expected lowered module");
+        let lowered_functions = module
+            .functions
+            .iter()
+            .filter(|function| function.body.is_some())
+            .map(|function| function.name.clone())
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert!(
+            !lowered_roots.contains("_K3std2fs4file8PmutFile4read"),
+            "unexpected lowered roots: {lowered_roots:#?}"
+        );
+        assert!(
+            !lowered_roots.contains("_K3std2fs4file8PmutFile5close"),
+            "unexpected lowered roots: {lowered_roots:#?}"
+        );
+        assert!(
+            !lowered_roots.contains("_K3std2fs4file8PmutFile9write_all"),
+            "unexpected lowered roots: {lowered_roots:#?}"
+        );
+        assert!(
+            !lowered_functions.contains("_K3std2fs4file8PmutFile4read"),
+            "unexpected lowered functions: {lowered_functions:#?}"
+        );
+        assert!(
+            !lowered_functions.contains("_K3std2fs4file8PmutFile5close"),
+            "unexpected lowered functions: {lowered_functions:#?}"
+        );
+        assert!(
+            !lowered_functions.contains("_K3std2fs4file8PmutFile9write_all"),
+            "unexpected lowered functions: {lowered_functions:#?}"
+        );
 
         let _ = fs::remove_dir_all(&root);
     }

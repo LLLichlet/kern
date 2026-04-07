@@ -8,6 +8,7 @@ use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, TypeNode};
 use kernc_utils::{DiagnosticCode, NodeId, Span, SymbolId};
+use std::time::Instant;
 
 #[derive(Clone, Copy)]
 struct ResolvedPatternField {
@@ -17,6 +18,25 @@ struct ResolvedPatternField {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn build_generic_arg_map(
+        &self,
+        generics: &[ast::GenericParam],
+        generic_args: &[TypeId],
+    ) -> Option<std::collections::HashMap<SymbolId, TypeId>> {
+        if generics.is_empty() || generic_args.is_empty() {
+            return None;
+        }
+
+        let mut map = std::collections::HashMap::with_capacity(generics.len());
+        for (index, param) in generics.iter().enumerate() {
+            if let Some(arg) = generic_args.get(index).copied() {
+                map.insert(param.name, arg);
+            }
+        }
+
+        Some(map)
+    }
+
     fn symbol_is_type_namespace(kind: SymbolKind) -> bool {
         matches!(
             kind,
@@ -103,6 +123,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, generic_args) => {
                 let adt_def = self.match_enum_def(def_id, span, "inspect a pattern variant")?;
+                let generic_map = self.build_generic_arg_map(&adt_def.generics, &generic_args);
                 let variant = adt_def.variants.iter().find(|v| v.name == variant_name)?;
                 let definition_span = variant.name_span;
                 self.ctx.record_identifier_reference(span, definition_span);
@@ -115,12 +136,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .copied()
                         .unwrap_or(TypeId::ERROR);
 
-                    if !adt_def.generics.is_empty() && !generic_args.is_empty() {
-                        let mut map = std::collections::HashMap::new();
-                        for (i, param) in adt_def.generics.iter().enumerate() {
-                            map.insert(param.name, generic_args[i]);
-                        }
-                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    if let Some(map) = &generic_map {
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
                         payload_ty = subst.substitute(payload_ty);
                     }
 
@@ -146,7 +163,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Def(def_id, generic_args) => match &self.ctx.defs[def_id.0 as usize] {
                 Def::Struct(def) => {
-                    let mut fields = Vec::new();
+                    let generic_map = self.build_generic_arg_map(&def.generics, &generic_args);
+                    let mut fields = Vec::with_capacity(def.fields.len());
                     for field in &def.fields {
                         let mut field_ty = self
                             .ctx
@@ -155,12 +173,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             .copied()
                             .unwrap_or(TypeId::ERROR);
 
-                        if !def.generics.is_empty() && !generic_args.is_empty() {
-                            let mut map = std::collections::HashMap::new();
-                            for (i, param) in def.generics.iter().enumerate() {
-                                map.insert(param.name, generic_args[i]);
-                            }
-                            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                        if let Some(map) = &generic_map {
+                            let mut subst = Substituter::new(&mut self.ctx.type_registry, map);
                             field_ty = subst.substitute(field_ty);
                         }
 
@@ -497,36 +511,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     fn current_module_id(&self) -> Option<DefId> {
         let current_scope = self.ctx.scopes.current_scope_id()?;
-
-        self.ctx
-            .defs
-            .iter()
-            .filter_map(|def| {
-                let Def::Module(module) = def else {
-                    return None;
-                };
-
-                self.ctx
-                    .scopes
-                    .distance_to_ancestor(current_scope, module.scope_id)
-                    .map(|distance| (module.id, distance))
-            })
-            .min_by_key(|(_, distance)| *distance)
-            .map(|(module_id, _)| module_id)
+        self.ctx.module_for_scope(current_scope)
     }
 
     fn global_owner_scope(&self, def_id: DefId) -> Option<crate::scope::ScopeId> {
-        self.ctx.defs.iter().find_map(|def| {
-            let Def::Module(module) = def else {
-                return None;
-            };
-
-            if module.items.contains(&def_id) {
-                Some(module.scope_id)
-            } else {
-                None
-            }
-        })
+        self.ctx.def_owner_scope(def_id)
     }
 
     pub(crate) fn check_identifier(&mut self, name: SymbolId, span: Span) -> TypeId {
@@ -587,13 +576,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             if info.type_id == TypeId::ERROR
                 && let Some(def_id) = info.def_id
             {
-                let global_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                    Some(g.value.clone())
+                let global_expr_ptr = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
+                    Some(std::ptr::from_ref(&g.value))
                 } else {
                     None
                 };
 
-                if let Some(g_expr) = global_expr_opt {
+                if let Some(g_expr_ptr) = global_expr_ptr {
+                    // Safety: global initializer expressions live inside immutable semantic defs
+                    // during type checking; borrowing by pointer avoids cloning large ASTs.
+                    let g_expr = unsafe { &*g_expr_ptr };
                     if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
                         return actual_ty;
                     }
@@ -1021,6 +1013,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         // Modules are namespaces, so member lookup uses the peeled base type directly.
         if let TypeKind::Module(mod_def_id) = self.ctx.type_registry.get(base_norm).clone() {
+            let started = Instant::now();
             let mod_scope = if let Def::Module(m) = &self.ctx.defs[mod_def_id.0 as usize] {
                 m.scope_id
             } else {
@@ -1048,14 +1041,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         .intern(TypeKind::Module(target_def_id.unwrap()))
                 } else if target_type_id == TypeId::ERROR {
                     if let Some(def_id) = target_def_id {
-                        let global_expr_opt =
+                        let global_expr_ptr =
                             if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                                Some(g.value.clone())
+                                Some(std::ptr::from_ref(&g.value))
                             } else {
                                 None
                             };
 
-                        if let Some(g_expr) = global_expr_opt {
+                        if let Some(g_expr) = global_expr_ptr {
+                            // Safety: expression storage inside semantic defs is immutable during
+                            // type checking; borrowing via raw pointer avoids cloning large ASTs.
+                            let g_expr = unsafe { &*g_expr };
                             if let Some(&actual_ty) = self.ctx.node_types.get(&g_expr.id) {
                                 actual_ty
                             } else {
@@ -1083,6 +1079,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx.node_types.insert(lhs.id, mod_ty);
                 self.ctx
                     .record_identifier_reference(field_span, definition_span);
+                self.ctx.expr_timing_stats.access_field_module += started.elapsed();
                 return real_ty;
             } else {
                 let field_name = self.ctx.resolve(field);
@@ -1092,27 +1089,36 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         format!("module has no public member `{}`", field_name),
                     )
                     .emit();
+                self.ctx.expr_timing_stats.access_field_module += started.elapsed();
                 return TypeId::ERROR;
             }
         }
 
-        if self.expr_is_type_namespace(lhs)
-            && let Some(enum_ty) =
+        if self.expr_is_type_namespace(lhs) {
+            let started = Instant::now();
+            if let Some(enum_ty) =
                 self.check_payloadless_enum_variant_access(lhs_ty, field, field_span, span)
-        {
-            return enum_ty;
+            {
+                self.ctx.expr_timing_stats.access_field_enum_variant += started.elapsed();
+                return enum_ty;
+            }
+            self.ctx.expr_timing_stats.access_field_enum_variant += started.elapsed();
         }
 
+        let started = Instant::now();
         if let Some(resolution) = self.try_find_field_or_method_silent(lhs_ty, field, span) {
             self.ctx
                 .record_identifier_reference(field_span, resolution.candidate.definition_span);
             if let Some(owner_trait_ty) = resolution.owner_trait_ty {
                 self.ctx.trait_method_owners.insert(expr_id, owner_trait_ty);
             }
+            self.ctx.expr_timing_stats.access_field_member_query += started.elapsed();
             return resolution.candidate.type_id;
         }
+        self.ctx.expr_timing_stats.access_field_member_query += started.elapsed();
 
         // No field or method matched. Emit the detailed fallback diagnostic.
+        let miss_started = Instant::now();
         let field_str = self.ctx.resolve(field);
         let lhs_str = self.ctx.ty_to_string(lhs_ty);
 
@@ -1129,6 +1135,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             )
             .with_hint("if this is a struct field, check for typos")
             .emit();
+        self.ctx.expr_timing_stats.access_field_miss += miss_started.elapsed();
 
         TypeId::ERROR
     }
@@ -1140,9 +1147,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         field: SymbolId,
         span: Span,
     ) -> Option<crate::query::MemberResolution> {
-        let env = MemberQueryEnv::from_active_bounds(&self.ctx.active_bounds);
+        let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
         let current_module_id = self.current_module_id();
         let mut query = MemberQuery::new(self.ctx);
+        // Safety: member queries only read active generic bounds. The query may mutate other
+        // semantic state, but it does not resize or replace `ctx.active_bounds`.
+        let env = unsafe { MemberQueryEnv::from_active_bounds(&*active_bounds_ptr) };
         query.resolve_named_member(current_module_id, lhs_ty, field, &env, span)
     }
 

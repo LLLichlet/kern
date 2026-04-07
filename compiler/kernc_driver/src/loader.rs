@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
+use crate::compiler::PhaseTiming;
 use crate::frontend::FrontendDatabase;
 use crate::metadata;
 use kernc_ast as ast;
@@ -13,23 +15,61 @@ struct ResolvedRootModule {
     declared_root_name: Option<SymbolId>,
 }
 
+#[derive(Default)]
+struct ModuleLoadTimings {
+    normalize_path: Duration,
+    frontend_read_source: Duration,
+    frontend_ensure_file_id: Duration,
+    frontend_parse: Duration,
+    frontend_prune: Duration,
+    resolve_submodule_paths: Duration,
+}
+
 pub struct ModuleLoader<'a, 'ctx> {
     pub ctx: &'a mut SemaContext<'ctx>,
     // Prevent import cycles: physical absolute path -> module ID.
     pub loaded_files: HashMap<PathBuf, DefId>,
+    path_exists_cache: HashMap<PathBuf, bool>,
     // Cache parsed ASTs until the collector extracts semantic symbols.
     pub asts: Vec<(DefId, ast::Module)>,
     frontend: &'a FrontendDatabase,
+    timings: ModuleLoadTimings,
+    collect_docs: bool,
 }
 
 impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
-    pub fn new(ctx: &'a mut SemaContext<'ctx>, frontend: &'a FrontendDatabase) -> Self {
+    pub fn new(
+        ctx: &'a mut SemaContext<'ctx>,
+        frontend: &'a FrontendDatabase,
+        collect_docs: bool,
+    ) -> Self {
         Self {
             ctx,
             loaded_files: HashMap::new(),
+            path_exists_cache: HashMap::new(),
             asts: Vec::new(),
             frontend,
+            timings: ModuleLoadTimings::default(),
+            collect_docs,
         }
+    }
+
+    pub fn phase_timings(&self) -> Vec<PhaseTiming> {
+        [
+            ("    load_normalize_path", self.timings.normalize_path),
+            ("    load_read_source", self.timings.frontend_read_source),
+            ("    load_ensure_file_id", self.timings.frontend_ensure_file_id),
+            ("    load_parse", self.timings.frontend_parse),
+            ("    load_prune", self.timings.frontend_prune),
+            (
+                "    load_resolve_submodule_paths",
+                self.timings.resolve_submodule_paths,
+            ),
+        ]
+        .into_iter()
+        .filter(|(_, duration)| !duration.is_zero())
+        .map(|(name, duration)| PhaseTiming { name, duration })
+        .collect()
     }
 
     pub fn load_root(&mut self, root_file: &str, root_name: SymbolId) -> Option<DefId> {
@@ -137,9 +177,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     }
 
     fn resolve_submodule_path(&mut self, dir_path: &Path, decl: &ast::Decl) -> Option<PathBuf> {
-        let mod_name_str = self.ctx.resolve(decl.name);
-        let dir_init = dir_path.join(mod_name_str).join("init.rn");
-        let file_kn = dir_path.join(format!("{}.rn", mod_name_str));
+        let mod_name = self.ctx.resolve(decl.name).to_string();
+        let dir_init = dir_path.join(&mod_name).join("init.rn");
+        let file_kn = dir_path.join(format!("{}.rn", mod_name));
 
         if self.path_exists(&dir_init) {
             Some(dir_init)
@@ -149,7 +189,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             self.ctx
                 .struct_error(
                     decl.span,
-                    format!("Cannot find module file for `{}`", mod_name_str),
+                    format!("Cannot find module file for `{}`", mod_name),
                 )
                 .with_hint(format!(
                     "expected to find `{}` or `{}`",
@@ -168,17 +208,38 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         name: SymbolId,
         is_imported: bool,
     ) -> Option<DefId> {
+        let normalize_started = Instant::now();
         let abs_path = Self::normalize_path(&path);
+        self.timings.normalize_path += normalize_started.elapsed();
+        self.load_module_normalized(abs_path, parent, name, is_imported)
+    }
 
+    fn load_module_normalized(
+        &mut self,
+        abs_path: PathBuf,
+        parent: Option<DefId>,
+        name: SymbolId,
+        is_imported: bool,
+    ) -> Option<DefId> {
         if let Some(&mod_id) = self.loaded_files.get(&abs_path) {
             return Some(mod_id);
         }
 
         let parsed = match self
             .frontend
-            .load_parsed_module_uncached(self.ctx.sess, &abs_path)
+            .load_parsed_module_uncached_normalized_profiled(
+                self.ctx.sess,
+                &abs_path,
+                self.collect_docs,
+            )
         {
-            Ok(Some(parsed)) => parsed,
+            Ok(Some((parsed, timings))) => {
+                self.timings.frontend_read_source += timings.read_source;
+                self.timings.frontend_ensure_file_id += timings.ensure_file_id;
+                self.timings.frontend_parse += timings.parse;
+                self.timings.frontend_prune += timings.prune;
+                parsed
+            }
             Ok(None) => {
                 self.ctx.sess.error_count += 1;
                 eprintln!(
@@ -230,16 +291,23 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             docs: None,
         };
         self.ctx.add_def(Def::Module(dummy_def));
+        self.ctx.register_module_scope(mod_id, scope_id);
+        self.ctx.register_def_owner(mod_id, parent, Some(scope_id));
         let ast = parsed.ast;
 
         let mut submodules = HashMap::new();
-
         for decl in &ast.decls {
-            if let ast::DeclKind::ModDecl { .. } = &decl.kind
-                && let Some(p) = self.resolve_submodule_path(&dir_path, decl)
-                && let Some(sub_id) = self.load_module(p, Some(mod_id), decl.name, is_imported)
-            {
-                submodules.insert(decl.name, sub_id);
+            if let ast::DeclKind::ModDecl { .. } = &decl.kind {
+                let resolve_started = Instant::now();
+                let resolved = self.resolve_submodule_path(&dir_path, decl);
+                self.timings.resolve_submodule_paths += resolve_started.elapsed();
+
+                if let Some(path) = resolved
+                    && let Some(sub_id) =
+                        self.load_module_normalized(path, Some(mod_id), decl.name, is_imported)
+                {
+                    submodules.insert(decl.name, sub_id);
+                }
             }
         }
 
@@ -291,7 +359,14 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         path
     }
 
-    fn path_exists(&self, path: &Path) -> bool {
-        self.frontend.source_exists(path).unwrap_or(false)
+    fn path_exists(&mut self, path: &Path) -> bool {
+        if let Some(exists) = self.path_exists_cache.get(path).copied() {
+            return exists;
+        }
+
+        let exists = self.frontend.source_exists(path);
+        self.path_exists_cache
+            .insert(path.to_path_buf(), exists);
+        exists
     }
 }

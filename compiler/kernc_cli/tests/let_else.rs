@@ -9,7 +9,7 @@ fn compile_source(source: &str) -> Output {
 }
 
 fn build_and_run_source(source: &str) -> Output {
-    build_and_run("kernc_let_else_run", source, &["--link-profile", "hosted"])
+    build_and_run("kernc_let_else_run", source, &["--runtime-libc", "yes"])
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn extract(value: Option[i32]) i32 {
     return inner;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return extract(Option[i32].{ Some: 42 });
 }
 "#,
@@ -57,7 +57,7 @@ const fn unwrap_or(value: Option[i32], fallback: i32) i32 {
 
 const PICKED = unwrap_or(Option[i32].{ Some: 9 }, 5);
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return PICKED;
 }
 "#,
@@ -80,7 +80,7 @@ type Option[T] = enum {
     Some: T,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let .Some: value = Option[i32].{ Some: 3 } else return 0;
     return value;
 }
@@ -110,7 +110,7 @@ type Option[T] = enum {
     Some: T,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return match (Option[i32].{ Some: 3 }) {
         .Some: value => value,
         .None => 0,
@@ -142,7 +142,7 @@ type Option[T] = enum {
     Some: T,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let .{ Some: value } = Option[i32].{ Some: 3 };
     return value;
 }
@@ -167,7 +167,7 @@ extern fn main(args: [][]u8) i32 {
 fn rejects_irrefutable_let_else() {
     let output = compile_source(
         r#"
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let value = 3 else return 0;
     return value;
 }
@@ -197,7 +197,7 @@ type Option[T] = enum {
     Some: T,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let .{ Some: value } = Option[i32].{ None } else 0;
     return value;
 }
@@ -232,7 +232,7 @@ fn pick(value: Option[i32], fallback: bool) i32 {
     return inner;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return pick(Option[i32].{ None }, true);
 }
 "#,
@@ -261,7 +261,7 @@ fn unwrap_or_error(value: Result[i32, i32]) i32 {
     return inner;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return unwrap_or_error(Result[i32, i32].{ Err: 27 });
 }
 "#,
@@ -292,7 +292,7 @@ const fn pick(value: Option[i32]) i32 {
 
 const PICKED = pick(Option[i32].{ None });
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return PICKED;
 }
 "#,
@@ -316,7 +316,7 @@ type Result[T, E] = enum {
     Pending,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let .{ Ok: value } = Result[i32, i32].{ Pending } else .{ Err: err } => return err;
     return value;
 }
@@ -355,7 +355,7 @@ fn pick(value: Option[i32]) i32 {
     return inner;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return pick(Option[i32].{ Some: 19 });
 }
 "#,
@@ -379,7 +379,7 @@ type Option[T] = enum {
     Some: T,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let value = i32.{5};
 
     {
@@ -402,3 +402,4 @@ extern fn main(args: [][]u8) i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+

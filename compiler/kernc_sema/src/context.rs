@@ -1,6 +1,8 @@
 use kernc_utils::AtomicOrdering;
+use kernc_utils::config::RuntimeEntry;
 use kernc_utils::{DiagnosticBuilder, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
 use std::collections::{BTreeMap, HashMap};
+use std::time::Duration;
 
 use crate::def::{Def, DefId};
 use crate::scope::{ScopeId, SymbolTable};
@@ -17,8 +19,51 @@ pub struct SemaStructureSnapshot {
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
     pub global_impls: Vec<DefId>,
+    pub trait_impls: Vec<DefId>,
+    pub impl_methods_by_name: HashMap<SymbolId, Vec<DefId>>,
     pub alias_roots: HashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
+    pub module_defs_by_scope: HashMap<ScopeId, DefId>,
+    pub parent_modules_by_def: HashMap<DefId, DefId>,
+    pub owner_scopes_by_def: HashMap<DefId, ScopeId>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ExprTimingStats {
+    pub bindings: Duration,
+    pub ops: Duration,
+    pub access: Duration,
+    pub access_identifier: Duration,
+    pub access_field: Duration,
+    pub access_field_module: Duration,
+    pub access_field_enum_variant: Duration,
+    pub access_field_member_query: Duration,
+    pub access_field_query_trait_object: Duration,
+    pub access_field_query_named_type: Duration,
+    pub access_field_query_bound: Duration,
+    pub access_field_query_impl: Duration,
+    pub access_field_miss: Duration,
+    pub access_index: Duration,
+    pub access_slice: Duration,
+    pub call: Duration,
+    pub call_plain: Duration,
+    pub call_signature: Duration,
+    pub call_intrinsic: Duration,
+    pub call_arguments: Duration,
+    pub call_generic_instantiation: Duration,
+    pub call_closure: Duration,
+    pub aggregate: Duration,
+    pub control: Duration,
+    pub control_block: Duration,
+    pub control_if: Duration,
+    pub control_match: Duration,
+    pub control_match_patterns: Duration,
+    pub control_match_bodies: Duration,
+    pub control_match_exhaustiveness: Duration,
+    pub control_for: Duration,
+    pub control_return: Duration,
+    pub control_defer: Duration,
+    pub dynamic_typeof: Duration,
 }
 
 pub struct SemaContext<'a> {
@@ -39,12 +84,18 @@ pub struct SemaContext<'a> {
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
     pub global_impls: Vec<DefId>,
+    pub trait_impls: Vec<DefId>,
+    pub impl_methods_by_name: HashMap<SymbolId, Vec<DefId>>,
 
     // 4. Module and package resolution state.
     pub module_aliases: HashMap<String, String>,
     pub module_interface_aliases: HashMap<String, String>,
     pub alias_roots: HashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
+    pub module_defs_by_scope: HashMap<ScopeId, DefId>,
+    pub parent_modules_by_def: HashMap<DefId, DefId>,
+    pub owner_scopes_by_def: HashMap<DefId, ScopeId>,
+    pub expr_timing_stats: ExprTimingStats,
     identifier_references: Vec<(Span, Span)>,
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }
@@ -66,7 +117,13 @@ impl<'a> SemaContext<'a> {
             module_interface_aliases: HashMap::new(),
             alias_roots: HashMap::new(),
             root_module: None,
+            module_defs_by_scope: HashMap::new(),
+            parent_modules_by_def: HashMap::new(),
+            owner_scopes_by_def: HashMap::new(),
+            expr_timing_stats: ExprTimingStats::default(),
             global_impls: Vec::new(),
+            trait_impls: Vec::new(),
+            impl_methods_by_name: HashMap::new(),
             identifier_references: Vec::new(),
             semantic_definitions: BTreeMap::new(),
         }
@@ -96,8 +153,33 @@ impl<'a> SemaContext<'a> {
             defs: self.defs.clone(),
             scopes: self.scopes.clone(),
             global_impls: self.global_impls.clone(),
+            trait_impls: self.trait_impls.clone(),
+            impl_methods_by_name: self.impl_methods_by_name.clone(),
             alias_roots: self.alias_roots.clone(),
             root_module: self.root_module,
+            module_defs_by_scope: self.module_defs_by_scope.clone(),
+            parent_modules_by_def: self.parent_modules_by_def.clone(),
+            owner_scopes_by_def: self.owner_scopes_by_def.clone(),
+        }
+    }
+
+    pub fn into_structure_snapshot(self) -> SemaStructureSnapshot {
+        SemaStructureSnapshot {
+            type_registry: self.type_registry,
+            node_types: self.node_types,
+            atomic_orderings: self.atomic_orderings,
+            trait_method_owners: self.trait_method_owners,
+            builtin_defs: self.builtin_defs,
+            defs: self.defs,
+            scopes: self.scopes,
+            global_impls: self.global_impls,
+            trait_impls: self.trait_impls,
+            impl_methods_by_name: self.impl_methods_by_name,
+            alias_roots: self.alias_roots,
+            root_module: self.root_module,
+            module_defs_by_scope: self.module_defs_by_scope,
+            parent_modules_by_def: self.parent_modules_by_def,
+            owner_scopes_by_def: self.owner_scopes_by_def,
         }
     }
 
@@ -111,8 +193,14 @@ impl<'a> SemaContext<'a> {
         self.defs = snapshot.defs;
         self.scopes = snapshot.scopes;
         self.global_impls = snapshot.global_impls;
+        self.trait_impls = snapshot.trait_impls;
+        self.impl_methods_by_name = snapshot.impl_methods_by_name;
         self.alias_roots = snapshot.alias_roots;
         self.root_module = snapshot.root_module;
+        self.module_defs_by_scope = snapshot.module_defs_by_scope;
+        self.parent_modules_by_def = snapshot.parent_modules_by_def;
+        self.owner_scopes_by_def = snapshot.owner_scopes_by_def;
+        self.expr_timing_stats = ExprTimingStats::default();
         self.identifier_references.clear();
         self.semantic_definitions.clear();
     }
@@ -238,6 +326,87 @@ impl<'a> SemaContext<'a> {
         self.builtin_defs.insert(name, def_id);
     }
 
+    pub fn register_module_scope(&mut self, module_id: DefId, scope_id: ScopeId) {
+        self.module_defs_by_scope.insert(scope_id, module_id);
+    }
+
+    pub fn register_def_owner(
+        &mut self,
+        def_id: DefId,
+        parent_module: Option<DefId>,
+        owner_scope: Option<ScopeId>,
+    ) {
+        if let Some(module_id) = parent_module {
+            self.parent_modules_by_def.insert(def_id, module_id);
+        }
+        if let Some(scope_id) = owner_scope {
+            self.owner_scopes_by_def.insert(def_id, scope_id);
+        }
+    }
+
+    pub fn module_for_scope(&self, scope_id: ScopeId) -> Option<DefId> {
+        let mut current = Some(scope_id);
+        while let Some(scope_id) = current {
+            if let Some(&module_id) = self.module_defs_by_scope.get(&scope_id) {
+                return Some(module_id);
+            }
+            current = self.scopes.parent_scope(scope_id);
+        }
+
+        self.defs
+            .iter()
+            .filter_map(|def| {
+                let Def::Module(module) = def else {
+                    return None;
+                };
+                self.scopes
+                    .distance_to_ancestor(scope_id, module.scope_id)
+                    .map(|distance| (module.id, distance))
+            })
+            .min_by_key(|(_, distance)| *distance)
+            .map(|(module_id, _)| module_id)
+    }
+
+    pub fn def_parent_module(&self, def_id: DefId) -> Option<DefId> {
+        self.parent_modules_by_def.get(&def_id).copied().or_else(|| {
+            self.defs.iter().find_map(|def| match def {
+                Def::Module(module) if module.items.contains(&def_id) => Some(module.id),
+                _ => None,
+            })
+        })
+    }
+
+    pub fn def_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
+        self.owner_scopes_by_def.get(&def_id).copied().or_else(|| {
+            match self.defs.get(def_id.0 as usize) {
+                Some(Def::Function(function)) => {
+                    let mut current_parent = function.parent;
+                    while let Some(parent_id) = current_parent {
+                        match self.defs.get(parent_id.0 as usize) {
+                            Some(Def::Module(module)) => return Some(module.scope_id),
+                            Some(Def::Impl(impl_def)) => current_parent = impl_def.parent_module,
+                            _ => return None,
+                        }
+                    }
+                    None
+                }
+                Some(Def::Global(_))
+                | Some(Def::Struct(_))
+                | Some(Def::Union(_))
+                | Some(Def::Enum(_))
+                | Some(Def::Trait(_))
+                | Some(Def::TypeAlias(_))
+                | Some(Def::Impl(_)) => self
+                    .def_parent_module(def_id)
+                    .and_then(|module_id| match self.defs.get(module_id.0 as usize) {
+                        Some(Def::Module(module)) => Some(module.scope_id),
+                        _ => None,
+                    }),
+                _ => None,
+            }
+        })
+    }
+
     pub fn builtin_def(&mut self, name: &str) -> Option<DefId> {
         let symbol = self.intern(name);
         self.builtin_defs.get(&symbol).copied()
@@ -249,6 +418,29 @@ impl<'a> SemaContext<'a> {
             self.type_registry
                 .intern(crate::ty::TypeKind::TraitObject(def_id, args)),
         )
+    }
+
+    pub fn configured_runtime_entry(&self) -> RuntimeEntry {
+        match self.sess.custom_defines.get("runtime_entry").map(String::as_str) {
+            Some("rt") => RuntimeEntry::Rt,
+            Some("crt") => RuntimeEntry::Crt,
+            _ => RuntimeEntry::None,
+        }
+    }
+
+    pub fn program_entry_enabled(&self) -> bool {
+        !matches!(self.configured_runtime_entry(), RuntimeEntry::None)
+    }
+
+    pub fn main_argv_ptr_ty(&mut self) -> TypeId {
+        let ptr_u8 = self.type_registry.intern(crate::ty::TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::U8,
+        });
+        self.type_registry.intern(crate::ty::TypeKind::Pointer {
+            is_mut: false,
+            elem: ptr_u8,
+        })
     }
 
     /// Generate a deterministic mangling suffix for a semantic type.

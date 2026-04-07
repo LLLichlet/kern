@@ -1,5 +1,5 @@
 use super::{CompilerDriver, LinkTarget, TempFileGuard};
-use kernc_utils::config::{LinkProfile, link_profile_uses_crt_startup};
+use kernc_utils::config::{RuntimeEntry, runtime_links_libc, runtime_uses_crt_startup};
 use std::env;
 use std::process::Command;
 
@@ -109,7 +109,7 @@ impl CompilerDriver {
 
         cmd.arg("-o").arg(&self.options.output_file);
 
-        self.apply_link_profile(&mut cmd, target.is_windows, target.is_darwin);
+        self.apply_runtime_contract(&mut cmd, target.is_windows, target.is_darwin);
 
         for path in &self.options.linker_search_paths {
             cmd.arg(format!("-L{}", path));
@@ -126,55 +126,55 @@ impl CompilerDriver {
         cmd
     }
 
-    fn apply_link_profile(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
-        match self.options.link_profile {
-            LinkProfile::None => {}
-            LinkProfile::Hosted => {
-                if link_profile_uses_crt_startup(&self.options) {
-                    if !is_windows && !is_darwin {
-                        cmd.arg("-no-pie");
-                    }
-                    if let Some(entry_symbol) = &self.options.entry_symbol {
-                        cmd.arg(format!("-Wl,-e,{}", entry_symbol));
-                    }
-                } else if is_darwin {
-                    cmd.arg("-nostartfiles");
-                    cmd.arg(format!(
-                        "-Wl,-e,{}",
-                        self.options.entry_symbol.as_deref().unwrap_or("_start")
-                    ));
-                } else {
-                    cmd.arg("-no-pie");
-                    cmd.arg("-nostartfiles");
-                    if let Some(entry_symbol) = &self.options.entry_symbol {
-                        cmd.arg(format!("-Wl,-e,{}", entry_symbol));
-                    }
-                }
-            }
-            LinkProfile::Freestanding => {
-                if is_windows {
-                    cmd.arg("-Wno-override-module");
-                    cmd.arg("-nostdlib");
-                    cmd.arg("-Wl,/subsystem:console");
-                    if let Some(entry_symbol) = &self.options.entry_symbol {
+    fn apply_runtime_contract(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
+        match self.options.runtime_entry {
+            RuntimeEntry::None => {
+                if let Some(entry_symbol) = &self.options.entry_symbol {
+                    if is_windows {
+                        cmd.arg("-Wl,/subsystem:console");
                         cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
-                    }
-                } else if is_darwin {
-                    cmd.arg("-nostdlib");
-                    cmd.arg(format!(
-                        "-Wl,-e,{}",
-                        self.options.entry_symbol.as_deref().unwrap_or("_start")
-                    ));
-                } else {
-                    cmd.arg("-no-pie");
-                    cmd.arg("-nostdlib");
-                    if let Some(entry_symbol) = &self.options.entry_symbol {
+                    } else {
                         cmd.arg(format!("-Wl,-e,{}", entry_symbol));
                     }
                 }
             }
-            LinkProfile::Kern => {
-                if is_windows {
+            RuntimeEntry::Crt => {
+                if runtime_uses_crt_startup(&self.options) {
+                    if is_windows {
+                        if let Some(entry_symbol) = &self.options.entry_symbol {
+                            cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
+                        }
+                    } else if !is_darwin {
+                        cmd.arg("-no-pie");
+                        if let Some(entry_symbol) = &self.options.entry_symbol {
+                            cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                        }
+                    } else if let Some(entry_symbol) = &self.options.entry_symbol {
+                        cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                    }
+                }
+            }
+            RuntimeEntry::Rt => {
+                if runtime_links_libc(&self.options) {
+                    if is_darwin {
+                        cmd.arg("-nostartfiles");
+                        cmd.arg(format!(
+                            "-Wl,-e,{}",
+                            self.options.entry_symbol.as_deref().unwrap_or("_start")
+                        ));
+                    } else if is_windows {
+                        cmd.arg("-lkernel32");
+                        if let Some(entry_symbol) = &self.options.entry_symbol {
+                            cmd.arg(format!("-Wl,/entry:{}", entry_symbol));
+                        }
+                    } else {
+                        cmd.arg("-no-pie");
+                        cmd.arg("-nostartfiles");
+                        if let Some(entry_symbol) = &self.options.entry_symbol {
+                            cmd.arg(format!("-Wl,-e,{}", entry_symbol));
+                        }
+                    }
+                } else if is_windows {
                     cmd.arg("-Wno-override-module");
                     cmd.arg("-nostdlib");
                     cmd.arg("-Wl,/subsystem:console");

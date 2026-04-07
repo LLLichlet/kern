@@ -14,36 +14,8 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
         )
     }
 
-    pub(super) fn global_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
-        self.ctx.defs.iter().find_map(|def| {
-            let Def::Module(module) = def else {
-                return None;
-            };
-
-            if module.items.contains(&def_id) {
-                Some(module.scope_id)
-            } else {
-                None
-            }
-        })
-    }
-
     pub(super) fn def_owner_scope(&self, def_id: DefId) -> Option<ScopeId> {
-        match &self.ctx.defs[def_id.0 as usize] {
-            Def::Function(f) => {
-                let mut current_parent = f.parent;
-                while let Some(parent_id) = current_parent {
-                    match &self.ctx.defs[parent_id.0 as usize] {
-                        Def::Module(module) => return Some(module.scope_id),
-                        Def::Impl(impl_def) => current_parent = impl_def.parent_module,
-                        _ => return None,
-                    }
-                }
-                None
-            }
-            Def::Global(_) => self.global_owner_scope(def_id),
-            _ => None,
-        }
+        self.ctx.def_owner_scope(def_id)
     }
 
     pub(super) fn resolved_type(&mut self, ty: TypeId) -> TypeId {

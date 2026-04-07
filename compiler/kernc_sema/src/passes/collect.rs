@@ -141,7 +141,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         if let Def::Module(m) = &mut self.ctx.defs[mod_id.0 as usize] {
             m.items = item_ids;
             m.imports = imports;
-            m.docs = module.docs.clone();
+            m.docs = Self::clone_docs_if_present(&module.docs);
         }
 
         if let Some(prev) = prev_scope {
@@ -299,11 +299,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             is_intrinsic: false,
             span: decl.span,
             resolved_sig: None,
-            docs: decl.docs.clone(),
+            docs: Self::clone_docs_if_present(&decl.docs),
             attributes: decl.attributes.clone(),
         };
 
         self.ctx.add_def(Def::Function(func_def));
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
         // Only free functions are inserted into the surrounding lexical scope.
         if spec.parent_impl.is_none() {
@@ -343,11 +345,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             is_extern,
             is_mut,
             span: decl.span,
-            docs: decl.docs.clone(),
+            docs: Self::clone_docs_if_present(&decl.docs),
             attributes: decl.attributes.clone(),
         };
 
         self.ctx.add_def(Def::Global(global_def));
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
 
         let sym_kind = if is_static {
             SymbolKind::Static
@@ -389,13 +393,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     id: def_id,
                     name: decl.name,
                     vis: spec.vis,
+                    parent_module: self.current_module,
                     is_imported: self.current_module_imported,
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     fields: fields.clone(),
                     is_extern: spec.is_extern || *target_extern,
                     span: decl.span,
-                    docs: decl.docs.clone(),
+                    docs: Self::clone_docs_if_present(&decl.docs),
                     attributes: decl.attributes.clone(),
                 })
             }
@@ -408,13 +413,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     id: def_id,
                     name: decl.name,
                     vis: spec.vis,
+                    parent_module: self.current_module,
                     is_imported: self.current_module_imported,
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     fields: fields.clone(),
                     is_extern: spec.is_extern || *target_extern,
                     span: decl.span,
-                    docs: decl.docs.clone(),
+                    docs: Self::clone_docs_if_present(&decl.docs),
                 })
             }
             TypeKind::Enum {
@@ -438,7 +444,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     backing_type: backing_type.clone(),
                     variants: variants.clone(),
                     span: decl.span,
-                    docs: decl.docs.clone(),
+                    docs: Self::clone_docs_if_present(&decl.docs),
                 })
             }
             TypeKind::Trait { fields } => {
@@ -456,7 +462,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     resolved_supertraits: Vec::new(),
                     is_builtin: false,
                     span: decl.span,
-                    docs: decl.docs.clone(),
+                    docs: Self::clone_docs_if_present(&decl.docs),
                 })
             }
             _ => {
@@ -470,12 +476,14 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     where_clauses: spec.where_clauses.to_vec(),
                     target: spec.target.clone(),
                     span: decl.span,
-                    docs: decl.docs.clone(),
+                    docs: Self::clone_docs_if_present(&decl.docs),
                 })
             }
         };
 
         self.ctx.add_def(def);
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
         self.define_symbol(SymbolDefSpec {
             name: decl.name,
             kind: sym_kind,
@@ -500,6 +508,9 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     ) -> Option<DefId> {
         let impl_id = DefId(self.ctx.defs.len() as u32);
         self.ctx.global_impls.push(impl_id);
+        if trait_type.is_some() {
+            self.ctx.trait_impls.push(impl_id);
+        }
         let mut method_ids = Vec::new();
         self.ctx.add_def(Def::Impl(ImplDef {
             id: impl_id,
@@ -512,6 +523,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             methods: Vec::new(),
             span: decl.span,
         }));
+        self.ctx
+            .register_def_owner(impl_id, self.current_module, self.current_owner_scope());
 
         self.ctx.scopes.enter_scope();
         self.inject_generic_params(generics);
@@ -532,7 +545,18 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
 
         if let Def::Impl(i) = &mut self.ctx.defs[impl_id.0 as usize] {
-            i.methods = method_ids;
+            i.methods = method_ids.clone();
+        }
+
+        for method_id in method_ids {
+            let Some(Def::Function(function)) = self.ctx.defs.get(method_id.0 as usize) else {
+                continue;
+            };
+            self.ctx
+                .impl_methods_by_name
+                .entry(function.name)
+                .or_default()
+                .push(method_id);
         }
 
         Some(impl_id)
@@ -592,6 +616,21 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 is_pub: false,
                 is_mut: false,
             });
+        }
+    }
+
+    fn clone_docs_if_present(docs: &Option<ast::DocBlock>) -> Option<ast::DocBlock> {
+        match docs {
+            Some(block) if !block.lines.is_empty() => Some(block.clone()),
+            _ => None,
+        }
+    }
+
+    fn current_owner_scope(&self) -> Option<crate::scope::ScopeId> {
+        let module_id = self.current_module?;
+        match self.ctx.defs.get(module_id.0 as usize) {
+            Some(Def::Module(module)) => Some(module.scope_id),
+            _ => None,
         }
     }
 }

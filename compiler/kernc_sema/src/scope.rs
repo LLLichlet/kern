@@ -207,6 +207,10 @@ impl SymbolTable {
         None
     }
 
+    pub fn parent_scope(&self, scope_id: ScopeId) -> Option<ScopeId> {
+        self.scopes.get(scope_id.0).and_then(|scope| scope.parent)
+    }
+
     /// Update the type of an existing symbol after inference.
     pub fn update_type(&mut self, name: SymbolId, ty: TypeId) {
         let mut curr = self.current_scope;
@@ -225,6 +229,15 @@ impl SymbolTable {
     pub fn update_type_in_scope(&mut self, scope_id: ScopeId, name: SymbolId, ty: TypeId) -> bool {
         if let Some(info) = self.scopes[scope_id.0].symbols.get_mut(&name) {
             info.type_id = ty;
+            return true;
+        }
+
+        false
+    }
+
+    pub fn update_span_in_scope(&mut self, scope_id: ScopeId, name: SymbolId, span: Span) -> bool {
+        if let Some(info) = self.scopes[scope_id.0].symbols.get_mut(&name) {
+            info.span = span;
             return true;
         }
 

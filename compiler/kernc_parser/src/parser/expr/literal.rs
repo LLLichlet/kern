@@ -9,7 +9,7 @@ impl<'a> Parser<'a> {
         let span = token.span;
         match token.tag {
             TokenType::IntLiteral => {
-                let text = self.session.source_manager.slice_source(span).to_string();
+                let text = self.source_slice(span).to_string();
                 let text_clean = text.replace("_", "");
                 let (radix, num_str) = if let Some(stripped) = text_clean.strip_prefix("0x") {
                     (16, stripped)
@@ -32,11 +32,7 @@ impl<'a> Parser<'a> {
                 })
             }
             TokenType::FloatLiteral => {
-                let text = self
-                    .session
-                    .source_manager
-                    .slice_source(span)
-                    .replace("_", "");
+                let text = self.source_slice(span).replace("_", "");
                 let val = text.parse::<f64>().map_err(|_| {
                     self.add_error(span, format!("Invalid float literal: {}", text));
                     ParseError
@@ -63,7 +59,7 @@ impl<'a> Parser<'a> {
 
     fn parse_char_literal(&mut self, token: Token) -> ParseResult<Expr> {
         let span = token.span;
-        let raw = self.session.source_manager.slice_source(span).to_string();
+        let raw = self.source_slice(span).to_string();
         let inner = &raw[1..raw.len() - 1];
 
         let c = if inner.is_empty() {
@@ -102,7 +98,7 @@ impl<'a> Parser<'a> {
 
     fn parse_byte_char_literal(&mut self, token: Token) -> ParseResult<Expr> {
         let span = token.span;
-        let raw = self.session.source_manager.slice_source(span).to_string();
+        let raw = self.source_slice(span).to_string();
         let inner = &raw[2..raw.len() - 1];
 
         let byte_val = if inner.is_empty() {
@@ -230,11 +226,7 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse_string_literal(&mut self, token: Token) -> ParseResult<SymbolId> {
-        let raw = self
-            .session
-            .source_manager
-            .slice_source(token.span)
-            .to_string();
+        let raw = self.source_slice(token.span).to_string();
 
         if raw.starts_with('"') {
             if raw.len() < 2 || !raw.ends_with('"') {

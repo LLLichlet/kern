@@ -183,11 +183,7 @@ impl<'a> Parser<'a> {
             }
             TokenType::Eof => Ok(None),
             _ => {
-                let txt = self
-                    .session
-                    .source_manager
-                    .slice_source(token.span)
-                    .to_string();
+                let txt = self.source_slice(token.span).to_string();
                 self.add_error(token.span, format!("Expected declaration, found '{}'", txt));
                 Err(ParseError)
             }

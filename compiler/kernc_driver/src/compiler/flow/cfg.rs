@@ -1,21 +1,12 @@
 use super::*;
 
-impl FlowCfgBuilder {
+impl<'a> FlowCfgBuilder<'a> {
     pub(super) fn build(
         expr: &ast::Expr,
         owner_span: Span,
-        references: &[(Span, Span)],
-        binding_ids_by_span: &HashMap<Span, AnalysisFlowBindingId>,
+        binding_ids_by_span: &'a HashMap<Span, AnalysisFlowBindingId>,
+        reference_to_binding: &'a HashMap<Span, AnalysisFlowBindingId>,
     ) -> FlowCfgBuildResult {
-        let reference_to_binding = references
-            .iter()
-            .filter_map(|(reference_span, definition_span)| {
-                binding_ids_by_span
-                    .get(definition_span)
-                    .copied()
-                    .map(|binding_id| (*reference_span, binding_id))
-            })
-            .collect::<HashMap<_, _>>();
         let mut builder = Self {
             nodes: Vec::new(),
             edges: Vec::new(),
@@ -26,7 +17,7 @@ impl FlowCfgBuilder {
             node_def_kinds: Vec::new(),
             node_copy_sources: Vec::new(),
             node_effects: Vec::new(),
-            local_bindings_by_span: binding_ids_by_span.clone(),
+            local_bindings_by_span: binding_ids_by_span,
             reference_to_binding,
             entry: AnalysisFlowNodeId(0),
             exit: AnalysisFlowNodeId(0),

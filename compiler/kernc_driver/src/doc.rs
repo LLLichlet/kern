@@ -812,26 +812,14 @@ fn module_owned_path(
 
 fn module_parent_for_named_def(ctx: &SemaContext<'_>, def_id: DefId) -> Option<DefId> {
     match &ctx.defs[def_id.0 as usize] {
-        Def::Struct(def) => find_parent_module(ctx, def.id),
-        Def::Union(def) => find_parent_module(ctx, def.id),
-        Def::Enum(def) => find_parent_module(ctx, def.id),
-        Def::Trait(def) => find_parent_module(ctx, def.id),
-        Def::TypeAlias(def) => find_parent_module(ctx, def.id),
-        Def::Global(def) => find_parent_module(ctx, def.id),
+        Def::Struct(def) => ctx.def_parent_module(def.id),
+        Def::Union(def) => ctx.def_parent_module(def.id),
+        Def::Enum(def) => ctx.def_parent_module(def.id),
+        Def::Trait(def) => ctx.def_parent_module(def.id),
+        Def::TypeAlias(def) => ctx.def_parent_module(def.id),
+        Def::Global(def) => ctx.def_parent_module(def.id),
         _ => None,
     }
-}
-
-fn find_parent_module(ctx: &SemaContext<'_>, target: DefId) -> Option<DefId> {
-    for def in &ctx.defs {
-        let Def::Module(module) = def else {
-            continue;
-        };
-        if module.items.contains(&target) {
-            return Some(module.id);
-        }
-    }
-    None
 }
 
 fn module_path(ctx: &SemaContext<'_>, module_id: DefId) -> String {
@@ -1239,6 +1227,7 @@ mod tests {
             id: DefId(1),
             name: config_name,
             vis: Visibility::Public,
+            parent_module: Some(DefId(0)),
             is_imported: false,
             generics: Vec::new(),
             where_clauses: Vec::new(),

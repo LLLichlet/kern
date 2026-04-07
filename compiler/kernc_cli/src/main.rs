@@ -1,7 +1,8 @@
 use kernc_driver::CompilerDriver;
 use kernc_utils::config::{
-    AsmDialect, CompileOptions, DriverMode, LinkProfile, OptLevel, TargetMachine,
-    inject_driver_condition_defines, maybe_inject_std_alias,
+    AsmDialect, CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry,
+    RuntimeProvider, TargetMachine, inject_default_library_aliases,
+    inject_driver_condition_defines, validate_runtime_options,
 };
 use std::env;
 use std::path::Path;
@@ -42,20 +43,19 @@ fn print_usage(program_name: &str) {
     println!("  --asm-dialect <D>    Set assembly dialect: intel (default) or att");
     println!("  --cc <cmd>           Set the linker driver command (default: $CC or cc)");
     println!("  --linker <cmd>       Alias for --cc");
-    println!("  --link-profile <p>   Default link policy: kern, freestanding, hosted, none");
+    println!("  --runtime-entry <m>  Runtime entry contract: none, rt, crt");
+    println!("  --runtime-provider <p>");
+    println!("                       Runtime/platform provider: none, toolchain, libc");
+    println!("  --runtime-libc <b>   Whether libc is linked: yes, no");
+    println!("  --library-bundle <b> Library bundle: none, base, std");
     println!("  --link-input <path>  Add an extra linker input (.o/.a/.so/response file)");
     println!("  -L <dir>             Add a linker search path");
     println!("  -l <name>            Link against a library");
     println!("  --link-arg <arg>     Pass a raw argument through to the linker driver");
     println!("  --entry <symbol>     Override the default entry symbol used by kernc");
     println!("  --print-link-command Print the resolved linker command before execution");
-    println!("  --no-default-link-flags");
-    println!("                       Alias for `--link-profile none`");
-    println!("  --link-libc          Alias for `--link-profile hosted`");
-    println!(
-        "  --use-std            Enable the Kern standard library (hosted links may still keep std.rt entry shims)"
-    );
     println!("  --emit-llvm          Print LLVM IR to stdout");
+    println!("  --time               Print compiler phase timings");
 
     println!("\nInformation:");
     println!("  -v, --version        Display version information and exit");
@@ -87,15 +87,24 @@ fn parse_asm_dialect(value: &str) -> AsmDialect {
     }
 }
 
-fn parse_link_profile(value: &str) -> LinkProfile {
+fn parse_runtime_entry(value: &str) -> RuntimeEntry {
+    RuntimeEntry::parse(value).unwrap_or_else(|err| cli_error(err))
+}
+
+fn parse_runtime_provider(value: &str) -> RuntimeProvider {
+    RuntimeProvider::parse(value).unwrap_or_else(|err| cli_error(err))
+}
+
+fn parse_library_bundle(value: &str) -> LibraryBundle {
+    LibraryBundle::parse(value).unwrap_or_else(|err| cli_error(err))
+}
+
+fn parse_yes_no(value: &str, flag: &str) -> bool {
     match value {
-        "kern" => LinkProfile::Kern,
-        "freestanding" => LinkProfile::Freestanding,
-        "hosted" => LinkProfile::Hosted,
-        "none" => LinkProfile::None,
+        "yes" | "true" | "on" => true,
+        "no" | "false" | "off" => false,
         _ => cli_error(format!(
-            "Invalid link profile `{}`. Expected one of: kern, freestanding, hosted, none.",
-            value
+            "Invalid value `{value}` for `{flag}`. Expected one of: yes, no."
         )),
     }
 }
@@ -147,11 +156,7 @@ fn set_default_output_file(options: &mut CompileOptions) {
     }
 }
 
-fn validate_mode_inputs(
-    program_name: &str,
-    options: &CompileOptions,
-    positional_source: &Option<String>,
-) {
+fn validate_mode_inputs(program_name: &str, options: &CompileOptions, positional_source: &Option<String>) {
     if options.driver_mode.needs_source_input() && positional_source.is_none() {
         eprintln!("Error: No input file specified.");
         print_usage(program_name);
@@ -163,6 +168,8 @@ fn validate_mode_inputs(
         eprintln!("Hint: Pass object files, archives, or shared libraries via `--link-input`.");
         process::exit(1);
     }
+
+    validate_runtime_options(options).unwrap_or_else(|err| cli_error(err));
 }
 
 fn parse_args() -> CompileOptions {
@@ -204,8 +211,7 @@ fn parse_args() -> CompileOptions {
                 options.root_module_name =
                     Some(next_option_value(&mut args, "--root-module", "module name"));
             }
-            "--link-libc" => options.link_profile = LinkProfile::Hosted,
-            "--use-std" => options.use_std = true,
+            "--time" => options.report_timings = true,
             "--target" => {
                 let triple = next_option_value(&mut args, "--target", "target triple");
                 options.target = parse_target_machine(&triple);
@@ -217,9 +223,22 @@ fn parse_args() -> CompileOptions {
             "--cc" | "--linker" => {
                 options.linker_cmd = next_option_value(&mut args, arg.as_str(), "command")
             }
-            "--link-profile" => {
-                let profile = next_option_value(&mut args, "--link-profile", "profile");
-                options.link_profile = parse_link_profile(&profile);
+            "--runtime-entry" => {
+                let mode = next_option_value(&mut args, "--runtime-entry", "mode");
+                options.runtime_entry = parse_runtime_entry(&mode);
+            }
+            "--runtime-provider" => {
+                let provider =
+                    next_option_value(&mut args, "--runtime-provider", "provider");
+                options.runtime_provider = parse_runtime_provider(&provider);
+            }
+            "--runtime-libc" => {
+                let enabled = next_option_value(&mut args, "--runtime-libc", "yes|no");
+                options.runtime_libc = parse_yes_no(&enabled, "--runtime-libc");
+            }
+            "--library-bundle" => {
+                let bundle = next_option_value(&mut args, "--library-bundle", "bundle");
+                options.library_bundle = parse_library_bundle(&bundle);
             }
             "--link-input" => {
                 options
@@ -235,7 +254,6 @@ fn parse_args() -> CompileOptions {
                 options.entry_symbol = Some(next_option_value(&mut args, "--entry", "symbol"));
             }
             "--print-link-command" => options.print_link_command = true,
-            "--no-default-link-flags" => options.link_profile = LinkProfile::None,
             "-D" => {
                 let define = next_option_value(&mut args, "-D", "`key=value`");
                 let (key, value) = parse_key_value(define, "-D", "key=value");
@@ -279,7 +297,7 @@ fn parse_args() -> CompileOptions {
     options.input_file = positional_source;
     set_default_output_file(&mut options);
     inject_driver_condition_defines(&mut options);
-    maybe_inject_std_alias(&mut options);
+    inject_default_library_aliases(&mut options);
 
     options
 }

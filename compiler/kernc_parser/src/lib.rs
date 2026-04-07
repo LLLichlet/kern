@@ -210,7 +210,7 @@ impl Counter {
     #[test]
     fn parses_trailing_commas_in_common_lists() {
         let source = r#"
-use std.coll.{List,};
+use base.coll.{List,};
 
 type Pair[T,] = struct {
     left: T,

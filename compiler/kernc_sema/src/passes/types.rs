@@ -11,6 +11,68 @@ pub struct TypeResolver<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
 }
 
+struct FunctionResolveSpec {
+    name: SymbolId,
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    params: Vec<ast::FuncParam>,
+    ret_type: ast::TypeNode,
+    parent: Option<DefId>,
+    is_variadic: bool,
+    span: Span,
+}
+
+struct AggregateResolveSpec {
+    name: SymbolId,
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    fields: Vec<ast::StructFieldDef>,
+}
+
+struct TraitResolveSpec {
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    supertraits: Vec<ast::TypeNode>,
+    methods: Vec<ast::StructFieldDef>,
+    span: Span,
+}
+
+struct TypeAliasResolveSpec {
+    name: SymbolId,
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    target: ast::TypeNode,
+}
+
+struct ImplResolveSpec {
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    target_type: ast::TypeNode,
+    trait_type: Option<ast::TypeNode>,
+    methods: Vec<DefId>,
+    span: Span,
+}
+
+struct EnumResolveSpec {
+    name: SymbolId,
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    backing_type: Option<Box<ast::TypeNode>>,
+    variants: Vec<ast::EnumVariant>,
+}
+
+enum ResolveItemSpec {
+    Function(FunctionResolveSpec),
+    Struct(AggregateResolveSpec),
+    Union(AggregateResolveSpec),
+    Trait(TraitResolveSpec),
+    TypeAlias(TypeAliasResolveSpec),
+    Impl(ImplResolveSpec),
+    Enum(EnumResolveSpec),
+    Global,
+    Module,
+}
+
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
         Self { ctx }
@@ -77,22 +139,79 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     fn resolve_item(&mut self, item_id: DefId, parent_scope: ScopeId) {
-        let def = self.ctx.defs[item_id.0 as usize].clone();
+        let spec = match &self.ctx.defs[item_id.0 as usize] {
+            Def::Function(f) => ResolveItemSpec::Function(FunctionResolveSpec {
+                name: f.name,
+                generics: f.generics.clone(),
+                where_clauses: f.where_clauses.clone(),
+                params: f.params.clone(),
+                ret_type: f.ret_type.clone(),
+                parent: f.parent,
+                is_variadic: f.is_variadic,
+                span: f.span,
+            }),
+            Def::Struct(s) => ResolveItemSpec::Struct(AggregateResolveSpec {
+                name: s.name,
+                generics: s.generics.clone(),
+                where_clauses: s.where_clauses.clone(),
+                fields: s.fields.clone(),
+            }),
+            Def::Union(u) => ResolveItemSpec::Union(AggregateResolveSpec {
+                name: u.name,
+                generics: u.generics.clone(),
+                where_clauses: u.where_clauses.clone(),
+                fields: u.fields.clone(),
+            }),
+            Def::Trait(t) => ResolveItemSpec::Trait(TraitResolveSpec {
+                generics: t.generics.clone(),
+                where_clauses: t.where_clauses.clone(),
+                supertraits: t.supertraits.clone(),
+                methods: t.methods.clone(),
+                span: t.span,
+            }),
+            Def::TypeAlias(t) => ResolveItemSpec::TypeAlias(TypeAliasResolveSpec {
+                name: t.name,
+                generics: t.generics.clone(),
+                where_clauses: t.where_clauses.clone(),
+                target: t.target.clone(),
+            }),
+            Def::Impl(i) => ResolveItemSpec::Impl(ImplResolveSpec {
+                generics: i.generics.clone(),
+                where_clauses: i.where_clauses.clone(),
+                target_type: i.target_type.clone(),
+                trait_type: i.trait_type.clone(),
+                methods: i.methods.clone(),
+                span: i.span,
+            }),
+            Def::Enum(a) => ResolveItemSpec::Enum(EnumResolveSpec {
+                name: a.name,
+                generics: a.generics.clone(),
+                where_clauses: a.where_clauses.clone(),
+                backing_type: a.backing_type.clone(),
+                variants: a.variants.clone(),
+            }),
+            Def::Global(_) => ResolveItemSpec::Global,
+            Def::Module(_) => ResolveItemSpec::Module,
+        };
 
-        match &def {
-            Def::Function(f) => self.resolve_function_item(item_id, f, parent_scope),
-            Def::Struct(s) => self.resolve_struct_item(item_id, s, parent_scope),
-            Def::Union(u) => self.resolve_union_item(item_id, u, parent_scope),
-            Def::Trait(t) => self.resolve_trait_item(item_id, t, parent_scope),
-            Def::TypeAlias(t) => self.resolve_type_alias_item(t, parent_scope),
-            Def::Impl(i) => self.resolve_impl_item(i, parent_scope),
-            Def::Global(_) => {}
-            Def::Enum(a) => self.resolve_enum_item(item_id, a, parent_scope),
-            _ => {}
+        match spec {
+            ResolveItemSpec::Function(f) => self.resolve_function_item(item_id, &f, parent_scope),
+            ResolveItemSpec::Struct(s) => self.resolve_struct_item(item_id, &s, parent_scope),
+            ResolveItemSpec::Union(u) => self.resolve_union_item(item_id, &u, parent_scope),
+            ResolveItemSpec::Trait(t) => self.resolve_trait_item(item_id, &t, parent_scope),
+            ResolveItemSpec::TypeAlias(t) => self.resolve_type_alias_item(&t, parent_scope),
+            ResolveItemSpec::Impl(i) => self.resolve_impl_item(&i, parent_scope),
+            ResolveItemSpec::Enum(a) => self.resolve_enum_item(item_id, &a, parent_scope),
+            ResolveItemSpec::Global | ResolveItemSpec::Module => {}
         }
     }
 
-    fn resolve_function_item(&mut self, item_id: DefId, f: &FunctionDef, parent_scope: ScopeId) {
+    fn resolve_function_item(
+        &mut self,
+        item_id: DefId,
+        f: &FunctionResolveSpec,
+        parent_scope: ScopeId,
+    ) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let func_scope = self.ctx.scopes.enter_scope();
 
@@ -127,9 +246,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             is_variadic: f.is_variadic,
         });
 
-        if let Def::Function(mut updated_f) = self.ctx.defs[item_id.0 as usize].clone() {
+        if let Def::Function(updated_f) = &mut self.ctx.defs[item_id.0 as usize] {
             updated_f.resolved_sig = Some(sig_ty);
-            self.ctx.defs[item_id.0 as usize] = Def::Function(updated_f);
         }
 
         self.ctx.scopes.exit_scope();
@@ -154,7 +272,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
     }
 
-    fn resolve_struct_item(&mut self, item_id: DefId, s: &StructDef, parent_scope: ScopeId) {
+    fn resolve_struct_item(
+        &mut self,
+        item_id: DefId,
+        s: &AggregateResolveSpec,
+        parent_scope: ScopeId,
+    ) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let struct_scope = self.ctx.scopes.enter_scope();
 
@@ -178,7 +301,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.update_type(s.name, struct_ty);
     }
 
-    fn resolve_union_item(&mut self, item_id: DefId, u: &UnionDef, parent_scope: ScopeId) {
+    fn resolve_union_item(
+        &mut self,
+        item_id: DefId,
+        u: &AggregateResolveSpec,
+        parent_scope: ScopeId,
+    ) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let union_scope = self.ctx.scopes.enter_scope();
 
@@ -202,7 +330,12 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.update_type(u.name, union_ty);
     }
 
-    fn resolve_trait_item(&mut self, item_id: DefId, t: &TraitDef, parent_scope: ScopeId) {
+    fn resolve_trait_item(
+        &mut self,
+        item_id: DefId,
+        t: &TraitResolveSpec,
+        parent_scope: ScopeId,
+    ) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let trait_scope = self.ctx.scopes.enter_scope();
 
@@ -227,14 +360,13 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         }
         self.ctx.scopes.exit_scope();
 
-        if let Def::Trait(mut updated_t) = self.ctx.defs[item_id.0 as usize].clone() {
+        if let Def::Trait(updated_t) = &mut self.ctx.defs[item_id.0 as usize] {
             updated_t.resolved_methods = resolved_methods;
             updated_t.resolved_supertraits = resolved_supertraits;
-            self.ctx.defs[item_id.0 as usize] = Def::Trait(updated_t);
         }
     }
 
-    fn resolve_type_alias_item(&mut self, t: &TypeAliasDef, parent_scope: ScopeId) {
+    fn resolve_type_alias_item(&mut self, t: &TypeAliasResolveSpec, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let alias_scope = self.ctx.scopes.enter_scope();
 
@@ -247,7 +379,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.update_type(t.name, target_ty);
     }
 
-    fn resolve_impl_item(&mut self, i: &ImplDef, parent_scope: ScopeId) {
+    fn resolve_impl_item(&mut self, i: &ImplResolveSpec, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let impl_scope = self.ctx.scopes.enter_scope();
 
@@ -268,7 +400,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
     }
 
-    fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumDef, parent_scope: ScopeId) {
+    fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumResolveSpec, parent_scope: ScopeId) {
         self.ctx.scopes.set_current_scope(parent_scope);
         let adt_scope = self.ctx.scopes.enter_scope();
 
@@ -1201,10 +1333,10 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 .iter()
                 .map(|param| self.ctx.type_registry.intern(TypeKind::Param(param.name)))
                 .collect();
-            let self_ty = self.ctx.type_registry.intern(TypeKind::TraitObject(
-                def_id,
-                self_args,
-            ));
+            let self_ty = self
+                .ctx
+                .type_registry
+                .intern(TypeKind::TraitObject(def_id, self_args));
             self.bind_self_type(self_ty, item_scope, trait_def.span);
         }
 
@@ -1259,16 +1391,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     }
 
     fn def_owner_module_scope(&self, def_id: DefId) -> Option<ScopeId> {
-        self.ctx.defs.iter().find_map(|def| {
-            let Def::Module(module) = def else {
-                return None;
-            };
-            if module.items.contains(&def_id) {
-                Some(module.scope_id)
-            } else {
-                None
-            }
-        })
+        self.ctx.def_owner_scope(def_id)
     }
 
     fn type_contains_params(&mut self, ty: TypeId) -> bool {

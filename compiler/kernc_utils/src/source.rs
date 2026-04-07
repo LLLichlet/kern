@@ -1,4 +1,5 @@
 use super::Span;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::{fs, io};
 
@@ -121,11 +122,15 @@ impl SourceFile {
 #[derive(Debug, Default, Clone)]
 pub struct SourceManager {
     files: Vec<SourceFile>,
+    file_ids_by_path: HashMap<PathBuf, FileId>,
 }
 
 impl SourceManager {
     pub fn new() -> Self {
-        Self { files: Vec::new() }
+        Self {
+            files: Vec::new(),
+            file_ids_by_path: HashMap::new(),
+        }
     }
 
     /// Load a file, deduplicating identical canonical paths.
@@ -133,19 +138,14 @@ impl SourceManager {
         let path = path.as_ref();
         let abs_path = fs::canonicalize(path)?;
 
-        // Linear deduplication is sufficient for now; upgrade to a map if needed.
-        if let Some((id, _)) = self
-            .files
-            .iter()
-            .enumerate()
-            .find(|(_, f)| f.path == abs_path)
-        {
-            return Ok(FileId(id));
+        if let Some(file_id) = self.file_ids_by_path.get(&abs_path).copied() {
+            return Ok(file_id);
         }
 
         let src = fs::read_to_string(&abs_path)?;
         let file = SourceFile::new(abs_path, src);
         let id = FileId(self.files.len());
+        self.file_ids_by_path.insert(file.path.clone(), id);
         self.files.push(file);
         Ok(id)
     }
@@ -154,6 +154,7 @@ impl SourceManager {
     pub fn add_file(&mut self, name: String, src: String) -> FileId {
         let file = SourceFile::new(PathBuf::from(name), src);
         let id = FileId(self.files.len());
+        self.file_ids_by_path.entry(file.path.clone()).or_insert(id);
         self.files.push(file);
         id
     }
@@ -193,6 +194,10 @@ impl SourceManager {
         self.files.get(id.get())
     }
 
+    pub fn files(&self) -> &[SourceFile] {
+        &self.files
+    }
+
     pub fn get_file_name(&self, id: FileId) -> Option<&str> {
         self.files.get(id.get()).map(|f| f.name.as_str())
     }
@@ -202,10 +207,7 @@ impl SourceManager {
     }
 
     pub fn find_file_id_by_path(&self, path: &Path) -> Option<FileId> {
-        self.files
-            .iter()
-            .position(|file| file.path == path)
-            .map(FileId)
+        self.file_ids_by_path.get(path).copied()
     }
 
     pub fn update_file(&mut self, id: FileId, new_src: String) {

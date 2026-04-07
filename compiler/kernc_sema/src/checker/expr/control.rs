@@ -3,6 +3,7 @@ use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind, StmtKind};
 use kernc_utils::{DiagnosticCode, Span, SymbolId};
+use std::time::Instant;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     pub(crate) fn match_enum_def(
@@ -89,25 +90,28 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             } else if let Some(common_ty) = common_ret_ty.filter(|ty| *ty != TypeId::NEVER)
                 && body_ty != TypeId::NEVER
             {
+                let body_started = Instant::now();
                 self.check_coercion(&arm.body, common_ty, body_ty);
+                self.ctx.expr_timing_stats.control_match_bodies += body_started.elapsed();
             }
         }
 
         // --- Exhaustiveness checking ---
         if !has_catch_all {
+            let exhaustiveness_started = Instant::now();
             if is_adt {
-                let missing: Vec<_> = match self.ctx.type_registry.get(norm_target).clone() {
-                    TypeKind::Enum(def_id, _) => {
-                        match self.match_enum_def(def_id, span, "check match exhaustiveness") {
-                            Some(adt_def) => adt_def
+                let missing: Vec<_> = match self.ctx.type_registry.get(norm_target) {
+                    TypeKind::Enum(def_id, _) => self
+                        .match_enum_def(*def_id, span, "check match exhaustiveness")
+                        .map(|adt_def| {
+                            adt_def
                                 .variants
                                 .iter()
                                 .filter(|v| !handled_variants.contains(&v.name))
                                 .map(|v| self.ctx.resolve(v.name).to_string())
-                                .collect(),
-                            None => Vec::new(),
-                        }
-                    }
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     TypeKind::AnonymousEnum(enum_def) => enum_def
                         .variants
                         .iter()
@@ -132,6 +136,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .with_hint("for non-ADT types (like integers or strings), consider adding an `else =>` catch-all branch")
                     .emit();
             }
+            self.ctx.expr_timing_stats.control_match_exhaustiveness +=
+                exhaustiveness_started.elapsed();
         }
 
         common_ret_ty.unwrap_or(TypeId::VOID)
@@ -149,6 +155,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> TypeId {
         self.ctx.scopes.enter_scope();
 
+        let pattern_started = Instant::now();
         for pat in &arm.patterns {
             match &pat.kind {
                 ast::MatchPatternKind::Value(v) => {
@@ -181,8 +188,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
         }
+        self.ctx.expr_timing_stats.control_match_patterns += pattern_started.elapsed();
 
+        let body_started = Instant::now();
         let body_ty = self.check_expr(&arm.body, common_ret_ty);
+        self.ctx.expr_timing_stats.control_match_bodies += body_started.elapsed();
         self.ctx.scopes.exit_scope();
         body_ty
     }

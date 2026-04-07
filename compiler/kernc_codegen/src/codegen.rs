@@ -21,6 +21,7 @@ use llvm_sys::target_machine::{
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ptr;
+use std::time::{Duration, Instant};
 
 use kernc_mast::*;
 use kernc_sema::def::DefId;
@@ -32,6 +33,17 @@ mod block;
 mod decl;
 mod expr;
 mod types;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmitObjectTiming {
+    pub name: &'static str,
+    pub duration: Duration,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EmitObjectReport {
+    pub timings: Vec<EmitObjectTiming>,
+}
 
 pub struct CodeGenerator<'ctx, 'a> {
     context: &'ctx LlvmContext,
@@ -155,23 +167,34 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_triple_str: &str,
         output_path: &str,
         opt_level: OptLevel,
-    ) -> Result<(), String> {
-        initialize_llvm_targets();
-
+    ) -> Result<EmitObjectReport, String> {
         if target_triple_str.contains("windows") {
             return self.emit_to_file_windows(target_triple_str, output_path, opt_level);
         }
 
+        let mut report = EmitObjectReport::default();
+        let init_started = Instant::now();
+        initialize_llvm_targets();
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_init_llvm",
+            duration: init_started.elapsed(),
+        });
         let triple = CString::new(target_triple_str).map_err(|_| {
             format!("Target triple contains an interior NUL byte: {target_triple_str:?}")
         })?;
+        let setup_started = Instant::now();
         let target_machine = create_target_machine(&triple, opt_level)?;
         let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
         unsafe {
             LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
             LLVMSetTarget(self.module.as_mut_ptr(), triple.as_ptr());
         }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_setup",
+            duration: setup_started.elapsed(),
+        });
 
+        let verify_started = Instant::now();
         if let Err(err) = self.module.verify() {
             eprintln!("LLVM IR Verification Failed:\n{}", err);
             let _ = self.print_ir();
@@ -181,10 +204,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             return Err("Invalid LLVM IR generated".to_string());
         }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_verify",
+            duration: verify_started.elapsed(),
+        });
 
         let mut output = output_path.as_bytes().to_vec();
         output.push(0);
         let mut err = ptr::null_mut();
+        let backend_started = Instant::now();
         let emit_result = unsafe {
             LLVMTargetMachineEmitToFile(
                 target_machine,
@@ -194,6 +222,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 &mut err,
             )
         };
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_backend",
+            duration: backend_started.elapsed(),
+        });
         unsafe {
             LLVMDisposeTargetData(target_data);
             LLVMDisposeTargetMachine(target_machine);
@@ -203,7 +235,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return Err(take_llvm_message(err));
         }
 
-        Ok(())
+        Ok(report)
     }
 
     fn emit_to_file_windows(
@@ -211,7 +243,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_triple_str: &str,
         output_path: &str,
         opt_level: OptLevel,
-    ) -> Result<(), String> {
+    ) -> Result<EmitObjectReport, String> {
+        let mut report = EmitObjectReport::default();
+        let init_started = Instant::now();
+        initialize_llvm_targets();
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_init_llvm",
+            duration: init_started.elapsed(),
+        });
         let triple = CString::new(target_triple_str).map_err(|_| {
             format!("Target triple contains an interior NUL byte: {target_triple_str:?}")
         })?;
@@ -221,12 +260,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let mut target = ptr::null_mut();
         let mut err = ptr::null_mut();
 
+        let target_lookup_started = Instant::now();
         unsafe {
             if LLVMGetTargetFromTriple(triple.as_ptr(), &mut target, &mut err) != 0 {
                 return Err(take_llvm_message(err));
             }
         }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_target_lookup",
+            duration: target_lookup_started.elapsed(),
+        });
 
+        let setup_started = Instant::now();
         let target_machine =
             create_target_machine_from_parts(target, &triple, &cpu, &features, opt_level)?;
         let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
@@ -237,10 +282,47 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
             LLVMSetTarget(self.module.as_mut_ptr(), triple.as_ptr());
         }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_setup",
+            duration: setup_started.elapsed(),
+        });
+
+        // Fast path: plain ASCII paths are safely representable through LLVM's narrow-path API.
+        // Keep the memory-buffer fallback for Unicode paths and for direct-write failures.
+        if output_path.is_ascii() {
+            let mut output = output_path.as_bytes().to_vec();
+            output.push(0);
+            let backend_started = Instant::now();
+            let direct_result = unsafe {
+                LLVMTargetMachineEmitToFile(
+                    target_machine,
+                    self.module.as_mut_ptr(),
+                    output.as_mut_ptr() as *mut _,
+                    LLVMCodeGenFileType::LLVMObjectFile,
+                    &mut err,
+                )
+            };
+            report.timings.push(EmitObjectTiming {
+                name: "  emit_backend",
+                duration: backend_started.elapsed(),
+            });
+
+            if direct_result == 0 {
+                unsafe {
+                    LLVMDisposeTargetData(target_data);
+                    LLVMDisposeTargetMachine(target_machine);
+                }
+                return Ok(report);
+            }
+
+            let _ = take_llvm_message(err);
+            err = ptr::null_mut();
+        }
 
         // LLVM's Windows file-emission path still goes through narrow paths here.
         // Emit to memory and let Rust write the bytes so Unicode output paths work.
         let mut mem_buf = ptr::null_mut();
+        let backend_started = Instant::now();
         let result = unsafe {
             LLVMTargetMachineEmitToMemoryBuffer(
                 target_machine,
@@ -250,6 +332,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 &mut mem_buf,
             )
         };
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_backend",
+            duration: backend_started.elapsed(),
+        });
 
         if result != 0 {
             unsafe {
@@ -264,7 +350,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 LLVMGetBufferStart(mem_buf) as *const u8,
                 LLVMGetBufferSize(mem_buf),
             );
-            std::fs::write(output_path, bytes)
+            let write_started = Instant::now();
+            let result = std::fs::write(output_path, bytes);
+            report.timings.push(EmitObjectTiming {
+                name: "  emit_write",
+                duration: write_started.elapsed(),
+            });
+            result
         }
         .map_err(|e| format!("Failed to write object file `{}`: {}", output_path, e));
 
@@ -274,7 +366,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             LLVMDisposeTargetMachine(target_machine);
         }
 
-        write_result
+        write_result.map(|_| report)
     }
 
     fn resolve_symbol(&self, sym: kernc_utils::SymbolId) -> &str {
@@ -292,7 +384,8 @@ fn llvm_raw_opt_level(opt_level: OptLevel) -> LLVMCodeGenOptLevel {
 }
 
 fn initialize_llvm_targets() {
-    unsafe {
+    static INIT: std::sync::Once = std::sync::Once::new();
+    INIT.call_once(|| unsafe {
         let _ = LLVM_InitializeNativeTarget();
         let _ = LLVM_InitializeNativeAsmPrinter();
         let _ = LLVM_InitializeNativeAsmParser();
@@ -301,7 +394,7 @@ fn initialize_llvm_targets() {
         LLVM_InitializeAllTargetMCs();
         LLVM_InitializeAllAsmPrinters();
         LLVM_InitializeAllAsmParsers();
-    }
+    });
 }
 
 fn create_target_machine(

@@ -12,7 +12,7 @@ fn build_and_run_source(source: &str) -> Output {
     build_and_run(
         "kernc_destructuring_run",
         source,
-        &["--link-profile", "hosted"],
+        &["--runtime-libc", "yes"],
     )
 }
 
@@ -35,7 +35,7 @@ type Node = struct {
     maybe: Option[i32],
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let node = Node.{
         pos: .{ x: 5, y: 7 },
         maybe: .{ Some: 11 },
@@ -71,7 +71,7 @@ fn sum(pair: Pair) i32 {
     };
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return sum(Pair.{ left: 4, right: 9 });
 }
 "#,
@@ -94,7 +94,7 @@ type Boxed = struct {
     value: i32,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let .{ value: mut inner } = Boxed.{ value: 4 };
     inner = 10;
     return inner;
@@ -120,7 +120,7 @@ type Pair = struct {
     right: i32,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let .{ left, missing } = Pair.{ left: 1, right: 2 };
     return left;
 }
@@ -149,7 +149,7 @@ type Option[T] = enum {
     Some: T,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return match (Option[i32].{ None }) {
         .{ None } => 0,
         .{ Some: value } => value,
@@ -170,3 +170,4 @@ extern fn main(args: [][]u8) i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+

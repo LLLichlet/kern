@@ -9,6 +9,7 @@ use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{AtomicOrdering, Span};
 use std::collections::HashMap;
+use std::time::Instant;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn resolve_current_scope_for_types(&mut self, span: Span, context: &str) -> Option<ScopeId> {
@@ -20,38 +21,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     format!(
                         "Compiler ICE: missing active scope while resolving types for {}.",
                         context
-                    ),
-                );
-                None
-            }
-        }
-    }
-
-    fn fn_def_signature_parts(
-        &mut self,
-        def_id: DefId,
-        span: Span,
-    ) -> Option<(TypeId, Vec<ast::GenericParam>, kernc_utils::SymbolId)> {
-        match &self.ctx.defs[def_id.0 as usize] {
-            Def::Function(func) => {
-                let Some(raw_sig) = func.resolved_sig else {
-                    self.ctx.emit_ice(
-                        span,
-                        format!(
-                            "Compiler ICE: function `{}` has no resolved signature during call checking.",
-                            self.ctx.resolve(func.name)
-                        ),
-                    );
-                    return None;
-                };
-                Some((raw_sig, func.generics.clone(), func.name))
-            }
-            other => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Compiler ICE: expected function Def for callee, found `{:?}`.",
-                        other
                     ),
                 );
                 None
@@ -409,7 +378,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             matches!(callee.kind, ExprKind::GenericInstantiation { .. });
 
         // 3. Infer generic arguments and recover the final callee signature.
-        let (sig_ty, inferred_callee_ty) = self.deduce_and_resolve_signature(
+        let signature_started = Instant::now();
+        let (sig_ty, inferred_callee_ty, inferred_arg_tys) = self.deduce_and_resolve_signature(
             norm_callee,
             args,
             is_method,
@@ -417,6 +387,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             callee.span,
             has_user_explicit_generics,
         );
+        self.ctx.expr_timing_stats.call_signature += signature_started.elapsed();
 
         // 4. Write inferred generic arguments back into the AST-visible callee type.
         if let Some(fixed_ty) = inferred_callee_ty {
@@ -475,6 +446,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
+        let intrinsic_started = Instant::now();
         let handled_intrinsic = self
             .intrinsic_def_from_callee_ty(inferred_callee_ty.unwrap_or(norm_callee))
             .and_then(|def_id| {
@@ -493,9 +465,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 ))
             })
             .unwrap_or(false);
+        self.ctx.expr_timing_stats.call_intrinsic += intrinsic_started.elapsed();
 
         if !handled_intrinsic {
-            self.check_call_arguments(args, &params, is_method, is_variadic);
+            let arguments_started = Instant::now();
+            self.check_call_arguments(
+                args,
+                &params,
+                is_method,
+                is_variadic,
+                inferred_arg_tys.as_deref(),
+            );
+            self.ctx.expr_timing_stats.call_arguments += arguments_started.elapsed();
         }
         ret
     }
@@ -509,35 +490,61 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         receiver_ty: TypeId,
         span: Span,
         has_user_explicit_generics: bool,
-    ) -> (TypeId, Option<TypeId>) {
-        if let TypeKind::FnDef(def_id, explicit_args) =
-            self.ctx.type_registry.get(norm_callee).clone()
-        {
-            let Some((raw_sig, generics, fn_name_id)) = self.fn_def_signature_parts(def_id, span)
-            else {
-                return (TypeId::ERROR, None);
+    ) -> (TypeId, Option<TypeId>, Option<Vec<Option<TypeId>>>) {
+        if let TypeKind::FnDef(def_id, explicit_args) = self.ctx.type_registry.get(norm_callee) {
+            let def_id = *def_id;
+            let explicit_args_len = explicit_args.len();
+            let explicit_args = (explicit_args_len != 0).then(|| explicit_args.clone());
+            let (raw_sig, fn_name_id, generics_count) = match &self.ctx.defs[def_id.0 as usize] {
+                Def::Function(func) => {
+                    let Some(raw_sig) = func.resolved_sig else {
+                        self.ctx.emit_ice(
+                            span,
+                            format!(
+                                "Compiler ICE: function `{}` has no resolved signature during call checking.",
+                        self.ctx.resolve(func.name)
+                            ),
+                        );
+                        return (TypeId::ERROR, None, None);
+                    };
+                    (raw_sig, func.name, func.generics.len())
+                }
+                other => {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Compiler ICE: expected function Def for callee, found `{:?}`.",
+                            other
+                        ),
+                    );
+                    return (TypeId::ERROR, None, None);
+                }
             };
-
-            let generics_count = generics.len();
 
             // Monomorphic callees can return their original signature directly.
             if generics_count == 0 {
-                return (raw_sig, None);
+                return (raw_sig, None, None);
             }
 
-            if explicit_args.len() > generics_count {
+            if explicit_args_len > generics_count {
                 let name_str = self.ctx.resolve(fn_name_id).to_string();
                 self.ctx.emit_ice(
                     span,
                     format!(
                         "Compiler ICE: function `{}` carried {} generic arguments, but only {} generic parameters exist.",
                         name_str,
-                        explicit_args.len(),
+                        explicit_args_len,
                         generics_count
                     ),
                 );
-                return (TypeId::ERROR, None);
+                return (TypeId::ERROR, None, None);
             }
+
+            let generics = match &self.ctx.defs[def_id.0 as usize] {
+                Def::Function(func) => func.generics.clone(),
+                _ => return (TypeId::ERROR, None, None),
+            };
+            let explicit_args = explicit_args.unwrap_or_default();
 
             // Rule A: the user supplied a complete explicit generic argument list.
             if explicit_args.len() == generics_count {
@@ -546,7 +553,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     map.insert(param.name, explicit_args[i]);
                 }
                 let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                return (subst.substitute(raw_sig), None);
+                return (subst.substitute(raw_sig), None, None);
             }
 
             // Rule B: partial user-written generic lists are rejected, except for receiver-bound prefixes.
@@ -555,7 +562,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx.struct_error(span, format!("function `{}` requires exactly {} generic arguments, but {} were provided", name_str, generics_count, explicit_args.len()))
                     .with_hint("either provide all generic arguments or omit them entirely to let the compiler infer them")
                     .emit();
-                return (TypeId::ERROR, None);
+                return (TypeId::ERROR, None, None);
             }
 
             // Rule C: if generics are omitted entirely, infer them from usage.
@@ -564,8 +571,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 map.insert(generics[i].name, *explicit_arg);
             }
             let Some(raw_params) = self.function_params_from_sig(raw_sig, span) else {
-                return (TypeId::ERROR, None);
+                return (TypeId::ERROR, None, None);
             };
+            let mut inferred_arg_tys = vec![None; args.len()];
 
             let param_offset = if is_method { 1 } else { 0 };
 
@@ -603,6 +611,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let sig_idx = i + param_offset;
                 if sig_idx < raw_params.len() {
                     let arg_ty = self.check_expr(arg, None);
+                    inferred_arg_tys[i] = Some(arg_ty);
                     let arg_norm = self.resolve_tv(arg_ty);
                     if arg_norm != TypeId::ERROR {
                         self.unify(raw_params[sig_idx], arg_norm, &mut map);
@@ -635,7 +644,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     )
                     .with_hint("the compiler needs these generic types to be explicitly specified")
                     .emit();
-                return (TypeId::ERROR, None);
+                return (TypeId::ERROR, None, Some(inferred_arg_tys));
             }
 
             self.check_generic_bounds(span, def_id, &generics, &resolved_args);
@@ -647,10 +656,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .intern(TypeKind::FnDef(def_id, resolved_args));
 
             let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-            return (subst.substitute(raw_sig), Some(inferred_callee_ty));
+            return (
+                subst.substitute(raw_sig),
+                Some(inferred_callee_ty),
+                Some(inferred_arg_tys),
+            );
         }
 
-        (norm_callee, None)
+        (norm_callee, None, None)
     }
 
     /// Helper 2: detect method-call syntax and extract the receiver type.
@@ -756,6 +769,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         params: &[TypeId],
         is_method: bool,
         _is_variadic: bool,
+        inferred_arg_tys: Option<&[Option<TypeId>]>,
     ) {
         let param_offset = if is_method { 1 } else { 0 };
 
@@ -764,11 +778,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if sig_param_idx < params.len() {
                 // 1. Check a regular fixed parameter.
-                let arg_ty = self.check_expr(arg, Some(params[sig_param_idx]));
+                let arg_ty = inferred_arg_tys
+                    .and_then(|tys| tys.get(i))
+                    .and_then(|ty| *ty)
+                    .unwrap_or_else(|| self.check_expr(arg, Some(params[sig_param_idx])));
                 self.check_coercion(arg, params[sig_param_idx], arg_ty);
             } else {
                 // 2. Check trailing variadic arguments under C ABI rules.
-                let arg_ty = self.check_expr(arg, None);
+                let arg_ty = inferred_arg_tys
+                    .and_then(|tys| tys.get(i))
+                    .and_then(|ty| *ty)
+                    .unwrap_or_else(|| self.check_expr(arg, None));
                 let norm_arg = self.resolve_tv(arg_ty);
 
                 if norm_arg == TypeId::ERROR {
@@ -886,7 +906,22 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         generics: &[ast::GenericParam],
         arg_tys: &[TypeId],
     ) {
-        // 1. Extract the callee's where-clauses.
+        // Fast path: most generic items do not carry additional trait obligations.
+        let has_where_clauses = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(f) => !f.where_clauses.is_empty(),
+            Def::Struct(s) => !s.where_clauses.is_empty(),
+            Def::Union(u) => !u.where_clauses.is_empty(),
+            Def::TypeAlias(t) => !t.where_clauses.is_empty(),
+            Def::Impl(i) => !i.where_clauses.is_empty(),
+            Def::Enum(e) => !e.where_clauses.is_empty(),
+            Def::Trait(t) => !t.where_clauses.is_empty(),
+            _ => false,
+        };
+        if !has_where_clauses {
+            return;
+        }
+
+        // 1. Extract the callee's where-clauses only when they are actually present.
         let where_clauses = match &self.ctx.defs[def_id.0 as usize] {
             Def::Function(f) => f.where_clauses.clone(),
             Def::Struct(s) => s.where_clauses.clone(),
@@ -897,10 +932,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             Def::Trait(t) => t.where_clauses.clone(),
             _ => return,
         };
-
-        if where_clauses.is_empty() {
-            return;
-        }
 
         // 2. Build the generic argument substitution map.
         let mut map = std::collections::HashMap::new();

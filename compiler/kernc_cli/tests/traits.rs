@@ -24,7 +24,7 @@ fn use_it[T](x: *T) i32
     return x.a() + x.b() + x.c();
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let v = i32.{1};
     return use_it(v.&);
 }
@@ -49,7 +49,7 @@ type Derived: Base = trait { bar: fn() i32, };
 impl *i32 : Base { pub fn foo() i32 { return self.*; } }
 impl *i32 : Derived { pub fn bar() i32 { return self.* + 1; } }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let v = i32.{3};
     let d = *Derived.{ v.& };
     return d.foo() + d.bar();
@@ -79,7 +79,7 @@ fn takes_base(x: *Base) i32 {
     return x.foo();
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let v = i32.{3};
     let explicit = *Base.{ v.& };
     return explicit.foo() + takes_base(v.&);
@@ -109,7 +109,7 @@ fn takes_base(x: *Base) i32 {
     return x.foo();
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let v = i32.{3};
     let d = *Derived.{ v.& };
     let b = *Base.{ d };
@@ -146,7 +146,7 @@ fn takes_b(x: *B) i32 {
     return x.b();
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let v = i32.{3};
     let c = *C.{ v.& };
     let a = *A.{ c };
@@ -183,7 +183,7 @@ fn takes_base(x: *Base[i32]) i32 {
     return x.get();
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let v = i32.{3};
     let d = *Derived[i32].{ v.& };
     let b = *Base[i32].{ d };
@@ -212,7 +212,7 @@ impl *i32 : A { pub fn foo() i32 { return self.*; } }
 impl *i32 : B { pub fn foo() i32 { return self.* + 10; } }
 impl *i32 : C {}
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let v = i32.{3};
     let c = *C.{ v.& };
     return c.foo();
@@ -240,7 +240,7 @@ fn compiles_std_cmp_ord_bound_for_builtin_scalars() {
     let output = build_and_run(
         "kernc_trait_ord_value_bound",
         r#"
-use std.cmp.Ord;
+use base.cmp.Ord;
 
 fn classify[T](lhs: T, rhs: T) i32
     where T: Ord[T],
@@ -253,7 +253,7 @@ fn classify[T](lhs: T, rhs: T) i32
     }
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let a = i32.{3};
     let b = i32.{7};
     let c = bool.{true};
@@ -261,7 +261,7 @@ extern fn main(args: [][]u8) i32 {
     return classify(a, b) + classify(c, d);
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -278,7 +278,7 @@ fn compiles_std_cmp_ord_bound_for_custom_impls() {
     let output = build_and_run(
         "kernc_trait_custom_ord_value_bound",
         r#"
-use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
+use base.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
 
 type Key = struct {
     raw: i32,
@@ -314,7 +314,7 @@ fn classify[T](lhs: T, rhs: T) i32
     }
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let lhs = Key.{ raw: 3, bias: 4 };
     let rhs = Key.{ raw: 6, bias: 0 };
     if (classify(lhs, rhs) != 1) {
@@ -323,7 +323,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -367,7 +367,7 @@ fn pointer_tag[T](x: *T) i32
     return x.tag();
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let value = i32.{7};
     let _ = value_tag(value);
     let _ = pointer_tag(value.&);
@@ -400,7 +400,7 @@ fn same[T](lhs: T, rhs: T) bool
     return lhs == rhs;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     if (!same(Mode.Fast, Mode.Fast)) {
         return 1;
     }
@@ -410,7 +410,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -432,7 +432,7 @@ fn count_bits[T](value: T) T
     return @popCount(value);
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let count = count_bits(u32.{240});
     if (count != u32.{4}) {
         return 1;
@@ -440,7 +440,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -459,7 +459,7 @@ fn count_bits[T](value: T) T {
     return @popCount(value);
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return 0;
 }
 "#,
@@ -486,7 +486,7 @@ fn add_pair[T](lhs: T, rhs: T) T
     return lhs + rhs;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return 0;
 }
 "#,
@@ -524,7 +524,7 @@ fn unsigned_id[T](value: T) T
     return value;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     if (signed_id(i32.{7}) != i32.{7}) {
         return 1;
     }
@@ -534,7 +534,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -555,7 +555,7 @@ fn signed_id[T](value: T) T
     return value;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let _ = signed_id(u32.{1});
     return 0;
 }
@@ -587,7 +587,7 @@ fn negate[T](value: T) T
     return -value;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return 0;
 }
 "#,
@@ -614,7 +614,7 @@ fn mark(counter: *mut i32, value: bool) bool {
     return value;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mut calls = i32.{0};
 
     if (false and mark(calls..&, true)) {
@@ -648,7 +648,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -667,7 +667,7 @@ fn same[T](lhs: T, rhs: T) bool {
     return lhs == rhs;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return 0;
 }
 "#,
@@ -706,7 +706,7 @@ fn plus[T](lhs: T, rhs: T) T
     return lhs + rhs;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let sum = plus(Vec2.{ x: 1, y: 2 }, Vec2.{ x: 3, y: 4 });
     if (sum.x != 4) {
         return 1;
@@ -717,7 +717,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -727,3 +727,4 @@ extern fn main(args: [][]u8) i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+

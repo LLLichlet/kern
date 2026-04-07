@@ -15,6 +15,12 @@ pub(crate) mod expr;
 pub(crate) mod mono;
 pub(crate) mod vtable;
 
+#[derive(Clone, Copy)]
+enum LowerRootAction {
+    InstantiateFunction(DefId),
+    LowerGlobal(DefId),
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct FlowLoweringHints {
     owners: HashMap<DefId, FlowLoweringOwnerHints>,
@@ -302,14 +308,6 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
-    fn is_module_owned_free_function(&self, f: &FunctionDef) -> bool {
-        let Some(parent_id) = f.parent else {
-            return false;
-        };
-
-        matches!(&self.ctx.defs[parent_id.0 as usize], Def::Module(_))
-    }
-
     /// Entry point for lowering: recursively monomorphize every non-generic root item.
     pub fn lower_all(&mut self) -> MastModule {
         let def_ids: Vec<_> = (0..self.ctx.defs.len()).map(|i| DefId(i as u32)).collect();
@@ -331,27 +329,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         // Phase 2: lower concrete entities for real.
+        let mut actions = Vec::new();
         for id in def_ids {
-            let def = self.ctx.defs[id.0 as usize].clone();
-            match def {
+            match &self.ctx.defs[id.0 as usize] {
                 Def::Function(f) => {
-                    if f.is_imported {
-                        continue;
-                    }
-                    // Builtin intrinsics have no physical body and do not enter MAST.
-                    if f.is_intrinsic {
+                    if f.is_imported || f.is_intrinsic {
                         continue;
                     }
                     if self
                         .reachable_module_items
                         .as_ref()
-                        .is_some_and(|reachable| {
-                            self.is_module_owned_free_function(&f) && !reachable.contains(&id)
-                        })
+                        .is_some_and(|reachable| !reachable.contains(&id))
                     {
                         continue;
                     }
-                    // A function is only a free concrete item when neither it nor its parent impl is generic.
+
                     let mut is_generic = !f.generics.is_empty();
                     if let Some(parent_id) = f.parent
                         && let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize]
@@ -361,7 +353,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }
 
                     if !is_generic {
-                        self.instantiate_function(id, &[]);
+                        actions.push(LowerRootAction::InstantiateFunction(id));
                     }
                 }
                 Def::Global(g) => {
@@ -371,10 +363,30 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             .as_ref()
                             .is_none_or(|reachable| reachable.contains(&id))
                     {
-                        self.lower_global(&g);
+                        actions.push(LowerRootAction::LowerGlobal(id));
                     }
                 }
                 _ => {}
+            }
+        }
+
+        for action in actions {
+            match action {
+                LowerRootAction::InstantiateFunction(id) => {
+                    self.instantiate_function(id, &[]);
+                }
+                LowerRootAction::LowerGlobal(id) => {
+                    let Some(global_ptr) = self.ctx.defs.get(id.0 as usize).and_then(|def| match def {
+                        Def::Global(global) => Some(std::ptr::from_ref(global)),
+                        _ => None,
+                    }) else {
+                        continue;
+                    };
+
+                    // Safety: lowering does not mutate semantic definition storage.
+                    let global = unsafe { &*global_ptr };
+                    self.lower_global(global);
+                }
             }
         }
 
@@ -385,7 +397,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.anon_union_map = self.anon_union_cache.clone();
         self.module.anon_enum_map = self.anon_enum_cache.clone();
 
-        self.module.clone()
+        MastModule {
+            name: std::mem::take(&mut self.module.name),
+            structs: std::mem::take(&mut self.module.structs),
+            globals: std::mem::take(&mut self.module.globals),
+            functions: std::mem::take(&mut self.module.functions),
+            def_mono_map: std::mem::take(&mut self.module.def_mono_map),
+            pure_enum_tag_map: std::mem::take(&mut self.module.pure_enum_tag_map),
+            adt_union_map: std::mem::take(&mut self.module.adt_union_map),
+            anon_struct_map: std::mem::take(&mut self.module.anon_struct_map),
+            anon_union_map: std::mem::take(&mut self.module.anon_union_map),
+            anon_enum_map: std::mem::take(&mut self.module.anon_enum_map),
+        }
     }
 
     pub(crate) fn extract_meta_items(&self, attrs: &[ast::Attribute]) -> Vec<ast::MetaItem> {

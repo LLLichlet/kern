@@ -3,14 +3,14 @@ mod support;
 use support::{build_and_run, compile_source_with_args};
 
 fn compile_source_with_std(source: &str) -> std::process::Output {
-    compile_source_with_args("kernc_std_coll_compile", source, &["--use-std"])
+    compile_source_with_args("kernc_std_coll_compile", source, &["--library-bundle", "std"])
 }
 
 fn build_and_run_hosted(source: &str) -> std::process::Output {
     build_and_run(
         "kernc_std_coll",
         source,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     )
 }
 
@@ -18,10 +18,10 @@ fn build_and_run_hosted(source: &str) -> std::process::Output {
 fn runs_hosted_program_using_layout_based_allocator_api() {
     let output = build_and_run_hosted(
         r#"
-use std.mem.{layout_of, array_layout_of};
-use std.mem.alloc.Page;
+use base.mem.{layout_of, array_layout_of};
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
 
     let item_layout = layout_of[u64]();
@@ -59,10 +59,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_std_coll_tree() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.Tree;
-use std.mem.alloc.{Page, GPA};
+use base.coll.Tree;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -157,9 +158,10 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_custom_ord_tree_key() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.Tree;
-use std.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
-use std.mem.alloc.{Page, GPA};
+use base.coll.Tree;
+use base.cmp.{Ordering, Comparable, Ord, LESS, EQUAL, GREATER};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
 type Key = struct {
     major: i32,
@@ -184,7 +186,7 @@ impl Key : Comparable[Key] {
 
 impl Key : Ord[Key] {}
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[Key, i32].{}..&;
@@ -233,13 +235,13 @@ extern fn main(_: [][]u8) i32 {
 fn rejects_tree_key_without_ord() {
     let output = compile_source_with_std(
         r#"
-use std.coll.Tree;
+use base.coll.Tree;
 
 type Key = struct {
     raw: i32,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let map = Tree[Key, i32].{}..&;
     let _ = map;
     return 0;
@@ -266,10 +268,11 @@ extern fn main(args: [][]u8) i32 {
 fn runs_hosted_program_using_std_coll_map() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.Map;
-use std.mem.alloc.{Page, GPA};
+use base.coll.Map;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -371,9 +374,10 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_custom_hash_map_key_with_collisions() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.Map;
-use std.hash.Hash;
-use std.mem.alloc.{Page, GPA};
+use base.coll.Map;
+use base.hash.Hash;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
 type Key = struct {
     group: i32,
@@ -392,7 +396,7 @@ impl Key : Hash[Key] {
     }
 }
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[Key, i32].{}..&;
@@ -479,12 +483,13 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_string_traits_for_ordering_and_hashing() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.String;
-use std.cmp.{LESS, EQUAL, GREATER};
-use std.hash.hash_of;
-use std.mem.alloc.{Page, GPA};
+use base.coll.String;
+use base.cmp.{LESS, EQUAL, GREATER};
+use base.hash.hash_of;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -547,10 +552,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_map_get_or_insert_apis() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.Map;
-use std.mem.alloc.{Page, GPA};
+use base.coll.Map;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -650,10 +656,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_map_traversal_and_filter_helpers() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.Map;
-use std.mem.alloc.{Page, GPA};
+use base.coll.Map;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -729,11 +736,12 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_map_predicate_algorithms() {
     let output = build_and_run_hosted(
         r#"
-use std.{Option};
-use std.coll.Map;
-use std.mem.alloc.{Page, GPA};
+use base.{Option};
+use base.coll.Map;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -839,10 +847,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_map_list_bridge_helpers() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.{Map, List};
-use std.mem.alloc.{Page, GPA};
+use base.coll.{Map, List};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Map[i32, i32].{}..&;
@@ -963,10 +972,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_tree_ordered_traversal_helpers() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.{Tree, String};
-use std.mem.alloc.{Page, GPA};
+use base.coll.{Tree, String};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -1025,10 +1035,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_tree_boundary_queries() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.Tree;
-use std.mem.alloc.{Page, GPA};
+use base.coll.Tree;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -1105,10 +1116,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_tree_remove() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.{Tree, String};
-use std.mem.alloc.{Page, GPA};
+use base.coll.{Tree, String};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     let map = Tree[i32, i32].{}..&;
@@ -1199,12 +1211,13 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_list_slice_and_string_algorithms() {
     let output = build_and_run_hosted(
         r#"
-use std.{Option};
-use std.coll.{List, String, find_byte, rfind_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
-use std.cmp.{LESS, GREATER, EQUAL};
-use std.mem.alloc.{Page, GPA};
+use base.{Option};
+use base.coll.{List, String, find_byte, rfind_byte, trim_ascii_start, trim_ascii_end, trim_ascii};
+use base.cmp.{LESS, GREATER, EQUAL};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1595,10 +1608,11 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_coll_iteration_and_copy_helpers() {
     let output = build_and_run_hosted(
         r#"
-use std.coll.{List, String};
-use std.mem.alloc.{Page, GPA};
+use base.coll.{List, String};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1801,9 +1815,9 @@ extern fn main(_: [][]u8) i32 {
 fn runs_hosted_program_using_option_and_result_closure_methods() {
     let output = build_and_run_hosted(
         r#"
-use std.{Option, Result};
+use base.{Option, Result};
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let mut seen = i32.{0};
 
     let option = Option[i32].{ Some: 7 };
@@ -1900,13 +1914,13 @@ extern fn main(_: [][]u8) i32 {
 fn rejects_map_key_without_eq_and_hash() {
     let output = compile_source_with_std(
         r#"
-use std.coll.Map;
+use base.coll.Map;
 
 type Key = struct {
     raw: i32,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let map = Map[Key, i32].{}..&;
     let _ = map;
     return 0;
@@ -1930,3 +1944,5 @@ extern fn main(args: [][]u8) i32 {
         stderr
     );
 }
+
+

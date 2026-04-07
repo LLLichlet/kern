@@ -56,7 +56,7 @@ fn decode_anon(v: enum: u16 { Off = 4, On = 7, Error: i32 }) i32 {
     }
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let named = Switch.{ Error: 9 };
     let anon = enum: u16 { Off = 4, On = 7, Error: i32 }.{ Error: 11 };
     return decode_named(named) + decode_anon(anon);
@@ -159,7 +159,7 @@ fn read_plain(word: union { bytes: [4]u8, int: i32 }) i32 {
     word.int
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let word = CWord.{ int: 9 };
     return read_plain(word);
 }
@@ -189,7 +189,7 @@ fn read_pair(pair: struct { pub left: i32, right: i32 }) i32 {
     return pair.left;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let pair = struct { pub left: i32, right: i32 }.{ left: 3, right: 4 };
     return read_pair(pair);
 }
@@ -222,8 +222,7 @@ type FloatBits = union {
     bytes: [4]mut u8,
 };
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     let mut data = FloatBits.{ f: 3.14159 };
     let raw_bits = data.i;
     data.i = data.i ^ 0x80000000;
@@ -240,7 +239,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     assert!(
@@ -250,3 +249,5 @@ extern fn main(args: [][]u8) i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+

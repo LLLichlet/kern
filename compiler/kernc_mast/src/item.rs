@@ -23,6 +23,64 @@ pub struct MastModule {
     pub anon_enum_map: HashMap<TypeId, MonoId>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct MastWorkloadStats {
+    pub structs: usize,
+    pub globals: usize,
+    pub globals_with_init: usize,
+    pub functions: usize,
+    pub function_bodies: usize,
+    pub extern_functions: usize,
+    pub blocks: usize,
+    pub statements: usize,
+    pub let_statements: usize,
+    pub expr_statements: usize,
+    pub defers: usize,
+    pub expressions: usize,
+    pub calls: usize,
+    pub branches: usize,
+    pub loops: usize,
+    pub switches: usize,
+    pub returns: usize,
+    pub assignments: usize,
+}
+
+impl MastModule {
+    pub fn workload_stats(&self) -> MastWorkloadStats {
+        let mut stats = MastWorkloadStats {
+            structs: self.structs.len(),
+            globals: self.globals.len(),
+            globals_with_init: self.globals.iter().filter(|global| global.init.is_some()).count(),
+            functions: self.functions.len(),
+            function_bodies: self
+                .functions
+                .iter()
+                .filter(|function| function.body.is_some())
+                .count(),
+            extern_functions: self
+                .functions
+                .iter()
+                .filter(|function| function.is_extern)
+                .count(),
+            ..MastWorkloadStats::default()
+        };
+
+        for global in &self.globals {
+            if let Some(init) = &global.init {
+                visit_expr(init, &mut stats);
+            }
+        }
+
+        for function in &self.functions {
+            if let Some(body) = &function.body {
+                visit_block(body, &mut stats);
+            }
+        }
+
+        stats
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MastLinkage {
     External,
@@ -87,4 +145,204 @@ pub struct MastParam {
     pub name: SymbolId,
     pub ty: TypeId,
     pub is_mut: bool,
+}
+
+fn visit_block(block: &MastBlock, stats: &mut MastWorkloadStats) {
+    stats.blocks += 1;
+    stats.statements += block.stmts.len();
+    stats.defers += block.defers.len();
+
+    for stmt in &block.stmts {
+        match stmt {
+            crate::MastStmt::Let { init, .. } => {
+                stats.let_statements += 1;
+                visit_expr(init, stats);
+            }
+            crate::MastStmt::Expr(expr) => {
+                stats.expr_statements += 1;
+                visit_expr(expr, stats);
+            }
+        }
+    }
+
+    if let Some(result) = &block.result {
+        visit_expr(result, stats);
+    }
+
+    for defer in &block.defers {
+        visit_expr(defer, stats);
+    }
+}
+
+fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
+    stats.expressions += 1;
+
+    match &expr.kind {
+        crate::MastExprKind::Undef
+        | crate::MastExprKind::Unreachable
+        | crate::MastExprKind::Trap
+        | crate::MastExprKind::Breakpoint
+        | crate::MastExprKind::Integer(_)
+        | crate::MastExprKind::Float(_)
+        | crate::MastExprKind::Bool(_)
+        | crate::MastExprKind::StringLiteral(_)
+        | crate::MastExprKind::Var(_)
+        | crate::MastExprKind::GlobalRef(_)
+        | crate::MastExprKind::FuncRef(_)
+        | crate::MastExprKind::Break
+        | crate::MastExprKind::Continue
+        | crate::MastExprKind::Fence { .. } => {}
+
+        crate::MastExprKind::AddressOf(inner)
+        | crate::MastExprKind::Deref(inner)
+        | crate::MastExprKind::ExtractFatPtrData(inner)
+        | crate::MastExprKind::ExtractFatPtrMeta(inner)
+        | crate::MastExprKind::Unary { operand: inner, .. }
+        | crate::MastExprKind::Cast { operand: inner, .. }
+        | crate::MastExprKind::BitIntrinsic { operand: inner, .. } => visit_expr(inner, stats),
+
+        crate::MastExprKind::StructInit { fields, .. } | crate::MastExprKind::ArrayInit(fields) => {
+            for field in fields {
+                visit_expr(field, stats);
+            }
+        }
+
+        crate::MastExprKind::UnionInit { value, .. } => visit_expr(value, stats),
+
+        crate::MastExprKind::FieldAccess { lhs, .. } => visit_expr(lhs, stats),
+
+        crate::MastExprKind::IndexAccess { lhs, index } => {
+            visit_expr(lhs, stats);
+            visit_expr(index, stats);
+        }
+
+        crate::MastExprKind::Call { callee, args } => {
+            stats.calls += 1;
+            visit_expr(callee, stats);
+            for arg in args {
+                visit_expr(arg, stats);
+            }
+        }
+
+        crate::MastExprKind::If {
+            cond,
+            then_branch,
+            else_branch,
+        } => {
+            stats.branches += 1;
+            visit_expr(cond, stats);
+            visit_block(then_branch, stats);
+            if let Some(else_branch) = else_branch {
+                visit_block(else_branch, stats);
+            }
+        }
+
+        crate::MastExprKind::Loop { body, latch } => {
+            stats.loops += 1;
+            visit_block(body, stats);
+            if let Some(latch) = latch {
+                visit_block(latch, stats);
+            }
+        }
+
+        crate::MastExprKind::Switch {
+            target,
+            cases,
+            default_case,
+        } => {
+            stats.switches += 1;
+            visit_expr(target, stats);
+            for case in cases {
+                visit_block(&case.body, stats);
+            }
+            if let Some(default_case) = default_case {
+                visit_block(default_case, stats);
+            }
+        }
+
+        crate::MastExprKind::Return(value) => {
+            stats.returns += 1;
+            if let Some(value) = value {
+                visit_expr(value, stats);
+            }
+        }
+
+        crate::MastExprKind::Binary { lhs, rhs, .. }
+        | crate::MastExprKind::Assign { lhs, rhs, .. } => {
+            if matches!(&expr.kind, crate::MastExprKind::Assign { .. }) {
+                stats.assignments += 1;
+            }
+            visit_expr(lhs, stats);
+            visit_expr(rhs, stats);
+        }
+
+        crate::MastExprKind::ConstructFatPointer { data_ptr, meta } => {
+            visit_expr(data_ptr, stats);
+            visit_expr(meta, stats);
+        }
+
+        crate::MastExprKind::Block(block) => visit_block(block, stats),
+
+        crate::MastExprKind::DataInit { payload, .. } => visit_expr(payload, stats),
+
+        crate::MastExprKind::Asm(asm) => {
+            for input in &asm.input_args {
+                visit_expr(input, stats);
+            }
+            for output in &asm.output_ptrs {
+                visit_expr(output, stats);
+            }
+        }
+
+        crate::MastExprKind::AtomicLoad { ptr, .. } => visit_expr(ptr, stats),
+
+        crate::MastExprKind::AtomicStore { ptr, value, .. } => {
+            visit_expr(ptr, stats);
+            visit_expr(value, stats);
+        }
+
+        crate::MastExprKind::AtomicCas {
+            ptr,
+            expected,
+            desired,
+            ..
+        } => {
+            visit_expr(ptr, stats);
+            visit_expr(expected, stats);
+            visit_expr(desired, stats);
+        }
+
+        crate::MastExprKind::AtomicRmw { ptr, value, .. } => {
+            visit_expr(ptr, stats);
+            visit_expr(value, stats);
+        }
+
+        crate::MastExprKind::Memcpy { dest, src, len }
+        | crate::MastExprKind::Memmove { dest, src, len } => {
+            visit_expr(dest, stats);
+            visit_expr(src, stats);
+            visit_expr(len, stats);
+        }
+
+        crate::MastExprKind::Memset { dest, val, len } => {
+            visit_expr(dest, stats);
+            visit_expr(val, stats);
+            visit_expr(len, stats);
+        }
+
+        crate::MastExprKind::SliceOp {
+            lhs,
+            start,
+            end,
+            ..
+        } => {
+            visit_expr(lhs, stats);
+            if let Some(start) = start {
+                visit_expr(start, stats);
+            }
+            if let Some(end) = end {
+                visit_expr(end, stats);
+            }
+        }
+    }
 }

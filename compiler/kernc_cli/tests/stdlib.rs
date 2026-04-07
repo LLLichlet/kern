@@ -13,12 +13,11 @@ fn compile_only_std_program_emits_no_std_warnings() {
     let output = compile_source_with_args(
         "kernc_std_compile_no_warnings",
         r#"
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
     assert_success(&output, "kernc");
 
@@ -35,10 +34,11 @@ fn runs_hosted_program_using_gpa_alignment_and_arena() {
     let output = build_and_run(
         "kernc_std_alloc",
         r#"
-use std.mem.Layout;
-use std.mem.alloc.{Page, GPA, Arena};
+use base.mem.Layout;
+use base.mem.alloc.{GPA, Arena};
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
 
     let gpa = GPA.{ backing: page }..&;
@@ -150,7 +150,7 @@ extern fn main(_: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     assert!(
@@ -166,10 +166,11 @@ fn rejects_gpa_invalid_free_usage() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_alloc_invalid_free",
         r#"
-use std.mem.Layout;
-use std.mem.alloc.{Page, GPA};
+use base.mem.Layout;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
@@ -184,7 +185,7 @@ extern fn main(_: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -206,14 +207,14 @@ fn runs_dbg_logging_helpers() {
         r#"
 use std.dbg;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     dbg.log("boot {}", .{ 1, });
     dbg.debug("trace {}", .{ "ok", });
     dbg.assert(true, "should not fail {}", .{ 7, });
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -247,12 +248,12 @@ fn dbg_assert_failure_aborts_with_message() {
         r#"
 use std.dbg;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     dbg.assert(false, "boom {}", .{ 42, });
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -281,14 +282,14 @@ fn runs_test_assertion_helpers() {
         r#"
 use std.test;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     test.assert(true, "should not fail", .{});
     test.eq(usize.{4}, usize.{4});
     test.not_eq(usize.{4}, usize.{5});
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -310,12 +311,12 @@ fn test_eq_failure_aborts_with_message() {
         r#"
 use std.test;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     test.eq(usize.{4}, usize.{5});
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -349,13 +350,13 @@ type Mode = enum {
     Slow,
 };
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     test.eq(Mode.Fast, Mode.Fast);
     test.not_eq(Mode.Fast, Mode.Slow);
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -376,18 +377,19 @@ fn runs_test_option_and_result_helpers() {
         "kernc_std_test_option_result_helpers",
         r#"
 use std.test;
+use base.{Option, Result};
 
-fn parse(flag: bool) std.Result[usize, i32] {
+fn parse(flag: bool) Result[usize, i32] {
     if (flag) {
         return .{ Ok: 7 };
     }
     return .{ Err: -1 };
 }
 
-extern fn main(_: [][]u8) i32 {
-    let some = test.expect_some(std.Option[usize].{ Some: 9 });
+fn main() i32 {
+    let some = test.expect_some(Option[usize].{ Some: 9 });
     test.eq(some, usize.{9});
-    test.expect_none(std.Option[usize].{ None });
+    test.expect_none(Option[usize].{ None });
 
     let ok = test.expect_ok(parse(true));
     test.eq(ok, usize.{7});
@@ -397,7 +399,7 @@ extern fn main(_: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -418,13 +420,14 @@ fn test_expect_some_failure_aborts_with_message() {
         "kernc_std_test_expect_some_fail",
         r#"
 use std.test;
+use base.Option;
 
-extern fn main(_: [][]u8) i32 {
-    let _ = test.expect_some(std.Option[usize].{ None });
+fn main() i32 {
+    let _ = test.expect_some(Option[usize].{ None });
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -452,13 +455,14 @@ fn test_expect_err_failure_aborts_with_message() {
         "kernc_std_test_expect_err_fail",
         r#"
 use std.test;
+use base.Result;
 
-extern fn main(_: [][]u8) i32 {
-    let _ = test.expect_err(std.Result[usize, i32].{ Ok: 3 });
+fn main() i32 {
+    let _ = test.expect_err(Result[usize, i32].{ Ok: 3 });
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -491,12 +495,12 @@ fn wrap(fmt: []u8, args: []*io.Printable) void {
     io.println(fmt, args);
 }
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     wrap("{}", .{ 42, });
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     assert!(
@@ -517,12 +521,12 @@ fn hints_about_trailing_comma_for_single_print_argument() {
         r#"
 use std.io;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     io.println("value={}", .{ 42 });
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     assert!(
@@ -554,7 +558,7 @@ fn compiles_std_hello_world_in_compile_only_mode() {
     let object_arg = object.to_string_lossy().into_owned();
     let args = vec![
         "-c",
-        "--use-std",
+        "--library-bundle", "std",
         source_arg.as_str(),
         "-o",
         object_arg.as_str(),
@@ -581,13 +585,13 @@ fn compiles_std_hello_world_in_compile_only_mode() {
 #[test]
 fn compiles_std_hello_world_to_unicode_object_path() {
     let source = repo_root().join("examples/hello_world.rn");
-    let object = unique_temp_path("kernc_std_hello_world_对象", "o");
+    let object = unique_temp_path("kernc_std_hello_world_\u{4F60}\u{597D}", "o");
 
     let source_arg = source.to_string_lossy().into_owned();
     let object_arg = object.to_string_lossy().into_owned();
     let args = vec![
         "-c",
-        "--use-std",
+        "--library-bundle", "std",
         source_arg.as_str(),
         "-o",
         object_arg.as_str(),
@@ -617,7 +621,7 @@ fn links_compile_only_object_via_link_only_mode() {
         r#"
 use std.io;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     io.println("link only", .{});
     return 0;
 }
@@ -631,9 +635,13 @@ extern fn main(_: [][]u8) i32 {
 
     let compile_output = run_kernc([
         "-c",
-        "--use-std",
-        "--link-profile",
-        "hosted",
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         source_arg.as_str(),
         "-o",
         object_arg.as_str(),
@@ -648,9 +656,13 @@ extern fn main(_: [][]u8) i32 {
 
     let link_output = run_kernc([
         "--link-only",
-        "--use-std",
-        "--link-profile",
-        "hosted",
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         "--link-input",
         object_arg.as_str(),
         "-o",
@@ -677,7 +689,7 @@ extern fn main(_: [][]u8) i32 {
 }
 
 #[test]
-fn links_hosted_program_with_std_using_runtime_entry_on_non_windows() {
+fn links_hosted_program_with_std_using_toolchain_provider() {
     let source_path = unique_temp_path("kernc_std_hosted", "rn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_hosted", exe_ext);
@@ -687,7 +699,7 @@ fn links_hosted_program_with_std_using_runtime_entry_on_non_windows() {
         r#"
 use std.io;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     io.println("hosted std", .{});
     return 0;
 }
@@ -698,9 +710,13 @@ extern fn main(_: [][]u8) i32 {
     let source_arg = source_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let args = vec![
-        "--use-std",
-        "--link-profile",
-        "hosted",
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         "--print-link-command",
         source_arg.as_str(),
         "-o",
@@ -714,14 +730,6 @@ extern fn main(_: [][]u8) i32 {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    if !cfg!(windows) {
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        assert!(
-            stdout.contains("-nostartfiles"),
-            "expected hosted std links to keep std runtime entry shims:\n{}",
-            stdout
-        );
-    }
     assert!(
         executable_path.exists(),
         "expected executable at {}",
@@ -759,9 +767,9 @@ extern {
     fn bridge(args: [][]u8) i32;
 }
 
-extern fn main(_: [][]u8) i32 {
-    let args = [2][]u8.{ "alpha", "beta gamma", };
-    return bridge(args);
+fn main() i32 {
+    let argv = [2][]u8.{ "alpha", "beta gamma", };
+    return bridge(argv);
 }
 "#,
     )
@@ -793,9 +801,13 @@ extern fn bridge_impl(args: [][]u8) i32 {
     let source_arg = main_source.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let output = run_kernc([
-        "--use-std",
-        "--link-profile",
-        "hosted",
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         source_arg.as_str(),
         "-o",
         exe_arg.as_str(),
@@ -831,7 +843,7 @@ fn custom_defines_are_available_as_compile_time_constants() {
     fs::write(
         &source_path,
         r#"
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let _ = GREETING_MSG;
     return 0;
 }
@@ -842,9 +854,13 @@ extern fn main(_: [][]u8) i32 {
     let source_arg = source_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let output = run_kernc([
-        "--use-std",
-        "--link-profile",
-        "hosted",
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         "-D",
         "GREETING_MSG=Hello from injected define",
         source_arg.as_str(),
@@ -889,9 +905,7 @@ fn run_cb(cb: *Fn() i32) i32 {
     return cb();
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
-    let value = run_cb(.[]() i32 {
+fn main() i32 {    let value = run_cb(.[]() i32 {
         return 42;
     });
     io.println("{}", .{"world",});
@@ -906,9 +920,13 @@ extern fn main(args: [][]u8) i32 {
     let object_arg = object_path.to_string_lossy().into_owned();
     let output = run_kernc([
         "-c",
-        "--use-std",
-        "--link-profile",
-        "hosted",
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         source_arg.as_str(),
         "-o",
         object_arg.as_str(),
@@ -951,17 +969,26 @@ extern fn main(args: [][]u8) i32 {
 }
 
 #[test]
-fn links_windows_kern_program_with_std_by_default() {
+fn links_windows_rt_program_with_std_using_toolchain_provider() {
     if !cfg!(windows) {
         return;
     }
 
     let source = repo_root().join("examples/hello_world.rn");
-    let executable_path = unique_temp_path("kernc_std_windows_kern", "exe");
+    let executable_path = unique_temp_path("kernc_std_windows_rt", "exe");
 
     let source_arg = source.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
-    let output = run_kernc(["--use-std", source_arg.as_str(), "-o", exe_arg.as_str()]);
+    let output = run_kernc([
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "rt",
+        "--runtime-provider",
+        "toolchain",
+        source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ]);
 
     assert_success(&output, "kernc");
     assert!(
@@ -973,7 +1000,7 @@ fn links_windows_kern_program_with_std_by_default() {
     let run_output = Command::new(&executable_path).output().unwrap();
     assert!(
         run_output.status.success(),
-        "default kern binary failed:\nstdout:\n{}\nstderr:\n{}",
+        "default rt binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&run_output.stdout),
         String::from_utf8_lossy(&run_output.stderr)
     );
@@ -991,23 +1018,38 @@ fn runs_hosted_program_with_indexed_command_line_arguments() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_hosted_args",
         r#"
-extern fn main(args: [][]u8) i32 {
-    if (#args != 3) {
+use std.proc;
+
+fn main(argc: i32, argv: **u8) i32 {
+    let args = proc.args(argc, argv);
+    if (args.len() != 3) {
         return 1;
     }
-    if (#args.[0] == 0) {
+    let first = match (args.get(0)) {
+        .{ Some: arg } => arg,
+        .None => return 2,
+    };
+    if (#first == 0) {
         return 2;
     }
-    if (!args.[1].eq("alpha")) {
+    let second = match (args.get(1)) {
+        .{ Some: arg } => arg,
+        .None => return 3,
+    };
+    if (!second.eq("alpha")) {
         return 3;
     }
-    if (!args.[2].eq("beta gamma")) {
+    let third = match (args.get(2)) {
+        .{ Some: arg } => arg,
+        .None => return 4,
+    };
+    if (!third.eq("beta gamma")) {
         return 4;
     }
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     let run_output = Command::new(&executable_path)
@@ -1033,7 +1075,7 @@ fn runs_std_time_duration_and_sleep_helpers() {
         r#"
 use std.time;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let fixed = time.from_millis(1500);
     if (fixed.as_secs() != 1) {
         return 1;
@@ -1079,7 +1121,7 @@ extern fn main(_: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();
@@ -1095,44 +1137,95 @@ extern fn main(_: [][]u8) i32 {
 }
 
 #[test]
-fn rejects_hosted_std_program_without_runtime_main_arguments() {
+fn accepts_hosted_std_program_with_no_arg_main() {
     let output = compile_source_with_args(
         "kernc_std_hosted_main_without_args",
+        r#"
+fn main() i32 {
+    return 0;
+}
+"#,
+        &[
+            "--library-bundle",
+            "std",
+            "--runtime-entry",
+            "crt",
+            "--runtime-libc",
+            "yes",
+        ],
+    );
+
+    assert_success(&output, "kernc hosted std no-arg main");
+}
+
+#[test]
+fn rejects_extern_main_when_program_entry_is_enabled() {
+    let output = compile_source_with_args(
+        "kernc_std_hosted_extern_main",
         r#"
 extern fn main() i32 {
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &[
+            "--library-bundle",
+            "std",
+            "--runtime-entry",
+            "crt",
+            "--runtime-libc",
+            "yes",
+        ],
     );
 
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted no-arg std main:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted extern program main:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
-        stderr.contains("linkage signature mismatch for symbol `main`"),
+        String::from_utf8_lossy(&output.stderr)
+            .contains("program `main` must not be declared `extern`"),
         "unexpected stderr:\n{}",
-        stderr
-    );
-    assert!(
-        stderr.contains("fn([][]u8) i32"),
-        "unexpected stderr:\n{}",
-        stderr
-    );
-    assert!(
-        stderr.contains("fn() i32"),
-        "unexpected stderr:\n{}",
-        stderr
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
 #[test]
-fn runs_windows_kern_program_with_quoted_command_line_arguments() {
+fn rejects_invalid_program_main_parameter_shape() {
+    let output = compile_source_with_args(
+        "kernc_std_invalid_main_param",
+        r#"
+fn main(value: i32) i32 {
+    return value;
+}
+"#,
+        &[
+            "--library-bundle",
+            "std",
+            "--runtime-entry",
+            "crt",
+            "--runtime-libc",
+            "yes",
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted invalid program main signature:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("program `main` accepts either zero parameters or exactly `(i32, **u8)`"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn runs_windows_rt_program_with_quoted_command_line_arguments() {
     if !cfg!(windows) {
         return;
     }
@@ -1140,23 +1233,38 @@ fn runs_windows_kern_program_with_quoted_command_line_arguments() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_windows_args",
         r#"
-extern fn main(args: [][]u8) i32 {
-    if (#args != 4) {
+use std.proc;
+
+fn main(argc: i32, argv: **u8) i32 {
+    let args = proc.args(argc, argv);
+    if (args.len() != 4) {
         return 1;
     }
-    if (!args.[1].eq("plain")) {
+    let plain = match (args.get(1)) {
+        .{ Some: arg } => arg,
+        .None => return 2,
+    };
+    if (!plain.eq("plain")) {
         return 2;
     }
-    if (!args.[2].eq("two words")) {
+    let spaced = match (args.get(2)) {
+        .{ Some: arg } => arg,
+        .None => return 3,
+    };
+    if (!spaced.eq("two words")) {
         return 3;
     }
-    if (!args.[3].eq("quote\"value")) {
+    let quoted = match (args.get(3)) {
+        .{ Some: arg } => arg,
+        .None => return 4,
+    };
+    if (!quoted.eq("quote\"value")) {
         return 4;
     }
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     let run_output = Command::new(&executable_path)
@@ -1176,8 +1284,9 @@ extern fn main(args: [][]u8) i32 {
     let _ = fs::remove_file(&executable_path);
 }
 
+
 #[test]
-fn runs_windows_kern_program_with_unicode_command_line_arguments() {
+fn runs_windows_rt_program_with_unicode_command_line_arguments() {
     if !cfg!(windows) {
         return;
     }
@@ -1185,23 +1294,38 @@ fn runs_windows_kern_program_with_unicode_command_line_arguments() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_windows_unicode_args",
         r#"
-extern fn main(args: [][]u8) i32 {
-    if (#args != 4) {
+use std.proc;
+
+fn main(argc: i32, argv: **u8) i32 {
+    let args = proc.args(argc, argv);
+    if (args.len() != 4) {
         return 1;
     }
-    if (!args.[1].eq("测试")) {
+    let first = match (args.get(1)) {
+        .{ Some: arg } => arg,
+        .None => return 2,
+    };
+    if (!first.eq("\u{6D4B}\u{8BD5}")) {
         return 2;
     }
-    if (!args.[2].eq("空 白")) {
+    let second = match (args.get(2)) {
+        .{ Some: arg } => arg,
+        .None => return 3,
+    };
+    if (!second.eq("\u{7A7A} \u{767D}")) {
         return 3;
     }
-    if (!args.[3].eq("emoji-🙂")) {
+    let third = match (args.get(3)) {
+        .{ Some: arg } => arg,
+        .None => return 4,
+    };
+    if (!third.eq("emoji-\u{1F642}")) {
         return 4;
     }
     return 0;
 }
 "#,
-        &["--use-std"],
+        &["--library-bundle", "std"],
     );
 
     let run_output = Command::new(&executable_path)
@@ -1240,8 +1364,6 @@ extern fn start() void {
 }
 "#,
         &[
-            "--link-profile",
-            "freestanding",
             "--entry",
             "mainCRTStartup",
             "-l",
@@ -1271,9 +1393,10 @@ fn runs_hosted_program_using_std_env_get() {
         &source_path,
         r#"
 use std.env;
-use std.mem.alloc.{Page, GPA};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1342,9 +1465,13 @@ extern fn main(_: [][]u8) i32 {
     let source_arg = source_path.to_string_lossy().into_owned();
     let exe_arg = executable_path.to_string_lossy().into_owned();
     let args = vec![
-        "--use-std",
-        "--link-profile",
-        "hosted",
+        "--library-bundle", "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         source_arg.as_str(),
         "-o",
         exe_arg.as_str(),
@@ -1372,3 +1499,4 @@ extern fn main(_: [][]u8) i32 {
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
 }
+

@@ -464,6 +464,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         };
         self.ctx.add_def(Def::Impl(impl_def));
         self.ctx.global_impls.push(def_id);
+        self.ctx.trait_impls.push(def_id);
     }
 
     fn inject_operator_impl(
@@ -563,6 +564,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             span: Span::default(),
         }));
         self.ctx.global_impls.push(impl_id);
+        self.ctx.trait_impls.push(impl_id);
         self.ctx.add_def(Def::Function(FunctionDef {
             id: method_def_id,
             name: name_id,

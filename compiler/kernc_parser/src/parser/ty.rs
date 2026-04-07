@@ -76,11 +76,7 @@ impl<'a> Parser<'a> {
 
             _ => {
                 let token = self.peek();
-                let found_text = self
-                    .session
-                    .source_manager
-                    .slice_source(token.span)
-                    .to_string();
+                let found_text = self.source_slice(token.span).to_string();
                 self.add_error(
                     token.span,
                     format!("Expected type definition, found '{}'", found_text),

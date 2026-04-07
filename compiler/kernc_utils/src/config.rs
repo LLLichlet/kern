@@ -39,11 +39,87 @@ impl DriverMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkProfile {
-    Kern,
-    Freestanding,
-    Hosted,
+pub enum RuntimeEntry {
     None,
+    Rt,
+    Crt,
+}
+
+impl RuntimeEntry {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "none" => Ok(Self::None),
+            "rt" => Ok(Self::Rt),
+            "crt" => Ok(Self::Crt),
+            _ => Err(format!(
+                "invalid runtime entry `{value}`; expected one of: none, rt, crt"
+            )),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Rt => "rt",
+            Self::Crt => "crt",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeProvider {
+    None,
+    Toolchain,
+    Libc,
+}
+
+impl RuntimeProvider {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "none" => Ok(Self::None),
+            "toolchain" => Ok(Self::Toolchain),
+            "libc" => Ok(Self::Libc),
+            _ => Err(format!(
+                "invalid runtime provider `{value}`; expected one of: none, toolchain, libc"
+            )),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Toolchain => "toolchain",
+            Self::Libc => "libc",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryBundle {
+    None,
+    Base,
+    Std,
+}
+
+impl LibraryBundle {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "none" => Ok(Self::None),
+            "base" => Ok(Self::Base),
+            "std" => Ok(Self::Std),
+            _ => Err(format!(
+                "invalid library bundle `{value}`; expected one of: none, base, std"
+            )),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Base => "base",
+            Self::Std => "std",
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -120,16 +196,19 @@ pub struct CompileOptions {
     // Interface alias mapping table rooted at the `kmeta` directory.
     pub module_interface_aliases: HashMap<String, String>,
     pub asm_dialect: AsmDialect,
-    pub link_profile: LinkProfile,
     pub linker_cmd: String,
     pub linker_inputs: Vec<String>,
     pub linker_search_paths: Vec<String>,
     pub linker_libraries: Vec<String>,
     pub linker_args: Vec<String>,
     pub entry_symbol: Option<String>,
+    pub runtime_entry: RuntimeEntry,
+    pub runtime_provider: RuntimeProvider,
+    pub runtime_libc: bool,
+    pub library_bundle: LibraryBundle,
     pub print_link_command: bool,
     pub report_progress: bool,
-    pub use_std: bool,
+    pub report_timings: bool,
 }
 
 impl Default for CompileOptions {
@@ -150,16 +229,19 @@ impl Default for CompileOptions {
             module_aliases: HashMap::new(),
             module_interface_aliases: HashMap::new(),
             asm_dialect: AsmDialect::default(),
-            link_profile: LinkProfile::Kern,
             linker_cmd: "cc".to_string(),
             linker_inputs: Vec::new(),
             linker_search_paths: Vec::new(),
             linker_libraries: Vec::new(),
             linker_args: Vec::new(),
             entry_symbol: None,
+            runtime_entry: RuntimeEntry::None,
+            runtime_provider: RuntimeProvider::None,
+            runtime_libc: false,
+            library_bundle: LibraryBundle::None,
             print_link_command: false,
             report_progress: true,
-            use_std: false,
+            report_timings: false,
         }
     }
 }
@@ -189,8 +271,132 @@ pub fn resolve_std_path() -> PathBuf {
     PathBuf::from("library/std")
 }
 
+pub fn resolve_base_path() -> PathBuf {
+    if let Ok(custom_base) = env::var("KERN_BASE_PATH") {
+        return PathBuf::from(custom_base);
+    }
+
+    if let Ok(exe_path) = env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("library/base");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("lib/kern/base");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    PathBuf::from("library/base")
+}
+
+pub fn resolve_rt_path() -> PathBuf {
+    if let Ok(custom_rt) = env::var("KERN_RT_PUBLIC_PATH") {
+        return PathBuf::from(custom_rt);
+    }
+
+    if let Ok(exe_path) = env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("library/rt");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("lib/kern/rt");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    PathBuf::from("library/rt")
+}
+
+pub fn resolve_sys_path() -> PathBuf {
+    if let Ok(custom_sys) = env::var("KERN_SYS_PATH") {
+        return PathBuf::from(custom_sys);
+    }
+
+    if let Ok(exe_path) = env::current_exe()
+        && let Some(exe_dir) = exe_path.parent()
+    {
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("library/sys");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+        for ancestor in exe_dir.ancestors() {
+            let candidate = ancestor.join("lib/kern/sys");
+            if candidate.join("init.rn").is_file() {
+                return candidate;
+            }
+        }
+    }
+
+    PathBuf::from("library/sys")
+}
+
+pub fn maybe_inject_base_alias(options: &mut CompileOptions) {
+    let wants_base = matches!(options.library_bundle, LibraryBundle::Base | LibraryBundle::Std)
+        || !matches!(options.runtime_entry, RuntimeEntry::None)
+        || !matches!(options.runtime_provider, RuntimeProvider::None)
+        || runtime_links_libc(options);
+    if !wants_base
+        || options.module_aliases.contains_key("base")
+    {
+        return;
+    }
+
+    let base_path = resolve_base_path();
+    options
+        .module_aliases
+        .insert("base".to_string(), base_path.to_string_lossy().to_string());
+}
+
+pub fn maybe_inject_rt_alias(options: &mut CompileOptions) {
+    let wants_rt = matches!(options.library_bundle, LibraryBundle::Base | LibraryBundle::Std)
+        || !matches!(options.runtime_entry, RuntimeEntry::None);
+    if !wants_rt || options.module_aliases.contains_key("rt") {
+        return;
+    }
+
+    let rt_path = resolve_rt_path();
+    options.module_aliases.insert(
+        "rt".to_string(),
+        rt_path.to_string_lossy().to_string(),
+    );
+}
+
+pub fn maybe_inject_sys_alias(options: &mut CompileOptions) {
+    let wants_sys = matches!(options.library_bundle, LibraryBundle::Std)
+        || !matches!(options.runtime_entry, RuntimeEntry::None)
+        || !matches!(options.runtime_provider, RuntimeProvider::None)
+        || runtime_links_libc(options);
+    if !wants_sys || options.module_aliases.contains_key("sys") {
+        return;
+    }
+
+    let sys_path = resolve_sys_path();
+    options.module_aliases.insert(
+        "sys".to_string(),
+        sys_path.to_string_lossy().to_string(),
+    );
+}
+
 pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
-    if !options.use_std || options.module_aliases.contains_key("std") {
+    if !matches!(options.library_bundle, LibraryBundle::Std)
+        || options.module_aliases.contains_key("std")
+    {
         return;
     }
 
@@ -200,65 +406,69 @@ pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
         .insert("std".to_string(), std_path.to_string_lossy().to_string());
 }
 
-fn target_is_darwin(target: &TargetMachine) -> bool {
-    let raw_os = target.triple.operating_system.to_string();
-    raw_os.contains("darwin") || raw_os.contains("macosx")
+pub fn inject_default_library_aliases(options: &mut CompileOptions) {
+    maybe_inject_base_alias(options);
+    maybe_inject_rt_alias(options);
+    maybe_inject_sys_alias(options);
+    maybe_inject_std_alias(options);
 }
 
-fn target_is_windows(target: &TargetMachine) -> bool {
-    target.triple.to_string().contains("windows")
+pub fn runtime_links_libc(options: &CompileOptions) -> bool {
+    options.runtime_libc || matches!(options.runtime_provider, RuntimeProvider::Libc)
 }
 
-pub fn link_profile_links_libc(options: &CompileOptions) -> bool {
-    if matches!(options.link_profile, LinkProfile::Hosted) {
-        return true;
+pub fn runtime_uses_crt_startup(options: &CompileOptions) -> bool {
+    matches!(options.runtime_entry, RuntimeEntry::Crt)
+}
+
+pub fn validate_runtime_options(options: &CompileOptions) -> Result<(), String> {
+    if matches!(options.runtime_entry, RuntimeEntry::Rt)
+        && !matches!(options.runtime_provider, RuntimeProvider::Toolchain)
+    {
+        return Err(
+            "invalid runtime configuration: `runtime_entry = rt` requires `runtime_provider = toolchain`"
+                .to_string(),
+        );
     }
 
-    matches!(options.link_profile, LinkProfile::Kern) && target_is_darwin(&options.target)
-}
-
-pub fn link_profile_uses_crt_startup(options: &CompileOptions) -> bool {
-    if !matches!(options.link_profile, LinkProfile::Hosted) {
-        return false;
+    if matches!(options.runtime_entry, RuntimeEntry::Crt) && !runtime_links_libc(options) {
+        return Err(
+            "invalid runtime configuration: `runtime_entry = crt` requires libc linkage"
+                .to_string(),
+        );
     }
 
-    if target_is_windows(&options.target) {
-        return true;
+    if matches!(options.runtime_provider, RuntimeProvider::Libc) && !runtime_links_libc(options) {
+        return Err(
+            "invalid runtime configuration: `runtime_provider = libc` requires libc linkage"
+                .to_string(),
+        );
     }
 
-    !options.use_std
-}
-
-pub fn link_profile_uses_kern_rt(options: &CompileOptions) -> bool {
-    options.use_std && !link_profile_uses_crt_startup(options)
+    Ok(())
 }
 
 pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
-    let link_profile = match options.link_profile {
-        LinkProfile::Kern => "kern",
-        LinkProfile::Freestanding => "freestanding",
-        LinkProfile::Hosted => "hosted",
-        LinkProfile::None => "none",
-    };
-
-    let hosted = matches!(options.link_profile, LinkProfile::Hosted);
-    let libc = link_profile_links_libc(options);
-    let crt_startup = link_profile_uses_crt_startup(options);
-    let kern_rt = link_profile_uses_kern_rt(options);
-
+    options.custom_defines.insert(
+        "runtime_entry".to_string(),
+        options.runtime_entry.as_str().to_string(),
+    );
+    options.custom_defines.insert(
+        "runtime_provider".to_string(),
+        options.runtime_provider.as_str().to_string(),
+    );
+    options.custom_defines.insert(
+        "library_bundle".to_string(),
+        options.library_bundle.as_str().to_string(),
+    );
     options
         .custom_defines
-        .insert("link_profile".to_string(), link_profile.to_string());
+        .insert("libc".to_string(), runtime_links_libc(options).to_string());
     options
         .custom_defines
-        .insert("hosted".to_string(), hosted.to_string());
+        .insert("crt_startup".to_string(), runtime_uses_crt_startup(options).to_string());
     options
         .custom_defines
-        .insert("libc".to_string(), libc.to_string());
-    options
-        .custom_defines
-        .insert("crt_startup".to_string(), crt_startup.to_string());
-    options
-        .custom_defines
-        .insert("kern_rt".to_string(), kern_rt.to_string());
+        .entry("rt_role".to_string())
+        .or_insert_with(|| "default".to_string());
 }

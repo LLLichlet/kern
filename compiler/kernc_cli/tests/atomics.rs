@@ -24,7 +24,7 @@ use sync.{MemOrder, RELAXED, ACQUIRE, RELEASE, ACQ_REL, SEQ_CST};
 
 const LOAD_ORDER = MemOrder.{1};
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mut value = usize.{0};
     let _ = @atomicLoad[usize](value.&, ACQUIRE);
     @atomicStore[usize](value..&, 1, RELEASE);
@@ -63,7 +63,7 @@ fn emits_weak_cmpxchg_for_atomic_cas_weak() {
         r#"
 use sync.{ACQUIRE, ACQ_REL};
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mut value = usize.{0};
     let cas = @atomicCasWeak[usize](value..&, 1, 2, ACQ_REL, ACQUIRE);
     let _ = cas.success;
@@ -100,7 +100,7 @@ fn rejects_non_constant_atomic_ordering() {
         r#"
 const RELEASE = 2;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let order = RELEASE;
     @fence(order);
     return 0;
@@ -129,7 +129,7 @@ fn rejects_invalid_atomic_ordering_for_load() {
         r#"
 const RELEASE = 2;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mut value = usize.{0};
     let _ = @atomicLoad[usize](value.&, RELEASE);
     return 0;
@@ -158,7 +158,7 @@ fn rejects_atomic_widths_that_need_runtime_helpers() {
         r#"
 const ACQUIRE = 1;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mut value = u128.{0};
     let _ = @atomicLoad[u128](value.&, ACQUIRE);
     return 0;
@@ -181,3 +181,4 @@ extern fn main(args: [][]u8) i32 {
         stderr
     );
 }
+

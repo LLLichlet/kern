@@ -351,7 +351,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
             match g.linkage {
                 MastLinkage::External => global_val.set_linkage(Linkage::External),
-                MastLinkage::LinkOnceOdr => global_val.set_linkage(Linkage::LinkOnceOdr),
+                MastLinkage::LinkOnceOdr => {
+                    if cfg!(windows) {
+                        global_val.set_linkage(Linkage::Internal);
+                    } else {
+                        global_val.set_linkage(Linkage::LinkOnceOdr);
+                    }
+                }
                 MastLinkage::Internal => global_val.set_linkage(Linkage::Internal),
             }
 
@@ -452,9 +458,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let llvm_func = self.module.add_function(&llvm_symbol_name, fn_type, None);
             match f.linkage {
                 MastLinkage::External => llvm_func.as_global_value().set_linkage(Linkage::External),
-                MastLinkage::LinkOnceOdr => llvm_func
-                    .as_global_value()
-                    .set_linkage(Linkage::LinkOnceOdr),
+                MastLinkage::LinkOnceOdr => {
+                    if cfg!(windows) {
+                        llvm_func.as_global_value().set_linkage(Linkage::Internal);
+                    } else {
+                        llvm_func
+                            .as_global_value()
+                            .set_linkage(Linkage::LinkOnceOdr);
+                    }
+                }
                 MastLinkage::Internal => llvm_func.as_global_value().set_linkage(Linkage::Internal),
             }
 

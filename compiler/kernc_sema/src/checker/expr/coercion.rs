@@ -1247,71 +1247,72 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_trait_ty: TypeId,
         _visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
-        let impl_blocks: Vec<_> = self
-            .ctx
-            .global_impls
-            .iter()
-            .filter_map(|&id| {
-                if let Def::Impl(impl_def) = &self.ctx.defs[id.0 as usize] {
-                    Some(impl_def.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
+        let trait_impl_ids = self.ctx.trait_impls.clone();
+        for impl_id in trait_impl_ids {
+            let Some(impl_ptr) = self.ctx.defs.get(impl_id.0 as usize).and_then(|def| match def {
+                Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                _ => None,
+            }) else {
+                continue;
+            };
 
-        for impl_def in impl_blocks {
-            if let Some(trait_ast) = &impl_def.trait_type {
+            {
+                let mut resolver = TypeResolver::new(self.ctx);
+                resolver.ensure_impl_signature_types_resolved(impl_id);
+            }
+
+            // Safety: semantic definitions are stable during type queries; use a raw pointer
+            // to avoid cloning each impl block on every trait-impl check.
+            let impl_def = unsafe { &*impl_ptr };
+            let Some(trait_ast) = &impl_def.trait_type else {
+                continue;
+            };
+
+            let impl_target_ty = self
+                .ctx
+                .node_types
+                .get(&impl_def.target_type.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let impl_trait_ty = self
+                .ctx
+                .node_types
+                .get(&trait_ast.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+
+            if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
+                continue;
+            }
+
+            let mut map = HashMap::new();
+
+            if self.unify(impl_target_ty, source_ty, &mut map) {
+                let instantiated_trait_ty = {
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    subst.substitute(impl_trait_ty)
+                };
+
+                let inst_norm = self.resolve_tv(instantiated_trait_ty);
+                let target_norm = self.resolve_tv(target_trait_ty);
+                let mut trait_map = HashMap::new();
+
+                if inst_norm == target_norm
+                    || instantiated_trait_ty == target_trait_ty
+                    || self.unify(instantiated_trait_ty, target_trait_ty, &mut trait_map)
                 {
-                    let mut resolver = TypeResolver::new(self.ctx);
-                    resolver.ensure_impl_signature_types_resolved(impl_def.id);
-                }
-                let impl_target_ty = self
-                    .ctx
-                    .node_types
-                    .get(&impl_def.target_type.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let impl_trait_ty = self
-                    .ctx
-                    .node_types
-                    .get(&trait_ast.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-
-                if impl_target_ty == TypeId::ERROR || impl_trait_ty == TypeId::ERROR {
-                    continue;
+                    return true;
                 }
 
-                let mut map = HashMap::new();
-
-                if self.unify(impl_target_ty, source_ty, &mut map) {
-                    let instantiated_trait_ty = {
-                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                        subst.substitute(impl_trait_ty)
-                    };
-
-                    let inst_norm = self.resolve_tv(instantiated_trait_ty);
-                    let target_norm = self.resolve_tv(target_trait_ty);
-                    let mut trait_map = HashMap::new();
-
-                    if inst_norm == target_norm
-                        || instantiated_trait_ty == target_trait_ty
-                        || self.unify(instantiated_trait_ty, target_trait_ty, &mut trait_map)
-                    {
-                        return true;
-                    }
-
-                    if matches!(
-                        (
-                            self.ctx.type_registry.get(inst_norm),
-                            self.ctx.type_registry.get(target_norm)
-                        ),
-                        (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
-                    ) && self.is_trait_object_upcast(instantiated_trait_ty, target_trait_ty)
-                    {
-                        return true;
-                    }
+                if matches!(
+                    (
+                        self.ctx.type_registry.get(inst_norm),
+                        self.ctx.type_registry.get(target_norm)
+                    ),
+                    (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+                ) && self.is_trait_object_upcast(instantiated_trait_ty, target_trait_ty)
+                {
+                    return true;
                 }
             }
         }

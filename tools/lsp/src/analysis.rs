@@ -34,7 +34,7 @@ use kernc_driver::{
     SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 use kernc_utils::config::{
-    CompileOptions, inject_driver_condition_defines, maybe_inject_std_alias,
+    CompileOptions, LibraryBundle, inject_default_library_aliases, inject_driver_condition_defines,
 };
 use kernc_utils::{Session, SourceFile, Span};
 use std::cell::RefCell;
@@ -54,7 +54,7 @@ impl Default for AnalysisSettings {
     fn default() -> Self {
         Self {
             compile_options: CompileOptions {
-                use_std: true,
+                library_bundle: LibraryBundle::Std,
                 ..CompileOptions::default()
             },
         }
@@ -1086,12 +1086,13 @@ impl AnalysisEngine {
         if let Some(project) = self.project_for_path(&target_doc.path) {
             let mut resolved =
                 project.resolve_for_file(&target_doc.path, &self.settings.compile_options);
+            inject_default_library_aliases(&mut resolved.compile_options);
             inject_driver_condition_defines(&mut resolved.compile_options);
             return Ok(resolved);
         }
 
         let mut compile_options = self.settings.compile_options.clone();
-        maybe_inject_std_alias(&mut compile_options);
+        inject_default_library_aliases(&mut compile_options);
         inject_driver_condition_defines(&mut compile_options);
         Ok(ResolvedAnalysis {
             input_file: self.infer_standalone_analysis_root(&target_doc.path),
@@ -1323,6 +1324,7 @@ fn preserve_target_diagnostics(
         .session
         .diagnostics
         .iter()
+        .filter(|diagnostic| diagnostic.level == kernc_utils::DiagnosticLevel::Error)
         .filter(|diagnostic| {
             span_in_path(
                 &clean_artifact.session,

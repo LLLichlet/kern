@@ -6,7 +6,7 @@ fn build_and_run_source_with_std(source: &str) -> std::process::Output {
     build_and_run(
         "kernc_fat_pointer_return",
         source,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     )
 }
 
@@ -14,8 +14,9 @@ fn build_and_run_source_with_std(source: &str) -> std::process::Output {
 fn returns_struct_containing_allocator_fat_pointer_inside_result() {
     let output = build_and_run_source_with_std(
         r#"
-use std.{Option, Result};
-use std.mem.alloc.{Allocator, Arena, Page};
+use base.{Option, Result};
+use base.mem.alloc.{Allocator, Arena};
+use sys.mem.Page;
 
 type Ref = struct {
     alloc: *mut Allocator,
@@ -26,8 +27,7 @@ fn make_ref(alloc: *mut Allocator, value: *mut i32) Result[Ref, i32] {
     return .{ Ok: Ref.{ alloc: alloc, value: value } };
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
 
     let mut page = Page.{}..&;
     let mut arena = Arena.{ backing: *mut Allocator.{ page } };
@@ -56,8 +56,9 @@ extern fn main(args: [][]u8) i32 {
 fn returns_struct_containing_allocator_fat_pointer_inside_option() {
     let output = build_and_run_source_with_std(
         r#"
-use std.{Option, Result};
-use std.mem.alloc.{Allocator, Arena, Page};
+use base.{Option, Result};
+use base.mem.alloc.{Allocator, Arena};
+use sys.mem.Page;
 
 type Ref = struct {
     alloc: *mut Allocator,
@@ -68,8 +69,7 @@ fn make_ref(alloc: *mut Allocator, value: *mut i32) Option[Ref] {
     return .{ Some: Ref.{ alloc: alloc, value: value } };
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
 
     let mut page = Page.{}..&;
     let mut arena = Arena.{ backing: *mut Allocator.{ page } };
@@ -98,8 +98,9 @@ extern fn main(args: [][]u8) i32 {
 fn returns_struct_containing_allocator_fat_pointer_from_mut_method_result() {
     let output = build_and_run_source_with_std(
         r#"
-use std.{Option, Result};
-use std.mem.alloc.{Allocator, Arena, Page};
+use base.{Option, Result};
+use base.mem.alloc.{Allocator, Arena};
+use sys.mem.Page;
 
 type Ref = struct {
     alloc: *mut Allocator,
@@ -117,8 +118,7 @@ impl *mut Holder {
     }
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
 
     let mut page = Page.{}..&;
     let mut arena = Arena.{ backing: *mut Allocator.{ page } };
@@ -143,3 +143,4 @@ extern fn main(args: [][]u8) i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+

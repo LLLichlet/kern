@@ -6,7 +6,9 @@ use self::control::collect_control_facts;
 use self::dataflow::{
     collect_binding_summaries, collect_def_uses, collect_definition_facts, collect_node_facts,
     collect_node_transfers, collect_resolved_uses, collect_single_source_uses, collect_use_defs,
-    compute_liveness, compute_reaching_definitions,
+    compute_liveness, compute_reaching_definitions, materialize_liveness,
+    materialize_reaching_definitions, ComputedLiveness,
+    CfgTopology,
 };
 use super::{
     AnalysisDeadStore, AnalysisDeadStoreKind, AnalysisFlowBinding, AnalysisFlowBindingId,
@@ -29,10 +31,19 @@ use kernc_sema::semantic::SemanticSymbolKind;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FlowTiming {
+    pub name: &'static str,
+    pub duration: Duration,
+}
 
 #[derive(Clone, Default)]
 pub struct FlowModel {
     owners: Vec<FlowOwnerFacts>,
+    owner_body_lookup_by_file: HashMap<kernc_utils::FileId, Vec<(Span, DefId)>>,
+    phase_timings: Vec<FlowTiming>,
 }
 
 #[derive(Clone)]
@@ -54,6 +65,7 @@ struct FlowOwnerFacts {
     resolved_uses: Vec<AnalysisFlowResolvedUse>,
     single_source_uses: Vec<AnalysisFlowSingleSourceUse>,
     liveness: Vec<AnalysisFlowLiveness>,
+    computed_liveness: Option<ComputedLiveness>,
     reaching_definitions: Vec<AnalysisFlowReaching>,
     control_regions: Vec<FlowRegionFacts>,
     summary: AnalysisFlowSummary,
@@ -355,7 +367,7 @@ struct LoopContext {
     continue_target: AnalysisFlowNodeId,
 }
 
-struct FlowCfgBuilder {
+struct FlowCfgBuilder<'a> {
     nodes: Vec<AnalysisFlowCfgNode>,
     edges: Vec<AnalysisFlowCfgEdge>,
     incoming_counts: Vec<usize>,
@@ -365,8 +377,8 @@ struct FlowCfgBuilder {
     node_def_kinds: Vec<Option<AnalysisFlowDefinitionKind>>,
     node_copy_sources: Vec<Option<AnalysisFlowBindingId>>,
     node_effects: Vec<AnalysisFlowNodeEffects>,
-    local_bindings_by_span: HashMap<Span, AnalysisFlowBindingId>,
-    reference_to_binding: HashMap<Span, AnalysisFlowBindingId>,
+    local_bindings_by_span: &'a HashMap<Span, AnalysisFlowBindingId>,
+    reference_to_binding: &'a HashMap<Span, AnalysisFlowBindingId>,
     entry: AnalysisFlowNodeId,
     exit: AnalysisFlowNodeId,
 }
@@ -382,16 +394,42 @@ struct FlowCfgBuildResult {
 }
 
 impl FlowModel {
+    pub(in crate::compiler) fn phase_timings(&self) -> &[FlowTiming] {
+        &self.phase_timings
+    }
+
     pub fn collect(
         ctx: &SemaContext<'_>,
         module_item_definition_spans: &HashMap<DefId, Span>,
         references: &[(Span, Span)],
     ) -> Self {
+        Self::collect_with_mode(ctx, module_item_definition_spans, references, true)
+    }
+
+    pub fn collect_for_compile(
+        ctx: &SemaContext<'_>,
+        module_item_definition_spans: &HashMap<DefId, Span>,
+        references: &[(Span, Span)],
+    ) -> Self {
+        Self::collect_with_mode(ctx, module_item_definition_spans, references, false)
+    }
+
+    fn collect_with_mode(
+        ctx: &SemaContext<'_>,
+        module_item_definition_spans: &HashMap<DefId, Span>,
+        references: &[(Span, Span)],
+        include_analysis_details: bool,
+    ) -> Self {
+        let mut phase_totals = HashMap::<&'static str, Duration>::new();
+        let record = |totals: &mut HashMap<&'static str, Duration>, name: &'static str, started: Instant| {
+            *totals.entry(name).or_default() += started.elapsed();
+        };
         let mut owners = Vec::new();
 
         for def in &ctx.defs {
             match def {
                 Def::Function(function) => {
+                    let started = Instant::now();
                     if function.is_imported || function.is_intrinsic {
                         continue;
                     }
@@ -427,14 +465,17 @@ impl FlowModel {
                         resolved_uses: Vec::new(),
                         single_source_uses: Vec::new(),
                         liveness: Vec::new(),
+                        computed_liveness: None,
                         reaching_definitions: Vec::new(),
                         control_regions: Vec::new(),
                         summary: AnalysisFlowSummary::default(),
                         bindings: Vec::new(),
                         binding_summaries: Vec::new(),
                     });
+                    record(&mut phase_totals, "  flow_collect_owners", started);
                 }
                 Def::Global(global) => {
+                    let started = Instant::now();
                     if global.is_imported {
                         continue;
                     }
@@ -469,27 +510,34 @@ impl FlowModel {
                         resolved_uses: Vec::new(),
                         single_source_uses: Vec::new(),
                         liveness: Vec::new(),
+                        computed_liveness: None,
                         reaching_definitions: Vec::new(),
                         control_regions: Vec::new(),
                         summary: AnalysisFlowSummary::default(),
                         bindings: Vec::new(),
                         binding_summaries: Vec::new(),
                     });
+                    record(&mut phase_totals, "  flow_collect_owners", started);
                 }
                 _ => {}
             }
         }
 
+        let started = Instant::now();
+        let owner_scope_lookup_by_file =
+            build_owner_lookup_by_file(&owners, |owner| owner.owner_span);
+        record(&mut phase_totals, "  flow_owner_lookup", started);
+        let started = Instant::now();
         for definition in ctx.semantic_definitions() {
             let Some((kind, is_mut)) = flow_binding_kind(definition.kind, definition.is_mut) else {
                 continue;
             };
-            let Some(owner) = owners
-                .iter_mut()
-                .find(|owner| span_contains(owner.owner_span, definition.span))
+            let Some(owner_index) =
+                find_owner_lookup_index(&owner_scope_lookup_by_file, definition.span)
             else {
                 continue;
             };
+            let owner = &mut owners[owner_index];
 
             owner.bindings.push(FlowBindingFacts {
                 id: AnalysisFlowBindingId(0),
@@ -499,7 +547,9 @@ impl FlowModel {
                 reference_spans: Vec::new(),
             });
         }
+        record(&mut phase_totals, "  flow_bindings", started);
 
+        let started = Instant::now();
         let item_by_definition_span = module_item_definition_spans
             .iter()
             .map(|(&def_id, &span)| (span, def_id))
@@ -517,7 +567,11 @@ impl FlowModel {
                     })
             })
             .collect::<HashMap<_, _>>();
+        record(&mut phase_totals, "  flow_reference_index", started);
 
+        let started = Instant::now();
+        let owner_body_lookup_by_file =
+            build_owner_lookup_by_file(&owners, |owner| owner.body_span);
         for (reference_span, definition_span) in references {
             if let Some(&(owner_index, binding_index)) =
                 local_binding_by_definition_span.get(definition_span)
@@ -528,18 +582,20 @@ impl FlowModel {
             }
 
             if let Some(&referenced_def_id) = item_by_definition_span.get(definition_span) {
-                let Some(owner) = owners
-                    .iter_mut()
-                    .find(|owner| span_contains(owner.body_span, *reference_span))
+                let Some(owner_index) =
+                    find_owner_lookup_index(&owner_body_lookup_by_file, *reference_span)
                 else {
                     continue;
                 };
+                let owner = &mut owners[owner_index];
 
                 owner.referenced_def_ids.push(referenced_def_id);
                 owner.referenced_definition_spans.push(*definition_span);
             }
         }
+        record(&mut phase_totals, "  flow_attach_references", started);
 
+        let started = Instant::now();
         for owner in &mut owners {
             dedup_preserving_order(&mut owner.referenced_def_ids);
             dedup_preserving_order(&mut owner.referenced_definition_spans);
@@ -553,113 +609,196 @@ impl FlowModel {
                 binding.id = AnalysisFlowBindingId(binding_index);
             }
         }
+        record(&mut phase_totals, "  flow_finalize_bindings", started);
 
         for owner in &mut owners {
+            let binding_ids_by_span = owner
+                .bindings
+                .iter()
+                .map(|binding| (binding.definition_span, binding.id))
+                .collect::<HashMap<_, _>>();
+            let reference_to_binding = owner
+                .bindings
+                .iter()
+                .flat_map(|binding| {
+                    binding
+                        .reference_spans
+                        .iter()
+                        .copied()
+                        .map(move |reference_span| (reference_span, binding.id))
+                })
+                .collect::<HashMap<_, _>>();
             match &ctx.defs[owner.def_id.0 as usize] {
                 Def::Function(function) => {
                     let Some(body) = function.body.as_ref() else {
                         continue;
                     };
-                    let (control_regions, summary) = collect_control_facts(body);
-                    let binding_ids_by_span = owner
-                        .bindings
-                        .iter()
-                        .map(|binding| (binding.definition_span, binding.id))
-                        .collect::<HashMap<_, _>>();
+                    let started = Instant::now();
                     let cfg_build = FlowCfgBuilder::build(
                         body,
                         function.span,
-                        references,
                         &binding_ids_by_span,
+                        &reference_to_binding,
                     );
+                    record(&mut phase_totals, "  flow_cfg_build", started);
                     owner.cfg = cfg_build.cfg;
+                    let started = Instant::now();
                     owner.node_facts = collect_node_facts(
                         &owner.cfg,
                         &cfg_build.node_uses,
                         &cfg_build.node_defs,
                         &cfg_build.node_def_kinds,
                     );
-                    owner.node_effects = cfg_build.node_effects;
-                    owner.node_transfers = collect_node_transfers(&owner.node_facts);
-                    owner.liveness = compute_liveness(&owner.cfg, &owner.node_transfers);
-                    owner.reaching_definitions =
-                        compute_reaching_definitions(&owner.cfg, &owner.node_transfers);
-                    owner.use_defs =
-                        collect_use_defs(&owner.node_facts, &owner.reaching_definitions);
-                    owner.def_uses = collect_def_uses(&owner.node_transfers, &owner.use_defs);
+                    record(&mut phase_totals, "  flow_node_facts", started);
+                    let started = Instant::now();
+                    let node_transfers = collect_node_transfers(&owner.node_facts);
+                    record(&mut phase_totals, "  flow_node_transfers", started);
+                    let topology = CfgTopology::from_cfg(&owner.cfg);
+                    let started = Instant::now();
+                    let computed_liveness = compute_liveness(&topology, &node_transfers);
+                    record(&mut phase_totals, "  flow_liveness", started);
+                    let started = Instant::now();
+                    let computed_reaching =
+                        compute_reaching_definitions(&topology, &node_transfers);
+                    record(&mut phase_totals, "  flow_reaching", started);
+                    let started = Instant::now();
+                    let use_defs = collect_use_defs(&owner.node_facts, &computed_reaching);
+                    record(&mut phase_totals, "  flow_use_defs", started);
+                    let started = Instant::now();
+                    owner.def_uses = collect_def_uses(&node_transfers, &use_defs);
+                    record(&mut phase_totals, "  flow_def_uses", started);
+                    let started = Instant::now();
                     owner.definition_facts = collect_definition_facts(
                         &owner.node_facts,
                         &cfg_build.node_value_uses,
                         &cfg_build.node_copy_sources,
                     );
-                    owner.resolved_uses = collect_resolved_uses(&owner.use_defs);
+                    record(&mut phase_totals, "  flow_definition_facts", started);
+                    let started = Instant::now();
+                    let resolved_uses = collect_resolved_uses(&use_defs);
+                    record(&mut phase_totals, "  flow_resolved_uses", started);
+                    let started = Instant::now();
                     owner.single_source_uses =
-                        collect_single_source_uses(&owner.resolved_uses, &owner.definition_facts);
+                        collect_single_source_uses(&resolved_uses, &owner.definition_facts);
+                    record(&mut phase_totals, "  flow_single_source_uses", started);
+                    let started = Instant::now();
                     owner.binding_summaries = collect_binding_summaries(
                         &owner.bindings,
                         &owner.cfg,
                         &owner.node_facts,
-                        &owner.liveness,
+                        &computed_liveness,
                     );
-                    owner.control_regions = control_regions;
-                    owner.summary = summary;
+                    record(&mut phase_totals, "  flow_binding_summaries", started);
+                    owner.computed_liveness = Some(computed_liveness.clone());
+                    if include_analysis_details {
+                        let started = Instant::now();
+                        let (control_regions, summary) = collect_control_facts(body);
+                        record(&mut phase_totals, "  flow_control", started);
+                        owner.node_effects = cfg_build.node_effects;
+                        owner.node_transfers = node_transfers;
+                        owner.reaching_definitions =
+                            materialize_reaching_definitions(&owner.cfg, &computed_reaching);
+                        owner.liveness =
+                            materialize_liveness(&owner.cfg, owner.computed_liveness.as_ref().unwrap());
+                        owner.use_defs = use_defs;
+                        owner.resolved_uses = resolved_uses;
+                        owner.control_regions = control_regions;
+                        owner.summary = summary;
+                    }
                 }
                 Def::Global(global) => {
-                    let (control_regions, summary) = collect_control_facts(&global.value);
-                    let binding_ids_by_span = owner
-                        .bindings
-                        .iter()
-                        .map(|binding| (binding.definition_span, binding.id))
-                        .collect::<HashMap<_, _>>();
+                    let started = Instant::now();
                     let cfg_build = FlowCfgBuilder::build(
                         &global.value,
                         global.span,
-                        references,
                         &binding_ids_by_span,
+                        &reference_to_binding,
                     );
+                    record(&mut phase_totals, "  flow_cfg_build", started);
                     owner.cfg = cfg_build.cfg;
+                    let started = Instant::now();
                     owner.node_facts = collect_node_facts(
                         &owner.cfg,
                         &cfg_build.node_uses,
                         &cfg_build.node_defs,
                         &cfg_build.node_def_kinds,
                     );
-                    owner.node_effects = cfg_build.node_effects;
-                    owner.node_transfers = collect_node_transfers(&owner.node_facts);
-                    owner.liveness = compute_liveness(&owner.cfg, &owner.node_transfers);
-                    owner.reaching_definitions =
-                        compute_reaching_definitions(&owner.cfg, &owner.node_transfers);
-                    owner.use_defs =
-                        collect_use_defs(&owner.node_facts, &owner.reaching_definitions);
-                    owner.def_uses = collect_def_uses(&owner.node_transfers, &owner.use_defs);
+                    record(&mut phase_totals, "  flow_node_facts", started);
+                    let started = Instant::now();
+                    let node_transfers = collect_node_transfers(&owner.node_facts);
+                    record(&mut phase_totals, "  flow_node_transfers", started);
+                    let topology = CfgTopology::from_cfg(&owner.cfg);
+                    let started = Instant::now();
+                    let computed_liveness = compute_liveness(&topology, &node_transfers);
+                    record(&mut phase_totals, "  flow_liveness", started);
+                    let started = Instant::now();
+                    let computed_reaching =
+                        compute_reaching_definitions(&topology, &node_transfers);
+                    record(&mut phase_totals, "  flow_reaching", started);
+                    let started = Instant::now();
+                    let use_defs = collect_use_defs(&owner.node_facts, &computed_reaching);
+                    record(&mut phase_totals, "  flow_use_defs", started);
+                    let started = Instant::now();
+                    owner.def_uses = collect_def_uses(&node_transfers, &use_defs);
+                    record(&mut phase_totals, "  flow_def_uses", started);
+                    let started = Instant::now();
                     owner.definition_facts = collect_definition_facts(
                         &owner.node_facts,
                         &cfg_build.node_value_uses,
                         &cfg_build.node_copy_sources,
                     );
-                    owner.resolved_uses = collect_resolved_uses(&owner.use_defs);
+                    record(&mut phase_totals, "  flow_definition_facts", started);
+                    let started = Instant::now();
+                    let resolved_uses = collect_resolved_uses(&use_defs);
+                    record(&mut phase_totals, "  flow_resolved_uses", started);
+                    let started = Instant::now();
                     owner.single_source_uses =
-                        collect_single_source_uses(&owner.resolved_uses, &owner.definition_facts);
+                        collect_single_source_uses(&resolved_uses, &owner.definition_facts);
+                    record(&mut phase_totals, "  flow_single_source_uses", started);
+                    let started = Instant::now();
                     owner.binding_summaries = collect_binding_summaries(
                         &owner.bindings,
                         &owner.cfg,
                         &owner.node_facts,
-                        &owner.liveness,
+                        &computed_liveness,
                     );
-                    owner.control_regions = control_regions;
-                    owner.summary = summary;
+                    record(&mut phase_totals, "  flow_binding_summaries", started);
+                    owner.computed_liveness = Some(computed_liveness.clone());
+                    if include_analysis_details {
+                        let started = Instant::now();
+                        let (control_regions, summary) = collect_control_facts(&global.value);
+                        record(&mut phase_totals, "  flow_control", started);
+                        owner.node_effects = cfg_build.node_effects;
+                        owner.node_transfers = node_transfers;
+                        owner.reaching_definitions =
+                            materialize_reaching_definitions(&owner.cfg, &computed_reaching);
+                        owner.liveness =
+                            materialize_liveness(&owner.cfg, owner.computed_liveness.as_ref().unwrap());
+                        owner.use_defs = use_defs;
+                        owner.resolved_uses = resolved_uses;
+                        owner.control_regions = control_regions;
+                        owner.summary = summary;
+                    }
                 }
                 _ => {}
             }
         }
 
-        Self { owners }
+        let owner_body_lookup_by_file = build_owner_def_lookup_by_file(&owners);
+        let mut phase_timings = phase_totals
+            .into_iter()
+            .map(|(name, duration)| FlowTiming { name, duration })
+            .collect::<Vec<_>>();
+        phase_timings.sort_by_key(|timing| timing.name);
+        Self {
+            owners,
+            owner_body_lookup_by_file,
+            phase_timings,
+        }
     }
 
     pub fn owner_def_id(&self, reference_span: Span) -> Option<DefId> {
-        self.owners.iter().find_map(|owner| {
-            span_contains(owner.body_span, reference_span).then_some(owner.def_id)
-        })
+        find_owner_def_id(&self.owner_body_lookup_by_file, reference_span)
     }
 
     pub fn referenced_item_edges(&self) -> Vec<(DefId, DefId)> {
@@ -759,6 +898,69 @@ fn flow_binding_kind(
 fn dedup_preserving_order<T: Copy + Eq + std::hash::Hash>(values: &mut Vec<T>) {
     let mut seen = HashSet::new();
     values.retain(|value| seen.insert(*value));
+}
+
+fn build_owner_lookup_by_file<F>(
+    owners: &[FlowOwnerFacts],
+    span_of: F,
+) -> HashMap<kernc_utils::FileId, Vec<(Span, usize)>>
+where
+    F: Fn(&FlowOwnerFacts) -> Span,
+{
+    let mut by_file = HashMap::<kernc_utils::FileId, Vec<(Span, usize)>>::new();
+    for (owner_index, owner) in owners.iter().enumerate() {
+        let span = span_of(owner);
+        by_file
+            .entry(span.file)
+            .or_default()
+            .push((span, owner_index));
+    }
+    for entries in by_file.values_mut() {
+        entries.sort_by_key(|(span, _)| (span.start, span.end));
+    }
+    by_file
+}
+
+fn build_owner_def_lookup_by_file(
+    owners: &[FlowOwnerFacts],
+) -> HashMap<kernc_utils::FileId, Vec<(Span, DefId)>> {
+    let mut by_file = HashMap::<kernc_utils::FileId, Vec<(Span, DefId)>>::new();
+    for owner in owners {
+        by_file
+            .entry(owner.body_span.file)
+            .or_default()
+            .push((owner.body_span, owner.def_id));
+    }
+    for entries in by_file.values_mut() {
+        entries.sort_by_key(|(span, _)| (span.start, span.end));
+    }
+    by_file
+}
+
+fn find_owner_lookup_index(
+    lookup: &HashMap<kernc_utils::FileId, Vec<(Span, usize)>>,
+    span: Span,
+) -> Option<usize> {
+    let entries = lookup.get(&span.file)?;
+    let candidate_index = entries.partition_point(|(owner_span, _)| owner_span.start <= span.start);
+    if candidate_index == 0 {
+        return None;
+    }
+    let (owner_span, owner_index) = entries[candidate_index - 1];
+    span_contains(owner_span, span).then_some(owner_index)
+}
+
+fn find_owner_def_id(
+    lookup: &HashMap<kernc_utils::FileId, Vec<(Span, DefId)>>,
+    span: Span,
+) -> Option<DefId> {
+    let entries = lookup.get(&span.file)?;
+    let candidate_index = entries.partition_point(|(owner_span, _)| owner_span.start <= span.start);
+    if candidate_index == 0 {
+        return None;
+    }
+    let (owner_span, def_id) = entries[candidate_index - 1];
+    span_contains(owner_span, span).then_some(def_id)
 }
 
 fn span_contains(outer: Span, inner: Span) -> bool {

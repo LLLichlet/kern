@@ -8,7 +8,7 @@ fn build_and_run_hosted(source: &str) -> std::process::Output {
     build_and_run(
         "kernc_std_fs",
         source,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     )
 }
 
@@ -19,16 +19,17 @@ fn runs_hosted_program_with_fs_create_followed_by_another_result_match() {
 
     let output = build_and_run_hosted(&format!(
         r#"
-use std.Result;
+use base.Result;
 use std.fs;
-use std.os;
-use std.mem.alloc.{{Page, GPA}};
+use sys.os;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
 fn ok_bool() Result[bool, os.Error] {{
     return .{{ Ok: true }};
 }}
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -71,9 +72,10 @@ fn runs_hosted_program_using_std_fs_convenience_functions() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -132,9 +134,10 @@ fn runs_hosted_program_using_std_fs_metadata_and_directories() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -270,9 +273,10 @@ fn runs_hosted_program_using_std_fs_roundtrip() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -339,9 +343,10 @@ fn runs_hosted_program_using_std_fs_open_variants() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -433,9 +438,10 @@ fn runs_hosted_program_using_std_fs_create_dir_all() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -524,9 +530,10 @@ fn runs_hosted_program_using_std_fs_rename() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -633,9 +640,10 @@ fn runs_hosted_program_using_std_fs_read_dir() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -747,9 +755,10 @@ fn runs_hosted_program_using_std_fs_remove_dir_all() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -812,7 +821,7 @@ fn runs_hosted_program_using_std_fs_path_views() {
         r#"
 use std.fs;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let path = "/tmp/kern/archive.tar";
 
     if (!fs.file_name(path).is_some_and(.[](name: []u8) bool {
@@ -891,9 +900,10 @@ fn runs_hosted_program_using_std_fs_path_join_and_normalize() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use std.mem.alloc.{Page, GPA};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -987,9 +997,10 @@ fn runs_hosted_program_using_std_fs_path_replacements() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use std.mem.alloc.{Page, GPA};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1065,9 +1076,10 @@ fn runs_hosted_program_using_std_fs_windows_path_semantics() {
     let output = build_and_run_hosted(
         r#"
 use std.fs;
-use std.mem.alloc.{Page, GPA};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
 
@@ -1177,6 +1189,7 @@ fn runs_hosted_program_using_std_fs_unicode_paths_on_windows() {
     let temp_file = temp_root.join("\u{4F60}\u{597D}-emoji-\u{1F642}.txt");
     let root_path = kern_string_literal(&temp_root);
     let file_path = kern_string_literal(&temp_file);
+    let expected_name = "\u{4F60}\u{597D}-emoji-\u{1F642}.txt";
 
     let _ = fs::remove_file(&temp_file);
     let _ = fs::remove_dir_all(&temp_root);
@@ -1184,9 +1197,10 @@ fn runs_hosted_program_using_std_fs_unicode_paths_on_windows() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -1217,7 +1231,7 @@ extern fn main(_: [][]u8) i32 {{
     let visited = match (fs.read_dir(gpa, "{root_path}", .[
         hits = hits..&
     ](entry: fs.DirEntry) bool {{
-        if (entry.name.eq("你好-emoji-🙂.txt")) {{
+        if (entry.name.eq("{expected_name}")) {{
             hits.* += 1;
         }}
         return true;
@@ -1234,7 +1248,8 @@ extern fn main(_: [][]u8) i32 {{
 }}
 "#,
         root_path = root_path,
-        file_path = file_path
+        file_path = file_path,
+        expected_name = expected_name
     ));
 
     assert!(
@@ -1263,9 +1278,10 @@ fn runs_hosted_program_using_std_fs_copy_and_append() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -1376,9 +1392,10 @@ fn runs_hosted_program_using_std_fs_walk_dir() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -1529,9 +1546,10 @@ fn runs_hosted_program_using_std_fs_if_exists_helpers() {
     let output = build_and_run_hosted(&format!(
         r#"
 use std.fs;
-use std.mem.alloc.{{Page, GPA}};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-extern fn main(_: [][]u8) i32 {{
+fn main() i32 {{
     let page = Page.{{}}..&;
     let gpa = GPA.{{ backing: page }}..&;
 
@@ -1617,3 +1635,4 @@ extern fn main(_: [][]u8) i32 {{
     let _ = fs::remove_file(&file_path);
     let _ = fs::remove_dir_all(&temp_root);
 }
+

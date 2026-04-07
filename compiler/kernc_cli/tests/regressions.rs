@@ -15,7 +15,7 @@ fn compile_source(source: &str) -> std::process::Output {
 }
 
 fn compile_source_with_std(source: &str) -> std::process::Output {
-    compile_source_with_args("kernc_regression_std_test", source, &["--use-std"])
+    compile_source_with_args("kernc_regression_std_test", source, &["--library-bundle", "std"])
 }
 
 fn compile_source_tree(entry: &str, files: &[(&str, &str)]) -> std::process::Output {
@@ -26,7 +26,7 @@ fn build_and_run_source(source: &str) -> std::process::Output {
     build_and_run(
         "kernc_regression_run",
         source,
-        &["--link-profile", "hosted"],
+        &["--runtime-libc", "yes"],
     )
 }
 
@@ -34,8 +34,47 @@ fn build_and_run_source_with_std(source: &str) -> std::process::Output {
     build_and_run(
         "kernc_regression_std_run",
         source,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     )
+}
+
+#[test]
+fn runs_i128_division_and_remainder_without_external_runtime_helpers() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let wide = (u128.{1} << u128.{100}) + u128.{12345};
+    let divisor = u128.{97};
+    let quotient = wide / divisor;
+    let remainder = wide % divisor;
+    if (quotient * divisor + remainder != wide) {
+        return 1;
+    }
+    if (remainder >= divisor) {
+        return 2;
+    }
+
+    let signed_wide = (i128.{0} - (i128.{1} << i128.{100})) + i128.{12345};
+    let signed_divisor = i128.{97};
+    let signed_quotient = signed_wide / signed_divisor;
+    let signed_remainder = signed_wide % signed_divisor;
+    if (signed_quotient * signed_divisor + signed_remainder != signed_wide) {
+        return 3;
+    }
+    if (signed_remainder >= i128.{0}) {
+        return 4;
+    }
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -45,7 +84,7 @@ fn helper() i32 {
     return 1;
 }
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     return 0;
 }
 "#;
@@ -73,7 +112,7 @@ fn successful_compile_prints_unused_private_constant_warning_and_prunes_ir() {
     let source = r#"
 const helper = 1;
 
-extern fn main() i32 {
+fn main() i32 {
     return 0;
 }
 "#;
@@ -101,7 +140,7 @@ fn successful_compile_prints_unused_private_static_warning_and_prunes_ir() {
     let source = r#"
 static helper = 1;
 
-extern fn main() i32 {
+fn main() i32 {
     return 0;
 }
 "#;
@@ -127,13 +166,13 @@ extern fn main() i32 {
 #[test]
 fn resolves_imported_generic_bounds_for_struct_field_literals() {
     let source = r#"
-use std.coll.Map;
+use base.coll.Map;
 
 type Wrap = struct {
     item: Map[u64, i32],
 };
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let _ = Wrap.{ item: Map[u64, i32].{} };
     return 0;
 }
@@ -156,7 +195,7 @@ fn cold_add(lhs: i32, rhs: i32) i32 {
     return lhs + rhs;
 }
 
-extern fn main() i32 {
+fn main() i32 {
     return hot_add(1, 2) + cold_add(3, 4);
 }
 "#;
@@ -182,7 +221,7 @@ fn indexes_const_arrays_through_their_global_storage() {
     let source = r#"
 const TABLE = [4]u8.{ 1, 2, 3, 4 };
 
-extern fn main() i32 {
+fn main() i32 {
     return TABLE.[2] as i32;
 }
 "#;
@@ -219,7 +258,7 @@ const fn build() [4]mut u8 {
 
 const TABLE = build();
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     return TABLE.[2] as i32;
 }
 "#;
@@ -243,7 +282,7 @@ extern fn main(_: [][]u8) i32 {
 #[test]
 fn emits_llvm_memmove_for_memmove_intrinsic() {
     let source = r#"
-extern fn main() i32 {
+fn main() i32 {
     let buf = [4]mut u8.{ 1, 2, 3, 4 };
     @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
     return 0;
@@ -265,7 +304,7 @@ extern fn main() i32 {
 fn runs_memmove_intrinsic_with_overlapping_ranges() {
     let output = build_and_run_source(
         r#"
-extern fn main() i32 {
+fn main() i32 {
     let buf = [4]mut u8.{ 1, 2, 3, 4 };
     @memmove(buf.[1]..& as *mut u8, buf.[0].& as *u8, 3);
 
@@ -298,7 +337,7 @@ fn compiles_same_private_const_name_in_multiple_modules() {
 mod left;
 mod right;
 
-extern fn main() i32 {
+fn main() i32 {
     return left.value() + right.value();
 }
 "#,
@@ -338,7 +377,7 @@ fn helper(_: i32, unused_param: i32, used_param: i32) i32 {
     return used_param;
 }
 
-extern fn main() i32 {
+fn main() i32 {
     return helper(1, 2, 3);
 }
 "#;
@@ -377,7 +416,7 @@ fn helper(seed: i32) i32 {
     return value;
 }
 
-extern fn main() i32 {
+fn main() i32 {
     return helper(1);
 }
 "#;
@@ -402,7 +441,7 @@ fn helper(seed: i32) i32 {
     return value;
 }
 
-extern fn main() i32 {
+fn main() i32 {
     return helper(1);
 }
 "#;
@@ -439,7 +478,7 @@ fn unwrap_kind(value: MaybeKind) Kind {
     };
 }
 
-extern fn main() i32 {
+fn main() i32 {
     let kind = unwrap_kind(MaybeKind.{ Some: Kind.Section });
     match (kind) {
         .Root => return 1,
@@ -483,7 +522,7 @@ impl Holder {
     }
 }
 
-extern fn main() i32 {
+fn main() i32 {
     let holder = Holder.{};
     let kind = match (holder.section_kind(true)) {
         .{ Some: kind } => kind,
@@ -515,7 +554,7 @@ fn helper() i32 {
 
 pub use .helper as exported;
 
-extern fn main() i32 {
+fn main() i32 {
     return 0;
 }
 "#;
@@ -592,7 +631,7 @@ pub fn answer() i32 {
     fs::write(
         &main_source,
         r#"
-extern fn main() i32 {
+fn main() i32 {
     return if (dep.answer() == 42) { 0 } else { 1 };
 }
 "#,
@@ -603,8 +642,12 @@ extern fn main() i32 {
     let dep_mapping = format!("dep={}", metadata_dir.to_string_lossy());
     let exe_arg = executable.to_string_lossy().into_owned();
     let app_output = run_kernc([
-        "--link-profile",
-        "hosted",
+        "--runtime-entry",
+        "crt",
+        "--runtime-provider",
+        "toolchain",
+        "--runtime-libc",
+        "yes",
         "-I",
         dep_mapping.as_str(),
         "--link-input",
@@ -650,7 +693,7 @@ pub mod inner;
     fs::write(
         &inner_entry,
         r#"
-#[if(kern_rt)]
+#[if(runtime_entry != "none")]
 pub mod entry;
 
 pub fn answer() i32 {
@@ -789,7 +832,7 @@ pub fn answer() i32 {
     fs::write(
         &main_source,
         r#"
-extern fn main() i32 {
+fn main() i32 {
     return dep.answer();
 }
 "#,
@@ -854,7 +897,7 @@ fn use_it[T](value: *T) i32
     return value.foo() + value.add(2);
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let value = i32.{5};
     return use_it(value.&);
 }
@@ -873,11 +916,12 @@ extern fn main(args: [][]u8) i32 {
 fn preserves_outer_binding_after_shadowing_match_payload() {
     let output = build_and_run_source_with_std(
         r#"
-use std.Result;
-use std.coll.String;
-use std.mem.alloc.{Page, GPA};
+use base.Result;
+use base.coll.String;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
 
-fn make_text(alloc: *mut std.mem.alloc.Allocator, text: []u8) Result[String, i32] {
+fn make_text(alloc: *mut base.mem.alloc.Allocator, text: []u8) Result[String, i32] {
     let mut out = String.{};
     if (!out..&.push_str(alloc, text)) {
         return .{ Err: 1 };
@@ -885,7 +929,7 @@ fn make_text(alloc: *mut std.mem.alloc.Allocator, text: []u8) Result[String, i32
     return .{ Ok: out };
 }
 
-extern fn main(_: [][]u8) i32 {
+fn main() i32 {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
     defer gpa.deinit();
@@ -937,7 +981,7 @@ const TABLE = [_]u8.{ 3, 5, 8 };
 const DEFAULT_MODE = Mode.On;
 const VALUE = Option[i32].{ Some: 7 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mode = match (DEFAULT_MODE) {
         .Off => i32.{0},
         .On => i32.{10},
@@ -998,7 +1042,7 @@ fn passthrough(value: Option[i32]) Option[i32] {
     return value;
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let contextual = passthrough(.None);
     let some = Option[i32].{ Some: 19 };
 
@@ -1035,7 +1079,7 @@ type Option[T] = enum {
     Some: T,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let value = Option[i32].Some;
     return match (value) {
         .None => 0,
@@ -1069,7 +1113,7 @@ type DocumentKind = enum {
     Table,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let kind = if (true) {
         DocumentKind.Table
     } else {
@@ -1104,7 +1148,7 @@ fn compiles_imported_type_alias_payloadless_variants_in_if_expressions() {
 mod kinds;
 use .kinds.DocumentKind;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let kind = if (true) {
         DocumentKind.Table
     } else {
@@ -1187,7 +1231,7 @@ impl Pair {
 const TABLE = [inc(3)]u8.{ 1, 2, 3, 4 };
 const TOTAL = unwrap_switch(choose(true)) + Pair.{ left: 5, right: id[i32](3) }.sum() + (TABLE.[3] as i32);
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return TOTAL;
 }
 "#,
@@ -1215,7 +1259,7 @@ impl []u8 {
     }
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let text = "hi";
     return text.len_via_impl() as i32;
 }
@@ -1234,7 +1278,7 @@ extern fn main(args: [][]u8) i32 {
 fn compiles_generic_std_helper_calling_layout_of_recursive_type() {
     let output = compile_source_with_std(
         r#"
-use std.mem.layout_of;
+use base.mem.layout_of;
 
 type Node[K, V] = struct {
     next: *mut Node[K, V],
@@ -1242,17 +1286,16 @@ type Node[K, V] = struct {
     value: V,
 };
 
-fn free_node[K, V](alloc: *mut std.mem.alloc.Allocator, node: *mut Node[K, V]) void {
+fn free_node[K, V](alloc: *mut base.mem.alloc.Allocator, node: *mut Node[K, V]) void {
     alloc.free(node as *mut u8, layout_of[Node[K, V]]());
 }
 
-fn wrap_free[K, V](alloc: *mut std.mem.alloc.Allocator, node: *mut Node[K, V]) void {
+fn wrap_free[K, V](alloc: *mut base.mem.alloc.Allocator, node: *mut Node[K, V]) void {
     free_node(alloc, node);
 }
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let _ = wrap_free[i32, i32];
-    let _ = args;
     return 0;
 }
 "#,
@@ -1280,8 +1323,7 @@ extern {
     fn system_probe() i32;
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return 0;
 }
 "#,
@@ -1307,7 +1349,7 @@ fn use_mut_closure(cb: *mut Fn() void) void {
     cb();
 }
 
-extern fn main() i32 {
+fn main() i32 {
     let mut calls = i32.{0};
     let value = use_closure(.[ptr = calls..&]() i32 {
         ptr.* += 1;
@@ -1350,7 +1392,7 @@ type Buffer = struct {
     items: [4]i32,
 };
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mut buf = Buffer.{ items: [4]i32.{ 0; 4 } };
     buf.items.[0] = 5;
 
@@ -1374,7 +1416,7 @@ extern fn main(args: [][]u8) i32 {
 fn runs_array_and_slice_mutability_semantics() {
     let output = build_and_run_source(
         r#"
-extern fn main() i32 {
+fn main() i32 {
     let arr = [5]mut u8.{ b'a', b'b', b'c', b'd', b'e' };
     arr.[1] = b'x';
     if (arr.[1] != b'x') {
@@ -1421,8 +1463,7 @@ fn runs_zig_style_multiline_strings() {
         r#"
 use std.io;
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
 
     let msg =
         \\line one
@@ -1436,7 +1477,7 @@ extern fn main(args: [][]u8) i32 {
     return 0;
 }
 "#,
-        &["--use-std", "--link-profile", "hosted"],
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
     );
 
     assert!(
@@ -1481,7 +1522,7 @@ fn sum_pair(pair: Pair[i32,],) i32 {
     }
 }
 
-extern fn main() i32 {
+fn main() i32 {
     let pair = Pair[i32,].{ left: 2, right: 3, };
     if (sum_pair(pair,) == 5) {
         return 0;
@@ -1520,7 +1561,7 @@ fn read_before_defer() i32 {
     return state;
 }
 
-extern fn main() i32 {
+fn main() i32 {
     if (read_before_defer() != 1) {
         return 1;
     }
@@ -1550,7 +1591,7 @@ fn fail() Result[i32, i32] {
     return .{ Err: 7 };
 }
 
-extern fn main() i32 {
+fn main() i32 {
     let _ = match (fail()) {
         .{ Ok: v } => v,
         .{ Err: _err } => {
@@ -1580,7 +1621,7 @@ fn fail() bool {
     return @trap();
 }
 
-extern fn main() i32 {
+fn main() i32 {
     let _ = fail();
     return 0;
 }
@@ -1611,7 +1652,7 @@ fn expect_ok[T, E](value: Result[T, E]) T {
     }
 }
 
-extern fn main() i32 {
+fn main() i32 {
     let _ = expect_ok[i32, bool](.{ Ok: 7 });
     return 0;
 }
@@ -1625,7 +1666,7 @@ extern fn main() i32 {
 fn compiles_never_in_let_initializer_without_emitting_store() {
     let output = compile_source(
         r#"
-extern fn main() i32 {
+fn main() i32 {
     let x = @trap();
     let _ = x;
     return 0;
@@ -1644,7 +1685,7 @@ fn consume(value: i32) void {
     let _ = value;
 }
 
-extern fn main() i32 {
+fn main() i32 {
     consume(@trap());
     return 0;
 }
@@ -1658,7 +1699,7 @@ extern fn main() i32 {
 fn runs_for_clauses_with_non_void_init_post_and_body() {
     let output = build_and_run_source(
         r#"
-extern fn main() i32 {
+fn main() i32 {
     let mut phase = i32.{0};
 
     for (
@@ -1705,8 +1746,7 @@ const fn sum_skip(limit: i32) i32 {
 
 const TOTAL = sum_skip(i32.{7});
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return TOTAL;
 }
 "#,
@@ -1743,8 +1783,7 @@ const fn build_total() i32 {
 
 const TOTAL = build_total();
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return TOTAL;
 }
 "#,
@@ -1774,8 +1813,7 @@ const fn run() i32 {
 
 const RESULT = run();
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return RESULT;
 }
 "#,
@@ -1797,8 +1835,7 @@ fn replace(buf: *mut [4]u8) void {
     buf.* = [4]u8.{ 1, 2, 3, 4 };
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return 0;
 }
 "#,
@@ -1820,8 +1857,7 @@ fn write(buf: *[4]mut u8, index: usize, value: u8) void {
     buf.*.[index] = value;
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return 0;
 }
 "#,
@@ -1843,8 +1879,7 @@ fn write(buf: *mut [4]u8, index: usize, value: u8) void {
     buf.*.[index] = value;
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return 0;
 }
 "#,
@@ -1885,8 +1920,7 @@ const fn run() i32 {
 
 const RESULT = run();
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     return RESULT;
 }
 "#,
@@ -1904,7 +1938,7 @@ extern fn main(args: [][]u8) i32 {
 fn rejects_assignment_through_non_mut_array_elements() {
     let output = compile_source(
         r#"
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let mut arr = [4]i32.{ 0; 4 };
     arr.[0] = 3;
     return arr.[0];
@@ -1931,7 +1965,7 @@ extern fn main(args: [][]u8) i32 {
 fn rejects_rebinding_immutable_array_binding() {
     let output = compile_source(
         r#"
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let arr = [3]u8.{ b'a', b'b', b'c' };
     arr = [3]u8.{ b'x', b'y', b'z' };
     return 0;
@@ -1964,7 +1998,7 @@ fn runtime_only(v: i32) i32 {
 
 const BAD = runtime_only(1);
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return 0;
 }
 "#,
@@ -1989,7 +2023,7 @@ extern fn main(args: [][]u8) i32 {
 fn rejects_arrays_larger_than_llvm_indexable_limit() {
     let output = compile_source(
         r#"
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let _ = [4294967296]u8.{ undef };
     return 0;
 }
@@ -2014,7 +2048,7 @@ fn allows_private_named_struct_fields_within_defining_module() {
                 r#"
 mod data;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     return data.read_secret();
 }
 "#,
@@ -2054,7 +2088,7 @@ fn rejects_private_named_struct_fields_across_modules() {
                 r#"
 mod data;
 
-extern fn main(args: [][]u8) i32 {
+fn main() i32 {
     let bag = data.make();
     return bag.secret + bag.open;
 }
@@ -2090,3 +2124,5 @@ pub fn make() Bag {
         stderr
     );
 }
+
+

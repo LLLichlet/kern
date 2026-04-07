@@ -1,5 +1,40 @@
 use super::*;
 use crate::compiler::AnalysisFlowResolvedUseKind;
+use std::collections::HashMap;
+
+pub(super) struct ComputedReaching {
+    domain: Vec<AnalysisFlowDefinitionRef>,
+    binding_definition_indices: HashMap<AnalysisFlowBindingId, Vec<usize>>,
+    reaching_in: Vec<DenseBitSet>,
+    reaching_out: Vec<DenseBitSet>,
+}
+
+#[derive(Clone)]
+pub(super) struct ComputedLiveness {
+    live_in: Vec<DenseBitSet>,
+    live_out: Vec<DenseBitSet>,
+}
+
+pub(super) struct CfgTopology {
+    predecessors: Vec<Vec<AnalysisFlowNodeId>>,
+    successors: Vec<Vec<AnalysisFlowNodeId>>,
+}
+
+impl CfgTopology {
+    pub(super) fn from_cfg(cfg: &AnalysisFlowCfg) -> Self {
+        let mut predecessors = vec![Vec::<AnalysisFlowNodeId>::new(); cfg.nodes.len()];
+        let mut successors = vec![Vec::<AnalysisFlowNodeId>::new(); cfg.nodes.len()];
+        for edge in &cfg.edges {
+            predecessors[edge.to.index()].push(edge.from);
+            successors[edge.from.index()].push(edge.to);
+        }
+
+        Self {
+            predecessors,
+            successors,
+        }
+    }
+}
 
 pub(super) fn collect_node_facts(
     cfg: &AnalysisFlowCfg,
@@ -71,26 +106,20 @@ pub(super) fn collect_node_transfers(
 
 pub(super) fn collect_use_defs(
     node_facts: &[AnalysisFlowNodeFacts],
-    reaching_definitions: &[AnalysisFlowReaching],
+    reaching: &ComputedReaching,
 ) -> Vec<AnalysisFlowUseDef> {
-    let reaching_by_node_id = reaching_definitions
-        .iter()
-        .map(|state| (state.node_id, state))
-        .collect::<HashMap<_, _>>();
-
     let mut use_defs = Vec::new();
     for facts in node_facts {
-        let Some(reaching) = reaching_by_node_id.get(&facts.node_id).copied() else {
-            continue;
-        };
-
         for binding_id in &facts.use_binding_ids {
-            let mut reaching_for_binding = reaching
-                .reaching_in
-                .iter()
-                .filter(|definition| definition.binding_id == *binding_id)
-                .cloned()
-                .collect::<Vec<_>>();
+            let mut reaching_for_binding = Vec::new();
+            if let Some(indices) = reaching.binding_definition_indices.get(binding_id) {
+                let reaching_in = &reaching.reaching_in[facts.node_id.index()];
+                for &index in indices {
+                    if reaching_in.contains(index) {
+                        reaching_for_binding.push(reaching.domain[index]);
+                    }
+                }
+            }
             reaching_for_binding.sort_by_key(|definition| definition.node_id);
 
             use_defs.push(AnalysisFlowUseDef {
@@ -200,61 +229,109 @@ pub(super) fn collect_single_source_uses(
 }
 
 pub(super) fn compute_reaching_definitions(
-    cfg: &AnalysisFlowCfg,
+    topology: &CfgTopology,
     node_transfers: &[AnalysisFlowNodeTransfer],
-) -> Vec<AnalysisFlowReaching> {
-    let mut predecessors = vec![Vec::<AnalysisFlowNodeId>::new(); cfg.nodes.len()];
-    for edge in &cfg.edges {
-        predecessors[edge.to.index()].push(edge.from);
+) -> ComputedReaching {
+    let mut domain = node_transfers
+        .iter()
+        .flat_map(|transfer| transfer.generate_definitions.iter().copied())
+        .collect::<Vec<_>>();
+    domain.sort_by_key(|definition| (definition.binding_id, definition.node_id));
+    domain.dedup();
+
+    let definition_index = domain
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| (*definition, index))
+        .collect::<HashMap<_, _>>();
+    let mut binding_definition_indices = HashMap::<AnalysisFlowBindingId, Vec<usize>>::new();
+    for (index, definition) in domain.iter().copied().enumerate() {
+        binding_definition_indices
+            .entry(definition.binding_id)
+            .or_default()
+            .push(index);
     }
 
-    let mut reaching_in =
-        vec![HashSet::<(AnalysisFlowBindingId, AnalysisFlowNodeId)>::new(); cfg.nodes.len()];
-    let mut reaching_out =
-        vec![HashSet::<(AnalysisFlowBindingId, AnalysisFlowNodeId)>::new(); cfg.nodes.len()];
-
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for node in &cfg.nodes {
-            let node_index = node.id.index();
-
-            let mut next_in = HashSet::new();
-            for predecessor in &predecessors[node_index] {
-                next_in.extend(reaching_out[predecessor.index()].iter().copied());
-            }
-
-            let kill_bindings = node_transfers[node_index]
+    let kill_bits = node_transfers
+        .iter()
+        .map(|transfer| {
+            let indices = transfer
                 .kill_binding_ids
                 .iter()
-                .copied()
-                .collect::<HashSet<_>>();
-            let mut next_out = next_in
+                .flat_map(|binding_id| {
+                    binding_definition_indices
+                        .get(binding_id)
+                        .into_iter()
+                        .flat_map(|indices| indices.iter().copied())
+                })
+                .collect::<Vec<_>>();
+            DenseBitSet::from_indices(domain.len(), &indices)
+        })
+        .collect::<Vec<_>>();
+    let gen_bits = node_transfers
+        .iter()
+        .map(|transfer| {
+            let indices = transfer
+                .generate_definitions
                 .iter()
-                .copied()
-                .filter(|(binding_id, _)| !kill_bindings.contains(binding_id))
-                .collect::<HashSet<_>>();
-            next_out.extend(
-                node_transfers[node_index]
-                    .generate_definitions
-                    .iter()
-                    .map(|definition| (definition.binding_id, definition.node_id)),
-            );
+                .filter_map(|definition| definition_index.get(definition).copied())
+                .collect::<Vec<_>>();
+            DenseBitSet::from_indices(domain.len(), &indices)
+        })
+        .collect::<Vec<_>>();
 
-            if next_in != reaching_in[node_index] || next_out != reaching_out[node_index] {
-                reaching_in[node_index] = next_in;
-                reaching_out[node_index] = next_out;
-                changed = true;
+    let node_count = topology.predecessors.len();
+    let mut reaching_in = vec![DenseBitSet::new(domain.len()); node_count];
+    let mut reaching_out = vec![DenseBitSet::new(domain.len()); node_count];
+    let mut next_in = DenseBitSet::new(domain.len());
+    let mut next_out = DenseBitSet::new(domain.len());
+    let mut queued = vec![true; node_count];
+    let mut worklist = (0..node_count).collect::<Vec<_>>();
+    let mut cursor = 0;
+
+    while let Some(&node_index) = worklist.get(cursor) {
+        cursor += 1;
+        queued[node_index] = false;
+        next_in.clear();
+        for predecessor in &topology.predecessors[node_index] {
+            next_in.union_with(&reaching_out[predecessor.index()]);
+        }
+
+        next_out.copy_from(&next_in);
+        next_out.subtract(&kill_bits[node_index]);
+        next_out.union_with(&gen_bits[node_index]);
+
+        if next_in != reaching_in[node_index] || next_out != reaching_out[node_index] {
+            reaching_in[node_index].copy_from(&next_in);
+            reaching_out[node_index].copy_from(&next_out);
+            for successor in &topology.successors[node_index] {
+                let successor_index = successor.index();
+                if !queued[successor_index] {
+                    queued[successor_index] = true;
+                    worklist.push(successor_index);
+                }
             }
         }
     }
 
+    ComputedReaching {
+        domain,
+        binding_definition_indices,
+        reaching_in,
+        reaching_out,
+    }
+}
+
+pub(super) fn materialize_reaching_definitions(
+    cfg: &AnalysisFlowCfg,
+    reaching: &ComputedReaching,
+) -> Vec<AnalysisFlowReaching> {
     cfg.nodes
         .iter()
         .map(|node| AnalysisFlowReaching {
             node_id: node.id,
-            reaching_in: sort_definition_refs(&reaching_in[node.id.index()]),
-            reaching_out: sort_definition_refs(&reaching_out[node.id.index()]),
+            reaching_in: reaching.reaching_in[node.id.index()].collect_definitions(&reaching.domain),
+            reaching_out: reaching.reaching_out[node.id.index()].collect_definitions(&reaching.domain),
         })
         .collect()
 }
@@ -263,116 +340,132 @@ pub(super) fn collect_binding_summaries(
     bindings: &[FlowBindingFacts],
     cfg: &AnalysisFlowCfg,
     node_facts: &[AnalysisFlowNodeFacts],
-    liveness: &[AnalysisFlowLiveness],
+    liveness: &ComputedLiveness,
 ) -> Vec<AnalysisFlowBindingSummary> {
-    let liveness_by_node_id = liveness
+    let mut summaries = bindings
         .iter()
-        .map(|state| (state.node_id, state))
-        .collect::<HashMap<_, _>>();
-
-    bindings
-        .iter()
-        .map(|binding| {
-            let mut definition_node_ids = cfg
-                .nodes
-                .iter()
-                .filter(|node| {
-                    node_facts[node.id.index()]
-                        .define_binding_ids
-                        .contains(&binding.id)
-                })
-                .map(|node| node.id)
-                .collect::<Vec<_>>();
-            definition_node_ids.sort();
-
-            let mut use_node_ids = cfg
-                .nodes
-                .iter()
-                .filter(|node| {
-                    node_facts[node.id.index()]
-                        .use_binding_ids
-                        .contains(&binding.id)
-                })
-                .map(|node| node.id)
-                .collect::<Vec<_>>();
-            use_node_ids.sort();
-
-            let mut live_node_ids = cfg
-                .nodes
-                .iter()
-                .filter_map(|node| {
-                    let state = liveness_by_node_id.get(&node.id)?;
-                    (state.live_in.contains(&binding.id) || state.live_out.contains(&binding.id))
-                        .then_some(node.id)
-                })
-                .collect::<Vec<_>>();
-            live_node_ids.sort();
-
-            AnalysisFlowBindingSummary {
-                binding_id: binding.id,
-                definition_node_ids,
-                use_node_ids,
-                live_node_ids,
-            }
+        .map(|binding| AnalysisFlowBindingSummary {
+            binding_id: binding.id,
+            definition_node_ids: Vec::new(),
+            use_node_ids: Vec::new(),
+            live_node_ids: Vec::new(),
         })
-        .collect()
+        .collect::<Vec<_>>();
+
+    for node in &cfg.nodes {
+        let facts = &node_facts[node.id.index()];
+        for binding_id in &facts.define_binding_ids {
+            summaries[binding_id.index()]
+                .definition_node_ids
+                .push(node.id);
+        }
+        for binding_id in &facts.use_binding_ids {
+            summaries[binding_id.index()].use_node_ids.push(node.id);
+        }
+    }
+
+    for node in &cfg.nodes {
+        let node_index = node.id.index();
+
+        liveness.live_in[node_index].for_each_set_bit(|binding_index| {
+            let binding_id = AnalysisFlowBindingId(binding_index);
+            summaries[binding_id.index()]
+                .live_node_ids
+                .push(node.id);
+        });
+        liveness.live_out[node_index].for_each_set_bit(|binding_index| {
+            let binding_id = AnalysisFlowBindingId(binding_index);
+            let live_node_ids = &mut summaries[binding_id.index()].live_node_ids;
+            if live_node_ids.last() != Some(&node.id) {
+                live_node_ids.push(node.id);
+            }
+        });
+    }
+
+    for summary in &mut summaries {
+        summary.definition_node_ids.sort();
+        summary.use_node_ids.sort();
+        summary.live_node_ids.sort();
+        summary.live_node_ids.dedup();
+    }
+
+    summaries
 }
 
 pub(super) fn compute_liveness(
-    cfg: &AnalysisFlowCfg,
+    topology: &CfgTopology,
     node_transfers: &[AnalysisFlowNodeTransfer],
-) -> Vec<AnalysisFlowLiveness> {
-    let mut successors = vec![Vec::<AnalysisFlowNodeId>::new(); cfg.nodes.len()];
-    for edge in &cfg.edges {
-        successors[edge.from.index()].push(edge.to);
-    }
-
-    let mut live_in = vec![HashSet::<AnalysisFlowBindingId>::new(); cfg.nodes.len()];
-    let mut live_out = vec![HashSet::<AnalysisFlowBindingId>::new(); cfg.nodes.len()];
-
-    let mut changed = true;
-    while changed {
-        changed = false;
-        for node_index in (0..cfg.nodes.len()).rev() {
-            let mut next_out = HashSet::new();
-            for successor in &successors[node_index] {
-                next_out.extend(live_in[successor.index()].iter().copied());
-            }
-
-            let mut next_in = node_transfers[node_index]
+) -> ComputedLiveness {
+    let binding_count = node_transfers
+        .iter()
+        .flat_map(|transfer| {
+            transfer
                 .use_binding_ids
                 .iter()
-                .copied()
-                .collect::<HashSet<_>>();
-            for value in &next_out {
-                if !node_transfers[node_index].kill_binding_ids.contains(value) {
-                    next_in.insert(*value);
-                }
-            }
+                .chain(transfer.kill_binding_ids.iter())
+        })
+        .map(|binding_id| binding_id.index() + 1)
+        .max()
+        .unwrap_or(0);
 
-            if next_out != live_out[node_index] || next_in != live_in[node_index] {
-                live_out[node_index] = next_out;
-                live_in[node_index] = next_in;
-                changed = true;
+    let use_bits = node_transfers
+        .iter()
+        .map(|transfer| DenseBitSet::from_bindings(binding_count, &transfer.use_binding_ids))
+        .collect::<Vec<_>>();
+    let kill_bits = node_transfers
+        .iter()
+        .map(|transfer| DenseBitSet::from_bindings(binding_count, &transfer.kill_binding_ids))
+        .collect::<Vec<_>>();
+
+    let node_count = topology.successors.len();
+    let mut live_in = vec![DenseBitSet::new(binding_count); node_count];
+    let mut live_out = vec![DenseBitSet::new(binding_count); node_count];
+    let mut next_in = DenseBitSet::new(binding_count);
+    let mut next_out = DenseBitSet::new(binding_count);
+    let mut carried = DenseBitSet::new(binding_count);
+    let mut queued = vec![true; node_count];
+    let mut worklist = (0..node_count).rev().collect::<Vec<_>>();
+    let mut cursor = 0;
+
+    while let Some(&node_index) = worklist.get(cursor) {
+        cursor += 1;
+        queued[node_index] = false;
+        next_out.clear();
+        for successor in &topology.successors[node_index] {
+            next_out.union_with(&live_in[successor.index()]);
+        }
+
+        next_in.copy_from(&use_bits[node_index]);
+        carried.copy_from(&next_out);
+        carried.subtract(&kill_bits[node_index]);
+        next_in.union_with(&carried);
+
+        if next_out != live_out[node_index] || next_in != live_in[node_index] {
+            live_out[node_index].copy_from(&next_out);
+            live_in[node_index].copy_from(&next_in);
+            for predecessor in &topology.predecessors[node_index] {
+                let predecessor_index = predecessor.index();
+                if !queued[predecessor_index] {
+                    queued[predecessor_index] = true;
+                    worklist.push(predecessor_index);
+                }
             }
         }
     }
 
+    ComputedLiveness { live_in, live_out }
+}
+
+pub(super) fn materialize_liveness(
+    cfg: &AnalysisFlowCfg,
+    liveness: &ComputedLiveness,
+) -> Vec<AnalysisFlowLiveness> {
     cfg.nodes
         .iter()
-        .map(|node| {
-            let mut node_live_in = live_in[node.id.index()].iter().copied().collect::<Vec<_>>();
-            node_live_in.sort();
-            let mut node_live_out = live_out[node.id.index()]
-                .iter()
-                .copied()
-                .collect::<Vec<_>>();
-            node_live_out.sort();
-            AnalysisFlowLiveness {
-                node_id: node.id,
-                live_in: node_live_in,
-                live_out: node_live_out,
-            }
+        .map(|node| AnalysisFlowLiveness {
+            node_id: node.id,
+            live_in: liveness.live_in[node.id.index()].collect_bindings(),
+            live_out: liveness.live_out[node.id.index()].collect_bindings(),
         })
         .collect()
 }
@@ -391,11 +484,6 @@ impl FlowModel {
                 .iter()
                 .map(|binding| (binding.id, binding))
                 .collect::<HashMap<_, _>>();
-            let liveness_by_node_id = owner
-                .liveness
-                .iter()
-                .map(|state| (state.node_id, state))
-                .collect::<HashMap<_, _>>();
             for node in &owner.cfg.nodes {
                 let Some(facts) = owner.node_facts.get(node.id.index()) else {
                     continue;
@@ -403,7 +491,11 @@ impl FlowModel {
                 let Some(kind) = facts.definition_kind else {
                     continue;
                 };
-                let Some(liveness) = liveness_by_node_id.get(&node.id).copied() else {
+                let Some(live_out) = owner
+                    .computed_liveness
+                    .as_ref()
+                    .and_then(|liveness| liveness.live_out.get(node.id.index()))
+                else {
                     continue;
                 };
 
@@ -411,7 +503,7 @@ impl FlowModel {
                     let Some(binding) = binding_by_id.get(binding_id).copied() else {
                         continue;
                     };
-                    maybe_push_dead_store(node, binding, kind, liveness, ctx, &mut dead_stores);
+                    maybe_push_dead_store(node, binding, kind, live_out, ctx, &mut dead_stores);
                 }
             }
         }
@@ -433,14 +525,14 @@ fn maybe_push_dead_store(
     node: &AnalysisFlowCfgNode,
     binding: &FlowBindingFacts,
     kind: AnalysisFlowDefinitionKind,
-    liveness: &AnalysisFlowLiveness,
+    live_out: &DenseBitSet,
     ctx: &SemaContext<'_>,
     dead_stores: &mut Vec<AnalysisDeadStore>,
 ) {
     if binding.kind == AnalysisFlowBindingKind::Static || binding.reference_spans.is_empty() {
         return;
     }
-    if liveness.live_out.contains(&binding.id) {
+    if live_out.contains(binding.id.index()) {
         return;
     }
 
@@ -471,17 +563,104 @@ fn dead_store_kind(kind: AnalysisFlowDefinitionKind) -> AnalysisDeadStoreKind {
     }
 }
 
-fn sort_definition_refs(
-    values: &HashSet<(AnalysisFlowBindingId, AnalysisFlowNodeId)>,
-) -> Vec<AnalysisFlowDefinitionRef> {
-    let mut refs = values
-        .iter()
-        .copied()
-        .map(|(binding_id, node_id)| AnalysisFlowDefinitionRef {
-            binding_id,
-            node_id,
-        })
-        .collect::<Vec<_>>();
-    refs.sort_by_key(|reference| (reference.binding_id, reference.node_id));
-    refs
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct DenseBitSet {
+    words: Vec<u64>,
+}
+
+impl DenseBitSet {
+    fn new(bit_len: usize) -> Self {
+        Self {
+            words: vec![0; bit_len.div_ceil(64)],
+        }
+    }
+
+    fn from_bindings(bit_len: usize, bindings: &[AnalysisFlowBindingId]) -> Self {
+        let mut set = Self::new(bit_len);
+        for binding in bindings {
+            set.set(binding.index());
+        }
+        set
+    }
+
+    fn from_indices(bit_len: usize, indices: &[usize]) -> Self {
+        let mut set = Self::new(bit_len);
+        for &index in indices {
+            set.set(index);
+        }
+        set
+    }
+
+    fn set(&mut self, index: usize) {
+        let word = index / 64;
+        let bit = index % 64;
+        if let Some(slot) = self.words.get_mut(word) {
+            *slot |= 1u64 << bit;
+        }
+    }
+
+    fn union_with(&mut self, other: &Self) {
+        for (lhs, rhs) in self.words.iter_mut().zip(&other.words) {
+            *lhs |= *rhs;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.words.fill(0);
+    }
+
+    fn copy_from(&mut self, other: &Self) {
+        debug_assert_eq!(self.words.len(), other.words.len());
+        self.words.copy_from_slice(&other.words);
+    }
+
+    fn subtract(&mut self, other: &Self) {
+        for (lhs, rhs) in self.words.iter_mut().zip(&other.words) {
+            *lhs &= !*rhs;
+        }
+    }
+
+    fn contains(&self, index: usize) -> bool {
+        let word = index / 64;
+        let bit = index % 64;
+        self.words
+            .get(word)
+            .is_some_and(|word| (word & (1u64 << bit)) != 0)
+    }
+
+    fn for_each_set_bit(&self, mut f: impl FnMut(usize)) {
+        for (word_index, word) in self.words.iter().copied().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let bit_index = bits.trailing_zeros() as usize;
+                f(word_index * 64 + bit_index);
+                bits &= bits - 1;
+            }
+        }
+    }
+
+    fn collect_bindings(&self) -> Vec<AnalysisFlowBindingId> {
+        let mut bindings = Vec::new();
+        self.for_each_set_bit(|index| bindings.push(AnalysisFlowBindingId(index)));
+        bindings
+    }
+
+    fn collect_definitions(
+        &self,
+        domain: &[AnalysisFlowDefinitionRef],
+    ) -> Vec<AnalysisFlowDefinitionRef> {
+        let mut definitions = Vec::new();
+        for (word_index, word) in self.words.iter().copied().enumerate() {
+            let mut bits = word;
+            while bits != 0 {
+                let bit_index = bits.trailing_zeros() as usize;
+                let domain_index = word_index * 64 + bit_index;
+                if let Some(definition) = domain.get(domain_index).copied() {
+                    definitions.push(definition);
+                }
+                bits &= bits - 1;
+            }
+        }
+        definitions
+    }
 }

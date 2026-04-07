@@ -1,4 +1,4 @@
-use super::semantic::{SemanticModifiers, SemanticTokenTypes};
+﻿use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
     AnalysisEngine, AnalysisSettings, byte_offset_to_position, cleared_uris, file_path_to_uri,
     position_to_byte_offset, uri_to_file_path,
@@ -10,7 +10,7 @@ use crate::protocol::{
 };
 use craft::analysis_context;
 use kernc_utils::SourceFile;
-use kernc_utils::config::CompileOptions;
+use kernc_utils::config::{CompileOptions, LibraryBundle};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;
@@ -1842,14 +1842,14 @@ fn code_actions_remove_irrefutable_let_else_branch() {
 #[test]
 fn overlay_text_is_used_for_compiler_diagnostics() {
     let mut analysis = AnalysisEngine::default();
-    let uri = temp_file_uri("overlay_diag", "extern fn main() i32 { 0 }");
+    let uri = temp_file_uri("overlay_diag", "fn main() i32 { 0 }");
 
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
         text_document: TextDocumentItem {
             uri: uri.clone(),
             _language_id: "kern".to_string(),
             version: 1,
-            text: "extern fn main( ".to_string(),
+            text: "fn main( ".to_string(),
         },
     });
 
@@ -2329,7 +2329,7 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
     fs::write(&app_path, app_source).unwrap();
 
     let mut options = CompileOptions {
-        use_std: true,
+        library_bundle: LibraryBundle::Std,
         ..CompileOptions::default()
     };
     options
@@ -2377,7 +2377,7 @@ fn hover_resolves_std_module_docs_from_use_alias() {
     let source = concat!(
         "use std.io;\n",
         "\n",
-        "extern fn main(args: [][]u8) i32 {\n",
+        "fn main() i32 {\n",
         "    io.println(\"hello\", .{});\n",
         "    return 0;\n",
         "}\n",
@@ -2413,7 +2413,7 @@ fn hover_resolves_std_reexported_function_docs_from_member_access() {
     let source = concat!(
         "use std.io;\n",
         "\n",
-        "extern fn main(args: [][]u8) i32 {\n",
+        "fn main() i32 {\n",
         "    io.println(\"hello\", .{});\n",
         "    return 0;\n",
         "}\n",
@@ -3238,7 +3238,7 @@ fn completion_filters_and_sorts_items_by_typed_prefix() {
 #[test]
 fn completion_includes_keyword_suggestions_for_prefixes() {
     let mut analysis = AnalysisEngine::default();
-    let source = "extern fn main(args: [][]u8) i32 {\n    le\n    return 0;\n}\n";
+    let source = "fn main() i32 {\n    le\n    return 0;\n}\n";
     let uri = temp_file_uri("completion_keywords", source);
 
     let _ = analysis.open_document(DidOpenTextDocumentParams {
@@ -3697,7 +3697,7 @@ root = \"src/main.rn\"
     .unwrap();
     fs::write(
         root.join("src/main.rn"),
-        "use std.io;\n\nextern fn main(args: [][]u8) i32 {\n    io.println(\"Hello Kern!\", .{});\n    return 0;\n}\n",
+        "use std.io;\n\nfn main() i32 {\n    io.println(\"Hello Kern!\", .{});\n    return 0;\n}\n",
     )
     .unwrap();
 
@@ -3727,12 +3727,7 @@ root = \"src/main.rn\"
         .find(|bundle| bundle.uri == uri)
         .unwrap();
     assert!(outcome.bundles.iter().all(|bundle| bundle.uri == uri));
-    assert_eq!(target_bundle.diagnostics.len(), 1);
-    assert_eq!(
-        target_bundle.diagnostics[0].code.as_deref(),
-        Some("unused-binding")
-    );
-    assert_eq!(target_bundle.diagnostics[0].severity, 2);
+    assert!(target_bundle.diagnostics.is_empty());
 }
 
 #[test]
@@ -3804,8 +3799,7 @@ fn print_env_mode() void {
     io.println(\"[Mode] Development\", .{});
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     print_env_mode();
     init_telemetry();
     let _ = GREETING_MSG;
@@ -3816,7 +3810,7 @@ extern fn main(args: [][]u8) i32 {
     .unwrap();
 
     let mut options = CompileOptions {
-        use_std: true,
+        library_bundle: LibraryBundle::Std,
         ..CompileOptions::default()
     };
     options.craft_features.push("experimental".to_string());
@@ -3953,8 +3947,7 @@ fn print_env_mode() void {
 fn print_env_mode() void {
 }
 
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     print_env_mode();
     init_telemetry();
     let _ = GREETING_MSG;
@@ -4052,7 +4045,7 @@ use craft.builder;
 pub fn build(b: *mut builder.Builder) void {
     let generated = b.emit_generated(
         \"src/main.rn\",
-        \"#[if(generated)]\\nextern fn main(args: [][]u8) i32 { let _ = args; let _ = ENTRY_KIND; return 0; }\\n\"
+        \"#[if(generated)]\\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\\n\"
     );
     b.set_source_root(generated);
     b.cfg_bool(\"generated\", true);
@@ -4087,7 +4080,7 @@ pub fn build(b: *mut builder.Builder) void {
         Some("true")
     );
     let uri = file_path_to_uri(&generated_path).unwrap();
-    let source = "#[if(generated)]\nextern fn main(args: [][]u8) i32 { let _ = args; let _ = ENTRY_KIND; return 0; }\n";
+    let source = "#[if(generated)]\nfn main() i32 { let _ = ENTRY_KIND; return 0; }\n";
 
     let mut analysis = AnalysisEngine::default();
     let outcome = analysis.open_document(DidOpenTextDocumentParams {
@@ -4160,8 +4153,7 @@ root = \"src/placeholder.rn\"
 mod build_info;
 
 #[if(generated)]
-extern fn main(args: [][]u8) i32 {
-    let _ = args;
+fn main() i32 {
     let _ = build_info.MAGIC_NUMBER;
     return 0;
 }
@@ -5176,3 +5168,7 @@ fn assert_token(
         position
     );
 }
+
+
+
+

@@ -54,6 +54,31 @@ where
         .unwrap()
 }
 
+fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
+    if args.iter().any(|arg| arg == "--runtime-entry") {
+        return;
+    }
+
+    if args
+        .iter()
+        .any(|arg| matches!(arg.as_str(), "-c" | "--emit-llvm" | "--link-only" | "--entry"))
+    {
+        return;
+    }
+
+    let links_libc = args.windows(2).any(|window| {
+        window[0] == "--runtime-libc" && matches!(window[1].as_str(), "yes" | "true" | "on")
+    });
+    let entry = if links_libc { "crt" } else { "rt" };
+    args.push("--runtime-entry".to_string());
+    args.push(entry.to_string());
+
+    if !args.iter().any(|arg| arg == "--runtime-provider") {
+        args.push("--runtime-provider".to_string());
+        args.push("toolchain".to_string());
+    }
+}
+
 pub fn assert_success(output: &Output, context: &str) {
     assert!(
         output.status.success(),
@@ -138,6 +163,7 @@ pub fn compile_source_tree_with_args(
     let object_arg = object_path.to_string_lossy().into_owned();
 
     let mut args: Vec<String> = extra_args.iter().map(|arg| (*arg).to_string()).collect();
+    maybe_add_default_runtime_contract(&mut args);
     args.push(entry_arg);
     args.push("-o".to_string());
     args.push(object_arg);
@@ -159,6 +185,7 @@ pub fn build_temp_program(prefix: &str, source: &str, base_args: &[&str]) -> (Pa
     let exe_arg = executable_path.to_string_lossy().into_owned();
 
     let mut args: Vec<String> = base_args.iter().map(|arg| (*arg).to_string()).collect();
+    maybe_add_default_runtime_contract(&mut args);
     args.push(source_arg);
     args.push("-o".to_string());
     args.push(exe_arg);
@@ -179,6 +206,7 @@ pub fn build_and_run(prefix: &str, source: &str, compile_args: &[&str]) -> Outpu
     let exe_arg = executable_path.to_string_lossy().into_owned();
 
     let mut args: Vec<String> = compile_args.iter().map(|arg| (*arg).to_string()).collect();
+    maybe_add_default_runtime_contract(&mut args);
     args.push(source_arg);
     args.push("-o".to_string());
     args.push(exe_arg);

@@ -309,16 +309,16 @@ pub(super) fn rebind_module_defs(
     module_id: DefId,
     parsed_module: &ParsedModule,
 ) -> bool {
-    let item_ids = match &mut ctx.defs[module_id.0 as usize] {
+    let (module_scope, item_ids) = match &mut ctx.defs[module_id.0 as usize] {
         kernc_sema::def::Def::Module(module) => {
             module.file_id = parsed_module.file_id;
-            module.items.clone()
+            (module.scope_id, module.items.clone())
         }
         _ => return false,
     };
 
     let mut iter = item_ids.iter();
-    if !rebind_decl_sequence(ctx, &mut iter, &parsed_module.ast.decls) {
+    if !rebind_decl_sequence(ctx, module_scope, &mut iter, &parsed_module.ast.decls) {
         return false;
     }
 
@@ -327,6 +327,7 @@ pub(super) fn rebind_module_defs(
 
 fn rebind_decl_sequence<'a>(
     ctx: &mut SemaContext<'_>,
+    module_scope: ScopeId,
     item_ids: &mut std::slice::Iter<'a, DefId>,
     decls: &[ast::Decl],
 ) -> bool {
@@ -340,9 +341,13 @@ fn rebind_decl_sequence<'a>(
                 else {
                     return false;
                 };
+                let name = function.name;
                 function.span = decl.span;
                 function.name_span = decl.name_span;
                 function.body = body.clone();
+                let _ = ctx
+                    .scopes
+                    .update_span_in_scope(module_scope, name, decl.name_span);
             }
             ast::DeclKind::Var { value, .. } => {
                 let Some(def_id) = item_ids.next().copied() else {
@@ -351,12 +356,24 @@ fn rebind_decl_sequence<'a>(
                 let kernc_sema::def::Def::Global(global) = &mut ctx.defs[def_id.0 as usize] else {
                     return false;
                 };
+                let name = global.name;
                 global.span = decl.span;
                 global.value = value.clone();
+                let _ = ctx
+                    .scopes
+                    .update_span_in_scope(module_scope, name, decl.name_span);
             }
             ast::DeclKind::TypeAlias { target, .. } => {
                 let Some(def_id) = item_ids.next().copied() else {
                     return false;
+                };
+                let name = match &ctx.defs[def_id.0 as usize] {
+                    kernc_sema::def::Def::Struct(struct_def) => struct_def.name,
+                    kernc_sema::def::Def::Union(union_def) => union_def.name,
+                    kernc_sema::def::Def::Enum(enum_def) => enum_def.name,
+                    kernc_sema::def::Def::Trait(trait_def) => trait_def.name,
+                    kernc_sema::def::Def::TypeAlias(alias_def) => alias_def.name,
+                    _ => return false,
                 };
                 match (&mut ctx.defs[def_id.0 as usize], &target.kind) {
                     (kernc_sema::def::Def::Struct(struct_def), ast::TypeKind::Struct { .. }) => {
@@ -378,9 +395,12 @@ fn rebind_decl_sequence<'a>(
                         return false;
                     }
                 }
+                let _ = ctx
+                    .scopes
+                    .update_span_in_scope(module_scope, name, decl.name_span);
             }
             ast::DeclKind::ExternBlock { decls, .. } => {
-                if !rebind_decl_sequence(ctx, item_ids, decls) {
+                if !rebind_decl_sequence(ctx, module_scope, item_ids, decls) {
                     return false;
                 }
             }

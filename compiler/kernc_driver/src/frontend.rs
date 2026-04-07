@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -15,6 +16,23 @@ use kernc_utils::{FileId, Session};
 pub struct FrontendParsedModule {
     pub file_id: FileId,
     pub ast: ast::Module,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct FrontendLoadTimings {
+    pub(crate) read_source: Duration,
+    pub(crate) ensure_file_id: Duration,
+    pub(crate) parse: Duration,
+    pub(crate) prune: Duration,
+}
+
+impl FrontendLoadTimings {
+    fn add(&mut self, other: Self) {
+        self.read_source += other.read_source;
+        self.ensure_file_id += other.ensure_file_id;
+        self.parse += other.parse;
+        self.prune += other.prune;
+    }
 }
 
 pub struct FrontendDatabase {
@@ -90,11 +108,18 @@ impl FrontendDatabase {
         }
     }
 
-    pub fn source_exists(&self, path: &Path) -> Result<bool, kernc_db::Cycle> {
-        Ok(self
-            .source_texts
-            .get(&self.db, normalize_path(path))?
-            .is_some())
+    pub fn source_exists(&self, path: &Path) -> bool {
+        if std::fs::metadata(path).is_ok() {
+            return true;
+        }
+
+        let known = self.known_override_paths.lock().unwrap();
+        if known.contains(path) {
+            return true;
+        }
+
+        let normalized = normalize_path(path);
+        known.contains(&normalized)
     }
 
     #[allow(dead_code)]
@@ -113,48 +138,54 @@ impl FrontendDatabase {
                 let Some(source) = self.source_texts.get(&self.db, normalized.clone())? else {
                     return Ok(None);
                 };
-
-                let file_id = self.ensure_file_id(session, &normalized, &source);
-                let mut parser = Parser::new(&source, file_id, session);
-                let mut ast = match parser.parse_module() {
-                    Ok(ast) => ast,
-                    Err(_) => return Ok(None),
-                };
-                ast.path = normalized.to_string_lossy().to_string();
-
-                let mut pruner = Pruner::new(session);
-                pruner.prune_module(&mut ast);
-
-                Ok(Some(FrontendParsedModule { file_id, ast }))
+                Ok(self.parse_frontend_module(session, &normalized, &source))
             },
         )
     }
 
+    #[allow(dead_code)]
     pub fn load_parsed_module_uncached(
         &self,
         session: &mut Session,
         path: &Path,
     ) -> Result<Option<FrontendParsedModule>, kernc_db::Cycle> {
+        let normalized = normalize_path(path);
+        self.load_parsed_module_uncached_normalized(session, &normalized)
+    }
+
+    pub fn load_parsed_module_uncached_normalized(
+        &self,
+        session: &mut Session,
+        normalized: &Path,
+    ) -> Result<Option<FrontendParsedModule>, kernc_db::Cycle> {
+        Ok(self
+            .load_parsed_module_uncached_normalized_profiled(session, normalized, true)?
+            .map(|(parsed, _)| parsed))
+    }
+
+    pub(crate) fn load_parsed_module_uncached_normalized_profiled(
+        &self,
+        session: &mut Session,
+        normalized: &Path,
+        collect_docs: bool,
+    ) -> Result<Option<(FrontendParsedModule, FrontendLoadTimings)>, kernc_db::Cycle> {
         #[cfg(test)]
         self.uncached_parse_count.fetch_add(1, Ordering::SeqCst);
 
-        let normalized = normalize_path(path);
-        let Some(source) = self.source_texts.get(&self.db, normalized.clone())? else {
+        let mut timings = FrontendLoadTimings::default();
+        let read_started = Instant::now();
+        let Some(source) = self
+            .source_texts
+            .get(&self.db, normalized.to_path_buf())?
+        else {
             return Ok(None);
         };
+        timings.read_source = read_started.elapsed();
 
-        let file_id = self.ensure_file_id(session, &normalized, &source);
-        let mut parser = Parser::new(&source, file_id, session);
-        let mut ast = match parser.parse_module() {
-            Ok(ast) => ast,
-            Err(_) => return Ok(None),
-        };
-        ast.path = normalized.to_string_lossy().to_string();
-
-        let mut pruner = Pruner::new(session);
-        pruner.prune_module(&mut ast);
-
-        Ok(Some(FrontendParsedModule { file_id, ast }))
+        let (parsed, parse_timings) =
+            self.parse_frontend_module_profiled(session, normalized, &source, collect_docs);
+        timings.add(parse_timings);
+        Ok(parsed.map(|parsed| (parsed, timings)))
     }
 
     #[cfg(test)]
@@ -174,6 +205,52 @@ impl FrontendDatabase {
             .source_manager
             .add_file(path.to_string_lossy().to_string(), source.to_string())
     }
+
+    fn parse_frontend_module(
+        &self,
+        session: &mut Session,
+        normalized: &Path,
+        source: &str,
+    ) -> Option<FrontendParsedModule> {
+        self.parse_frontend_module_profiled(session, normalized, source, true)
+            .0
+    }
+
+    fn parse_frontend_module_profiled(
+        &self,
+        session: &mut Session,
+        normalized: &Path,
+        source: &str,
+        collect_docs: bool,
+    ) -> (Option<FrontendParsedModule>, FrontendLoadTimings) {
+        let mut timings = FrontendLoadTimings::default();
+
+        let ensure_file_started = Instant::now();
+        let file_id = self.ensure_file_id(session, normalized, source);
+        timings.ensure_file_id = ensure_file_started.elapsed();
+
+        let parse_started = Instant::now();
+        let mut parser = if collect_docs {
+            Parser::new(source, file_id, session)
+        } else {
+            Parser::new_without_docs(source, file_id, session)
+        };
+        let mut ast = match parser.parse_module() {
+            Ok(ast) => ast,
+            Err(_) => return (None, timings),
+        };
+        timings.parse = parse_started.elapsed();
+        ast.path = normalized.to_string_lossy().to_string();
+
+        if source_may_need_pruning(source) {
+            let prune_started = Instant::now();
+            let mut pruner = Pruner::new(session);
+            pruner.prune_module(&mut ast);
+            timings.prune = prune_started.elapsed();
+        }
+
+        (Some(FrontendParsedModule { file_id, ast }), timings)
+    }
 }
 
 impl Default for FrontendDatabase {
@@ -183,7 +260,50 @@ impl Default for FrontendDatabase {
 }
 
 fn normalize_path(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    normalize_platform_path(std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()))
+}
+
+fn normalize_platform_path(path: PathBuf) -> PathBuf {
+    let path = strip_windows_verbatim_prefix(path);
+    strip_macos_private_var_prefix(path)
+}
+
+#[cfg(windows)]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\UNC\\") {
+        return PathBuf::from(format!("\\\\{stripped}"));
+    }
+    if let Some(stripped) = raw.strip_prefix("\\\\?\\") {
+        return PathBuf::from(stripped);
+    }
+    path
+}
+
+#[cfg(not(windows))]
+fn strip_windows_verbatim_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+#[cfg(target_os = "macos")]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    let raw = path.to_string_lossy();
+    if let Some(stripped) = raw.strip_prefix("/private/var/") {
+        return PathBuf::from(format!("/var/{stripped}"));
+    }
+    if raw == "/private/var" {
+        return PathBuf::from("/var");
+    }
+    path
+}
+
+#[cfg(not(target_os = "macos"))]
+fn strip_macos_private_var_prefix(path: PathBuf) -> PathBuf {
+    path
+}
+
+fn source_may_need_pruning(source: &str) -> bool {
+    source.contains("#[") || source.contains("#![")
 }
 
 #[cfg(test)]

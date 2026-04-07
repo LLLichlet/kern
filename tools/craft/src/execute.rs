@@ -199,6 +199,35 @@ pub(crate) fn materialize_analysis_inputs(
     let mut compiled = BTreeSet::new();
     let mut linked = BTreeSet::new();
     let mut staged_outputs = BTreeSet::new();
+    let indexes = ActionIndexes {
+        action_plan,
+        compile_action_index: &compile_action_index,
+        local_library_actions: &local_library_actions,
+        link_action_index: &link_action_index,
+    };
+    let config = ExecutionConfig {
+        source_config: &source_config,
+        dependency_workspace_root: &build_plan.workspace_root,
+        command: crate::script::ScriptCommand::Build,
+        profile_selection,
+        std_workspace_root: &build_plan.workspace_root,
+    };
+    let mut session = ExecutionSession {
+        indexes,
+        config,
+        external: ExternalArtifacts {
+            built_std_packages: &mut built_std_packages,
+            built_external_packages: &mut built_external_packages,
+            built_external_tools: &mut built_external_tools,
+            external_build_stack: &mut external_build_stack,
+        },
+        state: ExecutionState {
+            compiled: &mut compiled,
+            linked: &mut linked,
+            staged_outputs: &mut staged_outputs,
+            execution_summary: &mut summary,
+        },
+    };
 
     for action in &action_plan.compile_actions {
         if action.domain != BuildDomain::Target {
@@ -207,24 +236,8 @@ pub(crate) fn materialize_analysis_inputs(
         execute_staged_actions(
             action.compile_inputs.as_slice(),
             action_plan.build_nodes.as_slice(),
-            &mut staged_outputs,
             action.required_source_path(),
-            action_plan,
-            &compile_action_index,
-            &local_library_actions,
-            &link_action_index,
-            &source_config,
-            &build_plan.workspace_root,
-            crate::script::ScriptCommand::Build,
-            profile_selection,
-            &build_plan.workspace_root,
-            &mut built_std_packages,
-            &mut built_external_packages,
-            &mut built_external_tools,
-            &mut external_build_stack,
-            &mut compiled,
-            &mut linked,
-            &mut summary,
+            &mut session,
         )?;
     }
 
@@ -287,6 +300,47 @@ struct ExternalToolKey {
     target_name: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ExecutionConfig<'a> {
+    source_config: &'a SourceConfigContext,
+    dependency_workspace_root: &'a Path,
+    command: crate::script::ScriptCommand,
+    profile_selection: crate::script::ProfileSelection,
+    std_workspace_root: &'a Path,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ActionIndexes<'a> {
+    action_plan: &'a ActionPlan,
+    compile_action_index: &'a BTreeMap<ActionKey, CompileAction>,
+    local_library_actions: &'a BTreeMap<PackageInstanceKey, CompileAction>,
+    link_action_index: &'a BTreeMap<PathBuf, LinkAction>,
+}
+
+#[derive(Debug)]
+struct ExternalArtifacts<'a> {
+    built_std_packages: &'a mut BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &'a mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    built_external_tools: &'a mut BTreeMap<ExternalToolKey, PathBuf>,
+    external_build_stack: &'a mut BTreeSet<ExternalPackageId>,
+}
+
+#[derive(Debug)]
+struct ExecutionState<'a> {
+    compiled: &'a mut BTreeSet<PathBuf>,
+    linked: &'a mut BTreeSet<PathBuf>,
+    staged_outputs: &'a mut BTreeSet<PathBuf>,
+    execution_summary: &'a mut ExecutionSummary,
+}
+
+#[derive(Debug)]
+struct ExecutionSession<'a> {
+    indexes: ActionIndexes<'a>,
+    config: ExecutionConfig<'a>,
+    external: ExternalArtifacts<'a>,
+    state: ExecutionState<'a>,
+}
+
 fn build_with_command(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
@@ -305,21 +359,22 @@ fn build_with_command(
     let mut built_external_packages = BTreeMap::new();
     let mut built_external_tools = BTreeMap::new();
     let mut external_build_stack = BTreeSet::new();
+    let config = ExecutionConfig {
+        source_config: &source_config,
+        dependency_workspace_root: &build_plan.workspace_root,
+        command,
+        profile_selection,
+        std_workspace_root: &build_plan.workspace_root,
+    };
+    let mut external = ExternalArtifacts {
+        built_std_packages: &mut built_std_packages,
+        built_external_packages: &mut built_external_packages,
+        built_external_tools: &mut built_external_tools,
+        external_build_stack: &mut external_build_stack,
+    };
 
     for dep in requested_external_dependencies(action_plan) {
-        build_external_package(
-            &source_config,
-            &build_plan.workspace_root,
-            &dep,
-            command,
-            profile_selection,
-            &build_plan.workspace_root,
-            &mut built_std_packages,
-            &mut built_external_packages,
-            &mut built_external_tools,
-            &mut external_build_stack,
-            &mut external_summary,
-        )?;
+        build_external_package(&dep, config, &mut external, &mut external_summary)?;
     }
 
     let compile_action_index = compile_actions_index(&action_plan.compile_actions);
@@ -329,56 +384,35 @@ fn build_with_command(
     let mut linked = BTreeSet::new();
     let mut staged_outputs = BTreeSet::new();
     let mut local_summary = ExecutionSummary::default();
+    let indexes = ActionIndexes {
+        action_plan,
+        compile_action_index: &compile_action_index,
+        local_library_actions: &local_library_actions,
+        link_action_index: &link_action_index,
+    };
+    let mut session = ExecutionSession {
+        indexes,
+        config,
+        external,
+        state: ExecutionState {
+            compiled: &mut compiled,
+            linked: &mut linked,
+            staged_outputs: &mut staged_outputs,
+            execution_summary: &mut local_summary,
+        },
+    };
 
     for action in &action_plan.link_actions {
         if action.domain != BuildDomain::Target {
             continue;
         }
-        ensure_link_action_built(
-            action,
-            action_plan,
-            &compile_action_index,
-            &local_library_actions,
-            &link_action_index,
-            &source_config,
-            &build_plan.workspace_root,
-            command,
-            profile_selection,
-            &build_plan.workspace_root,
-            &mut built_std_packages,
-            &mut built_external_packages,
-            &mut built_external_tools,
-            &mut external_build_stack,
-            &mut compiled,
-            &mut linked,
-            &mut staged_outputs,
-            &mut local_summary,
-        )?;
+        ensure_link_action_built(action, &mut session)?;
     }
     for action in &action_plan.compile_actions {
         if action.domain != BuildDomain::Target {
             continue;
         }
-        ensure_compile_action_built(
-            action,
-            &local_library_actions,
-            &link_action_index,
-            &source_config,
-            &build_plan.workspace_root,
-            command,
-            profile_selection,
-            &build_plan.workspace_root,
-            &mut built_std_packages,
-            &mut built_external_packages,
-            &mut built_external_tools,
-            &mut external_build_stack,
-            &mut compiled,
-            &mut linked,
-            &mut staged_outputs,
-            action_plan,
-            &compile_action_index,
-            &mut local_summary,
-        )?;
+        ensure_compile_action_built(action, &mut session)?;
     }
 
     external_summary.absorb(local_summary);
@@ -562,80 +596,32 @@ impl SourceConfigContext {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 fn ensure_compile_action_built(
     action: &CompileAction,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    link_action_index: &BTreeMap<PathBuf, LinkAction>,
-    source_config: &SourceConfigContext,
-    dependency_workspace_root: &Path,
-    command: crate::script::ScriptCommand,
-    profile_selection: crate::script::ProfileSelection,
-    std_workspace_root: &Path,
-    built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    built_external_tools: &mut BTreeMap<ExternalToolKey, PathBuf>,
-    external_build_stack: &mut BTreeSet<ExternalPackageId>,
-    compiled: &mut BTreeSet<PathBuf>,
-    linked: &mut BTreeSet<PathBuf>,
-    staged_outputs: &mut BTreeSet<PathBuf>,
-    action_plan: &ActionPlan,
-    compile_action_index: &BTreeMap<ActionKey, CompileAction>,
-    execution_summary: &mut ExecutionSummary,
+    session: &mut ExecutionSession<'_>,
 ) -> Result<bool> {
-    if compiled.contains(&action.object_path) {
+    if session.state.compiled.contains(&action.object_path) {
         return Ok(false);
     }
 
     for dep in &action.local_dependencies {
-        if let Some(dep_action) = local_library_actions.get(&PackageInstanceKey {
-            domain: dep.domain,
-            package_id: dep.package_id.clone(),
-        }) {
-            ensure_compile_action_built(
-                dep_action,
-                local_library_actions,
-                link_action_index,
-                source_config,
-                dependency_workspace_root,
-                command,
-                profile_selection,
-                std_workspace_root,
-                built_std_packages,
-                built_external_packages,
-                built_external_tools,
-                external_build_stack,
-                compiled,
-                linked,
-                staged_outputs,
-                action_plan,
-                compile_action_index,
-                execution_summary,
-            )?;
+        if let Some(dep_action) = session
+            .indexes
+            .local_library_actions
+            .get(&PackageInstanceKey {
+                domain: dep.domain,
+                package_id: dep.package_id.clone(),
+            })
+        {
+            ensure_compile_action_built(dep_action, session)?;
         }
     }
 
     execute_staged_actions(
         action.compile_inputs.as_slice(),
-        action_plan.build_nodes.as_slice(),
-        staged_outputs,
+        session.indexes.action_plan.build_nodes.as_slice(),
         action.required_source_path(),
-        action_plan,
-        compile_action_index,
-        local_library_actions,
-        link_action_index,
-        source_config,
-        dependency_workspace_root,
-        command,
-        profile_selection,
-        std_workspace_root,
-        built_std_packages,
-        built_external_packages,
-        built_external_tools,
-        external_build_stack,
-        compiled,
-        linked,
-        execution_summary,
+        session,
     )?;
     ensure_parent_dir(&action.object_path)?;
     ensure_parent_dir(&action.artifact_path)?;
@@ -662,9 +648,12 @@ fn ensure_compile_action_built(
     apply_host_linker_env(&mut options);
     options.module_interface_aliases = compile_module_aliases(
         action,
-        local_library_actions,
-        built_std_packages.get(&action.profile.name),
-        built_external_packages,
+        session.indexes.local_library_actions,
+        session
+            .external
+            .built_std_packages
+            .get(&action.profile.name),
+        session.external.built_external_packages,
     )?;
     inject_target_library_aliases(&mut options);
     inject_driver_condition_defines(&mut options);
@@ -677,7 +666,7 @@ fn ensure_compile_action_built(
     let fingerprint = compile_action_fingerprint(action, &options, &toolchain_digest);
 
     if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
-        compiled.insert(action.object_path.clone());
+        session.state.compiled.insert(action.object_path.clone());
         return Ok(false);
     }
 
@@ -691,9 +680,9 @@ fn ensure_compile_action_built(
 
     write_compile_action_state(action, &report, fingerprint)?;
 
-    compiled.insert(action.object_path.clone());
-    execution_summary.compile_actions += 1;
-    execution_summary.record_action(
+    session.state.compiled.insert(action.object_path.clone());
+    session.state.execution_summary.compile_actions += 1;
+    session.state.execution_summary.record_action(
         ActionTimingKind::Compile,
         compile_action_label(action),
         report.phase_timings,
@@ -701,28 +690,11 @@ fn ensure_compile_action_built(
     Ok(true)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn execute_staged_actions(
     root_ids: &[usize],
     build_nodes: &[StagedAction],
-    staged_outputs: &mut BTreeSet<PathBuf>,
     required_path: Option<&Path>,
-    action_plan: &ActionPlan,
-    compile_action_index: &BTreeMap<ActionKey, CompileAction>,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    link_action_index: &BTreeMap<PathBuf, LinkAction>,
-    source_config: &SourceConfigContext,
-    dependency_workspace_root: &Path,
-    command: crate::script::ScriptCommand,
-    profile_selection: crate::script::ProfileSelection,
-    std_workspace_root: &Path,
-    built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    built_external_tools: &mut BTreeMap<ExternalToolKey, PathBuf>,
-    external_build_stack: &mut BTreeSet<ExternalPackageId>,
-    compiled: &mut BTreeSet<PathBuf>,
-    linked: &mut BTreeSet<PathBuf>,
-    execution_summary: &mut ExecutionSummary,
+    session: &mut ExecutionSession<'_>,
 ) -> Result<()> {
     let action_index = build_nodes
         .iter()
@@ -733,28 +705,7 @@ fn execute_staged_actions(
         let action = action_index
             .get(root_id)
             .ok_or_else(|| Error::Execution(format!("missing build node `{root_id}`")))?;
-        execute_staged_action(
-            action,
-            &action_index,
-            &mut active,
-            staged_outputs,
-            action_plan,
-            compile_action_index,
-            local_library_actions,
-            link_action_index,
-            source_config,
-            dependency_workspace_root,
-            command,
-            profile_selection,
-            std_workspace_root,
-            built_std_packages,
-            built_external_packages,
-            built_external_tools,
-            external_build_stack,
-            compiled,
-            linked,
-            execution_summary,
-        )?;
+        execute_staged_action(action, &action_index, &mut active, session)?;
     }
     if let Some(required_path) = required_path
         && !root_ids.is_empty()
@@ -768,31 +719,14 @@ fn execute_staged_actions(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 fn execute_staged_action(
     action: &StagedAction,
     action_index: &BTreeMap<usize, &StagedAction>,
     active: &mut BTreeSet<usize>,
-    staged_outputs: &mut BTreeSet<PathBuf>,
-    action_plan: &ActionPlan,
-    compile_action_index: &BTreeMap<ActionKey, CompileAction>,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    link_action_index: &BTreeMap<PathBuf, LinkAction>,
-    source_config: &SourceConfigContext,
-    dependency_workspace_root: &Path,
-    command: crate::script::ScriptCommand,
-    profile_selection: crate::script::ProfileSelection,
-    std_workspace_root: &Path,
-    built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    built_external_tools: &mut BTreeMap<ExternalToolKey, PathBuf>,
-    external_build_stack: &mut BTreeSet<ExternalPackageId>,
-    compiled: &mut BTreeSet<PathBuf>,
-    linked: &mut BTreeSet<PathBuf>,
-    execution_summary: &mut ExecutionSummary,
+    session: &mut ExecutionSession<'_>,
 ) -> Result<bool> {
     let output_path = PathBuf::from(&action.output);
-    if staged_outputs.contains(&output_path) {
+    if session.state.staged_outputs.contains(&output_path) {
         return Ok(false);
     }
     if !active.insert(action.id) {
@@ -808,28 +742,7 @@ fn execute_staged_action(
                 action.output
             ))
         })?;
-        execute_staged_action(
-            dependency,
-            action_index,
-            active,
-            staged_outputs,
-            action_plan,
-            compile_action_index,
-            local_library_actions,
-            link_action_index,
-            source_config,
-            dependency_workspace_root,
-            command,
-            profile_selection,
-            std_workspace_root,
-            built_std_packages,
-            built_external_packages,
-            built_external_tools,
-            external_build_stack,
-            compiled,
-            linked,
-            execution_summary,
-        )?;
+        execute_staged_action(dependency, action_index, active, session)?;
     }
     active.remove(&action.id);
     let toolchain_digest = build_state::current_process_digest()?;
@@ -844,42 +757,16 @@ fn execute_staged_action(
             let tool_path = PathBuf::from(&tool.executable_path);
             match &tool.origin {
                 crate::script::BuildScriptToolOrigin::LocalPackage { .. } => {
-                    if let Some(link_action) = link_action_index.get(&tool_path) {
-                        ensure_link_action_built(
-                            link_action,
-                            action_plan,
-                            compile_action_index,
-                            local_library_actions,
-                            link_action_index,
-                            source_config,
-                            dependency_workspace_root,
-                            command,
-                            profile_selection,
-                            std_workspace_root,
-                            built_std_packages,
-                            built_external_packages,
-                            built_external_tools,
-                            external_build_stack,
-                            compiled,
-                            linked,
-                            staged_outputs,
-                            execution_summary,
-                        )?;
+                    if let Some(link_action) = session.indexes.link_action_index.get(&tool_path) {
+                        ensure_link_action_built(link_action, session)?;
                     }
                 }
                 crate::script::BuildScriptToolOrigin::ExternalPackage { .. } => {
                     ensure_external_tool_built(
                         tool,
-                        source_config,
-                        dependency_workspace_root,
-                        command,
-                        profile_selection,
-                        std_workspace_root,
-                        built_std_packages,
-                        built_external_packages,
-                        built_external_tools,
-                        external_build_stack,
-                        execution_summary,
+                        session.config,
+                        &mut session.external,
+                        session.state.execution_summary,
                     )?;
                 }
             }
@@ -914,7 +801,7 @@ fn execute_staged_action(
     };
 
     if build_state::action_state_is_current(&output_path, &fingerprint)? {
-        staged_outputs.insert(output_path);
+        session.state.staged_outputs.insert(output_path);
         return Ok(false);
     }
 
@@ -972,35 +859,20 @@ fn execute_staged_action(
         &input_paths,
         std::slice::from_ref(&output_path),
     )?;
-    staged_outputs.insert(output_path);
+    session.state.staged_outputs.insert(output_path);
     Ok(true)
 }
 
-#[allow(clippy::too_many_arguments)]
 fn ensure_link_action_built(
     action: &LinkAction,
-    action_plan: &ActionPlan,
-    compile_action_index: &BTreeMap<ActionKey, CompileAction>,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    link_action_index: &BTreeMap<PathBuf, LinkAction>,
-    source_config: &SourceConfigContext,
-    dependency_workspace_root: &Path,
-    command: crate::script::ScriptCommand,
-    profile_selection: crate::script::ProfileSelection,
-    std_workspace_root: &Path,
-    built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    built_external_tools: &mut BTreeMap<ExternalToolKey, PathBuf>,
-    external_build_stack: &mut BTreeSet<ExternalPackageId>,
-    compiled: &mut BTreeSet<PathBuf>,
-    linked: &mut BTreeSet<PathBuf>,
-    staged_outputs: &mut BTreeSet<PathBuf>,
-    execution_summary: &mut ExecutionSummary,
+    session: &mut ExecutionSession<'_>,
 ) -> Result<bool> {
-    if linked.contains(&action.artifact_path) {
+    if session.state.linked.contains(&action.artifact_path) {
         return Ok(false);
     }
-    let compile_action = compile_action_index
+    let compile_action = session
+        .indexes
+        .compile_action_index
         .get(&ActionKey {
             domain: action.domain,
             package_id: action.package_id.clone(),
@@ -1013,26 +885,7 @@ fn ensure_link_action_built(
                 action.package_id.name, action.artifact_name
             ))
         })?;
-    ensure_compile_action_built(
-        compile_action,
-        local_library_actions,
-        link_action_index,
-        source_config,
-        dependency_workspace_root,
-        command,
-        profile_selection,
-        std_workspace_root,
-        built_std_packages,
-        built_external_packages,
-        built_external_tools,
-        external_build_stack,
-        compiled,
-        linked,
-        staged_outputs,
-        action_plan,
-        compile_action_index,
-        execution_summary,
-    )?;
+    ensure_compile_action_built(compile_action, session)?;
 
     ensure_parent_dir(&action.artifact_path)?;
 
@@ -1046,10 +899,10 @@ fn ensure_link_action_built(
     apply_host_linker_env(&mut options);
     let linker_inputs = link_inputs_for_action(
         action,
-        action_plan,
-        local_library_actions,
-        built_std_packages,
-        built_external_packages,
+        session.indexes.action_plan,
+        session.indexes.local_library_actions,
+        session.external.built_std_packages,
+        session.external.built_external_packages,
     )?;
     options.linker_inputs = linker_inputs
         .iter()
@@ -1080,8 +933,8 @@ fn ensure_link_action_built(
             &linker_inputs,
             std::slice::from_ref(&action.artifact_path),
         )?;
-        execution_summary.link_actions += 1;
-        execution_summary.record_action(
+        session.state.execution_summary.link_actions += 1;
+        session.state.execution_summary.record_action(
             ActionTimingKind::Link,
             link_action_label(action),
             report.phase_timings,
@@ -1089,29 +942,13 @@ fn ensure_link_action_built(
         true
     };
 
-    linked.insert(action.artifact_path.clone());
+    session.state.linked.insert(action.artifact_path.clone());
 
     execute_staged_actions(
         action.artifact_outputs.as_slice(),
-        action_plan.build_nodes.as_slice(),
-        staged_outputs,
+        session.indexes.action_plan.build_nodes.as_slice(),
         None,
-        action_plan,
-        compile_action_index,
-        local_library_actions,
-        link_action_index,
-        source_config,
-        dependency_workspace_root,
-        command,
-        profile_selection,
-        std_workspace_root,
-        built_std_packages,
-        built_external_packages,
-        built_external_tools,
-        external_build_stack,
-        compiled,
-        linked,
-        execution_summary,
+        session,
     )?;
     Ok(linked_now)
 }

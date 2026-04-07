@@ -1,8 +1,6 @@
-mod support;
-
 use std::process::Output;
 
-use support::{build_and_run, compile_source_with_args};
+use kernc_cli::test_support::{build_and_run, compile_source_with_args};
 
 fn compile_source(source: &str) -> Output {
     compile_source_with_args("kernc_destructuring_test", source, &[])

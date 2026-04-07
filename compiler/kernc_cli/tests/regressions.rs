@@ -1,13 +1,11 @@
-mod support;
-
 use std::fs;
 use std::process::Command;
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-use support::{
+use kernc_cli::test_support::{
     assert_success, build_and_run, compile_source_tree_with_args, compile_source_with_args,
-    emit_llvm_ir_with_args, run_kernc, unique_temp_path,
+    emit_llvm_ir_with_args, repo_root, run_kernc, unique_temp_path,
 };
 
 fn compile_source(source: &str) -> std::process::Output {
@@ -770,7 +768,7 @@ pub fn answer() i32 {{
     let metadata_arg = metadata_dir.to_string_lossy().into_owned();
     let object_a_arg = object_a.to_string_lossy().into_owned();
     let object_b_arg = object_b.to_string_lossy().into_owned();
-    let repo_root = support::repo_root();
+    let repo_root = repo_root();
     let barrier = Arc::new(Barrier::new(3));
 
     let spawn = |object_arg: String| {

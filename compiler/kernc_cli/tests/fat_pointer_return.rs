@@ -1,6 +1,4 @@
-mod support;
-
-use support::build_and_run;
+use kernc_cli::test_support::build_and_run;
 
 fn build_and_run_source_with_std(source: &str) -> std::process::Output {
     build_and_run(

@@ -1,8 +1,6 @@
-mod support;
-
 use std::fs;
 
-use support::{build_and_run, kern_string_literal, unique_temp_path};
+use kernc_cli::test_support::{build_and_run, kern_string_literal, unique_temp_path};
 
 fn build_and_run_hosted(source: &str) -> std::process::Output {
     build_and_run(

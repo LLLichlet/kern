@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -8,6 +6,20 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 static UNIQUE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+fn kernc_binary() -> PathBuf {
+    if let Some(path) = std::env::var_os("CARGO_BIN_EXE_kernc").map(PathBuf::from) {
+        return path;
+    }
+
+    let mut path = std::env::current_exe().expect("missing current test executable path");
+    path.pop();
+    if path.ends_with("deps") {
+        path.pop();
+    }
+    path.push(if cfg!(windows) { "kernc.exe" } else { "kernc" });
+    path
+}
 
 pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -47,7 +59,7 @@ where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
 {
-    Command::new(env!("CARGO_BIN_EXE_kernc"))
+    Command::new(kernc_binary())
         .current_dir(repo_root())
         .args(args)
         .output()

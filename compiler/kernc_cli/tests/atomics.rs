@@ -1,6 +1,4 @@
-mod support;
-
-use support::{
+use kernc_cli::test_support::{
     compile_source_with_args as compile_with_args, emit_llvm_ir_with_args as emit_ir_with_args,
 };
 

@@ -211,6 +211,12 @@ impl CompilerDriver {
                     }
                     let exported_via_pub_use =
                         self.item_is_publicly_exported(function.id, function.name_span, ctx);
+                    let exported_from_root_module = self
+                        .item_is_publicly_exported_from_root_module(
+                            function.id,
+                            function.name_span,
+                            ctx,
+                        );
                     let is_root = function.vis == Visibility::Public
                         || function.is_extern
                         || self.item_has_export_name(&function.attributes, ctx)
@@ -220,8 +226,8 @@ impl CompilerDriver {
                         && (function.vis == Visibility::Public || exported_via_pub_use);
                     let is_lower_root = function.is_extern
                         || self.item_has_export_name(&function.attributes, ctx)
-                        || exported_via_pub_use
                         || ctx.resolve(function.name) == "main"
+                        || exported_from_root_module
                         || preserve_package_export_root;
                     let is_warnable = self.is_lintable_free_function(ctx, function)
                         && function.vis == Visibility::Private;
@@ -247,6 +253,8 @@ impl CompilerDriver {
                     };
                     let exported_via_pub_use =
                         self.item_is_publicly_exported(global.id, name_span, ctx);
+                    let exported_from_root_module =
+                        self.item_is_publicly_exported_from_root_module(global.id, name_span, ctx);
                     let is_root = global.vis == Visibility::Public
                         || global.is_extern
                         || self.item_has_export_name(&global.attributes, ctx)
@@ -267,7 +275,7 @@ impl CompilerDriver {
                             is_root,
                             is_lower_root: global.is_extern
                                 || self.item_has_export_name(&global.attributes, ctx)
-                                || exported_via_pub_use
+                                || exported_from_root_module
                                 || preserve_package_export_root,
                             is_warnable: global.vis == Visibility::Private,
                         },
@@ -332,6 +340,33 @@ impl CompilerDriver {
         ctx.scopes.all_symbols().any(|(_name, info)| {
             info.def_id == Some(def_id) && info.is_pub && info.span != definition_span
         })
+    }
+
+    fn item_is_publicly_exported_from_root_module(
+        &self,
+        def_id: DefId,
+        definition_span: Span,
+        ctx: &SemaContext<'_>,
+    ) -> bool {
+        let Some(root_module_id) = ctx.root_module else {
+            return false;
+        };
+        let Some(root_scope_id) =
+            ctx.defs
+                .get(root_module_id.0 as usize)
+                .and_then(|def| match def {
+                    kernc_sema::def::Def::Module(module) => Some(module.scope_id),
+                    _ => None,
+                })
+        else {
+            return false;
+        };
+
+        ctx.scopes
+            .symbols_in_scope(root_scope_id)
+            .any(|(_name, info)| {
+                info.def_id == Some(def_id) && info.is_pub && info.span != definition_span
+            })
     }
 
     fn unused_item_from_node(

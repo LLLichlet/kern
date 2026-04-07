@@ -212,6 +212,62 @@ fn parse_modules_reuses_cached_structure_without_extra_frontend_parse() {
 }
 
 #[test]
+fn shared_incremental_state_reuses_frontend_cache_across_output_variants() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_shared_incremental_cache_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let options = CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: root.join("main.o").to_string_lossy().to_string(),
+        ..CompileOptions::default()
+    };
+    let driver = CompilerDriver::new(options.clone());
+    let overrides = SourceOverrides::new();
+
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
+    let parse_count = driver.uncached_parse_count();
+
+    let shared = driver
+        .share_incremental_state(CompileOptions {
+            output_file: root.join("other.o").to_string_lossy().to_string(),
+            ..options
+        })
+        .expect("output-only changes should preserve incremental compatibility");
+    assert!(
+        shared
+            .analyze_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
+    assert_eq!(shared.uncached_parse_count(), parse_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn shared_incremental_state_rejects_semantic_option_changes() {
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let mut changed = CompileOptions::default();
+    changed
+        .custom_defines
+        .insert("feature".to_string(), "enabled".to_string());
+
+    assert!(driver.share_incremental_state(changed).is_none());
+}
+
+#[test]
 fn analyze_outline_reuses_collected_cache_without_extra_frontend_parse() {
     let root = std::env::temp_dir().join(format!(
         "kern_outline_collected_cache_{}_{}",

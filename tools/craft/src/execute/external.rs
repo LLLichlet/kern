@@ -144,6 +144,7 @@ pub(super) fn build_external_package(
         config.std_workspace_root,
         &required_library_actions,
         external.built_std_packages,
+        external.driver_families,
         external_summary,
     )?;
 
@@ -295,6 +296,7 @@ pub(super) fn ensure_external_tool_built(
         config.std_workspace_root,
         &required_compile_actions,
         external.built_std_packages,
+        external.driver_families,
         &mut external_summary,
     )?;
     let compile_summary = execute_compile_actions(
@@ -340,6 +342,7 @@ pub(super) fn ensure_external_tool_built(
                 built_external_packages: &mut *external.built_external_packages,
                 built_external_tools: &mut *external.built_external_tools,
                 external_build_stack: &mut *external.external_build_stack,
+                driver_families: &mut *external.driver_families,
             },
             state: ExecutionState {
                 compiled: &mut compiled,
@@ -625,6 +628,7 @@ pub(super) fn execute_compile_actions(
                 built_external_packages: &mut *external.built_external_packages,
                 built_external_tools: &mut *external.built_external_tools,
                 external_build_stack: &mut *external.external_build_stack,
+                driver_families: &mut *external.driver_families,
             },
             state: ExecutionState {
                 compiled: &mut compiled,

@@ -1,13 +1,13 @@
 use super::{
     ActionTimingKind, BuiltLibraryPackage, BuiltStdPackage, ExecutionSummary, Result,
-    apply_host_linker_env, base_compile_action_label, build_fingerprint, ensure_parent_dir,
-    rt_compile_action_label, rt_entry_compile_action_label, std_compile_action_label,
-    sys_compile_action_label,
+    apply_host_linker_env, base_compile_action_label, build_fingerprint,
+    compile_with_shared_driver, ensure_parent_dir, rt_compile_action_label,
+    rt_entry_compile_action_label, std_compile_action_label, sys_compile_action_label,
 };
 use crate::build_plan::CompileAction;
 use crate::build_state;
 use crate::error::Error;
-use kernc_driver::{CompilerDriver, KMETA_MANIFEST_FILE};
+use kernc_driver::{CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE};
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, OptLevel, inject_driver_condition_defines,
     resolve_base_path, resolve_rt_path, resolve_std_path, resolve_sys_path,
@@ -37,6 +37,7 @@ pub(super) fn ensure_std_packages_for_actions(
     workspace_root: &Path,
     actions: &[CompileAction],
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
     let profiles = actions
@@ -48,6 +49,7 @@ pub(super) fn ensure_std_packages_for_actions(
             workspace_root,
             &profile,
             built_std_packages,
+            driver_families,
             execution_summary,
         )?;
     }
@@ -58,6 +60,7 @@ pub(super) fn build_std_package(
     workspace_root: &Path,
     profile: &str,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
     if built_std_packages.contains_key(profile) {
@@ -72,10 +75,15 @@ pub(super) fn build_std_package(
             source_path.display()
         )));
     }
-    let built_rt = build_rt_package(workspace_root, profile, execution_summary)?;
-    let built_sys = build_sys_package(workspace_root, profile, execution_summary)?;
-    let rt_entry_object_path =
-        build_rt_entry_package(workspace_root, profile, execution_summary, &built_sys)?;
+    let built_rt = build_rt_package(workspace_root, profile, driver_families, execution_summary)?;
+    let built_sys = build_sys_package(workspace_root, profile, driver_families, execution_summary)?;
+    let rt_entry_object_path = build_rt_entry_package(
+        workspace_root,
+        profile,
+        driver_families,
+        execution_summary,
+        &built_sys,
+    )?;
 
     let object_path = workspace_root
         .join(".craft")
@@ -139,8 +147,7 @@ pub(super) fn build_std_package(
     ]);
 
     if !build_state::action_state_is_current(&object_path, &std_fingerprint)? {
-        let driver = CompilerDriver::new(options);
-        let Some(report) = driver.compile_with_report() else {
+        let Some(report) = compile_with_shared_driver(driver_families, options) else {
             return Err(Error::Execution(format!(
                 "compile failed for standard library `{}`",
                 source_path.display()
@@ -194,6 +201,7 @@ pub(super) fn build_std_package(
 pub(super) fn build_rt_package(
     workspace_root: &Path,
     profile: &str,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
     let rt_root = resolve_rt_path();
@@ -256,8 +264,7 @@ pub(super) fn build_rt_package(
     ]);
 
     if !build_state::action_state_is_current(&object_path, &rt_fingerprint)? {
-        let driver = CompilerDriver::new(options);
-        let Some(report) = driver.compile_with_report() else {
+        let Some(report) = compile_with_shared_driver(driver_families, options) else {
             return Err(Error::Execution(format!(
                 "compile failed for rt library `{}`",
                 source_path.display()
@@ -290,6 +297,7 @@ pub(super) fn build_rt_package(
 pub(super) fn build_base_package(
     workspace_root: &Path,
     profile: &str,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
     let base_root = resolve_base_path();
@@ -353,8 +361,7 @@ pub(super) fn build_base_package(
     ]);
 
     if !build_state::action_state_is_current(&object_path, &base_fingerprint)? {
-        let driver = CompilerDriver::new(options);
-        let Some(report) = driver.compile_with_report() else {
+        let Some(report) = compile_with_shared_driver(driver_families, options) else {
             return Err(Error::Execution(format!(
                 "compile failed for base library `{}`",
                 source_path.display()
@@ -387,6 +394,7 @@ pub(super) fn build_base_package(
 pub(super) fn build_sys_package(
     workspace_root: &Path,
     profile: &str,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
     let sys_root = resolve_sys_path();
@@ -397,7 +405,8 @@ pub(super) fn build_sys_package(
             source_path.display()
         )));
     }
-    let built_base = build_base_package(workspace_root, profile, execution_summary)?;
+    let built_base =
+        build_base_package(workspace_root, profile, driver_families, execution_summary)?;
 
     let object_path = workspace_root
         .join(".craft")
@@ -458,8 +467,7 @@ pub(super) fn build_sys_package(
     ]);
 
     if !build_state::action_state_is_current(&object_path, &sys_fingerprint)? {
-        let driver = CompilerDriver::new(options);
-        let Some(report) = driver.compile_with_report() else {
+        let Some(report) = compile_with_shared_driver(driver_families, options) else {
             return Err(Error::Execution(format!(
                 "compile failed for sys library `{}`",
                 source_path.display()
@@ -494,6 +502,7 @@ pub(super) fn build_sys_package(
 pub(super) fn build_rt_entry_package(
     workspace_root: &Path,
     profile: &str,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
     built_sys: &BuiltLibraryPackage,
 ) -> Result<PathBuf> {
@@ -550,8 +559,7 @@ pub(super) fn build_rt_entry_package(
     ]);
 
     if !build_state::action_state_is_current(&object_path, &entry_fingerprint)? {
-        let driver = CompilerDriver::new(options);
-        let Some(report) = driver.compile_with_report() else {
+        let Some(report) = compile_with_shared_driver(driver_families, options) else {
             return Err(Error::Execution(format!(
                 "compile failed for rt hosted entry `{}`",
                 source_path.display()

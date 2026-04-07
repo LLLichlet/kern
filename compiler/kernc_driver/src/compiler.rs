@@ -536,6 +536,50 @@ pub(super) struct CompileStructureArtifact {
     pub(super) phase_timings: Vec<PhaseTiming>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IncrementalDriverKey {
+    target_triple: String,
+    root_module_name: Option<String>,
+    collect_docs: bool,
+    custom_defines: Vec<(String, String)>,
+    module_aliases: Vec<(String, String)>,
+    module_interface_aliases: Vec<(String, String)>,
+}
+
+impl IncrementalDriverKey {
+    pub fn from_options(options: &CompileOptions) -> Self {
+        let mut custom_defines = options
+            .custom_defines
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        custom_defines.sort();
+
+        let mut module_aliases = options
+            .module_aliases
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        module_aliases.sort();
+
+        let mut module_interface_aliases = options
+            .module_interface_aliases
+            .iter()
+            .map(|(key, value)| (key.clone(), value.clone()))
+            .collect::<Vec<_>>();
+        module_interface_aliases.sort();
+
+        Self {
+            target_triple: options.target.triple.to_string(),
+            root_module_name: options.root_module_name.clone(),
+            collect_docs: options.metadata_output.is_some(),
+            custom_defines,
+            module_aliases,
+            module_interface_aliases,
+        }
+    }
+}
+
 pub struct CompilerDriver {
     pub options: CompileOptions,
     frontend: FrontendDatabase,
@@ -611,6 +655,22 @@ impl AnalysisArtifact {
 impl ParsedModuleArtifact {
     pub fn requires_body_completion(&self, target_path: &Path, offset: usize) -> bool {
         completion::parsed_requires_body_completion(&self.modules, target_path, offset)
+    }
+}
+
+impl CompilerDriver {
+    pub fn incremental_key(&self) -> IncrementalDriverKey {
+        IncrementalDriverKey::from_options(&self.options)
+    }
+
+    pub fn share_incremental_state(&self, options: CompileOptions) -> Option<Self> {
+        (self.incremental_key() == IncrementalDriverKey::from_options(&options)).then(|| Self {
+            options,
+            frontend: self.frontend.clone(),
+            collected_artifacts: self.collected_artifacts.clone(),
+            imported_artifacts: self.imported_artifacts.clone(),
+            structure_artifacts: self.structure_artifacts.clone(),
+        })
     }
 }
 

@@ -1,9 +1,9 @@
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
@@ -37,15 +37,16 @@ impl FrontendLoadTimings {
     }
 }
 
+#[derive(Clone)]
 pub struct FrontendDatabase {
     db: Database,
     source_overrides: Input<PathBuf, String>,
     source_texts: Query<PathBuf, Option<String>>,
     #[cfg(test)]
     parsed_modules: Memo<PathBuf, Option<FrontendParsedModule>>,
-    known_override_paths: Mutex<HashSet<PathBuf>>,
+    known_override_paths: Arc<Mutex<HashSet<PathBuf>>>,
     #[cfg(test)]
-    uncached_parse_count: AtomicUsize,
+    uncached_parse_count: Arc<AtomicUsize>,
 }
 
 impl FrontendDatabase {
@@ -72,9 +73,9 @@ impl FrontendDatabase {
             source_texts,
             #[cfg(test)]
             parsed_modules: Memo::new(),
-            known_override_paths: Mutex::new(HashSet::new()),
+            known_override_paths: Arc::new(Mutex::new(HashSet::new())),
             #[cfg(test)]
-            uncached_parse_count: AtomicUsize::new(0),
+            uncached_parse_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 

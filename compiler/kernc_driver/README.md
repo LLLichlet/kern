@@ -92,6 +92,12 @@ For body-only edits, the driver can reuse earlier stages and recompute only the
 parts that actually depend on changed function bodies. `Flow` is designed to fit
 that model directly.
 
+That reuse is now modeled around an explicit incremental driver family key.
+Invocation-only settings such as output paths can vary per compile, while
+frontend and staged semantic caches stay shared as long as the analysis-shaping
+options remain the same. This is the contract used by both `craft` and
+`kern-lsp`.
+
 ## Why `Flow` Still Lives In `kernc_driver`
 
 `Flow` is intentionally treated as a first-class layer, but it is not split into

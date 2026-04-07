@@ -7,7 +7,8 @@ use crate::graph::{BuildDomain, PackageId};
 use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use kernc_driver::{
-    CompileReport, CompilerDriver, KMETA_MANIFEST_FILE, PhaseTiming, load_kmeta_manifest,
+    CompileReport, CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE, PhaseTiming,
+    load_kmeta_manifest,
 };
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
@@ -183,11 +184,13 @@ pub(crate) fn materialize_analysis_inputs(
     let source_config = load_source_config(build_plan)?;
     let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
+    let mut driver_families = BTreeMap::new();
     let mut summary = ExecutionSummary::default();
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
         &mut built_std_packages,
+        &mut driver_families,
         &mut summary,
     )?;
     let mut built_external_packages = BTreeMap::new();
@@ -220,6 +223,7 @@ pub(crate) fn materialize_analysis_inputs(
             built_external_packages: &mut built_external_packages,
             built_external_tools: &mut built_external_tools,
             external_build_stack: &mut external_build_stack,
+            driver_families: &mut driver_families,
         },
         state: ExecutionState {
             compiled: &mut compiled,
@@ -317,12 +321,12 @@ struct ActionIndexes<'a> {
     link_action_index: &'a BTreeMap<PathBuf, LinkAction>,
 }
 
-#[derive(Debug)]
 struct ExternalArtifacts<'a> {
     built_std_packages: &'a mut BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &'a mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     built_external_tools: &'a mut BTreeMap<ExternalToolKey, PathBuf>,
     external_build_stack: &'a mut BTreeSet<ExternalPackageId>,
+    driver_families: &'a mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
 }
 
 #[derive(Debug)]
@@ -333,12 +337,29 @@ struct ExecutionState<'a> {
     execution_summary: &'a mut ExecutionSummary,
 }
 
-#[derive(Debug)]
 struct ExecutionSession<'a> {
     indexes: ActionIndexes<'a>,
     config: ExecutionConfig<'a>,
     external: ExternalArtifacts<'a>,
     state: ExecutionState<'a>,
+}
+
+pub(super) fn compile_with_shared_driver(
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
+    options: CompileOptions,
+) -> Option<CompileReport> {
+    let key = IncrementalDriverKey::from_options(&options);
+    if let Some(shared) = driver_families
+        .get(&key)
+        .and_then(|driver| driver.share_incremental_state(options.clone()))
+    {
+        return shared.compile_with_report();
+    }
+
+    let driver = CompilerDriver::new(options);
+    let report = driver.compile_with_report();
+    driver_families.entry(key).or_insert(driver);
+    report
 }
 
 fn build_with_command(
@@ -349,11 +370,13 @@ fn build_with_command(
     let source_config = load_source_config(build_plan)?;
     let profile_selection = profile_selection_for_action_plan(action_plan);
     let mut built_std_packages = BTreeMap::new();
+    let mut driver_families = BTreeMap::new();
     let mut external_summary = ExecutionSummary::default();
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
         &mut built_std_packages,
+        &mut driver_families,
         &mut external_summary,
     )?;
     let mut built_external_packages = BTreeMap::new();
@@ -371,6 +394,7 @@ fn build_with_command(
         built_external_packages: &mut built_external_packages,
         built_external_tools: &mut built_external_tools,
         external_build_stack: &mut external_build_stack,
+        driver_families: &mut driver_families,
     };
 
     for dep in requested_external_dependencies(action_plan) {
@@ -670,8 +694,7 @@ fn ensure_compile_action_built(
         return Ok(false);
     }
 
-    let driver = CompilerDriver::new(options);
-    let Some(report) = driver.compile_with_report() else {
+    let Some(report) = compile_with_shared_driver(session.external.driver_families, options) else {
         return Err(Error::Execution(format!(
             "compile failed for `{}`",
             action.source_path().display()

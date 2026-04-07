@@ -30,8 +30,8 @@ use crate::protocol::{
 };
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
-    AnalysisArtifact, AnalysisSurfaceArtifact, CompilerDriver, ParsedModuleArtifact,
-    SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    AnalysisArtifact, AnalysisSurfaceArtifact, CompilerDriver, IncrementalDriverKey,
+    ParsedModuleArtifact, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
 use kernc_utils::config::{
     CompileOptions, LibraryBundle, inject_default_library_aliases, inject_driver_condition_defines,
@@ -150,7 +150,7 @@ pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
     project_cache: RefCell<BTreeMap<PathBuf, Option<AnalysisProject>>>,
-    driver_cache: RefCell<BTreeMap<AnalysisCacheFamilyKey, Rc<CompilerDriver>>>,
+    driver_cache: RefCell<BTreeMap<IncrementalDriverKey, Rc<CompilerDriver>>>,
     parse_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<ParsedModuleArtifact>>>,
     surface_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisSurfaceArtifact>>>,
     structure_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<StructureArtifact>>>,
@@ -1066,7 +1066,7 @@ impl AnalysisEngine {
     }
 
     fn driver_for_resolved(&self, resolved: &ResolvedAnalysis) -> Rc<CompilerDriver> {
-        let family = AnalysisCacheKey::clean(resolved).family();
+        let family = IncrementalDriverKey::from_options(&resolved.compile_options);
         if let Some(driver) = self.driver_cache.borrow().get(&family) {
             return Rc::clone(driver);
         }

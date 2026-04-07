@@ -145,9 +145,33 @@ const S_IFREG = u16.{32768};
 const DT_DIR = u8.{4};
 const DT_REG = u8.{8};
 
+static mut PROCESS_ENV = **u8.{undef};
+static mut PROCESS_ENV_READY = false;
+
 /// Returns the sentinel value used for invalid Darwin handles.
 pub fn invalid_handle() Handle {
     return INVALID_HANDLE;
+}
+
+fn match_environment_name(entry: *u8, name: *u8) *u8 {
+    let mut i = 0;
+    for (;;) {
+        let entry_byte = (entry + i).*;
+        let name_byte = (name + i).*;
+
+        if (name_byte == 0) {
+            if (entry_byte == b'=') {
+                return entry + i + 1;
+            }
+            return 0;
+        }
+
+        if (entry_byte != name_byte or entry_byte == 0 or entry_byte == b'=') {
+            return 0;
+        }
+
+        i += 1;
+    }
 }
 
 fn last_error() Error {
@@ -162,6 +186,47 @@ pub fn is_not_found(err: Error) bool {
 /// Returns `true` when `err` reports that a path already exists.
 pub fn is_already_exists(err: Error) bool {
     return err.code == EEXIST;
+}
+
+/// Records the process environment block from the hosted entry ABI.
+pub fn init_process_env(argc: i32, argv: **u8) void {
+    let env_offset = if (argc <= 0) 1 else argc as usize + 1;
+    PROCESS_ENV = argv + env_offset;
+    PROCESS_ENV_READY = true;
+}
+
+/// Returns the zero-terminated value for one environment variable.
+pub fn find_environment_value(name: *u8) *u8 {
+    if (!PROCESS_ENV_READY) {
+        return 0;
+    }
+
+    let mut envp = PROCESS_ENV;
+    if ((envp as usize) == 0) {
+        return 0;
+    }
+
+    for (;;) {
+        let entry = envp.*;
+        if ((entry as usize) == 0) {
+            return 0;
+        }
+
+        let value = match_environment_name(entry, name);
+        if ((value as usize) != 0) {
+            return value;
+        }
+
+        envp = envp + 1;
+    }
+}
+
+/// Returns the process environment block initialized by the runtime entry layer.
+pub fn environment_entries() **u8 {
+    if (!PROCESS_ENV_READY) {
+        return 0;
+    }
+    return PROCESS_ENV;
 }
 
 /// Returns the process handle for standard input.

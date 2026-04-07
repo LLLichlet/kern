@@ -52,6 +52,9 @@ pub use .linux.{
     Error, 
     Handle, 
     invalid_handle, 
+    init_process_env,
+    find_environment_value,
+    environment_entries,
     get_stdin_handle, 
     get_stdout_handle, 
     get_stderr_handle, 
@@ -74,9 +77,9 @@ pub use .linux.{
 #[if(os == "darwin")]
 pub mod darwin;
 #[if(os == "darwin")]
-pub use .darwin.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};
+pub use .darwin.{Error, Handle, invalid_handle, init_process_env, find_environment_value, environment_entries, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};
 
 #[if(os == "windows")]
 pub mod windows;
 #[if(os == "windows")]
-pub use .windows.{Error, Handle, invalid_handle, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};
+pub use .windows.{Error, Handle, invalid_handle, init_process_env, get_environment_variable, get_environment_strings, free_environment_strings, get_stdin_handle, get_stdout_handle, get_stderr_handle, open_file, read_file, write_file, close_file, metadata, scan_dir, create_dir, remove_dir, remove_file, rename, is_not_found, is_already_exists, write, exit};

@@ -39,6 +39,7 @@ Kern ships four explicit public library layers:
 * `std`: high-level user-facing facilities built on top of `base` and `sys`.
 
 `std` no longer mirrors `base`, `sys`, or `rt` namespaces. Low-level code should import the owning layer directly.
+Hosted support is an OS concern, not a C concern: `std` remains ordinary Kern code layered on `base` plus `sys`, while libc stays an optional external runtime/provider choice rather than a foundation for `std`.
 
 ## A Taste of Kern (v0.6.7)
 

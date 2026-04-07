@@ -49,6 +49,9 @@ extern {
     pub fn ExitProcess(uExitCode: u32) void;
     pub fn SetErrorMode(uMode: u32) u32;
     pub fn GetCommandLineW() *mut u16;
+    pub fn GetEnvironmentVariableA(lpName: *u8, lpBuffer: *mut u8, nSize: u32) u32;
+    pub fn GetEnvironmentStringsA() *mut u8;
+    pub fn FreeEnvironmentStringsA(penv: *mut u8) i32;
     pub fn MultiByteToWideChar(CodePage: u32, dwFlags: u32, lpMultiByteStr: *u8, cbMultiByte: i32, lpWideCharStr: *mut u16, cchWideChar: i32) i32;
     pub fn WideCharToMultiByte(CodePage: u32, dwFlags: u32, lpWideCharStr: *u16, cchWideChar: i32, lpMultiByteStr: *mut u8, cbMultiByte: i32, lpDefaultChar: *u8, lpUsedDefaultChar: *mut u8) i32;
 }
@@ -156,6 +159,27 @@ pub fn is_not_found(err: Error) bool {
 /// Returns `true` when `err` reports that a path already exists.
 pub fn is_already_exists(err: Error) bool {
     return err.code == ERROR_FILE_EXISTS or err.code == ERROR_ALREADY_EXISTS;
+}
+
+/// Hosted Windows environment access does not require startup-side initialization.
+pub fn init_process_env(argc: i32, argv: **u8) void {
+    let _ = argc;
+    let _ = argv;
+}
+
+/// Reads one environment variable as an ANSI byte string.
+pub fn get_environment_variable(name: *u8, buffer: *mut u8, size: u32) u32 {
+    return GetEnvironmentVariableA(name, buffer, size);
+}
+
+/// Returns the process environment block as zero-terminated `NAME=VALUE` strings.
+pub fn get_environment_strings() *mut u8 {
+    return GetEnvironmentStringsA();
+}
+
+/// Releases a process environment block returned by `get_environment_strings`.
+pub fn free_environment_strings(block: *mut u8) void {
+    let _ = FreeEnvironmentStringsA(block);
 }
 
 /// Returns the process handle for standard input.

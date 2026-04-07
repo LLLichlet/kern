@@ -3,6 +3,10 @@
 //! `std` is the high-level batteries-included layer built on top of `base`,
 //! and `sys`. Foundation facilities remain in `base`, provider-facing APIs
 //! remain in `sys`, and startup glue remains in `rt`.
+//!
+//! `std` is still a normal freestanding Kern library. Hosted facilities are
+//! modeled through OS and provider boundaries in `sys`, not through an
+//! implicit dependency on libc.
 
 pub mod io;
 pub mod fs;

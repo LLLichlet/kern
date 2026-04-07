@@ -2,31 +2,15 @@
 //!
 //! Public APIs in this module keep names and values as UTF-8 byte slices or
 //! owned `String` values while platform-specific enumeration stays internal.
+//! Hosted environment access is provided through `sys.os`, not through a
+//! mandatory libc dependency.
 
 use base.Option;
 use base.abi;
 use base.coll.String;
 use base.mem.array_layout_of;
 use base.mem.alloc.Allocator;
-
-#[if(libc and (os == "linux" or os == "darwin"))]
-extern {
-    #[export_name("getenv")]
-    fn libc_getenv(name: *u8) *u8;
-
-    #[export_name("environ")]
-    static mut libc_environ = **u8.{undef};
-}
-
-#[if(os == "windows")]
-extern {
-    /// Reads one environment variable as an ANSI byte string.
-    pub fn GetEnvironmentVariableA(lpName: *u8, lpBuffer: *mut u8, nSize: u32) u32;
-    /// Returns the process environment block as a sequence of zero-terminated strings.
-    pub fn GetEnvironmentStringsA() *mut u8;
-    /// Releases the block returned by `GetEnvironmentStringsA`.
-    pub fn FreeEnvironmentStringsA(penv: *mut u8) i32;
-}
+use sys.os;
 
 /// A borrowed environment variable entry.
 pub type Var = struct {
@@ -36,7 +20,7 @@ pub type Var = struct {
     pub value: []u8,
 };
 
-#[if((libc and (os == "linux" or os == "darwin")) or os == "windows")]
+#[if((os == "linux" or os == "darwin") or os == "windows")]
 fn split_var(entry: []u8) Option[Var] {
     if (#entry == 0) {
         return .{ None };
@@ -62,7 +46,7 @@ fn split_var(entry: []u8) Option[Var] {
     return .{ None };
 }
 
-#[if((libc and (os == "linux" or os == "darwin")) or os == "windows")]
+#[if((os == "linux" or os == "darwin") or os == "windows")]
 fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
     let mut value = String.{};
     if (!value..&.push_str(alloc, ptr.[0 .. len])) {
@@ -72,12 +56,12 @@ fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
     return .{ Some: value };
 }
 
-#[if(libc and (os == "linux" or os == "darwin"))]
+#[if(os == "linux" or os == "darwin")]
 fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .{ None };
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    let value_ptr = libc_getenv(c_name);
+    let value_ptr = os.find_environment_value(c_name);
     if ((value_ptr as usize) == 0) {
         return .{ None };
     }
@@ -89,7 +73,7 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .{ None };
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    let required = GetEnvironmentVariableA(c_name, 0, 0) as usize;
+    let required = os.get_environment_variable(c_name, 0, 0) as usize;
     if (required == 0) {
         return .{ None };
     }
@@ -98,7 +82,7 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
     let .{ Some: buffer } = alloc.alloc(layout) else return .{ None };
     defer alloc.free(buffer, layout);
 
-    let written = GetEnvironmentVariableA(c_name, buffer, required as u32) as usize;
+    let written = os.get_environment_variable(c_name, buffer, required as u32) as usize;
     if (written == 0) {
         return .{ None };
     }
@@ -106,12 +90,12 @@ fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
     return clone_c_value(alloc, buffer, written);
 }
 
-#[if(libc and (os == "linux" or os == "darwin"))]
+#[if(os == "linux" or os == "darwin")]
 fn has_posix(alloc: *mut Allocator, name: []u8) bool {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return false;
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    return (libc_getenv(c_name) as usize) != 0;
+    return (os.find_environment_value(c_name) as usize) != 0;
 }
 
 #[if(os == "windows")]
@@ -119,12 +103,12 @@ fn has_windows(alloc: *mut Allocator, name: []u8) bool {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return false;
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    return (GetEnvironmentVariableA(c_name, 0, 0) as usize) != 0;
+    return (os.get_environment_variable(c_name, 0, 0) as usize) != 0;
 }
 
-#[if(libc and (os == "linux" or os == "darwin"))]
+#[if(os == "linux" or os == "darwin")]
 fn visit_posix(visitor: *Fn(Var) bool) usize {
-    let mut envp = libc_environ;
+    let mut envp = os.environment_entries();
     if ((envp as usize) == 0) {
         return 0;
     }
@@ -153,12 +137,12 @@ fn visit_posix(visitor: *Fn(Var) bool) usize {
 
 #[if(os == "windows")]
 fn visit_windows(visitor: *Fn(Var) bool) usize {
-    let block = GetEnvironmentStringsA();
+    let block = os.get_environment_strings();
     if ((block as usize) == 0) {
         return 0;
     }
     defer {
-        let _ = FreeEnvironmentStringsA(block);
+        os.free_environment_strings(block);
     };
 
     let mut cursor = block;
@@ -193,7 +177,7 @@ pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
         return .{ None };
     }
 
-    #[if(libc and (os == "linux" or os == "darwin"))]
+    #[if(os == "linux" or os == "darwin")]
     {
         return get_posix(alloc, name);
     }
@@ -216,7 +200,7 @@ pub fn has(alloc: *mut Allocator, name: []u8) bool {
         return false;
     }
 
-    #[if(libc and (os == "linux" or os == "darwin"))]
+    #[if(os == "linux" or os == "darwin")]
     {
         return has_posix(alloc, name);
     }
@@ -259,7 +243,7 @@ pub fn get_or_empty(alloc: *mut Allocator, name: []u8) Option[String] {
 /// Returns:
 /// the number of entries observed, including the last one passed to the visitor.
 pub fn visit(visitor: *Fn(Var) bool) usize {
-    #[if(libc and (os == "linux" or os == "darwin"))]
+    #[if(os == "linux" or os == "darwin")]
     {
         return visit_posix(visitor);
     }

@@ -9,6 +9,7 @@ The goal is to keep Kern freestanding by default while making hosted startup, to
 - keep the language itself freestanding
 - make startup ownership explicit
 - separate runtime provider choice from library choice
+- keep hosted OS interaction separate from libc linkage
 - keep `kernc` as a low-level executor
 - move package-level defaults and presets into `craft`
 - avoid Rust-style "special crate" coupling between the compiler and a privileged `std/core` split
@@ -42,6 +43,8 @@ This is intentionally separate from `runtime_entry`. A program may use the `rt` 
 `runtime_libc` is a direct yes/no switch for whether libc is linked.
 
 This exists because "uses libc" and "uses CRT startup" are related but not identical concerns. The toolchain should be able to express both explicitly instead of hiding them behind one overloaded mode.
+
+`runtime_libc` does not define whether hosted facilities exist. Hosted process access is modeled through the OS/provider boundary in `sys`; libc linkage is only one possible implementation choice for that boundary.
 
 ### Library Bundle
 
@@ -98,6 +101,7 @@ This keeps the roles clear:
 The practical rule is:
 
 - `std` may depend on `base` and `sys`
+- hosted `std` facilities depend on OS/provider services exposed by `sys`, not on libc as a semantic prerequisite
 - `rt` stays a separate runtime-owned layer and is not mirrored through `std`
 - low-level modules such as allocators, collection primitives, ABI helpers, and page-backed memory stay in their owning layer instead of being duplicated under `std`
 
@@ -172,6 +176,8 @@ The intended steady state is simple:
 - Kern the language is freestanding.
 - `main` is a special root symbol only when a runtime entry contract is selected.
 - `base`, `sys`, `rt`, and `std` are the only public library/runtime layers.
+- `hosted` means "running with an OS process environment", not "depends on C".
+- `std` stays libc-free and reaches hosted services through `sys`.
 - `rt` owns low-level startup/runtime glue.
 - `std` owns public reusable facilities.
 - `craft` owns package policy.

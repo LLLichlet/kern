@@ -21,6 +21,7 @@ use std::path::{Path, PathBuf};
 #[derive(Debug)]
 pub enum Command {
     Help,
+    Version,
     Check {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
@@ -189,10 +190,18 @@ pub fn run() -> Result<()> {
     run_command(parse_args(env::args().skip(1))?)
 }
 
+fn version_text() -> String {
+    format!("Craft v{}", env!("CARGO_PKG_VERSION"))
+}
+
 fn run_command(command: Command) -> Result<()> {
     match command {
         Command::Help => {
             print!("{}", usage());
+            Ok(())
+        }
+        Command::Version => {
+            println!("{}", version_text());
             Ok(())
         }
         Command::Check {
@@ -1586,11 +1595,16 @@ where
     let Some((cmd, rest)) = args.split_first() else {
         return Ok(Command::Help);
     };
+    if cmd == "--version" || cmd == "-V" || (cmd == "-v" && rest.is_empty()) {
+        return Ok(Command::Version);
+    }
+    if rest.iter().any(|arg| arg == "--version" || arg == "-V") {
+        return Ok(Command::Version);
+    }
     if cmd == "help" || cmd == "--help" || cmd == "-h" {
         return Ok(Command::Help);
     }
-
-    if rest.len() == 1 && (rest[0] == "--help" || rest[0] == "-h") {
+    if rest.iter().any(|arg| arg == "--help" || arg == "-h") {
         return Ok(Command::Help);
     }
 
@@ -1800,43 +1814,51 @@ fn extend_feature_selection(selection: &mut elaborate::FeatureSelection, raw: &s
 }
 
 fn usage() -> &'static str {
-    "\
-craft
-  Kern package manager and builder
-
-usage
-  craft help
-  craft <command> [--project-path <PATH>] [--profile <dev|release>] [--no-default-features] [--features <FEATURES>] [--verbose] [--timings] [--color <WHEN>]
-
-commands
-  help   Show this help text
-  check  Validate `Craft.toml`, scripts, sources, and derived analysis inputs
-  lock   Write a deterministic `Craft.lock` for the current package graph
-  fetch  Materialize external package sources into the local `.craft` cache
-  publish  Run release-oriented publish readiness checks without uploading anywhere
-  doc    Build library metadata and render native package docs to Markdown
-  build  Build the selected package graph and print the derived action plan
-  run    Build and run the single runnable `bin` target in the package graph
-  test   Build and run all discovered `test` targets
-
-options
-  --project-path <PATH>    Select the package or workspace root (or `Craft.toml` path)
-  --profile <NAME>         Profile selection: dev (default) or release
-  --no-default-features    Disable the implicit `default` feature
-  --features <FEATURES>    Enable a comma-separated feature list
-  --verbose, -v            Print detailed action logs instead of the default compact summary
-  --timings                Print aggregated compiler/linker phase timings
-  --color <WHEN>           Color mode: auto, always, never
-  --no-color               Alias for `--color never`
-
-examples
-  craft check
-  craft build --project-path path/to/pkg --profile release
-  craft doc --verbose
-  craft build --timings
-  craft run --features tls,simd
-  craft build --verbose --color always
-"
+    concat!(
+        "Craft v",
+        env!("CARGO_PKG_VERSION"),
+        "\n",
+        "Kern package manager and builder\n",
+        "\n",
+        "Usage:\n",
+        "  craft <command> [OPTIONS]\n",
+        "  craft help\n",
+        "  craft --help\n",
+        "  craft --version\n",
+        "\n",
+        "Commands:\n",
+        "  help     Show this help text\n",
+        "  check    Validate `Craft.toml`, scripts, sources, and derived analysis inputs\n",
+        "  lock     Write a deterministic `Craft.lock` for the current package graph\n",
+        "  fetch    Materialize external package sources into the local `.craft` cache\n",
+        "  publish  Run release-oriented publish readiness checks without uploading anywhere\n",
+        "  doc      Build library metadata and render native package docs to Markdown\n",
+        "  build    Build the selected package graph and print the derived action plan\n",
+        "  run      Build and run the single runnable `bin` target in the package graph\n",
+        "  test     Build and run all discovered `test` targets\n",
+        "\n",
+        "Global Options:\n",
+        "  --project-path <PATH>    Select the package or workspace root (or `Craft.toml` path)\n",
+        "  --profile <NAME>         Profile selection: dev (default) or release\n",
+        "  --no-default-features    Disable the implicit `default` feature\n",
+        "  --features <FEATURES>    Enable a comma-separated feature list\n",
+        "  --verbose, -v            Print detailed action logs instead of the default compact summary\n",
+        "  --timings                Print aggregated compiler/linker phase timings\n",
+        "  --color <WHEN>           Color mode: auto, always, never\n",
+        "  --no-color               Alias for `--color never`\n",
+        "\n",
+        "Information:\n",
+        "  --version, -V           Print version information and exit\n",
+        "  -h, --help              Print this help text and exit\n",
+        "\n",
+        "Examples:\n",
+        "  craft check\n",
+        "  craft build --project-path path/to/pkg --profile release\n",
+        "  craft doc --verbose\n",
+        "  craft build --timings\n",
+        "  craft run --features tls,simd\n",
+        "  craft build --verbose --color always\n",
+    )
 }
 
 #[cfg(test)]
@@ -1915,6 +1937,39 @@ root = "src/main.rn"
             }
             other => panic!("expected check command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_global_version_flags() {
+        assert!(matches!(
+            parse_args(["--version".to_string()]).unwrap(),
+            Command::Version
+        ));
+        assert!(matches!(
+            parse_args(["-V".to_string()]).unwrap(),
+            Command::Version
+        ));
+        assert!(matches!(
+            parse_args(["-v".to_string()]).unwrap(),
+            Command::Version
+        ));
+    }
+
+    #[test]
+    fn parses_help_and_version_after_command_options() {
+        assert!(matches!(
+            parse_args([
+                "build".to_string(),
+                "-v".to_string(),
+                "--help".to_string(),
+            ])
+            .unwrap(),
+            Command::Help
+        ));
+        assert!(matches!(
+            parse_args(["build".to_string(), "--version".to_string()]).unwrap(),
+            Command::Version
+        ));
     }
 
     #[test]

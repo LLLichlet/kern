@@ -83,4 +83,4 @@ fi
 
 echo ""
 echo "Kern ${VERSION} toolchain installed successfully!"
-echo "Run 'kernc --version', 'craft help', and 'kern-lsp --help' (or launch it via your editor) to verify."
+echo "Run 'kernc --version', 'craft --version', and 'kern-lsp --version' (or launch it via your editor) to verify."

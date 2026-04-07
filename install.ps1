@@ -51,4 +51,4 @@ if ($UserPath -notmatch [regex]::Escape($KernBin)) {
 }
 
 Write-Host "`nKern $Version toolchain installed successfully!" -ForegroundColor Green
-Write-Host "Run 'kernc --version', 'craft help', and 'kern-lsp --help' (or launch it via your editor) to verify."
+Write-Host "Run 'kernc --version', 'craft --version', and 'kern-lsp --version' (or launch it via your editor) to verify."

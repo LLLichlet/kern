@@ -5,32 +5,54 @@ mod transport;
 
 use kernc_utils::config::{CompileOptions, LibraryBundle};
 
+#[derive(Debug)]
+enum CliAction {
+    Run(CompileOptions),
+    Help,
+    Version,
+}
+
 fn main() {
-    let options = match parse_args() {
-        Ok(options) => options,
+    let action = match parse_args(std::env::args().skip(1)) {
+        Ok(action) => action,
         Err(message) => {
             eprintln!("error: {message}");
             std::process::exit(2);
         }
     };
 
-    let analysis = analysis::AnalysisEngine::new(analysis::AnalysisSettings {
-        compile_options: options,
-    });
+    match action {
+        CliAction::Help => {
+            print_usage();
+            return;
+        }
+        CliAction::Version => {
+            println!("{}", version_text());
+            return;
+        }
+        CliAction::Run(options) => {
+            let analysis = analysis::AnalysisEngine::new(analysis::AnalysisSettings {
+                compile_options: options,
+            });
 
-    if let Err(err) = server::run_with_analysis(analysis) {
-        eprintln!("error: {err}");
-        std::process::exit(1);
+            if let Err(err) = server::run_with_analysis(analysis) {
+                eprintln!("error: {err}");
+                std::process::exit(1);
+            }
+        }
     }
 }
 
-fn parse_args() -> Result<CompileOptions, String> {
+fn parse_args<I>(args: I) -> Result<CliAction, String>
+where
+    I: IntoIterator<Item = String>,
+{
     let mut options = CompileOptions {
         library_bundle: LibraryBundle::Std,
         ..CompileOptions::default()
     };
 
-    let mut args = std::env::args().skip(1);
+    let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         if let Some(value) =
             consume_long_option_value(&arg, "--library-bundle", &mut args, "<none|base|std>")?
@@ -76,9 +98,9 @@ fn parse_args() -> Result<CompileOptions, String> {
 
         match arg.as_str() {
             "--help" | "-h" => {
-                print_usage();
-                std::process::exit(0);
+                return Ok(CliAction::Help);
             }
+            "--version" | "-V" | "-v" => return Ok(CliAction::Version),
             "--no-default-features" => options.craft_default_features = false,
             _ => {
                 return Err(format!("unsupported argument `{arg}`\n\n{}", usage()));
@@ -86,7 +108,7 @@ fn parse_args() -> Result<CompileOptions, String> {
         }
     }
 
-    Ok(options)
+    Ok(CliAction::Run(options))
 }
 
 fn parse_key_value(value: &str, flag: &str) -> Result<(String, String), String> {
@@ -119,21 +141,87 @@ fn print_usage() {
     println!("{}", usage());
 }
 
+fn version_text() -> String {
+    format!("Kern Language Server v{}", env!("CARGO_PKG_VERSION"))
+}
+
 fn usage() -> &'static str {
-    "\
-kern-lsp - Kern language server
+    concat!(
+        "Kern Language Server v",
+        env!("CARGO_PKG_VERSION"),
+        "\n",
+        "Usage: kern-lsp [OPTIONS]\n",
+        "\n",
+        "Analysis Options:\n",
+        "  --library-bundle <B>       Select the injected library bundle: none, base, std (default: std)\n",
+        "  --features <a,b>           Enable explicit `craft` features for project analysis\n",
+        "  --no-default-features      Disable default `craft` features for project analysis\n",
+        "  --module-path <name=path>  Add a source module alias for analysis\n",
+        "  --module-interface-path <name=path>\n",
+        "                             Add an imported metadata module alias for analysis\n",
+        "\n",
+        "Information:\n",
+        "  -v, -V, --version          Print version information and exit\n",
+        "  -h, --help                 Print this help text and exit\n",
+    )
+}
 
-USAGE:
-    kern-lsp [--library-bundle <none|base|std>] [--features <a,b>] [--no-default-features] [--module-path <name=path>]... [--module-interface-path <name=path>]...
+#[cfg(test)]
+mod tests {
+    use super::{CliAction, parse_args};
+    use kernc_utils::config::LibraryBundle;
 
-OPTIONS:
-    --library-bundle Select the injected library bundle for analysis (default: std)
-    --features <a,b> Enable explicit `craft` features for project analysis
-    --no-default-features
-                     Disable default `craft` features for project analysis
-    --module-path <name=path>
-                     Add a source module alias for analysis
-    --module-interface-path <name=path>
-                     Add an imported metadata module alias for analysis
-"
+    #[test]
+    fn parses_help_and_version_flags() {
+        assert!(matches!(
+            parse_args(["--help".to_string()]).unwrap(),
+            CliAction::Help
+        ));
+        assert!(matches!(
+            parse_args(["--version".to_string()]).unwrap(),
+            CliAction::Version
+        ));
+        assert!(matches!(
+            parse_args(["-v".to_string()]).unwrap(),
+            CliAction::Version
+        ));
+    }
+
+    #[test]
+    fn parses_analysis_options() {
+        let action = parse_args([
+            "--library-bundle".to_string(),
+            "base".to_string(),
+            "--features=tls,simd".to_string(),
+            "--no-default-features".to_string(),
+            "--module-path".to_string(),
+            "toml=./src".to_string(),
+            "--module-interface-path=std=./meta/std".to_string(),
+        ])
+        .unwrap();
+
+        let CliAction::Run(options) = action else {
+            panic!("expected run action");
+        };
+        assert_eq!(options.library_bundle, LibraryBundle::Base);
+        assert!(!options.craft_default_features);
+        assert_eq!(options.craft_features, vec!["tls".to_string(), "simd".to_string()]);
+        assert_eq!(
+            options.module_aliases.get("toml").map(String::as_str),
+            Some("./src")
+        );
+        assert_eq!(
+            options
+                .module_interface_aliases
+                .get("std")
+                .map(String::as_str),
+            Some("./meta/std")
+        );
+    }
+
+    #[test]
+    fn rejects_empty_feature_names() {
+        let err = parse_args(["--features".to_string(), "tls,".to_string()]).unwrap_err();
+        assert!(err.contains("empty feature name"), "unexpected error: {err}");
+    }
 }

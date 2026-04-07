@@ -24,6 +24,7 @@ if (!source) {
 const destination = path.join(extensionRoot, "server", bundleId, binaryName);
 fs.mkdirSync(path.dirname(destination), { recursive: true });
 fs.copyFileSync(source, destination);
+stageSdk(path.dirname(destination));
 
 if (!binaryName.endsWith(".exe")) {
     fs.chmodSync(destination, 0o755);
@@ -70,4 +71,17 @@ function platformId() {
 function fail(message) {
     console.error(`[kern-vscode] ${message}`);
     process.exit(1);
+}
+
+function stageSdk(bundleRoot) {
+    const sdkRoot = path.join(bundleRoot, "lib", "kern");
+    fs.mkdirSync(sdkRoot, { recursive: true });
+    for (const library of ["base", "rt", "sys", "std"]) {
+        copyTree(path.join(repoRoot, "library", library), path.join(sdkRoot, library));
+    }
+}
+
+function copyTree(source, destination) {
+    fs.rmSync(destination, { recursive: true, force: true });
+    fs.cpSync(source, destination, { recursive: true });
 }

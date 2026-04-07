@@ -1,8 +1,8 @@
 #[cfg(test)]
 use super::flow::FlowModel;
 use super::{
-    CompileReport, CompilerDriver, PhaseTiming, SourceOverrides, StructureArtifact,
-    StructureCacheKey,
+    CompileCacheStats, CompileReport, CompilerDriver, PhaseTiming, SourceOverrides,
+    StructureArtifact, StructureCacheKey,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -27,6 +27,7 @@ impl CompilerDriver {
             collected_artifacts: Memo::new(),
             imported_artifacts: Memo::new(),
             structure_artifacts: Memo::new(),
+            cache_counters: std::sync::Arc::new(Default::default()),
         }
     }
 
@@ -35,6 +36,7 @@ impl CompilerDriver {
             Some(report) => {
                 if self.options.report_timings {
                     Self::print_phase_timings(&report.phase_timings);
+                    Self::print_cache_stats(report.cache_stats);
                     Self::print_mast_workload(report.mast_workload.as_ref());
                 }
                 true
@@ -44,12 +46,14 @@ impl CompilerDriver {
     }
 
     pub fn compile_with_report(&self) -> Option<CompileReport> {
+        let cache_snapshot = self.cache_counter_snapshot();
         let mut phase_timings = Vec::new();
         if self.options.driver_mode == DriverMode::LinkOnly {
             let linked = Self::measure_phase(&mut phase_timings, "link", || self.link_only());
             return linked.then(|| CompileReport {
                 loaded_sources: Vec::new(),
                 phase_timings,
+                cache_stats: self.cache_stats_since(cache_snapshot),
                 mast_workload: None,
             });
         }
@@ -129,6 +133,7 @@ impl CompilerDriver {
                     Some(CompileReport {
                         loaded_sources,
                         phase_timings,
+                        cache_stats: self.cache_stats_since(cache_snapshot),
                         mast_workload: Some(mast_workload),
                     })
                 }
@@ -168,6 +173,7 @@ impl CompilerDriver {
             return Some(CompileReport {
                 loaded_sources,
                 phase_timings,
+                cache_stats: self.cache_stats_since(cache_snapshot),
                 mast_workload: Some(mast_workload),
             });
         }
@@ -181,6 +187,7 @@ impl CompilerDriver {
         linked.then_some(CompileReport {
             loaded_sources,
             phase_timings,
+            cache_stats: self.cache_stats_since(cache_snapshot),
             mast_workload: Some(mast_workload),
         })
     }
@@ -311,6 +318,25 @@ impl CompilerDriver {
             .map(|phase| phase.duration)
             .sum::<Duration>();
         println!("  {:<18} {}", "total", Self::format_duration(total));
+    }
+
+    pub(super) fn print_cache_stats(cache_stats: CompileCacheStats) {
+        if cache_stats.is_empty() {
+            return;
+        }
+
+        println!("Cache stats:");
+        for (name, value) in [
+            ("  structure_hit", cache_stats.structure_hits),
+            ("  structure_miss", cache_stats.structure_misses),
+            ("  imported_hit", cache_stats.imported_hits),
+            ("  imported_miss", cache_stats.imported_misses),
+            ("  collected_hit", cache_stats.collected_hits),
+            ("  collected_miss", cache_stats.collected_misses),
+            ("  frontend_parse", cache_stats.fresh_frontend_parses),
+        ] {
+            println!("  {:<18} {}", name, value);
+        }
     }
 
     pub(super) fn print_mast_workload(mast_workload: Option<&kernc_mast::MastWorkloadStats>) {

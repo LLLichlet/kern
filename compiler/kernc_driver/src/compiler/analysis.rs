@@ -585,11 +585,18 @@ impl CompilerDriver {
     ) -> Option<StructureArtifact> {
         self.sync_source_overrides(source_overrides);
         let cache_key = self.structure_cache_key(input_file, source_overrides);
-        self.structure_artifacts
+        let cached = self
+            .structure_artifacts
             .get_cached(self.frontend.db(), "driver_structure_artifact", cache_key)
             .ok()
             .flatten()
-            .flatten()
+            .flatten();
+        if cached.is_some() {
+            self.record_structure_cache_hit();
+        } else {
+            self.record_structure_cache_miss();
+        }
+        cached
     }
 
     fn cached_collected_structure_artifact(
@@ -599,7 +606,8 @@ impl CompilerDriver {
     ) -> Option<CollectedStructureArtifact> {
         self.sync_source_overrides(source_overrides);
         let cache_key = self.structure_cache_key(input_file, source_overrides);
-        self.collected_artifacts
+        let cached = self
+            .collected_artifacts
             .get_cached(
                 self.frontend.db(),
                 "driver_collected_structure_artifact",
@@ -607,7 +615,13 @@ impl CompilerDriver {
             )
             .ok()
             .flatten()
-            .flatten()
+            .flatten();
+        if cached.is_some() {
+            self.record_collected_cache_hit();
+        } else {
+            self.record_collected_cache_miss();
+        }
+        cached
     }
 
     fn cached_imported_structure_artifact(
@@ -617,7 +631,8 @@ impl CompilerDriver {
     ) -> Option<ImportedStructureArtifact> {
         self.sync_source_overrides(source_overrides);
         let cache_key = self.structure_cache_key(input_file, source_overrides);
-        self.imported_artifacts
+        let cached = self
+            .imported_artifacts
             .get_cached(
                 self.frontend.db(),
                 "driver_imported_structure_artifact",
@@ -625,7 +640,13 @@ impl CompilerDriver {
             )
             .ok()
             .flatten()
-            .flatten()
+            .flatten();
+        if cached.is_some() {
+            self.record_imported_cache_hit();
+        } else {
+            self.record_imported_cache_miss();
+        }
+        cached
     }
 
     fn try_analyze_collected_structure(

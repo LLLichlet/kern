@@ -7,8 +7,8 @@ use crate::graph::{BuildDomain, PackageId};
 use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use kernc_driver::{
-    CompileReport, CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE, PhaseTiming,
-    load_kmeta_manifest,
+    CompileCacheStats, CompileReport, CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE,
+    PhaseTiming, load_kmeta_manifest,
 };
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
@@ -43,6 +43,7 @@ pub struct ExecutionSummary {
     pub compile_actions: usize,
     pub link_actions: usize,
     pub phase_timings: Vec<PhaseTiming>,
+    pub cache_stats: CompileCacheStats,
     pub action_timings: Vec<ActionTiming>,
 }
 
@@ -104,6 +105,7 @@ pub struct ActionTiming {
     pub kind: ActionTimingKind,
     pub label: String,
     pub phase_timings: Vec<PhaseTiming>,
+    pub cache_stats: CompileCacheStats,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -129,6 +131,7 @@ impl ExecutionSummary {
     fn absorb(&mut self, other: ExecutionSummary) {
         self.compile_actions += other.compile_actions;
         self.link_actions += other.link_actions;
+        self.cache_stats.absorb(other.cache_stats);
         for phase in other.phase_timings {
             if let Some(existing) = self
                 .phase_timings
@@ -148,8 +151,9 @@ impl ExecutionSummary {
         kind: ActionTimingKind,
         label: impl Into<String>,
         phase_timings: Vec<PhaseTiming>,
+        cache_stats: CompileCacheStats,
     ) {
-        if phase_timings.is_empty() {
+        if phase_timings.is_empty() && cache_stats.is_empty() {
             return;
         }
 
@@ -169,6 +173,7 @@ impl ExecutionSummary {
             kind,
             label: label.into(),
             phase_timings,
+            cache_stats,
         });
     }
 }
@@ -709,6 +714,7 @@ fn ensure_compile_action_built(
         ActionTimingKind::Compile,
         compile_action_label(action),
         report.phase_timings,
+        report.cache_stats,
     );
     Ok(true)
 }
@@ -961,6 +967,7 @@ fn ensure_link_action_built(
             ActionTimingKind::Link,
             link_action_label(action),
             report.phase_timings,
+            report.cache_stats,
         );
         true
     };

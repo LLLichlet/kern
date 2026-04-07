@@ -1,7 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
-#[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -45,7 +44,6 @@ pub struct FrontendDatabase {
     #[cfg(test)]
     parsed_modules: Memo<PathBuf, Option<FrontendParsedModule>>,
     known_override_paths: Arc<Mutex<HashSet<PathBuf>>>,
-    #[cfg(test)]
     uncached_parse_count: Arc<AtomicUsize>,
 }
 
@@ -74,7 +72,6 @@ impl FrontendDatabase {
             #[cfg(test)]
             parsed_modules: Memo::new(),
             known_override_paths: Arc::new(Mutex::new(HashSet::new())),
-            #[cfg(test)]
             uncached_parse_count: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -153,7 +150,6 @@ impl FrontendDatabase {
         normalized: &Path,
         collect_docs: bool,
     ) -> Result<Option<(FrontendParsedModule, FrontendLoadTimings)>, kernc_db::Cycle> {
-        #[cfg(test)]
         self.uncached_parse_count.fetch_add(1, Ordering::SeqCst);
 
         let mut timings = FrontendLoadTimings::default();
@@ -169,7 +165,6 @@ impl FrontendDatabase {
         Ok(parsed.map(|parsed| (parsed, timings)))
     }
 
-    #[cfg(test)]
     pub fn uncached_parse_count(&self) -> usize {
         self.uncached_parse_count.load(Ordering::SeqCst)
     }

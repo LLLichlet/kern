@@ -167,6 +167,7 @@ pub(super) fn build_std_package(
             ActionTimingKind::Compile,
             std_compile_action_label(profile),
             report.phase_timings,
+            report.cache_stats,
         );
     }
 
@@ -284,6 +285,7 @@ pub(super) fn build_rt_package(
             ActionTimingKind::Compile,
             rt_compile_action_label(profile),
             report.phase_timings,
+            report.cache_stats,
         );
     }
 
@@ -381,6 +383,7 @@ pub(super) fn build_base_package(
             ActionTimingKind::Compile,
             base_compile_action_label(profile),
             report.phase_timings,
+            report.cache_stats,
         );
     }
 
@@ -487,6 +490,7 @@ pub(super) fn build_sys_package(
             ActionTimingKind::Compile,
             sys_compile_action_label(profile),
             report.phase_timings,
+            report.cache_stats,
         );
     }
 
@@ -579,6 +583,7 @@ pub(super) fn build_rt_entry_package(
             ActionTimingKind::Compile,
             rt_entry_compile_action_label(profile),
             report.phase_timings,
+            report.cache_stats,
         );
     }
 

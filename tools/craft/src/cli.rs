@@ -1547,12 +1547,17 @@ fn print_link_action(render: &Renderer, action: &build_plan::LinkAction, artifac
 }
 
 fn render_execution_timings(render: &Renderer, summary: &execute::ExecutionSummary) {
-    if !render.timings || summary.phase_timings.is_empty() {
+    if !render.timings || (summary.phase_timings.is_empty() && summary.cache_stats.is_empty()) {
         return;
     }
 
-    render.summary("time", format_duration(summary.total_duration()));
-    render.summary("phases", format_phase_timings(&summary.phase_timings));
+    if !summary.phase_timings.is_empty() {
+        render.summary("time", format_duration(summary.total_duration()));
+        render.summary("phases", format_phase_timings(&summary.phase_timings));
+    }
+    if !summary.cache_stats.is_empty() {
+        render.summary("cache", format_compile_cache_stats(summary.cache_stats));
+    }
 
     if !render.verbose {
         return;
@@ -1568,7 +1573,7 @@ fn render_execution_timings(render: &Renderer, summary: &execute::ExecutionSumma
             tone,
             "time",
             &action.label,
-            format_phase_timings(&action.phase_timings),
+            format_action_timing_detail(&action.phase_timings, action.cache_stats),
         );
     }
 }
@@ -1579,6 +1584,44 @@ fn format_phase_timings(phases: &[kernc_driver::PhaseTiming]) -> String {
         .map(|phase| format!("{} {}", phase.name, format_duration(phase.duration)))
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+fn format_compile_cache_stats(stats: kernc_driver::CompileCacheStats) -> String {
+    [
+        format!(
+            "typed {}/{}",
+            stats.structure_hits,
+            stats.structure_hits + stats.structure_misses
+        ),
+        format!(
+            "imported {}/{}",
+            stats.imported_hits,
+            stats.imported_hits + stats.imported_misses
+        ),
+        format!(
+            "collected {}/{}",
+            stats.collected_hits,
+            stats.collected_hits + stats.collected_misses
+        ),
+        format!("frontend_parse {}", stats.fresh_frontend_parses),
+    ]
+    .join(", ")
+}
+
+fn format_action_timing_detail(
+    phases: &[kernc_driver::PhaseTiming],
+    cache_stats: kernc_driver::CompileCacheStats,
+) -> String {
+    match (phases.is_empty(), cache_stats.is_empty()) {
+        (false, false) => format!(
+            "{}; {}",
+            format_phase_timings(phases),
+            format_compile_cache_stats(cache_stats)
+        ),
+        (false, true) => format_phase_timings(phases),
+        (true, false) => format_compile_cache_stats(cache_stats),
+        (true, true) => String::new(),
+    }
 }
 
 fn format_duration(duration: std::time::Duration) -> String {
@@ -1849,7 +1892,7 @@ fn usage() -> &'static str {
         "  --no-default-features    Disable the implicit `default` feature\n",
         "  --features <FEATURES>    Enable a comma-separated feature list\n",
         "  --verbose, -v            Print detailed action logs instead of the default compact summary\n",
-        "  --timings                Print aggregated compiler/linker phase timings\n",
+        "  --timings                Print aggregated compiler/linker phase timings and cache stats\n",
         "  --color <WHEN>           Color mode: auto, always, never\n",
         "  --no-color               Alias for `--color never`\n",
         "\n",

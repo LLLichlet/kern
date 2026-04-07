@@ -21,8 +21,9 @@ pub use compiler::{
     AnalysisSemanticEntry, AnalysisSemanticKind, AnalysisSemanticRole, AnalysisSignatureHelp,
     AnalysisSignatureInformation, AnalysisSpanReplacement, AnalysisSurfaceArtifact, AnalysisSymbol,
     AnalysisSymbolKind, AnalysisUnusedBinding, AnalysisUnusedBindingKind, AnalysisUnusedItem,
-    AnalysisUnusedItemKind, CompileReport, ImportedStructureArtifact, IncrementalDriverKey,
-    ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    AnalysisUnusedItemKind, CompileCacheStats, CompileReport, ImportedStructureArtifact,
+    IncrementalDriverKey, ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact,
+    TargetedAnalysisReport,
 };
 pub use doc::{KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem};
 pub use metadata::{

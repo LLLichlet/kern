@@ -7,6 +7,8 @@ mod signature;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use kernc_ast as ast;
@@ -32,7 +34,35 @@ pub struct AnalysisReport {
 pub struct CompileReport {
     pub loaded_sources: Vec<PathBuf>,
     pub phase_timings: Vec<PhaseTiming>,
+    pub cache_stats: CompileCacheStats,
     pub mast_workload: Option<kernc_mast::MastWorkloadStats>,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CompileCacheStats {
+    pub structure_hits: usize,
+    pub structure_misses: usize,
+    pub imported_hits: usize,
+    pub imported_misses: usize,
+    pub collected_hits: usize,
+    pub collected_misses: usize,
+    pub fresh_frontend_parses: usize,
+}
+
+impl CompileCacheStats {
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
+
+    pub fn absorb(&mut self, other: Self) {
+        self.structure_hits += other.structure_hits;
+        self.structure_misses += other.structure_misses;
+        self.imported_hits += other.imported_hits;
+        self.imported_misses += other.imported_misses;
+        self.collected_hits += other.collected_hits;
+        self.collected_misses += other.collected_misses;
+        self.fresh_frontend_parses += other.fresh_frontend_parses;
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -586,6 +616,7 @@ pub struct CompilerDriver {
     collected_artifacts: Memo<StructureCacheKey, Option<CollectedStructureArtifact>>,
     imported_artifacts: Memo<StructureCacheKey, Option<ImportedStructureArtifact>>,
     structure_artifacts: Memo<StructureCacheKey, Option<StructureArtifact>>,
+    cache_counters: Arc<CacheCounters>,
 }
 
 #[derive(Debug, Clone)]
@@ -609,6 +640,27 @@ struct LinkTarget {
 struct StructureCacheKey {
     input_file: PathBuf,
     overrides: Vec<(PathBuf, u64)>,
+}
+
+#[derive(Default)]
+struct CacheCounters {
+    structure_hits: AtomicUsize,
+    structure_misses: AtomicUsize,
+    imported_hits: AtomicUsize,
+    imported_misses: AtomicUsize,
+    collected_hits: AtomicUsize,
+    collected_misses: AtomicUsize,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct CacheCounterSnapshot {
+    pub(super) structure_hits: usize,
+    pub(super) structure_misses: usize,
+    pub(super) imported_hits: usize,
+    pub(super) imported_misses: usize,
+    pub(super) collected_hits: usize,
+    pub(super) collected_misses: usize,
+    pub(super) frontend_uncached_parses: usize,
 }
 
 impl Drop for TempFileGuard {
@@ -670,7 +722,75 @@ impl CompilerDriver {
             collected_artifacts: self.collected_artifacts.clone(),
             imported_artifacts: self.imported_artifacts.clone(),
             structure_artifacts: self.structure_artifacts.clone(),
+            cache_counters: Arc::clone(&self.cache_counters),
         })
+    }
+
+    pub(super) fn cache_counter_snapshot(&self) -> CacheCounterSnapshot {
+        CacheCounterSnapshot {
+            structure_hits: self.cache_counters.structure_hits.load(Ordering::Relaxed),
+            structure_misses: self.cache_counters.structure_misses.load(Ordering::Relaxed),
+            imported_hits: self.cache_counters.imported_hits.load(Ordering::Relaxed),
+            imported_misses: self.cache_counters.imported_misses.load(Ordering::Relaxed),
+            collected_hits: self.cache_counters.collected_hits.load(Ordering::Relaxed),
+            collected_misses: self.cache_counters.collected_misses.load(Ordering::Relaxed),
+            frontend_uncached_parses: self.frontend.uncached_parse_count(),
+        }
+    }
+
+    pub(super) fn cache_stats_since(&self, before: CacheCounterSnapshot) -> CompileCacheStats {
+        let after = self.cache_counter_snapshot();
+        CompileCacheStats {
+            structure_hits: after.structure_hits.saturating_sub(before.structure_hits),
+            structure_misses: after
+                .structure_misses
+                .saturating_sub(before.structure_misses),
+            imported_hits: after.imported_hits.saturating_sub(before.imported_hits),
+            imported_misses: after.imported_misses.saturating_sub(before.imported_misses),
+            collected_hits: after.collected_hits.saturating_sub(before.collected_hits),
+            collected_misses: after
+                .collected_misses
+                .saturating_sub(before.collected_misses),
+            fresh_frontend_parses: after
+                .frontend_uncached_parses
+                .saturating_sub(before.frontend_uncached_parses),
+        }
+    }
+
+    pub(super) fn record_structure_cache_hit(&self) {
+        self.cache_counters
+            .structure_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_structure_cache_miss(&self) {
+        self.cache_counters
+            .structure_misses
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_imported_cache_hit(&self) {
+        self.cache_counters
+            .imported_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_imported_cache_miss(&self) {
+        self.cache_counters
+            .imported_misses
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_collected_cache_hit(&self) {
+        self.cache_counters
+            .collected_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_collected_cache_miss(&self) {
+        self.cache_counters
+            .collected_misses
+            .fetch_add(1, Ordering::Relaxed);
     }
 }
 

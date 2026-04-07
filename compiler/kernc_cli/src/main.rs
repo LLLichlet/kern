@@ -60,7 +60,7 @@ fn print_usage(program_name: &str) {
     println!("  --entry-symbol <s>   Override the default entry symbol used by kernc");
     println!("  --print-link-command Print the resolved linker command before execution");
     println!("  --emit-llvm          Print LLVM IR to stdout");
-    println!("  --timings            Print compiler phase timings");
+    println!("  --timings            Print compiler phase timings and cache stats");
 
     println!("\nInformation:");
     println!("  -v, --version        Display version information and exit");

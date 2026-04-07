@@ -6,7 +6,7 @@ use super::{
 };
 use kernc_mast::{MastBlock, MastExpr, MastExprKind, MastStmt};
 use kernc_utils::Session;
-use kernc_utils::config::CompileOptions;
+use kernc_utils::config::{CompileOptions, DriverMode};
 use std::fs;
 
 fn count_assignments_in_block(block: &MastBlock) -> usize {
@@ -265,6 +265,54 @@ fn shared_incremental_state_rejects_semantic_option_changes() {
         .insert("feature".to_string(), "enabled".to_string());
 
     assert!(driver.share_incremental_state(changed).is_none());
+}
+
+#[test]
+fn compile_report_exposes_cache_hits_and_frontend_parse_deltas() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_compile_cache_stats_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+
+    let first = driver
+        .compile_with_report()
+        .expect("first compile should succeed");
+    assert!(first.cache_stats.structure_misses > 0);
+    assert!(first.cache_stats.fresh_frontend_parses > 0);
+
+    let second = driver
+        .compile_with_report()
+        .expect("second compile should succeed");
+    assert!(second.cache_stats.fresh_frontend_parses > 0);
+
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
+            .is_some()
+    );
+    let third = driver
+        .compile_with_report()
+        .expect("structure-warmed compile should succeed");
+    assert!(third.cache_stats.structure_hits > 0);
+    assert_eq!(third.cache_stats.fresh_frontend_parses, 0);
+
+    let _ = fs::remove_dir_all(&root);
 }
 
 #[test]

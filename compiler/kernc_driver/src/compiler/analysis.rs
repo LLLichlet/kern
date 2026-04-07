@@ -540,6 +540,10 @@ impl CompilerDriver {
         source_overrides: &SourceOverrides,
     ) -> Result<CompileStructureArtifact, Box<Session>> {
         self.sync_source_overrides(source_overrides);
+        if let Some(structure) = self.cached_compile_structure_artifact(input_file, source_overrides)
+        {
+            return Ok(structure);
+        }
         if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
             return Ok(CompileStructureArtifact {
                 session: structure.session,
@@ -562,9 +566,50 @@ impl CompilerDriver {
                 .ok_or_else(|| Box::new(session));
         }
 
-        let structure =
-            self.compute_compile_structure_artifact_into_session(&mut session, input_file);
-        structure.ok_or_else(|| Box::new(session))
+        let cache_key = self.structure_cache_key(input_file, source_overrides);
+        match self.compile_structure_artifacts.get_with(
+            self.frontend.db(),
+            "driver_compile_structure_artifact",
+            cache_key,
+            || Ok(self.compute_compile_structure_artifact(input_file)),
+        ) {
+            Ok(Some(structure)) => Ok(structure),
+            Ok(None) => {
+                let structure =
+                    self.compute_compile_structure_artifact_into_session(&mut session, input_file);
+                structure.ok_or_else(|| Box::new(session))
+            }
+            Err(_) => {
+                let structure =
+                    self.compute_compile_structure_artifact_into_session(&mut session, input_file);
+                structure.ok_or_else(|| Box::new(session))
+            }
+        }
+    }
+
+    fn cached_compile_structure_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> Option<CompileStructureArtifact> {
+        self.sync_source_overrides(source_overrides);
+        let cache_key = self.structure_cache_key(input_file, source_overrides);
+        let cached = self
+            .compile_structure_artifacts
+            .get_cached(
+                self.frontend.db(),
+                "driver_compile_structure_artifact",
+                cache_key,
+            )
+            .ok()
+            .flatten()
+            .flatten();
+        if cached.is_some() {
+            self.record_compile_structure_cache_hit();
+        } else {
+            self.record_compile_structure_cache_miss();
+        }
+        cached
     }
 
     fn analyze_collected_structure(
@@ -765,6 +810,15 @@ impl CompilerDriver {
         let mut session = Session::new();
         session.apply_options(&self.options);
         self.compute_structure_artifact_into_session(&mut session, input_file)
+    }
+
+    fn compute_compile_structure_artifact(
+        &self,
+        input_file: &str,
+    ) -> Option<CompileStructureArtifact> {
+        let mut session = Session::new();
+        session.apply_options(&self.options);
+        self.compute_compile_structure_artifact_into_session(&mut session, input_file)
     }
 
     fn compute_compile_structure_artifact_into_session(

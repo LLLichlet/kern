@@ -1589,6 +1589,11 @@ fn format_phase_timings(phases: &[kernc_driver::PhaseTiming]) -> String {
 fn format_compile_cache_stats(stats: kernc_driver::CompileCacheStats) -> String {
     [
         format!(
+            "compile {}/{}",
+            stats.compile_structure_hits,
+            stats.compile_structure_hits + stats.compile_structure_misses
+        ),
+        format!(
             "typed {}/{}",
             stats.structure_hits,
             stats.structure_hits + stats.structure_misses

@@ -40,6 +40,8 @@ pub struct CompileReport {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CompileCacheStats {
+    pub compile_structure_hits: usize,
+    pub compile_structure_misses: usize,
     pub structure_hits: usize,
     pub structure_misses: usize,
     pub imported_hits: usize,
@@ -55,6 +57,8 @@ impl CompileCacheStats {
     }
 
     pub fn absorb(&mut self, other: Self) {
+        self.compile_structure_hits += other.compile_structure_hits;
+        self.compile_structure_misses += other.compile_structure_misses;
         self.structure_hits += other.structure_hits;
         self.structure_misses += other.structure_misses;
         self.imported_hits += other.imported_hits;
@@ -613,6 +617,7 @@ impl IncrementalDriverKey {
 pub struct CompilerDriver {
     pub options: CompileOptions,
     frontend: FrontendDatabase,
+    compile_structure_artifacts: Memo<StructureCacheKey, Option<CompileStructureArtifact>>,
     collected_artifacts: Memo<StructureCacheKey, Option<CollectedStructureArtifact>>,
     imported_artifacts: Memo<StructureCacheKey, Option<ImportedStructureArtifact>>,
     structure_artifacts: Memo<StructureCacheKey, Option<StructureArtifact>>,
@@ -644,6 +649,8 @@ struct StructureCacheKey {
 
 #[derive(Default)]
 struct CacheCounters {
+    compile_structure_hits: AtomicUsize,
+    compile_structure_misses: AtomicUsize,
     structure_hits: AtomicUsize,
     structure_misses: AtomicUsize,
     imported_hits: AtomicUsize,
@@ -654,6 +661,8 @@ struct CacheCounters {
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(super) struct CacheCounterSnapshot {
+    pub(super) compile_structure_hits: usize,
+    pub(super) compile_structure_misses: usize,
     pub(super) structure_hits: usize,
     pub(super) structure_misses: usize,
     pub(super) imported_hits: usize,
@@ -719,6 +728,7 @@ impl CompilerDriver {
         (self.incremental_key() == IncrementalDriverKey::from_options(&options)).then(|| Self {
             options,
             frontend: self.frontend.clone(),
+            compile_structure_artifacts: self.compile_structure_artifacts.clone(),
             collected_artifacts: self.collected_artifacts.clone(),
             imported_artifacts: self.imported_artifacts.clone(),
             structure_artifacts: self.structure_artifacts.clone(),
@@ -728,6 +738,14 @@ impl CompilerDriver {
 
     pub(super) fn cache_counter_snapshot(&self) -> CacheCounterSnapshot {
         CacheCounterSnapshot {
+            compile_structure_hits: self
+                .cache_counters
+                .compile_structure_hits
+                .load(Ordering::Relaxed),
+            compile_structure_misses: self
+                .cache_counters
+                .compile_structure_misses
+                .load(Ordering::Relaxed),
             structure_hits: self.cache_counters.structure_hits.load(Ordering::Relaxed),
             structure_misses: self.cache_counters.structure_misses.load(Ordering::Relaxed),
             imported_hits: self.cache_counters.imported_hits.load(Ordering::Relaxed),
@@ -741,6 +759,12 @@ impl CompilerDriver {
     pub(super) fn cache_stats_since(&self, before: CacheCounterSnapshot) -> CompileCacheStats {
         let after = self.cache_counter_snapshot();
         CompileCacheStats {
+            compile_structure_hits: after
+                .compile_structure_hits
+                .saturating_sub(before.compile_structure_hits),
+            compile_structure_misses: after
+                .compile_structure_misses
+                .saturating_sub(before.compile_structure_misses),
             structure_hits: after.structure_hits.saturating_sub(before.structure_hits),
             structure_misses: after
                 .structure_misses
@@ -790,6 +814,18 @@ impl CompilerDriver {
     pub(super) fn record_collected_cache_miss(&self) {
         self.cache_counters
             .collected_misses
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_compile_structure_cache_hit(&self) {
+        self.cache_counters
+            .compile_structure_hits
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_compile_structure_cache_miss(&self) {
+        self.cache_counters
+            .compile_structure_misses
             .fetch_add(1, Ordering::Relaxed);
     }
 }

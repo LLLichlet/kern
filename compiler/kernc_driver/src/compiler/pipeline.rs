@@ -24,6 +24,7 @@ impl CompilerDriver {
         Self {
             options,
             frontend: FrontendDatabase::new(),
+            compile_structure_artifacts: Memo::new(),
             collected_artifacts: Memo::new(),
             imported_artifacts: Memo::new(),
             structure_artifacts: Memo::new(),
@@ -327,6 +328,8 @@ impl CompilerDriver {
 
         println!("Cache stats:");
         for (name, value) in [
+            ("  compile_hit", cache_stats.compile_structure_hits),
+            ("  compile_miss", cache_stats.compile_structure_misses),
             ("  structure_hit", cache_stats.structure_hits),
             ("  structure_miss", cache_stats.structure_misses),
             ("  imported_hit", cache_stats.imported_hits),

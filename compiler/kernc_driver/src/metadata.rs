@@ -282,13 +282,11 @@ fn read_metadata_lock_owner(path: &Path) -> Result<Option<MetadataLockOwner>, St
 
 #[cfg(unix)]
 fn metadata_lock_owner_is_alive(owner: MetadataLockOwner) -> bool {
-    let Some(current_start_ticks) = read_process_start_ticks(owner.pid) else {
-        return false;
-    };
-
-    match owner.start_ticks {
-        Some(lock_start_ticks) => current_start_ticks == lock_start_ticks,
-        None => owner.pid != std::process::id(),
+    match (owner.start_ticks, read_process_start_ticks(owner.pid)) {
+        (Some(lock_start_ticks), Some(current_start_ticks)) => {
+            current_start_ticks == lock_start_ticks
+        }
+        _ => process_exists(owner.pid),
     }
 }
 
@@ -298,13 +296,34 @@ fn metadata_lock_owner_is_alive(owner: MetadataLockOwner) -> bool {
     true
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn read_process_start_ticks(pid: u32) -> Option<u64> {
     let path = Path::new("/proc").join(pid.to_string()).join("stat");
     let contents = fs::read_to_string(path).ok()?;
     let end = contents.rfind(") ")?;
     let fields = contents[end + 2..].split_whitespace().collect::<Vec<_>>();
     fields.get(19)?.parse::<u64>().ok()
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn read_process_start_ticks(_pid: u32) -> Option<u64> {
+    None
+}
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    use std::ffi::c_int;
+
+    unsafe extern "C" {
+        fn kill(pid: c_int, sig: c_int) -> c_int;
+    }
+
+    let result = unsafe { kill(pid as c_int, 0) };
+    if result == 0 {
+        return true;
+    }
+
+    matches!(std::io::Error::last_os_error().raw_os_error(), Some(1))
 }
 
 fn snapshot_path_for_source(

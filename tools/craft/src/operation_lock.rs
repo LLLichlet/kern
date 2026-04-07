@@ -147,13 +147,11 @@ fn read_lock_owner(path: &Path) -> Result<Option<LockOwner>> {
 
 #[cfg(unix)]
 fn lock_owner_is_alive(owner: LockOwner) -> bool {
-    let Some(current_start_ticks) = read_process_start_ticks(owner.pid) else {
-        return false;
-    };
-
-    match owner.start_ticks {
-        Some(lock_start_ticks) => current_start_ticks == lock_start_ticks,
-        None => owner.pid != std::process::id(),
+    match (owner.start_ticks, read_process_start_ticks(owner.pid)) {
+        (Some(lock_start_ticks), Some(current_start_ticks)) => {
+            current_start_ticks == lock_start_ticks
+        }
+        _ => process_exists(owner.pid),
     }
 }
 
@@ -163,7 +161,7 @@ fn lock_owner_is_alive(owner: LockOwner) -> bool {
     true
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn read_process_start_ticks(pid: u32) -> Option<u64> {
     let path = Path::new("/proc").join(pid.to_string()).join("stat");
     let contents = fs::read_to_string(path).ok()?;
@@ -172,16 +170,37 @@ fn read_process_start_ticks(pid: u32) -> Option<u64> {
     fields.get(19)?.parse::<u64>().ok()
 }
 
+#[cfg(all(unix, not(target_os = "linux")))]
+fn read_process_start_ticks(_pid: u32) -> Option<u64> {
+    None
+}
+
+#[cfg(unix)]
+fn process_exists(pid: u32) -> bool {
+    use std::ffi::c_int;
+
+    unsafe extern "C" {
+        fn kill(pid: c_int, sig: c_int) -> c_int;
+    }
+
+    let result = unsafe { kill(pid as c_int, 0) };
+    if result == 0 {
+        return true;
+    }
+
+    matches!(std::io::Error::last_os_error().raw_os_error(), Some(1))
+}
+
 #[cfg(test)]
 mod tests {
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     use super::read_process_start_ticks;
     use super::{WorkspaceOperationLock, workspace_lock_path};
     use std::fs;
     use std::path::PathBuf;
     use std::sync::mpsc;
     use std::thread;
-    use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn temp_dir(prefix: &str) -> PathBuf {
         let nanos = SystemTime::now()
@@ -222,7 +241,7 @@ mod tests {
         let _ = fs::remove_dir_all(root);
     }
 
-    #[cfg(unix)]
+    #[cfg(target_os = "linux")]
     #[test]
     fn reclaims_lock_when_pid_matches_but_start_time_differs() {
         let root = temp_dir("craft-workspace-lock-pid-reuse");
@@ -252,6 +271,7 @@ mod tests {
         let root = temp_dir("craft-workspace-lock-wait");
         let (ready_tx, ready_rx) = mpsc::channel();
         let (release_tx, release_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
         let root_for_worker = root.clone();
 
         let worker = thread::spawn(move || {
@@ -262,18 +282,18 @@ mod tests {
 
         ready_rx.recv().unwrap();
         let root_for_waiter = root.clone();
-        let start = Instant::now();
         let waiter = thread::spawn(move || {
             let _lock = WorkspaceOperationLock::acquire(&root_for_waiter, "test").unwrap();
-            start.elapsed()
+            acquired_tx.send(()).unwrap();
         });
 
-        thread::sleep(Duration::from_millis(200));
+        thread::sleep(Duration::from_millis(150));
+        assert!(acquired_rx.try_recv().is_err());
         release_tx.send(()).unwrap();
 
         worker.join().unwrap();
-        let waited = waiter.join().unwrap();
-        assert!(waited >= Duration::from_millis(150));
+        waiter.join().unwrap();
+        acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
 
         let _ = fs::remove_dir_all(root);
     }

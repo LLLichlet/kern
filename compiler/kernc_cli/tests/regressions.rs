@@ -606,9 +606,9 @@ pub fn answer() i32 {
     let metadata_arg = metadata_dir.to_string_lossy().into_owned();
     let lib_output = run_kernc([
         "-c",
-        "--root-module",
+        "--module-root-name",
         "util",
-        "--emit-kmeta",
+        "--metadata-output",
         metadata_arg.as_str(),
         lib_entry_arg.as_str(),
         "-o",
@@ -648,7 +648,7 @@ fn main() i32 {
         "toolchain",
         "--runtime-libc",
         "yes",
-        "-I",
+        "--module-interface-path",
         dep_mapping.as_str(),
         "--link-input",
         lib_object_arg.as_str(),
@@ -717,9 +717,9 @@ pub fn hidden() i32 {
     let metadata_arg = metadata_dir.to_string_lossy().into_owned();
     let output = run_kernc([
         "-c",
-        "--root-module",
+        "--module-root-name",
         "pkg",
-        "--emit-kmeta",
+        "--metadata-output",
         metadata_arg.as_str(),
         lib_entry_arg.as_str(),
         "-o",
@@ -784,9 +784,9 @@ pub fn answer() i32 {{
                 .current_dir(repo_root)
                 .args([
                     "-c",
-                    "--root-module",
+                    "--module-root-name",
                     "pkg",
-                    "--emit-kmeta",
+                    "--metadata-output",
                     metadata_arg.as_str(),
                     entry_arg.as_str(),
                     "-o",
@@ -844,7 +844,7 @@ fn main() i32 {
     let object_arg = object_path.to_string_lossy().into_owned();
     let output = run_kernc([
         "-c",
-        "-I",
+        "--module-interface-path",
         dep_mapping.as_str(),
         main_source_arg.as_str(),
         "-o",
@@ -853,7 +853,7 @@ fn main() i32 {
 
     assert!(
         !output.status.success(),
-        "kernc unexpectedly accepted a raw source tree for -I:\nstdout:\n{}\nstderr:\n{}",
+        "kernc unexpectedly accepted a raw source tree for --module-interface-path:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );

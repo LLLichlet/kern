@@ -251,7 +251,7 @@ impl<'a> ConditionEvaluator<'a> {
                     return Ok(CondValue::String(arch_str));
                 }
 
-                // 2. Fall back to user-provided `-D` variables.
+                // 2. Fall back to user-provided `--define` variables.
                 if let Some(val) = self.sess.custom_defines.get(name) {
                     if val == "true" {
                         return Ok(CondValue::Bool(true));
@@ -264,7 +264,7 @@ impl<'a> ConditionEvaluator<'a> {
 
                 // Unknown variables are rejected.
                 self.sess.struct_error(expr.span, format!("unknown environment variable `{}` in compilation condition", name))
-                    .with_hint("available variables: `os`, `arch`, or custom defines via CLI (e.g., `-D feature=true`)")
+                    .with_hint("available variables: `os`, `arch`, or custom defines via CLI (e.g., `--define feature=true`)")
                     .emit();
                 Err(())
             }

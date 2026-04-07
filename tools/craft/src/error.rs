@@ -72,7 +72,7 @@ impl Error {
         match self {
             Self::Usage(_) => Some("run `craft help` to see the supported commands and options".to_string()),
             Self::ManifestNotFound { .. } => Some(
-                "run `craft` inside a package directory, or pass a package path like `craft check path/to/pkg`"
+                "run `craft` inside a package directory, or pass `--project-path path/to/pkg`"
                     .to_string(),
             ),
             Self::ScriptValidation { path, .. } => match path.file_name().and_then(|name| name.to_str()) {
@@ -97,7 +97,7 @@ impl Error {
             Self::Validation { message, .. }
                 if message.starts_with("publish requires a current release `Craft.lock`") =>
             {
-                Some("run `craft lock --release` before `craft publish`".to_string())
+                Some("run `craft lock --profile release` before `craft publish`".to_string())
             }
             _ => None,
         }

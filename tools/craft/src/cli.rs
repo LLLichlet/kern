@@ -947,7 +947,7 @@ fn validate_publish_lock_status(
     Err(Error::Validation {
         path: manifest_path.to_path_buf(),
         message:
-            "publish requires a current release `Craft.lock`; run `craft lock --release` first"
+            "publish requires a current release `Craft.lock`; run `craft lock --profile release` first"
                 .to_string(),
     })
 }
@@ -1487,7 +1487,7 @@ fn parse_command_options(
             idx += 1;
             continue;
         }
-        if arg == "--timings" || arg == "--time" {
+        if arg == "--timings" {
             ui.timings = true;
             idx += 1;
             continue;
@@ -1517,8 +1517,33 @@ fn parse_command_options(
             idx += 1;
             continue;
         }
-        if arg == "--release" {
-            feature_selection.profile = crate::script::ProfileSelection::Release;
+        if arg == "--project-path" {
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage(
+                    "`--project-path` requires a package or workspace path".to_string(),
+                ));
+            };
+            set_project_path(&mut path, value)?;
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--project-path=") {
+            set_project_path(&mut path, value)?;
+            idx += 1;
+            continue;
+        }
+        if arg == "--profile" {
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage(
+                    "`--profile` requires one of: dev, release".to_string(),
+                ));
+            };
+            feature_selection.profile = parse_profile_selection(value)?;
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--profile=") {
+            feature_selection.profile = parse_profile_selection(value)?;
             idx += 1;
             continue;
         }
@@ -1543,14 +1568,10 @@ fn parse_command_options(
                 usage()
             )));
         }
-        if let Some(existing_path) = &path {
-            return Err(Error::Usage(format!(
-                "multiple package paths provided: `{}` and `{arg}`",
-                existing_path.display()
-            )));
-        }
-        path = Some(PathBuf::from(arg));
-        idx += 1;
+        return Err(Error::Usage(format!(
+            "unexpected positional argument `{arg}`; use `--project-path <PATH>`\n\n{}",
+            usage()
+        )));
     }
 
     Ok((path, feature_selection, ui))
@@ -1565,6 +1586,28 @@ fn parse_color_choice(raw: &str) -> Result<ColorChoice> {
             "unsupported `--color` value `{other}`; expected auto, always, or never"
         ))),
     }
+}
+
+fn parse_profile_selection(raw: &str) -> Result<crate::script::ProfileSelection> {
+    match raw {
+        "dev" => Ok(crate::script::ProfileSelection::Dev),
+        "release" => Ok(crate::script::ProfileSelection::Release),
+        other => Err(Error::Usage(format!(
+            "unsupported `--profile` value `{other}`; expected dev or release"
+        ))),
+    }
+}
+
+fn set_project_path(slot: &mut Option<PathBuf>, raw: &str) -> Result<()> {
+    if let Some(existing_path) = slot {
+        return Err(Error::Usage(format!(
+            "multiple `--project-path` values provided: `{}` and `{raw}`",
+            existing_path.display()
+        )));
+    }
+
+    *slot = Some(PathBuf::from(raw));
+    Ok(())
 }
 
 fn extend_feature_selection(selection: &mut elaborate::FeatureSelection, raw: &str) -> Result<()> {
@@ -1587,7 +1630,7 @@ craft
 
 usage
   craft help
-  craft <command> [path] [--release] [--no-default-features] [--features <FEATURES>] [--verbose] [--timings] [--color <WHEN>]
+  craft <command> [--project-path <PATH>] [--profile <dev|release>] [--no-default-features] [--features <FEATURES>] [--verbose] [--timings] [--color <WHEN>]
 
 commands
   help   Show this help text
@@ -1601,17 +1644,18 @@ commands
   test   Build and run all discovered `test` targets
 
 options
-  --release                Use the release profile instead of the default dev profile
+  --project-path <PATH>    Select the package or workspace root (or `Craft.toml` path)
+  --profile <NAME>         Profile selection: dev (default) or release
   --no-default-features    Disable the implicit `default` feature
   --features <FEATURES>    Enable a comma-separated feature list
   --verbose, -v            Print detailed action logs instead of the default compact summary
-  --timings, --time        Print aggregated compiler/linker phase timings
+  --timings                Print aggregated compiler/linker phase timings
   --color <WHEN>           Color mode: auto, always, never
   --no-color               Alias for `--color never`
 
 examples
   craft check
-  craft build path/to/pkg --release
+  craft build --project-path path/to/pkg --profile release
   craft doc --verbose
   craft build --timings
   craft run --features tls,simd
@@ -1667,6 +1711,7 @@ root = "src/main.rn"
     fn parses_check_with_path_and_feature_options() {
         let cmd = parse_args([
             "check".to_string(),
+            "--project-path".to_string(),
             "demo".to_string(),
             "--no-default-features".to_string(),
             "--features".to_string(),
@@ -1739,7 +1784,12 @@ root = "src/main.rn"
 
     #[test]
     fn parses_build_with_release_profile() {
-        let cmd = parse_args(["build".to_string(), "--release".to_string()]).unwrap();
+        let cmd = parse_args([
+            "build".to_string(),
+            "--profile".to_string(),
+            "release".to_string(),
+        ])
+        .unwrap();
 
         match cmd {
             Command::Build {
@@ -1762,7 +1812,7 @@ root = "src/main.rn"
 
     #[test]
     fn parses_fetch_with_path() {
-        let cmd = parse_args(["fetch".to_string(), "demo".to_string()]).unwrap();
+        let cmd = parse_args(["fetch".to_string(), "--project-path=demo".to_string()]).unwrap();
 
         match cmd {
             Command::Fetch {
@@ -1781,7 +1831,12 @@ root = "src/main.rn"
 
     #[test]
     fn parses_publish_and_forces_release_profile() {
-        let cmd = parse_args(["publish".to_string(), "demo".to_string()]).unwrap();
+        let cmd = parse_args([
+            "publish".to_string(),
+            "--project-path".to_string(),
+            "demo".to_string(),
+        ])
+        .unwrap();
 
         match cmd {
             Command::Publish {
@@ -1824,7 +1879,12 @@ root = "src/main.rn"
 
     #[test]
     fn parses_run_with_path() {
-        let cmd = parse_args(["run".to_string(), "demo".to_string()]).unwrap();
+        let cmd = parse_args([
+            "run".to_string(),
+            "--project-path".to_string(),
+            "demo".to_string(),
+        ])
+        .unwrap();
 
         match cmd {
             Command::Run {
@@ -2122,7 +2182,7 @@ root = "src/main.rn"
             ui: UiOptions::default(),
         })
         .unwrap_err();
-        assert!(err.to_string().contains("craft lock --release"));
+        assert!(err.to_string().contains("craft lock --profile release"));
         assert!(!root.join("Craft.lock").exists());
 
         run_command(Command::Lock {

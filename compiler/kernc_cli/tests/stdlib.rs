@@ -978,7 +978,7 @@ fn main() i32 {
         "toolchain",
         "--runtime-libc",
         "yes",
-        "-D",
+        "--define",
         "GREETING_MSG=Hello from injected define",
         source_arg.as_str(),
         "-o",
@@ -1481,7 +1481,7 @@ extern fn start() void {
     ExitProcess(0);
 }
 "#,
-        &["--entry", "mainCRTStartup", "-l", "kernel32"],
+        &["--entry-symbol", "mainCRTStartup", "-l", "kernel32"],
     );
 
     let run_output = Command::new(&executable_path).output().unwrap();

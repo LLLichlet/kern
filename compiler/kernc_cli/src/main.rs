@@ -29,33 +29,38 @@ fn print_usage(program_name: &str) {
     println!("  -o <file>            Write output to <file>");
     println!("  -c                   Emit linker input and skip the final system link step");
     println!("  --link-only          Skip frontend/codegen and invoke the linker driver only");
-    println!("  -D <key=val>         Define a variable for conditional compilation");
+    println!("  --define <key=val>   Define a variable for conditional compilation");
+    println!("  --module-path <name=path>");
     println!(
-        "  -M <name=path>       Map a module name to a physical directory (e.g., -M std=./library/std)"
+        "                       Map a module name to a physical directory (e.g., --module-path std=./library/std)"
     );
-    println!("  -I <name=path>       Map a module name to an imported kmeta root");
-    println!("  --emit-kmeta <dir>   Emit a kmeta module snapshot directory");
-    println!("  --root-module <name> Override the compiled root module name");
+    println!("  --module-interface-path <name=path>");
+    println!("                       Map a module name to an imported metadata root");
+    println!("  --metadata-output <dir>");
+    println!("                       Emit a module metadata snapshot directory");
+    println!("  --module-root-name <name>");
+    println!("                       Override the compiled root module name");
     println!("  -O<0-3>              Set optimization level (default: O0)");
 
     println!("\nTargeting & Codegen:");
     println!("  --target <T>         Set target triple (e.g. x86_64-unknown-linux-gnu)");
     println!("  --asm-dialect <D>    Set assembly dialect: intel (default) or att");
-    println!("  --cc <cmd>           Set the linker driver command (default: $CC or cc)");
-    println!("  --linker <cmd>       Alias for --cc");
+    println!("  --link-driver <cmd>  Set the linker driver command (default: $CC or cc)");
     println!("  --runtime-entry <m>  Runtime entry contract: none, rt, crt");
     println!("  --runtime-provider <p>");
     println!("                       Runtime/platform provider: none, toolchain, libc");
     println!("  --runtime-libc <b>   Whether libc is linked: yes, no");
     println!("  --library-bundle <b> Library bundle: none, base, std");
     println!("  --link-input <path>  Add an extra linker input (.o/.a/.so/response file)");
+    println!("  --link-search <dir>  Add a linker search path");
+    println!("  --link-lib <name>    Link against a library");
     println!("  -L <dir>             Add a linker search path");
     println!("  -l <name>            Link against a library");
     println!("  --link-arg <arg>     Pass a raw argument through to the linker driver");
-    println!("  --entry <symbol>     Override the default entry symbol used by kernc");
+    println!("  --entry-symbol <s>   Override the default entry symbol used by kernc");
     println!("  --print-link-command Print the resolved linker command before execution");
     println!("  --emit-llvm          Print LLVM IR to stdout");
-    println!("  --time               Print compiler phase timings");
+    println!("  --timings            Print compiler phase timings");
 
     println!("\nInformation:");
     println!("  -v, --version        Display version information and exit");
@@ -135,6 +140,20 @@ fn consume_short_or_attached_value(
     }
 }
 
+fn consume_long_option_value(
+    arg: &str,
+    flag: &str,
+    args: &mut env::Args,
+    value_name: &str,
+) -> Option<String> {
+    if arg == flag {
+        return Some(next_option_value(args, flag, value_name));
+    }
+
+    let prefix = format!("{flag}=");
+    arg.strip_prefix(&prefix).map(|value| value.to_string())
+}
+
 fn set_default_output_file(options: &mut CompileOptions) {
     if !options.output_file.is_empty() {
         return;
@@ -190,6 +209,97 @@ fn parse_args() -> CompileOptions {
     let mut positional_source: Option<String> = None;
 
     while let Some(arg) = args.next() {
+        if let Some(value) =
+            consume_long_option_value(&arg, "--metadata-output", &mut args, "directory")
+        {
+            options.metadata_output = Some(value);
+            continue;
+        }
+        if let Some(value) =
+            consume_long_option_value(&arg, "--module-root-name", &mut args, "module name")
+        {
+            options.root_module_name = Some(value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--target", &mut args, "target triple")
+        {
+            options.target = parse_target_machine(&value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--asm-dialect", &mut args, "dialect")
+        {
+            options.asm_dialect = parse_asm_dialect(&value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--link-driver", &mut args, "command")
+        {
+            options.linker_cmd = value;
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--runtime-entry", &mut args, "mode") {
+            options.runtime_entry = parse_runtime_entry(&value);
+            continue;
+        }
+        if let Some(value) =
+            consume_long_option_value(&arg, "--runtime-provider", &mut args, "provider")
+        {
+            options.runtime_provider = parse_runtime_provider(&value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--runtime-libc", &mut args, "yes|no")
+        {
+            options.runtime_libc = parse_yes_no(&value, "--runtime-libc");
+            continue;
+        }
+        if let Some(value) =
+            consume_long_option_value(&arg, "--library-bundle", &mut args, "bundle")
+        {
+            options.library_bundle = parse_library_bundle(&value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--link-input", &mut args, "path") {
+            options.linker_inputs.push(value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--link-search", &mut args, "path") {
+            options.linker_search_paths.push(value);
+            continue;
+        }
+        if let Some(value) =
+            consume_long_option_value(&arg, "--link-lib", &mut args, "library name")
+        {
+            options.linker_libraries.push(value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--link-arg", &mut args, "argument") {
+            options.linker_args.push(value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--entry-symbol", &mut args, "symbol")
+        {
+            options.entry_symbol = Some(value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--define", &mut args, "`key=value`") {
+            let (key, value) = parse_key_value(value, "--define", "key=value");
+            options.custom_defines.insert(key, value);
+            continue;
+        }
+        if let Some(value) =
+            consume_long_option_value(&arg, "--module-path", &mut args, "`name=path`")
+        {
+            let (name, path) = parse_key_value(value, "--module-path", "name=path");
+            options.module_aliases.insert(name, path);
+            continue;
+        }
+        if let Some(value) =
+            consume_long_option_value(&arg, "--module-interface-path", &mut args, "`name=path`")
+        {
+            let (name, path) = parse_key_value(value, "--module-interface-path", "name=path");
+            options.module_interface_aliases.insert(name, path);
+            continue;
+        }
+
         match arg.as_str() {
             "-h" | "--help" => {
                 print_usage(&program_name);
@@ -207,71 +317,8 @@ fn parse_args() -> CompileOptions {
             "-O2" => options.opt_level = OptLevel::O2,
             "-O3" => options.opt_level = OptLevel::O3,
             "--emit-llvm" => set_driver_mode(&mut options, DriverMode::EmitLlvmIr, "--emit-llvm"),
-            "--emit-kmeta" => {
-                options.metadata_output =
-                    Some(next_option_value(&mut args, "--emit-kmeta", "directory"));
-            }
-            "--root-module" => {
-                options.root_module_name =
-                    Some(next_option_value(&mut args, "--root-module", "module name"));
-            }
-            "--time" => options.report_timings = true,
-            "--target" => {
-                let triple = next_option_value(&mut args, "--target", "target triple");
-                options.target = parse_target_machine(&triple);
-            }
-            "--asm-dialect" => {
-                let dialect = next_option_value(&mut args, "--asm-dialect", "dialect");
-                options.asm_dialect = parse_asm_dialect(&dialect);
-            }
-            "--cc" | "--linker" => {
-                options.linker_cmd = next_option_value(&mut args, arg.as_str(), "command")
-            }
-            "--runtime-entry" => {
-                let mode = next_option_value(&mut args, "--runtime-entry", "mode");
-                options.runtime_entry = parse_runtime_entry(&mode);
-            }
-            "--runtime-provider" => {
-                let provider = next_option_value(&mut args, "--runtime-provider", "provider");
-                options.runtime_provider = parse_runtime_provider(&provider);
-            }
-            "--runtime-libc" => {
-                let enabled = next_option_value(&mut args, "--runtime-libc", "yes|no");
-                options.runtime_libc = parse_yes_no(&enabled, "--runtime-libc");
-            }
-            "--library-bundle" => {
-                let bundle = next_option_value(&mut args, "--library-bundle", "bundle");
-                options.library_bundle = parse_library_bundle(&bundle);
-            }
-            "--link-input" => {
-                options
-                    .linker_inputs
-                    .push(next_option_value(&mut args, "--link-input", "path"))
-            }
-            "--link-arg" => {
-                options
-                    .linker_args
-                    .push(next_option_value(&mut args, "--link-arg", "argument"))
-            }
-            "--entry" => {
-                options.entry_symbol = Some(next_option_value(&mut args, "--entry", "symbol"));
-            }
+            "--timings" => options.report_timings = true,
             "--print-link-command" => options.print_link_command = true,
-            "-D" => {
-                let define = next_option_value(&mut args, "-D", "`key=value`");
-                let (key, value) = parse_key_value(define, "-D", "key=value");
-                options.custom_defines.insert(key, value);
-            }
-            "-M" => {
-                let mapping = next_option_value(&mut args, "-M", "`name=path`");
-                let (name, path) = parse_key_value(mapping, "-M", "name=path");
-                options.module_aliases.insert(name, path);
-            }
-            "-I" => {
-                let mapping = next_option_value(&mut args, "-I", "`name=path`");
-                let (name, path) = parse_key_value(mapping, "-I", "name=path");
-                options.module_interface_aliases.insert(name, path);
-            }
             _ => {
                 if let Some(path) = consume_short_or_attached_value(&arg, "-L", &mut args, "path") {
                     options.linker_search_paths.push(path);

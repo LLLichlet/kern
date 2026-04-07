@@ -214,7 +214,7 @@ pub struct CompileOptions {
     pub target: TargetMachine,
     pub opt_level: OptLevel,
     pub driver_mode: DriverMode,
-    /// User-defined compile-time configuration injected from the CLI, for example `-D feature=true`.
+    /// User-defined compile-time configuration injected from the CLI, for example `--define feature=true`.
     pub custom_defines: HashMap<String, String>,
     /// `craft` project analysis feature selection used by tools such as `kern-lsp`.
     pub craft_features: Vec<String>,

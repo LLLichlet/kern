@@ -62,7 +62,7 @@ fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
     if args.iter().any(|arg| {
         matches!(
             arg.as_str(),
-            "-c" | "--emit-llvm" | "--link-only" | "--entry"
+            "-c" | "--emit-llvm" | "--link-only" | "--entry-symbol"
         )
     }) {
         return;

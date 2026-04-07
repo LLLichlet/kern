@@ -46,7 +46,7 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &["-M", "sync=library/std/sync"],
+        &["--module-path", "sync=library/std/sync"],
     );
 
     assert!(
@@ -71,7 +71,7 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &["-M", "sync=library/std/sync"],
+        &["--module-path", "sync=library/std/sync"],
     );
 
     assert!(

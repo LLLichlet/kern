@@ -109,6 +109,10 @@ pub(super) fn build_std_package(
         } else {
             OptLevel::O0
         },
+        // `craft` host workflows always link the shared std package into hosted
+        // binaries and tests. Keep the std metadata/object variant aligned with
+        // that contract so libc-gated facilities like `std.env` are available.
+        runtime_libc: true,
         library_bundle: LibraryBundle::Std,
         ..CompileOptions::default()
     };
@@ -124,7 +128,7 @@ pub(super) fn build_std_package(
     inject_driver_condition_defines(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let std_fingerprint = build_fingerprint(&[
-        "std_runtime_layout=v4".to_string(),
+        "std_runtime_layout=v5".to_string(),
         "kind=compile-std".to_string(),
         format!("toolchain={toolchain_digest}"),
         format!("profile={profile}"),

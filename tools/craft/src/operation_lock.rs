@@ -27,7 +27,7 @@ impl WorkspaceOperationLock {
         loop {
             match try_acquire(&path, operation) {
                 Ok(lock) => return Ok(lock),
-                Err(err) if err.kind() == ErrorKind::AlreadyExists => {
+                Err(err) if is_lock_contention_error(&path, &err) => {
                     if reclaim_stale_lock(&path)? {
                         continue;
                     }
@@ -37,6 +37,11 @@ impl WorkspaceOperationLock {
             }
         }
     }
+}
+
+fn is_lock_contention_error(path: &Path, err: &std::io::Error) -> bool {
+    err.kind() == ErrorKind::AlreadyExists
+        || (cfg!(windows) && err.kind() == ErrorKind::PermissionDenied && path.exists())
 }
 
 impl Drop for WorkspaceOperationLock {

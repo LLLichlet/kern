@@ -40,6 +40,7 @@ Kern ships four explicit public library layers:
 
 `std` no longer mirrors `base`, `sys`, or `rt` namespaces. Low-level code should import the owning layer directly.
 Hosted support is an OS concern, not a C concern: `std` remains ordinary Kern code layered on `base` plus `sys`, while libc stays an optional external runtime/provider choice rather than a foundation for `std`.
+Freestanding in Kern is therefore libc-free in the strong sense: `std` can remain fully usable without libc, `sys` owns the hosted OS boundary, and `rt` owns startup glue.
 
 ## A Taste of Kern (v0.6.7)
 
@@ -157,6 +158,7 @@ This produces `kernc`, `craft`, and `kern-lsp` in `target/release/`.
 
   * **[Kern Tutorial](docs/tutorial/README.md)**: A practical multi-chapter guide for learning the language, using `kernc`, understanding `craft`, driving `kern-lsp`, and navigating the repository.
   * **[The `kernc` Compiler Guide](docs/kernc.md)**: CLI usage, driver modes, linking profiles, and build-system integration guidance.
+  * **[Runtime And Library Architecture](docs/runtime-architecture.md)**: the `base`/`sys`/`rt`/`std` split, hosted versus freestanding, and why libc is optional rather than foundational.
   * **[Kern Language Design Document](docs/design.md)**: A comprehensive dive into the language mechanics, memory rules, and syntax for the current version.
   * **[The `craft` Design Draft](docs/craft.md)**: The proposed package manager, lockfile, manifest, and build-planning architecture.
   * *(Coming Soon)* **The Kern Type System**: A guide to understanding Kern's Contextual Top-Down Bidirectional Type Checking and ConstEval models.

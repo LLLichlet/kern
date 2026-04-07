@@ -14,6 +14,39 @@ The goal is to keep Kern freestanding by default while making hosted startup, to
 - move package-level defaults and presets into `craft`
 - avoid Rust-style "special crate" coupling between the compiler and a privileged `std/core` split
 
+## Freestanding Means Libc-Free
+
+In Kern, "freestanding" is a statement about dependency direction, not a statement
+about whether useful libraries exist.
+
+The intended dependency graph is:
+
+- the language and compiler stand on their own
+- `base` stands on its own
+- `sys` is the operating-system and provider boundary
+- `rt` is startup and minimal runtime glue
+- `std` is ordinary Kern library code built on `base` plus `sys`
+- `libc` is an optional external package/provider choice
+
+The important rule is that `std` does not become "real" by depending on libc.
+`std` is already complete as a Kern library layer because its hosted capabilities
+flow through `sys`, not through an implicit C foundation.
+
+Stated another way:
+
+- hosted is an OS/process-environment concern, not a C-language concern
+- an OS can exist without libc
+- libc cannot exist without an OS or equivalent host environment
+- therefore libc is downstream of the hosted boundary, while `sys` owns that boundary directly
+
+This is why Kern treats libc as optional even for hosted programs. A project may:
+
+- stay fully freestanding with no libc at all
+- use `std` while still remaining libc-free
+- select libc explicitly as one provider/runtime choice for performance, ABI, or ecosystem reasons
+
+That makes `kern` a genuine alternative foundation rather than a thin front-end over C.
+
 ## The Four Current Axes
 
 The current toolchain model uses four explicit axes.
@@ -45,6 +78,9 @@ This is intentionally separate from `runtime_entry`. A program may use the `rt` 
 This exists because "uses libc" and "uses CRT startup" are related but not identical concerns. The toolchain should be able to express both explicitly instead of hiding them behind one overloaded mode.
 
 `runtime_libc` does not define whether hosted facilities exist. Hosted process access is modeled through the OS/provider boundary in `sys`; libc linkage is only one possible implementation choice for that boundary.
+
+`runtime_libc` also does not define whether `std` exists. `std` is a normal Kern
+library layer and remains valid without libc.
 
 ### Library Bundle
 
@@ -101,7 +137,9 @@ This keeps the roles clear:
 The practical rule is:
 
 - `std` may depend on `base` and `sys`
+- `std` must not require libc as a semantic foundation
 - hosted `std` facilities depend on OS/provider services exposed by `sys`, not on libc as a semantic prerequisite
+- libc may be used as an implementation detail behind `sys` or as an explicitly linked external package
 - `rt` stays a separate runtime-owned layer and is not mirrored through `std`
 - low-level modules such as allocators, collection primitives, ABI helpers, and page-backed memory stay in their owning layer instead of being duplicated under `std`
 

@@ -1,0 +1,231 @@
+use super::{
+    AnalysisEngine, AnalysisGeneration, INVALID_REQUEST, RequestContext, SchedulerLane,
+    ServerError, ServerState, lifecycle::emit_trace,
+};
+use crate::analysis::{AnalysisOutcome, DocumentSyncAction, cleared_uris};
+use crate::protocol::{error_response, null_response, publish_diagnostics, success_response};
+use crate::transport::MessageWriter;
+use serde_json::Value;
+use std::io;
+
+pub(super) fn publish_analysis_outcome(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    target_uri: &str,
+    generation: AnalysisGeneration,
+    outcome: AnalysisOutcome,
+) -> Result<(), ServerError> {
+    if !state.is_current_generation(target_uri, generation) {
+        return Ok(());
+    }
+
+    for bundle in &outcome.bundles {
+        writer.write_json(&publish_diagnostics(
+            bundle.uri.clone(),
+            bundle.diagnostics.clone(),
+        ))?;
+    }
+
+    let previous = state
+        .published_by_target
+        .get(target_uri)
+        .cloned()
+        .unwrap_or_default();
+    for uri in cleared_uris(&previous, &outcome.bundles) {
+        writer.write_json(&publish_diagnostics(uri, Vec::new()))?;
+    }
+
+    let current = outcome
+        .bundles
+        .iter()
+        .map(|bundle| bundle.uri.clone())
+        .collect();
+    state
+        .published_by_target
+        .insert(target_uri.to_string(), current);
+
+    Ok(())
+}
+
+pub(super) fn flush_diagnostics_lane(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+) -> Result<(), ServerError> {
+    if let Some(reason) = state.pending_workspace_refresh_reason.take() {
+        let generations = state.begin_workspace_refresh();
+        for (target_uri, outcome) in state.analysis.refresh_workspace() {
+            let generation = generations
+                .get(&target_uri)
+                .copied()
+                .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+            state.queue_diagnostics_publish(target_uri, generation, outcome);
+        }
+        state.pending_diagnostics_targets.clear();
+        emit_trace(state, writer, reason, None, true)?;
+    } else {
+        let targets = std::mem::take(&mut state.pending_diagnostics_targets);
+        for target_uri in targets {
+            let generation = state
+                .latest_generation_by_target
+                .get(&target_uri)
+                .copied()
+                .unwrap_or_else(|| state.begin_target_analysis(&target_uri));
+            let outcome = state.analysis.analyze_document_uri(&target_uri);
+            state.queue_diagnostics_publish(target_uri, generation, outcome);
+        }
+    }
+
+    let pending = std::mem::take(&mut state.pending_diagnostics);
+    for (target_uri, publish) in pending {
+        publish_analysis_outcome(
+            state,
+            writer,
+            &target_uri,
+            publish.generation,
+            publish.outcome,
+        )?;
+    }
+    Ok(())
+}
+
+pub(super) fn drain_scheduler(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+) -> Result<(), ServerError> {
+    flush_diagnostics_lane(state, writer)
+}
+
+pub(super) fn execute_document_diagnostics<F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    target_uri: &str,
+    _lane: SchedulerLane,
+    action: F,
+) -> Result<(), ServerError>
+where
+    F: FnOnce(&mut AnalysisEngine) -> DocumentSyncAction,
+{
+    let generation = state.begin_target_analysis(target_uri);
+    match action(&mut state.analysis) {
+        DocumentSyncAction::ScheduleTarget(uri) => {
+            state
+                .latest_generation_by_target
+                .insert(uri.clone(), generation);
+            state.queue_target_diagnostics_task(uri);
+        }
+        DocumentSyncAction::Immediate(outcome) => {
+            state.queue_diagnostics_publish(target_uri.to_string(), generation, outcome);
+        }
+    }
+    let _ = writer;
+    Ok(())
+}
+
+pub(super) fn execute_workspace_diagnostics_refresh(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    reason: &str,
+    _lane: SchedulerLane,
+) -> Result<(), ServerError> {
+    state.queue_workspace_refresh_task(reason.to_string());
+    let _ = writer;
+    Ok(())
+}
+
+pub(super) fn execute_document_request<T, F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Value,
+    target_uri: &str,
+    _lane: SchedulerLane,
+    analysis: F,
+) -> Result<(), ServerError>
+where
+    T: serde::Serialize,
+    F: FnOnce(&AnalysisEngine) -> Result<T, String>,
+{
+    let request = state.request_context_for_document(id, target_uri);
+    if state.should_skip_request(&request) {
+        return Ok(());
+    }
+
+    match analysis(&state.analysis) {
+        Ok(result) => {
+            write_success_response(state, writer, &request, serde_json::to_value(result)?)
+        }
+        Err(message) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+    }
+}
+
+pub(super) fn execute_optional_document_request<T, F>(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    id: Value,
+    target_uri: &str,
+    _lane: SchedulerLane,
+    analysis: F,
+) -> Result<(), ServerError>
+where
+    T: serde::Serialize,
+    F: FnOnce(&AnalysisEngine) -> Result<Option<T>, String>,
+{
+    let request = state.request_context_for_document(id, target_uri);
+    if state.should_skip_request(&request) {
+        return Ok(());
+    }
+
+    match analysis(&state.analysis) {
+        Ok(Some(result)) => {
+            write_success_response(state, writer, &request, serde_json::to_value(result)?)
+        }
+        Ok(None) => write_null_response(state, writer, &request),
+        Err(message) => write_error_response(state, writer, &request, INVALID_REQUEST, message),
+    }
+}
+
+pub(super) fn write_success_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+    result: Value,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        return Ok(());
+    }
+    writer.write_json(&success_response(request.id.clone(), result))?;
+    Ok(())
+}
+
+pub(super) fn write_null_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        return Ok(());
+    }
+    writer.write_json(&null_response(request.id.clone()))?;
+    Ok(())
+}
+
+pub(super) fn write_error_response(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    request: &RequestContext,
+    code: i64,
+    message: impl Into<String>,
+) -> Result<(), ServerError> {
+    if state.should_drop_response(request) {
+        return Ok(());
+    }
+    writer.write_json(&error_response(request.id.clone(), code, message))?;
+    Ok(())
+}
+
+pub(super) fn schedule_workspace_refresh(
+    state: &mut ServerState,
+    writer: &mut MessageWriter<impl io::Write>,
+    reason: &str,
+) -> Result<(), ServerError> {
+    execute_workspace_diagnostics_refresh(state, writer, reason, SchedulerLane::Diagnostics)
+}

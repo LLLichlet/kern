@@ -2496,10 +2496,10 @@ blocked = { git = "https://example.com/blocked.git", branch = "main" }
         })
         .unwrap();
 
-        assert!(
-            root.join(".craft/build/dev/target/out/demo-0.1.0/bin/demo")
-                .is_file()
-        );
+        assert!(root
+            .join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
+            .is_file());
         assert!(
             !root
                 .join(".craft/build/dev/target/out/demo-0.1.0/test/smoke")

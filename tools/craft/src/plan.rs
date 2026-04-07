@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use crate::error::{Error, Result};
 use crate::graph::{DependencyKind, PackageId};
 use crate::manifest::{DependencySpec, DetailedDependency, Manifest};

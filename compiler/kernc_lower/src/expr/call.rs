@@ -9,6 +9,14 @@ use kernc_sema::def::{Def, DefId};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, NodeId, Span, SymbolId};
 
+pub(crate) struct DynamicDispatchCall {
+    pub(crate) field: SymbolId,
+    pub(crate) recv_trait_ty: TypeId,
+    pub(crate) owner_trait_ty: TypeId,
+    pub(crate) norm_callee: TypeId,
+    pub(crate) span: Span,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn builtin_trait_name(&mut self, trait_ty: TypeId) -> Option<String> {
         let norm = self.ctx.type_registry.normalize(trait_ty);
@@ -825,12 +833,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             // Hand the full fat pointer to the dynamic dispatcher so it can extract the vtable.
             self.lower_dynamic_method_dispatch(
                 recv,
-                field,
                 arg_masts,
-                inner_ty,
-                owner_trait_ty,
-                norm_callee,
-                span,
+                DynamicDispatchCall {
+                    field,
+                    recv_trait_ty: inner_ty,
+                    owner_trait_ty,
+                    norm_callee,
+                    span,
+                },
             )
         } else if let TypeKind::FnDef(method_id, generics) =
             self.ctx.type_registry.get(norm_callee).clone()
@@ -1092,16 +1102,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     /// Helper: build a dynamically dispatched method call by loading from the vtable.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn lower_dynamic_method_dispatch(
         &mut self,
         recv: MastExpr,
-        field: SymbolId,
         mut arg_masts: Vec<MastExpr>,
-        recv_trait_ty: TypeId,
-        owner_trait_ty: TypeId,
-        norm_callee: TypeId,
-        span: Span,
+        call: DynamicDispatchCall,
     ) -> MastExprKind {
         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
@@ -1112,7 +1117,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let data_ptr = MastExpr::new(
             void_ptr_ty,
             MastExprKind::ExtractFatPtrData(Box::new(recv.clone())),
-            span,
+            call.span,
         );
         arg_masts.insert(0, data_ptr);
 
@@ -1120,7 +1125,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let vtable_meta = MastExpr::new(
             TypeId::USIZE,
             MastExprKind::ExtractFatPtrMeta(Box::new(recv)),
-            span,
+            call.span,
         );
         let vtable_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
@@ -1133,11 +1138,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 kind: MastCastKind::IntToPtr,
                 operand: Box::new(vtable_meta),
             },
-            span,
+            call.span,
         );
 
-        let recv_trait_norm = self.ctx.type_registry.normalize(recv_trait_ty);
-        let owner_trait_norm = self.ctx.type_registry.normalize(owner_trait_ty);
+        let recv_trait_norm = self.ctx.type_registry.normalize(call.recv_trait_ty);
+        let owner_trait_norm = self.ctx.type_registry.normalize(call.owner_trait_ty);
 
         let owner_vtable_ptr = if owner_trait_norm == recv_trait_norm {
             vtable_ptr
@@ -1145,7 +1150,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let Some(super_slot) = self.vtable_supertrait_slot(recv_trait_norm, owner_trait_norm)
             else {
                 self.ctx.emit_ice(
-                    span,
+                    call.span,
                     format!(
                         "Kern ICE (Lowering): trait `{}` is not a supertrait of `{}` during dynamic dispatch.",
                         self.ctx.ty_to_string(owner_trait_norm),
@@ -1162,10 +1167,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     index: Box::new(MastExpr::new(
                         TypeId::USIZE,
                         MastExprKind::Integer(super_slot as u128),
-                        span,
+                        call.span,
                     )),
                 },
-                span,
+                call.span,
             );
 
             MastExpr::new(
@@ -1174,16 +1179,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     kind: MastCastKind::Bitcast,
                     operand: Box::new(super_vtable_raw),
                 },
-                span,
+                call.span,
             )
         };
 
-        let Some(vtable_idx) = self.direct_trait_method_slot(owner_trait_norm, field) else {
+        let Some(vtable_idx) = self.direct_trait_method_slot(owner_trait_norm, call.field) else {
             self.ctx.emit_ice(
-                span,
+                call.span,
                 format!(
                     "Kern ICE (Lowering): method `{}` not found in owner trait `{}`.",
-                    self.ctx.resolve(field),
+                    self.ctx.resolve(call.field),
                     self.ctx.ty_to_string(owner_trait_norm),
                 ),
             );
@@ -1198,10 +1203,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 index: Box::new(MastExpr::new(
                     TypeId::USIZE,
                     MastExprKind::Integer(vtable_idx as u128),
-                    span,
+                    call.span,
                 )),
             },
-            span,
+            call.span,
         );
 
         // Rebuild the exact callable signature.
@@ -1211,12 +1216,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             params,
             ..
         } =
-            self.ctx.type_registry.get(norm_callee)
+            self.ctx.type_registry.get(call.norm_callee)
         {
             (*ret, *is_variadic, params.clone())
         } else {
             self.ctx.emit_ice(
-                span,
+                call.span,
                 "Kern ICE (Lowering): Callee type of dynamic method dispatch is not a Function.",
             );
             return MastExprKind::Trap;
@@ -1238,7 +1243,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 kind: MastCastKind::Bitcast,
                 operand: Box::new(func_ptr),
             },
-            span,
+            call.span,
         );
 
         MastExprKind::Call {

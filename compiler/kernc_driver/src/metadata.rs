@@ -202,26 +202,38 @@ fn try_acquire_metadata_output_lock(
 }
 
 fn metadata_lock_contents(output_root: &Path) -> String {
-    let created_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let pid = std::process::id();
-    let contents = format!(
-        "pid={}\noutput={}\ncreated_unix_ms={}\n",
-        pid,
-        output_root.display(),
-        created_ms
-    );
     #[cfg(unix)]
     {
-        let mut contents = contents;
+        let created_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let pid = std::process::id();
+        let mut contents = format!(
+            "pid={}\noutput={}\ncreated_unix_ms={}\n",
+            pid,
+            output_root.display(),
+            created_ms
+        );
         if let Some(start_ticks) = read_process_start_ticks(pid) {
             contents.push_str(&format!("start_ticks={start_ticks}\n"));
         }
-        return contents;
+        contents
     }
-    contents
+    #[cfg(not(unix))]
+    {
+        let created_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let pid = std::process::id();
+        format!(
+            "pid={}\noutput={}\ncreated_unix_ms={}\n",
+            pid,
+            output_root.display(),
+            created_ms
+        )
+    }
 }
 
 fn reclaim_stale_metadata_output_lock(path: &Path) -> Result<bool, String> {

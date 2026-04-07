@@ -878,10 +878,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 else_branch.as_deref(),
                                 subst_map,
                             ));
-                        } else {
-                            if let Some(stmt) = self.lower_optional_stmt_expr(e, subst_map) {
-                                stmts.push(stmt);
-                            }
+                        } else if let Some(stmt) = self.lower_optional_stmt_expr(e, subst_map) {
+                            stmts.push(stmt);
                         }
                     }
                 }

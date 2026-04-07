@@ -7,7 +7,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
-use kernc_db::{Database, Input, Memo, Query};
+#[cfg(test)]
+use kernc_db::Memo;
+use kernc_db::{Database, Input, Query};
 use kernc_parser::Parser;
 use kernc_sema::passes::Pruner;
 use kernc_utils::{FileId, Session};
@@ -39,7 +41,7 @@ pub struct FrontendDatabase {
     db: Database,
     source_overrides: Input<PathBuf, String>,
     source_texts: Query<PathBuf, Option<String>>,
-    #[allow(dead_code)]
+    #[cfg(test)]
     parsed_modules: Memo<PathBuf, Option<FrontendParsedModule>>,
     known_override_paths: Mutex<HashSet<PathBuf>>,
     #[cfg(test)]
@@ -68,6 +70,7 @@ impl FrontendDatabase {
             db: Database::new(),
             source_overrides,
             source_texts,
+            #[cfg(test)]
             parsed_modules: Memo::new(),
             known_override_paths: Mutex::new(HashSet::new()),
             #[cfg(test)]
@@ -79,7 +82,7 @@ impl FrontendDatabase {
         &self.db
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn set_source_override(&self, path: PathBuf, text: String) {
         let _ = self.source_overrides.set(&self.db, path, text);
     }
@@ -122,7 +125,7 @@ impl FrontendDatabase {
         known.contains(&normalized)
     }
 
-    #[allow(dead_code)]
+    #[cfg(test)]
     pub fn load_parsed_module(
         &self,
         session: &mut Session,
@@ -141,26 +144,6 @@ impl FrontendDatabase {
                 Ok(self.parse_frontend_module(session, &normalized, &source))
             },
         )
-    }
-
-    #[allow(dead_code)]
-    pub fn load_parsed_module_uncached(
-        &self,
-        session: &mut Session,
-        path: &Path,
-    ) -> Result<Option<FrontendParsedModule>, kernc_db::Cycle> {
-        let normalized = normalize_path(path);
-        self.load_parsed_module_uncached_normalized(session, &normalized)
-    }
-
-    pub fn load_parsed_module_uncached_normalized(
-        &self,
-        session: &mut Session,
-        normalized: &Path,
-    ) -> Result<Option<FrontendParsedModule>, kernc_db::Cycle> {
-        Ok(self
-            .load_parsed_module_uncached_normalized_profiled(session, normalized, true)?
-            .map(|(parsed, _)| parsed))
     }
 
     pub(crate) fn load_parsed_module_uncached_normalized_profiled(
@@ -203,6 +186,7 @@ impl FrontendDatabase {
             .add_file(path.to_string_lossy().to_string(), source.to_string())
     }
 
+    #[cfg(test)]
     fn parse_frontend_module(
         &self,
         session: &mut Session,

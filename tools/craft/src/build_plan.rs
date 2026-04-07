@@ -102,14 +102,13 @@ pub struct StagedAction {
     pub kind: StagedActionKind,
 }
 
-#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StagedActionKind {
     WriteFile {
         contents: String,
     },
     RunTool {
-        tool: script::BuildScriptTool,
+        tool: Box<script::BuildScriptTool>,
         args: Vec<String>,
     },
     CopyFile {

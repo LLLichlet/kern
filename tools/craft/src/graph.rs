@@ -179,54 +179,52 @@ fn build_edges(
     local_index: &BTreeMap<PathBuf, PackageId>,
 ) -> Result<Vec<DependencyEdge>> {
     let mut edges = Vec::new();
-    collect_dep_edges(
-        &mut edges,
+    let ctx = DepEdgeContext {
         manifest_path,
         package_root,
         workspace_dependencies,
         workspace_root,
         local_index,
+    };
+    collect_dep_edges(
+        &ctx,
+        &mut edges,
         package.dependencies(DependencyKind::Normal),
         DependencyKind::Normal,
     )?;
     collect_dep_edges(
+        &ctx,
         &mut edges,
-        manifest_path,
-        package_root,
-        workspace_dependencies,
-        workspace_root,
-        local_index,
         package.dependencies(DependencyKind::Dev),
         DependencyKind::Dev,
     )?;
     collect_dep_edges(
+        &ctx,
         &mut edges,
-        manifest_path,
-        package_root,
-        workspace_dependencies,
-        workspace_root,
-        local_index,
         package.dependencies(DependencyKind::Build),
         DependencyKind::Build,
     )?;
     Ok(edges)
 }
 
-#[allow(clippy::too_many_arguments)]
+struct DepEdgeContext<'a> {
+    manifest_path: &'a Path,
+    package_root: &'a Path,
+    workspace_dependencies: Option<&'a BTreeMap<String, DependencySpec>>,
+    workspace_root: &'a Path,
+    local_index: &'a BTreeMap<PathBuf, PackageId>,
+}
+
 fn collect_dep_edges(
+    ctx: &DepEdgeContext<'_>,
     edges: &mut Vec<DependencyEdge>,
-    manifest_path: &Path,
-    package_root: &Path,
-    workspace_dependencies: Option<&BTreeMap<String, DependencySpec>>,
-    workspace_root: &Path,
-    local_index: &BTreeMap<PathBuf, PackageId>,
     deps: &BTreeMap<String, DependencySpec>,
     kind: DependencyKind,
 ) -> Result<()> {
     for (dependency_name, spec) in deps {
         let spec = normalize_dependency_spec(
-            manifest_path,
-            workspace_dependencies,
+            ctx.manifest_path,
+            ctx.workspace_dependencies,
             dependency_name,
             spec,
         )?;
@@ -236,9 +234,9 @@ fn collect_dep_edges(
             dependency_name: dependency_name.clone(),
             package_name: requested_package_name(dependency_name, &spec),
             target: dependency_target(
-                package_root,
-                workspace_root,
-                local_index,
+                ctx.package_root,
+                ctx.workspace_root,
+                ctx.local_index,
                 dependency_name,
                 &spec,
             )?,

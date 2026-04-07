@@ -64,24 +64,34 @@ fn try_acquire(path: &Path, operation: &str) -> std::io::Result<WorkspaceOperati
 }
 
 fn lock_contents(operation: &str) -> String {
-    let created_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis();
-    let pid = std::process::id();
-    let contents = format!(
-        "pid={}\noperation={}\ncreated_unix_ms={}\n",
-        pid, operation, created_ms
-    );
     #[cfg(unix)]
     {
-        let mut contents = contents;
+        let created_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let pid = std::process::id();
+        let mut contents = format!(
+            "pid={}\noperation={}\ncreated_unix_ms={}\n",
+            pid, operation, created_ms
+        );
         if let Some(start_ticks) = read_process_start_ticks(pid) {
             contents.push_str(&format!("start_ticks={start_ticks}\n"));
         }
-        return contents;
+        contents
     }
-    contents
+    #[cfg(not(unix))]
+    {
+        let created_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis();
+        let pid = std::process::id();
+        format!(
+            "pid={}\noperation={}\ncreated_unix_ms={}\n",
+            pid, operation, created_ms
+        )
+    }
 }
 
 fn workspace_lock_path(workspace_root: &Path) -> PathBuf {

@@ -130,11 +130,13 @@ pub fn plan(
             workspace_root,
             has_workspace,
             command,
-            &host,
-            &target,
-            &script::manifest_profile(manifest, feature_selection.profile),
-            features,
-            declared_env_map(manifest_path, manifest.craft_env_names())?,
+            ScriptContextInputs {
+                host: host.clone(),
+                target: target.clone(),
+                profile: script::manifest_profile(manifest, feature_selection.profile),
+                features,
+                env: declared_env_map(manifest_path, manifest.craft_env_names())?,
+            },
         );
         if let Some(workspace_script) = &mut workspace_script {
             let execution = script::apply_craft_script(
@@ -187,11 +189,13 @@ pub fn plan(
             workspace_root,
             has_workspace,
             command,
-            &host,
-            &target,
-            &script::manifest_profile(&member.manifest, feature_selection.profile),
-            features,
-            declared_env_map(&member.manifest_path, member.manifest.craft_env_names())?,
+            ScriptContextInputs {
+                host: host.clone(),
+                target: target.clone(),
+                profile: script::manifest_profile(&member.manifest, feature_selection.profile),
+                features,
+                env: declared_env_map(&member.manifest_path, member.manifest.craft_env_names())?,
+            },
         );
         if let Some(workspace_script) = &mut workspace_script {
             let execution = script::apply_craft_script(
@@ -359,17 +363,20 @@ fn selected_features(
     Ok(enabled)
 }
 
-#[allow(clippy::too_many_arguments)]
+struct ScriptContextInputs {
+    host: ScriptTarget,
+    target: ScriptTarget,
+    profile: ScriptProfile,
+    features: BTreeSet<String>,
+    env: BTreeMap<String, Option<String>>,
+}
+
 fn script_context(
     plan: &PackagePlan,
     workspace_root: &Path,
     has_workspace: bool,
     command: ScriptCommand,
-    host: &ScriptTarget,
-    target: &ScriptTarget,
-    profile: &ScriptProfile,
-    features: BTreeSet<String>,
-    env: BTreeMap<String, Option<String>>,
+    inputs: ScriptContextInputs,
 ) -> ScriptContext {
     let package_root = plan
         .manifest_path
@@ -386,12 +393,12 @@ fn script_context(
             root: relative_display(workspace_root, workspace_root),
             has_workspace,
         },
-        host: host.clone(),
-        target: target.clone(),
-        profile: profile.clone(),
+        host: inputs.host,
+        target: inputs.target,
+        profile: inputs.profile,
         command,
-        features,
-        env,
+        features: inputs.features,
+        env: inputs.env,
     }
 }
 

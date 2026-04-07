@@ -960,7 +960,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PreCompile,
                     StagedActionKind::RunTool {
-                        tool: tool.clone(),
+                        tool: Box::new(tool.clone()),
                         args,
                     },
                 );
@@ -1002,7 +1002,7 @@ impl ScriptHost for BuildUnitHost<'_> {
                     &dest_path,
                     StagedActionPhase::PostLink,
                     StagedActionKind::RunTool {
-                        tool: tool.clone(),
+                        tool: Box::new(tool.clone()),
                         args,
                     },
                 );

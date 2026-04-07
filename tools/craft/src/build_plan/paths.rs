@@ -150,14 +150,14 @@ pub(super) fn resolve_staged_action(workspace_root: &Path, action: &StagedAction
                 contents: contents.clone(),
             },
             StagedActionKind::RunTool { tool, args } => StagedActionKind::RunTool {
-                tool: script::BuildScriptTool {
+                tool: Box::new(script::BuildScriptTool {
                     target_name: tool.target_name.clone(),
                     executable_path: workspace_root
                         .join(&tool.executable_path)
                         .to_string_lossy()
                         .to_string(),
                     origin: tool.origin.clone(),
-                },
+                }),
                 args: args.clone(),
             },
             StagedActionKind::CopyFile { source } => StagedActionKind::CopyFile {

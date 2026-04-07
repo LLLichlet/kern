@@ -529,6 +529,7 @@ fn run_command(command: Command) -> Result<()> {
                 &build_plan,
                 &feature_selection,
             );
+            let build_plan = build_plan.filtered_target_kinds(&default_build_target_kinds());
             let target = crate::script::host_target();
             let action_plan = build_plan.derive_actions(&target);
 
@@ -599,6 +600,7 @@ fn run_command(command: Command) -> Result<()> {
                 &build_plan,
                 &feature_selection,
             );
+            let build_plan = build_plan.filtered_target_kinds(&default_build_target_kinds());
             let action_plan = build_plan.derive_actions(&crate::script::host_target());
 
             render.header_with_path(
@@ -902,6 +904,10 @@ fn units_of_kind(plan: &build_plan::BuildPlan, kind: TargetKind) -> Vec<&build_p
         .flat_map(|package| &package.units)
         .filter(|unit| unit.target_kind == kind)
         .collect()
+}
+
+fn default_build_target_kinds() -> [TargetKind; 3] {
+    [TargetKind::Lib, TargetKind::Bin, TargetKind::Example]
 }
 
 fn format_unit_label(unit: &build_plan::BuildUnit) -> String {
@@ -1907,6 +1913,30 @@ root = "src/main.rn"
         fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
     }
 
+    fn write_bin_and_test_package(root: &std::path::Path) {
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("tests")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+
+[test]
+roots = ["tests/smoke.rn"]
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(root.join("tests/smoke.rn"), "fn main() i32 { return 0; }\n").unwrap();
+    }
+
     #[test]
     fn parses_check_with_path_and_feature_options() {
         let cmd = parse_args([
@@ -2450,6 +2480,31 @@ blocked = { git = "https://example.com/blocked.git", branch = "main" }
         holder.join().unwrap();
         let waited = waiter.join().unwrap();
         assert!(waited >= Duration::from_millis(150));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_command_skips_test_targets() {
+        let root = temp_dir("craft-cli-build-skips-tests");
+        write_bin_and_test_package(&root);
+
+        run_command(Command::Build {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+        })
+        .unwrap();
+
+        assert!(
+            root.join(".craft/build/dev/target/out/demo-0.1.0/bin/demo")
+                .is_file()
+        );
+        assert!(
+            !root
+                .join(".craft/build/dev/target/out/demo-0.1.0/test/smoke")
+                .exists()
+        );
 
         let _ = fs::remove_dir_all(root);
     }

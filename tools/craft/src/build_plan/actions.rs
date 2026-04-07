@@ -61,6 +61,14 @@ impl CompileAction {
 }
 
 impl BuildPlan {
+    pub fn filtered_target_kinds(&self, keep: &[TargetKind]) -> Self {
+        let mut filtered = self.clone();
+        for package in &mut filtered.packages {
+            package.units.retain(|unit| keep.contains(&unit.target_kind));
+        }
+        filtered
+    }
+
     pub fn unit_count(&self) -> usize {
         self.packages
             .iter()

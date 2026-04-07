@@ -270,6 +270,8 @@ pub struct Memo<K, V> {
     inner: Arc<MemoInner<K, V>>,
 }
 
+type QueryCompute<K, V> = dyn Fn(&Database, &K) -> QueryResult<V> + Send + Sync;
+
 impl<K, V> Query<K, V>
 where
     K: Eq + Hash + Clone + Send + Sync + 'static,
@@ -421,7 +423,7 @@ where
 
 struct QueryInner<K, V> {
     name: &'static str,
-    compute: Box<dyn Fn(&Database, &K) -> QueryResult<V> + Send + Sync>,
+    compute: Box<QueryCompute<K, V>>,
     entries: Mutex<HashMap<K, QueryEntry<V>>>,
 }
 
@@ -579,6 +581,16 @@ where
         }
 
         Ok(None)
+    }
+}
+
+impl<K, V> Default for Memo<K, V>
+where
+    K: Eq + Hash + Clone + Send + Sync + 'static,
+    V: Clone + Send + Sync + 'static,
+{
+    fn default() -> Self {
+        Self::new()
     }
 }
 

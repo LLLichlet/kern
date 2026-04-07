@@ -153,7 +153,7 @@ impl<'a> FlowCfgBuilder<'a> {
 
     fn local_binding_uses_in_expr(&self, expr: &ast::Expr) -> Vec<AnalysisFlowBindingId> {
         let mut uses = Vec::new();
-        collect_local_binding_uses_in_expr(expr, &self.reference_to_binding, &mut uses);
+        collect_local_binding_uses_in_expr(expr, self.reference_to_binding, &mut uses);
         uses.sort();
         uses.dedup();
         uses

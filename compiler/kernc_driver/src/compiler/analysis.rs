@@ -15,8 +15,8 @@ use super::{
     AnalysisSurfaceArtifact, AnalysisSymbol, AnalysisSymbolKind, AnalysisUnusedBinding,
     AnalysisUnusedBindingKind, AnalysisUnusedItem, AnalysisUnusedItemKind,
     CollectedStructureArtifact, CompileStructureArtifact, CompilerDriver,
-    ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming,
-    SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    ImportedStructureArtifact, ParsedModule, ParsedModuleArtifact, PhaseTiming, SourceOverrides,
+    StructureArtifact, TargetedAnalysisReport,
 };
 use crate::doc::{lint_docs, render_hover_markdown};
 use crate::loader::ModuleLoader;
@@ -699,9 +699,7 @@ impl CompilerDriver {
         input_file: &str,
     ) -> Option<CollectedStructureArtifact> {
         let mut ctx = self.build_sema_context(session);
-        let Some(loaded) = self.load_asts(&mut ctx, input_file, true) else {
-            return None;
-        };
+        let loaded = self.load_asts(&mut ctx, input_file, true)?;
         self.build_collected_structure_from_context(&mut ctx, loaded.asts)
     }
 
@@ -720,9 +718,7 @@ impl CompilerDriver {
         input_file: &str,
     ) -> Option<ImportedStructureArtifact> {
         let mut ctx = self.build_sema_context(session);
-        let Some(loaded) = self.load_asts(&mut ctx, input_file, true) else {
-            return None;
-        };
+        let loaded = self.load_asts(&mut ctx, input_file, true)?;
         let asts = loaded.asts;
         if !self.run_collect_phase(&mut ctx, &asts) {
             return None;
@@ -758,11 +754,9 @@ impl CompilerDriver {
         let mut phase_timings = Vec::new();
         let mut ctx = self.build_sema_context(session);
         let collect_docs = self.options.metadata_output.is_some();
-        let Some(loaded) = measure_body_phase(&mut phase_timings, "  structure_load_asts", || {
+        let loaded = measure_body_phase(&mut phase_timings, "  structure_load_asts", || {
             self.load_asts(&mut ctx, input_file, collect_docs)
-        }) else {
-            return None;
-        };
+        })?;
         phase_timings.extend(loaded.phase_timings);
         let asts = loaded.asts;
         if !measure_body_phase(&mut phase_timings, "  structure_collect", || {
@@ -799,9 +793,7 @@ impl CompilerDriver {
         input_file: &str,
     ) -> Option<StructureArtifact> {
         let mut ctx = self.build_sema_context(session);
-        let Some(loaded) = self.load_asts(&mut ctx, input_file, true) else {
-            return None;
-        };
+        let loaded = self.load_asts(&mut ctx, input_file, true)?;
         let asts = loaded.asts;
         if !self.run_collect_phase(&mut ctx, &asts) {
             return None;
@@ -903,10 +895,15 @@ impl CompilerDriver {
         let _ = measure_body_phase(&mut phase_timings, "typeck_bodies", || {
             typeck.check_body_worklist(&worklist)
         });
-        phase_timings.extend(typeck.body_phase_timings().into_iter().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
-        }));
+        phase_timings.extend(
+            typeck
+                .body_phase_timings()
+                .into_iter()
+                .map(|timing| PhaseTiming {
+                    name: timing.name,
+                    duration: timing.duration,
+                }),
+        );
         let ctx = typeck.into_context();
         if !Self::report_diagnostics_if_errors(ctx) {
             return None;
@@ -915,9 +912,11 @@ impl CompilerDriver {
         let flow_model = measure_body_phase(&mut phase_timings, "flow", || {
             self.collect_compile_flow_model_from_raw_references(ctx, &references)
         });
-        phase_timings.extend(flow_model.phase_timings().iter().copied().map(|timing| PhaseTiming {
-            name: timing.name,
-            duration: timing.duration,
+        phase_timings.extend(flow_model.phase_timings().iter().copied().map(|timing| {
+            PhaseTiming {
+                name: timing.name,
+                duration: timing.duration,
+            }
         }));
         let flow_lowering_hints = flow_model.lowering_hints(ctx);
         let reachability = self.compute_module_item_reachability(ctx, &references, &flow_model);
@@ -1040,7 +1039,7 @@ impl CompilerDriver {
         if !self.run_import_phase(&mut ctx) {
             return None;
         }
-        if !self.run_type_resolution_phase(&mut ctx, !self.options.metadata_output.is_none()) {
+        if !self.run_type_resolution_phase(&mut ctx, self.options.metadata_output.is_some()) {
             return None;
         }
 
@@ -1086,7 +1085,7 @@ impl CompilerDriver {
         let mut session = imported.session.clone();
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(imported.snapshot.clone());
-        if !self.run_type_resolution_phase(&mut ctx, !self.options.metadata_output.is_none()) {
+        if !self.run_type_resolution_phase(&mut ctx, self.options.metadata_output.is_some()) {
             return None;
         }
 
@@ -1153,10 +1152,12 @@ impl CompilerDriver {
             return;
         };
         let Some((root_items, root_scope_id)) =
-            ctx.defs.get(root_module_id.0 as usize).and_then(|def| match def {
-                Def::Module(module) => Some((module.items.clone(), module.scope_id)),
-                _ => None,
-            })
+            ctx.defs
+                .get(root_module_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Module(module) => Some((module.items.clone(), module.scope_id)),
+                    _ => None,
+                })
         else {
             return;
         };
@@ -1164,12 +1165,18 @@ impl CompilerDriver {
         let main_name = ctx.intern("main");
         let main_argv_ty = ctx.main_argv_ptr_ty();
 
-        let entry_main = root_items.iter().find_map(|item_id| match &ctx.defs[item_id.0 as usize] {
-            Def::Function(function) if function.parent == Some(root_module_id) && function.name == main_name => {
-                Some(function.clone())
-            }
-            _ => None,
-        });
+        let entry_main =
+            root_items
+                .iter()
+                .find_map(|item_id| match &ctx.defs[item_id.0 as usize] {
+                    Def::Function(function)
+                        if function.parent == Some(root_module_id)
+                            && function.name == main_name =>
+                    {
+                        Some(function.clone())
+                    }
+                    _ => None,
+                });
 
         let Some(entry_main) = entry_main else {
             ctx.struct_error(Span::default(), "program entry mode requires a root `main` function")
@@ -1178,7 +1185,8 @@ impl CompilerDriver {
             return;
         };
 
-        let Some(main_arity_uses_args) = Self::validate_program_main(ctx, &entry_main, main_argv_ty)
+        let Some(main_arity_uses_args) =
+            Self::validate_program_main(ctx, &entry_main, main_argv_ty)
         else {
             return;
         };
@@ -1289,9 +1297,12 @@ impl CompilerDriver {
         main_argv_ty: TypeId,
     ) -> Option<bool> {
         if main.is_extern {
-            ctx.struct_error(main.name_span, "program `main` must not be declared `extern`")
-                .with_hint("`main` is a language-level entry function when `runtime_entry != none`")
-                .emit();
+            ctx.struct_error(
+                main.name_span,
+                "program `main` must not be declared `extern`",
+            )
+            .with_hint("`main` is a language-level entry function when `runtime_entry != none`")
+            .emit();
             return None;
         }
 

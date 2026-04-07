@@ -298,11 +298,11 @@ impl CompletionModel {
             } => {
                 let mut loop_visible = visible.clone();
 
-                if let Some(init) = init {
-                    if self.collect_in_expr(init, &mut loop_visible, offset) {
-                        *visible = loop_visible;
-                        return true;
-                    }
+                if let Some(init) = init
+                    && self.collect_in_expr(init, &mut loop_visible, offset)
+                {
+                    *visible = loop_visible;
+                    return true;
                 }
 
                 if let Some(loop_facts) = self.for_facts_by_span.get(&query_span_for_expr(expr)) {

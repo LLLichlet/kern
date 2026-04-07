@@ -2105,8 +2105,10 @@ fn lowering_std_hello_world_prunes_unreachable_file_methods() {
     )
     .unwrap();
 
-    let mut options = CompileOptions::default();
-    options.library_bundle = kernc_utils::config::LibraryBundle::Std;
+    let mut options = CompileOptions {
+        library_bundle: kernc_utils::config::LibraryBundle::Std,
+        ..CompileOptions::default()
+    };
     kernc_utils::config::inject_default_library_aliases(&mut options);
     kernc_utils::config::inject_driver_condition_defines(&mut options);
     let driver = CompilerDriver::new(options);

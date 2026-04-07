@@ -36,17 +36,17 @@ fn collect_decl_binding_completion_facts(
     let_else_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionLetElseFacts>,
 ) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                collect_expr_binding_completion_facts(
-                    body,
-                    items_by_span,
-                    expr_binding_items_by_span,
-                    match_arm_binding_items_by_span,
-                    closure_binding_items_by_body_span,
-                    let_else_facts_by_span,
-                );
-            }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => {
+            collect_expr_binding_completion_facts(
+                body,
+                items_by_span,
+                expr_binding_items_by_span,
+                match_arm_binding_items_by_span,
+                closure_binding_items_by_body_span,
+                let_else_facts_by_span,
+            );
         }
         ast::DeclKind::Var { value, .. } => {
             collect_expr_binding_completion_facts(
@@ -525,14 +525,14 @@ fn collect_decl_block_completion_facts(
     block_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionBlockFacts>,
 ) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                collect_expr_block_completion_facts(
-                    body,
-                    expr_binding_items_by_span,
-                    block_facts_by_span,
-                );
-            }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => {
+            collect_expr_block_completion_facts(
+                body,
+                expr_binding_items_by_span,
+                block_facts_by_span,
+            );
         }
         ast::DeclKind::Var { value, .. } => {
             collect_expr_block_completion_facts(
@@ -888,14 +888,10 @@ fn collect_decl_for_completion_facts(
     for_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionForFacts>,
 ) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                collect_expr_for_completion_facts(
-                    body,
-                    expr_binding_items_by_span,
-                    for_facts_by_span,
-                );
-            }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => {
+            collect_expr_for_completion_facts(body, expr_binding_items_by_span, for_facts_by_span);
         }
         ast::DeclKind::Var { value, .. } => {
             collect_expr_for_completion_facts(value, expr_binding_items_by_span, for_facts_by_span);
@@ -1180,14 +1176,14 @@ fn collect_decl_match_completion_facts(
     match_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionMatchFacts>,
 ) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                collect_expr_match_completion_facts(
-                    body,
-                    match_arm_binding_items_by_span,
-                    match_facts_by_span,
-                );
-            }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => {
+            collect_expr_match_completion_facts(
+                body,
+                match_arm_binding_items_by_span,
+                match_facts_by_span,
+            );
         }
         ast::DeclKind::Var { value, .. } => {
             collect_expr_match_completion_facts(
@@ -1542,14 +1538,14 @@ fn collect_decl_closure_completion_facts(
     closure_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionClosureFacts>,
 ) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                collect_expr_closure_completion_facts(
-                    body,
-                    closure_binding_items_by_body_span,
-                    closure_facts_by_span,
-                );
-            }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => {
+            collect_expr_closure_completion_facts(
+                body,
+                closure_binding_items_by_body_span,
+                closure_facts_by_span,
+            );
         }
         ast::DeclKind::Var { value, .. } => {
             collect_expr_closure_completion_facts(
@@ -1889,11 +1885,9 @@ fn collect_decl_if_completion_facts(
     if_facts_by_span: &mut BTreeMap<kernc_utils::Span, CompletionIfFacts>,
 ) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                collect_expr_if_completion_facts(body, if_facts_by_span);
-            }
-        }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => collect_expr_if_completion_facts(body, if_facts_by_span),
         ast::DeclKind::Var { value, .. } => {
             collect_expr_if_completion_facts(value, if_facts_by_span);
         }
@@ -2143,11 +2137,9 @@ fn surface_decl_from_decl(
 
 fn collect_decl_body_regions(decl: &ast::Decl, regions: &mut Vec<kernc_utils::Span>) {
     match &decl.kind {
-        ast::DeclKind::Function { body, .. } => {
-            if let Some(body) = body {
-                regions.push(query_span_for_expr(body));
-            }
-        }
+        ast::DeclKind::Function {
+            body: Some(body), ..
+        } => regions.push(query_span_for_expr(body)),
         ast::DeclKind::Var { value, .. } => {
             regions.push(query_span_for_expr(value));
         }

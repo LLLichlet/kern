@@ -10,6 +10,11 @@ use kernc_ast::{self as ast, Expr, TypeNode};
 use kernc_utils::{DiagnosticCode, NodeId, Span, SymbolId};
 use std::time::Instant;
 
+pub(crate) struct LetElseClause<'a> {
+    pub(crate) pattern: Option<&'a ast::Pattern>,
+    pub(crate) branch: &'a Expr,
+}
+
 #[derive(Clone, Copy)]
 struct ResolvedPatternField {
     name: SymbolId,
@@ -593,7 +598,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     if let Some(owner_scope) = self.global_owner_scope(def_id) {
                         self.ctx.scopes.set_current_scope(owner_scope);
                     }
-                    let computed_ty = self.check_expr(&g_expr, None);
+                    let computed_ty = self.check_expr(g_expr, None);
                     if let Some(prev_scope) = prev_scope {
                         self.ctx.scopes.set_current_scope(prev_scope);
                     }
@@ -634,8 +639,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         node_id: NodeId,
         pattern: &ast::LetPattern,
         init: &Expr,
-        else_pattern: Option<&ast::Pattern>,
-        else_branch: Option<&Expr>,
+        else_clause: Option<LetElseClause<'_>>,
         expected_ty: Option<TypeId>,
         span: Span,
     ) -> TypeId {
@@ -654,7 +658,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         let is_irrefutable = self.pattern_is_irrefutable(&pattern.pattern, norm_init);
-        match (is_irrefutable, else_branch) {
+        match (is_irrefutable, else_clause.as_ref().map(|_| ())) {
             (true, Some(_)) => {
                 self.ctx
                     .struct_error(span, "irrefutable `let` patterns cannot use `else`")
@@ -675,8 +679,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             _ => {}
         }
 
-        if let Some(else_expr) = else_branch {
-            if let Some(else_pattern) = else_pattern {
+        if let Some(else_clause) = else_clause {
+            let else_expr = else_clause.branch;
+            if let Some(else_pattern) = else_clause.pattern {
                 let else_irrefutable = self.pattern_is_irrefutable(else_pattern, norm_init);
                 match self.ctx.type_registry.get(norm_init).clone() {
                     TypeKind::Enum(def_id, _) => {
@@ -745,7 +750,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     .emit();
             }
 
-            if else_pattern.is_some() {
+            if else_clause.pattern.is_some() {
                 self.ctx.scopes.exit_scope();
             }
         }
@@ -1059,7 +1064,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                                 if let Some(owner_scope) = self.global_owner_scope(def_id) {
                                     self.ctx.scopes.set_current_scope(owner_scope);
                                 }
-                                let computed_ty = self.check_expr(&g_expr, None);
+                                let computed_ty = self.check_expr(g_expr, None);
                                 if let Some(prev_scope) = prev_scope {
                                     self.ctx.scopes.set_current_scope(prev_scope);
                                 }

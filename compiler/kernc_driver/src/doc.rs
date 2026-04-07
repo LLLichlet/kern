@@ -283,7 +283,7 @@ pub fn render_hover_markdown(code: &str, docs: Option<&ast::DocBlock>) -> String
         out.push_str(&section.title);
         out.push_str("**");
         if !section.body.is_empty() {
-            out.push_str("\n");
+            out.push('\n');
             out.push_str(&section.body);
         }
         for entry in &section.entries {
@@ -589,10 +589,14 @@ fn push_section_line(section: &mut KernDocSection, line: &str) {
     }
 
     if !section.entries.is_empty() && (line.starts_with(' ') || line.starts_with('\t')) {
+        if let Some(last) = section.entries.last_mut()
+            && !last.body.is_empty()
+        {
+            last.body.push('\n');
+            last.body.push_str(trimmed);
+            return;
+        }
         if let Some(last) = section.entries.last_mut() {
-            if !last.body.is_empty() {
-                last.body.push('\n');
-            }
             last.body.push_str(trimmed);
             return;
         }

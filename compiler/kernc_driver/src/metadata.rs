@@ -207,15 +207,19 @@ fn metadata_lock_contents(output_root: &Path) -> String {
         .unwrap_or_default()
         .as_millis();
     let pid = std::process::id();
-    let mut contents = format!(
+    let contents = format!(
         "pid={}\noutput={}\ncreated_unix_ms={}\n",
         pid,
         output_root.display(),
         created_ms
     );
     #[cfg(unix)]
-    if let Some(start_ticks) = read_process_start_ticks(pid) {
-        contents.push_str(&format!("start_ticks={start_ticks}\n"));
+    {
+        let mut contents = contents;
+        if let Some(start_ticks) = read_process_start_ticks(pid) {
+            contents.push_str(&format!("start_ticks={start_ticks}\n"));
+        }
+        return contents;
     }
     contents
 }
@@ -277,7 +281,8 @@ fn metadata_lock_owner_is_alive(owner: MetadataLockOwner) -> bool {
 }
 
 #[cfg(not(unix))]
-fn metadata_lock_owner_is_alive(_owner: MetadataLockOwner) -> bool {
+fn metadata_lock_owner_is_alive(owner: MetadataLockOwner) -> bool {
+    let _ = owner.pid;
     true
 }
 
@@ -697,6 +702,30 @@ fn quote(value: &str) -> String {
     out
 }
 
+fn parse_quoted(raw: &str) -> Option<String> {
+    if !(raw.starts_with('"') && raw.ends_with('"')) {
+        return None;
+    }
+
+    let mut out = String::new();
+    let mut chars = raw[1..raw.len() - 1].chars();
+    while let Some(ch) = chars.next() {
+        if ch == '\\' {
+            match chars.next()? {
+                '\\' => out.push('\\'),
+                '"' => out.push('"'),
+                'n' => out.push('\n'),
+                'r' => out.push('\r'),
+                't' => out.push('\t'),
+                _ => return None,
+            }
+        } else {
+            out.push(ch);
+        }
+    }
+    Some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::{MetadataOutputLock, metadata_output_lock_path, parse_docs};
@@ -810,28 +839,4 @@ raw = "Line one\nLine two\r\nTabbed\tvalue"
 
         let _ = fs::remove_dir_all(root);
     }
-}
-
-fn parse_quoted(raw: &str) -> Option<String> {
-    if !(raw.starts_with('"') && raw.ends_with('"')) {
-        return None;
-    }
-
-    let mut out = String::new();
-    let mut chars = raw[1..raw.len() - 1].chars();
-    while let Some(ch) = chars.next() {
-        if ch == '\\' {
-            match chars.next()? {
-                '\\' => out.push('\\'),
-                '"' => out.push('"'),
-                'n' => out.push('\n'),
-                'r' => out.push('\r'),
-                't' => out.push('\t'),
-                _ => return None,
-            }
-        } else {
-            out.push(ch);
-        }
-    }
-    Some(out)
 }

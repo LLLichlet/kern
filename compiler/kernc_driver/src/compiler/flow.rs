@@ -4,11 +4,10 @@ mod dataflow;
 
 use self::control::collect_control_facts;
 use self::dataflow::{
-    collect_binding_summaries, collect_def_uses, collect_definition_facts, collect_node_facts,
-    collect_node_transfers, collect_resolved_uses, collect_single_source_uses, collect_use_defs,
-    compute_liveness, compute_reaching_definitions, materialize_liveness,
-    materialize_reaching_definitions, ComputedLiveness,
-    CfgTopology,
+    CfgTopology, ComputedLiveness, collect_binding_summaries, collect_def_uses,
+    collect_definition_facts, collect_node_facts, collect_node_transfers, collect_resolved_uses,
+    collect_single_source_uses, collect_use_defs, compute_liveness, compute_reaching_definitions,
+    materialize_liveness, materialize_reaching_definitions,
 };
 use super::{
     AnalysisDeadStore, AnalysisDeadStoreKind, AnalysisFlowBinding, AnalysisFlowBindingId,
@@ -167,6 +166,14 @@ impl<'a, 'ctx> FlowOwnerOptimizationContext<'a, 'ctx> {
     }
 
     fn collect_elision_facts(&self) -> FlowOwnerElisionFacts {
+        let purity_ctx = FlowBindingPurityContext {
+            ctx: self.ctx,
+            definition_facts: &self.owner.definition_facts,
+            bindings_by_id: &self.bindings_by_id,
+            binding_summaries_by_id: &self.binding_summaries_by_id,
+            owner_exprs: &self.owner_exprs,
+            simple_binding_let_expr_ids: &self.simple_binding_let_expr_ids,
+        };
         let def_use_by_definition = self
             .owner
             .def_uses
@@ -231,14 +238,7 @@ impl<'a, 'ctx> FlowOwnerOptimizationContext<'a, 'ctx> {
             else {
                 continue;
             };
-            if is_elidable_pure_binding(
-                self.ctx,
-                binding.id,
-                &self.bindings_by_id,
-                &self.binding_summaries_by_id,
-                &self.owner_exprs,
-                &self.simple_binding_let_expr_ids,
-            ) {
+            if purity_ctx.is_elidable_pure_binding(binding.id) {
                 facts.elidable_binding_expr_ids.insert(let_expr_id);
             }
         }
@@ -247,6 +247,14 @@ impl<'a, 'ctx> FlowOwnerOptimizationContext<'a, 'ctx> {
     }
 
     fn collect_forwarding_facts(&self) -> FlowOwnerForwardingFacts {
+        let purity_ctx = FlowBindingPurityContext {
+            ctx: self.ctx,
+            definition_facts: &self.owner.definition_facts,
+            bindings_by_id: &self.bindings_by_id,
+            binding_summaries_by_id: &self.binding_summaries_by_id,
+            owner_exprs: &self.owner_exprs,
+            simple_binding_let_expr_ids: &self.simple_binding_let_expr_ids,
+        };
         let mut facts = FlowOwnerForwardingFacts::default();
 
         for binding in &self.owner.bindings {
@@ -258,15 +266,7 @@ impl<'a, 'ctx> FlowOwnerOptimizationContext<'a, 'ctx> {
                 continue;
             };
 
-            if is_forwardable_pure_value_binding(
-                self.ctx,
-                binding.id,
-                &self.owner.definition_facts,
-                &self.bindings_by_id,
-                &self.binding_summaries_by_id,
-                &self.owner_exprs,
-                &self.simple_binding_let_expr_ids,
-            ) {
+            if purity_ctx.is_forwardable_pure_value_binding(binding.id) {
                 facts.forwardable_value_expr_ids.insert(let_expr_id);
             }
 
@@ -421,9 +421,10 @@ impl FlowModel {
         include_analysis_details: bool,
     ) -> Self {
         let mut phase_totals = HashMap::<&'static str, Duration>::new();
-        let record = |totals: &mut HashMap<&'static str, Duration>, name: &'static str, started: Instant| {
-            *totals.entry(name).or_default() += started.elapsed();
-        };
+        let record =
+            |totals: &mut HashMap<&'static str, Duration>, name: &'static str, started: Instant| {
+                *totals.entry(name).or_default() += started.elapsed();
+            };
         let mut owners = Vec::new();
 
         for def in &ctx.defs {
@@ -698,8 +699,10 @@ impl FlowModel {
                         owner.node_transfers = node_transfers;
                         owner.reaching_definitions =
                             materialize_reaching_definitions(&owner.cfg, &computed_reaching);
-                        owner.liveness =
-                            materialize_liveness(&owner.cfg, owner.computed_liveness.as_ref().unwrap());
+                        owner.liveness = materialize_liveness(
+                            &owner.cfg,
+                            owner.computed_liveness.as_ref().unwrap(),
+                        );
                         owner.use_defs = use_defs;
                         owner.resolved_uses = resolved_uses;
                         owner.control_regions = control_regions;
@@ -772,8 +775,10 @@ impl FlowModel {
                         owner.node_transfers = node_transfers;
                         owner.reaching_definitions =
                             materialize_reaching_definitions(&owner.cfg, &computed_reaching);
-                        owner.liveness =
-                            materialize_liveness(&owner.cfg, owner.computed_liveness.as_ref().unwrap());
+                        owner.liveness = materialize_liveness(
+                            &owner.cfg,
+                            owner.computed_liveness.as_ref().unwrap(),
+                        );
                         owner.use_defs = use_defs;
                         owner.resolved_uses = resolved_uses;
                         owner.control_regions = control_regions;
@@ -1430,128 +1435,113 @@ fn resolve_immutable_copy_origin_binding(
     }
 }
 
-fn is_forwardable_pure_value_binding(
-    ctx: &SemaContext<'_>,
-    binding_id: AnalysisFlowBindingId,
-    definition_facts: &[AnalysisFlowDefinitionFacts],
-    bindings_by_id: &HashMap<AnalysisFlowBindingId, &FlowBindingFacts>,
-    binding_summaries_by_id: &HashMap<AnalysisFlowBindingId, &AnalysisFlowBindingSummary>,
-    owner_exprs: &HashMap<kernc_utils::NodeId, &ast::Expr>,
-    simple_binding_let_expr_ids: &HashMap<Span, kernc_utils::NodeId>,
-) -> bool {
-    let mut visiting = HashSet::new();
-    let mut memo = HashMap::new();
-    is_forwardable_pure_value_binding_inner(
-        ctx,
-        binding_id,
-        definition_facts,
-        bindings_by_id,
-        binding_summaries_by_id,
-        owner_exprs,
-        simple_binding_let_expr_ids,
-        &mut visiting,
-        &mut memo,
-    )
+struct FlowBindingPurityContext<'a, 'ctx> {
+    ctx: &'a SemaContext<'ctx>,
+    definition_facts: &'a [AnalysisFlowDefinitionFacts],
+    bindings_by_id: &'a HashMap<AnalysisFlowBindingId, &'a FlowBindingFacts>,
+    binding_summaries_by_id: &'a HashMap<AnalysisFlowBindingId, &'a AnalysisFlowBindingSummary>,
+    owner_exprs: &'a HashMap<kernc_utils::NodeId, &'a ast::Expr>,
+    simple_binding_let_expr_ids: &'a HashMap<Span, kernc_utils::NodeId>,
 }
 
-fn is_elidable_pure_binding(
-    ctx: &SemaContext<'_>,
-    binding_id: AnalysisFlowBindingId,
-    bindings_by_id: &HashMap<AnalysisFlowBindingId, &FlowBindingFacts>,
-    binding_summaries_by_id: &HashMap<AnalysisFlowBindingId, &AnalysisFlowBindingSummary>,
-    owner_exprs: &HashMap<kernc_utils::NodeId, &ast::Expr>,
-    simple_binding_let_expr_ids: &HashMap<Span, kernc_utils::NodeId>,
-) -> bool {
-    let Some(binding) = bindings_by_id.get(&binding_id).copied() else {
-        return false;
-    };
-    if binding.kind != AnalysisFlowBindingKind::Variable || binding.is_mut {
-        return false;
-    }
-
-    let Some(summary) = binding_summaries_by_id.get(&binding_id).copied() else {
-        return false;
-    };
-    if !summary.use_node_ids.is_empty() || summary.definition_node_ids.len() != 1 {
-        return false;
-    }
-
-    let Some(let_expr_id) = simple_binding_let_expr_ids
-        .get(&binding.definition_span)
-        .copied()
-    else {
-        return false;
-    };
-    let Some(let_expr) = owner_exprs.get(&let_expr_id).copied() else {
-        return false;
-    };
-
-    removable_initializer_is_pure(ctx, let_expr)
-}
-
-fn is_forwardable_pure_value_binding_inner(
-    ctx: &SemaContext<'_>,
-    binding_id: AnalysisFlowBindingId,
-    definition_facts: &[AnalysisFlowDefinitionFacts],
-    bindings_by_id: &HashMap<AnalysisFlowBindingId, &FlowBindingFacts>,
-    binding_summaries_by_id: &HashMap<AnalysisFlowBindingId, &AnalysisFlowBindingSummary>,
-    owner_exprs: &HashMap<kernc_utils::NodeId, &ast::Expr>,
-    simple_binding_let_expr_ids: &HashMap<Span, kernc_utils::NodeId>,
-    visiting: &mut HashSet<AnalysisFlowBindingId>,
-    memo: &mut HashMap<AnalysisFlowBindingId, bool>,
-) -> bool {
-    if let Some(result) = memo.get(&binding_id).copied() {
-        return result;
-    }
-    if !visiting.insert(binding_id) {
-        return false;
-    }
-
-    let result = match bindings_by_id.get(&binding_id).copied() {
-        Some(binding) if binding.kind == AnalysisFlowBindingKind::Parameter => !binding.is_mut,
-        Some(binding) if binding.kind == AnalysisFlowBindingKind::Variable && !binding.is_mut => {
-            match binding_summaries_by_id.get(&binding_id).copied() {
-                Some(summary) if summary.definition_node_ids.len() == 1 => {
-                    match simple_binding_let_expr_ids
-                        .get(&binding.definition_span)
-                        .copied()
-                    {
-                        Some(let_expr_id) => match owner_exprs.get(&let_expr_id).copied() {
-                            Some(let_expr) if removable_initializer_is_pure(ctx, let_expr) => {
-                                let definition = definition_facts.iter().find(|facts| {
-                                    facts.definition.binding_id == binding_id
-                                        && facts.definition.node_id
-                                            == summary.definition_node_ids[0]
-                                        && facts.kind == AnalysisFlowDefinitionKind::Initializer
-                                });
-                                definition.is_some_and(|facts| {
-                                    facts.use_binding_ids.iter().all(|used_binding_id| {
-                                        is_forwardable_pure_value_binding_inner(
-                                            ctx,
-                                            *used_binding_id,
-                                            definition_facts,
-                                            bindings_by_id,
-                                            binding_summaries_by_id,
-                                            owner_exprs,
-                                            simple_binding_let_expr_ids,
-                                            visiting,
-                                            memo,
-                                        )
-                                    })
-                                })
-                            }
-                            _ => false,
-                        },
-                        None => false,
-                    }
-                }
-                _ => false,
-            }
+impl FlowBindingPurityContext<'_, '_> {
+    fn is_elidable_pure_binding(&self, binding_id: AnalysisFlowBindingId) -> bool {
+        let Some(binding) = self.bindings_by_id.get(&binding_id).copied() else {
+            return false;
+        };
+        if binding.kind != AnalysisFlowBindingKind::Variable || binding.is_mut {
+            return false;
         }
-        _ => false,
-    };
 
-    visiting.remove(&binding_id);
-    memo.insert(binding_id, result);
-    result
+        let Some(summary) = self.binding_summaries_by_id.get(&binding_id).copied() else {
+            return false;
+        };
+        if !summary.use_node_ids.is_empty() || summary.definition_node_ids.len() != 1 {
+            return false;
+        }
+
+        let Some(let_expr_id) = self
+            .simple_binding_let_expr_ids
+            .get(&binding.definition_span)
+            .copied()
+        else {
+            return false;
+        };
+        let Some(let_expr) = self.owner_exprs.get(&let_expr_id).copied() else {
+            return false;
+        };
+
+        removable_initializer_is_pure(self.ctx, let_expr)
+    }
+
+    fn is_forwardable_pure_value_binding(&self, binding_id: AnalysisFlowBindingId) -> bool {
+        let mut visiting = HashSet::new();
+        let mut memo = HashMap::new();
+        self.is_forwardable_pure_value_binding_inner(binding_id, &mut visiting, &mut memo)
+    }
+
+    fn is_forwardable_pure_value_binding_inner(
+        &self,
+        binding_id: AnalysisFlowBindingId,
+        visiting: &mut HashSet<AnalysisFlowBindingId>,
+        memo: &mut HashMap<AnalysisFlowBindingId, bool>,
+    ) -> bool {
+        if let Some(result) = memo.get(&binding_id).copied() {
+            return result;
+        }
+        if !visiting.insert(binding_id) {
+            return false;
+        }
+
+        let result = match self.bindings_by_id.get(&binding_id).copied() {
+            Some(binding) if binding.kind == AnalysisFlowBindingKind::Parameter => !binding.is_mut,
+            Some(binding)
+                if binding.kind == AnalysisFlowBindingKind::Variable && !binding.is_mut =>
+            {
+                match self.binding_summaries_by_id.get(&binding_id).copied() {
+                    Some(summary) if summary.definition_node_ids.len() == 1 => {
+                        match self
+                            .simple_binding_let_expr_ids
+                            .get(&binding.definition_span)
+                            .copied()
+                        {
+                            Some(let_expr_id) => {
+                                match self.owner_exprs.get(&let_expr_id).copied() {
+                                    Some(let_expr)
+                                        if removable_initializer_is_pure(self.ctx, let_expr) =>
+                                    {
+                                        let definition =
+                                            self.definition_facts.iter().find(|facts| {
+                                                facts.definition.binding_id == binding_id
+                                                    && facts.definition.node_id
+                                                        == summary.definition_node_ids[0]
+                                                    && facts.kind
+                                                        == AnalysisFlowDefinitionKind::Initializer
+                                            });
+                                        definition.is_some_and(|facts| {
+                                            facts.use_binding_ids.iter().all(|used_binding_id| {
+                                                self.is_forwardable_pure_value_binding_inner(
+                                                    *used_binding_id,
+                                                    visiting,
+                                                    memo,
+                                                )
+                                            })
+                                        })
+                                    }
+                                    _ => false,
+                                }
+                            }
+                            None => false,
+                        }
+                    }
+                    _ => false,
+                }
+            }
+            _ => false,
+        };
+
+        visiting.remove(&binding_id);
+        memo.insert(binding_id, result);
+        result
+    }
 }

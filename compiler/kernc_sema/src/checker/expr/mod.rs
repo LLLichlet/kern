@@ -12,6 +12,8 @@ mod control;
 mod literal;
 mod ops;
 
+use access::LetElseClause;
+
 pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) ctx: &'a mut SemaContext<'ctx>,
     pub(crate) current_return_type: Option<TypeId>,
@@ -66,8 +68,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     expr.id,
                     pattern,
                     init,
-                    else_pattern.as_ref(),
-                    else_branch.as_deref(),
+                    else_branch.as_deref().map(|branch| LetElseClause {
+                        pattern: else_pattern.as_ref(),
+                        branch,
+                    }),
                     expected_ty,
                     expr.span,
                 );
@@ -193,8 +197,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if let Some(t_node) = type_node {
                     self.evaluate_dynamic_typeof(t_node);
                 }
-                let ty =
-                    self.check_data_init_expr(type_node.as_deref(), literal, expected_ty, expr.span);
+                let ty = self.check_data_init_expr(
+                    type_node.as_deref(),
+                    literal,
+                    expected_ty,
+                    expr.span,
+                );
                 self.ctx.expr_timing_stats.aggregate += started.elapsed();
                 ty
             }

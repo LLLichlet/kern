@@ -972,13 +972,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 let mut subst_map = HashMap::new();
                                 if let TypeKind::Def(_, impl_args) =
                                     self.ctx.type_registry.get(norm_impl_target).clone()
+                                    && impl_def.generics.len() == impl_args.len()
                                 {
-                                    if impl_def.generics.len() == impl_args.len() {
-                                        for (param, arg) in
-                                            impl_def.generics.iter().zip(base_args.iter().copied())
-                                        {
-                                            subst_map.insert(param.name, arg);
-                                        }
+                                    for (param, arg) in
+                                        impl_def.generics.iter().zip(base_args.iter().copied())
+                                    {
+                                        subst_map.insert(param.name, arg);
                                     }
                                 }
                                 let mut subst =

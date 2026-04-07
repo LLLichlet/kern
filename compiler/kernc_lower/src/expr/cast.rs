@@ -10,6 +10,35 @@ use kernc_sema::def::Def;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
+struct NamedStructAnonRewrite<'a> {
+    def_id: kernc_sema::def::DefId,
+    gen_args: &'a [TypeId],
+    anon_is_extern: bool,
+    anon_fields: &'a [kernc_sema::ty::AnonymousField],
+    fields: Vec<MastExpr>,
+    exp_base: TypeId,
+    span: Span,
+}
+
+struct NamedUnionAnonRewrite<'a> {
+    def_id: kernc_sema::def::DefId,
+    anon_is_extern: bool,
+    anon_fields: &'a [kernc_sema::ty::AnonymousField],
+    field_idx: usize,
+    value: MastExpr,
+    exp_base: TypeId,
+    span: Span,
+}
+
+struct NamedEnumAnonRewrite<'a> {
+    def_id: kernc_sema::def::DefId,
+    anon_enum: &'a kernc_sema::ty::AnonymousEnum,
+    tag_value: u128,
+    payload: MastExpr,
+    exp_base: TypeId,
+    span: Span,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub(crate) fn lower_as_expr(
         &mut self,
@@ -274,40 +303,50 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 TypeKind::AnonymousStruct(is_extern, anon_fields),
                 TypeKind::Def(def_id, gen_args),
                 MastExprKind::StructInit { fields, .. },
-            ) => self.rewrite_named_struct_init_to_anon(
+            ) => self.rewrite_named_struct_init_to_anon(NamedStructAnonRewrite {
                 def_id,
-                &gen_args,
-                is_extern,
-                &anon_fields,
+                gen_args: &gen_args,
+                anon_is_extern: is_extern,
+                anon_fields: &anon_fields,
                 fields,
                 exp_base,
                 span,
-            ),
+            }),
             (
                 TypeKind::AnonymousUnion(is_extern, anon_fields),
                 TypeKind::Def(def_id, gen_args),
                 MastExprKind::UnionInit {
                     field_idx, value, ..
                 },
-            ) => self.rewrite_named_union_init_to_anon(
-                def_id,
-                &gen_args,
-                is_extern,
-                &anon_fields,
-                field_idx,
-                *value,
-                exp_base,
-                span,
-            ),
+            ) => {
+                let _ = gen_args;
+                self.rewrite_named_union_init_to_anon(NamedUnionAnonRewrite {
+                    def_id,
+                    anon_is_extern: is_extern,
+                    anon_fields: &anon_fields,
+                    field_idx,
+                    value: *value,
+                    exp_base,
+                    span,
+                })
+            }
             (
                 TypeKind::AnonymousEnum(anon_enum),
                 TypeKind::Enum(def_id, gen_args),
                 MastExprKind::DataInit {
                     tag_value, payload, ..
                 },
-            ) => self.rewrite_named_enum_init_to_anon(
-                def_id, &gen_args, &anon_enum, tag_value, *payload, exp_base, span,
-            ),
+            ) => {
+                let _ = gen_args;
+                self.rewrite_named_enum_init_to_anon(NamedEnumAnonRewrite {
+                    def_id,
+                    anon_enum: &anon_enum,
+                    tag_value,
+                    payload: *payload,
+                    exp_base,
+                    span,
+                })
+            }
             (
                 TypeKind::AnonymousEnum(anon_enum),
                 TypeKind::Enum(_, _),
@@ -325,60 +364,68 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn rewrite_named_struct_init_to_anon(
         &mut self,
-        def_id: kernc_sema::def::DefId,
-        gen_args: &[TypeId],
-        anon_is_extern: bool,
-        anon_fields: &[kernc_sema::ty::AnonymousField],
-        fields: Vec<MastExpr>,
-        exp_base: TypeId,
-        span: Span,
+        rewrite: NamedStructAnonRewrite<'_>,
     ) -> Option<MastExpr> {
-        let Def::Struct(struct_def) = self.ctx.defs.get(def_id.0 as usize).cloned()? else {
+        let Def::Struct(struct_def) = self.ctx.defs.get(rewrite.def_id.0 as usize).cloned()? else {
             return None;
         };
-        if struct_def.is_extern != anon_is_extern {
+        if struct_def.is_extern != rewrite.anon_is_extern {
             return None;
         }
 
         let physical_to_ast = {
             let mut layout = LayoutEngine::new(self.ctx);
-            let (_, physical_to_ast) = layout.get_struct_mapping(def_id, gen_args, 0);
+            let (_, physical_to_ast) =
+                layout.get_struct_mapping(rewrite.def_id, rewrite.gen_args, 0);
             physical_to_ast
         };
-        if physical_to_ast.len() != fields.len() {
+        if physical_to_ast.len() != rewrite.fields.len() {
             self.ctx.emit_ice(
-                span,
+                rewrite.span,
                 "Kern ICE (Lowering): named/anonymous struct field count mismatch during implicit aggregate decay.",
             );
-            return Some(MastExpr::new(exp_base, MastExprKind::Trap, span));
+            return Some(MastExpr::new(
+                rewrite.exp_base,
+                MastExprKind::Trap,
+                rewrite.span,
+            ));
         }
 
         let source_by_name = physical_to_ast
             .iter()
             .enumerate()
-            .map(|(phys_idx, &ast_idx)| (struct_def.fields[ast_idx].name, fields[phys_idx].clone()))
+            .map(|(phys_idx, &ast_idx)| {
+                (
+                    struct_def.fields[ast_idx].name,
+                    rewrite.fields[phys_idx].clone(),
+                )
+            })
             .collect::<HashMap<_, _>>();
 
-        let struct_id = self.instantiate_anon_struct(exp_base);
+        let struct_id = self.instantiate_anon_struct(rewrite.exp_base);
         let anon_physical_to_ast = {
             let mut layout = LayoutEngine::new(self.ctx);
             let (_, anon_physical_to_ast) =
-                layout.get_anon_struct_mapping(anon_is_extern, anon_fields, 0);
+                layout.get_anon_struct_mapping(rewrite.anon_is_extern, rewrite.anon_fields, 0);
             anon_physical_to_ast
         };
 
-        let mut rewritten_fields = Vec::with_capacity(anon_fields.len());
+        let mut rewritten_fields = Vec::with_capacity(rewrite.anon_fields.len());
         for &ast_idx in &anon_physical_to_ast {
-            let field = &anon_fields[ast_idx];
+            let field = &rewrite.anon_fields[ast_idx];
             let Some(source_expr) = source_by_name.get(&field.name).cloned() else {
                 self.ctx.emit_ice(
-                    span,
+                    rewrite.span,
                     format!(
                         "Kern ICE (Lowering): missing source field `{}` during implicit anonymous struct decay.",
                         self.ctx.resolve(field.name)
                     ),
                 );
-                return Some(MastExpr::new(exp_base, MastExprKind::Trap, span));
+                return Some(MastExpr::new(
+                    rewrite.exp_base,
+                    MastExprKind::Trap,
+                    rewrite.span,
+                ));
             };
             rewritten_fields.push(self.apply_implicit_cast(
                 source_expr.kind,
@@ -389,111 +436,120 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         Some(MastExpr::new(
-            exp_base,
+            rewrite.exp_base,
             MastExprKind::StructInit {
                 struct_id,
                 fields: rewritten_fields,
             },
-            span,
+            rewrite.span,
         ))
     }
 
     fn rewrite_named_union_init_to_anon(
         &mut self,
-        def_id: kernc_sema::def::DefId,
-        _gen_args: &[TypeId],
-        anon_is_extern: bool,
-        anon_fields: &[kernc_sema::ty::AnonymousField],
-        field_idx: usize,
-        value: MastExpr,
-        exp_base: TypeId,
-        span: Span,
+        rewrite: NamedUnionAnonRewrite<'_>,
     ) -> Option<MastExpr> {
-        let Def::Union(union_def) = self.ctx.defs.get(def_id.0 as usize).cloned()? else {
+        let Def::Union(union_def) = self.ctx.defs.get(rewrite.def_id.0 as usize).cloned()? else {
             return None;
         };
-        if union_def.is_extern != anon_is_extern {
+        if union_def.is_extern != rewrite.anon_is_extern {
             return None;
         }
 
-        let Some(source_field) = union_def.fields.get(field_idx) else {
+        let Some(source_field) = union_def.fields.get(rewrite.field_idx) else {
             self.ctx.emit_ice(
-                span,
+                rewrite.span,
                 "Kern ICE (Lowering): named union field index out of bounds during implicit aggregate decay.",
             );
-            return Some(MastExpr::new(exp_base, MastExprKind::Trap, span));
+            return Some(MastExpr::new(
+                rewrite.exp_base,
+                MastExprKind::Trap,
+                rewrite.span,
+            ));
         };
-        let Some(target_idx) = anon_fields
+        let Some(target_idx) = rewrite
+            .anon_fields
             .iter()
             .position(|field| field.name == source_field.name)
         else {
             self.ctx.emit_ice(
-                span,
+                rewrite.span,
                 format!(
                     "Kern ICE (Lowering): missing target field `{}` during implicit anonymous union decay.",
                     self.ctx.resolve(source_field.name)
                 ),
             );
-            return Some(MastExpr::new(exp_base, MastExprKind::Trap, span));
+            return Some(MastExpr::new(
+                rewrite.exp_base,
+                MastExprKind::Trap,
+                rewrite.span,
+            ));
         };
 
-        let union_id = self.instantiate_anon_union(exp_base);
-        let target_field_ty = anon_fields[target_idx].ty;
-        let rewritten_value =
-            self.apply_implicit_cast(value.kind, value.ty, target_field_ty, value.span);
+        let union_id = self.instantiate_anon_union(rewrite.exp_base);
+        let target_field_ty = rewrite.anon_fields[target_idx].ty;
+        let rewritten_value = self.apply_implicit_cast(
+            rewrite.value.kind,
+            rewrite.value.ty,
+            target_field_ty,
+            rewrite.value.span,
+        );
 
         Some(MastExpr::new(
-            exp_base,
+            rewrite.exp_base,
             MastExprKind::UnionInit {
                 union_id,
                 field_idx: target_idx,
                 value: Box::new(rewritten_value),
             },
-            span,
+            rewrite.span,
         ))
     }
 
     fn rewrite_named_enum_init_to_anon(
         &mut self,
-        def_id: kernc_sema::def::DefId,
-        _gen_args: &[TypeId],
-        anon_enum: &kernc_sema::ty::AnonymousEnum,
-        tag_value: u128,
-        payload: MastExpr,
-        exp_base: TypeId,
-        span: Span,
+        rewrite: NamedEnumAnonRewrite<'_>,
     ) -> Option<MastExpr> {
-        let Def::Enum(_) = self.ctx.defs.get(def_id.0 as usize).cloned()? else {
+        let Def::Enum(_) = self.ctx.defs.get(rewrite.def_id.0 as usize).cloned()? else {
             return None;
         };
 
         let Some(target_payload_ty) =
-            self.anon_enum_payload_ty_for_tag(anon_enum, tag_value as i128)
+            self.anon_enum_payload_ty_for_tag(rewrite.anon_enum, rewrite.tag_value as i128)
         else {
             self.ctx.emit_ice(
-                span,
+                rewrite.span,
                 format!(
                     "Kern ICE (Lowering): missing anonymous enum variant for tag `{}` during implicit aggregate decay.",
-                    tag_value
+                    rewrite.tag_value
                 ),
             );
-            return Some(MastExpr::new(exp_base, MastExprKind::Trap, span));
+            return Some(MastExpr::new(
+                rewrite.exp_base,
+                MastExprKind::Trap,
+                rewrite.span,
+            ));
         };
 
         let payload = if let Some(target_payload_ty) = target_payload_ty {
-            self.apply_implicit_cast(payload.kind, payload.ty, target_payload_ty, payload.span)
+            self.apply_implicit_cast(
+                rewrite.payload.kind,
+                rewrite.payload.ty,
+                target_payload_ty,
+                rewrite.payload.span,
+            )
         } else {
-            payload
+            rewrite.payload
         };
 
         Some(MastExpr::new(
-            exp_base,
+            rewrite.exp_base,
             MastExprKind::DataInit {
-                data_struct_id: self.instantiate_anon_enum(exp_base),
-                tag_value,
+                data_struct_id: self.instantiate_anon_enum(rewrite.exp_base),
+                tag_value: rewrite.tag_value,
                 payload: Box::new(payload),
             },
-            span,
+            rewrite.span,
         ))
     }
 

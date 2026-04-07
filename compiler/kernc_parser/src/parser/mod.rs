@@ -90,7 +90,7 @@ impl<'a> Parser<'a> {
 
     fn match_token(&mut self, tags: &[TokenType]) -> bool {
         let current = self.peek().tag;
-        if tags.iter().any(|&tag| current == tag) {
+        if tags.contains(&current) {
             self.advance();
             return true;
         }
@@ -104,7 +104,7 @@ impl<'a> Parser<'a> {
         self.advance();
 
         let next = self.peek().tag;
-        !end_tags.iter().any(|&tag| next == tag)
+        !end_tags.contains(&next)
     }
 
     /// Consume one token and report a synchronized parse error on mismatch.

@@ -362,7 +362,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             match &*def_ptr {
                 Def::Struct(struct_def) => {
                     for field in &struct_def.fields {
-                        if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                        if !field.is_pub
+                            && def_owner_module_id(self.ctx, def_id) != current_module_id
+                        {
                             continue;
                         }
 
@@ -386,7 +388,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 }
                 Def::Union(union_def) => {
                     for field in &union_def.fields {
-                        if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
+                        if !field.is_pub
+                            && def_owner_module_id(self.ctx, def_id) != current_module_id
+                        {
                             continue;
                         }
 
@@ -421,7 +425,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         member_name: SymbolId,
         access_span: Span,
     ) -> Option<MemberCandidate> {
-        let def_ptr = self.ctx.defs.get(def_id.0 as usize).map(std::ptr::from_ref)?;
+        let def_ptr = self
+            .ctx
+            .defs
+            .get(def_id.0 as usize)
+            .map(std::ptr::from_ref)?;
 
         // Safety: semantic definition storage is immutable while member queries run.
         unsafe {
@@ -704,14 +712,15 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         let impl_count = checker.ctx.global_impls.len();
         for impl_index in 0..impl_count {
             let impl_id = checker.ctx.global_impls[impl_index];
-            let Some(impl_ptr) = checker
-                .ctx
-                .defs
-                .get(impl_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                    _ => None,
-                })
+            let Some(impl_ptr) =
+                checker
+                    .ctx
+                    .defs
+                    .get(impl_id.0 as usize)
+                    .and_then(|def| match def {
+                        Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                        _ => None,
+                    })
             else {
                 continue;
             };
@@ -811,21 +820,24 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .defs
                 .get(method_id.0 as usize)
                 .and_then(|def| match def {
-                    Def::Function(function) => function.parent.map(|parent| (parent, function.name_span)),
+                    Def::Function(function) => {
+                        function.parent.map(|parent| (parent, function.name_span))
+                    }
                     _ => None,
                 })
             else {
                 continue;
             };
 
-            let Some(impl_ptr) = checker
-                .ctx
-                .defs
-                .get(impl_id.0 as usize)
-                .and_then(|def| match def {
-                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                    _ => None,
-                })
+            let Some(impl_ptr) =
+                checker
+                    .ctx
+                    .defs
+                    .get(impl_id.0 as usize)
+                    .and_then(|def| match def {
+                        Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                        _ => None,
+                    })
             else {
                 continue;
             };
@@ -935,14 +947,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return;
         }
 
-        let Some(trait_ptr) = self
-            .ctx
-            .defs
-            .get(trait_def_id.0 as usize)
-            .and_then(|def| match def {
-                Def::Trait(trait_def) => Some(std::ptr::from_ref(trait_def)),
-                _ => None,
-            })
+        let Some(trait_ptr) =
+            self.ctx
+                .defs
+                .get(trait_def_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Trait(trait_def) => Some(std::ptr::from_ref(trait_def)),
+                    _ => None,
+                })
         else {
             return;
         };
@@ -986,7 +998,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     kind: SymbolKind::Function,
                     type_id: method_ty,
                     def_id: None,
-                    definition_span: trait_method_span(&trait_def, *method_name),
+                    definition_span: trait_method_span(trait_def, *method_name),
                     is_mut: false,
                 },
             );
@@ -1028,17 +1040,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return None;
         }
 
-        let Some(trait_ptr) = self
+        let trait_ptr = self
             .ctx
             .defs
             .get(trait_def_id.0 as usize)
             .and_then(|def| match def {
                 Def::Trait(trait_def) => Some(std::ptr::from_ref(trait_def)),
                 _ => None,
-            })
-        else {
-            return None;
-        };
+            })?;
         // Safety: trait definitions are immutable during member resolution.
         let trait_def = unsafe { &*trait_ptr };
         let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
@@ -1082,7 +1091,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     kind: SymbolKind::Function,
                     type_id: method_ty,
                     def_id: None,
-                    definition_span: trait_method_span(&trait_def, member_name),
+                    definition_span: trait_method_span(trait_def, member_name),
                     is_mut: false,
                 },
                 owner_trait_ty: Some(

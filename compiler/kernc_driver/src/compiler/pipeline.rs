@@ -1,9 +1,9 @@
+#[cfg(test)]
+use super::flow::FlowModel;
 use super::{
     CompileReport, CompilerDriver, PhaseTiming, SourceOverrides, StructureArtifact,
     StructureCacheKey,
 };
-#[cfg(test)]
-use super::flow::FlowModel;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -77,15 +77,13 @@ impl CompilerDriver {
             .map(|file| file.path.clone())
             .collect::<Vec<_>>();
 
-        let Some(mast_module) = Self::measure_phase(&mut phase_timings, "lower", || {
+        let mast_module = Self::measure_phase(&mut phase_timings, "lower", || {
             self.lower_module_with_flow(
                 &mut ctx,
                 &body_pipeline.flow_lowering_hints,
                 &body_pipeline.lowered_module_items,
             )
-        }) else {
-            return None;
-        };
+        })?;
         let mast_workload = mast_module.workload_stats();
 
         if let Some(metadata_output) = self.options.metadata_output.as_deref()
@@ -180,7 +178,7 @@ impl CompilerDriver {
         if linked {
             Self::print_buffered_diagnostics(ctx.sess);
         }
-        linked.then(|| CompileReport {
+        linked.then_some(CompileReport {
             loaded_sources,
             phase_timings,
             mast_workload: Some(mast_workload),

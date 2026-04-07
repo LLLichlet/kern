@@ -21,7 +21,6 @@ struct BuiltinTraitSpec<'a> {
 struct BuiltinOperatorTrait<'a> {
     name: &'a str,
     method_name: &'a str,
-    intrinsic_name: &'a str,
 }
 
 #[derive(Clone, Copy)]
@@ -59,77 +58,62 @@ const BINARY_OPERATOR_TRAITS: &[BuiltinOperatorTrait<'_>] = &[
     BuiltinOperatorTrait {
         name: "Eq",
         method_name: "eq",
-        intrinsic_name: "@eq",
     },
     BuiltinOperatorTrait {
         name: "Lt",
         method_name: "lt",
-        intrinsic_name: "@lt",
     },
     BuiltinOperatorTrait {
         name: "Le",
         method_name: "le",
-        intrinsic_name: "@le",
     },
     BuiltinOperatorTrait {
         name: "Gt",
         method_name: "gt",
-        intrinsic_name: "@gt",
     },
     BuiltinOperatorTrait {
         name: "Ge",
         method_name: "ge",
-        intrinsic_name: "@ge",
     },
     BuiltinOperatorTrait {
         name: "Add",
         method_name: "add",
-        intrinsic_name: "@add",
     },
     BuiltinOperatorTrait {
         name: "Sub",
         method_name: "sub",
-        intrinsic_name: "@sub",
     },
     BuiltinOperatorTrait {
         name: "Mul",
         method_name: "mul",
-        intrinsic_name: "@mul",
     },
     BuiltinOperatorTrait {
         name: "Div",
         method_name: "div",
-        intrinsic_name: "@div",
     },
     BuiltinOperatorTrait {
         name: "Rem",
         method_name: "rem",
-        intrinsic_name: "@rem",
     },
     BuiltinOperatorTrait {
         name: "BitAnd",
         method_name: "bit_and",
-        intrinsic_name: "@bitAnd",
     },
     BuiltinOperatorTrait {
         name: "BitOr",
         method_name: "bit_or",
-        intrinsic_name: "@bitOr",
     },
     BuiltinOperatorTrait {
         name: "BitXor",
         method_name: "bit_xor",
-        intrinsic_name: "@bitXor",
     },
     BuiltinOperatorTrait {
         name: "Shl",
         method_name: "shl",
-        intrinsic_name: "@shl",
     },
     BuiltinOperatorTrait {
         name: "Shr",
         method_name: "shr",
-        intrinsic_name: "@shr",
     },
 ];
 
@@ -137,17 +121,14 @@ const UNARY_OPERATOR_TRAITS: &[BuiltinOperatorTrait<'_>] = &[
     BuiltinOperatorTrait {
         name: "Neg",
         method_name: "neg",
-        intrinsic_name: "@neg",
     },
     BuiltinOperatorTrait {
         name: "BitNot",
         method_name: "bit_not",
-        intrinsic_name: "@bitNot",
     },
     BuiltinOperatorTrait {
         name: "Not",
         method_name: "not",
-        intrinsic_name: "@not",
     },
 ];
 
@@ -473,7 +454,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         trait_name: &str,
         trait_args: Vec<TypeId>,
         method_name: &str,
-        _method_intrinsic_name: &str,
         explicit_param_tys: Vec<TypeId>,
         ret_ty: TypeId,
     ) {
@@ -627,7 +607,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 descriptor.name,
                 vec![ty],
                 descriptor.method_name,
-                descriptor.intrinsic_name,
                 vec![ty],
                 TypeId::BOOL,
             );
@@ -645,7 +624,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 descriptor.name,
                 vec![ty, ty],
                 descriptor.method_name,
-                descriptor.intrinsic_name,
                 vec![ty],
                 ty,
             );
@@ -663,7 +641,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
                 descriptor.name,
                 vec![ty, ty],
                 descriptor.method_name,
-                descriptor.intrinsic_name,
                 vec![ty],
                 ty,
             );
@@ -680,7 +657,6 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             descriptor.name,
             vec![ty],
             descriptor.method_name,
-            descriptor.intrinsic_name,
             vec![],
             ty,
         );

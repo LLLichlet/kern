@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const ACTION_STATE_VERSION: u32 = 1;
+const ACTION_STATE_VERSION: u32 = 2;
 
 static CURRENT_PROCESS_DIGEST: OnceLock<String> = OnceLock::new();
 static FILE_DIGEST_CACHE: OnceLock<Mutex<HashMap<PathBuf, FileDigestCacheEntry>>> = OnceLock::new();
@@ -22,6 +22,8 @@ pub(crate) struct ActionState {
 struct ActionStatePath {
     path: PathBuf,
     digest: String,
+    len: Option<u64>,
+    modified_nanos: Option<u128>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -55,7 +57,14 @@ pub(crate) fn current_process_digest() -> Result<String> {
     }
 
     let exe = std::env::current_exe().map_err(Error::from_io_plain)?;
-    let digest = digest_file_contents(&exe)?;
+    let metadata = fs::metadata(&exe).map_err(|err| Error::from_io(&exe, err))?;
+    let modified_nanos =
+        metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
+    let digest = hash_string(&format!(
+        "exe={};len={};modified={modified_nanos}",
+        exe.display(),
+        metadata.len()
+    ));
     let _ = CURRENT_PROCESS_DIGEST.set(digest.clone());
     Ok(digest)
 }
@@ -94,7 +103,7 @@ pub(crate) fn action_state_is_current(primary_output: &Path, fingerprint: &str) 
     }
 
     for entry in state.inputs.iter().chain(&state.outputs) {
-        if !path_matches_digest(&entry.path, &entry.digest)? {
+        if !path_matches_digest(&entry.path, entry)? {
             return Ok(false);
         }
     }
@@ -123,7 +132,7 @@ fn load_action_state(path: &Path) -> Result<Option<ActionState>> {
 fn collect_state_paths(paths: &[PathBuf]) -> Result<Vec<ActionStatePath>> {
     let mut entries = Vec::with_capacity(paths.len());
     for path in paths {
-        let Some(digest) = digest_path(path)? else {
+        let Some((digest, len, modified_nanos)) = digest_path(path)? else {
             return Err(Error::Execution(format!(
                 "cannot record build state for missing path `{}`",
                 path.display()
@@ -132,26 +141,55 @@ fn collect_state_paths(paths: &[PathBuf]) -> Result<Vec<ActionStatePath>> {
         entries.push(ActionStatePath {
             path: normalize_state_path(path),
             digest,
+            len,
+            modified_nanos,
         });
     }
     Ok(entries)
 }
 
-fn digest_path(path: &Path) -> Result<Option<String>> {
+fn digest_path(path: &Path) -> Result<Option<(String, Option<u64>, Option<u128>)>> {
     if !path.exists() {
         return Ok(None);
     }
     if path.is_file() {
-        return Ok(Some(digest_file_cached(path)?));
+        let metadata = fs::metadata(path).map_err(|err| Error::from_io(path, err))?;
+        let modified_nanos =
+            metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
+        return Ok(Some((
+            digest_file_cached(path)?,
+            Some(metadata.len()),
+            Some(modified_nanos),
+        )));
     }
     if path.is_dir() {
-        return Ok(Some(format!("fnv1a64:{:016x}", digest_tree(path)?)));
+        return Ok(Some((
+            format!("fnv1a64:{:016x}", digest_tree(path)?),
+            None,
+            None,
+        )));
     }
     Ok(None)
 }
 
-fn path_matches_digest(path: &Path, expected: &str) -> Result<bool> {
-    Ok(digest_path(path)?.as_deref() == Some(expected))
+fn path_matches_digest(path: &Path, entry: &ActionStatePath) -> Result<bool> {
+    if let (Some(expected_len), Some(expected_modified_nanos)) = (entry.len, entry.modified_nanos) {
+        let metadata = match fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(false),
+            Err(err) => return Err(Error::from_io(path, err)),
+        };
+        let modified_nanos =
+            metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
+        if metadata.is_file()
+            && metadata.len() == expected_len
+            && modified_nanos == expected_modified_nanos
+        {
+            return Ok(true);
+        }
+    }
+
+    Ok(digest_path(path)?.map(|(digest, _, _)| digest) == Some(entry.digest.clone()))
 }
 
 fn digest_tree(root: &Path) -> Result<u64> {
@@ -202,7 +240,8 @@ fn invalidate_file_digest(path: &Path) {
 
 fn digest_file_cached(path: &Path) -> Result<String> {
     let metadata = fs::metadata(path).map_err(|err| Error::from_io(path, err))?;
-    let modified_nanos = metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
+    let modified_nanos =
+        metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
     let len = metadata.len();
 
     let cache = file_digest_cache();
@@ -257,6 +296,8 @@ impl ActionState {
                         state.inputs.push(ActionStatePath {
                             path: PathBuf::new(),
                             digest: String::new(),
+                            len: None,
+                            modified_nanos: None,
                         });
                         Section::Input(state.inputs.len() - 1)
                     }
@@ -264,6 +305,8 @@ impl ActionState {
                         state.outputs.push(ActionStatePath {
                             path: PathBuf::new(),
                             digest: String::new(),
+                            len: None,
+                            modified_nanos: None,
                         });
                         Section::Output(state.outputs.len() - 1)
                     }
@@ -330,6 +373,23 @@ impl ActionState {
                                 ))
                             })?
                         }
+                        "len" => {
+                            entry.len = Some(parse_u64(raw_value).map_err(|message| {
+                                Error::Execution(format!(
+                                    "failed to parse build state `{}`: {message}",
+                                    path.display()
+                                ))
+                            })?)
+                        }
+                        "modified-nanos" => {
+                            entry.modified_nanos =
+                                Some(parse_u128(raw_value).map_err(|message| {
+                                    Error::Execution(format!(
+                                        "failed to parse build state `{}`: {message}",
+                                        path.display()
+                                    ))
+                                })?)
+                        }
                         _ => {
                             return Err(Error::Execution(format!(
                                 "failed to parse build state `{}`: unsupported [[input]] key `{key}`",
@@ -358,6 +418,23 @@ impl ActionState {
                                     path.display()
                                 ))
                             })?
+                        }
+                        "len" => {
+                            entry.len = Some(parse_u64(raw_value).map_err(|message| {
+                                Error::Execution(format!(
+                                    "failed to parse build state `{}`: {message}",
+                                    path.display()
+                                ))
+                            })?)
+                        }
+                        "modified-nanos" => {
+                            entry.modified_nanos =
+                                Some(parse_u128(raw_value).map_err(|message| {
+                                    Error::Execution(format!(
+                                        "failed to parse build state `{}`: {message}",
+                                        path.display()
+                                    ))
+                                })?)
                         }
                         _ => {
                             return Err(Error::Execution(format!(
@@ -389,12 +466,24 @@ impl ActionState {
             out.push_str("\n[[input]]\n");
             push_string_line(&mut out, "path", &entry.path.to_string_lossy());
             push_string_line(&mut out, "digest", &entry.digest);
+            if let Some(len) = entry.len {
+                out.push_str(&format!("len = {len}\n"));
+            }
+            if let Some(modified_nanos) = entry.modified_nanos {
+                out.push_str(&format!("modified-nanos = {modified_nanos}\n"));
+            }
         }
 
         for entry in &self.outputs {
             out.push_str("\n[[output]]\n");
             push_string_line(&mut out, "path", &entry.path.to_string_lossy());
             push_string_line(&mut out, "digest", &entry.digest);
+            if let Some(len) = entry.len {
+                out.push_str(&format!("len = {len}\n"));
+            }
+            if let Some(modified_nanos) = entry.modified_nanos {
+                out.push_str(&format!("modified-nanos = {modified_nanos}\n"));
+            }
         }
 
         out
@@ -406,6 +495,8 @@ mod tests {
     use super::{action_state_is_current, record_action_state};
     use std::fs;
     use std::path::PathBuf;
+    use std::thread;
+    use std::time::Duration;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(prefix: &str) -> PathBuf {
@@ -436,6 +527,30 @@ mod tests {
 
         assert!(action_state_is_current(&output, "fingerprint").unwrap());
         fs::write(&output, "changed-output").unwrap();
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn action_state_detects_same_size_file_changes() {
+        let root = temp_dir("craft-build-state-same-size");
+        let input = root.join("input.txt");
+        let output = root.join("output.txt");
+
+        fs::write(&input, "input").unwrap();
+        fs::write(&output, "alpha").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+
+        assert!(action_state_is_current(&output, "fingerprint").unwrap());
+        thread::sleep(Duration::from_millis(20));
+        fs::write(&output, "bravo").unwrap();
         assert!(!action_state_is_current(&output, "fingerprint").unwrap());
 
         let _ = fs::remove_dir_all(root);
@@ -495,6 +610,18 @@ fn split_key_value(line: &str) -> std::result::Result<(&str, &str), String> {
 fn parse_u32(raw: &str) -> std::result::Result<u32, String> {
     raw.trim()
         .parse::<u32>()
+        .map_err(|_| format!("expected unsigned integer, found `{}`", raw.trim()))
+}
+
+fn parse_u64(raw: &str) -> std::result::Result<u64, String> {
+    raw.trim()
+        .parse::<u64>()
+        .map_err(|_| format!("expected unsigned integer, found `{}`", raw.trim()))
+}
+
+fn parse_u128(raw: &str) -> std::result::Result<u128, String> {
+    raw.trim()
+        .parse::<u128>()
         .map_err(|_| format!("expected unsigned integer, found `{}`", raw.trim()))
 }
 

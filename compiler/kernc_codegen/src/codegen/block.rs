@@ -5,6 +5,26 @@ use crate::values::{BasicValueEnum, FunctionValue, PointerValue};
 use kernc_mast::{MastBlock, MastFunction, MastStmt};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn record_alloca_site(&mut self, name: &str) {
+        if name.starts_with("arg_") {
+            self.alloca_stats.params += 1;
+        } else if name.starts_with("let_") {
+            self.alloca_stats.lets += 1;
+        } else if name == "tmp_addrof" {
+            self.alloca_stats.addr_of_temps += 1;
+        } else if name == "tmp_materialized_lvalue" {
+            self.alloca_stats.materialized_lvalues += 1;
+        } else if name == "tmp_array_for_slice" {
+            self.alloca_stats.array_to_slice_temps += 1;
+        } else if name == "union_init" {
+            self.alloca_stats.union_inits += 1;
+        } else if name == "data_union_init" {
+            self.alloca_stats.data_union_inits += 1;
+        } else {
+            self.alloca_stats.other += 1;
+        }
+    }
+
     fn current_insert_block(&mut self, context: &str) -> Option<BasicBlock<'ctx>> {
         match self.builder.get_insert_block() {
             Some(block) => Some(block),
@@ -201,6 +221,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         llvm_ty: BasicTypeEnum<'ctx>,
         name: &str,
     ) -> PointerValue<'ctx> {
+        self.record_alloca_site(name);
         let builder = self.context.create_builder();
 
         // Recover the function currently being built.

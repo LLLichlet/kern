@@ -39,6 +39,7 @@ pub struct CompileReport {
     pub mast_workload: Option<kernc_mast::MastWorkloadStats>,
     pub ir_instruction_stats: Option<kernc_codegen::IrInstructionStats>,
     pub ir_hot_functions: Vec<kernc_codegen::IrFunctionStats>,
+    pub codegen_alloca_stats: kernc_codegen::CodegenAllocaStats,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

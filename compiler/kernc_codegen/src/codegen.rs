@@ -46,6 +46,7 @@ pub struct CodegenReport {
     pub timings: Vec<CodegenTiming>,
     pub ir_stats: IrInstructionStats,
     pub ir_hot_functions: Vec<IrFunctionStats>,
+    pub alloca_stats: CodegenAllocaStats,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -81,6 +82,18 @@ pub struct IrFunctionStats {
     pub compares: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CodegenAllocaStats {
+    pub params: usize,
+    pub lets: usize,
+    pub addr_of_temps: usize,
+    pub materialized_lvalues: usize,
+    pub array_to_slice_temps: usize,
+    pub union_inits: usize,
+    pub data_union_inits: usize,
+    pub other: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmitObjectTiming {
     pub name: &'static str,
@@ -106,6 +119,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     globals: HashMap<MonoId, GlobalValue<'ctx>>,
     functions: HashMap<MonoId, FunctionValue<'ctx>>,
     function_ret_tys: HashMap<MonoId, TypeId>,
+    alloca_stats: CodegenAllocaStats,
 
     locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
     loop_targets: Vec<(
@@ -219,6 +233,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             globals: HashMap::new(),
             functions: HashMap::new(),
             function_ret_tys: HashMap::new(),
+            alloca_stats: CodegenAllocaStats::default(),
             locals: HashMap::new(),
             loop_targets: Vec::new(),
             asm_dialect: InlineAsmDialect::Intel,
@@ -294,6 +309,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let (ir_stats, ir_hot_functions) = self.collect_ir_instruction_stats();
         report.ir_stats = ir_stats;
         report.ir_hot_functions = ir_hot_functions;
+        report.alloca_stats = self.alloca_stats;
 
         report
     }

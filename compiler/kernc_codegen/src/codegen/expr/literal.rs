@@ -7,6 +7,28 @@ use kernc_mast::{MastExpr, MonoId};
 use kernc_sema::ty::TypeId;
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn pack_union_runtime_value(
+        &mut self,
+        union_llvm_ty: crate::types::StructType<'ctx>,
+        value: BasicValueEnum<'ctx>,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        if union_llvm_ty.count_fields() != 1 {
+            return None;
+        }
+        let field_ty = union_llvm_ty.get_field_type_at_index(0)?;
+        if field_ty != value.get_type() {
+            return None;
+        }
+
+        Some(
+            self.builder
+                .build_insert_value(union_llvm_ty.get_undef(), value, 0, "union_insert")
+                .ok()?
+                .into_struct_value()
+                .into(),
+        )
+    }
+
     pub(crate) fn compile_struct_init(
         &mut self,
         struct_id: MonoId,
@@ -38,13 +60,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         value: &MastExpr,
     ) -> BasicValueEnum<'ctx> {
         let union_llvm_ty = *self.structs.get(&union_id).unwrap();
-        let alloca =
-            self.create_entry_block_alloca(union_llvm_ty.as_basic_type_enum(), "union_init");
-
         let val = self.compile_expr(value);
         if self.current_block_is_terminated() {
             return union_llvm_ty.as_basic_type_enum().const_zero();
         }
+        if let Some(packed) = self.pack_union_runtime_value(union_llvm_ty, val) {
+            return packed;
+        }
+
+        let alloca =
+            self.create_entry_block_alloca(union_llvm_ty.as_basic_type_enum(), "union_init");
         self.builder.build_store(alloca, val).unwrap();
 
         self.builder
@@ -67,23 +92,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .into_int_type();
         let tag_val = tag_llvm_ty.const_int(tag_value as u64, false);
 
-        let union_llvm_ty = struct_llvm_ty.get_field_type_at_index(1).unwrap();
-        let union_alloca = self.create_entry_block_alloca(union_llvm_ty, "data_union_init");
+        let union_llvm_ty = struct_llvm_ty.get_field_type_at_index(1).unwrap().into_struct_type();
 
         // Store the payload into the union storage.
-        if payload.ty != TypeId::VOID && payload.ty != TypeId::ERROR {
+        let union_val = if payload.ty != TypeId::VOID && payload.ty != TypeId::ERROR {
             let payload_val = self.compile_expr(payload);
             if self.current_block_is_terminated() {
                 return struct_llvm_ty.as_basic_type_enum().const_zero();
             }
-            self.builder.build_store(union_alloca, payload_val).unwrap();
-        }
-
-        // Reload the union as a whole value.
-        let union_val = self
-            .builder
-            .build_load(union_llvm_ty, union_alloca, "data_union_load")
-            .unwrap();
+            if let Some(packed) = self.pack_union_runtime_value(union_llvm_ty, payload_val) {
+                packed.into_struct_value()
+            } else {
+                let union_alloca =
+                    self.create_entry_block_alloca(union_llvm_ty.into(), "data_union_init");
+                self.builder.build_store(union_alloca, payload_val).unwrap();
+                self.builder
+                    .build_load(union_llvm_ty, union_alloca, "data_union_load")
+                    .unwrap()
+                    .into_struct_value()
+            }
+        } else {
+            union_llvm_ty.const_zero()
+        };
 
         // Assemble the final `{ tag, union }` struct.
         let mut data_struct = struct_llvm_ty.const_zero();

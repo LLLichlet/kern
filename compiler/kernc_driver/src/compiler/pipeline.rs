@@ -47,6 +47,7 @@ impl CompilerDriver {
                     Self::print_lower_cache_stats(report.lower_cache_stats);
                     Self::print_mast_workload(report.mast_workload.as_ref());
                     Self::print_ir_instruction_stats(report.ir_instruction_stats.as_ref());
+                    Self::print_codegen_alloca_stats(report.codegen_alloca_stats);
                     Self::print_ir_hot_functions(report.ir_hot_functions.as_slice());
                 }
                 true
@@ -68,6 +69,7 @@ impl CompilerDriver {
                 mast_workload: None,
                 ir_instruction_stats: None,
                 ir_hot_functions: Vec::new(),
+                codegen_alloca_stats: Default::default(),
             });
         }
 
@@ -157,6 +159,7 @@ impl CompilerDriver {
                         mast_workload: Some(mast_workload),
                         ir_instruction_stats: Some(codegen_report.ir_stats),
                         ir_hot_functions: codegen_report.ir_hot_functions,
+                        codegen_alloca_stats: codegen_report.alloca_stats,
                     })
                 }
                 Err(err) => {
@@ -200,6 +203,7 @@ impl CompilerDriver {
                 mast_workload: Some(mast_workload),
                 ir_instruction_stats: Some(codegen_report.ir_stats),
                 ir_hot_functions: codegen_report.ir_hot_functions,
+                codegen_alloca_stats: codegen_report.alloca_stats,
             });
         }
 
@@ -217,6 +221,7 @@ impl CompilerDriver {
             mast_workload: Some(mast_workload),
             ir_instruction_stats: Some(codegen_report.ir_stats),
             ir_hot_functions: codegen_report.ir_hot_functions,
+            codegen_alloca_stats: codegen_report.alloca_stats,
         })
     }
 
@@ -496,6 +501,34 @@ impl CompilerDriver {
                 function.returns,
                 function.compares,
             );
+        }
+    }
+
+    pub(super) fn print_codegen_alloca_stats(
+        codegen_alloca_stats: kernc_codegen::CodegenAllocaStats,
+    ) {
+        if codegen_alloca_stats == kernc_codegen::CodegenAllocaStats::default() {
+            return;
+        }
+
+        println!("Codegen alloca stats:");
+        for (name, value) in [
+            ("  params", codegen_alloca_stats.params),
+            ("  lets", codegen_alloca_stats.lets),
+            ("  addr_of_temps", codegen_alloca_stats.addr_of_temps),
+            (
+                "  materialized_lvalues",
+                codegen_alloca_stats.materialized_lvalues,
+            ),
+            (
+                "  array_to_slice_temps",
+                codegen_alloca_stats.array_to_slice_temps,
+            ),
+            ("  union_inits", codegen_alloca_stats.union_inits),
+            ("  data_union_inits", codegen_alloca_stats.data_union_inits),
+            ("  other", codegen_alloca_stats.other),
+        ] {
+            println!("  {:<22} {}", name, value);
         }
     }
 

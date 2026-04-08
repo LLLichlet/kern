@@ -35,6 +35,7 @@ pub struct CompileReport {
     pub loaded_sources: Vec<PathBuf>,
     pub phase_timings: Vec<PhaseTiming>,
     pub cache_stats: CompileCacheStats,
+    pub lower_cache_stats: Option<kernc_lower::LowerCacheStats>,
     pub mast_workload: Option<kernc_mast::MastWorkloadStats>,
 }
 

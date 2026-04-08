@@ -22,6 +22,7 @@ use crate::metadata;
 struct LoweredModuleReport {
     module: kernc_mast::MastModule,
     phase_timings: Vec<PhaseTiming>,
+    cache_stats: kernc_lower::LowerCacheStats,
 }
 
 impl CompilerDriver {
@@ -43,6 +44,7 @@ impl CompilerDriver {
                 if self.options.report_timings {
                     Self::print_phase_timings(&report.phase_timings);
                     Self::print_cache_stats(report.cache_stats);
+                    Self::print_lower_cache_stats(report.lower_cache_stats);
                     Self::print_mast_workload(report.mast_workload.as_ref());
                 }
                 true
@@ -60,6 +62,7 @@ impl CompilerDriver {
                 loaded_sources: Vec::new(),
                 phase_timings,
                 cache_stats: self.cache_stats_since(cache_snapshot),
+                lower_cache_stats: None,
                 mast_workload: None,
             });
         }
@@ -142,6 +145,7 @@ impl CompilerDriver {
                         loaded_sources,
                         phase_timings,
                         cache_stats: self.cache_stats_since(cache_snapshot),
+                        lower_cache_stats: Some(lowered.cache_stats),
                         mast_workload: Some(mast_workload),
                     })
                 }
@@ -182,6 +186,7 @@ impl CompilerDriver {
                 loaded_sources,
                 phase_timings,
                 cache_stats: self.cache_stats_since(cache_snapshot),
+                lower_cache_stats: Some(lowered.cache_stats),
                 mast_workload: Some(mast_workload),
             });
         }
@@ -196,6 +201,7 @@ impl CompilerDriver {
             loaded_sources,
             phase_timings,
             cache_stats: self.cache_stats_since(cache_snapshot),
+            lower_cache_stats: Some(lowered.cache_stats),
             mast_workload: Some(mast_workload),
         })
     }
@@ -286,6 +292,7 @@ impl CompilerDriver {
                     duration: timing.duration,
                 })
                 .collect(),
+            cache_stats: report.cache_stats,
         })
     }
 
@@ -365,6 +372,27 @@ impl CompilerDriver {
             ("  collected_hit", cache_stats.collected_hits),
             ("  collected_miss", cache_stats.collected_misses),
             ("  frontend_parse", cache_stats.fresh_frontend_parses),
+        ] {
+            println!("  {:<18} {}", name, value);
+        }
+    }
+
+    pub(super) fn print_lower_cache_stats(lower_cache_stats: Option<kernc_lower::LowerCacheStats>) {
+        let Some(lower_cache_stats) = lower_cache_stats else {
+            return;
+        };
+        if lower_cache_stats.is_empty() {
+            return;
+        }
+
+        println!("Lowering cache stats:");
+        for (name, value) in [
+            ("  mono_fn_hit", lower_cache_stats.mono_function_hits),
+            ("  mono_fn_miss", lower_cache_stats.mono_function_misses),
+            ("  mono_struct_hit", lower_cache_stats.mono_struct_hits),
+            ("  mono_struct_miss", lower_cache_stats.mono_struct_misses),
+            ("  mono_data_hit", lower_cache_stats.mono_data_hits),
+            ("  mono_data_miss", lower_cache_stats.mono_data_misses),
         ] {
             println!("  {:<18} {}", name, value);
         }

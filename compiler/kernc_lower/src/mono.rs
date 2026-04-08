@@ -128,10 +128,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn instantiate_function(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
-        let key = (def_id, args.to_vec());
-        if let Some(&id) = self.mono_cache.get(&key) {
+        let key = self.measure_phase("  lower_mono_fn_key", |_this| (def_id, args.to_vec()));
+        if let Some(id) = self.measure_phase("  lower_mono_fn_lookup", |this| {
+            this.mono_cache.get(&key).copied()
+        }) {
+            self.cache_stats.mono_function_hits += 1;
             return id;
         }
+        self.cache_stats.mono_function_misses += 1;
         self.measure_phase("  lower_instantiate_function", |this| {
             let id = this.new_mono_id();
             this.mono_cache.insert(key, id);
@@ -294,10 +298,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn instantiate_struct(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
-        let key = (def_id, args.to_vec());
-        if let Some(&id) = self.mono_cache.get(&key) {
+        let key = self.measure_phase("  lower_mono_struct_key", |_this| (def_id, args.to_vec()));
+        if let Some(id) = self.measure_phase("  lower_mono_struct_lookup", |this| {
+            this.mono_cache.get(&key).copied()
+        }) {
+            self.cache_stats.mono_struct_hits += 1;
             return id;
         }
+        self.cache_stats.mono_struct_misses += 1;
         self.measure_phase("  lower_instantiate_struct", |this| {
             let id = this.new_mono_id();
             this.mono_cache.insert(key, id);
@@ -648,10 +656,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     }
 
     pub(crate) fn instantiate_data(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
-        let key = (def_id, args.to_vec());
-        if let Some(&id) = self.mono_cache.get(&key) {
+        let key = self.measure_phase("  lower_mono_data_key", |_this| (def_id, args.to_vec()));
+        if let Some(id) = self.measure_phase("  lower_mono_data_lookup", |this| {
+            this.mono_cache.get(&key).copied()
+        }) {
+            self.cache_stats.mono_data_hits += 1;
             return id;
         }
+        self.cache_stats.mono_data_misses += 1;
         self.measure_phase("  lower_instantiate_data", |this| {
             let wrapper_id = this.new_mono_id();
             let payload_union_id = this.new_mono_id();

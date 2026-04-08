@@ -28,10 +28,27 @@ pub struct LowerTiming {
     pub duration: Duration,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct LowerCacheStats {
+    pub mono_function_hits: usize,
+    pub mono_function_misses: usize,
+    pub mono_struct_hits: usize,
+    pub mono_struct_misses: usize,
+    pub mono_data_hits: usize,
+    pub mono_data_misses: usize,
+}
+
+impl LowerCacheStats {
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct LowerReport {
     pub module: MastModule,
     pub phase_timings: Vec<LowerTiming>,
+    pub cache_stats: LowerCacheStats,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -94,6 +111,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) flow_lowering_hints: FlowLoweringHints,
     pub(crate) current_owner_def_id: Option<DefId>,
     phase_totals: HashMap<&'static str, Duration>,
+    cache_stats: LowerCacheStats,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -140,6 +158,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             flow_lowering_hints: FlowLoweringHints::default(),
             current_owner_def_id: None,
             phase_totals: HashMap::new(),
+            cache_stats: LowerCacheStats::default(),
         }
     }
 
@@ -487,6 +506,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         LowerReport {
             module,
             phase_timings,
+            cache_stats: self.cache_stats,
         }
     }
 

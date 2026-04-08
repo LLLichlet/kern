@@ -93,6 +93,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) mono_cache: HashMap<(DefId, Vec<TypeId>), MonoId>,
     pub(crate) pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
     pub(crate) next_mono_id: u32,
+    pub(crate) pending_function_instantiations: Vec<(DefId, Vec<TypeId>, MonoId)>,
     pub(crate) defer_stack: Vec<Vec<MastExpr>>,
     pub(crate) global_map: HashMap<DefId, MonoId>,
     pub(crate) global_symbol_map: HashMap<SymbolId, MonoId>,
@@ -140,6 +141,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             mono_cache: HashMap::new(),
             pure_enum_tag_map: HashMap::new(),
             next_mono_id: 1,
+            pending_function_instantiations: Vec::new(),
             defer_stack: Vec::new(),
             global_map: HashMap::new(),
             global_symbol_map: HashMap::new(),
@@ -473,6 +475,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
             }
         }
+
+        self.drain_pending_function_instantiations();
 
         self.module.def_mono_map = self.mono_cache.clone();
         self.module.pure_enum_tag_map = self.pure_enum_tag_map.clone();

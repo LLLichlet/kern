@@ -92,15 +92,12 @@ pub fn derive(
         &host_target,
         &target_target,
     );
-    let workspace_manifest_path = elaboration.resolved_graph.workspace_root.join("Craft.toml");
-    let workspace_manifest = Manifest::load(&workspace_manifest_path)?;
-    workspace_manifest.validate(&workspace_manifest_path)?;
     let external_tool_index = build_external_tool_index(
         &packages,
         &elaboration.resolved_graph.workspace_root,
         &host_target,
-        &workspace_manifest_path,
-        &workspace_manifest,
+        &elaboration.resolved_graph.workspace_root.join("Craft.toml"),
+        &elaboration.manifest,
         elaboration.profile_selection,
     )?;
     for package in &mut packages {

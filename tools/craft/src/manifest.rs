@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Manifest {
     pub package: Option<Package>,
     pub craft: Option<CraftConfig>,
@@ -21,7 +21,7 @@ pub struct Manifest {
     pub workspace: Option<Workspace>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Package {
     pub name: String,
     pub version: String,
@@ -36,7 +36,7 @@ pub struct Package {
     pub documentation: Option<String>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct CraftConfig {
     pub env: Vec<String>,
     pub release_source_policy: Option<ReleaseSourcePolicy>,
@@ -69,12 +69,12 @@ pub struct RuntimeConfig {
     pub bundle: Option<LibraryBundle>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct LibTarget {
     pub root: String,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct NamedTarget {
     pub name: String,
     pub root: String,
@@ -101,26 +101,26 @@ pub struct DetailedDependency {
     pub features: Vec<String>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Profiles {
     pub dev: Option<Profile>,
     pub release: Option<Profile>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Profile {
     pub opt: Option<u8>,
     pub debug: Option<bool>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct Workspace {
     pub members: Vec<String>,
     pub package: Option<WorkspacePackage>,
     pub dependencies: BTreeMap<String, DependencySpec>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct WorkspacePackage {
     pub version: Option<String>,
     pub description: Option<String>,

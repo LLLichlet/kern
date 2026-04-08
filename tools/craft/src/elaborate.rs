@@ -42,6 +42,8 @@ pub struct PackageElaboration {
 pub struct ElaborationPlan {
     pub has_workspace: bool,
     pub profile_selection: script::ProfileSelection,
+    pub manifest: Manifest,
+    pub package_graph: graph::PackageGraph,
     pub resolved_graph: ResolvedGraph,
     pub workspace_script: Option<ScriptInput>,
     pub packages: Vec<PackageElaboration>,
@@ -236,6 +238,8 @@ pub fn plan(
     Ok(ElaborationPlan {
         has_workspace,
         profile_selection: feature_selection.profile,
+        manifest: manifest.clone(),
+        package_graph,
         resolved_graph,
         workspace_script,
         packages,

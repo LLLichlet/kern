@@ -235,6 +235,7 @@ fn run_command(command: Command) -> Result<()> {
                 &feature_selection,
             );
             let edge_count = loaded
+                .elaboration
                 .package_graph
                 .packages
                 .iter()
@@ -370,6 +371,7 @@ fn run_command(command: Command) -> Result<()> {
             let (lock_path, lock_result) =
                 lockfile::sync_lockfile(&loaded.manifest_path, &loaded.elaboration)?;
             let edge_count = loaded
+                .elaboration
                 .package_graph
                 .packages
                 .iter()
@@ -392,7 +394,7 @@ fn run_command(command: Command) -> Result<()> {
                 "graph",
                 format!(
                     "{} package(s), {} edge(s), {} external package(s)",
-                    loaded.package_graph.packages.len(),
+                    loaded.elaboration.package_graph.packages.len(),
                     edge_count,
                     loaded.elaboration.resolved_graph.external_packages.len()
                 ),
@@ -818,7 +820,6 @@ struct LoadedPackageGraph {
     manifest_path: PathBuf,
     manifest: Manifest,
     workspace_members: Vec<workspace::WorkspaceMember>,
-    package_graph: graph::PackageGraph,
     elaboration: elaborate::ElaborationPlan,
 }
 
@@ -842,18 +843,12 @@ fn load_locked_package_graph(
         command,
         feature_selection,
     )?;
-    let package_graph = graph::build_graph_from_plans(
-        &manifest_path,
-        &manifest,
-        elaboration.packages.iter().map(|pkg| &pkg.plan),
-    )?;
 
     Ok((
         LoadedPackageGraph {
             manifest_path,
             manifest,
             workspace_members,
-            package_graph,
             elaboration,
         },
         workspace_lock,

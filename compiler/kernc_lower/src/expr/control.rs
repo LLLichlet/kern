@@ -873,11 +873,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         expected_ty: TypeId,
     ) -> MastBlock {
-        self.defer_stack.push(Vec::new());
-        self.local_types.push(HashMap::new());
-        self.local_forwardings.push(HashMap::new());
-        self.local_value_forwardings.push(HashMap::new());
-        self.local_statics.push(HashMap::new());
+        self.measure_phase("      lower_block_scope_push", |this| {
+            this.defer_stack.push(Vec::new());
+            this.local_types.push(HashMap::new());
+            this.local_forwardings.push(HashMap::new());
+            this.local_value_forwardings.push(HashMap::new());
+            this.local_statics.push(HashMap::new());
+        });
 
         let mut stmts = Vec::new();
         let mut result = None;
@@ -887,13 +889,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             result: ast_res,
         } = &block_expr.kind
         {
-            for stmt in ast_stmts {
-                match &stmt.kind {
-                    ast::StmtKind::ExprStmt(e) | ast::StmtKind::ExprValue(e) => {
-                        self.lower_block_stmt(e, subst_map, &mut stmts);
+            self.measure_phase("      lower_block_stmts", |this| {
+                for stmt in ast_stmts {
+                    match &stmt.kind {
+                        ast::StmtKind::ExprStmt(e) | ast::StmtKind::ExprValue(e) => {
+                            this.lower_block_stmt(e, subst_map, &mut stmts);
+                        }
                     }
                 }
-            }
+            });
             if let Some(res) = ast_res {
                 result = Some(Box::new(
                     self.measure_phase("      lower_block_result", |this| {
@@ -917,10 +921,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             defers.push(d); // Preserve LIFO order in a dedicated array.
         }
 
-        self.local_types.pop();
-        self.local_forwardings.pop();
-        self.local_value_forwardings.pop();
-        self.local_statics.pop();
+        self.measure_phase("      lower_block_scope_pop", |this| {
+            this.local_types.pop();
+            this.local_forwardings.pop();
+            this.local_value_forwardings.pop();
+            this.local_statics.pop();
+        });
         MastBlock {
             stmts,
             result,

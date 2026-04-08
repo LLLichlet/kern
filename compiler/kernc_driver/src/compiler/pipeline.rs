@@ -319,18 +319,33 @@ impl CompilerDriver {
         }));
 
         if self.options.driver_mode.emits_linker_input() {
+            let merged_output_path = self.make_temp_relocatable_merge_path();
+            let merged_output_guard = super::TempFileGuard {
+                path: merged_output_path.clone(),
+            };
             let merged = Self::measure_phase(&mut phase_timings, "merge_object", || {
                 self.run_relocatable_link_command(
                     &object_paths,
                     &target,
+                    &merged_output_path,
                     &self.options.output_file,
                     "Successfully emitted linker input",
                 )
             });
             drop(object_guards);
             if !merged {
+                drop(merged_output_guard);
                 return None;
             }
+            if let Err(err) = std::fs::rename(&merged_output_path, &self.options.output_file) {
+                eprintln!(
+                    "Error: Failed to stage merged linker input `{}`: {}",
+                    self.options.output_file, err
+                );
+                drop(merged_output_guard);
+                return None;
+            }
+            drop(merged_output_guard);
             Self::print_buffered_diagnostics(ctx.sess);
             return Some(Self::build_compile_report(
                 loaded_sources,

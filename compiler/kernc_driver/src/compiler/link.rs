@@ -101,6 +101,7 @@ impl CompilerDriver {
         inputs: &[String],
         target: &LinkTarget,
         output_path: &str,
+        display_output_path: &str,
         success_prefix: &str,
     ) -> bool {
         if inputs.is_empty() {
@@ -124,7 +125,7 @@ impl CompilerDriver {
         match cmd.status() {
             Ok(status) if status.success() => {
                 if self.options.report_progress {
-                    println!("{} to `{}`", success_prefix, output_path);
+                    println!("{} to `{}`", success_prefix, display_output_path);
                 }
                 true
             }
@@ -149,6 +150,10 @@ impl CompilerDriver {
 
     pub(super) fn make_temp_codegen_unit_path(&self, unit_name: &str) -> String {
         format!("{}.tmp.{}.o", self.options.output_file, unit_name)
+    }
+
+    pub(super) fn make_temp_relocatable_merge_path(&self) -> String {
+        format!("{}.tmp.merge.o", self.options.output_file)
     }
 
     fn resolve_linker_driver(&self, is_windows: bool) -> String {

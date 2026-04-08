@@ -24,6 +24,14 @@ pub(crate) fn ensure_parent_dir(path: &Path) -> Result<()> {
 
 pub(crate) fn write_file_atomic(path: &Path, contents: impl AsRef<[u8]>) -> Result<()> {
     ensure_parent_dir(path)?;
+    let contents = contents.as_ref();
+
+    match fs::read(path) {
+        Ok(existing) if existing == contents => return Ok(()),
+        Ok(_) => {}
+        Err(err) if err.kind() == ErrorKind::NotFound => {}
+        Err(err) => return Err(Error::from_io(path, err)),
+    }
 
     let temp_path = atomic_temp_path(path);
     let write_result = fs::write(&temp_path, contents);
@@ -161,6 +169,23 @@ mod tests {
         write_file_atomic(&path, "version = 2\n").unwrap();
 
         assert_eq!(fs::read_to_string(&path).unwrap(), "version = 2\n");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn atomic_write_skips_unchanged_contents() {
+        let root = temp_dir("craft-local-state-atomic-skip");
+        let path = root.join(".craft").join("analysis.toml");
+
+        write_file_atomic(&path, "version = 1\n").unwrap();
+        let before = fs::metadata(&path).unwrap().modified().unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+
+        write_file_atomic(&path, "version = 1\n").unwrap();
+        let after = fs::metadata(&path).unwrap().modified().unwrap();
+
+        assert_eq!(before, after);
 
         let _ = fs::remove_dir_all(root);
     }

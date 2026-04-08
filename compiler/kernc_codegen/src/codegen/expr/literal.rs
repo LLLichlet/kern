@@ -64,10 +64,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         match value {
             BasicValueEnum::StructValue(struct_val) => {
                 let struct_ty = struct_val.get_type();
-                if struct_ty.count_fields() != array_ty.len() {
+                if struct_ty.count_fields() > array_ty.len() {
                     return None;
                 }
-                for idx in 0..array_ty.len() {
+                for idx in 0..struct_ty.count_fields() {
                     let field_val = self
                         .builder
                         .build_extract_value(struct_val, idx, "union_field")
@@ -83,10 +83,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             BasicValueEnum::ArrayValue(array_val_in) => {
                 let value_ty = array_val_in.get_type();
-                if value_ty.len() != array_ty.len() {
+                if value_ty.len() > array_ty.len() {
                     return None;
                 }
-                for idx in 0..array_ty.len() {
+                for idx in 0..value_ty.len() {
                     let elem_val = self
                         .builder
                         .build_extract_value(array_val_in, idx, "union_elem")
@@ -101,9 +101,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 Some(array_val.into())
             }
             value => {
-                if array_ty.len() != 1 {
-                    return None;
-                }
                 let chunk = self.pack_union_storage_chunk(value, elem_ty, "union_chunk")?;
                 Some(
                     self.builder

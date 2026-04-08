@@ -7,8 +7,8 @@ use crate::graph::{BuildDomain, PackageId};
 use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use kernc_driver::{
-    CompileCacheStats, CompileReport, CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE,
-    PhaseTiming, load_kmeta_manifest,
+    CodegenPlanReport, CompileCacheStats, CompileReport, CompilerDriver, IncrementalDriverKey,
+    KMETA_MANIFEST_FILE, PhaseTiming, load_kmeta_manifest,
 };
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
@@ -96,6 +96,7 @@ pub struct ActionTiming {
     pub label: String,
     pub phase_timings: Vec<PhaseTiming>,
     pub cache_stats: CompileCacheStats,
+    pub codegen_plan: Option<CodegenPlanReport>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -148,8 +149,9 @@ impl ExecutionSummary {
         label: impl Into<String>,
         phase_timings: Vec<PhaseTiming>,
         cache_stats: CompileCacheStats,
+        codegen_plan: Option<CodegenPlanReport>,
     ) {
-        if phase_timings.is_empty() && cache_stats.is_empty() {
+        if phase_timings.is_empty() && cache_stats.is_empty() && codegen_plan.is_none() {
             return;
         }
 
@@ -170,6 +172,7 @@ impl ExecutionSummary {
             label: label.into(),
             phase_timings,
             cache_stats,
+            codegen_plan,
         });
     }
 
@@ -411,7 +414,10 @@ struct ParallelTargetLinkResult {
 }
 
 pub(super) fn runtime_profile_key(profile: &crate::script::ScriptProfile) -> String {
-    format!("{}-opt{}-debug{}", profile.name, profile.opt, profile.debug)
+    format!(
+        "{}-opt{}-debug{}-cgu{}",
+        profile.name, profile.opt, profile.debug, profile.codegen_units
+    )
 }
 
 pub(super) fn compile_with_shared_driver(
@@ -936,6 +942,7 @@ fn compile_action_options(
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
         opt_level: profile_opt_level(&action.profile),
+        codegen_units: action.profile.codegen_units,
         split_sections_for_gc: true,
         ..default_target_compile_options(action.target_kind)
     };
@@ -991,6 +998,7 @@ fn build_compile_action_if_needed(
         compile_action_label(action),
         report.phase_timings,
         report.cache_stats,
+        report.codegen_plan,
     );
     Ok(true)
 }
@@ -1069,6 +1077,7 @@ fn build_link_action_if_needed(
         link_action_label(action),
         report.phase_timings,
         report.cache_stats,
+        report.codegen_plan,
     );
     Ok(true)
 }

@@ -79,8 +79,8 @@ fn runtime_profile_root(
 
 fn runtime_profile_label(profile: &crate::script::ScriptProfile) -> String {
     format!(
-        "{} (opt={}, debug={})",
-        profile.name, profile.opt, profile.debug
+        "{} (opt={}, debug={}, cgu={})",
+        profile.name, profile.opt, profile.debug, profile.codegen_units
     )
 }
 
@@ -189,6 +189,7 @@ pub(super) fn build_std_package(
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
         opt_level: runtime_opt_level(profile),
+        codegen_units: profile.codegen_units,
         library_bundle: LibraryBundle::Std,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -211,6 +212,7 @@ pub(super) fn build_std_package(
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
+        format!("codegen_units={}", profile.codegen_units),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -245,6 +247,7 @@ pub(super) fn build_std_package(
             std_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
+            report.codegen_plan,
         );
     } else {
         execution_summary.record_compile_cache_hit();
@@ -307,6 +310,7 @@ pub(super) fn build_rt_package(
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
         opt_level: runtime_opt_level(profile),
+        codegen_units: profile.codegen_units,
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
@@ -323,6 +327,7 @@ pub(super) fn build_rt_package(
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
+        format!("codegen_units={}", profile.codegen_units),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -352,6 +357,7 @@ pub(super) fn build_rt_package(
             rt_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
+            report.codegen_plan,
         );
     } else {
         execution_summary.record_compile_cache_hit();
@@ -400,6 +406,7 @@ pub(super) fn build_base_package(
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
         opt_level: runtime_opt_level(profile),
+        codegen_units: profile.codegen_units,
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -417,6 +424,7 @@ pub(super) fn build_base_package(
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
+        format!("codegen_units={}", profile.codegen_units),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -446,6 +454,7 @@ pub(super) fn build_base_package(
             base_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
+            report.codegen_plan,
         );
     } else {
         execution_summary.record_compile_cache_hit();
@@ -496,6 +505,7 @@ pub(super) fn build_sys_package(
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
         opt_level: runtime_opt_level(profile),
+        codegen_units: profile.codegen_units,
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -518,6 +528,7 @@ pub(super) fn build_sys_package(
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
+        format!("codegen_units={}", profile.codegen_units),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -549,6 +560,7 @@ pub(super) fn build_sys_package(
             sys_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
+            report.codegen_plan,
         );
     } else {
         execution_summary.record_compile_cache_hit();
@@ -594,6 +606,7 @@ pub(super) fn build_rt_entry_package(
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
         opt_level: runtime_opt_level(profile),
+        codegen_units: profile.codegen_units,
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
@@ -614,6 +627,7 @@ pub(super) fn build_rt_entry_package(
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
+        format!("codegen_units={}", profile.codegen_units),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
@@ -643,6 +657,7 @@ pub(super) fn build_rt_entry_package(
             rt_entry_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
+            report.codegen_plan,
         );
     } else {
         execution_summary.record_compile_cache_hit();

@@ -11,7 +11,7 @@ impl CompilerDriver {
         }
 
         let target = self.normalized_target();
-        self.run_link_command(None, &target, "Successfully linked")
+        self.run_link_command_with_inputs(&[], &target, "Successfully linked")
     }
 
     pub(super) fn normalized_target(&self) -> LinkTarget {
@@ -55,10 +55,23 @@ impl CompilerDriver {
         target: &LinkTarget,
         success_prefix: &str,
     ) -> bool {
+        let extra_inputs = link_input_path
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        self.run_link_command_with_inputs(&extra_inputs, target, success_prefix)
+    }
+
+    pub(super) fn run_link_command_with_inputs(
+        &self,
+        extra_inputs: &[String],
+        target: &LinkTarget,
+        success_prefix: &str,
+    ) -> bool {
         if self.options.report_progress {
             println!("Linking for target: {} ...", target.triple);
         }
-        let mut cmd = self.build_link_command(link_input_path, target);
+        let mut cmd = self.build_link_command(extra_inputs, target);
         self.maybe_print_link_command(&cmd);
 
         match cmd.status() {
@@ -83,8 +96,59 @@ impl CompilerDriver {
         }
     }
 
-    fn make_temp_link_input_path(&self) -> String {
+    pub(super) fn run_relocatable_link_command(
+        &self,
+        inputs: &[String],
+        target: &LinkTarget,
+        output_path: &str,
+        success_prefix: &str,
+    ) -> bool {
+        if inputs.is_empty() {
+            eprintln!("Error: relocatable link requires at least one input object.");
+            return false;
+        }
+
+        if target.is_windows {
+            eprintln!(
+                "Error: multi-object compile-only emission is not supported for Windows targets yet."
+            );
+            return false;
+        }
+
+        if self.options.report_progress {
+            println!("Merging linker inputs for target: {} ...", target.triple);
+        }
+        let mut cmd = self.build_relocatable_link_command(inputs, target, output_path);
+        self.maybe_print_link_command(&cmd);
+
+        match cmd.status() {
+            Ok(status) if status.success() => {
+                if self.options.report_progress {
+                    println!("{} to `{}`", success_prefix, output_path);
+                }
+                true
+            }
+            Ok(status) => {
+                eprintln!("Error: Relocatable linker failed with exit code {}", status);
+                false
+            }
+            Err(err) => {
+                let cc_compiler = self.resolve_linker_driver(target.is_windows);
+                eprintln!(
+                    "Error: Failed to invoke relocatable linker (`{}`). Make sure Clang or GCC is in your PATH. ({})",
+                    cc_compiler, err
+                );
+                false
+            }
+        }
+    }
+
+    pub(super) fn make_temp_link_input_path(&self) -> String {
         format!("{}.tmp.o", self.options.output_file)
+    }
+
+    pub(super) fn make_temp_codegen_unit_path(&self, unit_name: &str) -> String {
+        format!("{}.tmp.{}.o", self.options.output_file, unit_name)
     }
 
     fn resolve_linker_driver(&self, is_windows: bool) -> String {
@@ -95,12 +159,12 @@ impl CompilerDriver {
         }
     }
 
-    fn build_link_command(&self, link_input_path: Option<&str>, target: &LinkTarget) -> Command {
+    fn build_link_command(&self, extra_inputs: &[String], target: &LinkTarget) -> Command {
         let cc_compiler = self.resolve_linker_driver(target.is_windows);
         let mut cmd = Command::new(&cc_compiler);
 
-        if let Some(link_input_path) = link_input_path {
-            cmd.arg(link_input_path);
+        for input in extra_inputs {
+            cmd.arg(input);
         }
 
         for input in &self.options.linker_inputs {
@@ -125,6 +189,22 @@ impl CompilerDriver {
 
         self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
 
+        cmd
+    }
+
+    fn build_relocatable_link_command(
+        &self,
+        inputs: &[String],
+        target: &LinkTarget,
+        output_path: &str,
+    ) -> Command {
+        let cc_compiler = self.resolve_linker_driver(target.is_windows);
+        let mut cmd = Command::new(&cc_compiler);
+        cmd.arg("-r");
+        for input in inputs {
+            cmd.arg(input);
+        }
+        cmd.arg("-o").arg(output_path);
         cmd
     }
 

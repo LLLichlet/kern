@@ -23,7 +23,7 @@ pub use compiler::{
     AnalysisSymbolKind, AnalysisUnusedBinding, AnalysisUnusedBindingKind, AnalysisUnusedItem,
     AnalysisUnusedItemKind, CompileCacheStats, CompileReport, ImportedStructureArtifact,
     IncrementalDriverKey, ParsedModuleArtifact, PhaseTiming, SourceOverrides, StructureArtifact,
-    TargetedAnalysisReport,
+    TargetedAnalysisReport, CodegenPlanFallback, CodegenPlanReport,
 };
 pub use doc::{KernDoc, KernDocEntry, KernDocSection, KernDocSectionKind, KmetaDocItem};
 pub use metadata::{

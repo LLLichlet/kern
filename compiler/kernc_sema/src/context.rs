@@ -451,6 +451,66 @@ impl<'a> SemaContext<'a> {
         })
     }
 
+    fn def_source_name(&self, def_id: DefId) -> String {
+        self.defs[def_id.0 as usize]
+            .name()
+            .map(|name_sym| self.resolve(name_sym).to_string())
+            .unwrap_or_else(|| format!("AnonDef{}", def_id.0))
+    }
+
+    fn def_parent_for_path(&self, def_id: DefId) -> Option<DefId> {
+        match &self.defs[def_id.0 as usize] {
+            Def::Module(module) => module.parent,
+            Def::Function(function) => function.parent,
+            Def::Global(global) => global.parent,
+            Def::Impl(impl_def) => impl_def.parent_module,
+            Def::Struct(_)
+            | Def::Union(_)
+            | Def::Enum(_)
+            | Def::Trait(_)
+            | Def::TypeAlias(_) => self.def_parent_module(def_id),
+        }
+    }
+
+    fn parent_path_components(&self, mut parent_id: Option<DefId>) -> Vec<String> {
+        let mut path_components = Vec::new();
+        while let Some(def_id) = parent_id {
+            match &self.defs[def_id.0 as usize] {
+                Def::Module(module) => {
+                    path_components.push(self.resolve(module.name).to_string());
+                    parent_id = module.parent;
+                }
+                Def::Impl(impl_def) => {
+                    let target_ty = self
+                        .node_types
+                        .get(&impl_def.target_type.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    path_components.push(self.mangle_type(target_ty));
+                    parent_id = impl_def.parent_module;
+                }
+                _ => break,
+            }
+        }
+        path_components
+    }
+
+    fn def_qualified_name(&self, def_id: DefId) -> String {
+        let base_name = self.def_source_name(def_id);
+        let path_components = self.parent_path_components(self.def_parent_for_path(def_id));
+        if path_components.is_empty() {
+            return base_name;
+        }
+
+        let mut qualified = String::from("Q");
+        for component in path_components.into_iter().rev() {
+            qualified.push_str(&format!("{}{}", component.len(), component));
+        }
+        qualified.push_str(&format!("{}{}", base_name.len(), base_name));
+        qualified.push('E');
+        qualified
+    }
+
     /// Generate a deterministic mangling suffix for a semantic type.
     pub fn mangle_type(&self, ty: TypeId) -> String {
         let norm_ty = self.type_registry.normalize(ty);
@@ -510,12 +570,7 @@ impl<'a> SemaContext<'a> {
             crate::ty::TypeKind::Def(def_id, gen_args)
             | crate::ty::TypeKind::Enum(def_id, gen_args)
             | crate::ty::TypeKind::TraitObject(def_id, gen_args) => {
-                let def = &self.defs[def_id.0 as usize];
-                let base_name = if let Some(n) = def.name() {
-                    self.resolve(n).to_string()
-                } else {
-                    format!("AnonDef{}", def_id.0)
-                };
+                let base_name = self.def_qualified_name(def_id);
 
                 if gen_args.is_empty() {
                     base_name
@@ -542,12 +597,7 @@ impl<'a> SemaContext<'a> {
                 s
             }
             crate::ty::TypeKind::FnDef(def_id, gen_args) => {
-                let def = &self.defs[def_id.0 as usize];
-                let base_name = if let Some(n) = def.name() {
-                    self.resolve(n).to_string()
-                } else {
-                    format!("AnonFn{}", def_id.0)
-                };
+                let base_name = self.def_qualified_name(def_id);
                 if gen_args.is_empty() {
                     base_name
                 } else {
@@ -630,20 +680,18 @@ impl<'a> SemaContext<'a> {
     /// Compute the final exported linker symbol for a definition instance.
     pub fn get_export_name(&self, def_id: DefId, args: &[TypeId]) -> String {
         let def = &self.defs[def_id.0 as usize];
-        let name_str = def
-            .name()
-            .map(|name_sym| self.resolve(name_sym).to_string())
-            .unwrap_or_else(|| format!("AnonDef{}", def_id.0));
+        let name_str = self.def_source_name(def_id);
 
         let empty_attrs: &[kernc_ast::Attribute] = &[]; // Reusable empty attribute slice.
-        let (is_extern, attrs, parent_id) = match def {
-            Def::Function(f) => (f.is_extern, f.attributes.as_slice(), f.parent),
-            Def::Global(g) => (g.is_extern, g.attributes.as_slice(), g.parent),
-            Def::Struct(s) => (s.is_extern, s.attributes.as_slice(), None),
-            Def::Enum(_) => (false, empty_attrs, None),
-            Def::Union(_) => (false, empty_attrs, None),
+        let (is_extern, attrs) = match def {
+            Def::Function(f) => (f.is_extern, f.attributes.as_slice()),
+            Def::Global(g) => (g.is_extern, g.attributes.as_slice()),
+            Def::Struct(s) => (s.is_extern, s.attributes.as_slice()),
+            Def::Enum(_) => (false, empty_attrs),
+            Def::Union(u) => (u.is_extern, empty_attrs),
             _ => return name_str,
         };
+        let parent_id = self.def_parent_for_path(def_id);
 
         // 1. `export_name` overrides the default symbol for monomorphic items.
         if args.is_empty() {
@@ -668,29 +716,7 @@ impl<'a> SemaContext<'a> {
 
         // 3. Build an Itanium-like path prefix.
         let mut mangled = String::from("_K");
-        let mut path_components = Vec::new();
-
-        let mut current_parent = parent_id;
-        while let Some(pid) = current_parent {
-            match &self.defs[pid.0 as usize] {
-                Def::Module(m) => {
-                    path_components.push(self.resolve(m.name).to_string());
-                    current_parent = m.parent;
-                }
-                Def::Impl(i) => {
-                    let target_ty = self
-                        .node_types
-                        .get(&i.target_type.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
-                    path_components.push(self.mangle_type(target_ty));
-                    current_parent = i.parent_module;
-                }
-                _ => break,
-            }
-        }
-
-        for comp in path_components.into_iter().rev() {
+        for comp in self.parent_path_components(parent_id).into_iter().rev() {
             mangled.push_str(&format!("{}{}", comp.len(), comp));
         }
 
@@ -707,5 +733,169 @@ impl<'a> SemaContext<'a> {
         }
 
         mangled
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SemaContext;
+    use crate::def::{Def, DefId, FunctionDef, ModuleDef, StructDef, Visibility};
+    use crate::scope::ScopeId;
+    use crate::ty::TypeKind;
+    use kernc_ast::{Attribute, TypeNode};
+    use kernc_utils::{FileId, Session, Span};
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    #[test]
+    fn mangled_named_types_include_module_qualification() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_id = add_module(&mut ctx, "root", None);
+        let left_id = add_module(&mut ctx, "left", Some(root_id));
+        let right_id = add_module(&mut ctx, "right", Some(root_id));
+        let left_seen = add_struct(&mut ctx, "SeenItem", Some(left_id));
+        let right_seen = add_struct(&mut ctx, "SeenItem", Some(right_id));
+
+        let left_ty = ctx.type_registry.intern(TypeKind::Def(left_seen, Vec::new()));
+        let right_ty = ctx.type_registry.intern(TypeKind::Def(right_seen, Vec::new()));
+
+        assert_ne!(ctx.mangle_type(left_ty), ctx.mangle_type(right_ty));
+    }
+
+    #[test]
+    fn generic_export_names_distinguish_same_short_name_types() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_id = add_module(&mut ctx, "root", None);
+        let left_id = add_module(&mut ctx, "left", Some(root_id));
+        let right_id = add_module(&mut ctx, "right", Some(root_id));
+        let left_seen = add_struct(&mut ctx, "SeenItem", Some(left_id));
+        let right_seen = add_struct(&mut ctx, "SeenItem", Some(right_id));
+        let parse_id = add_function(&mut ctx, "parse", Some(root_id));
+
+        let left_ty = ctx.type_registry.intern(TypeKind::Def(left_seen, Vec::new()));
+        let right_ty = ctx.type_registry.intern(TypeKind::Def(right_seen, Vec::new()));
+
+        assert_ne!(
+            ctx.get_export_name(parse_id, &[left_ty]),
+            ctx.get_export_name(parse_id, &[right_ty])
+        );
+    }
+
+    #[test]
+    fn exported_named_types_include_module_qualification() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_id = add_module(&mut ctx, "root", None);
+        let left_id = add_module(&mut ctx, "left", Some(root_id));
+        let right_id = add_module(&mut ctx, "right", Some(root_id));
+        let left_error = add_struct(&mut ctx, "Error", Some(left_id));
+        let right_error = add_struct(&mut ctx, "Error", Some(right_id));
+
+        assert_ne!(
+            ctx.get_export_name(left_error, &[]),
+            ctx.get_export_name(right_error, &[])
+        );
+    }
+
+    #[test]
+    fn mangled_fn_defs_include_module_qualification() {
+        let mut session = Session::new();
+        let mut ctx = SemaContext::new(&mut session);
+
+        let root_id = add_module(&mut ctx, "root", None);
+        let left_id = add_module(&mut ctx, "left", Some(root_id));
+        let right_id = add_module(&mut ctx, "right", Some(root_id));
+        let left_parse = add_function(&mut ctx, "parse", Some(left_id));
+        let right_parse = add_function(&mut ctx, "parse", Some(right_id));
+
+        let left_ty = ctx
+            .type_registry
+            .intern(TypeKind::FnDef(left_parse, Vec::new()));
+        let right_ty = ctx
+            .type_registry
+            .intern(TypeKind::FnDef(right_parse, Vec::new()));
+
+        assert_ne!(ctx.mangle_type(left_ty), ctx.mangle_type(right_ty));
+    }
+
+    fn add_module(ctx: &mut SemaContext<'_>, name: &str, parent: Option<DefId>) -> DefId {
+        let id = DefId(ctx.defs.len() as u32);
+        let scope_id = ScopeId(id.0 as usize);
+        let name = ctx.intern(name);
+        let def_id = ctx.add_def(Def::Module(ModuleDef {
+            id,
+            name,
+            parent,
+            is_imported: false,
+            scope_id,
+            dir_path: PathBuf::new(),
+            file_id: FileId(0),
+            submodules: HashMap::new(),
+            items: Vec::new(),
+            imports: Vec::new(),
+            is_init: parent.is_none(),
+            docs: None,
+        }));
+        ctx.register_module_scope(def_id, scope_id);
+        def_id
+    }
+
+    fn add_struct(ctx: &mut SemaContext<'_>, name: &str, parent_module: Option<DefId>) -> DefId {
+        let id = DefId(ctx.defs.len() as u32);
+        let name = ctx.intern(name);
+        let def_id = ctx.add_def(Def::Struct(StructDef {
+            id,
+            name,
+            vis: Visibility::Private,
+            parent_module,
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            fields: Vec::new(),
+            is_extern: false,
+            span: Span::default(),
+            docs: None,
+            attributes: Vec::new(),
+        }));
+        ctx.register_def_owner(def_id, parent_module, None);
+        def_id
+    }
+
+    fn add_function(ctx: &mut SemaContext<'_>, name: &str, parent: Option<DefId>) -> DefId {
+        let id = DefId(ctx.defs.len() as u32);
+        let name = ctx.intern(name);
+        let type_node = TypeNode {
+            id: ctx.next_node_id(),
+            span: Span::default(),
+            kind: kernc_ast::TypeKind::Infer,
+        };
+        let def_id = ctx.add_def(Def::Function(FunctionDef {
+            id,
+            name,
+            name_span: Span::default(),
+            vis: Visibility::Private,
+            parent,
+            is_imported: false,
+            generics: Vec::new(),
+            where_clauses: Vec::new(),
+            params: Vec::new(),
+            ret_type: type_node,
+            body: None,
+            is_const: false,
+            is_extern: false,
+            is_variadic: false,
+            is_intrinsic: false,
+            span: Span::default(),
+            resolved_sig: None,
+            docs: None,
+            attributes: Vec::<Attribute>::new(),
+        }));
+        ctx.register_def_owner(def_id, None, None);
+        def_id
     }
 }

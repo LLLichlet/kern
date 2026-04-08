@@ -1578,7 +1578,11 @@ fn render_execution_timings(render: &Renderer, summary: &execute::ExecutionSumma
             tone,
             "time",
             &action.label,
-            format_action_timing_detail(&action.phase_timings, action.cache_stats),
+            format_action_timing_detail(
+                &action.phase_timings,
+                action.cache_stats,
+                action.codegen_plan.as_ref(),
+            ),
         );
     }
 }
@@ -1638,17 +1642,43 @@ fn format_action_cache_stats(stats: execute::ActionCacheStats) -> String {
 fn format_action_timing_detail(
     phases: &[kernc_driver::PhaseTiming],
     cache_stats: kernc_driver::CompileCacheStats,
+    codegen_plan: Option<&kernc_driver::CodegenPlanReport>,
 ) -> String {
-    match (phases.is_empty(), cache_stats.is_empty()) {
-        (false, false) => format!(
-            "{}; {}",
-            format_phase_timings(phases),
-            format_compile_cache_stats(cache_stats)
-        ),
-        (false, true) => format_phase_timings(phases),
-        (true, false) => format_compile_cache_stats(cache_stats),
-        (true, true) => String::new(),
+    let mut parts = Vec::new();
+    if !phases.is_empty() {
+        parts.push(format_phase_timings(phases));
     }
+    if !cache_stats.is_empty() {
+        parts.push(format_compile_cache_stats(cache_stats));
+    }
+    if let Some(codegen_plan) = codegen_plan {
+        parts.push(format_codegen_plan(codegen_plan));
+    }
+    parts.join("; ")
+}
+
+fn format_codegen_plan(report: &kernc_driver::CodegenPlanReport) -> String {
+    let fallback = match &report.fallback_reason {
+        Some(kernc_driver::CodegenPlanFallback::RequestedSingleUnit) => {
+            "requested_single_unit".to_string()
+        }
+        Some(kernc_driver::CodegenPlanFallback::NameCollision { item_kind, name }) => {
+            format!("name_collision({item_kind}:{name})")
+        }
+        Some(kernc_driver::CodegenPlanFallback::TooFewRoots) => "too_few_roots".to_string(),
+        Some(kernc_driver::CodegenPlanFallback::TooFewTargetUnits) => {
+            "too_few_target_units".to_string()
+        }
+        Some(kernc_driver::CodegenPlanFallback::TooFewMaterializedUnits) => {
+            "too_few_materialized_units".to_string()
+        }
+        None => "planned".to_string(),
+    };
+
+    format!(
+        "cgu-plan requested={} roots={} clusters={} planned={} fallback={}",
+        report.requested_units, report.root_count, report.cluster_count, report.planned_units, fallback
+    )
 }
 
 fn format_duration(duration: std::time::Duration) -> String {

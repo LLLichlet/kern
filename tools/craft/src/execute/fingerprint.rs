@@ -34,6 +34,7 @@ pub(super) fn compile_action_fingerprint(
         format!("profile={}", action.profile.name),
         format!("opt={}", action.profile.opt),
         format!("debug={}", action.profile.debug),
+        format!("codegen_units={}", options.codegen_units),
         format!(
             "root={}",
             options.root_module_name.as_deref().unwrap_or_default()

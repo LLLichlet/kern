@@ -1,14 +1,21 @@
+use super::codegen_units::{
+    CodegenPlanFallback, CodegenPlanReport, materialize_codegen_unit, plan_codegen_units_with_report,
+};
 #[cfg(test)]
 use super::flow::FlowModel;
 use super::{
     CompileCacheStats, CompileReport, CompilerDriver, PhaseTiming, SourceOverrides,
     StructureArtifact, StructureCacheKey,
 };
+use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use kernc_codegen::{CodeGenerator, Context, InlineAsmDialect};
+use kernc_codegen::{
+    AllocaNameStat, CodeGenerator, CodegenAllocaStats, CodegenReport, Context, EmitObjectReport,
+    InlineAsmDialect, IrCleanupStats, IrFunctionStats, IrInstructionStats,
+};
 use kernc_db::Memo;
 use kernc_lower::Lowerer;
 use kernc_sema::SemaContext;
@@ -46,6 +53,7 @@ impl CompilerDriver {
                     Self::print_cache_stats(report.cache_stats);
                     Self::print_lower_cache_stats(report.lower_cache_stats);
                     Self::print_mast_workload(report.mast_workload.as_ref());
+                    Self::print_codegen_plan(report.codegen_plan.as_ref());
                     Self::print_ir_instruction_stats(report.ir_instruction_stats.as_ref());
                     Self::print_ir_cleanup_stats(report.ir_cleanup_stats.as_ref());
                     Self::print_codegen_alloca_stats(report.codegen_alloca_stats);
@@ -70,6 +78,7 @@ impl CompilerDriver {
                 cache_stats: self.cache_stats_since(cache_snapshot),
                 lower_cache_stats: None,
                 mast_workload: None,
+                codegen_plan: None,
                 ir_instruction_stats: None,
                 ir_cleanup_stats: None,
                 remaining_alloca_stats: None,
@@ -131,114 +140,365 @@ impl CompilerDriver {
             return None;
         }
 
-        let codegen_ctx = Context::create();
-        let mut codegen = CodeGenerator::new(
-            &codegen_ctx,
-            &self.module_name_for_codegen(input_file),
-            &mut *ctx.sess,
-            &ctx.type_registry,
-            self.options.split_sections_for_gc,
-        );
+        let target = self.normalized_target();
+        let module_name = self.module_name_for_codegen(input_file);
+        let codegen_plan_started = Instant::now();
+        let codegen_plan = if self.options.driver_mode == DriverMode::EmitLlvmIr {
+            None
+        } else {
+            Some(plan_codegen_units_with_report(
+                &mast_module,
+                self.options.codegen_units,
+            ))
+        };
+        phase_timings.push(PhaseTiming {
+            name: "  codegen_plan",
+            duration: codegen_plan_started.elapsed(),
+        });
+        let codegen_plan_report = codegen_plan.as_ref().map(|plan| plan.report.clone());
+        let codegen_unit_plans = codegen_plan.map(|plan| plan.units).unwrap_or_default();
 
-        codegen.set_asm_dialect(match self.options.asm_dialect {
-            AsmDialect::Intel => InlineAsmDialect::Intel,
-            AsmDialect::Att => InlineAsmDialect::ATT,
+        let lower_cache_stats = lowered.cache_stats;
+        let cache_stats = self.cache_stats_since(cache_snapshot);
+
+        if codegen_unit_plans.is_empty() {
+            let codegen_ctx = Context::create();
+            let mut codegen = CodeGenerator::new(
+                &codegen_ctx,
+                &module_name,
+                &mut *ctx.sess,
+                &ctx.type_registry,
+                self.options.split_sections_for_gc,
+            );
+
+            codegen.set_asm_dialect(match self.options.asm_dialect {
+                AsmDialect::Intel => InlineAsmDialect::Intel,
+                AsmDialect::Att => InlineAsmDialect::ATT,
+            });
+            let codegen_report = Self::measure_phase(&mut phase_timings, "codegen", || {
+                codegen.compile(&mast_module)
+            });
+            phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+                name: timing.name,
+                duration: timing.duration,
+            }));
+
+            if self.options.driver_mode == DriverMode::EmitLlvmIr {
+                return match Self::measure_phase(&mut phase_timings, "emit_llvm_ir", || {
+                    codegen.print_ir()
+                }) {
+                    Ok(()) => {
+                        Self::print_buffered_diagnostics(ctx.sess);
+                        Some(Self::build_compile_report(
+                            loaded_sources,
+                            phase_timings,
+                            cache_stats,
+                            lower_cache_stats,
+                            mast_workload,
+                            codegen_plan_report.clone(),
+                            codegen_report,
+                            None,
+                        ))
+                    }
+                    Err(err) => {
+                        eprintln!("Error: Failed to print LLVM IR: {}", err);
+                        None
+                    }
+                };
+            }
+
+            let link_input_path = self.prepare_link_input_path(&target);
+            let _guard = self.temp_link_input_guard(&link_input_path);
+
+            let emit_report = match Self::measure_phase(&mut phase_timings, "emit_object", || {
+                codegen.emit_to_file(&target.triple, &link_input_path, self.options.opt_level)
+            }) {
+                Ok(report) => report,
+                Err(err) => {
+                    eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                    return None;
+                }
+            };
+            phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+                name: timing.name,
+                duration: timing.duration,
+            }));
+
+            if self.options.driver_mode.emits_linker_input() {
+                Self::print_buffered_diagnostics(ctx.sess);
+                if self.options.report_progress {
+                    println!(
+                        "Successfully emitted linker input to `{}`",
+                        self.options.output_file
+                    );
+                }
+                return Some(Self::build_compile_report(
+                    loaded_sources,
+                    phase_timings,
+                    cache_stats,
+                    lower_cache_stats,
+                    mast_workload,
+                    codegen_plan_report.clone(),
+                    codegen_report,
+                    Some(emit_report),
+                ));
+            }
+
+            let linked = Self::measure_phase(&mut phase_timings, "link", || {
+                self.run_link_command(Some(&link_input_path), &target, "Successfully compiled")
+            });
+            if linked {
+                Self::print_buffered_diagnostics(ctx.sess);
+            }
+            return linked.then_some(Self::build_compile_report(
+                loaded_sources,
+                phase_timings,
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                codegen_plan_report.clone(),
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        let mut codegen_report = CodegenReport::default();
+        let mut emit_report = EmitObjectReport::default();
+        let mut codegen_duration = Duration::ZERO;
+        let mut emit_duration = Duration::ZERO;
+        let mut object_paths = Vec::with_capacity(codegen_unit_plans.len());
+        let mut object_guards = Vec::with_capacity(codegen_unit_plans.len());
+
+        for unit in &codegen_unit_plans {
+            let unit_module = materialize_codegen_unit(&mast_module, unit);
+            let codegen_ctx = Context::create();
+            let mut codegen = CodeGenerator::new(
+                &codegen_ctx,
+                &format!("{}_{}", module_name, unit.name),
+                &mut *ctx.sess,
+                &ctx.type_registry,
+                self.options.split_sections_for_gc,
+            );
+            codegen.set_asm_dialect(match self.options.asm_dialect {
+                AsmDialect::Intel => InlineAsmDialect::Intel,
+                AsmDialect::Att => InlineAsmDialect::ATT,
+            });
+
+            let unit_codegen_started = Instant::now();
+            let unit_codegen_report = codegen.compile(&unit_module);
+            codegen_duration += unit_codegen_started.elapsed();
+            Self::absorb_codegen_report(&mut codegen_report, unit_codegen_report);
+
+            let object_path = self.make_temp_codegen_unit_path(&unit.name);
+            object_guards.push(super::TempFileGuard {
+                path: object_path.clone(),
+            });
+            let unit_emit_started = Instant::now();
+            let unit_emit_report =
+                match codegen.emit_to_file(&target.triple, &object_path, self.options.opt_level) {
+                    Ok(report) => report,
+                    Err(err) => {
+                        eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                        return None;
+                    }
+                };
+            emit_duration += unit_emit_started.elapsed();
+            Self::absorb_emit_report(&mut emit_report, unit_emit_report);
+            object_paths.push(object_path);
+        }
+
+        phase_timings.push(PhaseTiming {
+            name: "codegen",
+            duration: codegen_duration,
         });
-        let codegen_report = Self::measure_phase(&mut phase_timings, "codegen", || {
-            codegen.compile(&mast_module)
-        });
-        phase_timings.extend(codegen_report.timings.into_iter().map(|timing| PhaseTiming {
+        phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
-
-        if self.options.driver_mode == DriverMode::EmitLlvmIr {
-            return match Self::measure_phase(&mut phase_timings, "emit_llvm_ir", || {
-                codegen.print_ir()
-            }) {
-                Ok(()) => {
-                    Self::print_buffered_diagnostics(ctx.sess);
-                    Some(CompileReport {
-                        loaded_sources,
-                        phase_timings,
-                        cache_stats: self.cache_stats_since(cache_snapshot),
-                        lower_cache_stats: Some(lowered.cache_stats),
-                        mast_workload: Some(mast_workload),
-                        ir_instruction_stats: Some(codegen_report.ir_stats),
-                        ir_cleanup_stats: None,
-                        remaining_alloca_stats: None,
-                        remaining_alloca_names: Vec::new(),
-                        ir_hot_functions: codegen_report.ir_hot_functions,
-                        codegen_alloca_stats: codegen_report.alloca_stats,
-                    })
-                }
-                Err(err) => {
-                    eprintln!("Error: Failed to print LLVM IR: {}", err);
-                    None
-                }
-            };
-        }
-
-        let target = self.normalized_target();
-        let link_input_path = self.prepare_link_input_path(&target);
-        let _guard = self.temp_link_input_guard(&link_input_path);
-
-        let emit_report = match Self::measure_phase(&mut phase_timings, "emit_object", || {
-            codegen.emit_to_file(&target.triple, &link_input_path, self.options.opt_level)
-        }) {
-            Ok(report) => report,
-            Err(err) => {
-                eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
-                return None;
-            }
-        };
-        phase_timings.extend(emit_report.timings.into_iter().map(|timing| PhaseTiming {
+        phase_timings.push(PhaseTiming {
+            name: "emit_object",
+            duration: emit_duration,
+        });
+        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
 
         if self.options.driver_mode.emits_linker_input() {
-            Self::print_buffered_diagnostics(ctx.sess);
-            if self.options.report_progress {
-                println!(
-                    "Successfully emitted linker input to `{}`",
-                    self.options.output_file
-                );
+            let merged = Self::measure_phase(&mut phase_timings, "merge_object", || {
+                self.run_relocatable_link_command(
+                    &object_paths,
+                    &target,
+                    &self.options.output_file,
+                    "Successfully emitted linker input",
+                )
+            });
+            drop(object_guards);
+            if !merged {
+                return None;
             }
-            return Some(CompileReport {
+            Self::print_buffered_diagnostics(ctx.sess);
+            return Some(Self::build_compile_report(
                 loaded_sources,
                 phase_timings,
-                cache_stats: self.cache_stats_since(cache_snapshot),
-                lower_cache_stats: Some(lowered.cache_stats),
-                mast_workload: Some(mast_workload),
-                ir_instruction_stats: Some(codegen_report.ir_stats),
-                ir_cleanup_stats: emit_report.ir_cleanup_stats,
-                remaining_alloca_stats: emit_report.remaining_alloca_stats,
-                remaining_alloca_names: emit_report.remaining_alloca_names,
-                ir_hot_functions: codegen_report.ir_hot_functions,
-                codegen_alloca_stats: codegen_report.alloca_stats,
-            });
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                codegen_plan_report.clone(),
+                codegen_report,
+                Some(emit_report),
+            ));
         }
 
         let linked = Self::measure_phase(&mut phase_timings, "link", || {
-            self.run_link_command(Some(&link_input_path), &target, "Successfully compiled")
+            self.run_link_command_with_inputs(&object_paths, &target, "Successfully compiled")
         });
+        drop(object_guards);
         if linked {
             Self::print_buffered_diagnostics(ctx.sess);
         }
-        linked.then_some(CompileReport {
+        linked.then_some(Self::build_compile_report(
             loaded_sources,
             phase_timings,
-            cache_stats: self.cache_stats_since(cache_snapshot),
-            lower_cache_stats: Some(lowered.cache_stats),
+            cache_stats,
+            lower_cache_stats,
+            mast_workload,
+            codegen_plan_report,
+            codegen_report,
+            Some(emit_report),
+        ))
+    }
+
+    fn build_compile_report(
+        loaded_sources: Vec<PathBuf>,
+        phase_timings: Vec<PhaseTiming>,
+        cache_stats: CompileCacheStats,
+        lower_cache_stats: kernc_lower::LowerCacheStats,
+        mast_workload: kernc_mast::MastWorkloadStats,
+        codegen_plan: Option<CodegenPlanReport>,
+        codegen_report: CodegenReport,
+        emit_report: Option<EmitObjectReport>,
+    ) -> CompileReport {
+        let (ir_cleanup_stats, remaining_alloca_stats, remaining_alloca_names) =
+            if let Some(emit_report) = emit_report {
+                (
+                    emit_report.ir_cleanup_stats,
+                    emit_report.remaining_alloca_stats,
+                    emit_report.remaining_alloca_names,
+                )
+            } else {
+                (None, None, Vec::new())
+            };
+
+        CompileReport {
+            loaded_sources,
+            phase_timings,
+            cache_stats,
+            lower_cache_stats: Some(lower_cache_stats),
             mast_workload: Some(mast_workload),
+            codegen_plan,
             ir_instruction_stats: Some(codegen_report.ir_stats),
-            ir_cleanup_stats: emit_report.ir_cleanup_stats,
-            remaining_alloca_stats: emit_report.remaining_alloca_stats,
-            remaining_alloca_names: emit_report.remaining_alloca_names,
+            ir_cleanup_stats,
+            remaining_alloca_stats,
+            remaining_alloca_names,
             ir_hot_functions: codegen_report.ir_hot_functions,
             codegen_alloca_stats: codegen_report.alloca_stats,
-        })
+        }
+    }
+
+    fn absorb_codegen_report(into: &mut CodegenReport, other: CodegenReport) {
+        into.timings.extend(other.timings);
+        into.ir_stats = Self::sum_ir_instruction_stats(into.ir_stats, other.ir_stats);
+        into.alloca_stats = Self::sum_alloca_stats(into.alloca_stats, other.alloca_stats);
+        into.ir_hot_functions.extend(other.ir_hot_functions);
+        Self::truncate_hot_functions(&mut into.ir_hot_functions);
+    }
+
+    fn absorb_emit_report(into: &mut EmitObjectReport, other: EmitObjectReport) {
+        into.timings.extend(other.timings);
+        into.ir_cleanup_stats = match (into.ir_cleanup_stats, other.ir_cleanup_stats) {
+            (Some(lhs), Some(rhs)) => Some(IrCleanupStats {
+                before: Self::sum_ir_instruction_stats(lhs.before, rhs.before),
+                after: Self::sum_ir_instruction_stats(lhs.after, rhs.after),
+            }),
+            (None, rhs) => rhs,
+            (lhs, None) => lhs,
+        };
+        into.remaining_alloca_stats =
+            match (into.remaining_alloca_stats, other.remaining_alloca_stats) {
+                (Some(lhs), Some(rhs)) => Some(Self::sum_alloca_stats(lhs, rhs)),
+                (None, rhs) => rhs,
+                (lhs, None) => lhs,
+            };
+        Self::absorb_alloca_name_stats(
+            &mut into.remaining_alloca_names,
+            other.remaining_alloca_names,
+        );
+    }
+
+    fn sum_ir_instruction_stats(
+        lhs: IrInstructionStats,
+        rhs: IrInstructionStats,
+    ) -> IrInstructionStats {
+        IrInstructionStats {
+            functions: lhs.functions + rhs.functions,
+            basic_blocks: lhs.basic_blocks + rhs.basic_blocks,
+            instructions: lhs.instructions + rhs.instructions,
+            allocas: lhs.allocas + rhs.allocas,
+            loads: lhs.loads + rhs.loads,
+            stores: lhs.stores + rhs.stores,
+            geps: lhs.geps + rhs.geps,
+            calls: lhs.calls + rhs.calls,
+            phis: lhs.phis + rhs.phis,
+            branches: lhs.branches + rhs.branches,
+            switches: lhs.switches + rhs.switches,
+            returns: lhs.returns + rhs.returns,
+            compares: lhs.compares + rhs.compares,
+        }
+    }
+
+    fn sum_alloca_stats(lhs: CodegenAllocaStats, rhs: CodegenAllocaStats) -> CodegenAllocaStats {
+        CodegenAllocaStats {
+            params: lhs.params + rhs.params,
+            lets: lhs.lets + rhs.lets,
+            addr_of_temps: lhs.addr_of_temps + rhs.addr_of_temps,
+            materialized_lvalues: lhs.materialized_lvalues + rhs.materialized_lvalues,
+            array_to_slice_temps: lhs.array_to_slice_temps + rhs.array_to_slice_temps,
+            union_inits: lhs.union_inits + rhs.union_inits,
+            data_union_inits: lhs.data_union_inits + rhs.data_union_inits,
+            unnamed: lhs.unnamed + rhs.unnamed,
+            other: lhs.other + rhs.other,
+        }
+    }
+
+    fn absorb_alloca_name_stats(into: &mut Vec<AllocaNameStat>, other: Vec<AllocaNameStat>) {
+        let mut counts = HashMap::<String, usize>::new();
+        for stat in into.iter().chain(other.iter()) {
+            *counts.entry(stat.name.clone()).or_default() += stat.count;
+        }
+
+        let mut merged = counts
+            .into_iter()
+            .map(|(name, count)| AllocaNameStat { name, count })
+            .collect::<Vec<_>>();
+        merged.sort_by(|lhs, rhs| {
+            rhs.count
+                .cmp(&lhs.count)
+                .then_with(|| lhs.name.cmp(&rhs.name))
+        });
+        merged.truncate(8);
+        *into = merged;
+    }
+
+    fn truncate_hot_functions(hot_functions: &mut Vec<IrFunctionStats>) {
+        hot_functions.sort_by(|lhs, rhs| {
+            rhs.instructions
+                .cmp(&lhs.instructions)
+                .then_with(|| rhs.loads.cmp(&lhs.loads))
+                .then_with(|| rhs.stores.cmp(&lhs.stores))
+                .then_with(|| lhs.name.cmp(&rhs.name))
+        });
+        hot_functions.truncate(8);
     }
 
     pub fn analyze<'a>(
@@ -463,6 +723,31 @@ impl CompilerDriver {
         }
     }
 
+    pub(super) fn print_codegen_plan(codegen_plan: Option<&CodegenPlanReport>) {
+        let Some(report) = codegen_plan else {
+            return;
+        };
+
+        println!("Codegen plan:");
+        println!("  {:<18} {}", "  requested_units", report.requested_units);
+        println!("  {:<18} {}", "  roots", report.root_count);
+        println!("  {:<18} {}", "  clusters", report.cluster_count);
+        println!("  {:<18} {}", "  planned_units", report.planned_units);
+        let fallback = match &report.fallback_reason {
+            Some(CodegenPlanFallback::RequestedSingleUnit) => "requested_single_unit".to_string(),
+            Some(CodegenPlanFallback::NameCollision { item_kind, name }) => {
+                format!("name_collision({item_kind}:{name})")
+            }
+            Some(CodegenPlanFallback::TooFewRoots) => "too_few_roots".to_string(),
+            Some(CodegenPlanFallback::TooFewTargetUnits) => "too_few_target_units".to_string(),
+            Some(CodegenPlanFallback::TooFewMaterializedUnits) => {
+                "too_few_materialized_units".to_string()
+            }
+            None => "planned".to_string(),
+        };
+        println!("  {:<18} {}", "  fallback", fallback);
+    }
+
     pub(super) fn print_ir_instruction_stats(
         ir_instruction_stats: Option<&kernc_codegen::IrInstructionStats>,
     ) {
@@ -490,9 +775,7 @@ impl CompilerDriver {
         }
     }
 
-    pub(super) fn print_ir_cleanup_stats(
-        ir_cleanup_stats: Option<&kernc_codegen::IrCleanupStats>,
-    ) {
+    pub(super) fn print_ir_cleanup_stats(ir_cleanup_stats: Option<&kernc_codegen::IrCleanupStats>) {
         let Some(stats) = ir_cleanup_stats else {
             return;
         };
@@ -503,7 +786,11 @@ impl CompilerDriver {
 
         println!("IR cleanup stats:");
         for (name, before, after) in [
-            ("  instructions", stats.before.instructions, stats.after.instructions),
+            (
+                "  instructions",
+                stats.before.instructions,
+                stats.after.instructions,
+            ),
             ("  allocas", stats.before.allocas, stats.after.allocas),
             ("  loads", stats.before.loads, stats.after.loads),
             ("  stores", stats.before.stores, stats.after.stores),

@@ -1,10 +1,12 @@
 mod analysis;
+mod codegen_units;
 mod completion;
 mod flow;
 mod link;
 mod pipeline;
 mod signature;
 
+pub use self::codegen_units::{CodegenPlanFallback, CodegenPlanReport};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -37,6 +39,7 @@ pub struct CompileReport {
     pub cache_stats: CompileCacheStats,
     pub lower_cache_stats: Option<kernc_lower::LowerCacheStats>,
     pub mast_workload: Option<kernc_mast::MastWorkloadStats>,
+    pub codegen_plan: Option<CodegenPlanReport>,
     pub ir_instruction_stats: Option<kernc_codegen::IrInstructionStats>,
     pub ir_cleanup_stats: Option<kernc_codegen::IrCleanupStats>,
     pub remaining_alloca_stats: Option<kernc_codegen::CodegenAllocaStats>,

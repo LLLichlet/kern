@@ -8,6 +8,7 @@ use kernc_mast::{MastBlock, MastExpr, MastExprKind, MastStmt};
 use kernc_utils::Session;
 use kernc_utils::config::{CompileOptions, DriverMode};
 use std::fs;
+use std::process::Command;
 
 fn count_assignments_in_block(block: &MastBlock) -> usize {
     let stmt_count: usize = block.stmts.iter().map(count_assignments_in_stmt).sum();
@@ -312,6 +313,67 @@ fn compile_report_exposes_cache_hits_and_frontend_parse_deltas() {
         .expect("structure-warmed compile should succeed");
     assert!(third.cache_stats.compile_structure_hits > 0);
     assert_eq!(third.cache_stats.fresh_frontend_parses, 0);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_only_merges_multiple_codegen_units_into_a_linkable_object() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_multi_cgu_compile_only_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    let executable = root.join("main.out");
+    fs::write(
+        &main,
+        "\
+extern fn main() i32 {
+    return foo() + bar();
+}
+
+fn foo() i32 {
+    return 1;
+}
+
+fn bar() i32 {
+    return 2;
+}
+",
+    )
+    .unwrap();
+
+    let compile_driver = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        codegen_units: 2,
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    compile_driver
+        .compile_with_report()
+        .expect("multi-CGU compile-only should succeed");
+    assert!(object.is_file());
+    assert!(fs::metadata(&object).unwrap().len() > 0);
+
+    let link_driver = CompilerDriver::new(CompileOptions {
+        output_file: executable.to_string_lossy().to_string(),
+        driver_mode: DriverMode::LinkOnly,
+        linker_inputs: vec![object.to_string_lossy().to_string()],
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    assert!(link_driver.compile());
+
+    let status = Command::new(&executable).status().unwrap();
+    assert_eq!(status.code(), Some(3));
 
     let _ = fs::remove_dir_all(&root);
 }

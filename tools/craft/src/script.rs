@@ -160,6 +160,7 @@ pub struct ScriptProfile {
     pub name: String,
     pub opt: u8,
     pub debug: bool,
+    pub codegen_units: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -235,6 +236,9 @@ pub fn manifest_profile(manifest: &Manifest, selection: ProfileSelection) -> Scr
         debug: profile
             .and_then(|profile| profile.debug)
             .unwrap_or(default_debug),
+        codegen_units: profile
+            .and_then(|profile| profile.codegen_units)
+            .unwrap_or(1),
     }
 }
 
@@ -1453,6 +1457,10 @@ fn plan_argument_value(
     profile.insert(
         field("debug", ctx),
         ConstValue::Bool(script_context.profile.debug),
+    );
+    profile.insert(
+        field("codegen_units", ctx),
+        ConstValue::Int(script_context.profile.codegen_units as i128),
     );
 
     let mut plan = HashMap::new();

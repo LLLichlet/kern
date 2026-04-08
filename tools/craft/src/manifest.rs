@@ -111,6 +111,7 @@ pub struct Profiles {
 pub struct Profile {
     pub opt: Option<u8>,
     pub debug: Option<bool>,
+    pub codegen_units: Option<usize>,
 }
 
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
@@ -562,6 +563,7 @@ fn assign_profile(
     match key {
         "opt" => profile.opt = Some(parse_u8(raw_value)?),
         "debug" => profile.debug = Some(parse_bool(raw_value)?),
+        "codegen-units" => profile.codegen_units = Some(parse_usize(raw_value)?),
         _ => return Err(format!("unsupported {section} key `{key}`")),
     }
     Ok(())
@@ -789,6 +791,12 @@ fn parse_u8(raw: &str) -> std::result::Result<u8, String> {
     raw.trim()
         .parse::<u8>()
         .map_err(|_| format!("expected integer in 0..=255, found `{}`", raw.trim()))
+}
+
+fn parse_usize(raw: &str) -> std::result::Result<usize, String> {
+    raw.trim()
+        .parse::<usize>()
+        .map_err(|_| format!("expected non-negative integer, found `{}`", raw.trim()))
 }
 
 fn parse_string_array(raw: &str) -> std::result::Result<Vec<String>, String> {
@@ -1064,6 +1072,14 @@ fn validate_profile(path: &Path, section: &str, profile: &Profile) -> Result<()>
         return Err(Error::Validation {
             path: path.to_path_buf(),
             message: format!("{section}.opt must be in the range 0..=3"),
+        });
+    }
+    if let Some(codegen_units) = profile.codegen_units
+        && codegen_units == 0
+    {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{section}.codegen-units must be greater than zero"),
         });
     }
     let _ = profile.debug;
@@ -1456,6 +1472,54 @@ bundle = "std"
         assert_eq!(options.runtime_provider, RuntimeProvider::Toolchain);
         assert!(!options.runtime_libc);
         assert_eq!(options.library_bundle, LibraryBundle::Std);
+    }
+
+    #[test]
+    fn profile_section_parses_codegen_units() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+opt = 3
+debug = false
+codegen-units = 4
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let profile = manifest
+            .profile
+            .as_ref()
+            .and_then(|profiles| profiles.release.as_ref())
+            .expect("expected release profile");
+        assert_eq!(profile.codegen_units, Some(4));
+    }
+
+    #[test]
+    fn rejects_zero_profile_codegen_units() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.dev]
+codegen-units = 0
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let err = manifest
+            .validate(std::path::Path::new("Craft.toml"))
+            .unwrap_err();
+        assert!(format!("{err}").contains("[profile.dev].codegen-units must be greater than zero"));
     }
 
     #[test]

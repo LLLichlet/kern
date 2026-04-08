@@ -45,6 +45,7 @@ fn print_usage(program_name: &str) {
     println!("\nTargeting & Codegen:");
     println!("  --target <T>         Set target triple (e.g. x86_64-unknown-linux-gnu)");
     println!("  --asm-dialect <D>    Set assembly dialect: intel (default) or att");
+    println!("  --codegen-units <N>  Split code generation into N lowered codegen units");
     println!("  --link-driver <cmd>  Set the linker driver command (default: $CC or cc)");
     println!("  --runtime-entry <m>  Runtime entry contract: none, rt, crt");
     println!("  --runtime-provider <p>");
@@ -112,6 +113,18 @@ fn parse_yes_no(value: &str, flag: &str) -> bool {
             "Invalid value `{value}` for `{flag}`. Expected one of: yes, no."
         )),
     }
+}
+
+fn parse_nonzero_usize(value: &str, flag: &str) -> usize {
+    let parsed = value
+        .parse::<usize>()
+        .unwrap_or_else(|_| cli_error(format!("Invalid value `{value}` for `{flag}`.")));
+    if parsed == 0 {
+        cli_error(format!(
+            "Invalid value `{value}` for `{flag}`. Expected a positive integer."
+        ));
+    }
+    parsed
 }
 
 fn parse_key_value(raw: String, flag: &str, expected: &str) -> (String, String) {
@@ -229,6 +242,11 @@ fn parse_args() -> CompileOptions {
         if let Some(value) = consume_long_option_value(&arg, "--asm-dialect", &mut args, "dialect")
         {
             options.asm_dialect = parse_asm_dialect(&value);
+            continue;
+        }
+        if let Some(value) = consume_long_option_value(&arg, "--codegen-units", &mut args, "count")
+        {
+            options.codegen_units = parse_nonzero_usize(&value, "--codegen-units");
             continue;
         }
         if let Some(value) = consume_long_option_value(&arg, "--link-driver", &mut args, "command")

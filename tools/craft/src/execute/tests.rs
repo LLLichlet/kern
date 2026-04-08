@@ -708,10 +708,18 @@ return 0;
     let first = build(&build_plan, &action_plan).unwrap();
     assert_eq!(first.compile_actions, 1);
     assert_eq!(first.link_actions, 1);
+    assert!(first.action_cache_stats.compile_misses > 0);
+    assert_eq!(first.action_cache_stats.link_misses, 1);
+    assert_eq!(first.action_cache_stats.compile_hits, 0);
+    assert_eq!(first.action_cache_stats.link_hits, 0);
 
     let second = build(&build_plan, &action_plan).unwrap();
     assert_eq!(second.compile_actions, 0);
     assert_eq!(second.link_actions, 0);
+    assert_eq!(second.action_cache_stats.compile_misses, 0);
+    assert_eq!(second.action_cache_stats.link_misses, 0);
+    assert!(second.action_cache_stats.compile_hits > 0);
+    assert_eq!(second.action_cache_stats.link_hits, 1);
 
     let _ = fs::remove_dir_all(root);
 }
@@ -799,6 +807,8 @@ return 41;
     let first = build(&build_plan, &action_plan).unwrap();
     assert_eq!(first.compile_actions, 2);
     assert_eq!(first.link_actions, 1);
+    assert!(first.action_cache_stats.compile_misses > 0);
+    assert_eq!(first.action_cache_stats.link_misses, 1);
 
     fs::write(
         app_dir.join("src/main.rn"),
@@ -812,6 +822,10 @@ return util.answer() + 1;
     let app_changed = build(&build_plan, &action_plan).unwrap();
     assert_eq!(app_changed.compile_actions, 1);
     assert_eq!(app_changed.link_actions, 1);
+    assert!(app_changed.action_cache_stats.compile_hits > 0);
+    assert!(app_changed.action_cache_stats.compile_misses > 0);
+    assert_eq!(app_changed.action_cache_stats.link_hits, 0);
+    assert_eq!(app_changed.action_cache_stats.link_misses, 1);
 
     fs::write(
         util_dir.join("src/lib.rn"),
@@ -825,6 +839,10 @@ return 42;
     let dep_changed = build(&build_plan, &action_plan).unwrap();
     assert_eq!(dep_changed.compile_actions, 2);
     assert_eq!(dep_changed.link_actions, 1);
+    assert!(dep_changed.action_cache_stats.compile_hits > 0);
+    assert!(dep_changed.action_cache_stats.compile_misses > 0);
+    assert_eq!(dep_changed.action_cache_stats.link_hits, 0);
+    assert_eq!(dep_changed.action_cache_stats.link_misses, 1);
 
     let _ = fs::remove_dir_all(root);
 }

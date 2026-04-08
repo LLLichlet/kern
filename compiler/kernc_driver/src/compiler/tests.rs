@@ -5,8 +5,8 @@ use super::{
     AnalysisUnusedBindingKind, AnalysisUnusedItemKind, CompilerDriver, SourceOverrides,
 };
 use kernc_mast::{MastBlock, MastExpr, MastExprKind, MastStmt};
-use kernc_utils::config::{CompileOptions, DriverMode};
 use kernc_utils::Session;
+use kernc_utils::config::{CompileOptions, DriverMode};
 use std::fs;
 
 fn count_assignments_in_block(block: &MastBlock) -> usize {
@@ -152,21 +152,27 @@ fn structure_cache_reuses_loaded_frontend_modules_until_input_changes() {
     let driver = CompilerDriver::new(CompileOptions::default());
     let overrides = SourceOverrides::new();
 
-    assert!(driver
-        .analyze_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     let parse_count = driver.uncached_parse_count();
 
-    assert!(driver
-        .analyze_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     assert_eq!(driver.uncached_parse_count(), parse_count);
 
     let mut dirty = SourceOverrides::new();
     dirty.insert(main.clone(), "fn main() i32 { return 2; }".to_string());
-    assert!(driver
-        .analyze_structure(main.to_str().unwrap(), &dirty)
-        .is_some());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &dirty)
+            .is_some()
+    );
     assert!(driver.uncached_parse_count() > parse_count);
 
     let _ = fs::remove_dir_all(&root);
@@ -189,9 +195,11 @@ fn parse_modules_reuses_cached_structure_without_extra_frontend_parse() {
     let driver = CompilerDriver::new(CompileOptions::default());
     let overrides = SourceOverrides::new();
 
-    assert!(driver
-        .analyze_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     let parse_count = driver.uncached_parse_count();
 
     let parsed = driver
@@ -225,9 +233,11 @@ fn shared_incremental_state_reuses_frontend_cache_across_output_variants() {
     let driver = CompilerDriver::new(options.clone());
     let overrides = SourceOverrides::new();
 
-    assert!(driver
-        .analyze_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     let parse_count = driver.uncached_parse_count();
 
     let shared = driver
@@ -236,9 +246,11 @@ fn shared_incremental_state_reuses_frontend_cache_across_output_variants() {
             ..options
         })
         .expect("output-only changes should preserve incremental compatibility");
-    assert!(shared
-        .analyze_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        shared
+            .analyze_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     assert_eq!(shared.uncached_parse_count(), parse_count);
 
     let _ = fs::remove_dir_all(&root);
@@ -290,9 +302,11 @@ fn compile_report_exposes_cache_hits_and_frontend_parse_deltas() {
     assert!(second.cache_stats.compile_structure_hits > 0);
     assert_eq!(second.cache_stats.fresh_frontend_parses, 0);
 
-    assert!(driver
-        .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
-        .is_some());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &SourceOverrides::new())
+            .is_some()
+    );
     let third = driver
         .compile_with_report()
         .expect("structure-warmed compile should succeed");
@@ -360,9 +374,11 @@ fn imported_structure_cache_reuses_loaded_frontend_modules_without_type_stage() 
     let imported_again = driver
         .analyze_imported_structure(main.to_str().unwrap(), &overrides)
         .expect("imported structure should stay cached");
-    assert!(!imported_again
-        .completion_items(main.as_path(), 0)
-        .is_empty());
+    assert!(
+        !imported_again
+            .completion_items(main.as_path(), 0)
+            .is_empty()
+    );
     assert_eq!(driver.uncached_parse_count(), parse_count);
 
     let _ = fs::remove_dir_all(&root);
@@ -385,9 +401,11 @@ fn surface_artifact_reuses_cached_imported_stage_without_extra_frontend_parse() 
     let driver = CompilerDriver::new(CompileOptions::default());
     let overrides = SourceOverrides::new();
 
-    assert!(driver
-        .analyze_imported_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     let parse_count = driver.uncached_parse_count();
 
     let surface = driver
@@ -417,9 +435,11 @@ fn analyze_structure_reuses_cached_imported_stage_without_extra_frontend_parse()
     let driver = CompilerDriver::new(CompileOptions::default());
     let overrides = SourceOverrides::new();
 
-    assert!(driver
-        .analyze_imported_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     let parse_count = driver.uncached_parse_count();
 
     let structure = driver
@@ -448,9 +468,11 @@ fn parse_modules_reuses_cached_imported_stage_without_extra_frontend_parse() {
     let driver = CompilerDriver::new(CompileOptions::default());
     let overrides = SourceOverrides::new();
 
-    assert!(driver
-        .analyze_imported_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     let parse_count = driver.uncached_parse_count();
 
     let parsed = driver
@@ -480,9 +502,11 @@ fn parsed_modules_cache_preserves_body_completion_regions() {
     let driver = CompilerDriver::new(CompileOptions::default());
     let overrides = SourceOverrides::new();
 
-    assert!(driver
-        .analyze_imported_structure(main.to_str().unwrap(), &overrides)
-        .is_some());
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &overrides)
+            .is_some()
+    );
     let parse_count = driver.uncached_parse_count();
 
     let parsed = driver
@@ -604,10 +628,12 @@ fn analysis_artifact_exposes_flow_definitions_for_explicit_let_else_bindings() {
         .expect("expected err definition facts");
 
     assert_eq!(err_summary.definition_node_ids.len(), 1);
-    assert!(err_binding
-        .reference_spans
-        .iter()
-        .any(|span| span.start == err_use_span));
+    assert!(
+        err_binding
+            .reference_spans
+            .iter()
+            .any(|span| span.start == err_use_span)
+    );
     assert_eq!(err_use_facts.definition_kind, None);
     assert!(err_use_facts.use_binding_ids.contains(&err_binding.id));
     assert_eq!(
@@ -969,24 +995,31 @@ fn analysis_artifact_exposes_flow_node_facts_and_transfers() {
         assignment_facts.definition_kind,
         Some(AnalysisFlowDefinitionKind::Assignment)
     );
-    assert!(assignment_facts
-        .define_binding_ids
-        .contains(&value_binding.id));
+    assert!(
+        assignment_facts
+            .define_binding_ids
+            .contains(&value_binding.id)
+    );
 
     let assignment_transfer = function_owner
         .node_transfers
         .iter()
         .find(|transfer| transfer.node_id == assignment_node_id)
         .expect("expected assignment node transfer");
-    assert!(assignment_transfer
-        .kill_binding_ids
-        .contains(&value_binding.id));
-    assert!(assignment_transfer
-        .generate_definitions
-        .iter()
-        .any(|definition| {
-            definition.binding_id == value_binding.id && definition.node_id == assignment_node_id
-        }));
+    assert!(
+        assignment_transfer
+            .kill_binding_ids
+            .contains(&value_binding.id)
+    );
+    assert!(
+        assignment_transfer
+            .generate_definitions
+            .iter()
+            .any(|definition| {
+                definition.binding_id == value_binding.id
+                    && definition.node_id == assignment_node_id
+            })
+    );
 
     let use_facts = function_owner
         .node_facts
@@ -1441,63 +1474,87 @@ fn analysis_artifact_exposes_flow_control_summary() {
         function_owner.cfg.nodes[function_owner.cfg.exit.index()].kind,
         AnalysisFlowCfgNodeKind::Exit
     );
-    assert!(function_owner
-        .cfg
-        .nodes
-        .iter()
-        .any(|node| { node.kind == AnalysisFlowCfgNodeKind::Branch }));
-    assert!(function_owner
-        .cfg
-        .nodes
-        .iter()
-        .any(|node| { node.kind == AnalysisFlowCfgNodeKind::LoopHead }));
-    assert!(function_owner
-        .cfg
-        .nodes
-        .iter()
-        .any(|node| { node.kind == AnalysisFlowCfgNodeKind::Match }));
-    assert!(function_owner
-        .cfg
-        .nodes
-        .iter()
-        .any(|node| { node.kind == AnalysisFlowCfgNodeKind::Return }));
-    assert!(function_owner
-        .cfg
-        .edges
-        .iter()
-        .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::TrueBranch }));
-    assert!(function_owner
-        .cfg
-        .edges
-        .iter()
-        .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::FalseBranch }));
-    assert!(function_owner
-        .cfg
-        .edges
-        .iter()
-        .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::LoopBack }));
-    assert!(function_owner
-        .cfg
-        .edges
-        .iter()
-        .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::BreakFlow }));
-    assert!(function_owner
-        .cfg
-        .edges
-        .iter()
-        .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::ReturnFlow }));
-    assert!(function_owner
-        .control_regions
-        .iter()
-        .any(|region| { region.kind == AnalysisFlowRegionKind::If }));
-    assert!(function_owner
-        .control_regions
-        .iter()
-        .any(|region| { region.kind == AnalysisFlowRegionKind::Match }));
-    assert!(function_owner
-        .control_regions
-        .iter()
-        .any(|region| { region.kind == AnalysisFlowRegionKind::Loop }));
+    assert!(
+        function_owner
+            .cfg
+            .nodes
+            .iter()
+            .any(|node| { node.kind == AnalysisFlowCfgNodeKind::Branch })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .nodes
+            .iter()
+            .any(|node| { node.kind == AnalysisFlowCfgNodeKind::LoopHead })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .nodes
+            .iter()
+            .any(|node| { node.kind == AnalysisFlowCfgNodeKind::Match })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .nodes
+            .iter()
+            .any(|node| { node.kind == AnalysisFlowCfgNodeKind::Return })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .edges
+            .iter()
+            .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::TrueBranch })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .edges
+            .iter()
+            .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::FalseBranch })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .edges
+            .iter()
+            .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::LoopBack })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .edges
+            .iter()
+            .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::BreakFlow })
+    );
+    assert!(
+        function_owner
+            .cfg
+            .edges
+            .iter()
+            .any(|edge| { edge.kind == AnalysisFlowCfgEdgeKind::ReturnFlow })
+    );
+    assert!(
+        function_owner
+            .control_regions
+            .iter()
+            .any(|region| { region.kind == AnalysisFlowRegionKind::If })
+    );
+    assert!(
+        function_owner
+            .control_regions
+            .iter()
+            .any(|region| { region.kind == AnalysisFlowRegionKind::Match })
+    );
+    assert!(
+        function_owner
+            .control_regions
+            .iter()
+            .any(|region| { region.kind == AnalysisFlowRegionKind::Loop })
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -1529,9 +1586,11 @@ fn analysis_artifact_exposes_unused_private_items() {
     assert!(unused.iter().any(|item| {
         item.kind == AnalysisUnusedItemKind::Constant && item.name == "dead_const"
     }));
-    assert!(unused
-        .iter()
-        .any(|item| item.kind == AnalysisUnusedItemKind::Function && item.name == "dead_fn"));
+    assert!(
+        unused
+            .iter()
+            .any(|item| item.kind == AnalysisUnusedItemKind::Function && item.name == "dead_fn")
+    );
 
     let _ = fs::remove_dir_all(&root);
 }
@@ -1602,12 +1661,16 @@ fn analysis_artifact_exposes_dead_stores() {
 
     assert_eq!(dead_stores.len(), 2);
     assert!(dead_stores.iter().all(|store| store.name == "value"));
-    assert!(dead_stores
-        .iter()
-        .any(|store| { store.kind == AnalysisDeadStoreKind::Initializer }));
-    assert!(dead_stores
-        .iter()
-        .any(|store| { store.kind == AnalysisDeadStoreKind::Assignment }));
+    assert!(
+        dead_stores
+            .iter()
+            .any(|store| { store.kind == AnalysisDeadStoreKind::Initializer })
+    );
+    assert!(
+        dead_stores
+            .iter()
+            .any(|store| { store.kind == AnalysisDeadStoreKind::Assignment })
+    );
     for dead_store in &dead_stores {
         assert!(artifact.flow_owners().iter().any(|owner| {
             owner

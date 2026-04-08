@@ -540,7 +540,8 @@ impl CompilerDriver {
         source_overrides: &SourceOverrides,
     ) -> Result<CompileStructureArtifact, Box<Session>> {
         self.sync_source_overrides(source_overrides);
-        if let Some(structure) = self.cached_compile_structure_artifact(input_file, source_overrides)
+        if let Some(structure) =
+            self.cached_compile_structure_artifact(input_file, source_overrides)
         {
             return Ok(structure);
         }

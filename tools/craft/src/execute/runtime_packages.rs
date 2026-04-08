@@ -163,12 +163,15 @@ pub(super) fn build_std_package(
             &inputs,
             &[object_path.clone(), metadata_root_path.clone()],
         )?;
+        execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
             std_compile_action_label(profile),
             report.phase_timings,
             report.cache_stats,
         );
+    } else {
+        execution_summary.record_compile_cache_hit();
     }
 
     built_std_packages.insert(
@@ -281,12 +284,15 @@ pub(super) fn build_rt_package(
             &inputs,
             &[object_path.clone(), metadata_root_path.clone()],
         )?;
+        execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
             rt_compile_action_label(profile),
             report.phase_timings,
             report.cache_stats,
         );
+    } else {
+        execution_summary.record_compile_cache_hit();
     }
 
     Ok(BuiltLibraryPackage {
@@ -379,12 +385,15 @@ pub(super) fn build_base_package(
             &inputs,
             &[object_path.clone(), metadata_root_path.clone()],
         )?;
+        execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
             base_compile_action_label(profile),
             report.phase_timings,
             report.cache_stats,
         );
+    } else {
+        execution_summary.record_compile_cache_hit();
     }
 
     Ok(BuiltLibraryPackage {
@@ -486,12 +495,15 @@ pub(super) fn build_sys_package(
             &inputs,
             &[object_path.clone(), metadata_root_path.clone()],
         )?;
+        execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
             sys_compile_action_label(profile),
             report.phase_timings,
             report.cache_stats,
         );
+    } else {
+        execution_summary.record_compile_cache_hit();
     }
 
     let mut interface_aliases = built_base.interface_aliases.clone();
@@ -579,12 +591,15 @@ pub(super) fn build_rt_entry_package(
             &inputs,
             std::slice::from_ref(&object_path),
         )?;
+        execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
             rt_entry_compile_action_label(profile),
             report.phase_timings,
             report.cache_stats,
         );
+    } else {
+        execution_summary.record_compile_cache_hit();
     }
 
     Ok(object_path)

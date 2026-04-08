@@ -44,7 +44,24 @@ pub struct ExecutionSummary {
     pub link_actions: usize,
     pub phase_timings: Vec<PhaseTiming>,
     pub cache_stats: CompileCacheStats,
+    pub action_cache_stats: ActionCacheStats,
     pub action_timings: Vec<ActionTiming>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ActionCacheStats {
+    pub compile_hits: usize,
+    pub compile_misses: usize,
+    pub link_hits: usize,
+    pub link_misses: usize,
+    pub staged_hits: usize,
+    pub staged_misses: usize,
+}
+
+impl ActionCacheStats {
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
 }
 
 fn target_runtime_entry(target_kind: crate::plan::TargetKind) -> RuntimeEntry {
@@ -132,6 +149,12 @@ impl ExecutionSummary {
         self.compile_actions += other.compile_actions;
         self.link_actions += other.link_actions;
         self.cache_stats.absorb(other.cache_stats);
+        self.action_cache_stats.compile_hits += other.action_cache_stats.compile_hits;
+        self.action_cache_stats.compile_misses += other.action_cache_stats.compile_misses;
+        self.action_cache_stats.link_hits += other.action_cache_stats.link_hits;
+        self.action_cache_stats.link_misses += other.action_cache_stats.link_misses;
+        self.action_cache_stats.staged_hits += other.action_cache_stats.staged_hits;
+        self.action_cache_stats.staged_misses += other.action_cache_stats.staged_misses;
         for phase in other.phase_timings {
             if let Some(existing) = self
                 .phase_timings
@@ -175,6 +198,30 @@ impl ExecutionSummary {
             phase_timings,
             cache_stats,
         });
+    }
+
+    fn record_compile_cache_hit(&mut self) {
+        self.action_cache_stats.compile_hits += 1;
+    }
+
+    fn record_compile_cache_miss(&mut self) {
+        self.action_cache_stats.compile_misses += 1;
+    }
+
+    fn record_link_cache_hit(&mut self) {
+        self.action_cache_stats.link_hits += 1;
+    }
+
+    fn record_link_cache_miss(&mut self) {
+        self.action_cache_stats.link_misses += 1;
+    }
+
+    fn record_staged_cache_hit(&mut self) {
+        self.action_cache_stats.staged_hits += 1;
+    }
+
+    fn record_staged_cache_miss(&mut self) {
+        self.action_cache_stats.staged_misses += 1;
     }
 }
 
@@ -695,6 +742,7 @@ fn ensure_compile_action_built(
     let fingerprint = compile_action_fingerprint(action, &options, &toolchain_digest);
 
     if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
+        session.state.execution_summary.record_compile_cache_hit();
         session.state.compiled.insert(action.object_path.clone());
         return Ok(false);
     }
@@ -708,6 +756,7 @@ fn ensure_compile_action_built(
 
     write_compile_action_state(action, &report, fingerprint)?;
 
+    session.state.execution_summary.record_compile_cache_miss();
     session.state.compiled.insert(action.object_path.clone());
     session.state.execution_summary.compile_actions += 1;
     session.state.execution_summary.record_action(
@@ -830,6 +879,7 @@ fn execute_staged_action(
     };
 
     if build_state::action_state_is_current(&output_path, &fingerprint)? {
+        session.state.execution_summary.record_staged_cache_hit();
         session.state.staged_outputs.insert(output_path);
         return Ok(false);
     }
@@ -888,6 +938,7 @@ fn execute_staged_action(
         &input_paths,
         std::slice::from_ref(&output_path),
     )?;
+    session.state.execution_summary.record_staged_cache_miss();
     session.state.staged_outputs.insert(output_path);
     Ok(true)
 }
@@ -947,6 +998,7 @@ fn ensure_link_action_built(
     let toolchain_digest = build_state::current_process_digest()?;
     let fingerprint = link_action_fingerprint(action, &options, &linker_inputs, &toolchain_digest);
     let linked_now = if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
+        session.state.execution_summary.record_link_cache_hit();
         false
     } else {
         let driver = CompilerDriver::new(options);
@@ -962,6 +1014,7 @@ fn ensure_link_action_built(
             &linker_inputs,
             std::slice::from_ref(&action.artifact_path),
         )?;
+        session.state.execution_summary.record_link_cache_miss();
         session.state.execution_summary.link_actions += 1;
         session.state.execution_summary.record_action(
             ActionTimingKind::Link,

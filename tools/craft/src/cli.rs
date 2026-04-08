@@ -1547,7 +1547,11 @@ fn print_link_action(render: &Renderer, action: &build_plan::LinkAction, artifac
 }
 
 fn render_execution_timings(render: &Renderer, summary: &execute::ExecutionSummary) {
-    if !render.timings || (summary.phase_timings.is_empty() && summary.cache_stats.is_empty()) {
+    if !render.timings
+        || (summary.phase_timings.is_empty()
+            && summary.cache_stats.is_empty()
+            && summary.action_cache_stats.is_empty())
+    {
         return;
     }
 
@@ -1557,6 +1561,12 @@ fn render_execution_timings(render: &Renderer, summary: &execute::ExecutionSumma
     }
     if !summary.cache_stats.is_empty() {
         render.summary("cache", format_compile_cache_stats(summary.cache_stats));
+    }
+    if !summary.action_cache_stats.is_empty() {
+        render.summary(
+            "action-cache",
+            format_action_cache_stats(summary.action_cache_stats),
+        );
     }
 
     if !render.verbose {
@@ -1609,6 +1619,23 @@ fn format_compile_cache_stats(stats: kernc_driver::CompileCacheStats) -> String 
             stats.collected_hits + stats.collected_misses
         ),
         format!("frontend_parse {}", stats.fresh_frontend_parses),
+    ]
+    .join(", ")
+}
+
+fn format_action_cache_stats(stats: execute::ActionCacheStats) -> String {
+    [
+        format!(
+            "compile {}/{}",
+            stats.compile_hits,
+            stats.compile_hits + stats.compile_misses
+        ),
+        format!("link {}/{}", stats.link_hits, stats.link_hits + stats.link_misses),
+        format!(
+            "staged {}/{}",
+            stats.staged_hits,
+            stats.staged_hits + stats.staged_misses
+        ),
     ]
     .join(", ")
 }
@@ -2036,12 +2063,7 @@ roots = ["tests/smoke.rn"]
     #[test]
     fn parses_help_and_version_after_command_options() {
         assert!(matches!(
-            parse_args([
-                "build".to_string(),
-                "-v".to_string(),
-                "--help".to_string(),
-            ])
-            .unwrap(),
+            parse_args(["build".to_string(), "-v".to_string(), "--help".to_string(),]).unwrap(),
             Command::Help
         ));
         assert!(matches!(
@@ -2544,10 +2566,11 @@ blocked = { git = "https://example.com/blocked.git", branch = "main" }
         })
         .unwrap();
 
-        assert!(root
-            .join(".craft/build/dev/target/out/demo-0.1.0/bin")
-            .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
-            .is_file());
+        assert!(
+            root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+                .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
+                .is_file()
+        );
         assert!(
             !root
                 .join(".craft/build/dev/target/out/demo-0.1.0/test/smoke")

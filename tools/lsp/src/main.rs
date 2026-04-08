@@ -205,7 +205,10 @@ mod tests {
         };
         assert_eq!(options.library_bundle, LibraryBundle::Base);
         assert!(!options.craft_default_features);
-        assert_eq!(options.craft_features, vec!["tls".to_string(), "simd".to_string()]);
+        assert_eq!(
+            options.craft_features,
+            vec!["tls".to_string(), "simd".to_string()]
+        );
         assert_eq!(
             options.module_aliases.get("toml").map(String::as_str),
             Some("./src")
@@ -222,6 +225,9 @@ mod tests {
     #[test]
     fn rejects_empty_feature_names() {
         let err = parse_args(["--features".to_string(), "tls,".to_string()]).unwrap_err();
-        assert!(err.contains("empty feature name"), "unexpected error: {err}");
+        assert!(
+            err.contains("empty feature name"),
+            "unexpected error: {err}"
+        );
     }
 }

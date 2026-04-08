@@ -310,6 +310,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         None
     }
 
+    pub(crate) fn local_binding(&self, name: SymbolId) -> Option<(TypeId, bool)> {
+        self.local_types
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(&name).copied())
+    }
+
+    pub(crate) fn has_local_binding(&self, name: SymbolId) -> bool {
+        self.local_binding(name).is_some()
+    }
+
     fn new_mono_id(&mut self) -> MonoId {
         let id = self.next_mono_id;
         self.next_mono_id += 1;
@@ -420,24 +431,27 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         for action in actions {
             match action {
-                LowerRootAction::InstantiateFunction(id) => self
-                    .measure_phase("  lower_root_functions", |this| {
+                LowerRootAction::InstantiateFunction(id) => {
+                    self.measure_phase("  lower_root_functions", |this| {
                         this.instantiate_function(id, &[]);
-                    }),
-                LowerRootAction::LowerGlobal(id) => self.measure_phase("  lower_root_globals", |this| {
-                    let Some(global_ptr) =
-                        this.ctx.defs.get(id.0 as usize).and_then(|def| match def {
-                            Def::Global(global) => Some(std::ptr::from_ref(global)),
-                            _ => None,
-                        })
-                    else {
-                        return;
-                    };
+                    })
+                }
+                LowerRootAction::LowerGlobal(id) => {
+                    self.measure_phase("  lower_root_globals", |this| {
+                        let Some(global_ptr) =
+                            this.ctx.defs.get(id.0 as usize).and_then(|def| match def {
+                                Def::Global(global) => Some(std::ptr::from_ref(global)),
+                                _ => None,
+                            })
+                        else {
+                            return;
+                        };
 
-                    // Safety: lowering does not mutate semantic definition storage.
-                    let global = unsafe { &*global_ptr };
-                    this.lower_global(global);
-                }),
+                        // Safety: lowering does not mutate semantic definition storage.
+                        let global = unsafe { &*global_ptr };
+                        this.lower_global(global);
+                    })
+                }
             }
         }
 

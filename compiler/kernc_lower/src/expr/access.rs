@@ -26,8 +26,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return value.kind;
         }
 
+        if self.has_local_binding(name) {
+            return MastExprKind::Var(name);
+        }
+
+        let resolved_info = self.ctx.scopes.resolve(name).cloned();
+
         // Inline constant values when possible.
-        if let Some(info) = self.ctx.scopes.resolve(name).cloned()
+        if let Some(info) = resolved_info.as_ref()
             && info.kind == SymbolKind::Const
             && let Some(def_id) = info.def_id
         {
@@ -71,7 +77,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         // First check whether this resolves to a top-level global.
-        if let Some(info) = self.ctx.scopes.resolve(name).cloned()
+        if let Some(info) = resolved_info
             && matches!(info.kind, SymbolKind::Const | SymbolKind::Static)
             && let Some(def_id) = info.def_id
         {

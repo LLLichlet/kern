@@ -57,21 +57,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         let kind = this.lower_identifier(expr.id, *name);
 
                         // Ordinary variables still need closure-capture safety checks.
-                        if let MastExprKind::Var(v) = kind {
-                            let mut found = false;
-                            for scope in this.local_types.iter().rev() {
-                                if scope.contains_key(&v) {
-                                    found = true;
-                                    break;
-                                }
-                            }
-                            if !found {
+                        if let MastExprKind::Var(v) = kind
+                            && !this.has_local_binding(v)
+                        {
                                 let var_str = this.ctx.resolve(v).to_string();
                                 this.ctx.struct_error(expr.span, "closures cannot capture environmental variables in Kern")
                                     .with_hint(format!("variable `{}` belongs to an outer scope", var_str))
                                     .with_hint("Kern anonymous functions compile directly to static C function pointers")
                                     .emit();
-                            }
                         }
                         kind
                     }
@@ -275,12 +268,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .unwrap_or(TypeId::ERROR);
         if raw_ty == TypeId::ERROR
             && let ExprKind::Identifier(name) = &expr.kind
+            && let Some((local_ty, _)) = self.local_binding(*name)
         {
-            for scope in self.local_types.iter().rev() {
-                if let Some(&(local_ty, _)) = scope.get(name) {
-                    return local_ty;
-                }
-            }
+            return local_ty;
         }
         raw_ty
     }

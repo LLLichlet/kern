@@ -66,6 +66,10 @@ pub(super) fn link_action_fingerprint(
         format!("toolchain={toolchain_digest}"),
         format!("artifact={}", action.artifact_path.display()),
         format!("linker={}", options.linker_cmd),
+        format!("runtime_entry={}", options.runtime_entry.as_str()),
+        format!("runtime_provider={}", options.runtime_provider.as_str()),
+        format!("runtime_libc={}", options.runtime_libc),
+        format!("library_bundle={}", options.library_bundle.as_str()),
         format!("dead_strip_sections={}", options.dead_strip_sections),
     ];
     lines.extend(

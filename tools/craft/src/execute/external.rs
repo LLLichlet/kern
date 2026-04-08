@@ -86,7 +86,7 @@ pub(super) fn load_external_package_actions(
 
     Ok(LoadedExternalPackage {
         workspace_root: fetched.cache_path,
-        source_config: source_config.with_child(manifest_path, &manifest),
+        source_config: source_config.with_child(),
         action_plan,
         compile_action_index,
         local_library_actions,
@@ -342,6 +342,7 @@ pub(super) fn ensure_external_tool_built(
                 built_external_packages: &mut *external.built_external_packages,
                 built_external_tools: &mut *external.built_external_tools,
                 external_build_stack: &mut *external.external_build_stack,
+                manifest_runtime_options: &mut *external.manifest_runtime_options,
                 driver_families: &mut *external.driver_families,
             },
             state: ExecutionState {
@@ -628,6 +629,7 @@ pub(super) fn execute_compile_actions(
                 built_external_packages: &mut *external.built_external_packages,
                 built_external_tools: &mut *external.built_external_tools,
                 external_build_stack: &mut *external.external_build_stack,
+                manifest_runtime_options: &mut *external.manifest_runtime_options,
                 driver_families: &mut *external.driver_families,
             },
             state: ExecutionState {
@@ -660,36 +662,6 @@ pub(super) fn collect_external_dependencies(
             collect_external_dependencies(dep_action, local_library_actions, required);
         }
     }
-}
-
-pub(super) fn link_inputs_for_action(
-    link_action: &LinkAction,
-    action_plan: &ActionPlan,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-) -> Result<Vec<PathBuf>> {
-    let compile_action = action_plan
-        .compile_actions
-        .iter()
-        .find(|action| {
-            action.domain == link_action.domain
-                && action.package_id == link_action.package_id
-                && action.target_kind == link_action.target_kind
-                && action.target_name == link_action.target_name
-        })
-        .ok_or_else(|| {
-            Error::Execution(format!(
-                "missing compile action for `{}` target `{}`",
-                link_action.package_id.name, link_action.artifact_name
-            ))
-        })?;
-    link_objects_for_compile_action(
-        compile_action,
-        local_library_actions,
-        built_std_packages,
-        built_external_packages,
-    )
 }
 
 pub(super) fn link_objects_for_compile_action(

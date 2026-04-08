@@ -943,6 +943,92 @@ return 42;
 }
 
 #[test]
+fn incremental_build_rebuilds_when_runtime_manifest_options_change() {
+    let root = temp_dir("craft-exec-incremental-runtime-manifest");
+    fs::create_dir_all(root.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "hello"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "crt"
+provider = "toolchain"
+libc = true
+bundle = "std"
+
+[[bin]]
+name = "hello"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let first = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+    assert!(first.action_cache_stats.compile_misses > 0);
+    assert_eq!(first.action_cache_stats.link_misses, 1);
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "hello"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "rt"
+provider = "toolchain"
+libc = true
+bundle = "std"
+
+[[bin]]
+name = "hello"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+
+    let rebuilt = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(rebuilt.compile_actions, 1);
+    assert_eq!(rebuilt.link_actions, 1);
+    assert!(rebuilt.action_cache_stats.compile_misses > 0);
+    assert_eq!(rebuilt.action_cache_stats.link_misses, 1);
+    assert_eq!(rebuilt.action_cache_stats.link_hits, 0);
+
+    let cached = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(cached.compile_actions, 0);
+    assert_eq!(cached.link_actions, 0);
+    assert_eq!(cached.action_cache_stats.compile_misses, 0);
+    assert_eq!(cached.action_cache_stats.link_misses, 0);
+    assert!(cached.action_cache_stats.compile_hits > 0);
+    assert_eq!(cached.action_cache_stats.link_hits, 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn builds_package_with_direct_external_path_dependency() {
     let root = temp_dir("craft-exec-external-direct");
     let log_root = root.join("vendor").join("log");

@@ -11,8 +11,9 @@ use kernc_driver::{
     PhaseTiming, load_kmeta_manifest,
 };
 use kernc_utils::config::{
-    CompileOptions, DriverMode, OptLevel, inject_driver_condition_defines,
-    maybe_inject_base_alias, maybe_inject_std_alias, maybe_inject_sys_alias,
+    CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
+    inject_driver_condition_defines, maybe_inject_base_alias, maybe_inject_std_alias,
+    maybe_inject_sys_alias,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -26,7 +27,7 @@ mod runtime_packages;
 
 use self::external::{
     build_external_package, compile_actions_index, compile_module_aliases,
-    ensure_external_tool_built, link_actions_by_artifact_path, link_inputs_for_action,
+    ensure_external_tool_built, link_actions_by_artifact_path, link_objects_for_compile_action,
     local_library_actions, requested_external_dependencies,
 };
 use self::fingerprint::{
@@ -218,6 +219,7 @@ pub(crate) fn materialize_analysis_inputs(
     let mut built_external_packages = BTreeMap::new();
     let mut built_external_tools = BTreeMap::new();
     let mut external_build_stack = BTreeSet::new();
+    let mut manifest_runtime_options = BTreeMap::new();
     let compile_action_index = compile_actions_index(&action_plan.compile_actions);
     let local_library_actions = local_library_actions(&action_plan.compile_actions);
     let link_action_index = link_actions_by_artifact_path(&action_plan.link_actions);
@@ -245,6 +247,7 @@ pub(crate) fn materialize_analysis_inputs(
             built_external_packages: &mut built_external_packages,
             built_external_tools: &mut built_external_tools,
             external_build_stack: &mut external_build_stack,
+            manifest_runtime_options: &mut manifest_runtime_options,
             driver_families: &mut driver_families,
         },
         state: ExecutionState {
@@ -306,6 +309,31 @@ struct SourceConfigContext {
     _private: (),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+struct ManifestRuntimeOptions {
+    entry: Option<RuntimeEntry>,
+    provider: Option<RuntimeProvider>,
+    libc: Option<bool>,
+    bundle: Option<LibraryBundle>,
+}
+
+impl ManifestRuntimeOptions {
+    fn apply(&self, options: &mut CompileOptions) {
+        if let Some(entry) = self.entry {
+            options.runtime_entry = entry;
+        }
+        if let Some(provider) = self.provider {
+            options.runtime_provider = provider;
+        }
+        if let Some(libc) = self.libc {
+            options.runtime_libc = libc;
+        }
+        if let Some(bundle) = self.bundle {
+            options.library_bundle = bundle;
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 struct PackageInstanceKey {
     domain: BuildDomain,
@@ -348,6 +376,7 @@ struct ExternalArtifacts<'a> {
     built_external_packages: &'a mut BTreeMap<ExternalPackageId, BuiltExternalPackage>,
     built_external_tools: &'a mut BTreeMap<ExternalToolKey, PathBuf>,
     external_build_stack: &'a mut BTreeSet<ExternalPackageId>,
+    manifest_runtime_options: &'a mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
     driver_families: &'a mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
 }
 
@@ -404,6 +433,7 @@ fn build_with_command(
     let mut built_external_packages = BTreeMap::new();
     let mut built_external_tools = BTreeMap::new();
     let mut external_build_stack = BTreeSet::new();
+    let mut manifest_runtime_options = BTreeMap::new();
     let config = ExecutionConfig {
         source_config: &source_config,
         dependency_workspace_root: &build_plan.workspace_root,
@@ -416,6 +446,7 @@ fn build_with_command(
         built_external_packages: &mut built_external_packages,
         built_external_tools: &mut built_external_tools,
         external_build_stack: &mut external_build_stack,
+        manifest_runtime_options: &mut manifest_runtime_options,
         driver_families: &mut driver_families,
     };
 
@@ -571,11 +602,27 @@ fn compile_time_defines(
 
 fn apply_manifest_runtime_options(
     manifest_path: &Path,
+    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
     options: &mut CompileOptions,
 ) -> Result<()> {
+    if let Some(cached) = manifest_runtime_options.get(manifest_path) {
+        cached.apply(options);
+        return Ok(());
+    }
+
     let manifest = Manifest::load(manifest_path)?;
     manifest.validate(manifest_path)?;
-    manifest.apply_runtime_options(options);
+    let cached = ManifestRuntimeOptions {
+        entry: manifest.runtime.as_ref().and_then(|runtime| runtime.entry),
+        provider: manifest
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.provider),
+        libc: manifest.runtime.as_ref().and_then(|runtime| runtime.libc),
+        bundle: manifest.runtime.as_ref().and_then(|runtime| runtime.bundle),
+    };
+    cached.apply(options);
+    manifest_runtime_options.insert(manifest_path.to_path_buf(), cached);
     Ok(())
 }
 
@@ -626,18 +673,12 @@ fn resolve_invocation_path(path: &Path) -> Result<PathBuf> {
 }
 
 fn load_source_config(build_plan: &BuildPlan) -> Result<SourceConfigContext> {
-    let manifest_path = build_plan.workspace_root.join("Craft.toml");
-    let manifest = Manifest::load(&manifest_path)?;
-    manifest.validate(&manifest_path)?;
-    Ok(source_config_context(manifest_path, manifest))
-}
-
-fn source_config_context(_manifest_path: PathBuf, _manifest: Manifest) -> SourceConfigContext {
-    SourceConfigContext { _private: () }
+    let _ = build_plan;
+    Ok(SourceConfigContext { _private: () })
 }
 
 impl SourceConfigContext {
-    fn with_child(&self, _manifest_path: PathBuf, _manifest: &Manifest) -> Self {
+    fn with_child(&self) -> Self {
         Self { _private: () }
     }
 }
@@ -691,7 +732,11 @@ fn ensure_compile_action_built(
         split_sections_for_gc: true,
         ..default_target_compile_options(action.target_kind)
     };
-    apply_manifest_runtime_options(&action.manifest_path, &mut options)?;
+    apply_manifest_runtime_options(
+        &action.manifest_path,
+        session.external.manifest_runtime_options,
+        &mut options,
+    )?;
     apply_host_linker_env(&mut options);
     options.module_interface_aliases = compile_module_aliases(
         action,
@@ -947,11 +992,14 @@ fn ensure_link_action_built(
         dead_strip_sections: true,
         ..default_target_compile_options(action.target_kind)
     };
-    apply_manifest_runtime_options(&action.manifest_path, &mut options)?;
+    apply_manifest_runtime_options(
+        &action.manifest_path,
+        session.external.manifest_runtime_options,
+        &mut options,
+    )?;
     apply_host_linker_env(&mut options);
-    let linker_inputs = link_inputs_for_action(
-        action,
-        session.indexes.action_plan,
+    let linker_inputs = link_objects_for_compile_action(
+        compile_action,
         session.indexes.local_library_actions,
         session.external.built_std_packages,
         session.external.built_external_packages,

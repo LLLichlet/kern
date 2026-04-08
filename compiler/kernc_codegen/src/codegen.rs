@@ -92,6 +92,12 @@ pub struct IrFunctionStats {
     pub compares: usize,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AllocaNameStat {
+    pub name: String,
+    pub count: usize,
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct CodegenAllocaStats {
     pub params: usize,
@@ -101,6 +107,7 @@ pub struct CodegenAllocaStats {
     pub array_to_slice_temps: usize,
     pub union_inits: usize,
     pub data_union_inits: usize,
+    pub unnamed: usize,
     pub other: usize,
 }
 
@@ -114,6 +121,8 @@ pub struct EmitObjectTiming {
 pub struct EmitObjectReport {
     pub timings: Vec<EmitObjectTiming>,
     pub ir_cleanup_stats: Option<IrCleanupStats>,
+    pub remaining_alloca_stats: Option<CodegenAllocaStats>,
+    pub remaining_alloca_names: Vec<AllocaNameStat>,
 }
 
 pub struct CodeGenerator<'ctx, 'a> {
@@ -224,6 +233,54 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         });
         hot_functions.truncate(8);
         (stats, hot_functions)
+    }
+
+    fn collect_remaining_alloca_stats(&self) -> CodegenAllocaStats {
+        let mut stats = CodegenAllocaStats::default();
+        let mut current_function = self.module.get_first_function();
+        while let Some(function) = current_function {
+            let mut current_block = function.get_first_basic_block();
+            while let Some(block) = current_block {
+                let mut current_instruction = block.get_first_instruction();
+                while let Some(instruction) = current_instruction {
+                    if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
+                        accumulate_alloca_site(&mut stats, &instruction.name());
+                    }
+                    current_instruction = instruction.get_next_instruction();
+                }
+                current_block = block.get_next_basic_block();
+            }
+            current_function = function.get_next_function();
+        }
+
+        stats
+    }
+
+    fn collect_remaining_alloca_names(&self) -> Vec<AllocaNameStat> {
+        let mut counts = HashMap::<String, usize>::new();
+        let mut current_function = self.module.get_first_function();
+        while let Some(function) = current_function {
+            let mut current_block = function.get_first_basic_block();
+            while let Some(block) = current_block {
+                let mut current_instruction = block.get_first_instruction();
+                while let Some(instruction) = current_instruction {
+                    if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
+                        *counts.entry(instruction.name()).or_default() += 1;
+                    }
+                    current_instruction = instruction.get_next_instruction();
+                }
+                current_block = block.get_next_basic_block();
+            }
+            current_function = function.get_next_function();
+        }
+
+        let mut stats = counts
+            .into_iter()
+            .map(|(name, count)| AllocaNameStat { name, count })
+            .collect::<Vec<_>>();
+        stats.sort_by(|lhs, rhs| rhs.count.cmp(&lhs.count).then_with(|| lhs.name.cmp(&rhs.name)));
+        stats.truncate(8);
+        stats
     }
 
     pub fn new(
@@ -412,6 +469,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             before: cleanup_before_stats,
             after: cleanup_after_stats,
         });
+        report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
+        report.remaining_alloca_names = self.collect_remaining_alloca_names();
 
         let mut output = output_path.as_bytes().to_vec();
         output.push(0);
@@ -518,6 +577,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             before: cleanup_before_stats,
             after: cleanup_after_stats,
         });
+        report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
+        report.remaining_alloca_names = self.collect_remaining_alloca_names();
 
         // Fast path: plain ASCII paths are safely representable through LLVM's narrow-path API.
         // Keep the memory-buffer fallback for Unicode paths and for direct-write failures.
@@ -653,6 +714,28 @@ fn function_contains_alloca(function: FunctionValue<'_>) -> bool {
     }
 
     false
+}
+
+pub(crate) fn accumulate_alloca_site(stats: &mut CodegenAllocaStats, name: &str) {
+    if name.is_empty() {
+        stats.unnamed += 1;
+    } else if name.starts_with("arg_") {
+        stats.params += 1;
+    } else if name.starts_with("let_") {
+        stats.lets += 1;
+    } else if name.starts_with("tmp_addrof") {
+        stats.addr_of_temps += 1;
+    } else if name.starts_with("tmp_materialized_lvalue") {
+        stats.materialized_lvalues += 1;
+    } else if name.starts_with("tmp_array_for_slice") {
+        stats.array_to_slice_temps += 1;
+    } else if name.starts_with("union_init") {
+        stats.union_inits += 1;
+    } else if name.starts_with("data_union_init") {
+        stats.data_union_inits += 1;
+    } else {
+        stats.other += 1;
+    }
 }
 
 fn llvm_raw_opt_level(opt_level: OptLevel) -> LLVMCodeGenOptLevel {

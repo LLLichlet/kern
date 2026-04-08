@@ -49,6 +49,8 @@ impl CompilerDriver {
                     Self::print_ir_instruction_stats(report.ir_instruction_stats.as_ref());
                     Self::print_ir_cleanup_stats(report.ir_cleanup_stats.as_ref());
                     Self::print_codegen_alloca_stats(report.codegen_alloca_stats);
+                    Self::print_remaining_alloca_stats(report.remaining_alloca_stats);
+                    Self::print_remaining_alloca_names(report.remaining_alloca_names.as_slice());
                     Self::print_ir_hot_functions(report.ir_hot_functions.as_slice());
                 }
                 true
@@ -70,6 +72,8 @@ impl CompilerDriver {
                 mast_workload: None,
                 ir_instruction_stats: None,
                 ir_cleanup_stats: None,
+                remaining_alloca_stats: None,
+                remaining_alloca_names: Vec::new(),
                 ir_hot_functions: Vec::new(),
                 codegen_alloca_stats: Default::default(),
             });
@@ -161,6 +165,8 @@ impl CompilerDriver {
                         mast_workload: Some(mast_workload),
                         ir_instruction_stats: Some(codegen_report.ir_stats),
                         ir_cleanup_stats: None,
+                        remaining_alloca_stats: None,
+                        remaining_alloca_names: Vec::new(),
                         ir_hot_functions: codegen_report.ir_hot_functions,
                         codegen_alloca_stats: codegen_report.alloca_stats,
                     })
@@ -206,6 +212,8 @@ impl CompilerDriver {
                 mast_workload: Some(mast_workload),
                 ir_instruction_stats: Some(codegen_report.ir_stats),
                 ir_cleanup_stats: emit_report.ir_cleanup_stats,
+                remaining_alloca_stats: emit_report.remaining_alloca_stats,
+                remaining_alloca_names: emit_report.remaining_alloca_names,
                 ir_hot_functions: codegen_report.ir_hot_functions,
                 codegen_alloca_stats: codegen_report.alloca_stats,
             });
@@ -225,6 +233,8 @@ impl CompilerDriver {
             mast_workload: Some(mast_workload),
             ir_instruction_stats: Some(codegen_report.ir_stats),
             ir_cleanup_stats: emit_report.ir_cleanup_stats,
+            remaining_alloca_stats: emit_report.remaining_alloca_stats,
+            remaining_alloca_names: emit_report.remaining_alloca_names,
             ir_hot_functions: codegen_report.ir_hot_functions,
             codegen_alloca_stats: codegen_report.alloca_stats,
         })
@@ -559,9 +569,54 @@ impl CompilerDriver {
             ),
             ("  union_inits", codegen_alloca_stats.union_inits),
             ("  data_union_inits", codegen_alloca_stats.data_union_inits),
+            ("  unnamed", codegen_alloca_stats.unnamed),
             ("  other", codegen_alloca_stats.other),
         ] {
             println!("  {:<22} {}", name, value);
+        }
+    }
+
+    pub(super) fn print_remaining_alloca_stats(
+        remaining_alloca_stats: Option<kernc_codegen::CodegenAllocaStats>,
+    ) {
+        let Some(stats) = remaining_alloca_stats else {
+            return;
+        };
+        if stats == kernc_codegen::CodegenAllocaStats::default() {
+            return;
+        }
+
+        println!("Remaining alloca stats:");
+        for (name, value) in [
+            ("  params", stats.params),
+            ("  lets", stats.lets),
+            ("  addr_of_temps", stats.addr_of_temps),
+            ("  materialized_lvalues", stats.materialized_lvalues),
+            ("  array_to_slice_temps", stats.array_to_slice_temps),
+            ("  union_inits", stats.union_inits),
+            ("  data_union_inits", stats.data_union_inits),
+            ("  unnamed", stats.unnamed),
+            ("  other", stats.other),
+        ] {
+            println!("  {:<22} {}", name, value);
+        }
+    }
+
+    pub(super) fn print_remaining_alloca_names(
+        remaining_alloca_names: &[kernc_codegen::AllocaNameStat],
+    ) {
+        if remaining_alloca_names.is_empty() {
+            return;
+        }
+
+        println!("Remaining alloca names:");
+        for stat in remaining_alloca_names {
+            let name = if stat.name.is_empty() {
+                "<unnamed>"
+            } else {
+                stat.name.as_str()
+            };
+            println!("  {:<22} {}", name, stat.count);
         }
     }
 

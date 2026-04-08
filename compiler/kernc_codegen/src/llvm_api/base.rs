@@ -1063,6 +1063,16 @@ impl<'ctx> InstructionValue<'ctx> {
     pub fn get_opcode(self) -> LLVMOpcode {
         unsafe { LLVMGetInstructionOpcode(self.raw) }
     }
+
+    pub fn name(self) -> String {
+        let mut len = 0;
+        let ptr = unsafe { LLVMGetValueName2(self.raw, &mut len) };
+        if ptr.is_null() || len == 0 {
+            return String::new();
+        }
+        let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
+        String::from_utf8_lossy(bytes).into_owned()
+    }
 }
 
 impl<'ctx> AsValueRef for InstructionValue<'ctx> {

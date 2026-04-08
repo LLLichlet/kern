@@ -2,14 +2,14 @@ use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstInt,
     LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMCountParams,
-    LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetBasicBlockParent,
+    LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent,
     LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
-    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth,
-    LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam, LLVMGetReturnType,
-    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsAInstruction,
-    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
-    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMStructGetTypeAtIndex,
-    LLVMStructSetBody, LLVMTypeOf,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
+    LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam,
+    LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
+    LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment,
+    LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
+    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{
@@ -1074,6 +1074,10 @@ impl<'ctx> InstructionValue<'ctx> {
 
     pub fn get_opcode(self) -> LLVMOpcode {
         unsafe { LLVMGetInstructionOpcode(self.raw) }
+    }
+
+    pub fn get_allocated_type(self) -> BasicTypeEnum<'ctx> {
+        BasicTypeEnum::new(unsafe { LLVMGetAllocatedType(self.raw) })
     }
 
     pub fn name(self) -> String {

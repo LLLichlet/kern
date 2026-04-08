@@ -675,15 +675,21 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return Ok(());
         }
 
-        let passes = CString::new("mem2reg").unwrap();
+        let mem2reg_passes = CString::new("mem2reg").unwrap();
+        let aggregate_cleanup_passes = CString::new("sroa,mem2reg").unwrap();
         let options = unsafe { LLVMCreatePassBuilderOptions() };
         let mut current_function = self.module.get_first_function();
         while let Some(function) = current_function {
             if function.get_first_basic_block().is_some() && function_contains_alloca(function) {
+                let passes = if function_contains_aggregate_alloca(function) {
+                    aggregate_cleanup_passes.as_ptr()
+                } else {
+                    mem2reg_passes.as_ptr()
+                };
                 let err = unsafe {
                     LLVMRunPassesOnFunction(
                         function.as_value_ref(),
-                        passes.as_ptr(),
+                        passes,
                         target_machine,
                         options,
                     )
@@ -707,6 +713,29 @@ fn function_contains_alloca(function: FunctionValue<'_>) -> bool {
         while let Some(instruction) = current_instruction {
             if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
                 return true;
+            }
+            current_instruction = instruction.get_next_instruction();
+        }
+        current_block = block.get_next_basic_block();
+    }
+
+    false
+}
+
+fn function_contains_aggregate_alloca(function: FunctionValue<'_>) -> bool {
+    let mut current_block = function.get_first_basic_block();
+    while let Some(block) = current_block {
+        let mut current_instruction = block.get_first_instruction();
+        while let Some(instruction) = current_instruction {
+            if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
+                let allocated_ty = instruction.get_allocated_type();
+                if matches!(
+                    allocated_ty,
+                    crate::types::BasicTypeEnum::ArrayType(_)
+                        | crate::types::BasicTypeEnum::StructType(_)
+                ) {
+                    return true;
+                }
             }
             current_instruction = instruction.get_next_instruction();
         }

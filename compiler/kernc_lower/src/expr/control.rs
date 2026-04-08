@@ -52,6 +52,42 @@ struct MatchLowerContext<'a> {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn lower_block_stmt(
+        &mut self,
+        expr: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        lowered_stmts: &mut Vec<MastStmt>,
+    ) {
+        if let ExprKind::Defer { expr: def_expr } = &expr.kind {
+            let lowered = self.measure_phase("      lower_stmt_defer", |this| {
+                this.lower_expr(def_expr, subst_map, None)
+            });
+            self.push_defer_in_current_scope(expr.span, lowered);
+        } else if let ExprKind::Let {
+            pattern,
+            init,
+            else_pattern,
+            else_branch,
+        } = &expr.kind
+        {
+            let mut stmts = self.measure_phase("      lower_stmt_let", |this| {
+                this.lower_let_stmts(
+                    expr,
+                    pattern,
+                    init,
+                    else_pattern.as_ref(),
+                    else_branch.as_deref(),
+                    subst_map,
+                )
+            });
+            lowered_stmts.append(&mut stmts);
+        } else if let Some(stmt) = self.measure_phase("      lower_stmt_expr", |this| {
+            this.lower_optional_stmt_expr(expr, subst_map)
+        }) {
+            lowered_stmts.push(stmt);
+        }
+    }
+
     fn lower_optional_stmt_expr(
         &mut self,
         expr: &Expr,
@@ -854,42 +890,28 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             for stmt in ast_stmts {
                 match &stmt.kind {
                     ast::StmtKind::ExprStmt(e) | ast::StmtKind::ExprValue(e) => {
-                        if let ExprKind::Defer { expr: def_expr } = &e.kind {
-                            let lowered = self.lower_expr(def_expr, subst_map, None);
-                            self.push_defer_in_current_scope(e.span, lowered);
-                        } else if let ExprKind::Let {
-                            pattern,
-                            init,
-                            else_pattern,
-                            else_branch,
-                        } = &e.kind
-                        {
-                            stmts.extend(self.lower_let_stmts(
-                                e,
-                                pattern,
-                                init,
-                                else_pattern.as_ref(),
-                                else_branch.as_deref(),
-                                subst_map,
-                            ));
-                        } else if let Some(stmt) = self.lower_optional_stmt_expr(e, subst_map) {
-                            stmts.push(stmt);
-                        }
+                        self.lower_block_stmt(e, subst_map, &mut stmts);
                     }
                 }
             }
             if let Some(res) = ast_res {
-                result = Some(Box::new(self.lower_expr(res, subst_map, Some(expected_ty))));
+                result = Some(Box::new(
+                    self.measure_phase("      lower_block_result", |this| {
+                        this.lower_expr(res, subst_map, Some(expected_ty))
+                    }),
+                ));
             }
         } else {
-            result = Some(Box::new(self.lower_expr(
-                block_expr,
-                subst_map,
-                Some(expected_ty),
-            )));
+            result = Some(Box::new(
+                self.measure_phase("      lower_block_expr", |this| {
+                    this.lower_expr(block_expr, subst_map, Some(expected_ty))
+                }),
+            ));
         }
 
-        let popped_defers = self.pop_defer_scope(block_expr.span);
+        let popped_defers = self.measure_phase("      lower_block_defers", |this| {
+            this.pop_defer_scope(block_expr.span)
+        });
         let mut defers = Vec::new();
         for d in popped_defers.into_iter().rev() {
             defers.push(d); // Preserve LIFO order in a dedicated array.

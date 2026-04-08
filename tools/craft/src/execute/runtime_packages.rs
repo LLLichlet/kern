@@ -7,6 +7,7 @@ use super::{
 use crate::build_plan::CompileAction;
 use crate::build_state;
 use crate::error::Error;
+use crate::operation_lock::WorkspaceOperationLock;
 use kernc_driver::{CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE};
 use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, OptLevel, inject_driver_condition_defines,
@@ -14,6 +15,63 @@ use kernc_utils::config::{
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+
+#[cfg(test)]
+use std::cell::RefCell;
+
+#[cfg(test)]
+thread_local! {
+    static TEST_RUNTIME_CACHE_ROOT: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+pub(super) fn with_test_runtime_cache_root<T>(root: PathBuf, f: impl FnOnce() -> T) -> T {
+    TEST_RUNTIME_CACHE_ROOT.with(|slot| {
+        let previous = slot.replace(Some(root));
+        let result = f();
+        slot.replace(previous);
+        result
+    })
+}
+
+#[cfg(not(test))]
+fn sanitize_cache_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+fn runtime_cache_root(_workspace_root: &Path) -> Result<PathBuf> {
+    #[cfg(test)]
+    if let Some(root) = TEST_RUNTIME_CACHE_ROOT.with(|slot| slot.borrow().clone()) {
+        return Ok(root);
+    }
+
+    #[cfg(test)]
+    {
+        return Ok(_workspace_root.join(".craft").join("runtime-cache"));
+    }
+
+    #[cfg(not(test))]
+    {
+        let toolchain_digest = build_state::current_process_digest()?;
+        Ok(std::env::temp_dir()
+            .join("kern")
+            .join("craft-runtime-cache")
+            .join(sanitize_cache_component(&toolchain_digest)))
+    }
+}
+
+fn runtime_profile_root(workspace_root: &Path, profile: &str) -> Result<PathBuf> {
+    Ok(runtime_cache_root(workspace_root)?.join(profile))
+}
 
 pub(super) fn interface_alias_strings(
     aliases: &BTreeMap<String, PathBuf>,
@@ -67,6 +125,9 @@ pub(super) fn build_std_package(
         return Ok(());
     }
 
+    let profile_root = runtime_profile_root(workspace_root, profile)?;
+    let _runtime_lock = WorkspaceOperationLock::acquire(&profile_root, "build-runtime")?;
+
     let std_root = resolve_std_path();
     let source_path = std_root.join("init.rn");
     if !source_path.is_file() {
@@ -85,20 +146,12 @@ pub(super) fn build_std_package(
         &built_sys,
     )?;
 
-    let object_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
+    let object_path = profile_root
         .join("obj")
         .join("std")
         .join("lib")
         .join("std.o");
-    let metadata_root_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
-        .join("meta")
-        .join("std");
+    let metadata_root_path = profile_root.join("meta").join("std");
 
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
@@ -184,10 +237,7 @@ pub(super) fn build_std_package(
                 object_path,
                 built_rt.object_path.clone(),
                 built_sys.object_path.clone(),
-                workspace_root
-                    .join(".craft")
-                    .join("build")
-                    .join(profile)
+                profile_root
                     .join("obj")
                     .join("base")
                     .join("lib")
@@ -219,20 +269,9 @@ pub(super) fn build_rt_package(
         )));
     }
 
-    let object_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
-        .join("obj")
-        .join("rt")
-        .join("lib")
-        .join("rt.o");
-    let metadata_root_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
-        .join("meta")
-        .join("rt");
+    let profile_root = runtime_profile_root(workspace_root, profile)?;
+    let object_path = profile_root.join("obj").join("rt").join("lib").join("rt.o");
+    let metadata_root_path = profile_root.join("meta").join("rt");
 
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
@@ -321,20 +360,13 @@ pub(super) fn build_base_package(
         )));
     }
 
-    let object_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
+    let profile_root = runtime_profile_root(workspace_root, profile)?;
+    let object_path = profile_root
         .join("obj")
         .join("base")
         .join("lib")
         .join("base.o");
-    let metadata_root_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
-        .join("meta")
-        .join("base");
+    let metadata_root_path = profile_root.join("meta").join("base");
 
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
@@ -426,20 +458,13 @@ pub(super) fn build_sys_package(
     let built_base =
         build_base_package(workspace_root, profile, driver_families, execution_summary)?;
 
-    let object_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
+    let profile_root = runtime_profile_root(workspace_root, profile)?;
+    let object_path = profile_root
         .join("obj")
         .join("sys")
         .join("lib")
         .join("sys.o");
-    let metadata_root_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
-        .join("meta")
-        .join("sys");
+    let metadata_root_path = profile_root.join("meta").join("sys");
 
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
@@ -538,10 +563,8 @@ pub(super) fn build_rt_entry_package(
         )));
     }
 
-    let object_path = workspace_root
-        .join(".craft")
-        .join("build")
-        .join(profile)
+    let profile_root = runtime_profile_root(workspace_root, profile)?;
+    let object_path = profile_root
         .join("obj")
         .join("rt")
         .join("entry")

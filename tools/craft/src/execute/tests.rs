@@ -1122,6 +1122,69 @@ let _ = b.copy_package_file_to_artifact("assets/data.txt", "bundle/data.txt");
 }
 
 #[test]
+fn runtime_packages_are_reused_across_fresh_workspaces() {
+    let cache_root = temp_dir("craft-runtime-cache-shared");
+    let root_a = temp_dir("craft-runtime-cache-a");
+    let root_b = temp_dir("craft-runtime-cache-b");
+
+    let build_workspace = |root: &Path| {
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "hello"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "hello"
+root = "src/main.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Build,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+        let build_plan =
+            build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+        let action_plan = build_plan.derive_actions(&crate::script::host_target());
+        build(&build_plan, &action_plan).unwrap()
+    };
+
+    let (first, second) =
+        super::runtime_packages::with_test_runtime_cache_root(cache_root.clone(), || {
+            (build_workspace(&root_a), build_workspace(&root_b))
+        });
+
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+    assert_eq!(first.action_cache_stats.compile_hits, 0);
+    assert!(first.action_cache_stats.compile_misses > 0);
+
+    assert_eq!(second.compile_actions, 1);
+    assert_eq!(second.link_actions, 1);
+    assert!(second.action_cache_stats.compile_hits > 0);
+    assert!(second.action_cache_stats.compile_misses > 0);
+    assert_eq!(second.action_cache_stats.link_hits, 0);
+    assert_eq!(second.action_cache_stats.link_misses, 1);
+
+    let _ = fs::remove_dir_all(cache_root);
+    let _ = fs::remove_dir_all(root_a);
+    let _ = fs::remove_dir_all(root_b);
+}
+
+#[test]
 fn builds_package_with_direct_external_path_dependency() {
     let root = temp_dir("craft-exec-external-direct");
     let log_root = root.join("vendor").join("log");

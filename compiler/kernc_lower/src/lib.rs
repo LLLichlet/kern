@@ -1,6 +1,7 @@
 #![doc = include_str!("../README.md")]
 
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
 use kernc_mast::*;
@@ -19,6 +20,18 @@ pub(crate) mod vtable;
 enum LowerRootAction {
     InstantiateFunction(DefId),
     LowerGlobal(DefId),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LowerTiming {
+    pub name: &'static str,
+    pub duration: Duration,
+}
+
+#[derive(Debug, Clone)]
+pub struct LowerReport {
+    pub module: MastModule,
+    pub phase_timings: Vec<LowerTiming>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -80,6 +93,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) reachable_module_items: Option<HashSet<DefId>>,
     pub(crate) flow_lowering_hints: FlowLoweringHints,
     pub(crate) current_owner_def_id: Option<DefId>,
+    phase_totals: HashMap<&'static str, Duration>,
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
@@ -125,7 +139,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             reachable_module_items: None,
             flow_lowering_hints: FlowLoweringHints::default(),
             current_owner_def_id: None,
+            phase_totals: HashMap::new(),
         }
+    }
+
+    pub(crate) fn measure_phase<T, F>(&mut self, name: &'static str, f: F) -> T
+    where
+        F: FnOnce(&mut Self) -> T,
+    {
+        let started = Instant::now();
+        let value = f(self);
+        *self.phase_totals.entry(name).or_default() += started.elapsed();
+        value
     }
 
     pub fn context(&mut self) -> &mut SemaContext<'ctx> {
@@ -310,85 +335,96 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     /// Entry point for lowering: recursively monomorphize every non-generic root item.
     pub fn lower_all(&mut self) -> MastModule {
+        self.lower_all_with_report().module
+    }
+
+    /// Entry point for lowering with internal timing breakdowns.
+    pub fn lower_all_with_report(&mut self) -> LowerReport {
         let def_ids: Vec<_> = (0..self.ctx.defs.len()).map(|i| DefId(i as u32)).collect();
 
         // Phase 1: preallocate `MonoId`s for globals.
-        for &id in &def_ids {
-            let global_name = if let Def::Global(g) = &self.ctx.defs[id.0 as usize] {
-                Some(g.name)
-            } else {
-                None
-            };
+        self.measure_phase("  lower_preallocate_globals", |this| {
+            for &id in &def_ids {
+                let global_name = if let Def::Global(g) = &this.ctx.defs[id.0 as usize] {
+                    Some(g.name)
+                } else {
+                    None
+                };
 
-            if let Some(name) = global_name {
-                let mono_id = self.new_mono_id();
-                self.global_map.insert(id, mono_id);
-                // Pre-register top-level global names.
-                self.global_symbol_map.insert(name, mono_id);
+                if let Some(name) = global_name {
+                    let mono_id = this.new_mono_id();
+                    this.global_map.insert(id, mono_id);
+                    // Pre-register top-level global names.
+                    this.global_symbol_map.insert(name, mono_id);
+                }
             }
-        }
+        });
 
         // Phase 2: lower concrete entities for real.
-        let mut actions = Vec::new();
-        for id in def_ids {
-            match &self.ctx.defs[id.0 as usize] {
-                Def::Function(f) => {
-                    if f.is_imported || f.is_intrinsic {
-                        continue;
-                    }
-                    if self
-                        .reachable_module_items
-                        .as_ref()
-                        .is_some_and(|reachable| !reachable.contains(&id))
-                    {
-                        continue;
-                    }
-
-                    let mut is_generic = !f.generics.is_empty();
-                    if let Some(parent_id) = f.parent
-                        && let Def::Impl(impl_def) = &self.ctx.defs[parent_id.0 as usize]
-                        && !impl_def.generics.is_empty()
-                    {
-                        is_generic = true;
-                    }
-
-                    if !is_generic {
-                        actions.push(LowerRootAction::InstantiateFunction(id));
-                    }
-                }
-                Def::Global(g) => {
-                    if !g.is_imported
-                        && self
+        let actions = self.measure_phase("  lower_collect_roots", |this| {
+            let mut actions = Vec::new();
+            for id in def_ids {
+                match &this.ctx.defs[id.0 as usize] {
+                    Def::Function(f) => {
+                        if f.is_imported || f.is_intrinsic {
+                            continue;
+                        }
+                        if this
                             .reachable_module_items
                             .as_ref()
-                            .is_none_or(|reachable| reachable.contains(&id))
-                    {
-                        actions.push(LowerRootAction::LowerGlobal(id));
+                            .is_some_and(|reachable| !reachable.contains(&id))
+                        {
+                            continue;
+                        }
+
+                        let mut is_generic = !f.generics.is_empty();
+                        if let Some(parent_id) = f.parent
+                            && let Def::Impl(impl_def) = &this.ctx.defs[parent_id.0 as usize]
+                            && !impl_def.generics.is_empty()
+                        {
+                            is_generic = true;
+                        }
+
+                        if !is_generic {
+                            actions.push(LowerRootAction::InstantiateFunction(id));
+                        }
                     }
+                    Def::Global(g) => {
+                        if !g.is_imported
+                            && this
+                                .reachable_module_items
+                                .as_ref()
+                                .is_none_or(|reachable| reachable.contains(&id))
+                        {
+                            actions.push(LowerRootAction::LowerGlobal(id));
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
-        }
+            actions
+        });
 
         for action in actions {
             match action {
-                LowerRootAction::InstantiateFunction(id) => {
-                    self.instantiate_function(id, &[]);
-                }
-                LowerRootAction::LowerGlobal(id) => {
+                LowerRootAction::InstantiateFunction(id) => self
+                    .measure_phase("  lower_root_functions", |this| {
+                        this.instantiate_function(id, &[]);
+                    }),
+                LowerRootAction::LowerGlobal(id) => self.measure_phase("  lower_root_globals", |this| {
                     let Some(global_ptr) =
-                        self.ctx.defs.get(id.0 as usize).and_then(|def| match def {
+                        this.ctx.defs.get(id.0 as usize).and_then(|def| match def {
                             Def::Global(global) => Some(std::ptr::from_ref(global)),
                             _ => None,
                         })
                     else {
-                        continue;
+                        return;
                     };
 
                     // Safety: lowering does not mutate semantic definition storage.
                     let global = unsafe { &*global_ptr };
-                    self.lower_global(global);
-                }
+                    this.lower_global(global);
+                }),
             }
         }
 
@@ -399,7 +435,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.anon_union_map = self.anon_union_cache.clone();
         self.module.anon_enum_map = self.anon_enum_cache.clone();
 
-        MastModule {
+        let module = MastModule {
             name: std::mem::take(&mut self.module.name),
             structs: std::mem::take(&mut self.module.structs),
             globals: std::mem::take(&mut self.module.globals),
@@ -410,6 +446,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             anon_struct_map: std::mem::take(&mut self.module.anon_struct_map),
             anon_union_map: std::mem::take(&mut self.module.anon_union_map),
             anon_enum_map: std::mem::take(&mut self.module.anon_enum_map),
+        };
+        let mut phase_timings = self
+            .phase_totals
+            .iter()
+            .map(|(name, duration)| LowerTiming {
+                name,
+                duration: *duration,
+            })
+            .collect::<Vec<_>>();
+        phase_timings.sort_by_key(|timing| timing.name);
+
+        LowerReport {
+            module,
+            phase_timings,
         }
     }
 

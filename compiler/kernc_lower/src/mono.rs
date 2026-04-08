@@ -132,145 +132,143 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(&id) = self.mono_cache.get(&key) {
             return id;
         }
+        self.measure_phase("  lower_instantiate_function", |this| {
+            let id = this.new_mono_id();
+            this.mono_cache.insert(key, id);
 
-        let id = self.new_mono_id();
-        self.mono_cache.insert(key, id);
-
-        let def = if let Def::Function(f) = &self.ctx.defs[def_id.0 as usize] {
-            f.clone()
-        } else {
-            self.ctx.emit_ice(
-                Span::default(),
-                format!("Kern ICE (Lowering): DefId {} is not a Function!", def_id.0),
-            );
-            self.placeholder_function(id, format!("__ice_fn_{}", id.0));
-            return id;
-        };
-
-        let fn_name = self.ctx.resolve(def.name).to_string();
-        let Some(subst_map) =
-            self.build_generic_subst_map("function", &fn_name, &def.generics, args)
-        else {
-            self.placeholder_function(id, format!("__ice_fn_{}", id.0));
-            return id;
-        };
-
-        let mangled_name = self.ctx.get_export_name(def_id, args);
-
-        let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
-            if let TypeKind::Function { ret, .. } = self.ctx.type_registry.get(sig) {
-                *ret
+            let def = if let Def::Function(f) = &this.ctx.defs[def_id.0 as usize] {
+                f.clone()
             } else {
-                TypeId::VOID
-            }
-        });
-
-        let mut mast_params = Vec::new();
-        for p in &def.params {
-            let raw_ty = self
-                .ctx
-                .node_types
-                .get(&p.type_node.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let conc_ty = {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-                subst.substitute(raw_ty)
-            };
-            self.track_pure_enum_repr_in_type(conc_ty);
-            mast_params.push(MastParam {
-                name: p.pattern.name,
-                ty: conc_ty,
-                is_mut: p.pattern.is_mut,
-            });
-        }
-
-        let conc_ret = {
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-            subst.substitute(raw_ret)
-        };
-        self.track_pure_enum_repr_in_type(conc_ret);
-
-        let saved_local_types = std::mem::take(&mut self.local_types);
-        let saved_local_forwardings = std::mem::take(&mut self.local_forwardings);
-        let saved_local_value_forwardings = std::mem::take(&mut self.local_value_forwardings);
-        let saved_defer_stack = std::mem::take(&mut self.defer_stack);
-        let saved_loop_frames = std::mem::take(&mut self.loop_frames);
-        let saved_local_statics = std::mem::take(&mut self.local_statics);
-
-        self.local_types.push(std::collections::HashMap::new());
-        self.local_forwardings
-            .push(std::collections::HashMap::new());
-        self.local_value_forwardings
-            .push(std::collections::HashMap::new());
-        for p in &mast_params {
-            if let Some(scope) = self.local_types.last_mut() {
-                scope.insert(p.name, (p.ty, p.is_mut));
-            } else {
-                self.ctx.emit_ice(
+                this.ctx.emit_ice(
                     Span::default(),
-                    "Kern ICE (Lowering): Missing local type scope while instantiating a function.",
+                    format!("Kern ICE (Lowering): DefId {} is not a Function!", def_id.0),
                 );
-                break;
+                this.placeholder_function(id, format!("__ice_fn_{}", id.0));
+                return id;
+            };
+
+            let fn_name = this.ctx.resolve(def.name).to_string();
+            let Some(subst_map) =
+                this.build_generic_subst_map("function", &fn_name, &def.generics, args)
+            else {
+                this.placeholder_function(id, format!("__ice_fn_{}", id.0));
+                return id;
+            };
+
+            let mangled_name = this.ctx.get_export_name(def_id, args);
+
+            let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
+                if let TypeKind::Function { ret, .. } = this.ctx.type_registry.get(sig) {
+                    *ret
+                } else {
+                    TypeId::VOID
+                }
+            });
+
+            let mut mast_params = Vec::new();
+            for p in &def.params {
+                let raw_ty = this
+                    .ctx
+                    .node_types
+                    .get(&p.type_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                let conc_ty = {
+                    let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
+                    subst.substitute(raw_ty)
+                };
+                this.track_pure_enum_repr_in_type(conc_ty);
+                mast_params.push(MastParam {
+                    name: p.pattern.name,
+                    ty: conc_ty,
+                    is_mut: p.pattern.is_mut,
+                });
             }
-        }
 
-        let body = if self.function_requires_runtime_body(&def) {
-            let prev_scope = self.ctx.scopes.current_scope_id();
-            let saved_owner = self.current_owner_def_id.replace(def_id);
-            if let Some(owner_scope) = self.function_owner_scope(&def) {
-                self.ctx.scopes.set_current_scope(owner_scope);
+            let conc_ret = {
+                let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
+                subst.substitute(raw_ret)
+            };
+            this.track_pure_enum_repr_in_type(conc_ret);
+
+            let saved_local_types = std::mem::take(&mut this.local_types);
+            let saved_local_forwardings = std::mem::take(&mut this.local_forwardings);
+            let saved_local_value_forwardings = std::mem::take(&mut this.local_value_forwardings);
+            let saved_defer_stack = std::mem::take(&mut this.defer_stack);
+            let saved_loop_frames = std::mem::take(&mut this.loop_frames);
+            let saved_local_statics = std::mem::take(&mut this.local_statics);
+
+            this.local_types.push(std::collections::HashMap::new());
+            this.local_forwardings
+                .push(std::collections::HashMap::new());
+            this.local_value_forwardings
+                .push(std::collections::HashMap::new());
+            for p in &mast_params {
+                if let Some(scope) = this.local_types.last_mut() {
+                    scope.insert(p.name, (p.ty, p.is_mut));
+                } else {
+                    this.ctx.emit_ice(
+                        Span::default(),
+                        "Kern ICE (Lowering): Missing local type scope while instantiating a function.",
+                    );
+                    break;
+                }
             }
 
-            let body = def
-                .body
-                .as_ref()
-                .map(|body_expr| self.lower_block_as_body(body_expr, &subst_map, conc_ret));
+            let body = if this.function_requires_runtime_body(&def) {
+                let prev_scope = this.ctx.scopes.current_scope_id();
+                let saved_owner = this.current_owner_def_id.replace(def_id);
+                if let Some(owner_scope) = this.function_owner_scope(&def) {
+                    this.ctx.scopes.set_current_scope(owner_scope);
+                }
 
-            if let Some(prev_scope) = prev_scope {
-                self.ctx.scopes.set_current_scope(prev_scope);
-            }
-            self.current_owner_def_id = saved_owner;
+                let body = def
+                    .body
+                    .as_ref()
+                    .map(|body_expr| this.lower_block_as_body(body_expr, &subst_map, conc_ret));
 
-            body
-        } else {
-            None
-        };
+                if let Some(prev_scope) = prev_scope {
+                    this.ctx.scopes.set_current_scope(prev_scope);
+                }
+                this.current_owner_def_id = saved_owner;
 
-        self.local_types.pop();
-        self.local_forwardings.pop();
-        self.local_value_forwardings.pop();
-
-        self.local_types = saved_local_types;
-        self.local_forwardings = saved_local_forwardings;
-        self.local_value_forwardings = saved_local_value_forwardings;
-        self.defer_stack = saved_defer_stack;
-        self.loop_frames = saved_loop_frames;
-        self.local_statics = saved_local_statics;
-
-        let uses_odr_linkage = !def.generics.is_empty() && body.is_some() && !def.is_extern;
-
-        let mast_fn = MastFunction {
-            id,
-            name: mangled_name,
-            // A generic instantiation may be emitted by multiple packages.
-            // Give those definitions ODR-style linkage so downstream linking
-            // can coalesce identical monomorphizations instead of failing.
-            linkage: if uses_odr_linkage {
-                MastLinkage::LinkOnceOdr
+                body
             } else {
-                MastLinkage::External
-            },
-            params: mast_params,
-            ret_ty: conc_ret,
-            body,
-            is_extern: def.is_extern,
-            is_variadic: def.is_variadic,
-            attributes: self.extract_meta_items(&def.attributes),
-        };
+                None
+            };
 
-        self.module.functions.push(mast_fn);
-        id
+            this.local_types.pop();
+            this.local_forwardings.pop();
+            this.local_value_forwardings.pop();
+
+            this.local_types = saved_local_types;
+            this.local_forwardings = saved_local_forwardings;
+            this.local_value_forwardings = saved_local_value_forwardings;
+            this.defer_stack = saved_defer_stack;
+            this.loop_frames = saved_loop_frames;
+            this.local_statics = saved_local_statics;
+
+            let uses_odr_linkage = !def.generics.is_empty() && body.is_some() && !def.is_extern;
+
+            let mast_fn = MastFunction {
+                id,
+                name: mangled_name,
+                linkage: if uses_odr_linkage {
+                    MastLinkage::LinkOnceOdr
+                } else {
+                    MastLinkage::External
+                },
+                params: mast_params,
+                ret_ty: conc_ret,
+                body,
+                is_extern: def.is_extern,
+                is_variadic: def.is_variadic,
+                attributes: this.extract_meta_items(&def.attributes),
+            };
+
+            this.module.functions.push(mast_fn);
+            id
+        })
     }
 
     pub(crate) fn instantiate_struct(&mut self, def_id: DefId, args: &[TypeId]) -> MonoId {
@@ -278,74 +276,74 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(&id) = self.mono_cache.get(&key) {
             return id;
         }
+        self.measure_phase("  lower_instantiate_struct", |this| {
+            let id = this.new_mono_id();
+            this.mono_cache.insert(key, id);
 
-        let id = self.new_mono_id();
-        self.mono_cache.insert(key, id);
+            if let Def::Union(_) = &this.ctx.defs[def_id.0 as usize] {
+                return this.instantiate_union(def_id, args, id);
+            }
 
-        // Delegate union-like lowering to the dedicated path.
-        if let Def::Union(_) = &self.ctx.defs[def_id.0 as usize] {
-            return self.instantiate_union(def_id, args, id);
-        }
-
-        let def = if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] {
-            s.clone()
-        } else {
-            self.ctx.emit_ice(
-                Span::default(),
-                format!("Kern ICE (Lowering): DefId {} is not a Struct!", def_id.0),
-            );
-            self.placeholder_struct(id, format!("__ice_struct_{}", id.0), false);
-            return id;
-        };
-
-        let mangled_name = self.ctx.get_export_name(def_id, args);
-        let Some(subst_map) =
-            self.build_generic_subst_map("struct", &mangled_name, &def.generics, args)
-        else {
-            self.placeholder_struct(id, format!("__ice_struct_{}", id.0), false);
-            return id;
-        };
-
-        let physical_to_ast = {
-            let mut layout = LayoutEngine::new(self.ctx);
-            let (_, p2a) = layout.get_struct_mapping(def_id, args, 0);
-            p2a
-        };
-
-        let mut mast_fields = Vec::with_capacity(def.fields.len());
-
-        for &ast_idx in &physical_to_ast {
-            let f = &def.fields[ast_idx];
-            let raw_ty = self
-                .ctx
-                .node_types
-                .get(&f.type_node.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-            let conc_ty = {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-                subst.substitute(raw_ty)
+            let def = if let Def::Struct(s) = &this.ctx.defs[def_id.0 as usize] {
+                s.clone()
+            } else {
+                this.ctx.emit_ice(
+                    Span::default(),
+                    format!("Kern ICE (Lowering): DefId {} is not a Struct!", def_id.0),
+                );
+                this.placeholder_struct(id, format!("__ice_struct_{}", id.0), false);
+                return id;
             };
-            self.track_pure_enum_repr_in_type(conc_ty);
-            mast_fields.push(MastField {
-                name: f.name,
-                ty: conc_ty,
+
+            let mangled_name = this.ctx.get_export_name(def_id, args);
+            let Some(subst_map) =
+                this.build_generic_subst_map("struct", &mangled_name, &def.generics, args)
+            else {
+                this.placeholder_struct(id, format!("__ice_struct_{}", id.0), false);
+                return id;
+            };
+
+            let physical_to_ast = {
+                let mut layout = LayoutEngine::new(this.ctx);
+                let (_, p2a) = layout.get_struct_mapping(def_id, args, 0);
+                p2a
+            };
+
+            let mut mast_fields = Vec::with_capacity(def.fields.len());
+
+            for &ast_idx in &physical_to_ast {
+                let f = &def.fields[ast_idx];
+                let raw_ty = this
+                    .ctx
+                    .node_types
+                    .get(&f.type_node.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR);
+                let conc_ty = {
+                    let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
+                    subst.substitute(raw_ty)
+                };
+                this.track_pure_enum_repr_in_type(conc_ty);
+                mast_fields.push(MastField {
+                    name: f.name,
+                    ty: conc_ty,
+                });
+            }
+
+            this.module.structs.push(MastStruct {
+                id,
+                name: mangled_name,
+                fields: mast_fields,
+                is_extern: def.is_extern,
+                is_union: false,
+                largest_field_idx: 0,
+                union_size: 0,
+                union_align: 1,
+                attributes: this.extract_meta_items(&def.attributes),
             });
-        }
 
-        self.module.structs.push(MastStruct {
-            id,
-            name: mangled_name,
-            fields: mast_fields,
-            is_extern: def.is_extern,
-            is_union: false,
-            largest_field_idx: 0,
-            union_size: 0,
-            union_align: 1,
-            attributes: self.extract_meta_items(&def.attributes),
-        });
-
-        id
+            id
+        })
     }
 
     pub(crate) fn instantiate_anon_struct(&mut self, norm_ty: TypeId) -> MonoId {
@@ -638,141 +636,140 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(&id) = self.mono_cache.get(&key) {
             return id;
         }
+        self.measure_phase("  lower_instantiate_data", |this| {
+            let wrapper_id = this.new_mono_id();
+            let payload_union_id = this.new_mono_id();
+            this.mono_cache.insert(key, wrapper_id);
+            this.adt_union_map.insert(wrapper_id, payload_union_id);
 
-        let wrapper_id = self.new_mono_id();
-        let payload_union_id = self.new_mono_id();
-        self.mono_cache.insert(key, wrapper_id);
-        self.adt_union_map.insert(wrapper_id, payload_union_id);
-
-        let def = if let Def::Enum(a) = &self.ctx.defs[def_id.0 as usize] {
-            a.clone()
-        } else {
-            self.ctx.emit_ice(
-                Span::default(),
-                format!(
-                    "Kern ICE (Lowering): DefId {} is not an Enum (Data)! ",
-                    def_id.0
-                ),
-            );
-            self.placeholder_data_structs(
-                wrapper_id,
-                payload_union_id,
-                &format!("__ice_enum_{}", wrapper_id.0),
-            );
-            return wrapper_id;
-        };
-
-        let mangled_name = self.ctx.get_export_name(def_id, args);
-        let Some(subst_map) =
-            self.build_generic_subst_map("enum", &mangled_name, &def.generics, args)
-        else {
-            self.placeholder_data_structs(
-                wrapper_id,
-                payload_union_id,
-                &format!("__ice_enum_{}", wrapper_id.0),
-            );
-            return wrapper_id;
-        };
-
-        // 1. Build the inner payload union.
-        let mut union_fields = Vec::new();
-        let mut largest_idx = 0;
-        let mut max_size = 0;
-        let mut max_align = 1;
-
-        for (idx, variant) in def.variants.iter().enumerate() {
-            let field_ty = if let Some(payload_ast) = &variant.payload_type {
-                let raw_ty = self
-                    .ctx
-                    .node_types
-                    .get(&payload_ast.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                {
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-                    subst.substitute(raw_ty)
-                }
+            let def = if let Def::Enum(a) = &this.ctx.defs[def_id.0 as usize] {
+                a.clone()
             } else {
-                TypeId::VOID // Empty unions can be modeled as `void` here.
+                this.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Lowering): DefId {} is not an Enum (Data)! ",
+                        def_id.0
+                    ),
+                );
+                this.placeholder_data_structs(
+                    wrapper_id,
+                    payload_union_id,
+                    &format!("__ice_enum_{}", wrapper_id.0),
+                );
+                return wrapper_id;
             };
-            self.track_pure_enum_repr_in_type(field_ty);
 
-            union_fields.push(MastField {
-                name: variant.name,
-                ty: field_ty,
+            let mangled_name = this.ctx.get_export_name(def_id, args);
+            let Some(subst_map) =
+                this.build_generic_subst_map("enum", &mangled_name, &def.generics, args)
+            else {
+                this.placeholder_data_structs(
+                    wrapper_id,
+                    payload_union_id,
+                    &format!("__ice_enum_{}", wrapper_id.0),
+                );
+                return wrapper_id;
+            };
+
+            let mut union_fields = Vec::new();
+            let mut largest_idx = 0;
+            let mut max_size = 0;
+            let mut max_align = 1;
+
+            for (idx, variant) in def.variants.iter().enumerate() {
+                let field_ty = if let Some(payload_ast) = &variant.payload_type {
+                    let raw_ty = this
+                        .ctx
+                        .node_types
+                        .get(&payload_ast.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    {
+                        let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
+                        subst.substitute(raw_ty)
+                    }
+                } else {
+                    TypeId::VOID
+                };
+                this.track_pure_enum_repr_in_type(field_ty);
+
+                union_fields.push(MastField {
+                    name: variant.name,
+                    ty: field_ty,
+                });
+
+                if field_ty != TypeId::VOID && field_ty != TypeId::ERROR {
+                    let size = {
+                        let mut le = LayoutEngine::new(this.ctx);
+                        le.compute_type_size(field_ty)
+                    };
+                    let align = {
+                        let mut le = LayoutEngine::new(this.ctx);
+                        le.compute_type_align(field_ty)
+                    };
+
+                    if size > max_size {
+                        max_size = size;
+                        largest_idx = idx;
+                    }
+                    max_align = max_align.max(align);
+                }
+            }
+
+            this.module.structs.push(MastStruct {
+                id: payload_union_id,
+                name: format!("{}_payload", mangled_name),
+                fields: union_fields,
+                is_extern: false,
+                is_union: true,
+                largest_field_idx: largest_idx,
+                union_size: max_size.max(1) as usize,
+                union_align: max_align.max(1) as usize,
+                attributes: vec![],
             });
 
-            if field_ty != TypeId::VOID && field_ty != TypeId::ERROR {
-                let size = {
-                    let mut le = LayoutEngine::new(self.ctx);
-                    le.compute_type_size(field_ty)
-                };
-                let align = {
-                    let mut le = LayoutEngine::new(self.ctx);
-                    le.compute_type_align(field_ty)
-                };
+            let tag_ty = if let Some(bt) = &def.backing_type {
+                let raw_tag_ty = this
+                    .ctx
+                    .node_types
+                    .get(&bt.id)
+                    .copied()
+                    .unwrap_or(TypeId::U32);
+                let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
+                subst.substitute(raw_tag_ty)
+            } else {
+                TypeId::U32
+            };
 
-                if size > max_size {
-                    max_size = size;
-                    largest_idx = idx;
-                }
-                max_align = max_align.max(align);
-            }
-        }
-
-        self.module.structs.push(MastStruct {
-            id: payload_union_id,
-            name: format!("{}_payload", mangled_name),
-            fields: union_fields,
-            is_extern: false,
-            is_union: true,
-            largest_field_idx: largest_idx,
-            union_size: max_size.max(1) as usize,
-            union_align: max_align.max(1) as usize,
-            attributes: vec![],
-        });
-
-        // 2. Build the outer wrapper struct `(tag + union)` and substitute the tag type.
-        let tag_ty = if let Some(bt) = &def.backing_type {
-            let raw_tag_ty = self
+            let union_ty = this
                 .ctx
-                .node_types
-                .get(&bt.id)
-                .copied()
-                .unwrap_or(TypeId::U32);
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-            subst.substitute(raw_tag_ty)
-        } else {
-            TypeId::U32 // Fall back to `u32` when no explicit backing type is present.
-        };
+                .type_registry
+                .intern(TypeKind::EnumPayload(def_id, args.to_vec()));
 
-        let union_ty = self
-            .ctx
-            .type_registry
-            .intern(TypeKind::EnumPayload(def_id, args.to_vec()));
+            this.module.structs.push(MastStruct {
+                id: wrapper_id,
+                name: mangled_name,
+                fields: vec![
+                    MastField {
+                        name: this.ctx.intern("__tag"),
+                        ty: tag_ty,
+                    },
+                    MastField {
+                        name: this.ctx.intern("__payload"),
+                        ty: union_ty,
+                    },
+                ],
+                is_extern: false,
+                is_union: false,
+                largest_field_idx: 0,
+                union_size: 0,
+                union_align: 1,
+                attributes: vec![],
+            });
 
-        self.module.structs.push(MastStruct {
-            id: wrapper_id,
-            name: mangled_name,
-            fields: vec![
-                MastField {
-                    name: self.ctx.intern("__tag"),
-                    ty: tag_ty,
-                },
-                MastField {
-                    name: self.ctx.intern("__payload"),
-                    ty: union_ty,
-                },
-            ],
-            is_extern: false,
-            is_union: false,
-            largest_field_idx: 0,
-            union_size: 0,
-            union_align: 1,
-            attributes: vec![],
-        });
-
-        wrapper_id
+            wrapper_id
+        })
     }
 
     pub(crate) fn lower_global(&mut self, g: &GlobalDef) {

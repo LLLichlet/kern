@@ -125,68 +125,69 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(&id) = self.vtable_cache.get(&key) {
             return id;
         }
+        self.measure_phase("  lower_create_vtable", |this| {
+            let trait_def_id = match this.ctx.type_registry.get(norm_trait) {
+                TypeKind::TraitObject(id, _) => *id,
+                other => {
+                    return this.build_invalid_vtable(
+                        key,
+                        source_ty,
+                        trait_ty,
+                        format!(
+                            "Kern ICE (Lowering): Target must be a TraitObject, found: {:?}",
+                            other
+                        ),
+                    );
+                }
+            };
 
-        let trait_def_id = match self.ctx.type_registry.get(norm_trait) {
-            TypeKind::TraitObject(id, _) => *id,
-            other => {
-                return self.build_invalid_vtable(
+            let trait_def = if let Def::Trait(t) = &this.ctx.defs[trait_def_id.0 as usize] {
+                t.clone()
+            } else {
+                return this.build_invalid_vtable(
                     key,
                     source_ty,
                     trait_ty,
                     format!(
-                        "Kern ICE (Lowering): Target must be a TraitObject, found: {:?}",
-                        other
+                        "Kern ICE (Lowering): DefId {} is not a Trait!",
+                        trait_def_id.0
                     ),
                 );
-            }
-        };
+            };
 
-        let trait_def = if let Def::Trait(t) = &self.ctx.defs[trait_def_id.0 as usize] {
-            t.clone()
-        } else {
-            return self.build_invalid_vtable(
-                key,
+            let (base_source_ty, source_args) = this.resolve_vtable_source_base(source_ty);
+
+            let impl_def = match this.find_matching_impl_block(base_source_ty, trait_def_id) {
+                Some(def) => def,
+                None => {
+                    let src_name = this.ctx.ty_to_string(base_source_ty);
+                    let trait_name = this.ctx.resolve(trait_def.name);
+                    return this.build_invalid_vtable(
+                        key,
+                        source_ty,
+                        trait_ty,
+                        format!(
+                            "Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.",
+                            src_name, trait_name
+                        ),
+                    );
+                }
+            };
+
+            let vtable_id = this.new_mono_id();
+            this.vtable_cache.insert(key, vtable_id);
+
+            this.build_and_inject_vtable_global(
+                vtable_id,
                 source_ty,
-                trait_ty,
-                format!(
-                    "Kern ICE (Lowering): DefId {} is not a Trait!",
-                    trait_def_id.0
-                ),
+                norm_trait,
+                &trait_def,
+                &impl_def,
+                &source_args,
             );
-        };
 
-        let (base_source_ty, source_args) = self.resolve_vtable_source_base(source_ty);
-
-        let impl_def = match self.find_matching_impl_block(base_source_ty, trait_def_id) {
-            Some(def) => def,
-            None => {
-                let src_name = self.ctx.ty_to_string(base_source_ty);
-                let trait_name = self.ctx.resolve(trait_def.name);
-                return self.build_invalid_vtable(
-                    key,
-                    source_ty,
-                    trait_ty,
-                    format!(
-                        "Kern ICE (Lowering): Impl block missing for cast `{} as {}`. Sema failed to enforce Trait bounding contract.",
-                        src_name, trait_name
-                    ),
-                );
-            }
-        };
-
-        let vtable_id = self.new_mono_id();
-        self.vtable_cache.insert(key, vtable_id);
-
-        self.build_and_inject_vtable_global(
-            vtable_id,
-            source_ty,
-            norm_trait,
-            &trait_def,
-            &impl_def,
-            &source_args,
-        );
-
-        vtable_id
+            vtable_id
+        })
     }
 
     pub(crate) fn resolve_vtable_source_base(&self, source_ty: TypeId) -> (TypeId, Vec<TypeId>) {

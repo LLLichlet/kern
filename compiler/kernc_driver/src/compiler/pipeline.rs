@@ -19,6 +19,11 @@ use kernc_utils::config::{AsmDialect, CompileOptions, DriverMode};
 use crate::frontend::FrontendDatabase;
 use crate::metadata;
 
+struct LoweredModuleReport {
+    module: kernc_mast::MastModule,
+    phase_timings: Vec<PhaseTiming>,
+}
+
 impl CompilerDriver {
     pub fn new(options: CompileOptions) -> Self {
         Self {
@@ -82,13 +87,15 @@ impl CompilerDriver {
             .map(|file| file.path.clone())
             .collect::<Vec<_>>();
 
-        let mast_module = Self::measure_phase(&mut phase_timings, "lower", || {
-            self.lower_module_with_flow(
+        let lowered = Self::measure_phase(&mut phase_timings, "lower", || {
+            self.lower_module_with_flow_report(
                 &mut ctx,
                 &body_pipeline.flow_lowering_hints,
                 &body_pipeline.lowered_module_items,
             )
         })?;
+        phase_timings.extend(lowered.phase_timings.iter().copied());
+        let mast_module = lowered.module;
         let mast_workload = mast_module.workload_stats();
 
         if let Some(metadata_output) = self.options.metadata_output.as_deref()
@@ -245,20 +252,41 @@ impl CompilerDriver {
         self.lower_module_with_flow(ctx, &flow_lowering_hints, &reachable_items)
     }
 
+    #[cfg(test)]
     pub(super) fn lower_module_with_flow<'a>(
         &self,
         ctx: &mut SemaContext<'a>,
         flow_lowering_hints: &kernc_lower::FlowLoweringHints,
         reachable_items: &std::collections::HashSet<DefId>,
     ) -> Option<kernc_mast::MastModule> {
+        self.lower_module_with_flow_report(ctx, flow_lowering_hints, reachable_items)
+            .map(|report| report.module)
+    }
+
+    fn lower_module_with_flow_report<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        flow_lowering_hints: &kernc_lower::FlowLoweringHints,
+        reachable_items: &std::collections::HashSet<DefId>,
+    ) -> Option<LoweredModuleReport> {
         let mut lowerer = Lowerer::new(ctx);
         lowerer.set_reachable_module_items(reachable_items.clone());
         lowerer.set_flow_lowering_hints(flow_lowering_hints.clone());
-        let module = lowerer.lower_all();
+        let report = lowerer.lower_all_with_report();
         if !Self::report_diagnostics_if_errors(lowerer.context()) {
             return None;
         }
-        Some(module)
+        Some(LoweredModuleReport {
+            module: report.module,
+            phase_timings: report
+                .phase_timings
+                .into_iter()
+                .map(|timing| PhaseTiming {
+                    name: timing.name,
+                    duration: timing.duration,
+                })
+                .collect(),
+        })
     }
 
     pub(super) fn module_name_for_codegen(&self, input_file: &str) -> String {

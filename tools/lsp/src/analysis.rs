@@ -28,14 +28,13 @@ use crate::protocol::{
     PrepareRenameResult, Range, SemanticTokens, SignatureHelp, TextDocumentContentChangeEvent,
     WorkspaceEdit,
 };
+use crate::defaults::default_analysis_compile_options;
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
     AnalysisArtifact, AnalysisSurfaceArtifact, CompilerDriver, IncrementalDriverKey,
     ParsedModuleArtifact, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
-use kernc_utils::config::{
-    CompileOptions, LibraryBundle, inject_default_library_aliases, inject_driver_condition_defines,
-};
+use kernc_utils::config::{CompileOptions, inject_default_library_aliases, inject_driver_condition_defines};
 use kernc_utils::{Session, SourceFile, Span};
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
@@ -53,10 +52,7 @@ pub struct AnalysisSettings {
 impl Default for AnalysisSettings {
     fn default() -> Self {
         Self {
-            compile_options: CompileOptions {
-                library_bundle: LibraryBundle::Std,
-                ..CompileOptions::default()
-            },
+            compile_options: default_analysis_compile_options(),
         }
     }
 }

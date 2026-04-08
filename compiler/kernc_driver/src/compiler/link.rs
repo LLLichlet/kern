@@ -123,6 +123,8 @@ impl CompilerDriver {
             cmd.arg(arg);
         }
 
+        self.apply_dead_strip_options(&mut cmd, target.is_windows, target.is_darwin);
+
         cmd
     }
 
@@ -197,6 +199,20 @@ impl CompilerDriver {
                     }
                 }
             }
+        }
+    }
+
+    fn apply_dead_strip_options(&self, cmd: &mut Command, is_windows: bool, is_darwin: bool) {
+        if !self.options.dead_strip_sections {
+            return;
+        }
+
+        if is_windows {
+            cmd.arg("-Wl,/OPT:REF");
+        } else if is_darwin {
+            cmd.arg("-Wl,-dead_strip");
+        } else {
+            cmd.arg("-Wl,--gc-sections");
         }
     }
 

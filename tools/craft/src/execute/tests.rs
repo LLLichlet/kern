@@ -18,6 +18,101 @@ fn temp_dir(prefix: &str) -> PathBuf {
     dir
 }
 
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn release_build_dead_strips_unused_std_sections() {
+    let root = temp_dir("craft-exec-dead-strip");
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "hello"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "hello"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+use std.io;
+
+fn main() i32 {
+    io.println("hello", .{});
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        },
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.link_actions, 1);
+
+    let executable = action_plan
+        .link_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "hello" && action.target_kind == crate::plan::TargetKind::Bin
+        })
+        .map(|action| action.artifact_path.clone())
+        .expect("expected binary artifact path");
+    assert!(
+        executable.is_file(),
+        "missing executable `{}`",
+        executable.display()
+    );
+
+    let nm_output = Command::new("nm")
+        .arg("--defined-only")
+        .arg(&executable)
+        .output()
+        .expect("failed to run nm");
+    assert!(
+        nm_output.status.success(),
+        "nm failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&nm_output.stdout),
+        String::from_utf8_lossy(&nm_output.stderr)
+    );
+
+    let symbols = String::from_utf8_lossy(&nm_output.stdout);
+    for unexpected in [
+        "_K3std2fs4path9normalize",
+        "_K3std2fs4file4copy",
+        "_K3std3env9get_posix",
+        "_K3std4time5linux11sleep_nanos",
+    ] {
+        assert!(
+            !symbols.contains(unexpected),
+            "unexpected unused std symbol `{unexpected}` survived release link:\n{symbols}"
+        );
+    }
+
+    let _ = fs::remove_dir_all(root);
+}
+
 #[test]
 fn builds_and_runs_hosted_package_with_local_library_dependency() {
     let root = temp_dir("craft-exec-run");

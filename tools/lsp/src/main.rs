@@ -1,8 +1,10 @@
 mod analysis;
+mod defaults;
 mod protocol;
 mod server;
 mod transport;
 
+use crate::defaults::default_analysis_compile_options;
 use kernc_utils::config::{CompileOptions, LibraryBundle};
 
 #[derive(Debug)]
@@ -47,10 +49,7 @@ fn parse_args<I>(args: I) -> Result<CliAction, String>
 where
     I: IntoIterator<Item = String>,
 {
-    let mut options = CompileOptions {
-        library_bundle: LibraryBundle::Std,
-        ..CompileOptions::default()
-    };
+    let mut options = default_analysis_compile_options();
 
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -220,6 +219,16 @@ mod tests {
                 .map(String::as_str),
             Some("./meta/std")
         );
+    }
+
+    #[test]
+    fn defaults_to_std_analysis_bundle() {
+        let action = parse_args(Vec::<String>::new()).unwrap();
+
+        let CliAction::Run(options) = action else {
+            panic!("expected run action");
+        };
+        assert_eq!(options.library_bundle, LibraryBundle::Std);
     }
 
     #[test]

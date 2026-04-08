@@ -42,6 +42,7 @@ pub(super) fn compile_action_fingerprint(
         format!("runtime_provider={}", options.runtime_provider.as_str()),
         format!("runtime_libc={}", options.runtime_libc),
         format!("library_bundle={}", options.library_bundle.as_str()),
+        format!("split_sections_for_gc={}", options.split_sections_for_gc),
     ];
     if let Some(metadata_output) = options.metadata_output.as_deref() {
         lines.push(format!("metadata={metadata_output}"));
@@ -65,6 +66,7 @@ pub(super) fn link_action_fingerprint(
         format!("toolchain={toolchain_digest}"),
         format!("artifact={}", action.artifact_path.display()),
         format!("linker={}", options.linker_cmd),
+        format!("dead_strip_sections={}", options.dead_strip_sections),
     ];
     lines.extend(
         linker_inputs

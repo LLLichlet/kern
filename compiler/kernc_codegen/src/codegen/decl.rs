@@ -314,11 +314,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let mut llvm_symbol_name = g.name.clone();
             let mut link_section = None;
             let mut align_bytes = None;
+            let mut has_export_name = false;
 
             for attr in &g.attributes {
                 if let ast::MetaItem::Call(id, expr) = attr {
                     let name_str = self.resolve_symbol(*id);
                     if name_str == "export_name" {
+                        has_export_name = true;
                         if let ast::ExprKind::String(s) = &expr.kind {
                             llvm_symbol_name = s.clone();
                         }
@@ -365,7 +367,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 global_val.set_initializer(&llvm_ty.const_zero());
             }
 
-            if let Some(sec) = link_section {
+            if let Some(sec) = link_section.or_else(|| {
+                (!has_export_name)
+                    .then(|| {
+                        self.gc_data_section_for_symbol(
+                            &llvm_symbol_name,
+                            !(is_binding_mut || is_memory_mut),
+                        )
+                    })
+                    .flatten()
+            }) {
                 global_val.set_section(Some(&sec));
             }
             if let Some(align) = align_bytes {
@@ -413,12 +424,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let mut is_naked = false;
             let mut inline_kind = None;
             let mut link_section = None;
+            let mut has_export_name = false;
 
             for attr in &f.attributes {
                 match attr {
                     ast::MetaItem::Call(id, expr) => {
                         let name_str = self.resolve_symbol(*id);
                         if name_str == "export_name" {
+                            has_export_name = true;
                             if let ast::ExprKind::String(s) = &expr.kind {
                                 llvm_symbol_name = s.clone();
                             }
@@ -485,7 +498,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let inline_attr = self.context.create_enum_attribute(kind_id, 0);
                 llvm_func.add_attribute(AttributeLoc::Function, inline_attr);
             }
-            if let Some(sec) = link_section {
+            if let Some(sec) = link_section.or_else(|| {
+                (!has_export_name)
+                    .then(|| self.gc_text_section_for_symbol(&llvm_symbol_name))
+                    .flatten()
+            }) {
                 llvm_func.as_global_value().set_section(Some(&sec));
             }
 

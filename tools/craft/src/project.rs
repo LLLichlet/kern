@@ -6,9 +6,10 @@ use crate::graph::{self, DependencyTarget, PackageGraph, PackageId, SourceId};
 use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::script::{ProfileSelection, ScriptCommand};
+use crate::target_defaults::apply_target_runtime_defaults;
 use crate::workspace::{self, WorkspaceMember};
 use kernc_utils::config::{
-    CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider, inject_default_library_aliases,
+    CompileOptions, inject_default_library_aliases,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -400,23 +401,6 @@ impl AnalysisProject {
             &feature_selection,
         )?;
         build_plan::derive(&elaboration, ScriptCommand::Build)
-    }
-}
-
-fn apply_target_runtime_defaults(options: &mut CompileOptions, target_kind: TargetKind) {
-    match target_kind {
-        TargetKind::Lib => {
-            options.runtime_entry = RuntimeEntry::None;
-            options.runtime_provider = RuntimeProvider::None;
-            options.runtime_libc = false;
-            options.library_bundle = LibraryBundle::Std;
-        }
-        TargetKind::Bin | TargetKind::Test | TargetKind::Example => {
-            options.runtime_entry = RuntimeEntry::Crt;
-            options.runtime_provider = RuntimeProvider::Toolchain;
-            options.runtime_libc = true;
-            options.library_bundle = LibraryBundle::Std;
-        }
     }
 }
 

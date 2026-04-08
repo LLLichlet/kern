@@ -118,6 +118,7 @@ pub(super) fn build_std_package(
             OptLevel::O0
         },
         library_bundle: LibraryBundle::Std,
+        split_sections_for_gc: true,
         ..CompileOptions::default()
     };
     apply_host_linker_env(&mut options);
@@ -144,6 +145,7 @@ pub(super) fn build_std_package(
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
         format!("sys_obj={}", built_sys.object_path.display()),
         format!("rt_entry_obj={}", rt_entry_object_path.display()),
+        "split_sections_for_gc=true".to_string(),
     ]);
 
     if !build_state::action_state_is_current(&object_path, &std_fingerprint)? {
@@ -249,6 +251,7 @@ pub(super) fn build_rt_package(
         } else {
             OptLevel::O0
         },
+        split_sections_for_gc: true,
         ..CompileOptions::default()
     };
     apply_host_linker_env(&mut options);
@@ -265,6 +268,7 @@ pub(super) fn build_rt_package(
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
+        "split_sections_for_gc=true".to_string(),
     ]);
 
     if !build_state::action_state_is_current(&object_path, &rt_fingerprint)? {
@@ -350,6 +354,7 @@ pub(super) fn build_base_package(
             OptLevel::O0
         },
         library_bundle: LibraryBundle::Base,
+        split_sections_for_gc: true,
         ..CompileOptions::default()
     };
     apply_host_linker_env(&mut options);
@@ -366,6 +371,7 @@ pub(super) fn build_base_package(
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
+        "split_sections_for_gc=true".to_string(),
     ]);
 
     if !build_state::action_state_is_current(&object_path, &base_fingerprint)? {
@@ -453,6 +459,7 @@ pub(super) fn build_sys_package(
             OptLevel::O0
         },
         library_bundle: LibraryBundle::Base,
+        split_sections_for_gc: true,
         ..CompileOptions::default()
     };
     apply_host_linker_env(&mut options);
@@ -476,6 +483,7 @@ pub(super) fn build_sys_package(
         format!("metadata={}", metadata_root_path.display()),
         format!("base_meta={}", built_base.metadata_root_path.display()),
         format!("base_obj={}", built_base.object_path.display()),
+        "split_sections_for_gc=true".to_string(),
     ]);
 
     if !build_state::action_state_is_current(&object_path, &sys_fingerprint)? {
@@ -552,6 +560,7 @@ pub(super) fn build_rt_entry_package(
         } else {
             OptLevel::O0
         },
+        split_sections_for_gc: true,
         ..CompileOptions::default()
     };
     options
@@ -572,6 +581,7 @@ pub(super) fn build_rt_entry_package(
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
+        "split_sections_for_gc=true".to_string(),
     ]);
 
     if !build_state::action_state_is_current(&object_path, &entry_fingerprint)? {

@@ -154,6 +154,7 @@ pub struct CodeGenerator<'ctx, 'a> {
     anon_struct_map: HashMap<TypeId, MonoId>,
     anon_union_map: HashMap<TypeId, MonoId>,
     anon_enum_map: HashMap<TypeId, MonoId>,
+    split_sections_for_gc: bool,
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
@@ -288,6 +289,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         module_name: &str,
         sess: &'a mut Session,
         type_registry: &'a TypeRegistry,
+        split_sections_for_gc: bool,
     ) -> Self {
         Self {
             context,
@@ -311,7 +313,62 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             anon_struct_map: HashMap::new(),
             anon_union_map: HashMap::new(),
             anon_enum_map: HashMap::new(),
+            split_sections_for_gc,
         }
+    }
+
+    fn target_uses_coff_sections(&self) -> bool {
+        self.sess.target.triple.to_string().contains("windows")
+    }
+
+    fn target_uses_macho_sections(&self) -> bool {
+        let triple = self.sess.target.triple.to_string();
+        triple.contains("darwin") || triple.contains("macosx")
+    }
+
+    fn sanitize_symbol_for_section(symbol: &str) -> String {
+        symbol
+            .chars()
+            .map(|ch| {
+                if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '.' | '$') {
+                    ch
+                } else {
+                    '_'
+                }
+            })
+            .collect()
+    }
+
+    fn gc_text_section_for_symbol(&self, symbol: &str) -> Option<String> {
+        if !self.split_sections_for_gc || self.target_uses_macho_sections() {
+            return None;
+        }
+
+        let symbol = Self::sanitize_symbol_for_section(symbol);
+        Some(if self.target_uses_coff_sections() {
+            format!(".text${symbol}")
+        } else {
+            format!(".text.{symbol}")
+        })
+    }
+
+    fn gc_data_section_for_symbol(&self, symbol: &str, is_constant: bool) -> Option<String> {
+        if !self.split_sections_for_gc || self.target_uses_macho_sections() {
+            return None;
+        }
+
+        let symbol = Self::sanitize_symbol_for_section(symbol);
+        Some(if self.target_uses_coff_sections() {
+            if is_constant {
+                format!(".rdata${symbol}")
+            } else {
+                format!(".data${symbol}")
+            }
+        } else if is_constant {
+            format!(".rodata.{symbol}")
+        } else {
+            format!(".data.{symbol}")
+        })
     }
 
     pub fn compile(&mut self, module: &MastModule) -> CodegenReport {

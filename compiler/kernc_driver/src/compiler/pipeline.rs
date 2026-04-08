@@ -137,6 +137,7 @@ impl CompilerDriver {
             &self.module_name_for_codegen(input_file),
             &mut *ctx.sess,
             &ctx.type_registry,
+            self.options.split_sections_for_gc,
         );
 
         codegen.set_asm_dialect(match self.options.asm_dialect {

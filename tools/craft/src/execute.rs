@@ -11,9 +11,8 @@ use kernc_driver::{
     PhaseTiming, load_kmeta_manifest,
 };
 use kernc_utils::config::{
-    CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
-    inject_driver_condition_defines, maybe_inject_base_alias, maybe_inject_std_alias,
-    maybe_inject_sys_alias,
+    CompileOptions, DriverMode, OptLevel, inject_driver_condition_defines,
+    maybe_inject_base_alias, maybe_inject_std_alias, maybe_inject_sys_alias,
 };
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
@@ -37,6 +36,7 @@ use self::fingerprint::{
     write_compile_action_state,
 };
 use self::runtime_packages::ensure_std_packages_for_actions;
+use crate::target_defaults::apply_target_runtime_defaults;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionSummary {
@@ -64,40 +64,10 @@ impl ActionCacheStats {
     }
 }
 
-fn target_runtime_entry(target_kind: crate::plan::TargetKind) -> RuntimeEntry {
-    match target_kind {
-        crate::plan::TargetKind::Lib => RuntimeEntry::None,
-        crate::plan::TargetKind::Bin
-        | crate::plan::TargetKind::Test
-        | crate::plan::TargetKind::Example => RuntimeEntry::Crt,
-    }
-}
-
-fn target_runtime_provider(target_kind: crate::plan::TargetKind) -> RuntimeProvider {
-    match target_kind {
-        crate::plan::TargetKind::Lib => RuntimeProvider::None,
-        crate::plan::TargetKind::Bin
-        | crate::plan::TargetKind::Test
-        | crate::plan::TargetKind::Example => RuntimeProvider::Toolchain,
-    }
-}
-
-fn target_library_bundle(_target_kind: crate::plan::TargetKind) -> LibraryBundle {
-    LibraryBundle::Std
-}
-
-fn target_runtime_libc(target_kind: crate::plan::TargetKind) -> bool {
-    !matches!(target_kind, crate::plan::TargetKind::Lib)
-}
-
 fn default_target_compile_options(target_kind: crate::plan::TargetKind) -> CompileOptions {
-    CompileOptions {
-        runtime_entry: target_runtime_entry(target_kind),
-        runtime_provider: target_runtime_provider(target_kind),
-        runtime_libc: target_runtime_libc(target_kind),
-        library_bundle: target_library_bundle(target_kind),
-        ..CompileOptions::default()
-    }
+    let mut options = CompileOptions::default();
+    apply_target_runtime_defaults(&mut options, target_kind);
+    options
 }
 
 fn inject_target_library_aliases(options: &mut CompileOptions) {
@@ -718,6 +688,7 @@ fn ensure_compile_action_built(
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
         opt_level: profile_opt_level(&action.profile),
+        split_sections_for_gc: true,
         ..default_target_compile_options(action.target_kind)
     };
     apply_manifest_runtime_options(&action.manifest_path, &mut options)?;
@@ -973,6 +944,7 @@ fn ensure_link_action_built(
         output_file: action.artifact_path.to_string_lossy().to_string(),
         driver_mode: DriverMode::LinkOnly,
         report_progress: false,
+        dead_strip_sections: true,
         ..default_target_compile_options(action.target_kind)
     };
     apply_manifest_runtime_options(&action.manifest_path, &mut options)?;

@@ -6,6 +6,7 @@ use crate::workspace;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 fn temp_dir(prefix: &str) -> PathBuf {
@@ -16,6 +17,47 @@ fn temp_dir(prefix: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
     fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+fn build_release_hello_workspace(root: &Path, profile_body: &str) -> super::ExecutionSummary {
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "hello"
+version = "0.1.0"
+kern = "0.6.7"
+
+{profile_body}
+
+[[bin]]
+name = "hello"
+root = "src/main.rn"
+"#
+        ),
+    )
+    .unwrap();
+    fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        },
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    build(&build_plan, &action_plan).unwrap()
 }
 
 #[cfg(all(unix, not(target_os = "macos")))]
@@ -1324,6 +1366,49 @@ root = "src/main.rn"
     let _ = fs::remove_dir_all(cache_root);
     let _ = fs::remove_dir_all(root_cgu1);
     let _ = fs::remove_dir_all(root_cgu3);
+}
+
+#[test]
+fn runtime_packages_support_parallel_builds_with_shared_cache() {
+    let cache_root = temp_dir("craft-runtime-cache-parallel-shared");
+    let root_a = temp_dir("craft-runtime-cache-parallel-a");
+    let root_b = temp_dir("craft-runtime-cache-parallel-b");
+
+    let cache_root_a = cache_root.clone();
+    let root_a_for_worker = root_a.clone();
+    let worker_a = thread::spawn(move || {
+        super::runtime_packages::with_test_runtime_cache_root(cache_root_a, || {
+            build_release_hello_workspace(
+                &root_a_for_worker,
+                "[profile.release]\nopt = 3\ncodegen-units = 3",
+            )
+        })
+    });
+
+    let cache_root_b = cache_root.clone();
+    let root_b_for_worker = root_b.clone();
+    let worker_b = thread::spawn(move || {
+        super::runtime_packages::with_test_runtime_cache_root(cache_root_b, || {
+            build_release_hello_workspace(
+                &root_b_for_worker,
+                "[profile.release]\nopt = 3\ncodegen-units = 3",
+            )
+        })
+    });
+
+    let first = worker_a.join().expect("first runtime-cache build panicked");
+    let second = worker_b
+        .join()
+        .expect("second runtime-cache build panicked");
+
+    assert_eq!(first.compile_actions, 1);
+    assert_eq!(first.link_actions, 1);
+    assert_eq!(second.compile_actions, 1);
+    assert_eq!(second.link_actions, 1);
+
+    let _ = fs::remove_dir_all(cache_root);
+    let _ = fs::remove_dir_all(root_a);
+    let _ = fs::remove_dir_all(root_b);
 }
 
 #[test]

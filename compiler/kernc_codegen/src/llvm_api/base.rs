@@ -4,12 +4,12 @@ use llvm_sys::core::{
     LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMCountParams,
     LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetBasicBlockParent,
     LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
-    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth,
     LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam, LLVMGetReturnType,
-    LLVMGetValueName2,
-    LLVMGetTypeKind, LLVMGetUndef, LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMSetAlignment,
-    LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
-    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
+    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsAInstruction,
+    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMStructGetTypeAtIndex,
+    LLVMStructSetBody, LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{
@@ -313,6 +313,10 @@ impl_basic_type_methods!(VectorType);
 impl_basic_type_methods!(ScalableVectorType);
 
 impl<'ctx> IntType<'ctx> {
+    pub fn bit_width(self) -> u32 {
+        unsafe { LLVMGetIntTypeWidth(self.as_type_ref()) }
+    }
+
     pub fn const_int(self, value: u64, sign_extend: bool) -> IntValue<'ctx> {
         IntValue::new(unsafe { LLVMConstInt(self.as_type_ref(), value, bool_to_llvm(sign_extend)) })
     }
@@ -408,6 +412,10 @@ impl<'ctx> StructType<'ctx> {
         unsafe { LLVMCountStructElementTypes(self.as_type_ref()) }
     }
 
+    pub fn is_packed(self) -> bool {
+        unsafe { LLVMIsPackedStruct(self.as_type_ref()) != 0 }
+    }
+
     pub fn get_field_type_at_index(self, index: u32) -> Option<BasicTypeEnum<'ctx>> {
         if index >= self.count_fields() {
             None
@@ -450,6 +458,10 @@ impl<'ctx> StructType<'ctx> {
 impl<'ctx> ArrayType<'ctx> {
     pub fn len(self) -> u32 {
         unsafe { llvm_sys::core::LLVMGetArrayLength2(self.as_type_ref()) as u32 }
+    }
+
+    pub fn get_element_type(self) -> BasicTypeEnum<'ctx> {
+        BasicTypeEnum::new(unsafe { LLVMGetElementType(self.as_type_ref()) })
     }
 
     pub fn is_empty(self) -> bool {

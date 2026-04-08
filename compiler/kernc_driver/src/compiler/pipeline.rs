@@ -1,5 +1,6 @@
 use super::codegen_units::{
-    CodegenPlanFallback, CodegenPlanReport, materialize_codegen_unit, plan_codegen_units_with_report,
+    CodegenPlanFallback, CodegenPlanReport, materialize_codegen_unit,
+    plan_codegen_units_with_report,
 };
 #[cfg(test)]
 use super::flow::FlowModel;
@@ -30,6 +31,18 @@ struct LoweredModuleReport {
     module: kernc_mast::MastModule,
     phase_timings: Vec<PhaseTiming>,
     cache_stats: kernc_lower::LowerCacheStats,
+}
+
+struct CodegenUnitArtifacts {
+    index: usize,
+    object_path: String,
+    codegen_report: CodegenReport,
+    emit_report: EmitObjectReport,
+}
+
+struct CodegenUnitBatch {
+    artifacts: Vec<CodegenUnitArtifacts>,
+    wall_duration: Duration,
 }
 
 impl CompilerDriver {
@@ -262,63 +275,44 @@ impl CompilerDriver {
             ));
         }
 
+        let object_guards = codegen_unit_plans
+            .iter()
+            .map(|unit| super::TempFileGuard {
+                path: self.make_temp_codegen_unit_path(&unit.name),
+            })
+            .collect::<Vec<_>>();
+        let unit_batch = match self.codegen_unit_artifacts(
+            &mast_module,
+            &codegen_unit_plans,
+            &module_name,
+            &target.triple,
+            ctx.sess,
+            &ctx.type_registry,
+        ) {
+            Ok(artifacts) => artifacts,
+            Err(err) => {
+                eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                drop(object_guards);
+                return None;
+            }
+        };
         let mut codegen_report = CodegenReport::default();
         let mut emit_report = EmitObjectReport::default();
-        let mut codegen_duration = Duration::ZERO;
-        let mut emit_duration = Duration::ZERO;
-        let mut object_paths = Vec::with_capacity(codegen_unit_plans.len());
-        let mut object_guards = Vec::with_capacity(codegen_unit_plans.len());
-
-        for unit in &codegen_unit_plans {
-            let unit_module = materialize_codegen_unit(&mast_module, unit);
-            let codegen_ctx = Context::create();
-            let mut codegen = CodeGenerator::new(
-                &codegen_ctx,
-                &format!("{}_{}", module_name, unit.name),
-                &mut *ctx.sess,
-                &ctx.type_registry,
-                self.options.split_sections_for_gc,
-            );
-            codegen.set_asm_dialect(match self.options.asm_dialect {
-                AsmDialect::Intel => InlineAsmDialect::Intel,
-                AsmDialect::Att => InlineAsmDialect::ATT,
-            });
-
-            let unit_codegen_started = Instant::now();
-            let unit_codegen_report = codegen.compile(&unit_module);
-            codegen_duration += unit_codegen_started.elapsed();
-            Self::absorb_codegen_report(&mut codegen_report, unit_codegen_report);
-
-            let object_path = self.make_temp_codegen_unit_path(&unit.name);
-            object_guards.push(super::TempFileGuard {
-                path: object_path.clone(),
-            });
-            let unit_emit_started = Instant::now();
-            let unit_emit_report =
-                match codegen.emit_to_file(&target.triple, &object_path, self.options.opt_level) {
-                    Ok(report) => report,
-                    Err(err) => {
-                        eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
-                        return None;
-                    }
-                };
-            emit_duration += unit_emit_started.elapsed();
-            Self::absorb_emit_report(&mut emit_report, unit_emit_report);
-            object_paths.push(object_path);
+        let mut object_paths = vec![String::new(); unit_batch.artifacts.len()];
+        for artifact in unit_batch.artifacts {
+            Self::absorb_codegen_report(&mut codegen_report, artifact.codegen_report);
+            Self::absorb_emit_report(&mut emit_report, artifact.emit_report);
+            object_paths[artifact.index] = artifact.object_path;
         }
 
         phase_timings.push(PhaseTiming {
-            name: "codegen",
-            duration: codegen_duration,
+            name: "codegen_units",
+            duration: unit_batch.wall_duration,
         });
         phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
-        phase_timings.push(PhaseTiming {
-            name: "emit_object",
-            duration: emit_duration,
-        });
         phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
@@ -367,6 +361,162 @@ impl CompilerDriver {
             codegen_report,
             Some(emit_report),
         ))
+    }
+
+    fn codegen_unit_artifacts(
+        &self,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[super::codegen_units::CodegenUnitPlan],
+        module_name: &str,
+        target_triple: &str,
+        session: &Session,
+        type_registry: &kernc_sema::ty::TypeRegistry,
+    ) -> Result<CodegenUnitBatch, String> {
+        let started = Instant::now();
+        let worker_count = Self::codegen_worker_count(codegen_unit_plans.len());
+        if worker_count <= 1 {
+            return self.codegen_unit_artifacts_serial(
+                mast_module,
+                codegen_unit_plans,
+                module_name,
+                target_triple,
+                session,
+                type_registry,
+            );
+        }
+
+        let asm_dialect = match self.options.asm_dialect {
+            AsmDialect::Intel => InlineAsmDialect::Intel,
+            AsmDialect::Att => InlineAsmDialect::ATT,
+        };
+        let mut pending = codegen_unit_plans
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| {
+                (
+                    index,
+                    unit.name.clone(),
+                    format!("{}_{}", module_name, unit.name),
+                    self.make_temp_codegen_unit_path(&unit.name),
+                    materialize_codegen_unit(mast_module, unit),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut completed = Vec::with_capacity(pending.len());
+
+        while !pending.is_empty() {
+            let take = worker_count.min(pending.len());
+            let chunk = pending.drain(..take).collect::<Vec<_>>();
+            let mut chunk_results = std::thread::scope(|scope| {
+                let mut handles = Vec::with_capacity(chunk.len());
+                for (index, unit_name, llvm_module_name, object_path, unit_module) in chunk {
+                    let mut worker_session = session.clone();
+                    let worker_registry = type_registry.clone();
+                    let target_triple = target_triple.to_string();
+                    let split_sections_for_gc = self.options.split_sections_for_gc;
+                    let opt_level = self.options.opt_level;
+                    handles.push(scope.spawn(move || {
+                        let codegen_ctx = Context::create();
+                        let mut codegen = CodeGenerator::new(
+                            &codegen_ctx,
+                            &llvm_module_name,
+                            &mut worker_session,
+                            &worker_registry,
+                            split_sections_for_gc,
+                        );
+                        codegen.set_asm_dialect(asm_dialect);
+                        let codegen_report = codegen.compile(&unit_module);
+                        let emit_report =
+                            codegen.emit_to_file(&target_triple, &object_path, opt_level)?;
+                        Ok::<_, String>((
+                            index,
+                            unit_name,
+                            object_path,
+                            codegen_report,
+                            emit_report,
+                        ))
+                    }));
+                }
+
+                let mut results = Vec::with_capacity(handles.len());
+                for handle in handles {
+                    let result = handle
+                        .join()
+                        .map_err(|_| "parallel CGU worker panicked".to_string())??;
+                    results.push(result);
+                }
+                Ok::<_, String>(results)
+            })?;
+            completed.extend(chunk_results.drain(..).map(
+                |(index, _unit_name, object_path, codegen_report, emit_report)| {
+                    CodegenUnitArtifacts {
+                        index,
+                        object_path,
+                        codegen_report,
+                        emit_report,
+                    }
+                },
+            ));
+        }
+
+        completed.sort_by_key(|artifact| artifact.index);
+        Ok(CodegenUnitBatch {
+            artifacts: completed,
+            wall_duration: started.elapsed(),
+        })
+    }
+
+    fn codegen_unit_artifacts_serial(
+        &self,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[super::codegen_units::CodegenUnitPlan],
+        module_name: &str,
+        target_triple: &str,
+        session: &Session,
+        type_registry: &kernc_sema::ty::TypeRegistry,
+    ) -> Result<CodegenUnitBatch, String> {
+        let started = Instant::now();
+        let mut artifacts = Vec::with_capacity(codegen_unit_plans.len());
+        for (index, unit) in codegen_unit_plans.iter().enumerate() {
+            let unit_module = materialize_codegen_unit(mast_module, unit);
+            let mut worker_session = session.clone();
+            let codegen_ctx = Context::create();
+            let mut codegen = CodeGenerator::new(
+                &codegen_ctx,
+                &format!("{}_{}", module_name, unit.name),
+                &mut worker_session,
+                type_registry,
+                self.options.split_sections_for_gc,
+            );
+            codegen.set_asm_dialect(match self.options.asm_dialect {
+                AsmDialect::Intel => InlineAsmDialect::Intel,
+                AsmDialect::Att => InlineAsmDialect::ATT,
+            });
+            let codegen_report = codegen.compile(&unit_module);
+            let object_path = self.make_temp_codegen_unit_path(&unit.name);
+            let emit_report =
+                codegen.emit_to_file(target_triple, &object_path, self.options.opt_level)?;
+            artifacts.push(CodegenUnitArtifacts {
+                index,
+                object_path,
+                codegen_report,
+                emit_report,
+            });
+        }
+        Ok(CodegenUnitBatch {
+            artifacts,
+            wall_duration: started.elapsed(),
+        })
+    }
+
+    fn codegen_worker_count(unit_count: usize) -> usize {
+        if unit_count <= 1 {
+            return 1;
+        }
+        std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1)
+            .min(unit_count)
     }
 
     fn build_compile_report(

@@ -226,12 +226,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ret: result_ty,
             is_variadic: false,
         });
+        let expected_self_ty = lhs.ty;
         let call = self.lower_resolved_trait_method_call(
             lhs,
             method_name,
             vec![rhs],
             owner_trait_ty,
             callee_ty,
+            Some(expected_self_ty),
             span,
         );
 
@@ -276,12 +278,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ret: result_ty,
             is_variadic: false,
         });
+        let expected_self_ty = operand.ty;
         self.lower_resolved_trait_method_call(
             operand,
             method_name,
             vec![],
             owner_trait_ty,
             callee_ty,
+            Some(expected_self_ty),
             span,
         )
     }

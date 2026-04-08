@@ -625,7 +625,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         if let Some((callee_id, field, recv)) = method_call {
-            self.lower_method_call(callee_id, recv, field, arg_masts, norm_callee, span)
+            self.lower_method_call(
+                callee_id,
+                recv,
+                field,
+                arg_masts,
+                norm_callee,
+                expected_param_tys.first().copied(),
+                span,
+            )
         } else {
             self.lower_normal_call(callee, args, arg_masts, subst_map)
         }
@@ -765,6 +773,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         field: SymbolId,
         arg_masts: Vec<MastExpr>,
         norm_callee: TypeId,
+        expected_self_ty: Option<TypeId>,
         span: Span,
     ) -> MastExprKind {
         // Resolve methods against the type that actually owns the implementation.
@@ -791,6 +800,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             arg_masts,
             owner_trait_ty,
             norm_callee,
+            expected_self_ty,
             span,
         )
     }
@@ -802,6 +812,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         mut arg_masts: Vec<MastExpr>,
         owner_trait_ty: TypeId,
         norm_callee: TypeId,
+        expected_self_ty: Option<TypeId>,
         span: Span,
     ) -> MastExprKind {
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
@@ -858,6 +869,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 method_id,
                 &generics,
                 norm_callee,
+                expected_self_ty,
                 span,
             )
         } else {
@@ -872,8 +884,42 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     TypeKind::TraitObject(..)
                 );
 
-            for def in &self.ctx.defs {
-                if let Def::Impl(impl_def) = def {
+            let method_ids_ptr = self
+                .ctx
+                .impl_methods_by_name
+                .get(&field)
+                .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()));
+
+            if let Some(method_ids_ptr) = method_ids_ptr {
+                // Safety: method-name indexes are immutable while lowering reads semantic defs.
+                let method_ids = unsafe { &*method_ids_ptr };
+                for &method_id in method_ids {
+                    let Some(impl_id) =
+                        self.ctx
+                            .defs
+                            .get(method_id.0 as usize)
+                            .and_then(|def| match def {
+                                Def::Function(function) => function.parent,
+                                _ => None,
+                            })
+                    else {
+                        continue;
+                    };
+
+                    let Some(impl_ptr) =
+                        self.ctx
+                            .defs
+                            .get(impl_id.0 as usize)
+                            .and_then(|def| match def {
+                                Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                                _ => None,
+                            })
+                    else {
+                        continue;
+                    };
+
+                    // Safety: lowering only reads semantic definition storage.
+                    let impl_def = unsafe { &*impl_ptr };
                     let impl_target_raw = self
                         .ctx
                         .node_types
@@ -920,14 +966,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                     continue;
                                 }
                             }
-                            for &m_id in &impl_def.methods {
-                                if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
-                                    && f.name == field
-                                {
-                                    target_func_id = Some(m_id);
-                                    break;
-                                }
-                            }
+                            target_func_id = Some(method_id);
                         }
                     }
                     // Generic impl matching.
@@ -1002,14 +1041,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 }
                             }
                             resolved_impl_args = base_args.clone();
-                            for &m_id in &impl_def.methods {
-                                if let Def::Function(f) = &self.ctx.defs[m_id.0 as usize]
-                                    && f.name == field
-                                {
-                                    target_func_id = Some(m_id);
-                                    break;
-                                }
-                            }
+                            target_func_id = Some(method_id);
                         }
                     }
 
@@ -1020,11 +1052,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
 
             if let Some(func_id) = target_func_id {
-                let expected_params = self.get_callee_expected_params(norm_callee);
                 let mut final_recv = recv;
 
                 // Normalize pointer-type differences for LLVM by inserting a bitcast after safe downgrades.
-                if let Some(&exp_self) = expected_params.first()
+                if let Some(exp_self) = expected_self_ty
                     && final_recv.ty != exp_self
                 {
                     final_recv = MastExpr::new(
@@ -1078,10 +1109,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         method_id: DefId,
         generics: &[TypeId],
         norm_callee: TypeId,
+        expected_self_ty: Option<TypeId>,
         span: Span,
     ) -> MastExprKind {
-        let expected_params = self.get_callee_expected_params(norm_callee);
-        if let Some(&exp_self) = expected_params.first()
+        if let Some(exp_self) = expected_self_ty
             && recv.ty != exp_self
         {
             recv = MastExpr::new(

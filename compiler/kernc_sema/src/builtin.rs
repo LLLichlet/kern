@@ -570,6 +570,11 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             docs: None,
             attributes: vec![],
         }));
+        self.ctx
+            .impl_methods_by_name
+            .entry(name_id)
+            .or_default()
+            .push(method_def_id);
     }
 
     fn inject_integer_operator_impls(&mut self, ty: TypeId) {

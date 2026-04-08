@@ -3,7 +3,7 @@ use super::{
     ExecutionSession, ExecutionState, ExecutionSummary, ExternalArtifacts, ExternalToolKey,
     LoadedExternalPackage, PackageInstanceKey, Result, SourceConfigContext,
     ensure_compile_action_built, ensure_link_action_built, ensure_std_packages_for_actions,
-    push_link_object, validate_package_metadata_root,
+    push_link_object, runtime_profile_key, validate_package_metadata_root,
 };
 use crate::build_plan::{ActionPlan, CompileAction, LinkAction};
 use crate::elaborate::{self, FeatureSelection};
@@ -184,7 +184,7 @@ pub(super) fn build_external_package(
         &loaded.local_library_actions,
         external
             .built_std_packages
-            .get(&root_library_action.profile.name),
+            .get(&runtime_profile_key(&root_library_action.profile)),
         external.built_external_packages,
     )?;
     let link_objects = link_objects_for_compile_action(
@@ -690,7 +690,7 @@ pub(super) fn link_objects_for_compile_action(
             push_link_object(&mut objects, &mut seen, object);
         }
     }
-    if let Some(std_package) = built_std_packages.get(&root_action.profile.name) {
+    if let Some(std_package) = built_std_packages.get(&runtime_profile_key(&root_action.profile)) {
         for object in &std_package.link_objects {
             push_link_object(&mut objects, &mut seen, object);
         }

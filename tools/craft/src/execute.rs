@@ -410,6 +410,10 @@ struct ParallelTargetLinkResult {
     summary: ExecutionSummary,
 }
 
+pub(super) fn runtime_profile_key(profile: &crate::script::ScriptProfile) -> String {
+    format!("{}-opt{}-debug{}", profile.name, profile.opt, profile.debug)
+}
+
 pub(super) fn compile_with_shared_driver(
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     options: CompileOptions,
@@ -944,7 +948,7 @@ fn compile_action_options(
     options.module_interface_aliases = compile_module_aliases(
         action,
         local_library_actions,
-        built_std_packages.get(&action.profile.name),
+        built_std_packages.get(&runtime_profile_key(&action.profile)),
         built_external_packages,
     )?;
     inject_target_library_aliases(&mut options);

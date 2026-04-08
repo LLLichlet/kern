@@ -2,7 +2,8 @@ use super::{
     ActionTimingKind, BuiltLibraryPackage, BuiltStdPackage, ExecutionSummary, Result,
     apply_host_linker_env, base_compile_action_label, build_fingerprint,
     compile_with_shared_driver, ensure_parent_dir, rt_compile_action_label,
-    rt_entry_compile_action_label, std_compile_action_label, sys_compile_action_label,
+    rt_entry_compile_action_label, runtime_profile_key, std_compile_action_label,
+    sys_compile_action_label,
 };
 use crate::build_plan::CompileAction;
 use crate::build_state;
@@ -13,7 +14,7 @@ use kernc_utils::config::{
     CompileOptions, DriverMode, LibraryBundle, OptLevel, inject_driver_condition_defines,
     resolve_base_path, resolve_rt_path, resolve_std_path, resolve_sys_path,
 };
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 #[cfg(test)]
@@ -69,8 +70,27 @@ fn runtime_cache_root(_workspace_root: &Path) -> Result<PathBuf> {
     }
 }
 
-fn runtime_profile_root(workspace_root: &Path, profile: &str) -> Result<PathBuf> {
-    Ok(runtime_cache_root(workspace_root)?.join(profile))
+fn runtime_profile_root(
+    workspace_root: &Path,
+    profile: &crate::script::ScriptProfile,
+) -> Result<PathBuf> {
+    Ok(runtime_cache_root(workspace_root)?.join(runtime_profile_key(profile)))
+}
+
+fn runtime_profile_label(profile: &crate::script::ScriptProfile) -> String {
+    format!(
+        "{} (opt={}, debug={})",
+        profile.name, profile.opt, profile.debug
+    )
+}
+
+fn runtime_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
+    match profile.opt {
+        0 => OptLevel::O0,
+        1 => OptLevel::O1,
+        2 => OptLevel::O2,
+        _ => OptLevel::O3,
+    }
 }
 
 pub(super) fn interface_alias_strings(
@@ -98,14 +118,16 @@ pub(super) fn ensure_std_packages_for_actions(
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
-    let profiles = actions
-        .iter()
-        .map(|action| action.profile.name.clone())
-        .collect::<BTreeSet<_>>();
-    for profile in profiles {
+    let mut profiles = BTreeMap::new();
+    for action in actions {
+        profiles
+            .entry(runtime_profile_key(&action.profile))
+            .or_insert_with(|| action.profile.clone());
+    }
+    for profile in profiles.values() {
         build_std_package(
             workspace_root,
-            &profile,
+            profile,
             built_std_packages,
             driver_families,
             execution_summary,
@@ -116,12 +138,13 @@ pub(super) fn ensure_std_packages_for_actions(
 
 pub(super) fn build_std_package(
     workspace_root: &Path,
-    profile: &str,
+    profile: &crate::script::ScriptProfile,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<()> {
-    if built_std_packages.contains_key(profile) {
+    let profile_key = runtime_profile_key(profile);
+    if built_std_packages.contains_key(&profile_key) {
         return Ok(());
     }
 
@@ -165,11 +188,7 @@ pub(super) fn build_std_package(
         root_module_name: Some("std".to_string()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        opt_level: if profile == "release" {
-            OptLevel::O3
-        } else {
-            OptLevel::O0
-        },
+        opt_level: runtime_opt_level(profile),
         library_bundle: LibraryBundle::Std,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -189,7 +208,9 @@ pub(super) fn build_std_package(
         "std_runtime_layout=v6".to_string(),
         "kind=compile-std".to_string(),
         format!("toolchain={toolchain_digest}"),
-        format!("profile={profile}"),
+        format!("profile={}", profile.name),
+        format!("opt={}", profile.opt),
+        format!("debug={}", profile.debug),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -221,7 +242,7 @@ pub(super) fn build_std_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            std_compile_action_label(profile),
+            std_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
         );
@@ -230,7 +251,7 @@ pub(super) fn build_std_package(
     }
 
     built_std_packages.insert(
-        profile.to_string(),
+        profile_key,
         BuiltStdPackage {
             metadata_root_path,
             link_objects: vec![
@@ -256,7 +277,7 @@ pub(super) fn build_std_package(
 
 pub(super) fn build_rt_package(
     workspace_root: &Path,
-    profile: &str,
+    profile: &crate::script::ScriptProfile,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
@@ -285,11 +306,7 @@ pub(super) fn build_rt_package(
         root_module_name: Some("rt".to_string()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        opt_level: if profile == "release" {
-            OptLevel::O3
-        } else {
-            OptLevel::O0
-        },
+        opt_level: runtime_opt_level(profile),
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
@@ -303,7 +320,9 @@ pub(super) fn build_rt_package(
         "rt_runtime_layout=v1".to_string(),
         "kind=compile-rt".to_string(),
         format!("toolchain={toolchain_digest}"),
-        format!("profile={profile}"),
+        format!("profile={}", profile.name),
+        format!("opt={}", profile.opt),
+        format!("debug={}", profile.debug),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -330,7 +349,7 @@ pub(super) fn build_rt_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            rt_compile_action_label(profile),
+            rt_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
         );
@@ -347,7 +366,7 @@ pub(super) fn build_rt_package(
 
 pub(super) fn build_base_package(
     workspace_root: &Path,
-    profile: &str,
+    profile: &crate::script::ScriptProfile,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
@@ -380,11 +399,7 @@ pub(super) fn build_base_package(
         root_module_name: Some("base".to_string()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        opt_level: if profile == "release" {
-            OptLevel::O3
-        } else {
-            OptLevel::O0
-        },
+        opt_level: runtime_opt_level(profile),
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -399,7 +414,9 @@ pub(super) fn build_base_package(
         "base_runtime_layout=v1".to_string(),
         "kind=compile-base".to_string(),
         format!("toolchain={toolchain_digest}"),
-        format!("profile={profile}"),
+        format!("profile={}", profile.name),
+        format!("opt={}", profile.opt),
+        format!("debug={}", profile.debug),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -426,7 +443,7 @@ pub(super) fn build_base_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            base_compile_action_label(profile),
+            base_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
         );
@@ -443,7 +460,7 @@ pub(super) fn build_base_package(
 
 pub(super) fn build_sys_package(
     workspace_root: &Path,
-    profile: &str,
+    profile: &crate::script::ScriptProfile,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
@@ -478,11 +495,7 @@ pub(super) fn build_sys_package(
         root_module_name: Some("sys".to_string()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        opt_level: if profile == "release" {
-            OptLevel::O3
-        } else {
-            OptLevel::O0
-        },
+        opt_level: runtime_opt_level(profile),
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -502,7 +515,9 @@ pub(super) fn build_sys_package(
         "sys_runtime_layout=v1".to_string(),
         "kind=compile-sys".to_string(),
         format!("toolchain={toolchain_digest}"),
-        format!("profile={profile}"),
+        format!("profile={}", profile.name),
+        format!("opt={}", profile.opt),
+        format!("debug={}", profile.debug),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -531,7 +546,7 @@ pub(super) fn build_sys_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            sys_compile_action_label(profile),
+            sys_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
         );
@@ -550,7 +565,7 @@ pub(super) fn build_sys_package(
 
 pub(super) fn build_rt_entry_package(
     workspace_root: &Path,
-    profile: &str,
+    profile: &crate::script::ScriptProfile,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
     built_sys: &BuiltLibraryPackage,
@@ -578,11 +593,7 @@ pub(super) fn build_rt_entry_package(
         root_module_name: Some("rt_entry".to_string()),
         driver_mode: DriverMode::CompileOnly,
         report_progress: false,
-        opt_level: if profile == "release" {
-            OptLevel::O3
-        } else {
-            OptLevel::O0
-        },
+        opt_level: runtime_opt_level(profile),
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
@@ -600,7 +611,9 @@ pub(super) fn build_rt_entry_package(
         "rt_runtime_layout=v1".to_string(),
         "kind=compile-rt-entry".to_string(),
         format!("toolchain={toolchain_digest}"),
-        format!("profile={profile}"),
+        format!("profile={}", profile.name),
+        format!("opt={}", profile.opt),
+        format!("debug={}", profile.debug),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
@@ -627,7 +640,7 @@ pub(super) fn build_rt_entry_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            rt_entry_compile_action_label(profile),
+            rt_entry_compile_action_label(&runtime_profile_label(profile)),
             report.phase_timings,
             report.cache_stats,
         );

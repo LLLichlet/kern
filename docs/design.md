@@ -21,9 +21,9 @@
 
 ## 1\. Core Philosophy and Manifesto
 
-**Kern** is a systems鈥憀evel language for operating system kernels, embedded firmware, and high鈥憄erformance infrastructure.
+**Kern** is a systems level language for operating system kernels, embedded firmware, and high performance infrastructure.
 
-Kern鈥檚 design is based on the observation that languages trade off **abstraction capability** against **policy constraints**. Kern aims to occupy the fourth quadrant: **high abstraction, low policy**.
+Kern design is based on the observation that languages trade off **abstraction capability** against **policy constraints**. Kern aims to occupy the fourth quadrant: **high abstraction, low policy**.
 
 ### 1.1 Core Values
 

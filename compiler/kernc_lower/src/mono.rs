@@ -2,7 +2,7 @@ use super::Lowerer;
 use kernc_ast as ast;
 use kernc_mast::*;
 use kernc_sema::LayoutEngine;
-use kernc_sema::checker::{ConstEvaluator, ConstValue, Substituter};
+use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_sema::def::{Def, DefId, GlobalDef};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
@@ -148,125 +148,147 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
 
             let fn_name = this.ctx.resolve(def.name).to_string();
-            let Some(subst_map) =
-                this.build_generic_subst_map("function", &fn_name, &def.generics, args)
+            let Some((subst_map, mangled_name, mast_params, conc_ret)) =
+                this.measure_phase("    lower_fn_signature", |this| {
+                    let subst_map =
+                        this.build_generic_subst_map("function", &fn_name, &def.generics, args)?;
+                    let mangled_name = this.ctx.get_export_name(def_id, args);
+
+                    let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
+                        if let TypeKind::Function { ret, .. } = this.ctx.type_registry.get(sig) {
+                            *ret
+                        } else {
+                            TypeId::VOID
+                        }
+                    });
+
+                    let mut mast_params = Vec::new();
+                    for p in &def.params {
+                        let raw_ty = this
+                            .ctx
+                            .node_types
+                            .get(&p.type_node.id)
+                            .copied()
+                            .unwrap_or(TypeId::ERROR);
+                        let conc_ty = this.substitute_type_with_map(raw_ty, &subst_map);
+                        this.track_pure_enum_repr_in_type(conc_ty);
+                        mast_params.push(MastParam {
+                            name: p.pattern.name,
+                            ty: conc_ty,
+                            is_mut: p.pattern.is_mut,
+                        });
+                    }
+
+                    let conc_ret = this.substitute_type_with_map(raw_ret, &subst_map);
+                    this.track_pure_enum_repr_in_type(conc_ret);
+
+                    Some((subst_map, mangled_name, mast_params, conc_ret))
+                })
             else {
                 this.placeholder_function(id, format!("__ice_fn_{}", id.0));
                 return id;
             };
 
-            let mangled_name = this.ctx.get_export_name(def_id, args);
+            let (
+                saved_local_types,
+                saved_local_forwardings,
+                saved_local_value_forwardings,
+                saved_defer_stack,
+                saved_loop_frames,
+                saved_local_statics,
+            ) = this.measure_phase("    lower_fn_scope_setup", |this| {
+                let saved_local_types = std::mem::take(&mut this.local_types);
+                let saved_local_forwardings = std::mem::take(&mut this.local_forwardings);
+                let saved_local_value_forwardings = std::mem::take(&mut this.local_value_forwardings);
+                let saved_defer_stack = std::mem::take(&mut this.defer_stack);
+                let saved_loop_frames = std::mem::take(&mut this.loop_frames);
+                let saved_local_statics = std::mem::take(&mut this.local_statics);
 
-            let raw_ret = def.resolved_sig.map_or(TypeId::VOID, |sig| {
-                if let TypeKind::Function { ret, .. } = this.ctx.type_registry.get(sig) {
-                    *ret
+                this.local_types.push(std::collections::HashMap::new());
+                this.local_forwardings
+                    .push(std::collections::HashMap::new());
+                this.local_value_forwardings
+                    .push(std::collections::HashMap::new());
+                for p in &mast_params {
+                    if let Some(scope) = this.local_types.last_mut() {
+                        scope.insert(p.name, (p.ty, p.is_mut));
+                    } else {
+                        this.ctx.emit_ice(
+                            Span::default(),
+                            "Kern ICE (Lowering): Missing local type scope while instantiating a function.",
+                        );
+                        break;
+                    }
+                }
+
+                (
+                    saved_local_types,
+                    saved_local_forwardings,
+                    saved_local_value_forwardings,
+                    saved_defer_stack,
+                    saved_loop_frames,
+                    saved_local_statics,
+                )
+            });
+
+            let body = this.measure_phase("    lower_fn_body", |this| {
+                if this.function_requires_runtime_body(&def) {
+                    let prev_scope = this.ctx.scopes.current_scope_id();
+                    let saved_owner = this.current_owner_def_id.replace(def_id);
+                    if let Some(owner_scope) = this.function_owner_scope(&def) {
+                        this.ctx.scopes.set_current_scope(owner_scope);
+                    }
+
+                    let body = def
+                        .body
+                        .as_ref()
+                        .map(|body_expr| this.lower_block_as_body(body_expr, &subst_map, conc_ret));
+
+                    if let Some(prev_scope) = prev_scope {
+                        this.ctx.scopes.set_current_scope(prev_scope);
+                    }
+                    this.current_owner_def_id = saved_owner;
+
+                    body
                 } else {
-                    TypeId::VOID
+                    None
                 }
             });
 
-            let mut mast_params = Vec::new();
-            for p in &def.params {
-                let raw_ty = this
-                    .ctx
-                    .node_types
-                    .get(&p.type_node.id)
-                    .copied()
-                    .unwrap_or(TypeId::ERROR);
-                let conc_ty = {
-                    let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
-                    subst.substitute(raw_ty)
-                };
-                this.track_pure_enum_repr_in_type(conc_ty);
-                mast_params.push(MastParam {
-                    name: p.pattern.name,
-                    ty: conc_ty,
-                    is_mut: p.pattern.is_mut,
-                });
-            }
+            this.measure_phase("    lower_fn_scope_restore", |this| {
+                this.local_types.pop();
+                this.local_forwardings.pop();
+                this.local_value_forwardings.pop();
 
-            let conc_ret = {
-                let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
-                subst.substitute(raw_ret)
-            };
-            this.track_pure_enum_repr_in_type(conc_ret);
-
-            let saved_local_types = std::mem::take(&mut this.local_types);
-            let saved_local_forwardings = std::mem::take(&mut this.local_forwardings);
-            let saved_local_value_forwardings = std::mem::take(&mut this.local_value_forwardings);
-            let saved_defer_stack = std::mem::take(&mut this.defer_stack);
-            let saved_loop_frames = std::mem::take(&mut this.loop_frames);
-            let saved_local_statics = std::mem::take(&mut this.local_statics);
-
-            this.local_types.push(std::collections::HashMap::new());
-            this.local_forwardings
-                .push(std::collections::HashMap::new());
-            this.local_value_forwardings
-                .push(std::collections::HashMap::new());
-            for p in &mast_params {
-                if let Some(scope) = this.local_types.last_mut() {
-                    scope.insert(p.name, (p.ty, p.is_mut));
-                } else {
-                    this.ctx.emit_ice(
-                        Span::default(),
-                        "Kern ICE (Lowering): Missing local type scope while instantiating a function.",
-                    );
-                    break;
-                }
-            }
-
-            let body = if this.function_requires_runtime_body(&def) {
-                let prev_scope = this.ctx.scopes.current_scope_id();
-                let saved_owner = this.current_owner_def_id.replace(def_id);
-                if let Some(owner_scope) = this.function_owner_scope(&def) {
-                    this.ctx.scopes.set_current_scope(owner_scope);
-                }
-
-                let body = def
-                    .body
-                    .as_ref()
-                    .map(|body_expr| this.lower_block_as_body(body_expr, &subst_map, conc_ret));
-
-                if let Some(prev_scope) = prev_scope {
-                    this.ctx.scopes.set_current_scope(prev_scope);
-                }
-                this.current_owner_def_id = saved_owner;
-
-                body
-            } else {
-                None
-            };
-
-            this.local_types.pop();
-            this.local_forwardings.pop();
-            this.local_value_forwardings.pop();
-
-            this.local_types = saved_local_types;
-            this.local_forwardings = saved_local_forwardings;
-            this.local_value_forwardings = saved_local_value_forwardings;
-            this.defer_stack = saved_defer_stack;
-            this.loop_frames = saved_loop_frames;
-            this.local_statics = saved_local_statics;
+                this.local_types = saved_local_types;
+                this.local_forwardings = saved_local_forwardings;
+                this.local_value_forwardings = saved_local_value_forwardings;
+                this.defer_stack = saved_defer_stack;
+                this.loop_frames = saved_loop_frames;
+                this.local_statics = saved_local_statics;
+            });
 
             let uses_odr_linkage = !def.generics.is_empty() && body.is_some() && !def.is_extern;
 
-            let mast_fn = MastFunction {
-                id,
-                name: mangled_name,
-                linkage: if uses_odr_linkage {
-                    MastLinkage::LinkOnceOdr
-                } else {
-                    MastLinkage::External
-                },
-                params: mast_params,
-                ret_ty: conc_ret,
-                body,
-                is_extern: def.is_extern,
-                is_variadic: def.is_variadic,
-                attributes: this.extract_meta_items(&def.attributes),
-            };
+            this.measure_phase("    lower_fn_finalize", |this| {
+                let mast_fn = MastFunction {
+                    id,
+                    name: mangled_name,
+                    linkage: if uses_odr_linkage {
+                        MastLinkage::LinkOnceOdr
+                    } else {
+                        MastLinkage::External
+                    },
+                    params: mast_params,
+                    ret_ty: conc_ret,
+                    body,
+                    is_extern: def.is_extern,
+                    is_variadic: def.is_variadic,
+                    attributes: this.extract_meta_items(&def.attributes),
+                };
 
-            this.module.functions.push(mast_fn);
+                this.module.functions.push(mast_fn);
+            });
             id
         })
     }
@@ -319,10 +341,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .get(&f.type_node.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR);
-                let conc_ty = {
-                    let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
-                    subst.substitute(raw_ty)
-                };
+                let conc_ty = this.substitute_type_with_map(raw_ty, &subst_map);
                 this.track_pure_enum_repr_in_type(conc_ty);
                 mast_fields.push(MastField {
                     name: f.name,
@@ -597,10 +616,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .get(&f.type_node.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let conc_ty = {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-                subst.substitute(raw_ty)
-            };
+            let conc_ty = self.substitute_type_with_map(raw_ty, &subst_map);
             self.track_pure_enum_repr_in_type(conc_ty);
             mast_fields.push(MastField {
                 name: f.name,
@@ -685,10 +701,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         .get(&payload_ast.id)
                         .copied()
                         .unwrap_or(TypeId::ERROR);
-                    {
-                        let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
-                        subst.substitute(raw_ty)
-                    }
+                    this.substitute_type_with_map(raw_ty, &subst_map)
                 } else {
                     TypeId::VOID
                 };
@@ -736,8 +749,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     .get(&bt.id)
                     .copied()
                     .unwrap_or(TypeId::U32);
-                let mut subst = Substituter::new(&mut this.ctx.type_registry, &subst_map);
-                subst.substitute(raw_tag_ty)
+                this.substitute_type_with_map(raw_tag_ty, &subst_map)
             } else {
                 TypeId::U32
             };

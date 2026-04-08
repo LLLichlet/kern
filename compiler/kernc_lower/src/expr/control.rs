@@ -3,7 +3,6 @@ use std::collections::HashMap;
 
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
-use kernc_sema::checker::Substituter;
 use kernc_sema::def::Def;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
@@ -361,8 +360,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     for (i, param) in def.generics.iter().enumerate() {
                         map.insert(param.name, gen_args[i]);
                     }
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                    field_ty = subst.substitute(field_ty);
+                    field_ty = self.substitute_type_with_map(field_ty, &map);
                 }
 
                 let field_idx = self.get_physical_field_index(target_ty, field_name, span);
@@ -459,8 +457,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                 for (i, param) in def.generics.iter().enumerate() {
                                     map.insert(param.name, gen_args[i]);
                                 }
-                                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                                payload_ty = subst.substitute(payload_ty);
+                                payload_ty = self.substitute_type_with_map(payload_ty, &map);
                             }
                             (variant_idx, payload_ty, mono_id)
                         })
@@ -635,11 +632,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             .collect();
                     }
 
-                    let target_ty = {
-                        let raw_ty = self.resolve_expr_type(init);
-                        let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
-                        subst.substitute(raw_ty)
-                    };
+                    let target_ty =
+                        self.substitute_type_with_map(self.resolve_expr_type(init), subst_map);
 
                     if !binding.is_mut && self.is_elidable_binding(expr.id) {
                         return Vec::new();

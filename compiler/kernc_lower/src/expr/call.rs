@@ -564,8 +564,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             subst_map.insert(param.name, arg);
         }
 
-        let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-        subst.substitute(ret)
+        self.substitute_type_with_map(ret, &subst_map)
     }
 
     fn atomic_ordering_arg(&mut self, arg: &Expr) -> AtomicOrdering {
@@ -613,8 +612,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(TypeId::ERROR);
 
-        let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
-        let substituted_callee = subst.substitute(raw_callee_ty);
+        let substituted_callee = self.substitute_type_with_map(raw_callee_ty, subst_map);
         let norm_callee = self.ctx.type_registry.normalize(substituted_callee);
         let expected_param_tys = self.get_callee_expected_params(norm_callee);
         let method_call = self.detect_method_call(callee, subst_map);
@@ -990,9 +988,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                                         subst_map.insert(param.name, arg);
                                     }
                                 }
-                                let mut subst =
-                                    Substituter::new(&mut self.ctx.type_registry, &subst_map);
-                                let inst_trait_ty = subst.substitute(impl_trait_ty);
+                                let inst_trait_ty = if subst_map.is_empty() {
+                                    impl_trait_ty
+                                } else {
+                                    let mut subst =
+                                        Substituter::new(&mut self.ctx.type_registry, &subst_map);
+                                    subst.substitute(impl_trait_ty)
+                                };
                                 if self.ctx.type_registry.normalize(inst_trait_ty)
                                     != owner_trait_norm
                                 {
@@ -1337,11 +1339,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             }
                         }
 
-                        let mut sig_subst =
-                            Substituter::new(&mut self.ctx.type_registry, &sig_subst_map);
                         raw_params
                             .into_iter()
-                            .map(|p| sig_subst.substitute(p))
+                            .map(|p| self.substitute_type_with_map(p, &sig_subst_map))
                             .collect()
                     } else {
                         Vec::new()

@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
-use kernc_sema::checker::{ConstEvaluator, Substituter};
+use kernc_sema::checker::ConstEvaluator;
 use kernc_sema::def::{Def, DefId, StructDef, UnionDef};
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
@@ -441,8 +441,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .copied()
             .unwrap_or(TypeId::ERROR);
 
-        let conc_payload_ty = Substituter::new(&mut self.ctx.type_registry, &variant_subst_map)
-            .substitute(raw_payload_ty);
+        let conc_payload_ty = self.substitute_type_with_map(raw_payload_ty, &variant_subst_map);
 
         let payload_expr = self.lower_expr(&init_f.value, subst_map, Some(conc_payload_ty));
 
@@ -477,8 +476,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .get(&f_def.type_node.id)
                 .copied()
                 .unwrap_or(TypeId::ERROR);
-            let conc_f_ty = Substituter::new(&mut self.ctx.type_registry, &struct_subst_map)
-                .substitute(raw_f_ty);
+            let conc_f_ty = self.substitute_type_with_map(raw_f_ty, &struct_subst_map);
 
             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
                 ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
@@ -541,8 +539,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .get(&u.fields[field_idx].type_node.id)
             .copied()
             .unwrap_or(TypeId::ERROR);
-        let conc_f_ty =
-            Substituter::new(&mut self.ctx.type_registry, &union_subst_map).substitute(raw_f_ty);
+        let conc_f_ty = self.substitute_type_with_map(raw_f_ty, &union_subst_map);
 
         let val_expr = self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty));
 

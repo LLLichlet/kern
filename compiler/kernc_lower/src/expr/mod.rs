@@ -1,7 +1,6 @@
 use super::Lowerer;
 use kernc_ast::{Expr, ExprKind};
 use kernc_mast::*;
-use kernc_sema::checker::Substituter;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::SymbolId;
 use std::collections::HashMap;
@@ -21,9 +20,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         expected_ty: Option<TypeId>,
     ) -> MastExpr {
         let raw_ty = self.resolve_expr_type(expr);
-
-        let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
-        let concrete_ty = subst.substitute(raw_ty);
+        let concrete_ty = self.substitute_type_with_map(raw_ty, subst_map);
         let exp_ty = expected_ty.unwrap_or(concrete_ty);
 
         if exp_ty == TypeId::ERROR {

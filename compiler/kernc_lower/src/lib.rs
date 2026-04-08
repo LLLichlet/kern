@@ -153,6 +153,19 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         value
     }
 
+    pub(crate) fn substitute_type_with_map(
+        &mut self,
+        ty: TypeId,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> TypeId {
+        if subst_map.is_empty() || ty == TypeId::ERROR {
+            ty
+        } else {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, subst_map);
+            subst.substitute(ty)
+        }
+    }
+
     pub fn context(&mut self) -> &mut SemaContext<'ctx> {
         self.ctx
     }
@@ -510,8 +523,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             for (param, arg) in def.generics.iter().zip(args.iter().copied()) {
                 subst_map.insert(param.name, arg);
             }
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &subst_map);
-            subst.substitute(raw_tag_ty)
+            self.substitute_type_with_map(raw_tag_ty, &subst_map)
         };
 
         self.pure_enum_tag_map.insert(key, tag_ty);

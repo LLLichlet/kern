@@ -47,6 +47,7 @@ impl CompilerDriver {
                     Self::print_lower_cache_stats(report.lower_cache_stats);
                     Self::print_mast_workload(report.mast_workload.as_ref());
                     Self::print_ir_instruction_stats(report.ir_instruction_stats.as_ref());
+                    Self::print_ir_cleanup_stats(report.ir_cleanup_stats.as_ref());
                     Self::print_codegen_alloca_stats(report.codegen_alloca_stats);
                     Self::print_ir_hot_functions(report.ir_hot_functions.as_slice());
                 }
@@ -68,6 +69,7 @@ impl CompilerDriver {
                 lower_cache_stats: None,
                 mast_workload: None,
                 ir_instruction_stats: None,
+                ir_cleanup_stats: None,
                 ir_hot_functions: Vec::new(),
                 codegen_alloca_stats: Default::default(),
             });
@@ -158,6 +160,7 @@ impl CompilerDriver {
                         lower_cache_stats: Some(lowered.cache_stats),
                         mast_workload: Some(mast_workload),
                         ir_instruction_stats: Some(codegen_report.ir_stats),
+                        ir_cleanup_stats: None,
                         ir_hot_functions: codegen_report.ir_hot_functions,
                         codegen_alloca_stats: codegen_report.alloca_stats,
                     })
@@ -202,6 +205,7 @@ impl CompilerDriver {
                 lower_cache_stats: Some(lowered.cache_stats),
                 mast_workload: Some(mast_workload),
                 ir_instruction_stats: Some(codegen_report.ir_stats),
+                ir_cleanup_stats: emit_report.ir_cleanup_stats,
                 ir_hot_functions: codegen_report.ir_hot_functions,
                 codegen_alloca_stats: codegen_report.alloca_stats,
             });
@@ -220,6 +224,7 @@ impl CompilerDriver {
             lower_cache_stats: Some(lowered.cache_stats),
             mast_workload: Some(mast_workload),
             ir_instruction_stats: Some(codegen_report.ir_stats),
+            ir_cleanup_stats: emit_report.ir_cleanup_stats,
             ir_hot_functions: codegen_report.ir_hot_functions,
             codegen_alloca_stats: codegen_report.alloca_stats,
         })
@@ -471,6 +476,34 @@ impl CompilerDriver {
             ("  compares", stats.compares),
         ] {
             println!("  {:<18} {}", name, value);
+        }
+    }
+
+    pub(super) fn print_ir_cleanup_stats(
+        ir_cleanup_stats: Option<&kernc_codegen::IrCleanupStats>,
+    ) {
+        let Some(stats) = ir_cleanup_stats else {
+            return;
+        };
+
+        if stats.before == stats.after {
+            return;
+        }
+
+        println!("IR cleanup stats:");
+        for (name, before, after) in [
+            ("  instructions", stats.before.instructions, stats.after.instructions),
+            ("  allocas", stats.before.allocas, stats.after.allocas),
+            ("  loads", stats.before.loads, stats.after.loads),
+            ("  stores", stats.before.stores, stats.after.stores),
+            ("  geps", stats.before.geps, stats.after.geps),
+            ("  phis", stats.before.phis, stats.after.phis),
+            ("  branches", stats.before.branches, stats.after.branches),
+            ("  returns", stats.before.returns, stats.after.returns),
+            ("  compares", stats.before.compares, stats.after.compares),
+        ] {
+            let delta = after as i64 - before as i64;
+            println!("  {:<18} {} -> {} ({:+})", name, before, after, delta);
         }
     }
 

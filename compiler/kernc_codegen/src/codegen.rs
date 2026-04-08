@@ -70,6 +70,12 @@ pub struct IrInstructionStats {
     pub compares: usize,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IrCleanupStats {
+    pub before: IrInstructionStats,
+    pub after: IrInstructionStats,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IrFunctionStats {
     pub name: String,
@@ -107,6 +113,7 @@ pub struct EmitObjectTiming {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct EmitObjectReport {
     pub timings: Vec<EmitObjectTiming>,
+    pub ir_cleanup_stats: Option<IrCleanupStats>,
 }
 
 pub struct CodeGenerator<'ctx, 'a> {
@@ -393,11 +400,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             duration: verify_started.elapsed(),
         });
 
+        let cleanup_before_stats = self.collect_ir_instruction_stats().0;
         let optimize_started = Instant::now();
         self.run_ir_cleanup_passes(target_machine, opt_level)?;
         report.timings.push(EmitObjectTiming {
             name: "  emit_opt_ir",
             duration: optimize_started.elapsed(),
+        });
+        let cleanup_after_stats = self.collect_ir_instruction_stats().0;
+        report.ir_cleanup_stats = Some(IrCleanupStats {
+            before: cleanup_before_stats,
+            after: cleanup_after_stats,
         });
 
         let mut output = output_path.as_bytes().to_vec();
@@ -493,11 +506,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             duration: verify_started.elapsed(),
         });
 
+        let cleanup_before_stats = self.collect_ir_instruction_stats().0;
         let optimize_started = Instant::now();
         self.run_ir_cleanup_passes(target_machine, opt_level)?;
         report.timings.push(EmitObjectTiming {
             name: "  emit_opt_ir",
             duration: optimize_started.elapsed(),
+        });
+        let cleanup_after_stats = self.collect_ir_instruction_stats().0;
+        report.ir_cleanup_stats = Some(IrCleanupStats {
+            before: cleanup_before_stats,
+            after: cleanup_after_stats,
         });
 
         // Fast path: plain ASCII paths are safely representable through LLVM's narrow-path API.

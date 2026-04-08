@@ -4,7 +4,7 @@ mod llvm_facade;
 
 pub use codegen::{
     CodeGenerator, CodegenAllocaStats, CodegenReport, CodegenTiming, EmitObjectReport,
-    EmitObjectTiming, IrFunctionStats, IrInstructionStats,
+    EmitObjectTiming, IrCleanupStats, IrFunctionStats, IrInstructionStats,
 };
 pub use llvm_api::{Context, InlineAsmDialect};
 pub use llvm_facade::{

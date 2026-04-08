@@ -1131,26 +1131,100 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         expected_self_ty: Option<TypeId>,
         span: Span,
     ) -> MastExprKind {
-        if let Some(exp_self) = expected_self_ty
-            && recv.ty != exp_self
+        recv = self.measure_phase("                lower_call_static_recv", |_this| {
+            if let Some(exp_self) = expected_self_ty
+                && recv.ty != exp_self
+            {
+                MastExpr::new(
+                    exp_self,
+                    MastExprKind::Cast {
+                        kind: MastCastKind::Bitcast,
+                        operand: Box::new(recv),
+                    },
+                    span,
+                )
+            } else {
+                recv
+            }
+        });
+
+        self.measure_phase("                lower_call_static_args", |_this| {
+            arg_masts.insert(0, recv);
+        });
+        let func_id = self.measure_phase("                lower_call_static_instantiate", |this| {
+            this.instantiate_function(method_id, generics)
+        });
+        self.measure_phase("                lower_call_static_build", |_this| {
+            let func_ref = MastExpr::new(norm_callee, MastExprKind::FuncRef(func_id), span);
+            MastExprKind::Call {
+                callee: Box::new(func_ref),
+                args: arg_masts,
+            }
+        })
+    }
+
+    fn lower_plain_fn_call(
+        &mut self,
+        callee_mast: MastExpr,
+        args: &[Expr],
+        mut arg_masts: Vec<MastExpr>,
+        fn_id: DefId,
+        fn_args: Vec<TypeId>,
+        span: Span,
+    ) -> MastExprKind {
+        if let Some(intrinsic) = self
+            .measure_phase("              lower_call_plain_intrinsic", |this| {
+                this.lower_intrinsic_call(fn_id, callee_mast.ty, args, &mut arg_masts)
+            })
         {
-            recv = MastExpr::new(
-                exp_self,
-                MastExprKind::Cast {
-                    kind: MastCastKind::Bitcast,
-                    operand: Box::new(recv),
-                },
-                span,
-            );
+            return intrinsic;
         }
 
-        arg_masts.insert(0, recv);
-        let func_id = self.instantiate_function(method_id, generics);
-        let func_ref = MastExpr::new(norm_callee, MastExprKind::FuncRef(func_id), span);
-        MastExprKind::Call {
-            callee: Box::new(func_ref),
-            args: arg_masts,
-        }
+        let mono_id = self.measure_phase("              lower_call_plain_instantiate", |this| {
+            this.instantiate_function(fn_id, &fn_args)
+        });
+        self.measure_phase("              lower_call_plain_build", |_this| {
+            let func_ref = MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), span);
+            MastExprKind::Call {
+                callee: Box::new(func_ref),
+                args: arg_masts,
+            }
+        })
+    }
+
+    fn lower_plain_direct_call(
+        &mut self,
+        callee_mast: MastExpr,
+        arg_masts: Vec<MastExpr>,
+    ) -> MastExprKind {
+        self.measure_phase("              lower_call_plain_direct", |_this| {
+            MastExprKind::Call {
+                callee: Box::new(callee_mast),
+                args: arg_masts,
+            }
+        })
+    }
+
+    fn lower_plain_closure_call(
+        &mut self,
+        callee_mast: MastExpr,
+        arg_masts: Vec<MastExpr>,
+        inner_norm: TypeId,
+        span: Span,
+    ) -> MastExprKind {
+        self.measure_phase("              lower_call_plain_closure", |this| {
+            this.lower_closure_call(callee_mast, arg_masts, inner_norm, span)
+        })
+    }
+
+    fn lower_plain_callee(
+        &mut self,
+        callee: &Expr,
+        subst_map: &HashMap<SymbolId, TypeId>,
+    ) -> MastExpr {
+        self.measure_phase("              lower_call_plain_callee", |this| {
+            this.lower_expr(callee, subst_map, None)
+        })
     }
 
     /// Helper: build a dynamically dispatched method call by loading from the vtable.
@@ -1308,10 +1382,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         callee: &Expr,
         args: &[Expr],
-        mut arg_masts: Vec<MastExpr>,
+        arg_masts: Vec<MastExpr>,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> MastExprKind {
-        let callee_mast = self.lower_expr(callee, subst_map, None);
+        let callee_mast = self.lower_plain_callee(callee, subst_map);
         let norm_callee = self.ctx.type_registry.normalize(callee_mast.ty);
 
         // Intercept dynamic calls through closure fat pointers.
@@ -1323,30 +1397,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 self.ctx.type_registry.get(inner_norm),
                 TypeKind::ClosureInterface { .. }
             ) {
-                return self.lower_closure_call(callee_mast, arg_masts, inner_norm, callee.span);
+                return self.lower_plain_closure_call(
+                    callee_mast,
+                    arg_masts,
+                    inner_norm,
+                    callee.span,
+                );
             }
         }
 
         if let TypeKind::FnDef(fn_id, fn_args) = self.ctx.type_registry.get(callee_mast.ty).clone()
         {
-            if let Some(intrinsic) =
-                self.lower_intrinsic_call(fn_id, callee_mast.ty, args, &mut arg_masts)
-            {
-                return intrinsic;
-            }
-
-            let mono_id = self.instantiate_function(fn_id, &fn_args);
-            let func_ref =
-                MastExpr::new(callee_mast.ty, MastExprKind::FuncRef(mono_id), callee.span);
-            MastExprKind::Call {
-                callee: Box::new(func_ref),
-                args: arg_masts,
-            }
+            self.lower_plain_fn_call(callee_mast, args, arg_masts, fn_id, fn_args, callee.span)
         } else {
-            MastExprKind::Call {
-                callee: Box::new(callee_mast),
-                args: arg_masts,
-            }
+            self.lower_plain_direct_call(callee_mast, arg_masts)
         }
     }
 

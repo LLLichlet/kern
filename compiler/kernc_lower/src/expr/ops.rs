@@ -381,14 +381,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let r = self.lower_expr(rhs, subst_map, expected_r);
 
             if self.has_builtin_binary_fast_path(op, l.ty, r.ty) {
-                return MastExprKind::Binary {
-                    op,
-                    lhs: Box::new(l),
-                    rhs: Box::new(r),
-                };
+                return self.measure_phase("            lower_ops_binary_builtin", |_this| {
+                    MastExprKind::Binary {
+                        op,
+                        lhs: Box::new(l),
+                        rhs: Box::new(r),
+                    }
+                });
             }
 
-            self.lower_custom_binary_operator(l, r, op, result_ty, span)
+            self.measure_phase("            lower_ops_binary_custom", |this| {
+                this.lower_custom_binary_operator(l, r, op, result_ty, span)
+            })
         }
     }
 
@@ -403,10 +407,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let op_mast = self.lower_expr(operand, subst_map, None);
 
         match op {
-            ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf => {
-                MastExprKind::AddressOf(Box::new(op_mast))
-            }
-            ast::UnaryOperator::PointerDeRef => MastExprKind::Deref(Box::new(op_mast)),
+            ast::UnaryOperator::AddressOf | ast::UnaryOperator::MutAddressOf => self
+                .measure_phase("            lower_ops_unary_builtin", |_this| {
+                    MastExprKind::AddressOf(Box::new(op_mast))
+                }),
+            ast::UnaryOperator::PointerDeRef => self
+                .measure_phase("            lower_ops_unary_builtin", |_this| {
+                    MastExprKind::Deref(Box::new(op_mast))
+                }),
             ast::UnaryOperator::MetaOf => {
                 let op_norm = self.ctx.type_registry.normalize(op_mast.ty);
                 let op_kind = self.ctx.type_registry.get(op_norm).clone();
@@ -444,17 +452,25 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     _ => {}
                 }
 
-                MastExprKind::Unary {
-                    op,
-                    operand: Box::new(op_mast),
-                }
+                self.measure_phase("            lower_ops_unary_builtin", |_this| {
+                    MastExprKind::Unary {
+                        op,
+                        operand: Box::new(op_mast),
+                    }
+                })
             }
 
-            _ if self.has_builtin_unary_fast_path(op, op_mast.ty) => MastExprKind::Unary {
-                op,
-                operand: Box::new(op_mast),
-            },
-            _ => self.lower_custom_unary_operator(op_mast, op, result_ty, span),
+            _ if self.has_builtin_unary_fast_path(op, op_mast.ty) => {
+                self.measure_phase("            lower_ops_unary_builtin", |_this| {
+                    MastExprKind::Unary {
+                        op,
+                        operand: Box::new(op_mast),
+                    }
+                })
+            }
+            _ => self.measure_phase("            lower_ops_unary_custom", |this| {
+                this.lower_custom_unary_operator(op_mast, op, result_ty, span)
+            }),
         }
     }
 
@@ -467,10 +483,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> MastExprKind {
         let l = self.lower_expr(lhs, subst_map, None);
         let r = self.lower_expr(rhs, subst_map, Some(l.ty));
-        MastExprKind::Assign {
-            op,
-            lhs: Box::new(l),
-            rhs: Box::new(r),
-        }
+        self.measure_phase("            lower_ops_assign_build", |_this| {
+            MastExprKind::Assign {
+                op,
+                lhs: Box::new(l),
+                rhs: Box::new(r),
+            }
+        })
     }
 }

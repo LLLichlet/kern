@@ -1301,45 +1301,47 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let pattern = &patterns[pattern_index];
         let (cond, bindings) = match &pattern.kind {
             ast::MatchPatternKind::Value(value) => {
-                let cond = if let ExprKind::EnumLiteral { variant, .. } = value.kind {
-                    self.build_enum_variant_condition(
-                        pattern.span,
-                        match_context.target_var_expr,
-                        match_context.target_ty,
-                        variant,
-                    )
-                    .map(|(cond, _)| cond)
-                    .unwrap_or_else(|| self.bool_expr(pattern.span, false))
-                } else {
-                    let value_expr = self.lower_expr(
-                        value,
-                        match_context.subst_map,
-                        Some(match_context.target_ty),
-                    );
-                    MastExpr::new(
-                        TypeId::BOOL,
-                        MastExprKind::Binary {
-                            op: ast::BinaryOperator::Equal,
-                            lhs: Box::new(match_context.target_var_expr.clone()),
-                            rhs: Box::new(value_expr),
-                        },
-                        pattern.span,
-                    )
-                };
-                (cond, Vec::new())
+                self.measure_phase("              lower_match_pattern_value", |this| {
+                    let cond = if let ExprKind::EnumLiteral { variant, .. } = value.kind {
+                        this.build_enum_variant_condition(
+                            pattern.span,
+                            match_context.target_var_expr,
+                            match_context.target_ty,
+                            variant,
+                        )
+                        .map(|(cond, _)| cond)
+                        .unwrap_or_else(|| this.bool_expr(pattern.span, false))
+                    } else {
+                        let value_expr = this.lower_expr(
+                            value,
+                            match_context.subst_map,
+                            Some(match_context.target_ty),
+                        );
+                        MastExpr::new(
+                            TypeId::BOOL,
+                            MastExprKind::Binary {
+                                op: ast::BinaryOperator::Equal,
+                                lhs: Box::new(match_context.target_var_expr.clone()),
+                                rhs: Box::new(value_expr),
+                            },
+                            pattern.span,
+                        )
+                    };
+                    (cond, Vec::new())
+                })
             }
             ast::MatchPatternKind::Range {
                 start,
                 end,
                 inclusive,
-            } => {
-                let start_expr = self.lower_expr(
+            } => self.measure_phase("              lower_match_pattern_range", |this| {
+                let start_expr = this.lower_expr(
                     start,
                     match_context.subst_map,
                     Some(match_context.target_ty),
                 );
                 let end_expr =
-                    self.lower_expr(end, match_context.subst_map, Some(match_context.target_ty));
+                    this.lower_expr(end, match_context.subst_map, Some(match_context.target_ty));
                 let lower = MastExpr::new(
                     TypeId::BOOL,
                     MastExprKind::Binary {
@@ -1363,34 +1365,40 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     },
                     pattern.span,
                 );
-                (self.and_expr(pattern.span, lower, upper), Vec::new())
-            }
+                (this.and_expr(pattern.span, lower, upper), Vec::new())
+            }),
             ast::MatchPatternKind::Pattern(inner) => {
-                let mut bindings = Vec::new();
-                let cond = self.collect_pattern_plan(
-                    pattern.span,
-                    inner,
-                    match_context.target_var_expr,
-                    match_context.target_ty,
-                    &mut bindings,
-                );
-                (cond, bindings)
+                self.measure_phase("              lower_match_pattern_plan", |this| {
+                    let mut bindings = Vec::new();
+                    let cond = this.collect_pattern_plan(
+                        pattern.span,
+                        inner,
+                        match_context.target_var_expr,
+                        match_context.target_ty,
+                        &mut bindings,
+                    );
+                    (cond, bindings)
+                })
             }
         };
 
-        let then_branch = self.lower_match_pattern_body(
-            &arm.body,
-            bindings,
-            match_context.subst_map,
-            match_context.exp_ty,
-        );
-        let fallback = self.lower_match_pattern_chain(
-            match_context,
-            patterns,
-            pattern_index + 1,
-            arm,
-            arm_index,
-        );
+        let then_branch = self.measure_phase("              lower_match_pattern_body", |this| {
+            this.lower_match_pattern_body(
+                &arm.body,
+                bindings,
+                match_context.subst_map,
+                match_context.exp_ty,
+            )
+        });
+        let fallback = self.measure_phase("              lower_match_pattern_fallback", |this| {
+            this.lower_match_pattern_chain(
+                match_context,
+                patterns,
+                pattern_index + 1,
+                arm,
+                arm_index,
+            )
+        });
 
         MastExpr::new(
             match_context.exp_ty,

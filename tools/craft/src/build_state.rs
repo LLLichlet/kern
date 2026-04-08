@@ -1,9 +1,15 @@
 use crate::error::{Error, Result};
 use crate::local_state;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const ACTION_STATE_VERSION: u32 = 1;
+
+static CURRENT_PROCESS_DIGEST: OnceLock<String> = OnceLock::new();
+static FILE_DIGEST_CACHE: OnceLock<Mutex<HashMap<PathBuf, FileDigestCacheEntry>>> = OnceLock::new();
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ActionState {
@@ -25,6 +31,13 @@ enum Section {
     Output(usize),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct FileDigestCacheEntry {
+    len: u64,
+    modified_nanos: u128,
+    digest: String,
+}
+
 pub(crate) fn action_state_path(primary_output: &Path) -> PathBuf {
     let file_name = primary_output
         .file_name()
@@ -37,8 +50,14 @@ pub(crate) fn action_state_path(primary_output: &Path) -> PathBuf {
 }
 
 pub(crate) fn current_process_digest() -> Result<String> {
+    if let Some(digest) = CURRENT_PROCESS_DIGEST.get() {
+        return Ok(digest.clone());
+    }
+
     let exe = std::env::current_exe().map_err(Error::from_io_plain)?;
-    digest_file(&exe)
+    let digest = digest_file_contents(&exe)?;
+    let _ = CURRENT_PROCESS_DIGEST.set(digest.clone());
+    Ok(digest)
 }
 
 pub(crate) fn hash_string(value: &str) -> String {
@@ -51,12 +70,19 @@ pub(crate) fn record_action_state(
     inputs: &[PathBuf],
     outputs: &[PathBuf],
 ) -> Result<()> {
+    invalidate_file_digest(primary_output);
+    for path in outputs {
+        invalidate_file_digest(path);
+    }
+
     let state = ActionState {
         fingerprint,
         inputs: collect_state_paths(inputs)?,
         outputs: collect_state_paths(outputs)?,
     };
-    local_state::write_file_atomic(&action_state_path(primary_output), state.render())
+    let state_path = action_state_path(primary_output);
+    invalidate_file_digest(&state_path);
+    local_state::write_file_atomic(&state_path, state.render())
 }
 
 pub(crate) fn action_state_is_current(primary_output: &Path, fingerprint: &str) -> Result<bool> {
@@ -76,7 +102,7 @@ pub(crate) fn action_state_is_current(primary_output: &Path, fingerprint: &str) 
     Ok(true)
 }
 
-pub(crate) fn digest_file(path: &Path) -> Result<String> {
+fn digest_file_contents(path: &Path) -> Result<String> {
     let bytes = fs::read(path).map_err(|err| Error::from_io(path, err))?;
     Ok(format!("fnv1a64:{:016x}", fnv1a64(&bytes)))
 }
@@ -116,7 +142,7 @@ fn digest_path(path: &Path) -> Result<Option<String>> {
         return Ok(None);
     }
     if path.is_file() {
-        return Ok(Some(digest_file(path)?));
+        return Ok(Some(digest_file_cached(path)?));
     }
     if path.is_dir() {
         return Ok(Some(format!("fnv1a64:{:016x}", digest_tree(path)?)));
@@ -162,6 +188,52 @@ fn collect_tree_paths(root: &Path, dir: &Path, paths: &mut Vec<PathBuf>) -> Resu
         }
     }
     Ok(())
+}
+
+fn file_digest_cache() -> &'static Mutex<HashMap<PathBuf, FileDigestCacheEntry>> {
+    FILE_DIGEST_CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn invalidate_file_digest(path: &Path) {
+    let cache = file_digest_cache();
+    let mut cache = cache.lock().unwrap();
+    cache.remove(path);
+}
+
+fn digest_file_cached(path: &Path) -> Result<String> {
+    let metadata = fs::metadata(path).map_err(|err| Error::from_io(path, err))?;
+    let modified_nanos = metadata_modified_nanos(&metadata.modified().map_err(Error::from_io_plain)?)?;
+    let len = metadata.len();
+
+    let cache = file_digest_cache();
+    {
+        let cache = cache.lock().unwrap();
+        if let Some(entry) = cache.get(path)
+            && entry.len == len
+            && entry.modified_nanos == modified_nanos
+        {
+            return Ok(entry.digest.clone());
+        }
+    }
+
+    let digest = digest_file_contents(path)?;
+    let mut cache = cache.lock().unwrap();
+    cache.insert(
+        path.to_path_buf(),
+        FileDigestCacheEntry {
+            len,
+            modified_nanos,
+            digest: digest.clone(),
+        },
+    );
+    Ok(digest)
+}
+
+fn metadata_modified_nanos(modified: &SystemTime) -> Result<u128> {
+    Ok(modified
+        .duration_since(UNIX_EPOCH)
+        .map_err(|err| Error::Execution(format!("failed to normalize file timestamp: {err}")))?
+        .as_nanos())
 }
 
 impl ActionState {
@@ -326,6 +398,47 @@ impl ActionState {
         }
 
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{action_state_is_current, record_action_state};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn action_state_detects_file_changes_after_cached_check() {
+        let root = temp_dir("craft-build-state");
+        let input = root.join("input.txt");
+        let output = root.join("output.txt");
+
+        fs::write(&input, "input").unwrap();
+        fs::write(&output, "alpha").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+
+        assert!(action_state_is_current(&output, "fingerprint").unwrap());
+        fs::write(&output, "changed-output").unwrap();
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
     }
 }
 

@@ -45,6 +45,7 @@ pub struct CodegenTiming {
 pub struct CodegenReport {
     pub timings: Vec<CodegenTiming>,
     pub ir_stats: IrInstructionStats,
+    pub ir_hot_functions: Vec<IrFunctionStats>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -60,6 +61,22 @@ pub struct IrInstructionStats {
     pub phis: usize,
     pub branches: usize,
     pub switches: usize,
+    pub returns: usize,
+    pub compares: usize,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IrFunctionStats {
+    pub name: String,
+    pub basic_blocks: usize,
+    pub instructions: usize,
+    pub allocas: usize,
+    pub loads: usize,
+    pub stores: usize,
+    pub geps: usize,
+    pub calls: usize,
+    pub phis: usize,
+    pub branches: usize,
     pub returns: usize,
     pub compares: usize,
 }
@@ -106,39 +123,82 @@ pub struct CodeGenerator<'ctx, 'a> {
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
-    fn collect_ir_instruction_stats(&self) -> IrInstructionStats {
+    fn collect_ir_instruction_stats(&self) -> (IrInstructionStats, Vec<IrFunctionStats>) {
         let mut stats = IrInstructionStats::default();
+        let mut hot_functions = Vec::new();
         let mut current_function = self.module.get_first_function();
         while let Some(function) = current_function {
             stats.functions += 1;
+            let mut function_stats = IrFunctionStats {
+                name: function.name(),
+                ..IrFunctionStats::default()
+            };
             let mut current_block = function.get_first_basic_block();
             while let Some(block) = current_block {
                 stats.basic_blocks += 1;
+                function_stats.basic_blocks += 1;
                 let mut current_instruction = block.get_first_instruction();
                 while let Some(instruction) = current_instruction {
                     stats.instructions += 1;
+                    function_stats.instructions += 1;
                     match instruction.get_opcode() {
-                        LLVMOpcode::LLVMAlloca => stats.allocas += 1,
-                        LLVMOpcode::LLVMLoad => stats.loads += 1,
-                        LLVMOpcode::LLVMStore => stats.stores += 1,
-                        LLVMOpcode::LLVMGetElementPtr => stats.geps += 1,
-                        LLVMOpcode::LLVMCall | LLVMOpcode::LLVMInvoke | LLVMOpcode::LLVMCallBr => {
-                            stats.calls += 1
+                        LLVMOpcode::LLVMAlloca => {
+                            stats.allocas += 1;
+                            function_stats.allocas += 1;
                         }
-                        LLVMOpcode::LLVMPHI => stats.phis += 1,
-                        LLVMOpcode::LLVMBr => stats.branches += 1,
+                        LLVMOpcode::LLVMLoad => {
+                            stats.loads += 1;
+                            function_stats.loads += 1;
+                        }
+                        LLVMOpcode::LLVMStore => {
+                            stats.stores += 1;
+                            function_stats.stores += 1;
+                        }
+                        LLVMOpcode::LLVMGetElementPtr => {
+                            stats.geps += 1;
+                            function_stats.geps += 1;
+                        }
+                        LLVMOpcode::LLVMCall | LLVMOpcode::LLVMInvoke | LLVMOpcode::LLVMCallBr => {
+                            stats.calls += 1;
+                            function_stats.calls += 1;
+                        }
+                        LLVMOpcode::LLVMPHI => {
+                            stats.phis += 1;
+                            function_stats.phis += 1;
+                        }
+                        LLVMOpcode::LLVMBr => {
+                            stats.branches += 1;
+                            function_stats.branches += 1;
+                        }
                         LLVMOpcode::LLVMSwitch => stats.switches += 1,
-                        LLVMOpcode::LLVMRet => stats.returns += 1,
-                        LLVMOpcode::LLVMICmp | LLVMOpcode::LLVMFCmp => stats.compares += 1,
+                        LLVMOpcode::LLVMRet => {
+                            stats.returns += 1;
+                            function_stats.returns += 1;
+                        }
+                        LLVMOpcode::LLVMICmp | LLVMOpcode::LLVMFCmp => {
+                            stats.compares += 1;
+                            function_stats.compares += 1;
+                        }
                         _ => {}
                     }
                     current_instruction = instruction.get_next_instruction();
                 }
                 current_block = block.get_next_basic_block();
             }
+            if function_stats.basic_blocks != 0 {
+                hot_functions.push(function_stats);
+            }
             current_function = function.get_next_function();
         }
-        stats
+        hot_functions.sort_by(|lhs, rhs| {
+            rhs.instructions
+                .cmp(&lhs.instructions)
+                .then_with(|| rhs.loads.cmp(&lhs.loads))
+                .then_with(|| rhs.stores.cmp(&lhs.stores))
+                .then_with(|| lhs.name.cmp(&rhs.name))
+        });
+        hot_functions.truncate(8);
+        (stats, hot_functions)
     }
 
     pub fn new(
@@ -231,7 +291,9 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             name: "  codegen_compile_functions",
             duration: compile_functions_started.elapsed(),
         });
-        report.ir_stats = self.collect_ir_instruction_stats();
+        let (ir_stats, ir_hot_functions) = self.collect_ir_instruction_stats();
+        report.ir_stats = ir_stats;
+        report.ir_hot_functions = ir_hot_functions;
 
         report
     }

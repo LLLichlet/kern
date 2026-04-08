@@ -47,6 +47,7 @@ impl CompilerDriver {
                     Self::print_lower_cache_stats(report.lower_cache_stats);
                     Self::print_mast_workload(report.mast_workload.as_ref());
                     Self::print_ir_instruction_stats(report.ir_instruction_stats.as_ref());
+                    Self::print_ir_hot_functions(report.ir_hot_functions.as_slice());
                 }
                 true
             }
@@ -66,6 +67,7 @@ impl CompilerDriver {
                 lower_cache_stats: None,
                 mast_workload: None,
                 ir_instruction_stats: None,
+                ir_hot_functions: Vec::new(),
             });
         }
 
@@ -154,6 +156,7 @@ impl CompilerDriver {
                         lower_cache_stats: Some(lowered.cache_stats),
                         mast_workload: Some(mast_workload),
                         ir_instruction_stats: Some(codegen_report.ir_stats),
+                        ir_hot_functions: codegen_report.ir_hot_functions,
                     })
                 }
                 Err(err) => {
@@ -196,6 +199,7 @@ impl CompilerDriver {
                 lower_cache_stats: Some(lowered.cache_stats),
                 mast_workload: Some(mast_workload),
                 ir_instruction_stats: Some(codegen_report.ir_stats),
+                ir_hot_functions: codegen_report.ir_hot_functions,
             });
         }
 
@@ -212,6 +216,7 @@ impl CompilerDriver {
             lower_cache_stats: Some(lowered.cache_stats),
             mast_workload: Some(mast_workload),
             ir_instruction_stats: Some(codegen_report.ir_stats),
+            ir_hot_functions: codegen_report.ir_hot_functions,
         })
     }
 
@@ -461,6 +466,36 @@ impl CompilerDriver {
             ("  compares", stats.compares),
         ] {
             println!("  {:<18} {}", name, value);
+        }
+    }
+
+    pub(super) fn print_ir_hot_functions(ir_hot_functions: &[kernc_codegen::IrFunctionStats]) {
+        if ir_hot_functions.is_empty() {
+            return;
+        }
+
+        println!("IR hot functions:");
+        for function in ir_hot_functions {
+            let name = if function.name.is_empty() {
+                "<anonymous>"
+            } else {
+                function.name.as_str()
+            };
+            println!(
+                "  {}: inst={} bb={} alloca={} load={} store={} gep={} call={} phi={} br={} ret={} cmp={}",
+                name,
+                function.instructions,
+                function.basic_blocks,
+                function.allocas,
+                function.loads,
+                function.stores,
+                function.geps,
+                function.calls,
+                function.phis,
+                function.branches,
+                function.returns,
+                function.compares,
+            );
         }
     }
 

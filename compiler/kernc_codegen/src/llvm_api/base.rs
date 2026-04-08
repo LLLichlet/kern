@@ -6,6 +6,7 @@ use llvm_sys::core::{
     LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
     LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
     LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam, LLVMGetReturnType,
+    LLVMGetValueName2,
     LLVMGetTypeKind, LLVMGetUndef, LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMSetAlignment,
     LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
     LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
@@ -18,6 +19,7 @@ use llvm_sys::{
 use std::convert::Infallible;
 use std::ffi::CString;
 use std::marker::PhantomData;
+use std::slice;
 
 use super::Context;
 
@@ -911,6 +913,16 @@ impl<'ctx> FunctionValue<'ctx> {
 
     pub fn as_global_value(self) -> GlobalValue<'ctx> {
         GlobalValue::new(self.raw)
+    }
+
+    pub fn name(self) -> String {
+        let mut len = 0;
+        let ptr = unsafe { LLVMGetValueName2(self.raw, &mut len) };
+        if ptr.is_null() || len == 0 {
+            return String::new();
+        }
+        let bytes = unsafe { slice::from_raw_parts(ptr as *const u8, len) };
+        String::from_utf8_lossy(bytes).into_owned()
     }
 }
 

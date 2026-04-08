@@ -38,6 +38,7 @@ pub struct CompileReport {
     pub lower_cache_stats: Option<kernc_lower::LowerCacheStats>,
     pub mast_workload: Option<kernc_mast::MastWorkloadStats>,
     pub ir_instruction_stats: Option<kernc_codegen::IrInstructionStats>,
+    pub ir_hot_functions: Vec<kernc_codegen::IrFunctionStats>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

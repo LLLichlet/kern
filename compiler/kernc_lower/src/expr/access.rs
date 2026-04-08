@@ -335,6 +335,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         span: Span,
     ) -> usize {
         let norm = self.ctx.type_registry.normalize(struct_ty);
+        let cache_key = (norm, field_name);
+        if let Some(&field_idx) = self.field_index_cache.get(&cache_key) {
+            return field_idx;
+        }
+
         if let TypeKind::Def(def_id, gen_args) = self.ctx.type_registry.get(norm).clone() {
             if let Def::Struct(s) = &self.ctx.defs[def_id.0 as usize] {
                 let ast_idx = match s.fields.iter().position(|f| f.name == field_name) {
@@ -352,7 +357,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 };
                 let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
                 let (ast_to_physical, _) = layout.get_struct_mapping(def_id, &gen_args, 0);
-                return ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
+                let field_idx = ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
                     self.ctx.emit_ice(
                         span,
                         format!(
@@ -363,8 +368,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     );
                     0
                 });
+                self.field_index_cache.insert(cache_key, field_idx);
+                return field_idx;
             } else if let Def::Union(u) = &self.ctx.defs[def_id.0 as usize] {
-                return match u.fields.iter().position(|f| f.name == field_name) {
+                let field_idx = match u.fields.iter().position(|f| f.name == field_name) {
                     Some(idx) => idx,
                     None => {
                         self.ctx
@@ -372,6 +379,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         0
                     }
                 };
+                self.field_index_cache.insert(cache_key, field_idx);
+                return field_idx;
             }
         }
 
@@ -390,7 +399,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             };
             let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
             let (ast_to_physical, _) = layout.get_anon_struct_mapping(is_extern, fields, 0);
-            return ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
+            let field_idx = ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
                 self.ctx.emit_ice(
                     span,
                     format!(
@@ -401,13 +410,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 );
                 0
             });
+            self.field_index_cache.insert(cache_key, field_idx);
+            return field_idx;
         }
 
         if let TypeKind::AnonymousUnion(_, ref fields) = self.ctx.type_registry.get(norm).clone() {
-            return fields
+            let field_idx = fields
                 .iter()
                 .position(|f| f.name == field_name)
                 .unwrap_or(0);
+            self.field_index_cache.insert(cache_key, field_idx);
+            return field_idx;
         }
 
         self.ctx.emit_ice(

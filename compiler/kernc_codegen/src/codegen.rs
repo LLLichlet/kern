@@ -35,6 +35,17 @@ mod expr;
 mod types;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CodegenTiming {
+    pub name: &'static str,
+    pub duration: Duration,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CodegenReport {
+    pub timings: Vec<CodegenTiming>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmitObjectTiming {
     pub name: &'static str,
     pub duration: Duration,
@@ -106,7 +117,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub fn compile(&mut self, module: &MastModule) {
+    pub fn compile(&mut self, module: &MastModule) -> CodegenReport {
+        let mut report = CodegenReport::default();
+
+        let prepare_started = Instant::now();
         self.def_mono_map = module.def_mono_map.clone();
         self.pure_enum_tag_map = module.pure_enum_tag_map.clone();
         self.adt_union_map = module.adt_union_map.clone();
@@ -118,20 +132,53 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .iter()
             .map(|function| (function.id, function.ret_ty))
             .collect();
+        report.timings.push(CodegenTiming {
+            name: "  codegen_prepare",
+            duration: prepare_started.elapsed(),
+        });
 
+        let declare_structs_started = Instant::now();
         self.declare_structs(&module.structs);
-        self.declare_globals(&module.globals);
-        self.declare_functions(&module.functions);
+        report.timings.push(CodegenTiming {
+            name: "  codegen_declare_structs",
+            duration: declare_structs_started.elapsed(),
+        });
 
+        let declare_globals_started = Instant::now();
+        self.declare_globals(&module.globals);
+        report.timings.push(CodegenTiming {
+            name: "  codegen_declare_globals",
+            duration: declare_globals_started.elapsed(),
+        });
+
+        let declare_functions_started = Instant::now();
+        self.declare_functions(&module.functions);
+        report.timings.push(CodegenTiming {
+            name: "  codegen_declare_functions",
+            duration: declare_functions_started.elapsed(),
+        });
+
+        let compile_globals_started = Instant::now();
         for global in &module.globals {
             self.compile_global(global);
         }
+        report.timings.push(CodegenTiming {
+            name: "  codegen_compile_globals",
+            duration: compile_globals_started.elapsed(),
+        });
 
+        let compile_functions_started = Instant::now();
         for function in &module.functions {
             if function.body.is_some() {
                 self.compile_function(function);
             }
         }
+        report.timings.push(CodegenTiming {
+            name: "  codegen_compile_functions",
+            duration: compile_functions_started.elapsed(),
+        });
+
+        report
     }
 
     pub fn set_asm_dialect(&mut self, dialect: InlineAsmDialect) {

@@ -131,9 +131,13 @@ impl CompilerDriver {
             AsmDialect::Intel => InlineAsmDialect::Intel,
             AsmDialect::Att => InlineAsmDialect::ATT,
         });
-        Self::measure_phase(&mut phase_timings, "codegen", || {
+        let codegen_report = Self::measure_phase(&mut phase_timings, "codegen", || {
             codegen.compile(&mast_module)
         });
+        phase_timings.extend(codegen_report.timings.into_iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
 
         if self.options.driver_mode == DriverMode::EmitLlvmIr {
             return match Self::measure_phase(&mut phase_timings, "emit_llvm_ir", || {

@@ -618,7 +618,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let options = unsafe { LLVMCreatePassBuilderOptions() };
         let mut current_function = self.module.get_first_function();
         while let Some(function) = current_function {
-            if function.get_first_basic_block().is_some() {
+            if function.get_first_basic_block().is_some() && function_contains_alloca(function) {
                 let err = unsafe {
                     LLVMRunPassesOnFunction(
                         function.as_value_ref(),
@@ -637,6 +637,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         unsafe { LLVMDisposePassBuilderOptions(options) };
         Ok(())
     }
+}
+
+fn function_contains_alloca(function: FunctionValue<'_>) -> bool {
+    let mut current_block = function.get_first_basic_block();
+    while let Some(block) = current_block {
+        let mut current_instruction = block.get_first_instruction();
+        while let Some(instruction) = current_instruction {
+            if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
+                return true;
+            }
+            current_instruction = instruction.get_next_instruction();
+        }
+        current_block = block.get_next_basic_block();
+    }
+
+    false
 }
 
 fn llvm_raw_opt_level(opt_level: OptLevel) -> LLVMCodeGenOptLevel {

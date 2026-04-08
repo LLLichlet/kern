@@ -42,33 +42,41 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }),
             ExprKind::Identifier(name) => {
                 self.measure_phase("        lower_expr_identifier", |this| {
-                let norm_ty = this.ctx.type_registry.normalize(concrete_ty);
+                    let norm_ty = this.ctx.type_registry.normalize(concrete_ty);
 
-                match this.ctx.type_registry.get(norm_ty).clone() {
-                    TypeKind::FnDef(fn_id, fn_args) => {
-                        let mono_id = this.instantiate_function(fn_id, &fn_args);
-                        MastExprKind::FuncRef(mono_id)
-                    }
-                    TypeKind::Module(_) => {
-                        // Modules live in the global namespace and never participate in closure capture.
-                        this.lower_identifier(expr.id, *name)
-                    }
-                    _ => {
-                        let kind = this.lower_identifier(expr.id, *name);
+                    match this.ctx.type_registry.get(norm_ty).clone() {
+                        TypeKind::FnDef(fn_id, fn_args) => {
+                            this.measure_phase("          lower_ident_fn_ref", |this| {
+                                let mono_id = this.instantiate_function(fn_id, &fn_args);
+                                MastExprKind::FuncRef(mono_id)
+                            })
+                        }
+                        TypeKind::Module(_) => {
+                            this.measure_phase("          lower_ident_module", |this| {
+                                // Modules live in the global namespace and never participate in closure capture.
+                                this.lower_identifier(expr.id, *name)
+                            })
+                        }
+                        _ => {
+                            let kind = this.measure_phase("          lower_ident_value", |this| {
+                                this.lower_identifier(expr.id, *name)
+                            });
 
-                        // Ordinary variables still need closure-capture safety checks.
-                        if let MastExprKind::Var(v) = kind
-                            && !this.has_local_binding(v)
-                        {
+                            // Ordinary variables still need closure-capture safety checks.
+                            if let MastExprKind::Var(v) = kind
+                                && !this.measure_phase("          lower_ident_capture_check", |this| {
+                                    this.has_local_binding(v)
+                                })
+                            {
                                 let var_str = this.ctx.resolve(v).to_string();
                                 this.ctx.struct_error(expr.span, "closures cannot capture environmental variables in Kern")
                                     .with_hint(format!("variable `{}` belongs to an outer scope", var_str))
                                     .with_hint("Kern anonymous functions compile directly to static C function pointers")
                                     .emit();
+                            }
+                            kind
                         }
-                        kind
                     }
-                }
                 })
             }
 

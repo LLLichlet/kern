@@ -20,44 +20,58 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         expr_id: kernc_utils::NodeId,
         name: SymbolId,
     ) -> MastExprKind {
-        let name = self.identifier_copy_source(expr_id).unwrap_or(name);
-        let name = self.resolve_forwarded_local(name);
-        if let Some(value) = self.forwarded_local_value(name) {
+        let name = self.measure_phase("          lower_ident_copy_source", |this| {
+            this.identifier_copy_source(expr_id).unwrap_or(name)
+        });
+        let name = self.measure_phase("          lower_ident_forward_local", |this| {
+            this.resolve_forwarded_local(name)
+        });
+        if let Some(value) = self.measure_phase("          lower_ident_forward_value", |this| {
+            this.forwarded_local_value(name)
+        }) {
             return value.kind;
         }
 
-        if self.has_local_binding(name) {
+        if self.measure_phase("          lower_ident_has_local", |this| {
+            this.has_local_binding(name)
+        }) {
             return MastExprKind::Var(name);
         }
 
-        let resolved_info = self.ctx.scopes.resolve(name).cloned();
+        let resolved_info = self.measure_phase("          lower_ident_scope_resolve", |this| {
+            this.ctx.scopes.resolve(name).cloned()
+        });
 
         // Inline constant values when possible.
         if let Some(info) = resolved_info.as_ref()
             && info.kind == SymbolKind::Const
             && let Some(def_id) = info.def_id
         {
-            let const_expr_opt = if let Def::Global(g) = &self.ctx.defs[def_id.0 as usize] {
-                Some(g.value.clone())
-            } else {
-                None
-            };
+            if let Some(kind) = self.measure_phase("          lower_ident_inline_const", |this| {
+                let const_expr_opt = if let Def::Global(g) = &this.ctx.defs[def_id.0 as usize] {
+                    Some(g.value.clone())
+                } else {
+                    None
+                };
 
-            if let Some(const_expr) = const_expr_opt {
-                let prev_scope = self.ctx.scopes.current_scope_id();
-                if let Some(owner_scope) = self.global_owner_scope(def_id) {
-                    self.ctx.scopes.set_current_scope(owner_scope);
+                let Some(const_expr) = const_expr_opt else {
+                    return None;
+                };
+
+                let prev_scope = this.ctx.scopes.current_scope_id();
+                if let Some(owner_scope) = this.global_owner_scope(def_id) {
+                    this.ctx.scopes.set_current_scope(owner_scope);
                 }
 
                 let lowered_kind = {
-                    let mut ce = ConstEvaluator::new(self.ctx);
+                    let mut ce = ConstEvaluator::new(this.ctx);
                     if let Ok(val) = ce.eval_inner(&const_expr, 0) {
                         match val {
                             ConstValue::Int(v) => Some(MastExprKind::Integer(v as u128)),
                             ConstValue::Float(f) => Some(MastExprKind::Float(f)),
                             ConstValue::Bool(b) => Some(MastExprKind::Bool(b)),
                             ConstValue::String(s) => {
-                                Some(self.lower_string_literal(&s, const_expr.span))
+                                Some(this.lower_string_literal(&s, const_expr.span))
                             }
                             _ => None,
                         }
@@ -67,12 +81,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 };
 
                 if let Some(prev_scope) = prev_scope {
-                    self.ctx.scopes.set_current_scope(prev_scope);
+                    this.ctx.scopes.set_current_scope(prev_scope);
                 }
 
-                if let Some(kind) = lowered_kind {
-                    return kind;
-                }
+                lowered_kind
+            }) {
+                return kind;
             }
         }
 
@@ -81,17 +95,24 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             && matches!(info.kind, SymbolKind::Const | SymbolKind::Static)
             && let Some(def_id) = info.def_id
         {
-            self.ensure_global_lowered(def_id);
-            if let Some(&mono_id) = self.global_map.get(&def_id) {
+            if let Some(mono_id) = self.measure_phase("          lower_ident_global_ref", |this| {
+                this.ensure_global_lowered(def_id);
+                this.global_map.get(&def_id).copied()
+            }) {
                 return MastExprKind::GlobalRef(mono_id);
             }
         }
 
         // Then check for a local-scope static.
-        for scope in self.local_statics.iter().rev() {
-            if let Some(&mono_id) = scope.get(&name) {
-                return MastExprKind::GlobalRef(mono_id);
+        if let Some(mono_id) = self.measure_phase("          lower_ident_local_static", |this| {
+            for scope in this.local_statics.iter().rev() {
+                if let Some(&mono_id) = scope.get(&name) {
+                    return Some(mono_id);
+                }
             }
+            None
+        }) {
+            return MastExprKind::GlobalRef(mono_id);
         }
 
         // Function references were already intercepted in `mod.rs`, so this must be a normal local binding.

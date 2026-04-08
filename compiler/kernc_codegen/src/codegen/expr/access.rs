@@ -6,6 +6,17 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn expr_is_addressable(expr: &MastExpr) -> bool {
+        matches!(
+            expr.kind,
+            MastExprKind::Var(_)
+                | MastExprKind::GlobalRef(_)
+                | MastExprKind::FieldAccess { .. }
+                | MastExprKind::IndexAccess { .. }
+                | MastExprKind::Deref(_)
+        )
+    }
+
     fn null_ptr(&self) -> PointerValue<'ctx> {
         self.context.ptr_type(Default::default()).const_zero()
     }
@@ -288,6 +299,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         field_idx: usize,
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
+        let is_union = self.union_ids.contains(&struct_id);
+        if !is_union && !Self::expr_is_addressable(lhs) {
+            let lhs_val = self.compile_expr(lhs);
+            if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+                return fallback;
+            }
+            return self
+                .builder
+                .build_extract_value(lhs_val.into_struct_value(), field_idx as u32, "field_extract")
+                .unwrap();
+        }
+
         let struct_ptr = self.compile_lvalue(lhs);
         if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
             return fallback;
@@ -296,7 +319,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         else {
             return expected_ty.const_zero();
         };
-        let is_union = self.union_ids.contains(&struct_id);
 
         if is_union {
             self.builder
@@ -359,6 +381,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     .unwrap()
             }
         } else {
+            if !Self::expr_is_addressable(lhs)
+                && let MastExprKind::Integer(idx) = index.kind
+            {
+                let lhs_val = self.compile_expr(lhs);
+                if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+                    return fallback;
+                }
+                let array_val = lhs_val.into_array_value();
+                let array_ty = array_val.get_type();
+                if (idx as u32) < array_ty.len() {
+                    return self
+                        .builder
+                        .build_extract_value(array_val, idx as u32, "array_extract")
+                        .unwrap();
+                }
+            }
+
             let array_ptr = self.compile_lvalue(lhs);
             if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
                 return fallback;

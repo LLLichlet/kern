@@ -1086,9 +1086,17 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         exp_ty: TypeId,
     ) -> MastExprKind {
-        let c = self.lower_expr(cond, subst_map, Some(TypeId::BOOL));
-        let t = self.lower_block_as_body(then_branch, subst_map, exp_ty);
-        let e = else_branch.map(|eb| self.lower_block_as_body(eb, subst_map, exp_ty));
+        let c = self.measure_phase("            lower_if_cond", |this| {
+            this.lower_expr(cond, subst_map, Some(TypeId::BOOL))
+        });
+        let t = self.measure_phase("            lower_if_then", |this| {
+            this.lower_block_as_body(then_branch, subst_map, exp_ty)
+        });
+        let e = else_branch.map(|eb| {
+            self.measure_phase("            lower_if_else", |this| {
+                this.lower_block_as_body(eb, subst_map, exp_ty)
+            })
+        });
         MastExprKind::If {
             cond: Box::new(c),
             then_branch: t,
@@ -1120,16 +1128,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     init,
                     else_pattern,
                     else_branch,
-                } => outer_stmts.extend(self.lower_let_stmts(
-                    i,
-                    pattern,
-                    init,
-                    else_pattern.as_ref(),
-                    else_branch.as_deref(),
-                    subst_map,
-                )),
+                } => outer_stmts.extend(self.measure_phase("            lower_for_init", |this| {
+                    this.lower_let_stmts(
+                        i,
+                        pattern,
+                        init,
+                        else_pattern.as_ref(),
+                        else_branch.as_deref(),
+                        subst_map,
+                    )
+                })),
                 _ => {
-                    if let Some(stmt) = self.lower_optional_stmt_expr(i, subst_map) {
+                    if let Some(stmt) = self.measure_phase("            lower_for_init", |this| {
+                        this.lower_optional_stmt_expr(i, subst_map)
+                    }) {
                         outer_stmts.push(stmt);
                     }
                 }
@@ -1139,7 +1151,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut loop_stmts = Vec::new();
 
         if let Some(c) = cond {
-            let c_expr = self.lower_expr(c, subst_map, Some(TypeId::BOOL));
+            let c_expr = self.measure_phase("            lower_for_cond", |this| {
+                this.lower_expr(c, subst_map, Some(TypeId::BOOL))
+            });
             let not_c = MastExpr::new(
                 TypeId::BOOL,
                 MastExprKind::Unary {
@@ -1171,7 +1185,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         // Record the defer-stack height before entering the loop body.
         self.loop_frames.push(self.defer_stack.len());
         // Lower the loop body without the post expression.
-        loop_stmts.push(MastStmt::Expr(self.lower_expr(body, subst_map, None)));
+        loop_stmts.push(MastStmt::Expr(
+            self.measure_phase("            lower_for_body", |this| {
+                this.lower_expr(body, subst_map, None)
+            }),
+        ));
 
         let body_block = MastBlock {
             stmts: loop_stmts,
@@ -1180,13 +1198,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         };
 
         // Lower the post statement separately as the latch block.
-        let latch_block = post.map(|p| MastBlock {
-            stmts: self
-                .lower_optional_stmt_expr(p, subst_map)
-                .into_iter()
-                .collect(),
-            result: None,
-            defers: vec![],
+        let latch_block = post.map(|p| {
+            self.measure_phase("            lower_for_post", |this| MastBlock {
+                stmts: this
+                    .lower_optional_stmt_expr(p, subst_map)
+                    .into_iter()
+                    .collect(),
+                result: None,
+                defers: vec![],
+            })
         });
 
         // Leave the loop body and pop its control-flow boundary.
@@ -1225,7 +1245,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         exp_ty: TypeId,
     ) -> MastExprKind {
-        let lowered_target = self.lower_expr(target, subst_map, None);
+        let lowered_target = self.measure_phase("            lower_match_target", |this| {
+            this.lower_expr(target, subst_map, None)
+        });
         let target_ty = lowered_target.ty;
         let (let_stmt, target_var_expr) =
             self.build_match_target_binding(target_ty, lowered_target, target.span);
@@ -1236,7 +1258,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             subst_map,
             exp_ty,
         };
-        let match_expr = self.lower_match_arm_chain(&match_context, 0);
+        let match_expr = self.measure_phase("            lower_match_arms", |this| {
+            this.lower_match_arm_chain(&match_context, 0)
+        });
 
         MastExprKind::Block(MastBlock {
             stmts: vec![let_stmt],
@@ -1444,15 +1468,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         subst_map: &HashMap<SymbolId, TypeId>,
         span: Span,
     ) -> MastExprKind {
-        let v = val.map(|e| self.lower_expr(e, subst_map, None));
-        let mut defer_stmts = Vec::new();
+        let v = self.measure_phase("            lower_return_value", |this| {
+            val.map(|e| this.lower_expr(e, subst_map, None))
+        });
+        let mut defer_stmts = self.measure_phase("            lower_return_defers", |this| {
+            let capacity = this.defer_stack.iter().map(Vec::len).sum();
+            let mut defer_stmts = Vec::with_capacity(capacity);
 
-        // Expand all defers in the current scope stack in reverse order.
-        for stack in self.defer_stack.iter().rev() {
-            for d in stack.iter().rev() {
-                defer_stmts.push(MastStmt::Expr(d.clone()));
+            // Expand all defers in the current scope stack in reverse order.
+            for stack in this.defer_stack.iter().rev() {
+                for d in stack.iter().rev() {
+                    defer_stmts.push(MastStmt::Expr(d.clone()));
+                }
             }
-        }
+
+            defer_stmts
+        });
 
         if defer_stmts.is_empty() {
             MastExprKind::Return(v.map(Box::new))

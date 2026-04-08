@@ -163,7 +163,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 then_branch,
                 else_branch,
             } => self.measure_phase("        lower_expr_control", |this| {
-                this.lower_if(cond, then_branch, else_branch.as_deref(), subst_map, exp_ty)
+                this.measure_phase("          lower_expr_control_if", |this| {
+                    this.lower_if(cond, then_branch, else_branch.as_deref(), subst_map, exp_ty)
+                })
             }),
             ExprKind::For {
                 init,
@@ -171,46 +173,60 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 post,
                 body,
             } => self.measure_phase("        lower_expr_control", |this| {
-                this.lower_for(
-                    init.as_deref(),
-                    cond.as_deref(),
-                    post.as_deref(),
-                    body,
-                    subst_map,
-                    expr.span,
-                )
+                this.measure_phase("          lower_expr_control_for", |this| {
+                    this.lower_for(
+                        init.as_deref(),
+                        cond.as_deref(),
+                        post.as_deref(),
+                        body,
+                        subst_map,
+                        expr.span,
+                    )
+                })
             }),
-            ExprKind::Match { target, arms } => self
-                .measure_phase("        lower_expr_control", |this| {
-                    this.lower_match(target, arms, subst_map, exp_ty)
-                }),
+            ExprKind::Match { target, arms } => {
+                self.measure_phase("        lower_expr_control", |this| {
+                    this.measure_phase("          lower_expr_control_match", |this| {
+                        this.lower_match(target, arms, subst_map, exp_ty)
+                    })
+                })
+            }
             ExprKind::Closure {
                 captures,
                 params,
                 ret_type: _,
                 body,
             } => self.measure_phase("        lower_expr_control", |this| {
-                this.lower_closure_expr(control::ClosureLowerSpec {
-                    node_id: expr.id,
-                    captures,
-                    params,
-                    body,
-                    concrete_ty,
-                    subst_map,
-                    exp_ty,
+                this.measure_phase("          lower_expr_control_closure", |this| {
+                    this.lower_closure_expr(control::ClosureLowerSpec {
+                        node_id: expr.id,
+                        captures,
+                        params,
+                        body,
+                        concrete_ty,
+                        subst_map,
+                        exp_ty,
+                    })
                 })
             }),
             ExprKind::Block { .. } => self.measure_phase("        lower_expr_control", |this| {
-                MastExprKind::Block(this.lower_block_as_body(expr, subst_map, exp_ty))
+                this.measure_phase("          lower_expr_control_block", |this| {
+                    MastExprKind::Block(this.lower_block_as_body(expr, subst_map, exp_ty))
+                })
             }),
 
             ExprKind::Return(val) => self.measure_phase("        lower_expr_control", |this| {
-                this.lower_return(val.as_deref(), subst_map, expr.span)
+                this.measure_phase("          lower_expr_control_return", |this| {
+                    this.lower_return(val.as_deref(), subst_map, expr.span)
+                })
             }),
-            ExprKind::Assign { lhs, op, rhs } => self
-                .measure_phase("        lower_expr_control", |this| {
-                    this.lower_assign(lhs, *op, rhs, subst_map)
-                }),
+            ExprKind::Assign { lhs, op, rhs } => {
+                self.measure_phase("        lower_expr_control", |this| {
+                    this.measure_phase("          lower_expr_control_assign", |this| {
+                        this.lower_assign(lhs, *op, rhs, subst_map)
+                    })
+                })
+            }
             ExprKind::GenericInstantiation { .. } => self
                 .measure_phase("        lower_expr_generic", |this| {
                     this.lower_generic_instantiation(concrete_ty)

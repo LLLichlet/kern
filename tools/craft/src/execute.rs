@@ -19,6 +19,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread;
 use std::time::Duration;
 
 mod external;
@@ -395,6 +397,19 @@ struct ExecutionSession<'a> {
     state: ExecutionState<'a>,
 }
 
+#[derive(Debug)]
+struct ParallelTargetLinkJob<'a> {
+    link_action: &'a LinkAction,
+    compile_action: &'a CompileAction,
+}
+
+#[derive(Debug)]
+struct ParallelTargetLinkResult {
+    compile_object_path: PathBuf,
+    artifact_path: PathBuf,
+    summary: ExecutionSummary,
+}
+
 pub(super) fn compile_with_shared_driver(
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     options: CompileOptions,
@@ -411,6 +426,154 @@ pub(super) fn compile_with_shared_driver(
     let report = driver.compile_with_report();
     driver_families.entry(key).or_insert(driver);
     report
+}
+
+fn compile_action_for_link_action<'a>(
+    action: &LinkAction,
+    compile_action_index: &'a BTreeMap<ActionKey, CompileAction>,
+) -> Result<&'a CompileAction> {
+    compile_action_index
+        .get(&ActionKey {
+            domain: action.domain,
+            package_id: action.package_id.clone(),
+            target_kind: action.target_kind,
+            target_name: action.target_name.clone(),
+        })
+        .ok_or_else(|| {
+            Error::Execution(format!(
+                "missing compile action for `{}` target `{}`",
+                action.package_id.name, action.artifact_name
+            ))
+        })
+}
+
+fn parallel_target_link_jobs<'a>(
+    action_plan: &'a ActionPlan,
+    compile_action_index: &'a BTreeMap<ActionKey, CompileAction>,
+    linked: &BTreeSet<PathBuf>,
+) -> Result<Vec<ParallelTargetLinkJob<'a>>> {
+    let mut jobs = Vec::new();
+    for action in &action_plan.link_actions {
+        if action.domain != BuildDomain::Target
+            || !action.artifact_outputs.is_empty()
+            || linked.contains(&action.artifact_path)
+        {
+            continue;
+        }
+        jobs.push(ParallelTargetLinkJob {
+            link_action: action,
+            compile_action: compile_action_for_link_action(action, compile_action_index)?,
+        });
+    }
+    Ok(jobs)
+}
+
+fn target_parallel_worker_count(job_count: usize) -> usize {
+    if job_count < 2 {
+        return 1;
+    }
+
+    thread::available_parallelism()
+        .map(|count| count.get())
+        .unwrap_or(1)
+        .min(job_count)
+}
+
+fn build_parallel_target_link_job(
+    job: &ParallelTargetLinkJob<'_>,
+    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
+    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
+) -> Result<ParallelTargetLinkResult> {
+    ensure_parent_dir(&job.compile_action.object_path)?;
+    ensure_parent_dir(&job.compile_action.artifact_path)?;
+    let compile_options = compile_action_options(
+        job.compile_action,
+        local_library_actions,
+        built_std_packages,
+        built_external_packages,
+        manifest_runtime_options,
+    )?;
+    let mut summary = ExecutionSummary::default();
+    let _ = build_compile_action_if_needed(
+        job.compile_action,
+        compile_options,
+        driver_families,
+        &mut summary,
+    )?;
+
+    ensure_parent_dir(&job.link_action.artifact_path)?;
+    let (link_options, linker_inputs) = link_action_options(
+        job.link_action,
+        job.compile_action,
+        local_library_actions,
+        built_std_packages,
+        built_external_packages,
+        manifest_runtime_options,
+    )?;
+    let _ =
+        build_link_action_if_needed(job.link_action, link_options, &linker_inputs, &mut summary)?;
+
+    Ok(ParallelTargetLinkResult {
+        compile_object_path: job.compile_action.object_path.clone(),
+        artifact_path: job.link_action.artifact_path.clone(),
+        summary,
+    })
+}
+
+fn build_parallel_target_link_jobs(
+    jobs: &[ParallelTargetLinkJob<'_>],
+    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
+    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+) -> Result<Vec<ParallelTargetLinkResult>> {
+    let worker_count = target_parallel_worker_count(jobs.len());
+    if worker_count <= 1 {
+        return Ok(Vec::new());
+    }
+
+    let next_job = AtomicUsize::new(0);
+    thread::scope(|scope| {
+        let mut workers = Vec::new();
+        for _ in 0..worker_count {
+            workers.push(scope.spawn(|| -> Result<Vec<ParallelTargetLinkResult>> {
+                let mut results = Vec::new();
+                let mut manifest_runtime_options = BTreeMap::new();
+                let mut driver_families = BTreeMap::new();
+                loop {
+                    let index = next_job.fetch_add(1, Ordering::Relaxed);
+                    if index >= jobs.len() {
+                        break;
+                    }
+                    results.push(build_parallel_target_link_job(
+                        &jobs[index],
+                        local_library_actions,
+                        built_std_packages,
+                        built_external_packages,
+                        &mut manifest_runtime_options,
+                        &mut driver_families,
+                    )?);
+                }
+                Ok(results)
+            }));
+        }
+
+        let mut results = Vec::new();
+        for worker in workers {
+            match worker.join() {
+                Ok(Ok(mut worker_results)) => results.append(&mut worker_results),
+                Ok(Err(err)) => return Err(err),
+                Err(_) => {
+                    return Err(Error::Execution(
+                        "parallel target build worker panicked".to_string(),
+                    ));
+                }
+            }
+        }
+        Ok(results)
+    })
 }
 
 fn build_with_command(
@@ -441,17 +604,18 @@ fn build_with_command(
         profile_selection,
         std_workspace_root: &build_plan.workspace_root,
     };
-    let mut external = ExternalArtifacts {
-        built_std_packages: &mut built_std_packages,
-        built_external_packages: &mut built_external_packages,
-        built_external_tools: &mut built_external_tools,
-        external_build_stack: &mut external_build_stack,
-        manifest_runtime_options: &mut manifest_runtime_options,
-        driver_families: &mut driver_families,
-    };
-
-    for dep in requested_external_dependencies(action_plan) {
-        build_external_package(&dep, config, &mut external, &mut external_summary)?;
+    {
+        let mut external = ExternalArtifacts {
+            built_std_packages: &mut built_std_packages,
+            built_external_packages: &mut built_external_packages,
+            built_external_tools: &mut built_external_tools,
+            external_build_stack: &mut external_build_stack,
+            manifest_runtime_options: &mut manifest_runtime_options,
+            driver_families: &mut driver_families,
+        };
+        for dep in requested_external_dependencies(action_plan) {
+            build_external_package(&dep, config, &mut external, &mut external_summary)?;
+        }
     }
 
     let compile_action_index = compile_actions_index(&action_plan.compile_actions);
@@ -467,29 +631,91 @@ fn build_with_command(
         local_library_actions: &local_library_actions,
         link_action_index: &link_action_index,
     };
-    let mut session = ExecutionSession {
-        indexes,
-        config,
-        external,
-        state: ExecutionState {
-            compiled: &mut compiled,
-            linked: &mut linked,
-            staged_outputs: &mut staged_outputs,
-            execution_summary: &mut local_summary,
-        },
-    };
+    {
+        let mut session = ExecutionSession {
+            indexes,
+            config,
+            external: ExternalArtifacts {
+                built_std_packages: &mut built_std_packages,
+                built_external_packages: &mut built_external_packages,
+                built_external_tools: &mut built_external_tools,
+                external_build_stack: &mut external_build_stack,
+                manifest_runtime_options: &mut manifest_runtime_options,
+                driver_families: &mut driver_families,
+            },
+            state: ExecutionState {
+                compiled: &mut compiled,
+                linked: &mut linked,
+                staged_outputs: &mut staged_outputs,
+                execution_summary: &mut local_summary,
+            },
+        };
 
-    for action in &action_plan.link_actions {
-        if action.domain != BuildDomain::Target {
-            continue;
+        for action in &action_plan.compile_actions {
+            if action.domain != BuildDomain::Target
+                || action.target_kind != crate::plan::TargetKind::Lib
+            {
+                continue;
+            }
+            ensure_compile_action_built(action, &mut session)?;
         }
-        ensure_link_action_built(action, &mut session)?;
+        for action in &action_plan.compile_actions {
+            if action.domain != BuildDomain::Target {
+                continue;
+            }
+            execute_staged_actions(
+                action.compile_inputs.as_slice(),
+                action_plan.build_nodes.as_slice(),
+                action.required_source_path(),
+                &mut session,
+            )?;
+        }
     }
-    for action in &action_plan.compile_actions {
-        if action.domain != BuildDomain::Target {
-            continue;
+
+    let parallel_jobs = parallel_target_link_jobs(action_plan, &compile_action_index, &linked)?;
+    for result in build_parallel_target_link_jobs(
+        &parallel_jobs,
+        &local_library_actions,
+        &built_std_packages,
+        &built_external_packages,
+    )? {
+        compiled.insert(result.compile_object_path);
+        linked.insert(result.artifact_path);
+        local_summary.absorb(result.summary);
+    }
+
+    {
+        let mut session = ExecutionSession {
+            indexes,
+            config,
+            external: ExternalArtifacts {
+                built_std_packages: &mut built_std_packages,
+                built_external_packages: &mut built_external_packages,
+                built_external_tools: &mut built_external_tools,
+                external_build_stack: &mut external_build_stack,
+                manifest_runtime_options: &mut manifest_runtime_options,
+                driver_families: &mut driver_families,
+            },
+            state: ExecutionState {
+                compiled: &mut compiled,
+                linked: &mut linked,
+                staged_outputs: &mut staged_outputs,
+                execution_summary: &mut local_summary,
+            },
+        };
+
+        for action in &action_plan.link_actions {
+            if action.domain != BuildDomain::Target {
+                continue;
+            }
+            ensure_link_action_built(action, &mut session)?;
         }
-        ensure_compile_action_built(action, &mut session)?;
+        for action in &action_plan.compile_actions {
+            if action.domain != BuildDomain::Target {
+                continue;
+            }
+            ensure_compile_action_built(action, &mut session)?;
+        }
     }
 
     external_summary.absorb(local_summary);
@@ -683,6 +909,166 @@ impl SourceConfigContext {
     }
 }
 
+fn compile_action_options(
+    action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
+    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
+) -> Result<CompileOptions> {
+    let mut options = CompileOptions {
+        input_file: Some(action.source_path().to_string_lossy().to_string()),
+        output_file: action.object_path.to_string_lossy().to_string(),
+        metadata_output: action
+            .metadata_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        metadata_package_name: (action.target_kind == crate::plan::TargetKind::Lib)
+            .then(|| action.package_id.name.clone()),
+        metadata_package_version: (action.target_kind == crate::plan::TargetKind::Lib)
+            .then(|| action.package_id.version.clone()),
+        root_module_name: (action.target_kind == crate::plan::TargetKind::Lib)
+            .then(|| action.package_id.name.clone()),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        opt_level: profile_opt_level(&action.profile),
+        split_sections_for_gc: true,
+        ..default_target_compile_options(action.target_kind)
+    };
+    apply_manifest_runtime_options(
+        &action.manifest_path,
+        manifest_runtime_options,
+        &mut options,
+    )?;
+    apply_host_linker_env(&mut options);
+    options.module_interface_aliases = compile_module_aliases(
+        action,
+        local_library_actions,
+        built_std_packages.get(&action.profile.name),
+        built_external_packages,
+    )?;
+    inject_target_library_aliases(&mut options);
+    inject_driver_condition_defines(&mut options);
+    options.custom_defines.extend(compile_time_defines(
+        &action.cfg,
+        &action.define,
+        action.source_path(),
+    )?);
+    Ok(options)
+}
+
+fn build_compile_action_if_needed(
+    action: &CompileAction,
+    options: CompileOptions,
+    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
+    execution_summary: &mut ExecutionSummary,
+) -> Result<bool> {
+    let toolchain_digest = build_state::current_process_digest()?;
+    let fingerprint = compile_action_fingerprint(action, &options, &toolchain_digest);
+
+    if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
+        execution_summary.record_compile_cache_hit();
+        return Ok(false);
+    }
+
+    let Some(report) = compile_with_shared_driver(driver_families, options) else {
+        return Err(Error::Execution(format!(
+            "compile failed for `{}`",
+            action.source_path().display()
+        )));
+    };
+
+    write_compile_action_state(action, &report, fingerprint)?;
+
+    execution_summary.record_compile_cache_miss();
+    execution_summary.compile_actions += 1;
+    execution_summary.record_action(
+        ActionTimingKind::Compile,
+        compile_action_label(action),
+        report.phase_timings,
+        report.cache_stats,
+    );
+    Ok(true)
+}
+
+fn link_action_options(
+    action: &LinkAction,
+    compile_action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
+    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
+) -> Result<(CompileOptions, Vec<PathBuf>)> {
+    let mut options = CompileOptions {
+        output_file: action.artifact_path.to_string_lossy().to_string(),
+        driver_mode: DriverMode::LinkOnly,
+        report_progress: false,
+        dead_strip_sections: true,
+        ..default_target_compile_options(action.target_kind)
+    };
+    apply_manifest_runtime_options(
+        &action.manifest_path,
+        manifest_runtime_options,
+        &mut options,
+    )?;
+    apply_host_linker_env(&mut options);
+    let linker_inputs = link_objects_for_compile_action(
+        compile_action,
+        local_library_actions,
+        built_std_packages,
+        built_external_packages,
+    )?;
+    options.linker_inputs = linker_inputs
+        .iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
+    options.linker_libraries = action.link.system_libs.clone();
+    options.linker_search_paths = action.link.search_paths.clone();
+    options.linker_args = action.link.args.clone();
+    for framework in &action.link.frameworks {
+        options.linker_args.push("-framework".to_string());
+        options.linker_args.push(framework.clone());
+    }
+    Ok((options, linker_inputs))
+}
+
+fn build_link_action_if_needed(
+    action: &LinkAction,
+    options: CompileOptions,
+    linker_inputs: &[PathBuf],
+    execution_summary: &mut ExecutionSummary,
+) -> Result<bool> {
+    let toolchain_digest = build_state::current_process_digest()?;
+    let fingerprint = link_action_fingerprint(action, &options, linker_inputs, &toolchain_digest);
+    if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
+        execution_summary.record_link_cache_hit();
+        return Ok(false);
+    }
+
+    let driver = CompilerDriver::new(options);
+    let Some(report) = driver.compile_with_report() else {
+        return Err(Error::Execution(format!(
+            "link failed for `{}`",
+            action.artifact_path.display()
+        )));
+    };
+    build_state::record_action_state(
+        &action.artifact_path,
+        fingerprint,
+        linker_inputs,
+        std::slice::from_ref(&action.artifact_path),
+    )?;
+    execution_summary.record_link_cache_miss();
+    execution_summary.link_actions += 1;
+    execution_summary.record_action(
+        ActionTimingKind::Link,
+        link_action_label(action),
+        report.phase_timings,
+        report.cache_stats,
+    );
+    Ok(true)
+}
+
 fn ensure_compile_action_built(
     action: &CompileAction,
     session: &mut ExecutionSession<'_>,
@@ -713,75 +1099,21 @@ fn ensure_compile_action_built(
     ensure_parent_dir(&action.object_path)?;
     ensure_parent_dir(&action.artifact_path)?;
 
-    let mut options = CompileOptions {
-        input_file: Some(action.source_path().to_string_lossy().to_string()),
-        output_file: action.object_path.to_string_lossy().to_string(),
-        metadata_output: action
-            .metadata_path
-            .as_ref()
-            .map(|path| path.to_string_lossy().to_string()),
-        metadata_package_name: (action.target_kind == crate::plan::TargetKind::Lib)
-            .then(|| action.package_id.name.clone()),
-        metadata_package_version: (action.target_kind == crate::plan::TargetKind::Lib)
-            .then(|| action.package_id.version.clone()),
-        root_module_name: (action.target_kind == crate::plan::TargetKind::Lib)
-            .then(|| action.package_id.name.clone()),
-        driver_mode: DriverMode::CompileOnly,
-        report_progress: false,
-        opt_level: profile_opt_level(&action.profile),
-        split_sections_for_gc: true,
-        ..default_target_compile_options(action.target_kind)
-    };
-    apply_manifest_runtime_options(
-        &action.manifest_path,
-        session.external.manifest_runtime_options,
-        &mut options,
-    )?;
-    apply_host_linker_env(&mut options);
-    options.module_interface_aliases = compile_module_aliases(
+    let options = compile_action_options(
         action,
         session.indexes.local_library_actions,
-        session
-            .external
-            .built_std_packages
-            .get(&action.profile.name),
+        session.external.built_std_packages,
         session.external.built_external_packages,
+        session.external.manifest_runtime_options,
     )?;
-    inject_target_library_aliases(&mut options);
-    inject_driver_condition_defines(&mut options);
-    options.custom_defines.extend(compile_time_defines(
-        &action.cfg,
-        &action.define,
-        action.source_path(),
-    )?);
-    let toolchain_digest = build_state::current_process_digest()?;
-    let fingerprint = compile_action_fingerprint(action, &options, &toolchain_digest);
-
-    if build_state::action_state_is_current(&action.object_path, &fingerprint)? {
-        session.state.execution_summary.record_compile_cache_hit();
-        session.state.compiled.insert(action.object_path.clone());
-        return Ok(false);
-    }
-
-    let Some(report) = compile_with_shared_driver(session.external.driver_families, options) else {
-        return Err(Error::Execution(format!(
-            "compile failed for `{}`",
-            action.source_path().display()
-        )));
-    };
-
-    write_compile_action_state(action, &report, fingerprint)?;
-
-    session.state.execution_summary.record_compile_cache_miss();
+    let built = build_compile_action_if_needed(
+        action,
+        options,
+        session.external.driver_families,
+        session.state.execution_summary,
+    )?;
     session.state.compiled.insert(action.object_path.clone());
-    session.state.execution_summary.compile_actions += 1;
-    session.state.execution_summary.record_action(
-        ActionTimingKind::Compile,
-        compile_action_label(action),
-        report.phase_timings,
-        report.cache_stats,
-    );
-    Ok(true)
+    Ok(built)
 }
 
 fn execute_staged_actions(
@@ -966,84 +1298,25 @@ fn ensure_link_action_built(
     if session.state.linked.contains(&action.artifact_path) {
         return Ok(false);
     }
-    let compile_action = session
-        .indexes
-        .compile_action_index
-        .get(&ActionKey {
-            domain: action.domain,
-            package_id: action.package_id.clone(),
-            target_kind: action.target_kind,
-            target_name: action.target_name.clone(),
-        })
-        .ok_or_else(|| {
-            Error::Execution(format!(
-                "missing compile action for `{}` target `{}`",
-                action.package_id.name, action.artifact_name
-            ))
-        })?;
+    let compile_action =
+        compile_action_for_link_action(action, session.indexes.compile_action_index)?;
     ensure_compile_action_built(compile_action, session)?;
 
     ensure_parent_dir(&action.artifact_path)?;
-
-    let mut options = CompileOptions {
-        output_file: action.artifact_path.to_string_lossy().to_string(),
-        driver_mode: DriverMode::LinkOnly,
-        report_progress: false,
-        dead_strip_sections: true,
-        ..default_target_compile_options(action.target_kind)
-    };
-    apply_manifest_runtime_options(
-        &action.manifest_path,
-        session.external.manifest_runtime_options,
-        &mut options,
-    )?;
-    apply_host_linker_env(&mut options);
-    let linker_inputs = link_objects_for_compile_action(
+    let (options, linker_inputs) = link_action_options(
+        action,
         compile_action,
         session.indexes.local_library_actions,
         session.external.built_std_packages,
         session.external.built_external_packages,
+        session.external.manifest_runtime_options,
     )?;
-    options.linker_inputs = linker_inputs
-        .iter()
-        .map(|path| path.to_string_lossy().to_string())
-        .collect();
-    options.linker_libraries = action.link.system_libs.clone();
-    options.linker_search_paths = action.link.search_paths.clone();
-    options.linker_args = action.link.args.clone();
-    for framework in &action.link.frameworks {
-        options.linker_args.push("-framework".to_string());
-        options.linker_args.push(framework.clone());
-    }
-    let toolchain_digest = build_state::current_process_digest()?;
-    let fingerprint = link_action_fingerprint(action, &options, &linker_inputs, &toolchain_digest);
-    let linked_now = if build_state::action_state_is_current(&action.artifact_path, &fingerprint)? {
-        session.state.execution_summary.record_link_cache_hit();
-        false
-    } else {
-        let driver = CompilerDriver::new(options);
-        let Some(report) = driver.compile_with_report() else {
-            return Err(Error::Execution(format!(
-                "link failed for `{}`",
-                action.artifact_path.display()
-            )));
-        };
-        build_state::record_action_state(
-            &action.artifact_path,
-            fingerprint,
-            &linker_inputs,
-            std::slice::from_ref(&action.artifact_path),
-        )?;
-        session.state.execution_summary.record_link_cache_miss();
-        session.state.execution_summary.link_actions += 1;
-        session.state.execution_summary.record_action(
-            ActionTimingKind::Link,
-            link_action_label(action),
-            report.phase_timings,
-            report.cache_stats,
-        );
-        true
-    };
+    let linked_now = build_link_action_if_needed(
+        action,
+        options,
+        &linker_inputs,
+        session.state.execution_summary,
+    )?;
 
     session.state.linked.insert(action.artifact_path.clone());
 

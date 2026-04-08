@@ -1,4 +1,4 @@
-use super::{build, run, test, validate_package_metadata_root};
+use super::{build, parallel_target_link_jobs, run, test, validate_package_metadata_root};
 use crate::build_plan;
 use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
@@ -1024,6 +1024,99 @@ root = "src/main.rn"
     assert_eq!(cached.action_cache_stats.link_misses, 0);
     assert!(cached.action_cache_stats.compile_hits > 0);
     assert_eq!(cached.action_cache_stats.link_hits, 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn parallel_target_link_jobs_skip_post_link_outputs() {
+    let root = temp_dir("craft-exec-parallel-jobs");
+    let plain_dir = root.join("plain");
+    let staged_dir = root.join("staged");
+    fs::create_dir_all(plain_dir.join("src")).unwrap();
+    fs::create_dir_all(staged_dir.join("src")).unwrap();
+    fs::create_dir_all(staged_dir.join("assets")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["plain", "staged"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        plain_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "plain"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "plain"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        plain_dir.join("src/main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        staged_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "staged"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "staged"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        staged_dir.join("src/main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(staged_dir.join("assets/data.txt"), "data\n").unwrap();
+    fs::write(
+        staged_dir.join("build.rn"),
+        r#"
+use craft.builder;
+
+pub fn build(b: *mut builder.Builder) void {
+let _ = b.copy_package_file_to_artifact("assets/data.txt", "bundle/data.txt");
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let compile_action_index = super::external::compile_actions_index(&action_plan.compile_actions);
+    let jobs = parallel_target_link_jobs(&action_plan, &compile_action_index, &Default::default())
+        .unwrap();
+
+    assert_eq!(action_plan.link_actions.len(), 2);
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].link_action.package_id.name, "plain");
 
     let _ = fs::remove_dir_all(root);
 }

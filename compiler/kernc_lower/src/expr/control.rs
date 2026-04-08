@@ -93,16 +93,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         expr: &Expr,
         subst_map: &HashMap<SymbolId, TypeId>,
     ) -> Option<MastStmt> {
-        if matches!(expr.kind, ExprKind::Assign { .. }) && self.is_pure_dead_assignment(expr.id) {
+        if self.measure_phase("        lower_stmt_expr_elide", |this| {
+            matches!(expr.kind, ExprKind::Assign { .. }) && this.is_pure_dead_assignment(expr.id)
+        }) {
             return None;
         }
 
-        let lowered = self.lower_expr(expr, subst_map, None);
-        if matches!(expr.kind, ExprKind::Static { .. }) {
+        let lowered = self.measure_phase("        lower_stmt_expr_lower", |this| {
+            this.lower_expr(expr, subst_map, None)
+        });
+        if self.measure_phase("        lower_stmt_expr_drop_static", |_| {
+            matches!(expr.kind, ExprKind::Static { .. })
+        }) {
             return None;
         }
 
-        Some(MastStmt::Expr(lowered))
+        self.measure_phase("        lower_stmt_expr_wrap", |_| Some(MastStmt::Expr(lowered)))
     }
 
     fn push_defer_in_current_scope(&mut self, span: Span, deferred: MastExpr) {
@@ -657,7 +663,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if else_branch.is_none() {
             match &pattern.pattern.kind {
                 ast::PatternKind::Binding(binding) => {
-                    if self.is_ignored_binding(binding.name) {
+                    if self.measure_phase("        lower_let_binding_ignored", |this| {
+                        this.is_ignored_binding(binding.name)
+                    }) {
                         if self.is_pure_dead_initializer(expr.id) {
                             return Vec::new();
                         }
@@ -668,56 +676,79 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             .collect();
                     }
 
-                    let target_ty =
-                        self.substitute_type_with_map(self.resolve_expr_type(init), subst_map);
+                    let target_ty = self.measure_phase("        lower_let_binding_type", |this| {
+                        this.substitute_type_with_map(this.resolve_expr_type(init), subst_map)
+                    });
 
-                    if !binding.is_mut && self.is_elidable_binding(expr.id) {
+                    if self.measure_phase("        lower_let_binding_elide", |this| {
+                        !binding.is_mut && this.is_elidable_binding(expr.id)
+                    }) {
                         return Vec::new();
                     }
 
-                    self.bind_local_type(
-                        expr.span,
-                        binding.name,
-                        target_ty,
-                        binding.is_mut,
-                        "let pattern binding",
-                    );
-
-                    if !binding.is_mut && self.is_forwardable_value_binding(expr.id) {
-                        let init = self.lower_expr(init, subst_map, Some(target_ty));
-                        self.record_local_value_forwarding(
+                    self.measure_phase("        lower_let_binding_bind_local", |this| {
+                        this.bind_local_type(
                             expr.span,
                             binding.name,
-                            init,
-                            "recording forwardable pure value binding",
+                            target_ty,
+                            binding.is_mut,
+                            "let pattern binding",
                         );
+                    });
+
+                    if self.measure_phase("        lower_let_binding_forward_value", |this| {
+                        !binding.is_mut && this.is_forwardable_value_binding(expr.id)
+                    }) {
+                        let init = self.measure_phase(
+                            "        lower_let_binding_forward_value_init",
+                            |this| this.lower_expr(init, subst_map, Some(target_ty)),
+                        );
+                        self.measure_phase("        lower_let_binding_forward_value_record", |this| {
+                            this.record_local_value_forwarding(
+                                expr.span,
+                                binding.name,
+                                init,
+                                "recording forwardable pure value binding",
+                            );
+                        });
                         return Vec::new();
                     }
 
                     if !binding.is_mut
-                        && let Some(source_name) = self.forwardable_binding_source(expr.id)
+                        && let Some(source_name) = self.measure_phase(
+                            "        lower_let_binding_forward_alias",
+                            |this| this.forwardable_binding_source(expr.id),
+                        )
                     {
-                        self.record_local_forwarding(
-                            expr.span,
-                            binding.name,
-                            source_name,
-                            "recording forwardable immutable alias binding",
-                        );
+                        self.measure_phase("        lower_let_binding_forward_alias_record", |this| {
+                            this.record_local_forwarding(
+                                expr.span,
+                                binding.name,
+                                source_name,
+                                "recording forwardable immutable alias binding",
+                            );
+                        });
                         return Vec::new();
                     }
 
-                    let init = if self.is_pure_dead_initializer(expr.id) {
+                    let init = if self.measure_phase("        lower_let_binding_dead_init", |this| {
+                        this.is_pure_dead_initializer(expr.id)
+                    }) {
                         MastExpr::new(target_ty, MastExprKind::Undef, expr.span)
                     } else {
-                        self.lower_expr(init, subst_map, Some(target_ty))
+                        self.measure_phase("        lower_let_binding_init", |this| {
+                            this.lower_expr(init, subst_map, Some(target_ty))
+                        })
                     };
 
-                    return vec![MastStmt::Let {
-                        name: binding.name,
-                        ty: target_ty,
-                        is_mut: binding.is_mut,
-                        init,
-                    }];
+                    return self.measure_phase("        lower_let_binding_emit", |_| {
+                        vec![MastStmt::Let {
+                            name: binding.name,
+                            ty: target_ty,
+                            is_mut: binding.is_mut,
+                            init,
+                        }]
+                    });
                 }
                 ast::PatternKind::Ignore => {
                     if self.is_pure_dead_initializer(expr.id) {
@@ -733,68 +764,76 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        let lowered_init = self.lower_expr(init, subst_map, None);
+        let lowered_init =
+            self.measure_phase("        lower_let_pattern_init", |this| {
+                this.lower_expr(init, subst_map, None)
+            });
         let target_ty = lowered_init.ty;
-        let (target_let, target_var_expr) =
-            self.build_match_target_binding(target_ty, lowered_init, init.span);
+        let (target_let, target_var_expr) = self.measure_phase(
+            "        lower_let_pattern_target",
+            |this| this.build_match_target_binding(target_ty, lowered_init, init.span),
+        );
 
         let mut bindings = Vec::new();
-        let condition = self.collect_pattern_plan(
-            expr.span,
-            &pattern.pattern,
-            &target_var_expr,
-            target_ty,
-            &mut bindings,
-        );
+        let condition = self.measure_phase("        lower_let_pattern_plan", |this| {
+            this.collect_pattern_plan(
+                expr.span,
+                &pattern.pattern,
+                &target_var_expr,
+                target_ty,
+                &mut bindings,
+            )
+        });
 
         if let Some(else_expr) = else_branch {
             let mut outer_stmts = Vec::new();
             let mut success_stmts = Vec::new();
 
-            for binding in bindings {
-                self.bind_local_type(
-                    expr.span,
-                    binding.name,
-                    binding.ty,
-                    binding.is_mut,
-                    "let pattern binding",
-                );
-                outer_stmts.push(MastStmt::Let {
-                    name: binding.name,
-                    ty: binding.ty,
-                    is_mut: binding.is_mut,
-                    init: MastExpr::new(binding.ty, MastExprKind::Undef, expr.span),
-                });
-                success_stmts.push(MastStmt::Expr(MastExpr::new(
-                    TypeId::VOID,
-                    MastExprKind::Assign {
-                        op: ast::AssignmentOperator::Assign,
-                        lhs: Box::new(MastExpr::new(
-                            binding.ty,
-                            MastExprKind::Var(binding.name),
-                            expr.span,
-                        )),
-                        rhs: Box::new(binding.init),
-                    },
-                    expr.span,
-                )));
-            }
+            self.measure_phase("        lower_let_else_bindings", |this| {
+                for binding in bindings {
+                    this.bind_local_type(
+                        expr.span,
+                        binding.name,
+                        binding.ty,
+                        binding.is_mut,
+                        "let pattern binding",
+                    );
+                    outer_stmts.push(MastStmt::Let {
+                        name: binding.name,
+                        ty: binding.ty,
+                        is_mut: binding.is_mut,
+                        init: MastExpr::new(binding.ty, MastExprKind::Undef, expr.span),
+                    });
+                    success_stmts.push(MastStmt::Expr(MastExpr::new(
+                        TypeId::VOID,
+                        MastExprKind::Assign {
+                            op: ast::AssignmentOperator::Assign,
+                            lhs: Box::new(MastExpr::new(
+                                binding.ty,
+                                MastExprKind::Var(binding.name),
+                                expr.span,
+                            )),
+                            rhs: Box::new(binding.init),
+                        },
+                        expr.span,
+                    )));
+                }
+            });
 
             let lowered_else = if let Some(else_pattern) = else_pattern {
                 let mut else_bindings = Vec::new();
-                let else_condition = self.collect_pattern_plan(
-                    expr.span,
-                    else_pattern,
-                    &target_var_expr,
-                    target_ty,
-                    &mut else_bindings,
-                );
-                let else_body = self.lower_match_pattern_body(
-                    else_expr,
-                    else_bindings,
-                    subst_map,
-                    TypeId::VOID,
-                );
+                let else_condition = self.measure_phase("        lower_let_else_pattern_plan", |this| {
+                    this.collect_pattern_plan(
+                        expr.span,
+                        else_pattern,
+                        &target_var_expr,
+                        target_ty,
+                        &mut else_bindings,
+                    )
+                });
+                let else_body = self.measure_phase("        lower_let_else_pattern_body", |this| {
+                    this.lower_match_pattern_body(else_expr, else_bindings, subst_map, TypeId::VOID)
+                });
 
                 MastBlock {
                     stmts: vec![],
@@ -818,7 +857,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     defers: vec![],
                 }
             } else {
-                self.lower_block_as_body(else_expr, subst_map, TypeId::VOID)
+                self.measure_phase("        lower_let_else_block", |this| {
+                    this.lower_block_as_body(else_expr, subst_map, TypeId::VOID)
+                })
             };
 
             let if_expr = MastExpr::new(
@@ -835,34 +876,38 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 expr.span,
             );
 
-            outer_stmts.push(MastStmt::Expr(MastExpr::new(
-                TypeId::VOID,
-                MastExprKind::Block(MastBlock {
-                    stmts: vec![target_let],
-                    result: Some(Box::new(if_expr)),
-                    defers: vec![],
-                }),
-                expr.span,
-            )));
+            self.measure_phase("        lower_let_else_emit", |_| {
+                outer_stmts.push(MastStmt::Expr(MastExpr::new(
+                    TypeId::VOID,
+                    MastExprKind::Block(MastBlock {
+                        stmts: vec![target_let],
+                        result: Some(Box::new(if_expr)),
+                        defers: vec![],
+                    }),
+                    expr.span,
+                )));
+            });
 
             outer_stmts
         } else {
             let mut stmts = vec![target_let];
-            for binding in bindings {
-                self.bind_local_type(
-                    expr.span,
-                    binding.name,
-                    binding.ty,
-                    binding.is_mut,
-                    "let pattern binding",
-                );
-                stmts.push(MastStmt::Let {
-                    name: binding.name,
-                    ty: binding.ty,
-                    is_mut: binding.is_mut,
-                    init: binding.init,
-                });
-            }
+            self.measure_phase("        lower_let_pattern_bindings", |this| {
+                for binding in bindings {
+                    this.bind_local_type(
+                        expr.span,
+                        binding.name,
+                        binding.ty,
+                        binding.is_mut,
+                        "let pattern binding",
+                    );
+                    stmts.push(MastStmt::Let {
+                        name: binding.name,
+                        ty: binding.ty,
+                        is_mut: binding.is_mut,
+                        init: binding.init,
+                    });
+                }
+            });
             stmts
         }
     }

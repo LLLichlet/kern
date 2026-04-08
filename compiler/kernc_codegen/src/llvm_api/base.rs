@@ -4,7 +4,8 @@ use llvm_sys::core::{
     LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMCountParams,
     LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetBasicBlockParent,
     LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
-    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetParam, LLVMGetReturnType,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
+    LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam, LLVMGetReturnType,
     LLVMGetTypeKind, LLVMGetUndef, LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMSetAlignment,
     LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
     LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
@@ -12,7 +13,7 @@ use llvm_sys::core::{
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{
     LLVMAtomicOrdering, LLVMAtomicRMWBinOp, LLVMInlineAsmDialect, LLVMIntPredicate, LLVMLinkage,
-    LLVMRealPredicate, LLVMTypeKind,
+    LLVMOpcode, LLVMRealPredicate, LLVMTypeKind,
 };
 use std::convert::Infallible;
 use std::ffi::CString;
@@ -1008,6 +1009,15 @@ impl<'ctx> BasicBlock<'ctx> {
             Some(InstructionValue::new(value))
         }
     }
+
+    pub fn get_next_basic_block(self) -> Option<BasicBlock<'ctx>> {
+        let value = unsafe { LLVMGetNextBasicBlock(self.raw) };
+        if value.is_null() {
+            None
+        } else {
+            Some(BasicBlock::new(value))
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -1027,6 +1037,19 @@ impl<'ctx> InstructionValue<'ctx> {
 
     pub fn set_atomic_ordering(self, ordering: AtomicOrdering) {
         unsafe { LLVMSetOrdering(self.raw, ordering.into()) };
+    }
+
+    pub fn get_next_instruction(self) -> Option<InstructionValue<'ctx>> {
+        let value = unsafe { LLVMGetNextInstruction(self.raw) };
+        if value.is_null() {
+            None
+        } else {
+            Some(InstructionValue::new(value))
+        }
+    }
+
+    pub fn get_opcode(self) -> LLVMOpcode {
+        unsafe { LLVMGetInstructionOpcode(self.raw) }
     }
 }
 

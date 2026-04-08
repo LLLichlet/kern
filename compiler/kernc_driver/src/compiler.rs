@@ -37,6 +37,7 @@ pub struct CompileReport {
     pub cache_stats: CompileCacheStats,
     pub lower_cache_stats: Option<kernc_lower::LowerCacheStats>,
     pub mast_workload: Option<kernc_mast::MastWorkloadStats>,
+    pub ir_instruction_stats: Option<kernc_codegen::IrInstructionStats>,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]

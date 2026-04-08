@@ -46,6 +46,7 @@ impl CompilerDriver {
                     Self::print_cache_stats(report.cache_stats);
                     Self::print_lower_cache_stats(report.lower_cache_stats);
                     Self::print_mast_workload(report.mast_workload.as_ref());
+                    Self::print_ir_instruction_stats(report.ir_instruction_stats.as_ref());
                 }
                 true
             }
@@ -64,6 +65,7 @@ impl CompilerDriver {
                 cache_stats: self.cache_stats_since(cache_snapshot),
                 lower_cache_stats: None,
                 mast_workload: None,
+                ir_instruction_stats: None,
             });
         }
 
@@ -151,6 +153,7 @@ impl CompilerDriver {
                         cache_stats: self.cache_stats_since(cache_snapshot),
                         lower_cache_stats: Some(lowered.cache_stats),
                         mast_workload: Some(mast_workload),
+                        ir_instruction_stats: Some(codegen_report.ir_stats),
                     })
                 }
                 Err(err) => {
@@ -192,6 +195,7 @@ impl CompilerDriver {
                 cache_stats: self.cache_stats_since(cache_snapshot),
                 lower_cache_stats: Some(lowered.cache_stats),
                 mast_workload: Some(mast_workload),
+                ir_instruction_stats: Some(codegen_report.ir_stats),
             });
         }
 
@@ -207,6 +211,7 @@ impl CompilerDriver {
             cache_stats: self.cache_stats_since(cache_snapshot),
             lower_cache_stats: Some(lowered.cache_stats),
             mast_workload: Some(mast_workload),
+            ir_instruction_stats: Some(codegen_report.ir_stats),
         })
     }
 
@@ -427,6 +432,33 @@ impl CompilerDriver {
             ("  switches", stats.switches),
             ("  returns", stats.returns),
             ("  assignments", stats.assignments),
+        ] {
+            println!("  {:<18} {}", name, value);
+        }
+    }
+
+    pub(super) fn print_ir_instruction_stats(
+        ir_instruction_stats: Option<&kernc_codegen::IrInstructionStats>,
+    ) {
+        let Some(stats) = ir_instruction_stats else {
+            return;
+        };
+
+        println!("IR instruction stats:");
+        for (name, value) in [
+            ("  functions", stats.functions),
+            ("  basic_blocks", stats.basic_blocks),
+            ("  instructions", stats.instructions),
+            ("  allocas", stats.allocas),
+            ("  loads", stats.loads),
+            ("  stores", stats.stores),
+            ("  geps", stats.geps),
+            ("  calls", stats.calls),
+            ("  phis", stats.phis),
+            ("  branches", stats.branches),
+            ("  switches", stats.switches),
+            ("  returns", stats.returns),
+            ("  compares", stats.compares),
         ] {
             println!("  {:<18} {}", name, value);
         }

@@ -5,7 +5,8 @@ use llvm_sys::core::LLVMPrintModuleToFile;
 use llvm_sys::core::LLVMPrintModuleToString;
 use llvm_sys::core::{
     LLVMAddFunction, LLVMAddGlobal, LLVMDisposeMessage, LLVMDisposeModule,
-    LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMSetLinkage,
+    LLVMGetFirstFunction, LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal,
+    LLVMGetNextFunction, LLVMSetLinkage,
 };
 use llvm_sys::prelude::LLVMModuleRef;
 use llvm_sys::target::LLVMSetModuleDataLayout;
@@ -55,6 +56,15 @@ impl<'ctx> Module<'ctx> {
     pub fn get_function(&self, name: &str) -> Option<FunctionValue<'ctx>> {
         let name = to_c_string(name);
         let value = unsafe { LLVMGetNamedFunction(self.raw, name.as_ptr()) };
+        if value.is_null() {
+            None
+        } else {
+            Some(FunctionValue::new(value))
+        }
+    }
+
+    pub fn get_first_function(&self) -> Option<FunctionValue<'ctx>> {
+        let value = unsafe { LLVMGetFirstFunction(self.raw) };
         if value.is_null() {
             None
         } else {
@@ -198,6 +208,17 @@ impl<'ctx> Module<'ctx> {
                 overloads.len(),
             )
         };
+        if value.is_null() {
+            None
+        } else {
+            Some(FunctionValue::new(value))
+        }
+    }
+}
+
+impl<'ctx> FunctionValue<'ctx> {
+    pub fn get_next_function(self) -> Option<FunctionValue<'ctx>> {
+        let value = unsafe { LLVMGetNextFunction(self.raw) };
         if value.is_null() {
             None
         } else {

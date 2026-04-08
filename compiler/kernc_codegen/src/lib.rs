@@ -2,7 +2,10 @@ mod codegen;
 mod llvm_api;
 mod llvm_facade;
 
-pub use codegen::{CodeGenerator, CodegenReport, CodegenTiming, EmitObjectReport, EmitObjectTiming};
+pub use codegen::{
+    CodeGenerator, CodegenReport, CodegenTiming, EmitObjectReport, EmitObjectTiming,
+    IrInstructionStats,
+};
 pub use llvm_api::{Context, InlineAsmDialect};
 pub use llvm_facade::{
     AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, OptimizationLevel,

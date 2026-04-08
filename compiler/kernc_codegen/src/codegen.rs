@@ -23,6 +23,7 @@ use std::ffi::{CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};
 
+use llvm_sys::LLVMOpcode;
 use kernc_mast::*;
 use kernc_sema::def::DefId;
 use kernc_sema::ty::{TypeId, TypeRegistry};
@@ -43,6 +44,24 @@ pub struct CodegenTiming {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct CodegenReport {
     pub timings: Vec<CodegenTiming>,
+    pub ir_stats: IrInstructionStats,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct IrInstructionStats {
+    pub functions: usize,
+    pub basic_blocks: usize,
+    pub instructions: usize,
+    pub allocas: usize,
+    pub loads: usize,
+    pub stores: usize,
+    pub geps: usize,
+    pub calls: usize,
+    pub phis: usize,
+    pub branches: usize,
+    pub switches: usize,
+    pub returns: usize,
+    pub compares: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +106,41 @@ pub struct CodeGenerator<'ctx, 'a> {
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn collect_ir_instruction_stats(&self) -> IrInstructionStats {
+        let mut stats = IrInstructionStats::default();
+        let mut current_function = self.module.get_first_function();
+        while let Some(function) = current_function {
+            stats.functions += 1;
+            let mut current_block = function.get_first_basic_block();
+            while let Some(block) = current_block {
+                stats.basic_blocks += 1;
+                let mut current_instruction = block.get_first_instruction();
+                while let Some(instruction) = current_instruction {
+                    stats.instructions += 1;
+                    match instruction.get_opcode() {
+                        LLVMOpcode::LLVMAlloca => stats.allocas += 1,
+                        LLVMOpcode::LLVMLoad => stats.loads += 1,
+                        LLVMOpcode::LLVMStore => stats.stores += 1,
+                        LLVMOpcode::LLVMGetElementPtr => stats.geps += 1,
+                        LLVMOpcode::LLVMCall | LLVMOpcode::LLVMInvoke | LLVMOpcode::LLVMCallBr => {
+                            stats.calls += 1
+                        }
+                        LLVMOpcode::LLVMPHI => stats.phis += 1,
+                        LLVMOpcode::LLVMBr => stats.branches += 1,
+                        LLVMOpcode::LLVMSwitch => stats.switches += 1,
+                        LLVMOpcode::LLVMRet => stats.returns += 1,
+                        LLVMOpcode::LLVMICmp | LLVMOpcode::LLVMFCmp => stats.compares += 1,
+                        _ => {}
+                    }
+                    current_instruction = instruction.get_next_instruction();
+                }
+                current_block = block.get_next_basic_block();
+            }
+            current_function = function.get_next_function();
+        }
+        stats
+    }
+
     pub fn new(
         context: &'ctx LlvmContext,
         module_name: &str,
@@ -177,6 +231,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             name: "  codegen_compile_functions",
             duration: compile_functions_started.elapsed(),
         });
+        report.ir_stats = self.collect_ir_instruction_stats();
 
         report
     }

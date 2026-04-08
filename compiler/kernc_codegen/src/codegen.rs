@@ -1,11 +1,12 @@
 use crate::llvm_api::{
-    Builder, Context as LlvmContext, FunctionValue, GlobalValue, InlineAsmDialect,
+    AsValueRef, Builder, Context as LlvmContext, FunctionValue, GlobalValue, InlineAsmDialect,
     Module as LlvmModule, PointerValue, StructType,
 };
 use llvm_sys::core::{
     LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMGetBufferSize, LLVMGetBufferStart,
     LLVMSetTarget,
 };
+use llvm_sys::error::{LLVMDisposeErrorMessage, LLVMErrorRef, LLVMGetErrorMessage};
 use llvm_sys::target::{
     LLVM_InitializeAllAsmParsers, LLVM_InitializeAllAsmPrinters, LLVM_InitializeAllTargetInfos,
     LLVM_InitializeAllTargetMCs, LLVM_InitializeAllTargets, LLVM_InitializeNativeAsmParser,
@@ -18,17 +19,20 @@ use llvm_sys::target_machine::{
     LLVMTargetMachineEmitToFile, LLVMTargetMachineEmitToMemoryBuffer, LLVMTargetMachineRef,
     LLVMTargetRef,
 };
+use llvm_sys::transforms::pass_builder::{
+    LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPassesOnFunction,
+};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};
 
-use llvm_sys::LLVMOpcode;
 use kernc_mast::*;
 use kernc_sema::def::DefId;
 use kernc_sema::ty::{TypeId, TypeRegistry};
 use kernc_utils::config::OptLevel;
 use kernc_utils::{Session, SymbolId};
+use llvm_sys::LLVMOpcode;
 
 mod block;
 mod decl;
@@ -389,6 +393,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             duration: verify_started.elapsed(),
         });
 
+        let optimize_started = Instant::now();
+        self.run_ir_cleanup_passes(target_machine, opt_level)?;
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_opt_ir",
+            duration: optimize_started.elapsed(),
+        });
+
         let mut output = output_path.as_bytes().to_vec();
         output.push(0);
         let mut err = ptr::null_mut();
@@ -465,6 +476,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         report.timings.push(EmitObjectTiming {
             name: "  emit_setup",
             duration: setup_started.elapsed(),
+        });
+
+        let verify_started = Instant::now();
+        if let Err(err) = self.module.verify() {
+            eprintln!("LLVM IR Verification Failed:\n{}", err);
+            let _ = self.print_ir();
+            unsafe {
+                LLVMDisposeTargetData(target_data);
+                LLVMDisposeTargetMachine(target_machine);
+            }
+            return Err("Invalid LLVM IR generated".to_string());
+        }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_verify",
+            duration: verify_started.elapsed(),
+        });
+
+        let optimize_started = Instant::now();
+        self.run_ir_cleanup_passes(target_machine, opt_level)?;
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_opt_ir",
+            duration: optimize_started.elapsed(),
         });
 
         // Fast path: plain ASCII paths are safely representable through LLVM's narrow-path API.
@@ -552,6 +585,39 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn resolve_symbol(&self, sym: kernc_utils::SymbolId) -> &str {
         self.sess.interner.resolve(sym).unwrap_or("<unknown>")
     }
+
+    fn run_ir_cleanup_passes(
+        &self,
+        target_machine: LLVMTargetMachineRef,
+        opt_level: OptLevel,
+    ) -> Result<(), String> {
+        if matches!(opt_level, OptLevel::O0) {
+            return Ok(());
+        }
+
+        let passes = CString::new("mem2reg").unwrap();
+        let options = unsafe { LLVMCreatePassBuilderOptions() };
+        let mut current_function = self.module.get_first_function();
+        while let Some(function) = current_function {
+            if function.get_first_basic_block().is_some() {
+                let err = unsafe {
+                    LLVMRunPassesOnFunction(
+                        function.as_value_ref(),
+                        passes.as_ptr(),
+                        target_machine,
+                        options,
+                    )
+                };
+                if !err.is_null() {
+                    unsafe { LLVMDisposePassBuilderOptions(options) };
+                    return Err(take_llvm_error(err));
+                }
+            }
+            current_function = function.get_next_function();
+        }
+        unsafe { LLVMDisposePassBuilderOptions(options) };
+        Ok(())
+    }
 }
 
 fn llvm_raw_opt_level(opt_level: OptLevel) -> LLVMCodeGenOptLevel {
@@ -628,6 +694,23 @@ fn take_llvm_message(message: *mut std::ffi::c_char) -> String {
     unsafe {
         let text = CStr::from_ptr(message).to_string_lossy().into_owned();
         LLVMDisposeMessage(message);
+        text
+    }
+}
+
+fn take_llvm_error(error: LLVMErrorRef) -> String {
+    if error.is_null() {
+        return "Unknown LLVM error".to_string();
+    }
+
+    unsafe {
+        let message = LLVMGetErrorMessage(error);
+        let text = if message.is_null() {
+            "Unknown LLVM error".to_string()
+        } else {
+            CStr::from_ptr(message).to_string_lossy().into_owned()
+        };
+        LLVMDisposeErrorMessage(message);
         text
     }
 }

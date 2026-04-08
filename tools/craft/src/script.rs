@@ -21,6 +21,7 @@ use std::path::{Component, Path, PathBuf};
 
 const DEV_DEFAULT_OPT_LEVEL: u8 = 0;
 const RELEASE_DEFAULT_OPT_LEVEL: u8 = 3;
+const RELEASE_DEFAULT_MAX_CODEGEN_UNITS: usize = 4;
 
 const OPTION_SOME_TAG: i128 = 0;
 const OPTION_NONE_TAG: i128 = 1;
@@ -227,18 +228,41 @@ pub fn manifest_profile(manifest: &Manifest, selection: ProfileSelection) -> Scr
         ProfileSelection::Dev => (DEV_DEFAULT_OPT_LEVEL, true),
         ProfileSelection::Release => (RELEASE_DEFAULT_OPT_LEVEL, false),
     };
+    let resolved_opt = profile
+        .and_then(|profile| profile.opt)
+        .unwrap_or(default_opt);
 
     ScriptProfile {
         name: selection.name().to_string(),
-        opt: profile
-            .and_then(|profile| profile.opt)
-            .unwrap_or(default_opt),
+        opt: resolved_opt,
         debug: profile
             .and_then(|profile| profile.debug)
             .unwrap_or(default_debug),
         codegen_units: profile
             .and_then(|profile| profile.codegen_units)
-            .unwrap_or(1),
+            .unwrap_or_else(|| {
+                default_profile_codegen_units(
+                    selection,
+                    resolved_opt,
+                    std::thread::available_parallelism()
+                        .map(|count| count.get())
+                        .unwrap_or(1),
+                )
+            }),
+    }
+}
+
+fn default_profile_codegen_units(
+    selection: ProfileSelection,
+    opt: u8,
+    available_parallelism: usize,
+) -> usize {
+    match selection {
+        ProfileSelection::Dev => 1,
+        ProfileSelection::Release if opt >= 2 => available_parallelism
+            .max(1)
+            .min(RELEASE_DEFAULT_MAX_CODEGEN_UNITS),
+        ProfileSelection::Release => 1,
     }
 }
 
@@ -1615,7 +1639,10 @@ impl ScriptOs {
 
 #[cfg(test)]
 mod tests {
-    use super::{validate_build_script, validate_craft_script};
+    use super::{
+        Manifest, ProfileSelection, default_profile_codegen_units, manifest_profile,
+        validate_build_script, validate_craft_script,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1692,5 +1719,85 @@ mod tests {
         assert!(result.is_ok(), "unexpected result: {result:?}");
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn release_profile_defaults_to_capped_parallel_codegen_units() {
+        assert_eq!(
+            default_profile_codegen_units(ProfileSelection::Release, 3, 1),
+            1
+        );
+        assert_eq!(
+            default_profile_codegen_units(ProfileSelection::Release, 3, 2),
+            2
+        );
+        assert_eq!(
+            default_profile_codegen_units(ProfileSelection::Release, 3, 8),
+            4
+        );
+    }
+
+    #[test]
+    fn release_profile_keeps_single_codegen_unit_for_low_opt_levels() {
+        assert_eq!(
+            default_profile_codegen_units(ProfileSelection::Release, 0, 8),
+            1
+        );
+        assert_eq!(
+            default_profile_codegen_units(ProfileSelection::Release, 1, 8),
+            1
+        );
+    }
+
+    #[test]
+    fn dev_profile_defaults_to_single_codegen_unit() {
+        assert_eq!(
+            default_profile_codegen_units(ProfileSelection::Dev, 3, 8),
+            1
+        );
+    }
+
+    #[test]
+    fn manifest_profile_uses_default_release_codegen_units_when_unspecified() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let profile = manifest_profile(&manifest, ProfileSelection::Release);
+        let expected = default_profile_codegen_units(
+            ProfileSelection::Release,
+            profile.opt,
+            std::thread::available_parallelism()
+                .map(|count| count.get())
+                .unwrap_or(1),
+        );
+        assert_eq!(profile.codegen_units, expected);
+    }
+
+    #[test]
+    fn manifest_profile_preserves_explicit_codegen_units() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+codegen-units = 7
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let profile = manifest_profile(&manifest, ProfileSelection::Release);
+        assert_eq!(profile.codegen_units, 7);
     }
 }

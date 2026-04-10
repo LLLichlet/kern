@@ -1,0 +1,116 @@
+use std.test;
+use json.{
+    Kind,
+    ParseError,
+    RenderError,
+    compact_size,
+    error_offset,
+    locate_error,
+    parse,
+    parse_prefix,
+    render_compact,
+    validate,
+};
+
+fn check_parse_scalar_kinds() void {
+    test.eq(test.expect_ok(parse("null")).kind, Kind.Null);
+    test.eq(test.expect_ok(parse("true")).kind, Kind.Bool);
+    test.eq(test.expect_ok(parse("-12.5e+2")).kind, Kind.Number);
+    test.eq(test.expect_ok(parse("\"hi\"")).kind, Kind.String);
+}
+
+fn check_parse_trims_outer_whitespace_and_preserves_raw_value() void {
+    let value = test.expect_ok(parse(" \n\t { \"ok\" : true } \r\n"));
+    test.eq(value.kind, Kind.Object);
+    test.assert(
+        value.raw.eq("{ \"ok\" : true }"),
+        "expected raw JSON slice to exclude outer whitespace only",
+        .{}
+    );
+}
+
+fn check_parse_prefix_returns_remaining_suffix() void {
+    let parsed = test.expect_ok(parse_prefix(" [1, 2] tail"));
+    test.eq(parsed.value.kind, Kind.Array);
+    test.assert(parsed.remaining.eq(" tail"), "expected remaining suffix after first value", .{});
+}
+
+fn check_validate_accepts_complete_document() void {
+    let _ = test.expect_ok(validate("{\"ok\":true,\"items\":[1,2,3]}"));
+}
+
+fn check_parse_rejects_trailing_data() void {
+    match (test.expect_err(parse("true false"))) {
+        .{ TrailingData: _ } => {},
+        _ => test.fail("expected trailing data rejection", .{}),
+    }
+}
+
+fn check_parse_rejects_bad_escape() void {
+    match (test.expect_err(parse("\"\\x\""))) {
+        .{ InvalidEscape: _ } => {},
+        _ => test.fail("expected invalid escape rejection", .{}),
+    }
+}
+
+fn check_parse_rejects_leading_zero_number() void {
+    match (test.expect_err(parse("01"))) {
+        .{ TrailingData: _ } => {},
+        .{ InvalidNumber: _ } => {},
+        _ => test.fail("expected invalid leading-zero number rejection", .{}),
+    }
+}
+
+fn check_compact_render_strips_insignificant_whitespace() void {
+    let value = test.expect_ok(parse("{ \"ok\" : [ 1, 2 , 3 ], \"msg\" : \"hi\\n\" }"));
+    let out = [128]mut u8.{undef};
+    let written = test.expect_ok(render_compact(value, out..[0 .. 128]));
+    test.assert(
+        out.[0 .. written].eq("{\"ok\":[1,2,3],\"msg\":\"hi\\n\"}"),
+        "expected compact renderer to strip insignificant whitespace",
+        .{}
+    );
+}
+
+fn check_compact_size_matches_rendered_size() void {
+    let value = test.expect_ok(parse("{ \"ok\" : [ 1, 2 , 3 ], \"msg\" : \"hi\\n\" }"));
+    let expected = test.expect_ok(compact_size(value));
+    let out = [128]mut u8.{undef};
+    let written = test.expect_ok(render_compact(value, out..[0 .. 128]));
+    test.eq(written, expected);
+}
+
+fn check_compact_render_reports_small_buffer() void {
+    let value = test.expect_ok(parse("{\"ok\":true}"));
+    let out = [4]mut u8.{undef};
+    match (test.expect_err(render_compact(value, out..[0 .. 4]))) {
+        .BufferTooSmall => {},
+        .{ Parse: _ } => test.fail("expected buffer-too-small error", .{}),
+    }
+}
+
+fn check_error_location_reports_line_and_column() void {
+    let input = "{\n  \"ok\" true\n}";
+    let err = test.expect_err(parse(input));
+    let offset = test.expect_some(error_offset(err));
+    test.eq(offset, usize.{9});
+    let loc = test.expect_some(locate_error(input, err));
+    test.eq(loc.offset, usize.{9});
+    test.eq(loc.line, usize.{2});
+    test.eq(loc.column, usize.{8});
+}
+
+fn main() i32 {
+    check_parse_scalar_kinds();
+    check_parse_trims_outer_whitespace_and_preserves_raw_value();
+    check_parse_prefix_returns_remaining_suffix();
+    check_validate_accepts_complete_document();
+    check_parse_rejects_trailing_data();
+    check_parse_rejects_bad_escape();
+    check_parse_rejects_leading_zero_number();
+    check_compact_render_strips_insignificant_whitespace();
+    check_compact_size_matches_rendered_size();
+    check_compact_render_reports_small_buffer();
+    check_error_location_reports_line_and_column();
+    return 0;
+}

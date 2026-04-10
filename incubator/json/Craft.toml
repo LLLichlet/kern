@@ -1,0 +1,18 @@
+[package]
+name = "json"
+version = "0.1.0"
+kern = "0.6.7"
+publish = false
+description = "Borrowed JSON validation, slicing, and compact rendering for Kern"
+readme = "README.md"
+license = "MIT"
+
+[lib]
+root = "src/lib.rn"
+
+[[example]]
+name = "hello_compact"
+root = "examples/hello_compact.rn"
+
+[test]
+roots = ["tests/smoke.rn"]

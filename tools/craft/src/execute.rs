@@ -4,34 +4,28 @@ use crate::build_plan::{
 use crate::build_state;
 use crate::error::{Error, Result};
 use crate::graph::{BuildDomain, PackageId};
-use crate::manifest::Manifest;
 use crate::operation_lock::OutputOperationLock;
 use crate::resolver::ExternalPackageId;
 use kernc_driver::{
     CodegenPlanReport, CompileCacheStats, CompileReport, CompilerDriver, IncrementalDriverKey,
     KMETA_MANIFEST_FILE, PhaseTiming, load_kmeta_manifest,
 };
-use kernc_utils::config::{
-    CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
-    inject_driver_condition_defines, maybe_inject_base_alias, maybe_inject_std_alias,
-    maybe_inject_sys_alias,
-};
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::thread;
 use std::time::Duration;
 
 mod external;
 mod fingerprint;
+mod options;
+mod parallel;
 mod runtime_packages;
 
 use self::external::{
-    build_external_package, compile_actions_index, compile_module_aliases,
-    ensure_external_tool_built, link_actions_by_artifact_path, link_objects_for_compile_action,
-    local_library_actions, requested_external_dependencies,
+    build_external_package, compile_actions_index, ensure_external_tool_built,
+    link_actions_by_artifact_path, local_library_actions, requested_external_dependencies,
 };
 use self::fingerprint::{
     base_compile_action_label, build_fingerprint, compile_action_fingerprint, compile_action_label,
@@ -39,8 +33,12 @@ use self::fingerprint::{
     rt_entry_compile_action_label, std_compile_action_label, sys_compile_action_label,
     write_compile_action_state,
 };
+use self::options::{compile_action_options, link_action_options};
+use self::parallel::{
+    build_parallel_target_compile_jobs, build_parallel_target_link_jobs,
+    compile_action_for_link_action, parallel_target_compile_jobs, parallel_target_link_jobs,
+};
 use self::runtime_packages::ensure_std_packages_for_actions;
-use crate::target_defaults::apply_target_runtime_defaults;
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct ExecutionSummary {
@@ -65,23 +63,6 @@ pub struct ActionCacheStats {
 impl ActionCacheStats {
     pub fn is_empty(self) -> bool {
         self == Self::default()
-    }
-}
-
-fn default_target_compile_options(target_kind: crate::plan::TargetKind) -> CompileOptions {
-    let mut options = CompileOptions::default();
-    apply_target_runtime_defaults(&mut options, target_kind);
-    options
-}
-
-fn inject_target_library_aliases(options: &mut CompileOptions) {
-    if options.module_interface_aliases.contains_key("std") {
-        return;
-    }
-    maybe_inject_base_alias(options);
-    maybe_inject_sys_alias(options);
-    if !options.module_interface_aliases.contains_key("std") {
-        maybe_inject_std_alias(options);
     }
 }
 
@@ -405,30 +386,6 @@ struct ExecutionSession<'a> {
     state: ExecutionState<'a>,
 }
 
-#[derive(Debug)]
-struct ParallelTargetLinkJob<'a> {
-    link_action: &'a LinkAction,
-    compile_action: &'a CompileAction,
-}
-
-#[derive(Debug)]
-struct ParallelTargetCompileJob<'a> {
-    compile_action: &'a CompileAction,
-}
-
-#[derive(Debug)]
-struct ParallelTargetCompileResult {
-    compile_object_path: PathBuf,
-    summary: ExecutionSummary,
-}
-
-#[derive(Debug)]
-struct ParallelTargetLinkResult {
-    compile_object_path: PathBuf,
-    artifact_path: PathBuf,
-    summary: ExecutionSummary,
-}
-
 pub(super) fn runtime_profile_key(profile: &crate::script::ScriptProfile) -> String {
     format!(
         "{}-opt{}-debug{}-cgu{}",
@@ -452,275 +409,6 @@ pub(super) fn compile_with_shared_driver(
     let report = driver.compile_with_report();
     driver_families.entry(key).or_insert(driver);
     report
-}
-
-fn compile_action_for_link_action<'a>(
-    action: &LinkAction,
-    compile_action_index: &'a BTreeMap<ActionKey, CompileAction>,
-) -> Result<&'a CompileAction> {
-    compile_action_index
-        .get(&ActionKey {
-            domain: action.domain,
-            package_id: action.package_id.clone(),
-            target_kind: action.target_kind,
-            target_name: action.target_name.clone(),
-        })
-        .ok_or_else(|| {
-            Error::Execution(format!(
-                "missing compile action for `{}` target `{}`",
-                action.package_id.name, action.artifact_name
-            ))
-        })
-}
-
-fn parallel_target_link_jobs<'a>(
-    action_plan: &'a ActionPlan,
-    compile_action_index: &'a BTreeMap<ActionKey, CompileAction>,
-    linked: &BTreeSet<PathBuf>,
-) -> Result<Vec<ParallelTargetLinkJob<'a>>> {
-    let mut jobs = Vec::new();
-    for action in &action_plan.link_actions {
-        if action.domain != BuildDomain::Target
-            || !action.artifact_outputs.is_empty()
-            || linked.contains(&action.artifact_path)
-        {
-            continue;
-        }
-        jobs.push(ParallelTargetLinkJob {
-            link_action: action,
-            compile_action: compile_action_for_link_action(action, compile_action_index)?,
-        });
-    }
-    Ok(jobs)
-}
-
-fn compile_action_local_dependencies_ready(
-    action: &CompileAction,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    compiled: &BTreeSet<PathBuf>,
-) -> bool {
-    action.local_dependencies.iter().all(|dep| {
-        let Some(dep_action) = local_library_actions.get(&PackageInstanceKey {
-            domain: dep.domain,
-            package_id: dep.package_id.clone(),
-        }) else {
-            return true;
-        };
-        compiled.contains(&dep_action.object_path)
-    })
-}
-
-fn parallel_target_compile_jobs<'a>(
-    action_plan: &'a ActionPlan,
-    local_library_actions: &'a BTreeMap<PackageInstanceKey, CompileAction>,
-    compiled: &BTreeSet<PathBuf>,
-) -> Vec<ParallelTargetCompileJob<'a>> {
-    let mut jobs = Vec::new();
-    for action in &action_plan.compile_actions {
-        if action.domain != BuildDomain::Target
-            || action.target_kind != crate::plan::TargetKind::Lib
-            || compiled.contains(&action.object_path)
-            || !compile_action_local_dependencies_ready(action, local_library_actions, compiled)
-        {
-            continue;
-        }
-        jobs.push(ParallelTargetCompileJob {
-            compile_action: action,
-        });
-    }
-    jobs
-}
-
-fn target_parallel_worker_count(job_count: usize) -> usize {
-    if job_count < 2 {
-        return 1;
-    }
-
-    thread::available_parallelism()
-        .map(|count| count.get())
-        .unwrap_or(1)
-        .min(job_count)
-}
-
-fn build_parallel_target_link_job(
-    job: &ParallelTargetLinkJob<'_>,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
-    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
-) -> Result<ParallelTargetLinkResult> {
-    ensure_parent_dir(&job.compile_action.object_path)?;
-    ensure_parent_dir(&job.compile_action.artifact_path)?;
-    let compile_options = compile_action_options(
-        job.compile_action,
-        local_library_actions,
-        built_std_packages,
-        built_external_packages,
-        manifest_runtime_options,
-    )?;
-    let mut summary = ExecutionSummary::default();
-    let _ = build_compile_action_if_needed(
-        job.compile_action,
-        compile_options,
-        driver_families,
-        &mut summary,
-    )?;
-
-    ensure_parent_dir(&job.link_action.artifact_path)?;
-    let (link_options, linker_inputs) = link_action_options(
-        job.link_action,
-        job.compile_action,
-        local_library_actions,
-        built_std_packages,
-        built_external_packages,
-        manifest_runtime_options,
-    )?;
-    let _ =
-        build_link_action_if_needed(job.link_action, link_options, &linker_inputs, &mut summary)?;
-
-    Ok(ParallelTargetLinkResult {
-        compile_object_path: job.compile_action.object_path.clone(),
-        artifact_path: job.link_action.artifact_path.clone(),
-        summary,
-    })
-}
-
-fn build_parallel_target_compile_job(
-    job: &ParallelTargetCompileJob<'_>,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
-    driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
-) -> Result<ParallelTargetCompileResult> {
-    ensure_parent_dir(&job.compile_action.object_path)?;
-    ensure_parent_dir(&job.compile_action.artifact_path)?;
-    let compile_options = compile_action_options(
-        job.compile_action,
-        local_library_actions,
-        built_std_packages,
-        built_external_packages,
-        manifest_runtime_options,
-    )?;
-    let mut summary = ExecutionSummary::default();
-    let _ = build_compile_action_if_needed(
-        job.compile_action,
-        compile_options,
-        driver_families,
-        &mut summary,
-    )?;
-
-    Ok(ParallelTargetCompileResult {
-        compile_object_path: job.compile_action.object_path.clone(),
-        summary,
-    })
-}
-
-fn build_parallel_target_compile_jobs(
-    jobs: &[ParallelTargetCompileJob<'_>],
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-) -> Result<Vec<ParallelTargetCompileResult>> {
-    let worker_count = target_parallel_worker_count(jobs.len());
-    if worker_count <= 1 {
-        return Ok(Vec::new());
-    }
-
-    let next_job = AtomicUsize::new(0);
-    thread::scope(|scope| {
-        let mut workers = Vec::new();
-        for _ in 0..worker_count {
-            workers.push(scope.spawn(|| -> Result<Vec<ParallelTargetCompileResult>> {
-                let mut results = Vec::new();
-                let mut manifest_runtime_options = BTreeMap::new();
-                let mut driver_families = BTreeMap::new();
-                loop {
-                    let index = next_job.fetch_add(1, Ordering::Relaxed);
-                    if index >= jobs.len() {
-                        break;
-                    }
-                    results.push(build_parallel_target_compile_job(
-                        &jobs[index],
-                        local_library_actions,
-                        built_std_packages,
-                        built_external_packages,
-                        &mut manifest_runtime_options,
-                        &mut driver_families,
-                    )?);
-                }
-                Ok(results)
-            }));
-        }
-
-        let mut results = Vec::new();
-        for worker in workers {
-            match worker.join() {
-                Ok(Ok(mut worker_results)) => results.append(&mut worker_results),
-                Ok(Err(err)) => return Err(err),
-                Err(_) => {
-                    return Err(Error::Execution(
-                        "parallel target compile worker panicked".to_string(),
-                    ));
-                }
-            }
-        }
-        Ok(results)
-    })
-}
-
-fn build_parallel_target_link_jobs(
-    jobs: &[ParallelTargetLinkJob<'_>],
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-) -> Result<Vec<ParallelTargetLinkResult>> {
-    let worker_count = target_parallel_worker_count(jobs.len());
-    if worker_count <= 1 {
-        return Ok(Vec::new());
-    }
-
-    let next_job = AtomicUsize::new(0);
-    thread::scope(|scope| {
-        let mut workers = Vec::new();
-        for _ in 0..worker_count {
-            workers.push(scope.spawn(|| -> Result<Vec<ParallelTargetLinkResult>> {
-                let mut results = Vec::new();
-                let mut manifest_runtime_options = BTreeMap::new();
-                let mut driver_families = BTreeMap::new();
-                loop {
-                    let index = next_job.fetch_add(1, Ordering::Relaxed);
-                    if index >= jobs.len() {
-                        break;
-                    }
-                    results.push(build_parallel_target_link_job(
-                        &jobs[index],
-                        local_library_actions,
-                        built_std_packages,
-                        built_external_packages,
-                        &mut manifest_runtime_options,
-                        &mut driver_families,
-                    )?);
-                }
-                Ok(results)
-            }));
-        }
-
-        let mut results = Vec::new();
-        for worker in workers {
-            match worker.join() {
-                Ok(Ok(mut worker_results)) => results.append(&mut worker_results),
-                Ok(Err(err)) => return Err(err),
-                Err(_) => {
-                    return Err(Error::Execution(
-                        "parallel target build worker panicked".to_string(),
-                    ));
-                }
-            }
-        }
-        Ok(results)
-    })
 }
 
 fn build_with_command(
@@ -979,66 +667,6 @@ fn find_link_action<'a>(action_plan: &'a ActionPlan, unit: &BuildUnit) -> Result
         })
 }
 
-fn compile_time_defines(
-    cfg: &std::collections::BTreeMap<String, crate::plan::PlanValue>,
-    define: &std::collections::BTreeMap<String, crate::plan::PlanValue>,
-    source_path: &Path,
-) -> Result<HashMap<String, String>> {
-    let mut values = HashMap::new();
-
-    for (name, value) in cfg {
-        values.insert(name.clone(), plan_value_string(value));
-    }
-    for (name, value) in define {
-        let value = plan_value_string(value);
-        if let Some(existing) = values.get(name)
-            && existing != &value
-        {
-            return Err(Error::Execution(format!(
-                "compile-time key `{name}` has conflicting cfg/define values for `{}`",
-                source_path.display()
-            )));
-        }
-        values.insert(name.clone(), value);
-    }
-
-    Ok(values)
-}
-
-fn apply_manifest_runtime_options(
-    manifest_path: &Path,
-    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
-    target_kind: crate::plan::TargetKind,
-    options: &mut CompileOptions,
-) -> Result<()> {
-    if let Some(cached) = manifest_runtime_options.get(manifest_path) {
-        cached.apply_for_target(target_kind, options);
-        return Ok(());
-    }
-
-    let manifest = Manifest::load(manifest_path)?;
-    manifest.validate(manifest_path)?;
-    let cached = ManifestRuntimeOptions {
-        entry: manifest.runtime.as_ref().and_then(|runtime| runtime.entry),
-        provider: manifest
-            .runtime
-            .as_ref()
-            .and_then(|runtime| runtime.provider),
-        libc: manifest.runtime.as_ref().and_then(|runtime| runtime.libc),
-        bundle: manifest.runtime.as_ref().and_then(|runtime| runtime.bundle),
-    };
-    cached.apply_for_target(target_kind, options);
-    manifest_runtime_options.insert(manifest_path.to_path_buf(), cached);
-    Ok(())
-}
-
-fn plan_value_string(value: &crate::plan::PlanValue) -> String {
-    match value {
-        crate::plan::PlanValue::Bool(value) => value.to_string(),
-        crate::plan::PlanValue::String(value) => value.clone(),
-    }
-}
-
 fn ensure_parent_dir(path: &Path) -> Result<()> {
     crate::local_state::ensure_parent_dir(path)
 }
@@ -1057,15 +685,6 @@ fn prepare_output_path(path: &Path, expects_directory: bool) -> Result<()> {
         fs::remove_dir_all(path).map_err(|err| Error::from_io(path, err))?;
     }
     Ok(())
-}
-
-fn profile_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
-    match profile.opt {
-        0 => OptLevel::O0,
-        1 => OptLevel::O1,
-        2 => OptLevel::O2,
-        _ => OptLevel::O3,
-    }
 }
 
 fn resolve_invocation_path(path: &Path) -> Result<PathBuf> {
@@ -1087,58 +706,6 @@ impl SourceConfigContext {
     fn with_child(&self) -> Self {
         Self { _private: () }
     }
-}
-
-fn compile_action_options(
-    action: &CompileAction,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
-) -> Result<CompileOptions> {
-    let mut options = CompileOptions {
-        input_file: Some(action.source_path().to_string_lossy().to_string()),
-        output_file: action.object_path.to_string_lossy().to_string(),
-        metadata_output: action
-            .metadata_path
-            .as_ref()
-            .map(|path| path.to_string_lossy().to_string()),
-        metadata_package_name: (action.target_kind == crate::plan::TargetKind::Lib)
-            .then(|| action.package_id.name.clone()),
-        metadata_package_version: (action.target_kind == crate::plan::TargetKind::Lib)
-            .then(|| action.package_id.version.clone()),
-        root_module_name: (action.target_kind == crate::plan::TargetKind::Lib)
-            .then(|| action.package_id.name.clone()),
-        driver_mode: DriverMode::CompileOnly,
-        report_progress: false,
-        opt_level: profile_opt_level(&action.profile),
-        codegen_units: action.profile.codegen_units,
-        emit_multi_object_dir: action.domain == BuildDomain::Target
-            && action.profile.codegen_units > 1,
-        split_sections_for_gc: true,
-        ..default_target_compile_options(action.target_kind)
-    };
-    apply_manifest_runtime_options(
-        &action.manifest_path,
-        manifest_runtime_options,
-        action.target_kind,
-        &mut options,
-    )?;
-    apply_host_linker_env(&mut options);
-    options.module_interface_aliases = compile_module_aliases(
-        action,
-        local_library_actions,
-        built_std_packages.get(&runtime_profile_key(&action.profile)),
-        built_external_packages,
-    )?;
-    inject_target_library_aliases(&mut options);
-    inject_driver_condition_defines(&mut options);
-    options.custom_defines.extend(compile_time_defines(
-        &action.cfg,
-        &action.define,
-        action.source_path(),
-    )?);
-    Ok(options)
 }
 
 fn build_compile_action_if_needed(
@@ -1184,49 +751,6 @@ fn build_compile_action_if_needed(
         report.codegen_plan,
     );
     Ok(true)
-}
-
-fn link_action_options(
-    action: &LinkAction,
-    compile_action: &CompileAction,
-    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
-    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
-    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
-    manifest_runtime_options: &mut BTreeMap<PathBuf, ManifestRuntimeOptions>,
-) -> Result<(CompileOptions, Vec<PathBuf>)> {
-    let mut options = CompileOptions {
-        output_file: action.artifact_path.to_string_lossy().to_string(),
-        driver_mode: DriverMode::LinkOnly,
-        report_progress: false,
-        dead_strip_sections: true,
-        ..default_target_compile_options(action.target_kind)
-    };
-    apply_manifest_runtime_options(
-        &action.manifest_path,
-        manifest_runtime_options,
-        action.target_kind,
-        &mut options,
-    )?;
-    apply_host_linker_env(&mut options);
-    let linker_inputs = link_objects_for_compile_action(
-        compile_action,
-        &options,
-        local_library_actions,
-        built_std_packages,
-        built_external_packages,
-    )?;
-    options.linker_inputs = linker_inputs
-        .iter()
-        .map(|path| path.to_string_lossy().to_string())
-        .collect();
-    options.linker_libraries = action.link.system_libs.clone();
-    options.linker_search_paths = action.link.search_paths.clone();
-    options.linker_args = action.link.args.clone();
-    for framework in &action.link.frameworks {
-        options.linker_args.push("-framework".to_string());
-        options.linker_args.push(framework.clone());
-    }
-    Ok((options, linker_inputs))
 }
 
 fn build_link_action_if_needed(
@@ -1634,12 +1158,6 @@ fn validate_package_metadata_root(
     }
 
     Ok(())
-}
-
-fn apply_host_linker_env(options: &mut CompileOptions) {
-    if let Ok(cc_env) = std::env::var("CC") {
-        options.linker_cmd = cc_env;
-    }
 }
 
 #[cfg(test)]

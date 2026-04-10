@@ -1,0 +1,402 @@
+use super::*;
+
+#[test]
+fn compiles_const_fn_loops_with_assignment_break_and_continue() {
+    let output = compile_source(
+        r#"
+const fn sum_skip(limit: i32) i32 {
+    let mut acc = i32.{0};
+
+    for (let mut i = i32.{0}; i < limit; i += i32.{1}) {
+        if (i == i32.{2}) {
+            continue;
+        }
+        if (i == i32.{5}) {
+            break;
+        }
+        acc += i;
+    }
+
+    return acc;
+}
+
+const TOTAL = sum_skip(i32.{7});
+
+fn main() i32 {
+    return TOTAL;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_const_fn_mutating_local_struct_fields_and_array_elements() {
+    let output = compile_source(
+        r#"
+type Pair = struct {
+    left: i32,
+    right: i32,
+};
+
+const fn build_total() i32 {
+    let mut pair = Pair.{ left: 1, right: 2 };
+    pair.left += 4;
+    pair.right = pair.left + pair.right;
+
+    let mut items = [3]mut i32.{ 5, 6, 7 };
+    items.[1] = pair.right;
+    items.[2] += items.[0];
+
+    return pair.right + items.[1] + items.[2];
+}
+
+const TOTAL = build_total();
+
+fn main() i32 {
+    return TOTAL;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_const_fn_mutating_local_through_pointer() {
+    let output = compile_source(
+        r#"
+const fn bump(ptr: *mut i32) void {
+    ptr.* += 1;
+}
+
+const fn run() i32 {
+    let mut value = i32.{1};
+    bump(value..&);
+    return value;
+}
+
+const RESULT = run();
+
+fn main() i32 {
+    return RESULT;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_mut_pointer_to_array_whole_value_assignment() {
+    let output = compile_source(
+        r#"
+fn replace(buf: *mut [4]u8) void {
+    buf.* = [4]u8.{ 1, 2, 3, 4 };
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_pointer_to_mut_array_element_assignment() {
+    let output = compile_source(
+        r#"
+fn write(buf: *[4]mut u8, index: usize, value: u8) void {
+    buf.*.[index] = value;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_element_assignment_through_mut_pointer_to_non_mut_array() {
+    let output = compile_source(
+        r#"
+fn write(buf: *mut [4]u8, index: usize, value: u8) void {
+    buf.*.[index] = value;
+}
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot assign to an immutable variable or location"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn compiles_const_fn_mutating_struct_field_through_pointer_auto_deref() {
+    let output = compile_source(
+        r#"
+type Counter = struct {
+    value: i32,
+};
+
+const fn bump(counter: *mut Counter) void {
+    counter.value += 3;
+}
+
+const fn run() i32 {
+    let mut counter = Counter.{ value: 4 };
+    bump(counter..&);
+    return counter.value;
+}
+
+const RESULT = run();
+
+fn main() i32 {
+    return RESULT;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_assignment_through_non_mut_array_elements() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let mut arr = [4]i32.{ 0; 4 };
+    arr.[0] = 3;
+    return arr.[0];
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot assign to an immutable variable or location"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_rebinding_immutable_array_binding() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let arr = [3]u8.{ b'a', b'b', b'c' };
+    arr = [3]u8.{ b'x', b'y', b'z' };
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot assign to an immutable variable or location"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_non_const_fn_in_const_context() {
+    let output = compile_source(
+        r#"
+fn runtime_only(v: i32) i32 {
+    return v + 1;
+}
+
+const BAD = runtime_only(1);
+
+fn main() i32 {
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("only `const fn` can be called in constant expressions"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn rejects_arrays_larger_than_llvm_indexable_limit() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let _ = [4294967296]u8.{ undef };
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn allows_private_named_struct_fields_within_defining_module() {
+    let output = compile_source_tree(
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod data;
+
+fn main() i32 {
+    return data.read_secret();
+}
+"#,
+            ),
+            (
+                "data.rn",
+                r#"
+pub type Bag = struct {
+    secret: i32,
+    pub open: i32,
+};
+
+pub fn read_secret() i32 {
+    let bag = Bag.{ secret: 5, open: 8 };
+    return bag.secret + bag.open;
+}
+"#,
+            ),
+        ],
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_private_named_struct_fields_across_modules() {
+    let output = compile_source_tree(
+        "main.rn",
+        &[
+            (
+                "main.rn",
+                r#"
+mod data;
+
+fn main() i32 {
+    let bag = data.make();
+    return bag.secret + bag.open;
+}
+"#,
+            ),
+            (
+                "data.rn",
+                r#"
+pub type Bag = struct {
+    secret: i32,
+    pub open: i32,
+};
+
+pub fn make() Bag {
+    return Bag.{ secret: 5, open: 8 };
+}
+"#,
+            ),
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("field `secret` of type `Bag` is private"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}

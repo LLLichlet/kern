@@ -1,4 +1,6 @@
+mod cache;
 mod code_actions;
+mod completion;
 mod diagnostics;
 mod navigation;
 mod semantic;
@@ -6,9 +8,14 @@ mod semantic;
 mod tests;
 mod text;
 
+use self::cache::{
+    AnalysisCacheKey, DirtyDocumentsSnapshot, SemanticTokensCacheKey, hash_source_text,
+};
 use self::code_actions::{quick_fix_for_diagnostic, ranges_overlap, workspace_edit_key};
+use self::completion::{completion_sort_key, keyword_completion_item};
+pub use self::diagnostics::cleared_uris;
 use self::diagnostics::{
-    convert_diagnostic, convert_diagnostic_for_document, diagnostics_from_session,
+    convert_diagnostic_for_document, diagnostics_from_session, preserve_target_diagnostics,
 };
 use self::navigation::{
     analysis_completion_to_lsp_item, analysis_signature_help_to_lsp_help,
@@ -16,11 +23,11 @@ use self::navigation::{
     find_document_highlights, find_hover, find_reference_locations, find_rename_target,
 };
 use self::text::{
-    CompletionContext, apply_content_change, byte_offset_to_position, completion_context,
-    completion_is_member_access, completion_prefix, file_path_to_uri, has_following_call_paren,
-    is_valid_identifier, keyword_completion_labels, match_position_in_file, normalize_path,
-    position_to_byte_offset, single_server_diagnostic, span_contains_offset, span_to_range,
-    trim_line_ending, uri_to_file_path,
+    apply_content_change, byte_offset_to_position, completion_context, completion_is_member_access,
+    completion_prefix, file_path_to_uri, has_following_call_paren, is_valid_identifier,
+    keyword_completion_labels, match_position_in_file, normalize_path, position_to_byte_offset,
+    single_server_diagnostic, span_contains_offset, span_to_range, trim_line_ending,
+    uri_to_file_path,
 };
 use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
@@ -32,17 +39,15 @@ use crate::protocol::{
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
     AnalysisArtifact, AnalysisSurfaceArtifact, CompilerDriver, IncrementalDriverKey,
-    ParsedModuleArtifact, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
+    ParsedModuleArtifact, SourceOverrides, StructureArtifact,
 };
 use kernc_utils::config::{
     CompileOptions, inject_default_library_aliases, inject_driver_condition_defines,
 };
 use kernc_utils::{Session, SourceFile, Span};
 use std::cell::RefCell;
-use std::collections::hash_map::DefaultHasher;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
@@ -90,60 +95,6 @@ struct RenameTarget {
     placeholder: String,
 }
 
-#[derive(Debug, Clone, Copy)]
-struct OffsetReplacement {
-    clean_start: usize,
-    clean_end: usize,
-    dirty_start: usize,
-    dirty_end: usize,
-}
-
-#[derive(Debug, Clone, Default)]
-struct DirtyDocumentsSnapshot {
-    overrides: SourceOverrides,
-    hashed_overrides: Vec<(PathBuf, u64)>,
-}
-
-impl DirtyDocumentsSnapshot {
-    fn is_clean(&self) -> bool {
-        self.hashed_overrides.is_empty()
-    }
-
-    fn len(&self) -> usize {
-        self.hashed_overrides.len()
-    }
-
-    fn remap_for(&self, aliases: &BTreeMap<PathBuf, PathBuf>) -> Self {
-        if aliases.is_empty() || self.overrides.is_empty() {
-            return self.clone();
-        }
-
-        let mut overrides = self.overrides.clone();
-        for (source_path, generated_path) in aliases {
-            let normalized_source = normalize_path(source_path);
-            let normalized_generated = normalize_path(generated_path);
-            if overrides.contains_key(&normalized_generated) {
-                continue;
-            }
-            let Some(source) = overrides.get(&normalized_source).cloned() else {
-                continue;
-            };
-            overrides.insert(normalized_generated, source);
-        }
-
-        let mut hashed_overrides = overrides
-            .iter()
-            .map(|(path, text)| (normalize_path(path), hash_source_text(text)))
-            .collect::<Vec<_>>();
-        hashed_overrides.sort();
-
-        Self {
-            overrides,
-            hashed_overrides,
-        }
-    }
-}
-
 pub struct AnalysisEngine {
     documents: BTreeMap<String, OpenDocument>,
     settings: AnalysisSettings,
@@ -155,111 +106,6 @@ pub struct AnalysisEngine {
     artifact_cache: RefCell<BTreeMap<AnalysisCacheKey, Rc<AnalysisArtifact>>>,
     semantic_tokens_cache: RefCell<BTreeMap<SemanticTokensCacheKey, SemanticTokens>>,
     dirty_documents_snapshot: RefCell<Option<Rc<DirtyDocumentsSnapshot>>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct AnalysisCacheKey {
-    input_file: PathBuf,
-    root_module_name: Option<String>,
-    target_triple: String,
-    custom_defines: Vec<(String, String)>,
-    module_aliases: Vec<(String, String)>,
-    module_interface_aliases: Vec<(String, String)>,
-    source_overrides: Vec<(PathBuf, u64)>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct AnalysisCacheFamilyKey {
-    input_file: PathBuf,
-    root_module_name: Option<String>,
-    target_triple: String,
-    custom_defines: Vec<(String, String)>,
-    module_aliases: Vec<(String, String)>,
-    module_interface_aliases: Vec<(String, String)>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-struct SemanticTokensCacheKey {
-    analysis: AnalysisCacheKey,
-    target_path: PathBuf,
-    document_version: i64,
-}
-
-impl AnalysisCacheKey {
-    #[cfg(test)]
-    fn from_resolved(resolved: &ResolvedAnalysis, source_overrides: &SourceOverrides) -> Self {
-        let mut hashed_overrides = source_overrides
-            .iter()
-            .map(|(path, text)| (normalize_path(path), hash_source_text(text)))
-            .collect::<Vec<_>>();
-        hashed_overrides.sort();
-        Self::from_resolved_hashed(resolved, hashed_overrides)
-    }
-
-    fn from_resolved_dirty_snapshot(
-        resolved: &ResolvedAnalysis,
-        dirty_documents: &DirtyDocumentsSnapshot,
-    ) -> Self {
-        Self::from_resolved_hashed(resolved, dirty_documents.hashed_overrides.clone())
-    }
-
-    fn clean(resolved: &ResolvedAnalysis) -> Self {
-        Self::from_resolved_hashed(resolved, Vec::new())
-    }
-
-    fn from_resolved_hashed(
-        resolved: &ResolvedAnalysis,
-        source_overrides: Vec<(PathBuf, u64)>,
-    ) -> Self {
-        let mut custom_defines = resolved
-            .compile_options
-            .custom_defines
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect::<Vec<_>>();
-        custom_defines.sort();
-
-        let mut module_aliases = resolved
-            .compile_options
-            .module_aliases
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect::<Vec<_>>();
-        module_aliases.sort();
-
-        let mut module_interface_aliases = resolved
-            .compile_options
-            .module_interface_aliases
-            .iter()
-            .map(|(key, value)| (key.clone(), value.clone()))
-            .collect::<Vec<_>>();
-        module_interface_aliases.sort();
-
-        Self {
-            input_file: normalize_path(&resolved.input_file),
-            root_module_name: resolved.compile_options.root_module_name.clone(),
-            target_triple: resolved.compile_options.target.triple.to_string(),
-            custom_defines,
-            module_aliases,
-            module_interface_aliases,
-            source_overrides,
-        }
-    }
-
-    fn family(&self) -> AnalysisCacheFamilyKey {
-        AnalysisCacheFamilyKey {
-            input_file: self.input_file.clone(),
-            root_module_name: self.root_module_name.clone(),
-            target_triple: self.target_triple.clone(),
-            custom_defines: self.custom_defines.clone(),
-            module_aliases: self.module_aliases.clone(),
-            module_interface_aliases: self.module_interface_aliases.clone(),
-        }
-    }
-
-    fn is_clean(&self) -> bool {
-        self.source_overrides.is_empty()
-    }
 }
 
 impl Default for AnalysisEngine {
@@ -1218,227 +1064,10 @@ impl AnalysisEngine {
     }
 }
 
-fn completion_sort_key(
-    item: &kernc_driver::AnalysisCompletionItem,
-    prefix: &str,
-    context: CompletionContext,
-) -> (u8, u8, usize, String) {
-    let exact = (!prefix.is_empty() && item.label == prefix) as u8;
-    (
-        completion_context_rank(item.kind, context),
-        1_u8.saturating_sub(exact),
-        item.label.len(),
-        item.label.to_ascii_lowercase(),
-    )
-}
-
-fn completion_context_rank(
-    kind: kernc_driver::AnalysisCompletionKind,
-    context: CompletionContext,
-) -> u8 {
-    match context {
-        CompletionContext::Type => {
-            (!matches!(
-                kind,
-                kernc_driver::AnalysisCompletionKind::Struct
-                    | kernc_driver::AnalysisCompletionKind::Union
-                    | kernc_driver::AnalysisCompletionKind::Enum
-                    | kernc_driver::AnalysisCompletionKind::Trait
-                    | kernc_driver::AnalysisCompletionKind::TypeAlias
-                    | kernc_driver::AnalysisCompletionKind::TypeParameter
-            )) as u8
-        }
-        CompletionContext::Value => {
-            (!matches!(
-                kind,
-                kernc_driver::AnalysisCompletionKind::Variable
-                    | kernc_driver::AnalysisCompletionKind::Function
-                    | kernc_driver::AnalysisCompletionKind::Constant
-                    | kernc_driver::AnalysisCompletionKind::Static
-            )) as u8
-        }
-    }
-}
-
-fn keyword_completion_item(label: &str) -> CompletionItem {
-    let insert_text = keyword_completion_insert_text(label);
-    let insert_text_format = insert_text
-        .as_deref()
-        .map(|text| if text.contains('$') { 2 } else { 1 });
-
-    CompletionItem {
-        label: label.to_string(),
-        kind: 14,
-        detail: Some("keyword".to_string()),
-        insert_text,
-        insert_text_format,
-    }
-}
-
-fn keyword_completion_insert_text(label: &str) -> Option<String> {
-    match label {
-        "extern" => Some("extern fn ${1:name}(${2:args}) ${3:i32} {\n    $0\n}".to_string()),
-        "fn" => Some("fn ${1:name}(${2:args}) ${3:void} {\n    $0\n}".to_string()),
-        "let" => Some("let ${1:name} = ${0};".to_string()),
-        "const" => Some("const ${1:name}: ${2:Type} = ${0};".to_string()),
-        "static" => Some("static ${1:name}: ${2:Type} = ${0};".to_string()),
-        "type" => Some("type ${1:Name} = ${0};".to_string()),
-        "if" => Some("if (${1:cond}) {\n    $0\n}".to_string()),
-        "for" => Some("for (${1:item}) {\n    $0\n}".to_string()),
-        "match" => Some("match (${1:value}) {\n    $0\n}".to_string()),
-        "use" => Some("use ${1:path};".to_string()),
-        "impl" => Some("impl ${1:Type} {\n    $0\n}".to_string()),
-        "mod" => Some("mod ${1:name};".to_string()),
-        "defer" => Some("defer {\n    $0\n}".to_string()),
-        "struct" => Some("struct {\n    $0\n}".to_string()),
-        "union" => Some("union {\n    $0\n}".to_string()),
-        "enum" => Some("enum {\n    $0\n}".to_string()),
-        "trait" => Some("trait {\n    $0\n}".to_string()),
-        _ => None,
-    }
-}
-
-fn preserve_target_diagnostics(
-    clean_artifact: &AnalysisArtifact,
-    clean_file: &SourceFile,
-    dirty_file: &SourceFile,
-    target_uri: &str,
-    report: &TargetedAnalysisReport,
-) -> Vec<crate::protocol::Diagnostic> {
-    let target_path = normalize_path(&dirty_file.path);
-    let mut replacements = report
-        .replaced_spans
-        .iter()
-        .map(|replacement| OffsetReplacement {
-            clean_start: replacement.clean.start,
-            clean_end: replacement.clean.end,
-            dirty_start: replacement.dirty.start,
-            dirty_end: replacement.dirty.end,
-        })
-        .collect::<Vec<_>>();
-    replacements.sort_by_key(|replacement| replacement.clean_start);
-
-    clean_artifact
-        .session
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.level == kernc_utils::DiagnosticLevel::Error)
-        .filter(|diagnostic| {
-            span_in_path(
-                &clean_artifact.session,
-                diagnostic.primary_span,
-                &target_path,
-            )
-        })
-        .filter_map(|diagnostic| {
-            remap_clean_diagnostic(
-                &clean_artifact.session,
-                diagnostic,
-                clean_file,
-                dirty_file,
-                target_uri,
-                &target_path,
-                &replacements,
-            )
-        })
-        .collect()
-}
-
-fn remap_clean_diagnostic(
-    session: &Session,
-    diagnostic: &kernc_utils::Diagnostic,
-    clean_file: &SourceFile,
-    dirty_file: &SourceFile,
-    target_uri: &str,
-    target_path: &Path,
-    replacements: &[OffsetReplacement],
-) -> Option<crate::protocol::Diagnostic> {
-    let mut converted = convert_diagnostic(session, diagnostic);
-    converted.range = remap_span_to_range(
-        clean_file,
-        dirty_file,
-        diagnostic.primary_span,
-        replacements,
-    )?;
-
-    if let Some(related_information) = converted.related_information.as_mut() {
-        for (related, (span, _)) in related_information
-            .iter_mut()
-            .zip(&diagnostic.related_spans)
-        {
-            if !span_in_path(session, *span, target_path) {
-                continue;
-            }
-            related.location.uri = target_uri.to_string();
-            related.location.range =
-                remap_span_to_range(clean_file, dirty_file, *span, replacements)?;
-        }
-    }
-
-    Some(converted)
-}
-
-fn remap_span_to_range(
-    clean_file: &SourceFile,
-    dirty_file: &SourceFile,
-    span: Span,
-    replacements: &[OffsetReplacement],
-) -> Option<Range> {
-    if span.end > clean_file.src.len() {
-        return None;
-    }
-
-    let start = remap_offset(span.start, replacements)?;
-    let end = remap_offset(span.end, replacements)?;
-    Some(Range {
-        start: byte_offset_to_position(dirty_file, start),
-        end: byte_offset_to_position(dirty_file, end),
-    })
-}
-
-fn remap_offset(offset: usize, replacements: &[OffsetReplacement]) -> Option<usize> {
-    let mut delta = 0_i64;
-
-    for replacement in replacements {
-        if offset < replacement.clean_start {
-            break;
-        }
-        if offset > replacement.clean_end {
-            delta += replacement.dirty_end as i64 - replacement.dirty_start as i64;
-            delta -= replacement.clean_end as i64 - replacement.clean_start as i64;
-            continue;
-        }
-        if offset == replacement.clean_start {
-            return Some(replacement.dirty_start);
-        }
-        if offset == replacement.clean_end {
-            return Some(replacement.dirty_end);
-        }
-        return None;
-    }
-
-    offset.checked_add_signed(delta as isize)
-}
-
-pub fn cleared_uris(previous: &BTreeSet<String>, current: &[DiagnosticBundle]) -> Vec<String> {
-    let current_uris: BTreeSet<_> = current.iter().map(|bundle| bundle.uri.clone()).collect();
-    previous
-        .iter()
-        .filter(|uri| !current_uris.contains(*uri))
-        .cloned()
-        .collect()
-}
-
 fn span_in_path(session: &Session, span: Span, target_path: &Path) -> bool {
     session
         .source_manager
         .get_file_path(span.file)
         .map(|path| normalize_path(path) == target_path)
         .unwrap_or(false)
-}
-
-fn hash_source_text(text: &str) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    text.hash(&mut hasher);
-    hasher.finish()
 }

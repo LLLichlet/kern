@@ -1,9 +1,9 @@
+use super::options::apply_host_linker_env;
 use super::{
     ActionTimingKind, BuiltLibraryPackage, BuiltStdPackage, ExecutionSummary, Result,
-    apply_host_linker_env, base_compile_action_label, build_fingerprint,
-    compile_with_shared_driver, ensure_parent_dir, rt_compile_action_label,
-    rt_entry_compile_action_label, runtime_profile_key, std_compile_action_label,
-    sys_compile_action_label,
+    base_compile_action_label, build_fingerprint, compile_with_shared_driver, ensure_parent_dir,
+    rt_compile_action_label, rt_entry_compile_action_label, runtime_profile_key,
+    std_compile_action_label, sys_compile_action_label,
 };
 use crate::build_plan::CompileAction;
 use crate::build_state;

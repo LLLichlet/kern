@@ -1,0 +1,205 @@
+use super::{
+    BuiltExternalPackage, BuiltStdPackage, ManifestRuntimeOptions, PackageInstanceKey,
+    runtime_profile_key,
+};
+use crate::build_plan::{CompileAction, LinkAction};
+use crate::error::{Error, Result};
+use crate::graph::BuildDomain;
+use crate::manifest::Manifest;
+use crate::resolver::ExternalPackageId;
+use crate::target_defaults::apply_target_runtime_defaults;
+use kernc_utils::config::{
+    CompileOptions, DriverMode, OptLevel, inject_driver_condition_defines, maybe_inject_base_alias,
+    maybe_inject_std_alias, maybe_inject_sys_alias,
+};
+use std::collections::{BTreeMap, HashMap};
+use std::path::Path;
+
+use super::external::{compile_module_aliases, link_objects_for_compile_action};
+
+fn default_target_compile_options(target_kind: crate::plan::TargetKind) -> CompileOptions {
+    let mut options = CompileOptions::default();
+    apply_target_runtime_defaults(&mut options, target_kind);
+    options
+}
+
+fn inject_target_library_aliases(options: &mut CompileOptions) {
+    if options.module_interface_aliases.contains_key("std") {
+        return;
+    }
+    maybe_inject_base_alias(options);
+    maybe_inject_sys_alias(options);
+    if !options.module_interface_aliases.contains_key("std") {
+        maybe_inject_std_alias(options);
+    }
+}
+
+fn compile_time_defines(
+    cfg: &std::collections::BTreeMap<String, crate::plan::PlanValue>,
+    define: &std::collections::BTreeMap<String, crate::plan::PlanValue>,
+    source_path: &Path,
+) -> Result<HashMap<String, String>> {
+    let mut values = HashMap::new();
+
+    for (name, value) in cfg {
+        values.insert(name.clone(), plan_value_string(value));
+    }
+    for (name, value) in define {
+        let value = plan_value_string(value);
+        if let Some(existing) = values.get(name)
+            && existing != &value
+        {
+            return Err(Error::Execution(format!(
+                "compile-time key `{name}` has conflicting cfg/define values for `{}`",
+                source_path.display()
+            )));
+        }
+        values.insert(name.clone(), value);
+    }
+
+    Ok(values)
+}
+
+fn apply_manifest_runtime_options(
+    manifest_path: &Path,
+    manifest_runtime_options: &mut BTreeMap<std::path::PathBuf, ManifestRuntimeOptions>,
+    target_kind: crate::plan::TargetKind,
+    options: &mut CompileOptions,
+) -> Result<()> {
+    if let Some(cached) = manifest_runtime_options.get(manifest_path) {
+        cached.apply_for_target(target_kind, options);
+        return Ok(());
+    }
+
+    let manifest = Manifest::load(manifest_path)?;
+    manifest.validate(manifest_path)?;
+    let cached = ManifestRuntimeOptions {
+        entry: manifest.runtime.as_ref().and_then(|runtime| runtime.entry),
+        provider: manifest
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.provider),
+        libc: manifest.runtime.as_ref().and_then(|runtime| runtime.libc),
+        bundle: manifest.runtime.as_ref().and_then(|runtime| runtime.bundle),
+    };
+    cached.apply_for_target(target_kind, options);
+    manifest_runtime_options.insert(manifest_path.to_path_buf(), cached);
+    Ok(())
+}
+
+fn plan_value_string(value: &crate::plan::PlanValue) -> String {
+    match value {
+        crate::plan::PlanValue::Bool(value) => value.to_string(),
+        crate::plan::PlanValue::String(value) => value.clone(),
+    }
+}
+
+fn profile_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
+    match profile.opt {
+        0 => OptLevel::O0,
+        1 => OptLevel::O1,
+        2 => OptLevel::O2,
+        _ => OptLevel::O3,
+    }
+}
+
+pub(super) fn compile_action_options(
+    action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
+    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    manifest_runtime_options: &mut BTreeMap<std::path::PathBuf, ManifestRuntimeOptions>,
+) -> Result<CompileOptions> {
+    let mut options = CompileOptions {
+        input_file: Some(action.source_path().to_string_lossy().to_string()),
+        output_file: action.object_path.to_string_lossy().to_string(),
+        metadata_output: action
+            .metadata_path
+            .as_ref()
+            .map(|path| path.to_string_lossy().to_string()),
+        metadata_package_name: (action.target_kind == crate::plan::TargetKind::Lib)
+            .then(|| action.package_id.name.clone()),
+        metadata_package_version: (action.target_kind == crate::plan::TargetKind::Lib)
+            .then(|| action.package_id.version.clone()),
+        root_module_name: (action.target_kind == crate::plan::TargetKind::Lib)
+            .then(|| action.package_id.name.clone()),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        opt_level: profile_opt_level(&action.profile),
+        codegen_units: action.profile.codegen_units,
+        emit_multi_object_dir: action.domain == BuildDomain::Target
+            && action.profile.codegen_units > 1,
+        split_sections_for_gc: true,
+        ..default_target_compile_options(action.target_kind)
+    };
+    apply_manifest_runtime_options(
+        &action.manifest_path,
+        manifest_runtime_options,
+        action.target_kind,
+        &mut options,
+    )?;
+    apply_host_linker_env(&mut options);
+    options.module_interface_aliases = compile_module_aliases(
+        action,
+        local_library_actions,
+        built_std_packages.get(&runtime_profile_key(&action.profile)),
+        built_external_packages,
+    )?;
+    inject_target_library_aliases(&mut options);
+    inject_driver_condition_defines(&mut options);
+    options.custom_defines.extend(compile_time_defines(
+        &action.cfg,
+        &action.define,
+        action.source_path(),
+    )?);
+    Ok(options)
+}
+
+pub(super) fn link_action_options(
+    action: &LinkAction,
+    compile_action: &CompileAction,
+    local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
+    built_std_packages: &BTreeMap<String, BuiltStdPackage>,
+    built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
+    manifest_runtime_options: &mut BTreeMap<std::path::PathBuf, ManifestRuntimeOptions>,
+) -> Result<(CompileOptions, Vec<std::path::PathBuf>)> {
+    let mut options = CompileOptions {
+        output_file: action.artifact_path.to_string_lossy().to_string(),
+        driver_mode: DriverMode::LinkOnly,
+        report_progress: false,
+        dead_strip_sections: true,
+        ..default_target_compile_options(action.target_kind)
+    };
+    apply_manifest_runtime_options(
+        &action.manifest_path,
+        manifest_runtime_options,
+        action.target_kind,
+        &mut options,
+    )?;
+    apply_host_linker_env(&mut options);
+    let linker_inputs = link_objects_for_compile_action(
+        compile_action,
+        &options,
+        local_library_actions,
+        built_std_packages,
+        built_external_packages,
+    )?;
+    options.linker_inputs = linker_inputs
+        .iter()
+        .map(|path| path.to_string_lossy().to_string())
+        .collect();
+    options.linker_libraries = action.link.system_libs.clone();
+    options.linker_search_paths = action.link.search_paths.clone();
+    options.linker_args = action.link.args.clone();
+    for framework in &action.link.frameworks {
+        options.linker_args.push("-framework".to_string());
+        options.linker_args.push(framework.clone());
+    }
+    Ok((options, linker_inputs))
+}
+
+pub(super) fn apply_host_linker_env(options: &mut CompileOptions) {
+    if let Ok(cc_env) = std::env::var("CC") {
+        options.linker_cmd = cc_env;
+    }
+}

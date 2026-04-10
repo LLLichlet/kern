@@ -1,8 +1,17 @@
 use super::OpenDocument;
-use crate::protocol::{Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, Location};
-use kernc_utils::SourceFile;
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use crate::protocol::{Diagnostic, DiagnosticRelatedInformation, DiagnosticTag, Location, Range};
+use kernc_driver::{AnalysisArtifact, TargetedAnalysisReport};
+use kernc_utils::{Session, SourceFile, Span};
+use std::collections::{BTreeMap, BTreeSet};
+use std::path::{Path, PathBuf};
+
+#[derive(Debug, Clone, Copy)]
+struct OffsetReplacement {
+    clean_start: usize,
+    clean_end: usize,
+    dirty_start: usize,
+    dirty_end: usize,
+}
 
 pub(super) fn diagnostics_from_session(
     session: &kernc_utils::Session,
@@ -157,6 +166,140 @@ fn diagnostic_related_information(
         .collect::<Vec<_>>();
 
     (!related_information.is_empty()).then_some(related_information)
+}
+
+pub(super) fn preserve_target_diagnostics(
+    clean_artifact: &AnalysisArtifact,
+    clean_file: &SourceFile,
+    dirty_file: &SourceFile,
+    target_uri: &str,
+    report: &TargetedAnalysisReport,
+) -> Vec<Diagnostic> {
+    let target_path = super::normalize_path(&dirty_file.path);
+    let mut replacements = report
+        .replaced_spans
+        .iter()
+        .map(|replacement| OffsetReplacement {
+            clean_start: replacement.clean.start,
+            clean_end: replacement.clean.end,
+            dirty_start: replacement.dirty.start,
+            dirty_end: replacement.dirty.end,
+        })
+        .collect::<Vec<_>>();
+    replacements.sort_by_key(|replacement| replacement.clean_start);
+
+    clean_artifact
+        .session
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.level == kernc_utils::DiagnosticLevel::Error)
+        .filter(|diagnostic| {
+            super::span_in_path(
+                &clean_artifact.session,
+                diagnostic.primary_span,
+                &target_path,
+            )
+        })
+        .filter_map(|diagnostic| {
+            remap_clean_diagnostic(
+                &clean_artifact.session,
+                diagnostic,
+                clean_file,
+                dirty_file,
+                target_uri,
+                &target_path,
+                &replacements,
+            )
+        })
+        .collect()
+}
+
+fn remap_clean_diagnostic(
+    session: &Session,
+    diagnostic: &kernc_utils::Diagnostic,
+    clean_file: &SourceFile,
+    dirty_file: &SourceFile,
+    target_uri: &str,
+    target_path: &Path,
+    replacements: &[OffsetReplacement],
+) -> Option<Diagnostic> {
+    let mut converted = convert_diagnostic(session, diagnostic);
+    converted.range = remap_span_to_range(
+        clean_file,
+        dirty_file,
+        diagnostic.primary_span,
+        replacements,
+    )?;
+
+    if let Some(related_information) = converted.related_information.as_mut() {
+        for (related, (span, _)) in related_information
+            .iter_mut()
+            .zip(&diagnostic.related_spans)
+        {
+            if !super::span_in_path(session, *span, target_path) {
+                continue;
+            }
+            related.location.uri = target_uri.to_string();
+            related.location.range =
+                remap_span_to_range(clean_file, dirty_file, *span, replacements)?;
+        }
+    }
+
+    Some(converted)
+}
+
+fn remap_span_to_range(
+    clean_file: &SourceFile,
+    dirty_file: &SourceFile,
+    span: Span,
+    replacements: &[OffsetReplacement],
+) -> Option<Range> {
+    if span.end > clean_file.src.len() {
+        return None;
+    }
+
+    let start = remap_offset(span.start, replacements)?;
+    let end = remap_offset(span.end, replacements)?;
+    Some(Range {
+        start: super::byte_offset_to_position(dirty_file, start),
+        end: super::byte_offset_to_position(dirty_file, end),
+    })
+}
+
+fn remap_offset(offset: usize, replacements: &[OffsetReplacement]) -> Option<usize> {
+    let mut delta = 0_i64;
+
+    for replacement in replacements {
+        if offset < replacement.clean_start {
+            break;
+        }
+        if offset > replacement.clean_end {
+            delta += replacement.dirty_end as i64 - replacement.dirty_start as i64;
+            delta -= replacement.clean_end as i64 - replacement.clean_start as i64;
+            continue;
+        }
+        if offset == replacement.clean_start {
+            return Some(replacement.dirty_start);
+        }
+        if offset == replacement.clean_end {
+            return Some(replacement.dirty_end);
+        }
+        return None;
+    }
+
+    offset.checked_add_signed(delta as isize)
+}
+
+pub fn cleared_uris(
+    previous: &BTreeSet<String>,
+    current: &[super::DiagnosticBundle],
+) -> Vec<String> {
+    let current_uris: BTreeSet<_> = current.iter().map(|bundle| bundle.uri.clone()).collect();
+    previous
+        .iter()
+        .filter(|uri| !current_uris.contains(*uri))
+        .cloned()
+        .collect()
 }
 
 #[cfg(test)]

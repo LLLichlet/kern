@@ -246,6 +246,47 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_result_with_payload_error_enum_without_union_alignment_ice() {
+    let source = r#"
+use base.Result;
+
+type ParseError = enum {
+    BadToken,
+};
+
+type HandshakeError = enum {
+    Parse: ParseError,
+    RouteRejected,
+};
+
+fn compute(ok: bool) Result[usize, HandshakeError] {
+    if (ok) {
+        return .{ Ok: usize.{7} };
+    }
+    return .{ Err: .{ Parse: ParseError.BadToken } };
+}
+
+fn main() i32 {
+    match (compute(false)) {
+        .{ Ok: _ } => return 1,
+        .{ Err: err } => match (err) {
+            .{ Parse: cause } => {
+                if (cause != ParseError.BadToken) {
+                    return 2;
+                }
+            },
+            .RouteRejected => return 3,
+        },
+    }
+    return 0;
+}
+"#;
+
+    let output = compile_source_with_std(source);
+    assert_success(&output, "kernc");
+}
+
+#[test]
 fn folds_const_fn_array_initializers_into_global_data() {
     let source = r#"
 const fn build() [4]mut u8 {

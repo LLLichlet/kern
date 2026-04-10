@@ -108,6 +108,35 @@ fn main() i32 {
 }
 
 #[test]
+fn contextual_integer_literals_follow_small_integer_comparison_operands() {
+    let output = build_and_run_source(
+        r#"
+fn validate(count: u8) i32 {
+    if (count == 0 or count > 64) {
+        return 1;
+    }
+    return 0;
+}
+
+fn main() i32 {
+    let valid = validate(u8.{8});
+    let zero = validate(u8.{0});
+    let large = validate(u8.{65});
+    return valid + (zero * 10) + (large * 100);
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(110),
+        "contextual small-int comparison regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_type_qualified_payload_variant_without_braces() {
     let output = compile_source(
         r#"

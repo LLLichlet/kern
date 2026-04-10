@@ -51,6 +51,7 @@ pub enum Command {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
+        include_examples: bool,
     },
     Run {
         path: Option<PathBuf>,
@@ -219,6 +220,7 @@ fn run_command(command: Command) -> Result<()> {
             let lock_status = lockfile::lock_status(&loaded.manifest_path, &loaded.elaboration)?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Check)?;
+            let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
             let action_plan = build_plan.derive_actions(&crate::script::host_target());
             execute::materialize_analysis_inputs(&build_plan, &action_plan)?;
             let _ = analysis_context::sync_analysis_context(
@@ -515,6 +517,7 @@ fn run_command(command: Command) -> Result<()> {
             path,
             feature_selection,
             ui,
+            include_examples,
         } => {
             let render = Renderer::new(ui);
             let (loaded, _workspace_lock) = load_locked_package_graph(
@@ -523,8 +526,12 @@ fn run_command(command: Command) -> Result<()> {
                 &feature_selection,
                 "build",
             )?;
-            let build_plan =
-                build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+            let build_plan = build_plan::derive_with_options(
+                &loaded.elaboration,
+                crate::script::ScriptCommand::Build,
+                build_plan::DeriveOptions { include_examples },
+            )?;
+            let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
             let _ = analysis_context::sync_analysis_context(
                 &loaded.manifest_path,
                 &loaded.elaboration,
@@ -596,6 +603,7 @@ fn run_command(command: Command) -> Result<()> {
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Build)?;
+            let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
             let _ = analysis_context::sync_analysis_context(
                 &loaded.manifest_path,
                 &loaded.elaboration,
@@ -673,6 +681,7 @@ fn run_command(command: Command) -> Result<()> {
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Run)?;
+            let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
             let _ = analysis_context::sync_analysis_context(
                 &loaded.manifest_path,
                 &loaded.elaboration,
@@ -754,6 +763,7 @@ fn run_command(command: Command) -> Result<()> {
             )?;
             let build_plan =
                 build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Test)?;
+            let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
             let _ = analysis_context::sync_analysis_context(
                 &loaded.manifest_path,
                 &loaded.elaboration,
@@ -821,6 +831,7 @@ struct LoadedPackageGraph {
     manifest: Manifest,
     workspace_members: Vec<workspace::WorkspaceMember>,
     elaboration: elaborate::ElaborationPlan,
+    selected_package_id: Option<graph::PackageId>,
 }
 
 fn load_locked_package_graph(
@@ -829,7 +840,10 @@ fn load_locked_package_graph(
     feature_selection: &elaborate::FeatureSelection,
     operation: &str,
 ) -> Result<(LoadedPackageGraph, WorkspaceOperationLock)> {
-    let manifest_path = discover::resolve_manifest_path(path)?;
+    let selected_manifest_path = path
+        .map(|path| discover::resolve_manifest_path(Some(path)))
+        .transpose()?;
+    let manifest_path = discover::resolve_project_manifest_path(path)?;
     let manifest = Manifest::load(&manifest_path)?;
     manifest.validate(&manifest_path)?;
     let workspace_members = workspace::load_members(&manifest_path, &manifest)?;
@@ -843,6 +857,16 @@ fn load_locked_package_graph(
         command,
         feature_selection,
     )?;
+    let selected_package_id = selected_manifest_path
+        .as_ref()
+        .filter(|selected| **selected != manifest_path)
+        .and_then(|selected| {
+            elaboration
+                .packages
+                .iter()
+                .find(|package| package.plan.manifest_path == *selected)
+                .map(|package| package.package_id.clone())
+        });
 
     Ok((
         LoadedPackageGraph {
@@ -850,9 +874,20 @@ fn load_locked_package_graph(
             manifest,
             workspace_members,
             elaboration,
+            selected_package_id,
         },
         workspace_lock,
     ))
+}
+
+fn filter_selected_package(
+    build_plan: build_plan::BuildPlan,
+    selected_package_id: Option<&graph::PackageId>,
+) -> build_plan::BuildPlan {
+    let Some(selected_package_id) = selected_package_id else {
+        return build_plan;
+    };
+    build_plan.filtered_package_closure(&[(graph::BuildDomain::Target, selected_package_id.clone())])
 }
 
 fn format_package_label(manifest: &Manifest) -> String {
@@ -1629,7 +1664,11 @@ fn format_action_cache_stats(stats: execute::ActionCacheStats) -> String {
             stats.compile_hits,
             stats.compile_hits + stats.compile_misses
         ),
-        format!("link {}/{}", stats.link_hits, stats.link_hits + stats.link_misses),
+        format!(
+            "link {}/{}",
+            stats.link_hits,
+            stats.link_hits + stats.link_misses
+        ),
         format!(
             "staged {}/{}",
             stats.staged_hits,
@@ -1676,8 +1715,19 @@ fn format_codegen_plan(report: &kernc_driver::CodegenPlanReport) -> String {
     };
 
     format!(
-        "cgu-plan requested={} roots={} clusters={} planned={} fallback={}",
-        report.requested_units, report.root_count, report.cluster_count, report.planned_units, fallback
+        "cgu-plan requested={} roots={} clusters={} planned={} workload={} cluster_min={} cluster_max={} unit_min={} unit_max={} promoted_fns={} promoted_globals={} fallback={}",
+        report.requested_units,
+        report.root_count,
+        report.cluster_count,
+        report.planned_units,
+        report.total_workload,
+        report.min_cluster_workload,
+        report.max_cluster_workload,
+        report.min_unit_workload,
+        report.max_unit_workload,
+        report.promoted_function_count,
+        report.promoted_global_count,
+        fallback
     )
 }
 
@@ -1714,7 +1764,8 @@ where
         return Ok(Command::Help);
     }
 
-    let (path, feature_selection, ui) = parse_command_options(rest)?;
+    let (path, feature_selection, ui, include_examples) =
+        parse_command_options(rest, cmd == "build")?;
     match cmd.as_str() {
         "check" => Ok(Command::Check {
             path,
@@ -1749,6 +1800,7 @@ where
             path,
             feature_selection,
             ui,
+            include_examples,
         }),
         "run" => Ok(Command::Run {
             path,
@@ -1770,10 +1822,17 @@ where
 
 fn parse_command_options(
     args: &[String],
-) -> Result<(Option<PathBuf>, elaborate::FeatureSelection, UiOptions)> {
+    allow_examples: bool,
+) -> Result<(
+    Option<PathBuf>,
+    elaborate::FeatureSelection,
+    UiOptions,
+    bool,
+)> {
     let mut path: Option<PathBuf> = None;
     let mut feature_selection = elaborate::FeatureSelection::default();
     let mut ui = UiOptions::default();
+    let mut include_examples = false;
     let mut idx = 0;
 
     while idx < args.len() {
@@ -1785,6 +1844,17 @@ fn parse_command_options(
         }
         if arg == "--timings" {
             ui.timings = true;
+            idx += 1;
+            continue;
+        }
+        if arg == "--examples" {
+            if !allow_examples {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
+            include_examples = true;
             idx += 1;
             continue;
         }
@@ -1870,7 +1940,7 @@ fn parse_command_options(
         )));
     }
 
-    Ok((path, feature_selection, ui))
+    Ok((path, feature_selection, ui, include_examples))
 }
 
 fn parse_color_choice(raw: &str) -> Result<ColorChoice> {
@@ -1946,6 +2016,7 @@ fn usage() -> &'static str {
         "Global Options:\n",
         "  --project-path <PATH>    Select the package or workspace root (or `Craft.toml` path)\n",
         "  --profile <NAME>         Profile selection: dev (default) or release\n",
+        "  --examples               Include `[[example]]` targets when running `craft build`\n",
         "  --no-default-features    Disable the implicit `default` feature\n",
         "  --features <FEATURES>    Enable a comma-separated feature list\n",
         "  --verbose, -v            Print detailed action logs instead of the default compact summary\n",
@@ -2037,6 +2108,64 @@ roots = ["tests/smoke.rn"]
         fs::write(root.join("tests/smoke.rn"), "fn main() i32 { return 0; }\n").unwrap();
     }
 
+    fn write_bin_and_example_package(root: &std::path::Path) {
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(root.join("examples")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+
+[[example]]
+name = "sample"
+root = "examples/sample.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(
+            root.join("examples/sample.rn"),
+            "fn main() i32 { return 0; }\n",
+        )
+        .unwrap();
+    }
+
+    fn write_workspace_with_member_test_package(root: &std::path::Path) -> PathBuf {
+        let member = root.join("member");
+        fs::create_dir_all(member.join("tests")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            "[workspace]\nmembers = [\"member\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            member.join("Craft.toml"),
+            r#"
+[package]
+name = "member"
+version = "0.1.0"
+kern = "0.6.7"
+
+[test]
+roots = ["tests/smoke.rn"]
+"#,
+        )
+        .unwrap();
+        fs::write(
+            member.join("tests/smoke.rn"),
+            "fn main() i32 { return 0; }\n",
+        )
+        .unwrap();
+        member.join("Craft.toml")
+    }
+
     #[test]
     fn parses_check_with_path_and_feature_options() {
         let cmd = parse_args([
@@ -2126,6 +2255,7 @@ roots = ["tests/smoke.rn"]
                 path,
                 feature_selection,
                 ui,
+                include_examples,
             } => {
                 assert!(path.is_none());
                 assert!(feature_selection.enable_default);
@@ -2135,6 +2265,7 @@ roots = ["tests/smoke.rn"]
                     crate::script::ProfileSelection::Dev
                 );
                 assert_eq!(ui, UiOptions::default());
+                assert!(!include_examples);
             }
             other => panic!("expected build command, got {other:?}"),
         }
@@ -2154,6 +2285,7 @@ roots = ["tests/smoke.rn"]
                 path,
                 feature_selection,
                 ui,
+                include_examples,
             } => {
                 assert!(path.is_none());
                 assert!(feature_selection.enable_default);
@@ -2163,6 +2295,7 @@ roots = ["tests/smoke.rn"]
                     crate::script::ProfileSelection::Release
                 );
                 assert_eq!(ui, UiOptions::default());
+                assert!(!include_examples);
             }
             other => panic!("expected build command, got {other:?}"),
         }
@@ -2358,6 +2491,26 @@ roots = ["tests/smoke.rn"]
             }
             other => panic!("expected check command, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn parses_build_examples_flag() {
+        let cmd = parse_args(["build".to_string(), "--examples".to_string()]).unwrap();
+
+        match cmd {
+            Command::Build {
+                include_examples, ..
+            } => {
+                assert!(include_examples);
+            }
+            other => panic!("expected build command, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_examples_flag_for_non_build_commands() {
+        let err = parse_args(["test".to_string(), "--examples".to_string()]).unwrap_err();
+        assert!(err.to_string().contains("unsupported option `--examples`"));
     }
 
     #[test]
@@ -2564,6 +2717,43 @@ blocked = { git = "https://example.com/blocked.git", branch = "main" }
                 path: Some(root_for_build),
                 feature_selection: FeatureSelection::default(),
                 ui: UiOptions::default(),
+                include_examples: false,
+            })
+            .unwrap();
+            start.elapsed()
+        });
+
+        thread::sleep(Duration::from_millis(200));
+        release_tx.send(()).unwrap();
+
+        holder.join().unwrap();
+        let waited = waiter.join().unwrap();
+        assert!(waited >= Duration::from_millis(150));
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn test_command_waits_for_workspace_root_lock_for_member_paths() {
+        let root = temp_dir("craft-cli-test-workspace-lock");
+        let member = write_workspace_with_member_test_package(&root);
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let root_for_holder = root.clone();
+
+        let holder = thread::spawn(move || {
+            let _lock = WorkspaceOperationLock::acquire(&root_for_holder, "build").unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+
+        ready_rx.recv().unwrap();
+        let start = Instant::now();
+        let waiter = thread::spawn(move || {
+            run_command(Command::Test {
+                path: Some(member),
+                feature_selection: FeatureSelection::default(),
+                ui: UiOptions::default(),
             })
             .unwrap();
             start.elapsed()
@@ -2588,6 +2778,7 @@ blocked = { git = "https://example.com/blocked.git", branch = "main" }
             path: Some(root.clone()),
             feature_selection: FeatureSelection::default(),
             ui: UiOptions::default(),
+            include_examples: false,
         })
         .unwrap();
 
@@ -2599,6 +2790,140 @@ blocked = { git = "https://example.com/blocked.git", branch = "main" }
         assert!(
             !root
                 .join(".craft/build/dev/target/out/demo-0.1.0/test/smoke")
+                .exists()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_command_can_include_examples() {
+        let root = temp_dir("craft-cli-build-includes-examples");
+        write_bin_and_example_package(&root);
+
+        run_command(Command::Build {
+            path: Some(root.clone()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            include_examples: true,
+        })
+        .unwrap();
+
+        assert!(
+            root.join(".craft/build/dev/target/out/demo-0.1.0/bin")
+                .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
+                .is_file()
+        );
+        assert!(
+            root.join(".craft/build/dev/target/out/demo-0.1.0/example")
+                .join(format!("sample{}", std::env::consts::EXE_SUFFIX))
+                .is_file()
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_command_uses_workspace_root_outputs_for_member_paths() {
+        let root = temp_dir("craft-cli-build-member-workspace-root");
+        let member = root.join("member");
+        fs::create_dir_all(member.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            "[workspace]\nmembers = [\"member\"]\n",
+        )
+        .unwrap();
+        fs::write(
+            member.join("Craft.toml"),
+            r#"
+[package]
+name = "member"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "member"
+root = "src/main.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+        run_command(Command::Build {
+            path: Some(member.clone()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            include_examples: false,
+        })
+        .unwrap();
+
+        assert!(
+            root.join(".craft/build/dev/target/out/member-0.1.0/bin")
+                .join(format!("member{}", std::env::consts::EXE_SUFFIX))
+                .is_file()
+        );
+        assert!(!member.join(".craft").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn build_command_member_path_does_not_build_workspace_root_package() {
+        let root = temp_dir("craft-cli-build-member-excludes-root-package");
+        let member = root.join("member");
+        fs::create_dir_all(root.join("src")).unwrap();
+        fs::create_dir_all(member.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "rootpkg"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "rootpkg"
+root = "src/main.rn"
+
+[workspace]
+members = ["member"]
+"#,
+        )
+        .unwrap();
+        fs::write(root.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+        fs::write(
+            member.join("Craft.toml"),
+            r#"
+[package]
+name = "member"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "member"
+root = "src/main.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(member.join("src/main.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+        run_command(Command::Build {
+            path: Some(member.clone()),
+            feature_selection: FeatureSelection::default(),
+            ui: UiOptions::default(),
+            include_examples: false,
+        })
+        .unwrap();
+
+        assert!(
+            root.join(".craft/build/dev/target/out/member-0.1.0/bin")
+                .join(format!("member{}", std::env::consts::EXE_SUFFIX))
+                .is_file()
+        );
+        assert!(
+            !root
+                .join(".craft/build/dev/target/out/rootpkg-0.1.0/bin")
+                .join(format!("rootpkg{}", std::env::consts::EXE_SUFFIX))
                 .exists()
         );
 

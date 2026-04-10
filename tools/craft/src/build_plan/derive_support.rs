@@ -1,5 +1,5 @@
 use super::{
-    BuildNodeBindings, BuildPlan, BuildScriptInput, BuildUnit, CompileSourceInput,
+    BuildNodeBindings, BuildPlan, BuildScriptInput, BuildUnit, CompileSourceInput, DeriveOptions,
     ExternalDependencyBinding, LinkPlan, LocalDependencyBinding, PackageBuildPlan,
     SourceRootBinding, artifact_kind, artifact_name, artifact_path, artifact_root_path,
     generated_root_path, metadata_path, object_path, relative_display, workspace_build_root,
@@ -21,6 +21,14 @@ use std::path::{Path, PathBuf};
 pub fn derive(
     elaboration: &ElaborationPlan,
     command: crate::script::ScriptCommand,
+) -> Result<BuildPlan> {
+    derive_with_options(elaboration, command, DeriveOptions::default())
+}
+
+pub fn derive_with_options(
+    elaboration: &ElaborationPlan,
+    command: crate::script::ScriptCommand,
+    options: DeriveOptions,
 ) -> Result<BuildPlan> {
     let host_target = script::host_target();
     let target_target = host_target.clone();
@@ -64,9 +72,11 @@ pub fn derive(
     let mut packages = Vec::new();
     for source in sources.values() {
         packages.push(build_package_for_domain(
+            command,
             BuildDomain::Target,
             source,
             &elaboration.resolved_graph.workspace_root,
+            options,
         ));
     }
     for package_id in &host_packages {
@@ -74,9 +84,11 @@ pub fn derive(
             .get(package_id)
             .expect("host closure package must exist in source map");
         packages.push(build_package_for_domain(
+            command,
             BuildDomain::Host,
             source,
             &elaboration.resolved_graph.workspace_root,
+            options,
         ));
     }
 
@@ -235,9 +247,11 @@ fn collect_host_local_packages(
 }
 
 fn build_package_for_domain(
+    command: crate::script::ScriptCommand,
     domain: BuildDomain,
     source: &PackageDeriveSource<'_>,
     workspace_root: &Path,
+    options: DeriveOptions,
 ) -> PackageBuildPlan {
     let (
         unit_local_dependencies,
@@ -261,7 +275,7 @@ fn build_package_for_domain(
         .plan
         .targets
         .iter()
-        .filter(|target| include_target_in_domain(domain, target.kind))
+        .filter(|target| include_target_in_domain(command, domain, target.kind, options))
         .map(|target| {
             let mut local_dependencies = unit_local_dependencies.clone();
             if target.kind != TargetKind::Lib
@@ -394,9 +408,25 @@ fn dependency_bindings_for_domain(
     )
 }
 
-fn include_target_in_domain(domain: BuildDomain, kind: TargetKind) -> bool {
+fn include_target_in_domain(
+    command: crate::script::ScriptCommand,
+    domain: BuildDomain,
+    kind: TargetKind,
+    options: DeriveOptions,
+) -> bool {
     match domain {
-        BuildDomain::Target => true,
+        BuildDomain::Target => match command {
+            crate::script::ScriptCommand::Build | crate::script::ScriptCommand::Run => {
+                matches!(kind, TargetKind::Lib | TargetKind::Bin)
+                    || (matches!(command, crate::script::ScriptCommand::Build)
+                        && options.include_examples
+                        && kind == TargetKind::Example)
+            }
+            crate::script::ScriptCommand::Test => {
+                matches!(kind, TargetKind::Lib | TargetKind::Test)
+            }
+            _ => true,
+        },
         BuildDomain::Host => matches!(kind, TargetKind::Lib | TargetKind::Bin),
     }
 }

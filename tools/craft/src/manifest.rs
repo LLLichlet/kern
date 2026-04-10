@@ -1,4 +1,5 @@
 use crate::error::{Error, Result};
+use crate::plan::TargetKind;
 use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -183,6 +184,32 @@ impl Manifest {
         if let Some(libc) = runtime.libc {
             options.runtime_libc = libc;
         }
+        if let Some(bundle) = runtime.bundle {
+            options.library_bundle = bundle;
+        }
+    }
+
+    pub fn apply_runtime_options_for_target(
+        &self,
+        target_kind: TargetKind,
+        options: &mut CompileOptions,
+    ) {
+        let Some(runtime) = &self.runtime else {
+            return;
+        };
+
+        if target_kind != TargetKind::Lib {
+            if let Some(entry) = runtime.entry {
+                options.runtime_entry = entry;
+            }
+            if let Some(provider) = runtime.provider {
+                options.runtime_provider = provider;
+            }
+            if let Some(libc) = runtime.libc {
+                options.runtime_libc = libc;
+            }
+        }
+
         if let Some(bundle) = runtime.bundle {
             options.library_bundle = bundle;
         }
@@ -1232,6 +1259,7 @@ fn validate_source_name(path: &Path, field: &str, value: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{DependencySpec, Manifest, ReleaseSourcePolicy};
+    use crate::plan::TargetKind;
     use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
 
     #[test]
@@ -1472,6 +1500,72 @@ bundle = "std"
         assert_eq!(options.runtime_provider, RuntimeProvider::Toolchain);
         assert!(!options.runtime_libc);
         assert_eq!(options.library_bundle, LibraryBundle::Std);
+    }
+
+    #[test]
+    fn runtime_entry_does_not_override_lib_target_defaults() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "rt"
+provider = "toolchain"
+libc = false
+bundle = "base"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let mut options = CompileOptions::default();
+        options.runtime_entry = RuntimeEntry::None;
+        options.runtime_provider = RuntimeProvider::None;
+        options.runtime_libc = false;
+        options.library_bundle = LibraryBundle::Std;
+
+        manifest.apply_runtime_options_for_target(TargetKind::Lib, &mut options);
+
+        assert_eq!(options.runtime_entry, RuntimeEntry::None);
+        assert_eq!(options.runtime_provider, RuntimeProvider::None);
+        assert!(!options.runtime_libc);
+        assert_eq!(options.library_bundle, LibraryBundle::Base);
+    }
+
+    #[test]
+    fn runtime_entry_overrides_test_target_defaults() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "rt"
+provider = "toolchain"
+libc = false
+bundle = "base"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let mut options = CompileOptions::default();
+        options.runtime_entry = RuntimeEntry::Rt;
+        options.runtime_provider = RuntimeProvider::Toolchain;
+        options.runtime_libc = false;
+        options.library_bundle = LibraryBundle::Std;
+
+        manifest.apply_runtime_options_for_target(TargetKind::Test, &mut options);
+
+        assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
+        assert_eq!(options.runtime_provider, RuntimeProvider::Toolchain);
+        assert!(!options.runtime_libc);
+        assert_eq!(options.library_bundle, LibraryBundle::Base);
     }
 
     #[test]

@@ -3,9 +3,10 @@ use super::{
     SourceRootBinding, StagedAction, artifact_path, metadata_path, object_path,
     resolve_compile_source_input, resolve_staged_action,
 };
+use crate::graph::{BuildDomain, PackageId};
 use crate::plan::TargetKind;
 use crate::script;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 impl ActionPlan {
@@ -61,6 +62,42 @@ impl CompileAction {
 }
 
 impl BuildPlan {
+    pub fn filtered_package_closure(
+        &self,
+        roots: &[(BuildDomain, PackageId)],
+    ) -> Self {
+        let mut keep = BTreeSet::new();
+        let mut stack = roots.to_vec();
+
+        while let Some((domain, package_id)) = stack.pop() {
+            if !keep.insert((domain, package_id.clone())) {
+                continue;
+            }
+            let Some(package) = self
+                .packages
+                .iter()
+                .find(|package| package.domain == domain && package.package_id == package_id)
+            else {
+                continue;
+            };
+
+            for dependency in &package.build_local_dependencies {
+                stack.push((dependency.domain, dependency.package_id.clone()));
+            }
+            for unit in &package.units {
+                for dependency in &unit.local_dependencies {
+                    stack.push((dependency.domain, dependency.package_id.clone()));
+                }
+            }
+        }
+
+        let mut filtered = self.clone();
+        filtered
+            .packages
+            .retain(|package| keep.contains(&(package.domain, package.package_id.clone())));
+        filtered
+    }
+
     pub fn filtered_target_kinds(&self, keep: &[TargetKind]) -> Self {
         let mut filtered = self.clone();
         for package in &mut filtered.packages {

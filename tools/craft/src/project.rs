@@ -8,9 +8,7 @@ use crate::plan::{PackagePlan, TargetKind};
 use crate::script::{ProfileSelection, ScriptCommand};
 use crate::target_defaults::apply_target_runtime_defaults;
 use crate::workspace::{self, WorkspaceMember};
-use kernc_utils::config::{
-    CompileOptions, inject_default_library_aliases,
-};
+use kernc_utils::config::{CompileOptions, inject_default_library_aliases};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
@@ -134,7 +132,11 @@ impl AnalysisProject {
         if let Some(package) = resolved_package
             && let Ok(manifest) = Manifest::load(&package.manifest_path)
         {
-            manifest.apply_runtime_options(&mut compile_options);
+            if let Some(target_kind) = resolved_target_kind {
+                manifest.apply_runtime_options_for_target(target_kind, &mut compile_options);
+            } else {
+                manifest.apply_runtime_options(&mut compile_options);
+            }
         }
 
         inject_default_library_aliases(&mut compile_options);
@@ -535,58 +537,7 @@ fn target_kind_from_str(raw: &str) -> Option<TargetKind> {
 }
 
 pub fn resolve_project_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
-    let manifest_path = discover_manifest_path(input)?;
-    let mut current = manifest_path
-        .parent()
-        .and_then(Path::parent)
-        .map(Path::to_path_buf);
-
-    while let Some(dir) = current {
-        let candidate = dir.join("Craft.toml");
-        if !candidate.is_file() {
-            current = dir.parent().map(Path::to_path_buf);
-            continue;
-        }
-
-        let manifest = Manifest::load(&candidate)?;
-        manifest.validate(&candidate)?;
-        if manifest.workspace.is_some()
-            && workspace::load_members(&candidate, &manifest)?
-                .iter()
-                .any(|member| member.manifest_path == manifest_path)
-        {
-            return Ok(candidate);
-        }
-
-        current = dir.parent().map(Path::to_path_buf);
-    }
-
-    Ok(manifest_path)
-}
-
-fn discover_manifest_path(input: Option<&Path>) -> Result<PathBuf> {
-    let start = match input {
-        Some(path) if path.file_name().and_then(|name| name.to_str()) == Some("Craft.toml") => {
-            return Ok(path.to_path_buf());
-        }
-        Some(path) if path.is_dir() => path.to_path_buf(),
-        Some(path) => path
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_path_buf(),
-        None => std::env::current_dir().map_err(crate::error::Error::from_io_plain)?,
-    };
-
-    let mut current = Some(start.as_path());
-    while let Some(dir) = current {
-        let candidate = dir.join("Craft.toml");
-        if candidate.is_file() {
-            return Ok(candidate);
-        }
-        current = dir.parent();
-    }
-
-    Err(crate::error::Error::ManifestNotFound { start })
+    crate::discover::resolve_project_manifest_path(input)
 }
 
 impl AnalysisPackage {
@@ -808,7 +759,7 @@ mod tests {
     use crate::manifest::Manifest;
     use crate::plan::TargetKind;
     use crate::workspace::load_members;
-    use kernc_utils::config::CompileOptions;
+    use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
     use std::collections::HashMap;
     use std::fs;
     use std::path::Path;
@@ -996,6 +947,88 @@ root = \"src/lib.rn\"
                 .and_then(|path| normalize_test_optional_path(Some(path))),
             Some(normalize_test_path(&util_dir.join("src/lib.rn")))
         );
+    }
+
+    #[test]
+    fn library_analysis_keeps_lib_runtime_defaults_even_with_runtime_section() {
+        let root = temp_dir("craft-project-lib-runtime-analysis");
+        fs::create_dir_all(root.join("src")).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            "\
+[package]
+name = \"demo\"
+version = \"0.1.0\"
+kern = \"0.6.7\"
+
+[runtime]
+entry = \"rt\"
+provider = \"toolchain\"
+libc = false
+bundle = \"base\"
+
+[lib]
+root = \"src/lib.rn\"
+",
+        )
+        .unwrap();
+        fs::write(
+            root.join("src/lib.rn"),
+            "pub fn answer() i32 { return 42; }\n",
+        )
+        .unwrap();
+
+        let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+        let resolved =
+            project.resolve_for_file(&root.join("src/lib.rn"), &CompileOptions::default());
+
+        assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::None);
+        assert_eq!(
+            resolved.compile_options.runtime_provider,
+            RuntimeProvider::None
+        );
+        assert!(!resolved.compile_options.runtime_libc);
+        assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Base);
+    }
+
+    #[test]
+    fn test_analysis_applies_runtime_section_to_tests() {
+        let root = temp_dir("craft-project-test-runtime-analysis");
+        fs::create_dir_all(root.join("tests")).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            "\
+[package]
+name = \"demo\"
+version = \"0.1.0\"
+kern = \"0.6.7\"
+
+[runtime]
+entry = \"rt\"
+provider = \"toolchain\"
+libc = false
+bundle = \"base\"
+
+[test]
+roots = [\"tests/smoke.rn\"]
+",
+        )
+        .unwrap();
+        fs::write(root.join("tests/smoke.rn"), "fn main() i32 { return 0; }\n").unwrap();
+
+        let project = AnalysisProject::load_from_manifest(&root.join("Craft.toml")).unwrap();
+        let resolved =
+            project.resolve_for_file(&root.join("tests/smoke.rn"), &CompileOptions::default());
+
+        assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::Rt);
+        assert_eq!(
+            resolved.compile_options.runtime_provider,
+            RuntimeProvider::Toolchain
+        );
+        assert!(!resolved.compile_options.runtime_libc);
+        assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Base);
     }
 
     #[test]

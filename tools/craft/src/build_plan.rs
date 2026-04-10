@@ -12,6 +12,7 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 pub use self::derive_support::derive;
+pub use self::derive_support::derive_with_options;
 use self::derive_support::resolve_compile_source_input;
 use self::paths::{
     artifact_kind, artifact_name, artifact_path, artifact_root_path, generated_root_path,
@@ -23,6 +24,11 @@ pub struct BuildPlan {
     pub workspace_root: PathBuf,
     pub build_nodes: Vec<StagedAction>,
     pub packages: Vec<PackageBuildPlan>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DeriveOptions {
+    pub include_examples: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

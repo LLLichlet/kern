@@ -224,6 +224,7 @@ fn collect_dep_edges(
     for (dependency_name, spec) in deps {
         let spec = normalize_dependency_spec(
             ctx.manifest_path,
+            ctx.workspace_root,
             ctx.workspace_dependencies,
             dependency_name,
             spec,
@@ -254,6 +255,7 @@ fn dependency_domain(kind: DependencyKind) -> BuildDomain {
 
 fn normalize_dependency_spec(
     manifest_path: &Path,
+    workspace_root: &Path,
     workspace_dependencies: Option<&BTreeMap<String, DependencySpec>>,
     dependency_name: &str,
     spec: &DependencySpec,
@@ -285,6 +287,11 @@ fn normalize_dependency_spec(
     };
 
     let mut merged = dependency_spec_to_detailed(base_spec);
+    if let Some(path) = &merged.path
+        && Path::new(path).is_relative()
+    {
+        merged.path = Some(workspace_root.join(path).to_string_lossy().to_string());
+    }
     merged.workspace = None;
 
     if let Some(package) = &overlay.package {
@@ -553,6 +560,75 @@ shared = { workspace = true, features = ["simd"] }
             }
             other => panic!("expected external dependency, got {other:?}"),
         }
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn inherits_workspace_path_dependencies_relative_to_workspace_root() {
+        let root = temp_dir("craft-workspace-inherit-path");
+        let app_dir = root.join("app");
+        let shared_dir = root.join("shared");
+        fs::create_dir_all(app_dir.join("src")).unwrap();
+        fs::create_dir_all(shared_dir.join("src")).unwrap();
+
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[workspace]
+members = ["app", "shared"]
+
+[workspace.dependencies]
+shared = { path = "shared" }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            app_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[dependencies]
+shared = { workspace = true }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            shared_dir.join("Craft.toml"),
+            r#"
+[package]
+name = "shared"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+
+        let root_manifest = Manifest::load(&root.join("Craft.toml")).unwrap();
+        let members = load_members(&root.join("Craft.toml"), &root_manifest).unwrap();
+        let graph = build_graph(&root.join("Craft.toml"), &root_manifest, &members).unwrap();
+
+        let app = graph
+            .packages
+            .iter()
+            .find(|pkg| pkg.id.name == "app")
+            .unwrap();
+        let shared = app
+            .dependencies
+            .iter()
+            .find(|dep| dep.dependency_name == "shared")
+            .unwrap();
+
+        assert!(matches!(
+            &shared.target,
+            DependencyTarget::Local(pkg) if pkg.name == "shared"
+        ));
 
         let _ = fs::remove_dir_all(root);
     }

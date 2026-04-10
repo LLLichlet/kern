@@ -19,6 +19,7 @@ mod generated;
 mod local_packages;
 mod metadata;
 mod runtime_cache;
+mod simd;
 mod test_targets;
 
 fn temp_dir(prefix: &str) -> PathBuf {

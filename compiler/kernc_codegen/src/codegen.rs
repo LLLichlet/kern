@@ -279,7 +279,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .into_iter()
             .map(|(name, count)| AllocaNameStat { name, count })
             .collect::<Vec<_>>();
-        stats.sort_by(|lhs, rhs| rhs.count.cmp(&lhs.count).then_with(|| lhs.name.cmp(&rhs.name)));
+        stats.sort_by(|lhs, rhs| {
+            rhs.count
+                .cmp(&lhs.count)
+                .then_with(|| lhs.name.cmp(&rhs.name))
+        });
         stats.truncate(8);
         stats
     }
@@ -371,7 +375,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         })
     }
 
-    pub fn compile(&mut self, module: &MastModule) -> CodegenReport {
+    pub fn compile(&mut self, module: &MastModule, collect_diagnostics: bool) -> CodegenReport {
         let mut report = CodegenReport::default();
 
         let prepare_started = Instant::now();
@@ -431,10 +435,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             name: "  codegen_compile_functions",
             duration: compile_functions_started.elapsed(),
         });
-        let (ir_stats, ir_hot_functions) = self.collect_ir_instruction_stats();
-        report.ir_stats = ir_stats;
-        report.ir_hot_functions = ir_hot_functions;
-        report.alloca_stats = self.alloca_stats;
+        if collect_diagnostics {
+            let (ir_stats, ir_hot_functions) = self.collect_ir_instruction_stats();
+            report.ir_stats = ir_stats;
+            report.ir_hot_functions = ir_hot_functions;
+            report.alloca_stats = self.alloca_stats;
+        }
 
         report
     }
@@ -472,9 +478,15 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_triple_str: &str,
         output_path: &str,
         opt_level: OptLevel,
+        collect_diagnostics: bool,
     ) -> Result<EmitObjectReport, String> {
         if target_triple_str.contains("windows") {
-            return self.emit_to_file_windows(target_triple_str, output_path, opt_level);
+            return self.emit_to_file_windows(
+                target_triple_str,
+                output_path,
+                opt_level,
+                collect_diagnostics,
+            );
         }
 
         let mut report = EmitObjectReport::default();
@@ -514,20 +526,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             duration: verify_started.elapsed(),
         });
 
-        let cleanup_before_stats = self.collect_ir_instruction_stats().0;
+        let cleanup_before_stats =
+            collect_diagnostics.then(|| self.collect_ir_instruction_stats().0);
         let optimize_started = Instant::now();
         self.run_ir_cleanup_passes(target_machine, opt_level)?;
         report.timings.push(EmitObjectTiming {
             name: "  emit_opt_ir",
             duration: optimize_started.elapsed(),
         });
-        let cleanup_after_stats = self.collect_ir_instruction_stats().0;
-        report.ir_cleanup_stats = Some(IrCleanupStats {
-            before: cleanup_before_stats,
-            after: cleanup_after_stats,
-        });
-        report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
-        report.remaining_alloca_names = self.collect_remaining_alloca_names();
+        if let Some(cleanup_before_stats) = cleanup_before_stats {
+            let cleanup_after_stats = self.collect_ir_instruction_stats().0;
+            report.ir_cleanup_stats = Some(IrCleanupStats {
+                before: cleanup_before_stats,
+                after: cleanup_after_stats,
+            });
+            report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
+            report.remaining_alloca_names = self.collect_remaining_alloca_names();
+        }
 
         let mut output = output_path.as_bytes().to_vec();
         output.push(0);
@@ -563,6 +578,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         target_triple_str: &str,
         output_path: &str,
         opt_level: OptLevel,
+        collect_diagnostics: bool,
     ) -> Result<EmitObjectReport, String> {
         let mut report = EmitObjectReport::default();
         let init_started = Instant::now();
@@ -622,20 +638,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             duration: verify_started.elapsed(),
         });
 
-        let cleanup_before_stats = self.collect_ir_instruction_stats().0;
+        let cleanup_before_stats =
+            collect_diagnostics.then(|| self.collect_ir_instruction_stats().0);
         let optimize_started = Instant::now();
         self.run_ir_cleanup_passes(target_machine, opt_level)?;
         report.timings.push(EmitObjectTiming {
             name: "  emit_opt_ir",
             duration: optimize_started.elapsed(),
         });
-        let cleanup_after_stats = self.collect_ir_instruction_stats().0;
-        report.ir_cleanup_stats = Some(IrCleanupStats {
-            before: cleanup_before_stats,
-            after: cleanup_after_stats,
-        });
-        report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
-        report.remaining_alloca_names = self.collect_remaining_alloca_names();
+        if let Some(cleanup_before_stats) = cleanup_before_stats {
+            let cleanup_after_stats = self.collect_ir_instruction_stats().0;
+            report.ir_cleanup_stats = Some(IrCleanupStats {
+                before: cleanup_before_stats,
+                after: cleanup_after_stats,
+            });
+            report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
+            report.remaining_alloca_names = self.collect_remaining_alloca_names();
+        }
 
         // Fast path: plain ASCII paths are safely representable through LLVM's narrow-path API.
         // Keep the memory-buffer fallback for Unicode paths and for direct-write failures.
@@ -737,11 +756,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let options = unsafe { LLVMCreatePassBuilderOptions() };
         let mut current_function = self.module.get_first_function();
         while let Some(function) = current_function {
-            if function.get_first_basic_block().is_some() && function_contains_alloca(function) {
-                let passes = if function_contains_aggregate_alloca(function) {
-                    aggregate_cleanup_passes.as_ptr()
-                } else {
-                    mem2reg_passes.as_ptr()
+            if let Some(profile) = function_alloca_profile(function) {
+                let passes = match profile {
+                    FunctionAllocaProfile::ScalarOnly => mem2reg_passes.as_ptr(),
+                    FunctionAllocaProfile::AggregatePresent => aggregate_cleanup_passes.as_ptr(),
                 };
                 let err = unsafe {
                     LLVMRunPassesOnFunction(
@@ -763,35 +781,28 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     }
 }
 
-fn function_contains_alloca(function: FunctionValue<'_>) -> bool {
-    let mut current_block = function.get_first_basic_block();
-    while let Some(block) = current_block {
-        let mut current_instruction = block.get_first_instruction();
-        while let Some(instruction) = current_instruction {
-            if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
-                return true;
-            }
-            current_instruction = instruction.get_next_instruction();
-        }
-        current_block = block.get_next_basic_block();
-    }
-
-    false
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FunctionAllocaProfile {
+    ScalarOnly,
+    AggregatePresent,
 }
 
-fn function_contains_aggregate_alloca(function: FunctionValue<'_>) -> bool {
+fn function_alloca_profile(function: FunctionValue<'_>) -> Option<FunctionAllocaProfile> {
+    let mut saw_alloca = false;
+    let mut saw_aggregate = false;
     let mut current_block = function.get_first_basic_block();
     while let Some(block) = current_block {
         let mut current_instruction = block.get_first_instruction();
         while let Some(instruction) = current_instruction {
             if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
+                saw_alloca = true;
                 let allocated_ty = instruction.get_allocated_type();
                 if matches!(
                     allocated_ty,
                     crate::types::BasicTypeEnum::ArrayType(_)
                         | crate::types::BasicTypeEnum::StructType(_)
                 ) {
-                    return true;
+                    saw_aggregate = true;
                 }
             }
             current_instruction = instruction.get_next_instruction();
@@ -799,7 +810,13 @@ fn function_contains_aggregate_alloca(function: FunctionValue<'_>) -> bool {
         current_block = block.get_next_basic_block();
     }
 
-    false
+    if !saw_alloca {
+        None
+    } else if saw_aggregate {
+        Some(FunctionAllocaProfile::AggregatePresent)
+    } else {
+        Some(FunctionAllocaProfile::ScalarOnly)
+    }
 }
 
 pub(crate) fn accumulate_alloca_site(stats: &mut CodegenAllocaStats, name: &str) {

@@ -9,6 +9,7 @@ use super::{
     StructureArtifact, StructureCacheKey,
 };
 use std::collections::HashMap;
+use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -170,6 +171,7 @@ impl CompilerDriver {
         });
         let codegen_plan_report = codegen_plan.as_ref().map(|plan| plan.report.clone());
         let codegen_unit_plans = codegen_plan.map(|plan| plan.units).unwrap_or_default();
+        let collect_codegen_diagnostics = self.options.report_timings;
 
         let lower_cache_stats = lowered.cache_stats;
         let cache_stats = self.cache_stats_since(cache_snapshot);
@@ -189,7 +191,7 @@ impl CompilerDriver {
                 AsmDialect::Att => InlineAsmDialect::ATT,
             });
             let codegen_report = Self::measure_phase(&mut phase_timings, "codegen", || {
-                codegen.compile(&mast_module)
+                codegen.compile(&mast_module, collect_codegen_diagnostics)
             });
             phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
                 name: timing.name,
@@ -209,6 +211,7 @@ impl CompilerDriver {
                             lower_cache_stats,
                             mast_workload,
                             codegen_plan_report.clone(),
+                            collect_codegen_diagnostics,
                             codegen_report,
                             None,
                         ))
@@ -224,7 +227,12 @@ impl CompilerDriver {
             let _guard = self.temp_link_input_guard(&link_input_path);
 
             let emit_report = match Self::measure_phase(&mut phase_timings, "emit_object", || {
-                codegen.emit_to_file(&target.triple, &link_input_path, self.options.opt_level)
+                codegen.emit_to_file(
+                    &target.triple,
+                    &link_input_path,
+                    self.options.opt_level,
+                    collect_codegen_diagnostics,
+                )
             }) {
                 Ok(report) => report,
                 Err(err) => {
@@ -252,6 +260,7 @@ impl CompilerDriver {
                     lower_cache_stats,
                     mast_workload,
                     codegen_plan_report.clone(),
+                    collect_codegen_diagnostics,
                     codegen_report,
                     Some(emit_report),
                 ));
@@ -270,17 +279,27 @@ impl CompilerDriver {
                 lower_cache_stats,
                 mast_workload,
                 codegen_plan_report.clone(),
+                collect_codegen_diagnostics,
                 codegen_report,
                 Some(emit_report),
             ));
         }
 
-        let object_guards = codegen_unit_plans
-            .iter()
-            .map(|unit| super::TempFileGuard {
-                path: self.make_temp_codegen_unit_path(&unit.name),
-            })
-            .collect::<Vec<_>>();
+        let emit_multi_object_dir =
+            self.options.driver_mode.emits_linker_input() && self.options.emit_multi_object_dir;
+        if emit_multi_object_dir && !self.prepare_multi_object_output_dir() {
+            return None;
+        }
+        let object_guards = if emit_multi_object_dir {
+            Vec::new()
+        } else {
+            codegen_unit_plans
+                .iter()
+                .map(|unit| super::TempFileGuard {
+                    path: self.make_temp_codegen_unit_path(&unit.name),
+                })
+                .collect::<Vec<_>>()
+        };
         let unit_batch = match self.codegen_unit_artifacts(
             &mast_module,
             &codegen_unit_plans,
@@ -288,6 +307,7 @@ impl CompilerDriver {
             &target.triple,
             ctx.sess,
             &ctx.type_registry,
+            collect_codegen_diagnostics,
         ) {
             Ok(artifacts) => artifacts,
             Err(err) => {
@@ -319,6 +339,28 @@ impl CompilerDriver {
         }));
 
         if self.options.driver_mode.emits_linker_input() {
+            if emit_multi_object_dir {
+                if let Err(err) = self.write_multi_object_manifest(&object_paths) {
+                    eprintln!(
+                        "Error: Failed to record multi-object linker inputs `{}`: {}",
+                        self.options.output_file, err
+                    );
+                    return None;
+                }
+                Self::print_buffered_diagnostics(ctx.sess);
+                return Some(Self::build_compile_report(
+                    loaded_sources,
+                    phase_timings,
+                    cache_stats,
+                    lower_cache_stats,
+                    mast_workload,
+                    codegen_plan_report.clone(),
+                    collect_codegen_diagnostics,
+                    codegen_report,
+                    Some(emit_report),
+                ));
+            }
+
             let merged_output_path = self.make_temp_relocatable_merge_path();
             let merged_output_guard = super::TempFileGuard {
                 path: merged_output_path.clone(),
@@ -354,6 +396,7 @@ impl CompilerDriver {
                 lower_cache_stats,
                 mast_workload,
                 codegen_plan_report.clone(),
+                collect_codegen_diagnostics,
                 codegen_report,
                 Some(emit_report),
             ));
@@ -373,6 +416,7 @@ impl CompilerDriver {
             lower_cache_stats,
             mast_workload,
             codegen_plan_report,
+            collect_codegen_diagnostics,
             codegen_report,
             Some(emit_report),
         ))
@@ -386,6 +430,7 @@ impl CompilerDriver {
         target_triple: &str,
         session: &Session,
         type_registry: &kernc_sema::ty::TypeRegistry,
+        collect_diagnostics: bool,
     ) -> Result<CodegenUnitBatch, String> {
         let started = Instant::now();
         let worker_count = Self::codegen_worker_count(codegen_unit_plans.len());
@@ -397,6 +442,7 @@ impl CompilerDriver {
                 target_triple,
                 session,
                 type_registry,
+                collect_diagnostics,
             );
         }
 
@@ -408,11 +454,18 @@ impl CompilerDriver {
             .iter()
             .enumerate()
             .map(|(index, unit)| {
+                let object_path = if self.options.driver_mode.emits_linker_input()
+                    && self.options.emit_multi_object_dir
+                {
+                    self.make_multi_object_codegen_unit_path(&unit.name)
+                } else {
+                    self.make_temp_codegen_unit_path(&unit.name)
+                };
                 (
                     index,
                     unit.name.clone(),
                     format!("{}_{}", module_name, unit.name),
-                    self.make_temp_codegen_unit_path(&unit.name),
+                    object_path,
                     materialize_codegen_unit(mast_module, unit),
                 )
             })
@@ -430,6 +483,7 @@ impl CompilerDriver {
                     let target_triple = target_triple.to_string();
                     let split_sections_for_gc = self.options.split_sections_for_gc;
                     let opt_level = self.options.opt_level;
+                    let collect_diagnostics = collect_diagnostics;
                     handles.push(scope.spawn(move || {
                         let codegen_ctx = Context::create();
                         let mut codegen = CodeGenerator::new(
@@ -440,9 +494,13 @@ impl CompilerDriver {
                             split_sections_for_gc,
                         );
                         codegen.set_asm_dialect(asm_dialect);
-                        let codegen_report = codegen.compile(&unit_module);
-                        let emit_report =
-                            codegen.emit_to_file(&target_triple, &object_path, opt_level)?;
+                        let codegen_report = codegen.compile(&unit_module, collect_diagnostics);
+                        let emit_report = codegen.emit_to_file(
+                            &target_triple,
+                            &object_path,
+                            opt_level,
+                            collect_diagnostics,
+                        )?;
                         Ok::<_, String>((
                             index,
                             unit_name,
@@ -489,6 +547,7 @@ impl CompilerDriver {
         target_triple: &str,
         session: &Session,
         type_registry: &kernc_sema::ty::TypeRegistry,
+        collect_diagnostics: bool,
     ) -> Result<CodegenUnitBatch, String> {
         let started = Instant::now();
         let mut artifacts = Vec::with_capacity(codegen_unit_plans.len());
@@ -507,10 +566,20 @@ impl CompilerDriver {
                 AsmDialect::Intel => InlineAsmDialect::Intel,
                 AsmDialect::Att => InlineAsmDialect::ATT,
             });
-            let codegen_report = codegen.compile(&unit_module);
-            let object_path = self.make_temp_codegen_unit_path(&unit.name);
-            let emit_report =
-                codegen.emit_to_file(target_triple, &object_path, self.options.opt_level)?;
+            let codegen_report = codegen.compile(&unit_module, collect_diagnostics);
+            let object_path = if self.options.driver_mode.emits_linker_input()
+                && self.options.emit_multi_object_dir
+            {
+                self.make_multi_object_codegen_unit_path(&unit.name)
+            } else {
+                self.make_temp_codegen_unit_path(&unit.name)
+            };
+            let emit_report = codegen.emit_to_file(
+                target_triple,
+                &object_path,
+                self.options.opt_level,
+                collect_diagnostics,
+            )?;
             artifacts.push(CodegenUnitArtifacts {
                 index,
                 object_path,
@@ -541,6 +610,7 @@ impl CompilerDriver {
         lower_cache_stats: kernc_lower::LowerCacheStats,
         mast_workload: kernc_mast::MastWorkloadStats,
         codegen_plan: Option<CodegenPlanReport>,
+        collect_codegen_diagnostics: bool,
         codegen_report: CodegenReport,
         emit_report: Option<EmitObjectReport>,
     ) -> CompileReport {
@@ -562,12 +632,22 @@ impl CompilerDriver {
             lower_cache_stats: Some(lower_cache_stats),
             mast_workload: Some(mast_workload),
             codegen_plan,
-            ir_instruction_stats: Some(codegen_report.ir_stats),
-            ir_cleanup_stats,
-            remaining_alloca_stats,
-            remaining_alloca_names,
-            ir_hot_functions: codegen_report.ir_hot_functions,
-            codegen_alloca_stats: codegen_report.alloca_stats,
+            ir_instruction_stats: collect_codegen_diagnostics.then_some(codegen_report.ir_stats),
+            ir_cleanup_stats: collect_codegen_diagnostics
+                .then_some(ir_cleanup_stats)
+                .flatten(),
+            remaining_alloca_stats: collect_codegen_diagnostics
+                .then_some(remaining_alloca_stats)
+                .flatten(),
+            remaining_alloca_names: collect_codegen_diagnostics
+                .then_some(remaining_alloca_names)
+                .unwrap_or_default(),
+            ir_hot_functions: collect_codegen_diagnostics
+                .then_some(codegen_report.ir_hot_functions)
+                .unwrap_or_default(),
+            codegen_alloca_stats: collect_codegen_diagnostics
+                .then_some(codegen_report.alloca_stats)
+                .unwrap_or_default(),
         }
     }
 
@@ -664,6 +744,44 @@ impl CompilerDriver {
                 .then_with(|| lhs.name.cmp(&rhs.name))
         });
         hot_functions.truncate(8);
+    }
+
+    fn prepare_multi_object_output_dir(&self) -> bool {
+        let dir = self.make_multi_object_dir_path();
+        let dir_path = Path::new(&dir);
+        if dir_path.is_file() && fs::remove_file(dir_path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale multi-object file `{}`.",
+                dir_path.display()
+            );
+            return false;
+        }
+        if dir_path.is_dir() && fs::remove_dir_all(dir_path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale multi-object directory `{}`.",
+                dir_path.display()
+            );
+            return false;
+        }
+        if let Err(err) = fs::create_dir_all(dir_path) {
+            eprintln!(
+                "Error: Failed to create multi-object directory `{}`: {}",
+                dir_path.display(),
+                err
+            );
+            return false;
+        }
+        true
+    }
+
+    fn write_multi_object_manifest(&self, object_paths: &[String]) -> std::io::Result<()> {
+        let mut contents = String::from("version=1\n");
+        for object_path in object_paths {
+            contents.push_str("object=");
+            contents.push_str(object_path);
+            contents.push('\n');
+        }
+        fs::write(&self.options.output_file, contents)
     }
 
     pub fn analyze<'a>(
@@ -898,6 +1016,25 @@ impl CompilerDriver {
         println!("  {:<18} {}", "  roots", report.root_count);
         println!("  {:<18} {}", "  clusters", report.cluster_count);
         println!("  {:<18} {}", "  planned_units", report.planned_units);
+        println!("  {:<18} {}", "  total_workload", report.total_workload);
+        println!(
+            "  {:<18} {}",
+            "  min_cluster_workload", report.min_cluster_workload
+        );
+        println!(
+            "  {:<18} {}",
+            "  max_cluster_workload", report.max_cluster_workload
+        );
+        println!("  {:<18} {}", "  min_unit_workload", report.min_unit_workload);
+        println!("  {:<18} {}", "  max_unit_workload", report.max_unit_workload);
+        println!(
+            "  {:<18} {}",
+            "  promoted_functions", report.promoted_function_count
+        );
+        println!(
+            "  {:<18} {}",
+            "  promoted_globals", report.promoted_global_count
+        );
         let fallback = match &report.fallback_reason {
             Some(CodegenPlanFallback::RequestedSingleUnit) => "requested_single_unit".to_string(),
             Some(CodegenPlanFallback::NameCollision { item_kind, name }) => {

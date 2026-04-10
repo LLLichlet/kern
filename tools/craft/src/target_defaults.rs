@@ -1,10 +1,7 @@
 use crate::plan::TargetKind;
 use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
 
-pub(crate) fn apply_target_runtime_defaults(
-    options: &mut CompileOptions,
-    target_kind: TargetKind,
-) {
+pub(crate) fn apply_target_runtime_defaults(options: &mut CompileOptions, target_kind: TargetKind) {
     match target_kind {
         TargetKind::Lib => {
             options.runtime_entry = RuntimeEntry::None;
@@ -12,10 +9,16 @@ pub(crate) fn apply_target_runtime_defaults(
             options.runtime_libc = false;
             options.library_bundle = LibraryBundle::Std;
         }
-        TargetKind::Bin | TargetKind::Test | TargetKind::Example => {
+        TargetKind::Bin | TargetKind::Example => {
             options.runtime_entry = RuntimeEntry::Crt;
             options.runtime_provider = RuntimeProvider::Toolchain;
             options.runtime_libc = true;
+            options.library_bundle = LibraryBundle::Std;
+        }
+        TargetKind::Test => {
+            options.runtime_entry = RuntimeEntry::Rt;
+            options.runtime_provider = RuntimeProvider::Toolchain;
+            options.runtime_libc = false;
             options.library_bundle = LibraryBundle::Std;
         }
     }
@@ -39,8 +42,8 @@ mod tests {
     }
 
     #[test]
-    fn executable_targets_use_hosted_runtime_defaults() {
-        for target_kind in [TargetKind::Bin, TargetKind::Test, TargetKind::Example] {
+    fn hosted_executable_targets_use_hosted_runtime_defaults() {
+        for target_kind in [TargetKind::Bin, TargetKind::Example] {
             let mut options = CompileOptions::default();
             apply_target_runtime_defaults(&mut options, target_kind);
 
@@ -49,5 +52,16 @@ mod tests {
             assert!(options.runtime_libc);
             assert_eq!(options.library_bundle, LibraryBundle::Std);
         }
+    }
+
+    #[test]
+    fn test_targets_use_rt_without_libc_by_default() {
+        let mut options = CompileOptions::default();
+        apply_target_runtime_defaults(&mut options, TargetKind::Test);
+
+        assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
+        assert_eq!(options.runtime_provider, RuntimeProvider::Toolchain);
+        assert!(!options.runtime_libc);
+        assert_eq!(options.library_bundle, LibraryBundle::Std);
     }
 }

@@ -3,7 +3,8 @@ use super::{
     ExecutionSession, ExecutionState, ExecutionSummary, ExternalArtifacts, ExternalToolKey,
     LoadedExternalPackage, PackageInstanceKey, Result, SourceConfigContext,
     ensure_compile_action_built, ensure_link_action_built, ensure_std_packages_for_actions,
-    push_link_object, runtime_profile_key, validate_package_metadata_root,
+    linker_input_paths_for_primary_output, push_link_object, runtime_profile_key,
+    validate_package_metadata_root,
 };
 use crate::build_plan::{ActionPlan, CompileAction, LinkAction};
 use crate::elaborate::{self, FeatureSelection};
@@ -12,9 +13,22 @@ use crate::graph::BuildDomain;
 use crate::manifest::Manifest;
 use crate::resolver::{ExternalPackageId, ResolvedExternalPackage, ResolvedGraph};
 use crate::source;
+use crate::target_defaults::apply_target_runtime_defaults;
 use crate::workspace;
+use kernc_utils::config::{CompileOptions, RuntimeEntry};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+
+fn push_linker_inputs_for_primary_output(
+    objects: &mut Vec<PathBuf>,
+    seen: &mut BTreeSet<PathBuf>,
+    primary_output: &Path,
+) -> Result<()> {
+    for object in linker_input_paths_for_primary_output(primary_output)? {
+        push_link_object(objects, seen, &object);
+    }
+    Ok(())
+}
 
 pub(super) fn compile_module_aliases(
     action: &CompileAction,
@@ -189,6 +203,11 @@ pub(super) fn build_external_package(
     )?;
     let link_objects = link_objects_for_compile_action(
         root_library_action,
+        &{
+            let mut options = CompileOptions::default();
+            apply_target_runtime_defaults(&mut options, root_library_action.target_kind);
+            options
+        },
         &loaded.local_library_actions,
         external.built_std_packages,
         external.built_external_packages,
@@ -666,17 +685,18 @@ pub(super) fn collect_external_dependencies(
 
 pub(super) fn link_objects_for_compile_action(
     root_action: &CompileAction,
+    link_options: &CompileOptions,
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
     built_external_packages: &BTreeMap<ExternalPackageId, BuiltExternalPackage>,
 ) -> Result<Vec<PathBuf>> {
     let mut objects = Vec::new();
     let mut seen = BTreeSet::new();
-    push_link_object(&mut objects, &mut seen, &root_action.object_path);
+    push_linker_inputs_for_primary_output(&mut objects, &mut seen, &root_action.object_path)?;
 
     for package_id in required_local_packages(root_action, local_library_actions) {
         if let Some(action) = local_library_actions.get(&package_id) {
-            push_link_object(&mut objects, &mut seen, &action.object_path);
+            push_linker_inputs_for_primary_output(&mut objects, &mut seen, &action.object_path)?;
         }
     }
     for dep in required_external_dependencies(root_action, local_library_actions) {
@@ -691,8 +711,21 @@ pub(super) fn link_objects_for_compile_action(
         }
     }
     if let Some(std_package) = built_std_packages.get(&runtime_profile_key(&root_action.profile)) {
-        for object in &std_package.link_objects {
-            push_link_object(&mut objects, &mut seen, object);
+        for object in &std_package.common_link_objects {
+            push_linker_inputs_for_primary_output(&mut objects, &mut seen, object)?;
+        }
+        match link_options.runtime_entry {
+            RuntimeEntry::None => {}
+            RuntimeEntry::Crt => push_linker_inputs_for_primary_output(
+                &mut objects,
+                &mut seen,
+                &std_package.hosted_entry_object_path,
+            )?,
+            RuntimeEntry::Rt => push_linker_inputs_for_primary_output(
+                &mut objects,
+                &mut seen,
+                &std_package.freestanding_entry_object_path,
+            )?,
         }
     }
 

@@ -84,6 +84,47 @@ fn runtime_profile_label(profile: &crate::script::ScriptProfile) -> String {
     )
 }
 
+fn runtime_compile_outputs(object_path: &Path, metadata_root_path: Option<&Path>) -> Vec<PathBuf> {
+    let mut outputs = vec![object_path.to_path_buf()];
+    let multi_object_dir = super::multi_object_output_dir(object_path);
+    if multi_object_dir.is_dir() {
+        outputs.push(multi_object_dir);
+    }
+    if let Some(metadata_root_path) = metadata_root_path {
+        outputs.push(metadata_root_path.to_path_buf());
+    }
+    outputs
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RtEntryFlavor {
+    Hosted,
+    Freestanding,
+}
+
+impl RtEntryFlavor {
+    fn object_stem(self) -> &'static str {
+        match self {
+            Self::Hosted => "rt_entry_hosted.o",
+            Self::Freestanding => "rt_entry_freestanding.o",
+        }
+    }
+
+    fn fingerprint_tag(self) -> &'static str {
+        match self {
+            Self::Hosted => "hosted",
+            Self::Freestanding => "freestanding",
+        }
+    }
+
+    fn action_label_suffix(self) -> &'static str {
+        match self {
+            Self::Hosted => "hosted",
+            Self::Freestanding => "freestanding",
+        }
+    }
+}
+
 fn runtime_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
     match profile.opt {
         0 => OptLevel::O0,
@@ -161,12 +202,21 @@ pub(super) fn build_std_package(
     }
     let built_rt = build_rt_package(workspace_root, profile, driver_families, execution_summary)?;
     let built_sys = build_sys_package(workspace_root, profile, driver_families, execution_summary)?;
-    let rt_entry_object_path = build_rt_entry_package(
+    let hosted_rt_entry_object_path = build_rt_entry_package(
         workspace_root,
         profile,
         driver_families,
         execution_summary,
         &built_sys,
+        RtEntryFlavor::Hosted,
+    )?;
+    let freestanding_rt_entry_object_path = build_rt_entry_package(
+        workspace_root,
+        profile,
+        driver_families,
+        execution_summary,
+        &built_sys,
+        RtEntryFlavor::Freestanding,
     )?;
 
     let object_path = profile_root
@@ -179,6 +229,7 @@ pub(super) fn build_std_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
+    let emit_multi_object_dir = profile.codegen_units > 1;
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -190,6 +241,7 @@ pub(super) fn build_std_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
+        emit_multi_object_dir,
         library_bundle: LibraryBundle::Std,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -213,6 +265,7 @@ pub(super) fn build_std_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
+        format!("emit_multi_object_dir={emit_multi_object_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -220,7 +273,14 @@ pub(super) fn build_std_package(
         format!("rt_obj={}", built_rt.object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
         format!("sys_obj={}", built_sys.object_path.display()),
-        format!("rt_entry_obj={}", rt_entry_object_path.display()),
+        format!(
+            "rt_entry_hosted_obj={}",
+            hosted_rt_entry_object_path.display()
+        ),
+        format!(
+            "rt_entry_freestanding_obj={}",
+            freestanding_rt_entry_object_path.display()
+        ),
         "split_sections_for_gc=true".to_string(),
     ]);
 
@@ -235,12 +295,8 @@ pub(super) fn build_std_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        build_state::record_action_state(
-            &object_path,
-            std_fingerprint,
-            &inputs,
-            &[object_path.clone(), metadata_root_path.clone()],
-        )?;
+        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        build_state::record_action_state(&object_path, std_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
@@ -257,7 +313,7 @@ pub(super) fn build_std_package(
         profile_key,
         BuiltStdPackage {
             metadata_root_path,
-            link_objects: vec![
+            common_link_objects: vec![
                 object_path,
                 built_rt.object_path.clone(),
                 built_sys.object_path.clone(),
@@ -266,8 +322,9 @@ pub(super) fn build_std_package(
                     .join("base")
                     .join("lib")
                     .join("base.o"),
-                rt_entry_object_path,
             ],
+            hosted_entry_object_path: hosted_rt_entry_object_path,
+            freestanding_entry_object_path: freestanding_rt_entry_object_path,
             interface_aliases: {
                 let mut aliases = built_sys.interface_aliases.clone();
                 aliases.insert("sys".to_string(), built_sys.metadata_root_path);
@@ -300,6 +357,7 @@ pub(super) fn build_rt_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
+    let emit_multi_object_dir = profile.codegen_units > 1;
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -311,6 +369,7 @@ pub(super) fn build_rt_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
+        emit_multi_object_dir,
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
@@ -328,6 +387,7 @@ pub(super) fn build_rt_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
+        format!("emit_multi_object_dir={emit_multi_object_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -345,12 +405,8 @@ pub(super) fn build_rt_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        build_state::record_action_state(
-            &object_path,
-            rt_fingerprint,
-            &inputs,
-            &[object_path.clone(), metadata_root_path.clone()],
-        )?;
+        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        build_state::record_action_state(&object_path, rt_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
@@ -396,6 +452,7 @@ pub(super) fn build_base_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
+    let emit_multi_object_dir = profile.codegen_units > 1;
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -407,6 +464,7 @@ pub(super) fn build_base_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
+        emit_multi_object_dir,
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -425,6 +483,7 @@ pub(super) fn build_base_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
+        format!("emit_multi_object_dir={emit_multi_object_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -442,12 +501,8 @@ pub(super) fn build_base_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        build_state::record_action_state(
-            &object_path,
-            base_fingerprint,
-            &inputs,
-            &[object_path.clone(), metadata_root_path.clone()],
-        )?;
+        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        build_state::record_action_state(&object_path, base_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
@@ -495,6 +550,7 @@ pub(super) fn build_sys_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
+    let emit_multi_object_dir = profile.codegen_units > 1;
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -506,6 +562,7 @@ pub(super) fn build_sys_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
+        emit_multi_object_dir,
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -529,6 +586,7 @@ pub(super) fn build_sys_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
+        format!("emit_multi_object_dir={emit_multi_object_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -548,12 +606,8 @@ pub(super) fn build_sys_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        build_state::record_action_state(
-            &object_path,
-            sys_fingerprint,
-            &inputs,
-            &[object_path.clone(), metadata_root_path.clone()],
-        )?;
+        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        build_state::record_action_state(&object_path, sys_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
@@ -581,6 +635,7 @@ pub(super) fn build_rt_entry_package(
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
     built_sys: &BuiltLibraryPackage,
+    flavor: RtEntryFlavor,
 ) -> Result<PathBuf> {
     let source_path = resolve_rt_path().join("entry.rn");
     if !source_path.is_file() {
@@ -595,10 +650,11 @@ pub(super) fn build_rt_entry_package(
         .join("obj")
         .join("rt")
         .join("entry")
-        .join("rt_entry.o");
+        .join(flavor.object_stem());
 
     ensure_parent_dir(&object_path)?;
 
+    let emit_multi_object_dir = profile.codegen_units > 1;
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -607,27 +663,48 @@ pub(super) fn build_rt_entry_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
+        emit_multi_object_dir,
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
-    options
-        .custom_defines
-        .insert("rt_role".to_string(), "entry".to_string());
     extend_interface_aliases(&mut options, &built_sys.interface_aliases);
     options.module_interface_aliases.insert(
         "sys".to_string(),
         built_sys.metadata_root_path.to_string_lossy().to_string(),
     );
     inject_driver_condition_defines(&mut options);
+    match flavor {
+        RtEntryFlavor::Hosted => {
+            options
+                .custom_defines
+                .insert("rt_role".to_string(), "entry".to_string());
+        }
+        RtEntryFlavor::Freestanding => {
+            options
+                .custom_defines
+                .insert("runtime_entry".to_string(), "rt".to_string());
+            options
+                .custom_defines
+                .insert("runtime_provider".to_string(), "toolchain".to_string());
+            options
+                .custom_defines
+                .insert("libc".to_string(), "false".to_string());
+            options
+                .custom_defines
+                .insert("crt_startup".to_string(), "false".to_string());
+        }
+    }
     let toolchain_digest = build_state::current_process_digest()?;
     let entry_fingerprint = build_fingerprint(&[
         "rt_runtime_layout=v1".to_string(),
         "kind=compile-rt-entry".to_string(),
+        format!("flavor={}", flavor.fingerprint_tag()),
         format!("toolchain={toolchain_digest}"),
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
+        format!("emit_multi_object_dir={emit_multi_object_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
@@ -645,16 +722,16 @@ pub(super) fn build_rt_entry_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        build_state::record_action_state(
-            &object_path,
-            entry_fingerprint,
-            &inputs,
-            std::slice::from_ref(&object_path),
-        )?;
+        let outputs = runtime_compile_outputs(&object_path, None);
+        build_state::record_action_state(&object_path, entry_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            rt_entry_compile_action_label(&runtime_profile_label(profile)),
+            format!(
+                "{} [{}]",
+                rt_entry_compile_action_label(&runtime_profile_label(profile)),
+                flavor.action_label_suffix()
+            ),
             report.phase_timings,
             report.cache_stats,
             report.codegen_plan,

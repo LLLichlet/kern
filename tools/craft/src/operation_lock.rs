@@ -12,6 +12,10 @@ pub(crate) struct WorkspaceOperationLock {
     path: PathBuf,
 }
 
+pub(crate) struct OutputOperationLock {
+    path: PathBuf,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct LockOwner {
     pid: u32,
@@ -22,20 +26,14 @@ struct LockOwner {
 impl WorkspaceOperationLock {
     pub(crate) fn acquire(workspace_root: &Path, operation: &str) -> Result<Self> {
         let path = workspace_lock_path(workspace_root);
-        local_state::ensure_parent_dir(&path)?;
+        acquire_lock(&path, operation).map(|lock| Self { path: lock.path })
+    }
+}
 
-        loop {
-            match try_acquire(&path, operation) {
-                Ok(lock) => return Ok(lock),
-                Err(err) if is_lock_contention_error(&path, &err) => {
-                    if reclaim_stale_lock(&path)? {
-                        continue;
-                    }
-                    thread::sleep(LOCK_POLL_INTERVAL);
-                }
-                Err(err) => return Err(Error::from_io(&path, err)),
-            }
-        }
+impl OutputOperationLock {
+    pub(crate) fn acquire(output_path: &Path, operation: &str) -> Result<Self> {
+        let path = output_lock_path(output_path);
+        acquire_lock(&path, operation).map(|lock| Self { path: lock.path })
     }
 }
 
@@ -54,11 +52,42 @@ impl Drop for WorkspaceOperationLock {
     }
 }
 
-fn try_acquire(path: &Path, operation: &str) -> std::io::Result<WorkspaceOperationLock> {
+impl Drop for OutputOperationLock {
+    fn drop(&mut self) {
+        if let Err(err) = fs::remove_file(&self.path)
+            && err.kind() != ErrorKind::NotFound
+        {
+            let _ = err;
+        }
+    }
+}
+
+struct AcquiredLock {
+    path: PathBuf,
+}
+
+fn acquire_lock(path: &Path, operation: &str) -> Result<AcquiredLock> {
+    local_state::ensure_parent_dir(path)?;
+
+    loop {
+        match try_acquire(path, operation) {
+            Ok(lock) => return Ok(lock),
+            Err(err) if is_lock_contention_error(path, &err) => {
+                if reclaim_stale_lock(path)? {
+                    continue;
+                }
+                thread::sleep(LOCK_POLL_INTERVAL);
+            }
+            Err(err) => return Err(Error::from_io(path, err)),
+        }
+    }
+}
+
+fn try_acquire(path: &Path, operation: &str) -> std::io::Result<AcquiredLock> {
     let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
     file.write_all(lock_contents(operation).as_bytes())?;
     file.sync_all()?;
-    Ok(WorkspaceOperationLock {
+    Ok(AcquiredLock {
         path: path.to_path_buf(),
     })
 }
@@ -99,6 +128,31 @@ fn workspace_lock_path(workspace_root: &Path) -> PathBuf {
         .join(".craft")
         .join("lock")
         .join("workspace.lock")
+}
+
+fn output_lock_path(output_path: &Path) -> PathBuf {
+    let file_name = output_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("output");
+    let file_name = sanitize_lock_component(file_name);
+    output_path
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(".{file_name}.craft.lock"))
+}
+
+fn sanitize_lock_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect()
 }
 
 fn reclaim_stale_lock(path: &Path) -> Result<bool> {
@@ -195,9 +249,11 @@ fn process_exists(pid: u32) -> bool {
 mod tests {
     #[cfg(target_os = "linux")]
     use super::read_process_start_ticks;
-    use super::{WorkspaceOperationLock, workspace_lock_path};
+    use super::{
+        OutputOperationLock, WorkspaceOperationLock, output_lock_path, workspace_lock_path,
+    };
     use std::fs;
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::sync::mpsc;
     use std::thread;
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -284,6 +340,48 @@ mod tests {
         let root_for_waiter = root.clone();
         let waiter = thread::spawn(move || {
             let _lock = WorkspaceOperationLock::acquire(&root_for_waiter, "test").unwrap();
+            acquired_tx.send(()).unwrap();
+        });
+
+        thread::sleep(Duration::from_millis(150));
+        assert!(acquired_rx.try_recv().is_err());
+        release_tx.send(()).unwrap();
+
+        worker.join().unwrap();
+        waiter.join().unwrap();
+        acquired_rx.recv_timeout(Duration::from_secs(2)).unwrap();
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn output_lock_uses_output_parent_directory() {
+        let output = Path::new("/tmp/demo/artifact.o");
+        assert_eq!(
+            output_lock_path(output),
+            PathBuf::from("/tmp/demo/.artifact.o.craft.lock")
+        );
+    }
+
+    #[test]
+    fn output_lock_waits_until_existing_lock_is_released() {
+        let root = temp_dir("craft-output-lock-wait");
+        let output = root.join("build").join("demo.o");
+        let (ready_tx, ready_rx) = mpsc::channel();
+        let (release_tx, release_rx) = mpsc::channel();
+        let (acquired_tx, acquired_rx) = mpsc::channel();
+        let output_for_worker = output.clone();
+
+        let worker = thread::spawn(move || {
+            let _lock = OutputOperationLock::acquire(&output_for_worker, "compile").unwrap();
+            ready_tx.send(()).unwrap();
+            release_rx.recv().unwrap();
+        });
+
+        ready_rx.recv().unwrap();
+        let output_for_waiter = output.clone();
+        let waiter = thread::spawn(move || {
+            let _lock = OutputOperationLock::acquire(&output_for_waiter, "compile").unwrap();
             acquired_tx.send(()).unwrap();
         });
 

@@ -44,6 +44,7 @@ pub(super) fn compile_action_fingerprint(
         format!("runtime_libc={}", options.runtime_libc),
         format!("library_bundle={}", options.library_bundle.as_str()),
         format!("split_sections_for_gc={}", options.split_sections_for_gc),
+        format!("emit_multi_object_dir={}", options.emit_multi_object_dir),
     ];
     if let Some(metadata_output) = options.metadata_output.as_deref() {
         lines.push(format!("metadata={metadata_output}"));
@@ -96,6 +97,7 @@ pub(super) fn link_action_fingerprint(
 
 pub(super) fn write_compile_action_state(
     action: &CompileAction,
+    emit_multi_object_dir: bool,
     report: &CompileReport,
     fingerprint: String,
 ) -> Result<()> {
@@ -104,6 +106,12 @@ pub(super) fn write_compile_action_state(
     inputs.dedup();
 
     let mut outputs = vec![action.object_path.clone()];
+    if emit_multi_object_dir {
+        let multi_object_dir = super::multi_object_output_dir(&action.object_path);
+        if multi_object_dir.is_dir() {
+            outputs.push(multi_object_dir);
+        }
+    }
     if let Some(metadata_path) = &action.metadata_path {
         outputs.push(metadata_path.clone());
     }

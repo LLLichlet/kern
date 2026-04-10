@@ -1,6 +1,7 @@
 use super::{CompilerDriver, LinkTarget, TempFileGuard};
 use kernc_utils::config::{RuntimeEntry, runtime_links_libc, runtime_uses_crt_startup};
 use std::env;
+use std::path::PathBuf;
 use std::process::Command;
 
 impl CompilerDriver {
@@ -150,6 +151,17 @@ impl CompilerDriver {
 
     pub(super) fn make_temp_codegen_unit_path(&self, unit_name: &str) -> String {
         format!("{}.tmp.{}.o", self.options.output_file, unit_name)
+    }
+
+    pub(super) fn make_multi_object_dir_path(&self) -> String {
+        format!("{}.d", self.options.output_file)
+    }
+
+    pub(super) fn make_multi_object_codegen_unit_path(&self, unit_name: &str) -> String {
+        PathBuf::from(self.make_multi_object_dir_path())
+            .join(format!("{unit_name}.o"))
+            .to_string_lossy()
+            .to_string()
     }
 
     pub(super) fn make_temp_relocatable_merge_path(&self) -> String {

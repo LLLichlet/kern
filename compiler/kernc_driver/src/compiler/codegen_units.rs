@@ -11,6 +11,13 @@ pub struct CodegenPlanReport {
     pub root_count: usize,
     pub cluster_count: usize,
     pub planned_units: usize,
+    pub total_workload: usize,
+    pub min_cluster_workload: usize,
+    pub max_cluster_workload: usize,
+    pub min_unit_workload: usize,
+    pub max_unit_workload: usize,
+    pub promoted_function_count: usize,
+    pub promoted_global_count: usize,
     pub fallback_reason: Option<CodegenPlanFallback>,
 }
 
@@ -81,6 +88,13 @@ pub(super) fn plan_codegen_units_with_report(
         root_count: 0,
         cluster_count: 0,
         planned_units: 0,
+        total_workload: 0,
+        min_cluster_workload: 0,
+        max_cluster_workload: 0,
+        min_unit_workload: 0,
+        max_unit_workload: 0,
+        promoted_function_count: 0,
+        promoted_global_count: 0,
         fallback_reason: None,
     };
 
@@ -216,6 +230,17 @@ pub(super) fn plan_codegen_units_with_report(
                 .sum::<usize>();
     }
     report.cluster_count = clusters.len();
+    report.total_workload = clusters.iter().map(|cluster| cluster.workload).sum();
+    report.min_cluster_workload = clusters.iter().map(|cluster| cluster.workload).min().unwrap_or(0);
+    report.max_cluster_workload = clusters.iter().map(|cluster| cluster.workload).max().unwrap_or(0);
+    report.promoted_function_count = clusters
+        .iter()
+        .map(|cluster| cluster.promoted_function_ids.len())
+        .sum();
+    report.promoted_global_count = clusters
+        .iter()
+        .map(|cluster| cluster.promoted_global_ids.len())
+        .sum();
 
     clusters.sort_by(|lhs, rhs| {
         rhs.workload
@@ -264,6 +289,8 @@ pub(super) fn plan_codegen_units_with_report(
 
     units.retain(|unit| !unit.function_ids.is_empty() || !unit.global_ids.is_empty());
     report.planned_units = units.len();
+    report.min_unit_workload = units.iter().map(|unit| unit.workload).min().unwrap_or(0);
+    report.max_unit_workload = units.iter().map(|unit| unit.workload).max().unwrap_or(0);
     if units.len() <= 1 {
         report.fallback_reason = Some(CodegenPlanFallback::TooFewMaterializedUnits);
         CodegenPlanOutcome {
@@ -933,7 +960,7 @@ fn expr_workload(expr: &MastExpr) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{materialize_codegen_unit, plan_codegen_units};
+    use super::{materialize_codegen_unit, plan_codegen_units, plan_codegen_units_with_report};
     use kernc_mast::{
         MastBlock, MastExpr, MastExprKind, MastFunction, MastGlobal, MastLinkage, MastModule,
         MastParam, MastStmt, MonoId,
@@ -1174,5 +1201,37 @@ mod tests {
             .find(|global| global.id == MonoId(20))
             .unwrap();
         assert!(helper.init.is_some());
+    }
+
+    #[test]
+    fn report_tracks_cluster_workload_summary() {
+        let root_a = function(1, "a", MastLinkage::External, vec![call(2), call(2)]);
+        let root_b = function(2, "b", MastLinkage::External, Vec::new());
+        let module = MastModule {
+            name: "demo".to_string(),
+            structs: Vec::new(),
+            globals: Vec::new(),
+            functions: vec![root_a, root_b],
+            def_mono_map: HashMap::new(),
+            pure_enum_tag_map: HashMap::new(),
+            adt_union_map: HashMap::new(),
+            anon_struct_map: HashMap::new(),
+            anon_union_map: HashMap::new(),
+            anon_enum_map: HashMap::new(),
+        };
+
+        let outcome = plan_codegen_units_with_report(&module, 2);
+
+        assert_eq!(outcome.report.root_count, 2);
+        assert_eq!(outcome.report.cluster_count, 2);
+        assert_eq!(outcome.report.planned_units, 2);
+        assert_eq!(outcome.report.total_workload, 12);
+        assert_eq!(outcome.report.min_cluster_workload, 1);
+        assert_eq!(outcome.report.max_cluster_workload, 11);
+        assert_eq!(outcome.report.min_unit_workload, 1);
+        assert_eq!(outcome.report.max_unit_workload, 11);
+        assert_eq!(outcome.report.promoted_function_count, 0);
+        assert_eq!(outcome.report.promoted_global_count, 0);
+        assert!(outcome.report.fallback_reason.is_none());
     }
 }

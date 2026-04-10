@@ -1,4 +1,7 @@
-use super::{build, parallel_target_link_jobs, run, test, validate_package_metadata_root};
+use super::{
+    build, parallel_target_compile_jobs, parallel_target_link_jobs, run, test,
+    validate_package_metadata_root,
+};
 use crate::build_plan;
 use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
@@ -252,6 +255,18 @@ return 42;
 
     let summary = run(&build_plan, &action_plan, unit).unwrap();
     assert!(summary.executable.is_file());
+    validate_package_metadata_root(
+        &root
+            .join(".craft")
+            .join("build")
+            .join("dev")
+            .join("target")
+            .join("meta")
+            .join("util-0.1.0"),
+        "util",
+        Some("0.1.0"),
+    )
+    .unwrap();
 
     let _ = fs::remove_dir_all(root);
 }
@@ -353,6 +368,60 @@ return 42;
 
     let summary = run(&build_plan, &action_plan, unit).unwrap();
     assert!(summary.executable.is_file());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn builds_library_package_with_runtime_section_without_requiring_main() {
+    let root = temp_dir("craft-exec-lib-runtime");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "rt"
+provider = "toolchain"
+libc = false
+bundle = "std"
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.link_actions, 0);
+    assert_eq!(summary.compile_actions, 1);
 
     let _ = fs::remove_dir_all(root);
 }
@@ -544,6 +613,64 @@ if (answer() == 42) {
     return 0;
 }
 return 1;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Test,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Test).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let test_units = build_plan.packages[0]
+        .units
+        .iter()
+        .filter(|unit| unit.target_kind == crate::plan::TargetKind::Test)
+        .collect::<Vec<_>>();
+
+    let summary = test(&build_plan, &action_plan, &test_units).unwrap();
+    assert_eq!(summary.executed, 1);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn package_runtime_applies_to_test_targets() {
+    let root = temp_dir("craft-exec-test-runtime-defaults");
+    fs::create_dir_all(root.join("tests")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+entry = "rt"
+provider = "toolchain"
+libc = false
+bundle = "base"
+
+[test]
+roots = ["tests/smoke.rn"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("tests/smoke.rn"),
+        r#"
+fn main() i32 {
+return 0;
 }
 "#,
     )
@@ -1164,6 +1291,379 @@ let _ = b.copy_package_file_to_artifact("assets/data.txt", "bundle/data.txt");
 }
 
 #[test]
+fn parallel_target_compile_jobs_only_include_ready_local_libraries() {
+    let root = temp_dir("craft-exec-parallel-compile-jobs");
+    let util_dir = root.join("util");
+    let extra_dir = root.join("extra");
+    let app_dir = root.join("app");
+    fs::create_dir_all(util_dir.join("src")).unwrap();
+    fs::create_dir_all(extra_dir.join("src")).unwrap();
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["util", "extra", "app"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        util_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "util"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        util_dir.join("src/lib.rn"),
+        r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        extra_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "extra"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        extra_dir.join("src/lib.rn"),
+        r#"
+pub fn truth() bool {
+    return true;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+
+[dependencies]
+util = { path = "../util" }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("src/lib.rn"),
+        r#"
+pub fn value() i32 {
+    return util.answer();
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let local_library_actions =
+        super::external::local_library_actions(&action_plan.compile_actions);
+
+    let initial_jobs =
+        parallel_target_compile_jobs(&action_plan, &local_library_actions, &Default::default());
+    assert_eq!(initial_jobs.len(), 2);
+    assert!(
+        initial_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "util")
+    );
+    assert!(
+        initial_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "extra")
+    );
+    assert!(
+        initial_jobs
+            .iter()
+            .all(|job| job.compile_action.package_id.name != "app")
+    );
+
+    let util_action = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| action.package_id.name == "util")
+        .unwrap();
+    let mut compiled = std::collections::BTreeSet::from([util_action.object_path.clone()]);
+    let second_jobs = parallel_target_compile_jobs(&action_plan, &local_library_actions, &compiled);
+    assert_eq!(second_jobs.len(), 2);
+    assert!(
+        second_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "app")
+    );
+    assert!(
+        second_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "extra")
+    );
+    assert!(
+        second_jobs
+            .iter()
+            .all(|job| job.compile_action.package_id.name != "util")
+    );
+
+    compiled.extend(
+        second_jobs
+            .iter()
+            .map(|job| job.compile_action.object_path.clone()),
+    );
+    let final_jobs = parallel_target_compile_jobs(&action_plan, &local_library_actions, &compiled);
+    assert!(final_jobs.is_empty());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn parallel_target_links_wait_for_local_library_dependencies() {
+    let root = temp_dir("craft-exec-parallel-link-deps");
+    let util_dir = root.join("util");
+    let app_a_dir = root.join("app_a");
+    let app_b_dir = root.join("app_b");
+    fs::create_dir_all(util_dir.join("src")).unwrap();
+    fs::create_dir_all(app_a_dir.join("src")).unwrap();
+    fs::create_dir_all(app_b_dir.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["util", "app_a", "app_b"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        util_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "util"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        util_dir.join("src/lib.rn"),
+        r#"
+pub fn answer() i32 {
+    return 42;
+}
+"#,
+    )
+    .unwrap();
+
+    for (name, dir) in [("app_a", &app_a_dir), ("app_b", &app_b_dir)] {
+        fs::write(
+            dir.join("Craft.toml"),
+            format!(
+                r#"
+[package]
+name = "{name}"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[bin]]
+name = "{name}"
+root = "src/main.rn"
+
+[dependencies]
+util = {{ path = "../util" }}
+"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            dir.join("src/main.rn"),
+            r#"
+fn main() i32 {
+    return util.answer() - 42;
+}
+"#,
+        )
+        .unwrap();
+    }
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection::default(),
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.compile_actions, 3);
+    assert_eq!(summary.link_actions, 2);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn release_build_links_against_preserved_multi_object_local_library() {
+    let root = temp_dir("craft-exec-multi-object-local-lib");
+    let app_dir = root.join("app");
+    let util_dir = root.join("util");
+    fs::create_dir_all(app_dir.join("src")).unwrap();
+    fs::create_dir_all(util_dir.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["app", "util"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+codegen-units = 2
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+util = { path = "../util" }
+"#,
+    )
+    .unwrap();
+    fs::write(
+        app_dir.join("src/main.rn"),
+        r#"
+fn main() i32 {
+    return util.answer() - 3;
+}
+"#,
+    )
+    .unwrap();
+
+    fs::write(
+        util_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "util"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+codegen-units = 2
+
+[lib]
+root = "src/lib.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        util_dir.join("src/lib.rn"),
+        r#"
+pub fn answer() i32 {
+    return foo() + bar();
+}
+
+fn foo() i32 {
+    return 1;
+}
+
+fn bar() i32 {
+    return 2;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        },
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.compile_actions, 2);
+    assert_eq!(summary.link_actions, 1);
+
+    let util_action = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| action.package_id.name == "util")
+        .unwrap();
+    let object_dir = super::multi_object_output_dir(&util_action.object_path);
+    assert!(util_action.object_path.is_file());
+    assert!(object_dir.is_dir());
+    assert!(
+        fs::read_dir(&object_dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .any(|path| path.extension().and_then(|ext| ext.to_str()) == Some("o"))
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn runtime_packages_are_reused_across_fresh_workspaces() {
     let cache_root = temp_dir("craft-runtime-cache-shared");
     let root_a = temp_dir("craft-runtime-cache-a");
@@ -1366,6 +1866,44 @@ root = "src/main.rn"
     let _ = fs::remove_dir_all(cache_root);
     let _ = fs::remove_dir_all(root_cgu1);
     let _ = fs::remove_dir_all(root_cgu3);
+}
+
+#[test]
+fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
+    let cache_root = temp_dir("craft-runtime-cache-multio-shared");
+    let root = temp_dir("craft-runtime-cache-multio-workspace");
+    let profile = crate::script::ScriptProfile {
+        name: "release".to_string(),
+        opt: 3,
+        debug: false,
+        codegen_units: 2,
+    };
+
+    let summary = super::runtime_packages::with_test_runtime_cache_root(cache_root.clone(), || {
+        build_release_hello_workspace(&root, "[profile.release]\nopt = 3\ncodegen-units = 2")
+    });
+
+    assert_eq!(summary.compile_actions, 1);
+    assert_eq!(summary.link_actions, 1);
+
+    let profile_root = cache_root.join(super::runtime_profile_key(&profile));
+    let std_object = profile_root
+        .join("obj")
+        .join("std")
+        .join("lib")
+        .join("std.o");
+    let std_object_dir = super::multi_object_output_dir(&std_object);
+    assert!(std_object.is_file());
+    assert!(std_object_dir.is_dir());
+    assert!(
+        super::linker_input_paths_for_primary_output(&std_object)
+            .unwrap()
+            .len()
+            > 1
+    );
+
+    let _ = fs::remove_dir_all(cache_root);
+    let _ = fs::remove_dir_all(root);
 }
 
 #[test]

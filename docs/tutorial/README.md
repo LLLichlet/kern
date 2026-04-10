@@ -4,6 +4,7 @@ This tutorial is the practical companion to the reference documents already in
 this repository.
 
 - [`docs/design.md`](../design.md) is the language design and semantics document.
+- [`docs/style.md`](../style.md) records the current source-style guidance used in this repository.
 - [`docs/kernc.md`](../kernc.md) is the compiler driver guide.
 - [`docs/craft.md`](../craft.md) is the package-manager architecture and behavior guide.
 

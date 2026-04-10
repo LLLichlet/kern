@@ -64,6 +64,18 @@ The same split shows up in pointers and slices:
 If you remember only one thing, remember this: Kern makes write permission an
 explicit part of the access path.
 
+Array and SIMD literals use the same `Type.{ ... }` family as other explicit
+constructors, but single-element containers still need an array comma:
+
+```kern
+let one = [1]mut u8.{ 7, };
+let zeros = [16]mut u8.{ 0; 16 };
+let scratch = [256]mut u8.{undef};
+```
+
+Without the comma, `Type.{ value }` is parsed as scalar initialization, not a
+single-element array literal.
+
 ## Structs, Unions, And Enums
 
 Named aggregates are straightforward:

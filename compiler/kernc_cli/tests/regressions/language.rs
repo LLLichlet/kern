@@ -578,6 +578,38 @@ fn main() i32 {
 }
 
 #[test]
+fn hints_about_trailing_comma_for_type_qualified_single_element_array_literal() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let out = [1]mut u8.{ 7 };
+    let _ = out;
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("write `Type.{ value, }` with a trailing comma"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+    assert!(
+        stderr.contains("scalar initialization"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn runs_defer_after_return_value_evaluation() {
     let output = build_and_run_source(
         r#"

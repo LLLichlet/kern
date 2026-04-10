@@ -866,23 +866,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         is_untyped_literal: bool,
     ) -> TypeId {
         let expected_norm = self.resolve_tv(expected);
-        if is_untyped_literal
-            && matches!(
-                self.ctx.type_registry.get(expected_norm),
-                TypeKind::Slice { .. }
-                    | TypeKind::Array { .. }
-                    | TypeKind::ArrayInfer { .. }
-                    | TypeKind::Simd { .. }
-            )
-        {
+        let expects_array_like = matches!(
+            self.ctx.type_registry.get(expected_norm),
+            TypeKind::Slice { .. }
+                | TypeKind::Array { .. }
+                | TypeKind::ArrayInfer { .. }
+                | TypeKind::Simd { .. }
+        );
+        if expects_array_like && !matches!(inner.kind, ExprKind::Undef) {
             let exp_str = self.ctx.ty_to_string(expected);
             let inner_ty = self.check_expr(inner, None);
             let act_str = self.ctx.ty_to_string(inner_ty);
+            let syntax_hint = if is_untyped_literal {
+                "if you meant a single-element array literal, write `.{ value, }` with a trailing comma"
+            } else {
+                "if you meant a single-element array literal, write `Type.{ value, }` with a trailing comma"
+            };
             self.ctx
                 .struct_error(inner.span, "mismatched types")
                 .with_hint(format!("expected `{}`", exp_str))
                 .with_hint(format!("   found `{}`", act_str))
-                .with_hint("if you meant a single-element array literal, write `.{ value, }` with a trailing comma")
+                .with_hint(syntax_hint)
                 .with_hint("without the comma, Kern parses `.{ value }` as scalar initialization")
                 .emit();
             return TypeId::ERROR;

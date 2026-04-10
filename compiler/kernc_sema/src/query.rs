@@ -43,15 +43,21 @@ impl<'a> MemberQueryEnv<'a> {
         where_clauses: &[ast::WhereClause],
     ) {
         for clause in where_clauses {
-            let target_ty = ctx
-                .node_types
-                .get(&clause.target_ty.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let target_ty = ctx.type_registry.normalize(
+                ctx.node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
             let bounds = clause
                 .bounds
                 .iter()
-                .filter_map(|bound| ctx.node_types.get(&bound.id).copied())
+                .filter_map(|bound| {
+                    ctx.node_types
+                        .get(&bound.id)
+                        .copied()
+                        .map(|bound_ty| ctx.type_registry.normalize(bound_ty))
+                })
                 .collect();
             self.active_bounds.to_mut().push((target_ty, bounds));
         }
@@ -425,6 +431,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         member_name: SymbolId,
         access_span: Span,
     ) -> Option<MemberCandidate> {
+        let cache_key = (current_module_id, def_id, generic_args.to_vec(), member_name);
+        if let Some(cached) = self.ctx.named_field_query_cache.get(&cache_key).cloned() {
+            return cached;
+        }
+
         let def_ptr = self
             .ctx
             .defs
@@ -435,10 +446,14 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         unsafe {
             match &*def_ptr {
                 Def::Struct(struct_def) => {
-                    let field = struct_def
+                    let Some(field) = struct_def
                         .fields
                         .iter()
-                        .find(|field| field.name == member_name)?;
+                        .find(|field| field.name == member_name)
+                    else {
+                        self.ctx.named_field_query_cache.insert(cache_key, None);
+                        return None;
+                    };
                     if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
                         self.ctx
                             .struct_error(
@@ -463,7 +478,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         });
                     }
 
-                    Some(MemberCandidate {
+                    let candidate = MemberCandidate {
                         name: member_name,
                         kind: SymbolKind::Var,
                         type_id: self.apply_generics_to_field(
@@ -474,13 +489,21 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         def_id: None,
                         definition_span: field.name_span,
                         is_mut: false,
-                    })
+                    };
+                    self.ctx
+                        .named_field_query_cache
+                        .insert(cache_key, Some(candidate.clone()));
+                    Some(candidate)
                 }
                 Def::Union(union_def) => {
-                    let field = union_def
+                    let Some(field) = union_def
                         .fields
                         .iter()
-                        .find(|field| field.name == member_name)?;
+                        .find(|field| field.name == member_name)
+                    else {
+                        self.ctx.named_field_query_cache.insert(cache_key, None);
+                        return None;
+                    };
                     if !field.is_pub && def_owner_module_id(self.ctx, def_id) != current_module_id {
                         self.ctx
                             .struct_error(
@@ -505,7 +528,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         });
                     }
 
-                    Some(MemberCandidate {
+                    let candidate = MemberCandidate {
                         name: member_name,
                         kind: SymbolKind::Var,
                         type_id: self.apply_generics_to_field(
@@ -516,7 +539,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         def_id: None,
                         definition_span: field.name_span,
                         is_mut: false,
-                    })
+                    };
+                    self.ctx
+                        .named_field_query_cache
+                        .insert(cache_key, Some(candidate.clone()));
+                    Some(candidate)
                 }
                 _ => None,
             }
@@ -533,11 +560,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         access_span: Span,
     ) -> Option<MemberResolution> {
         let started = Instant::now();
-        if let TypeKind::TraitObject(trait_def_id, trait_args) =
-            self.ctx.type_registry.get(search_norm).clone()
+        if matches!(self.ctx.type_registry.get(search_norm), TypeKind::TraitObject(..))
             && let Some(resolution) = self.resolve_trait_object_method_named(
-                trait_def_id,
-                &trait_args,
+                search_norm,
                 member_name,
                 receiver_ty,
                 Some(access_span),
@@ -610,44 +635,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         env: &MemberQueryEnv<'_>,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let mut map = HashMap::new();
-        let mut instantiated_bounds = Vec::new();
-        for (env_target, bound_tys) in env.active_bounds() {
-            map.clear();
-            instantiated_bounds.clear();
-            let matched = {
-                let mut checker = ExprChecker::new(self.ctx, None);
-                if !checker.unify(*env_target, search_norm, &mut map) {
-                    false
-                } else {
-                    if map.is_empty() {
-                        instantiated_bounds.extend(bound_tys.iter().copied());
-                    } else {
-                        let mut subst = Substituter::new(&mut checker.ctx.type_registry, &map);
-                        for bound in bound_tys.iter().copied() {
-                            instantiated_bounds.push(subst.substitute(bound));
-                        }
-                    }
-                    true
-                }
-            };
-            if !matched {
-                continue;
+        self.for_each_matching_bound_trait_object(search_norm, env, |this, bound_norm| {
+            if let TypeKind::TraitObject(trait_def_id, trait_args) =
+                this.ctx.type_registry.get(bound_norm).clone()
+            {
+                this.collect_trait_object_method_candidates(
+                    trait_def_id,
+                    &trait_args,
+                    receiver_ty,
+                    candidates,
+                );
             }
-            for bound_ty in instantiated_bounds.iter().copied() {
-                let bound_norm = self.ctx.type_registry.normalize(bound_ty);
-                if let TypeKind::TraitObject(trait_def_id, trait_args) =
-                    self.ctx.type_registry.get(bound_norm).clone()
-                {
-                    self.collect_trait_object_method_candidates(
-                        trait_def_id,
-                        &trait_args,
-                        receiver_ty,
-                        candidates,
-                    );
-                }
-            }
-        }
+            false
+        });
     }
 
     fn resolve_bound_member(
@@ -658,48 +658,71 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         env: &MemberQueryEnv<'_>,
         access_span: Span,
     ) -> Option<MemberResolution> {
+        let mut resolution = None;
+        self.for_each_matching_bound_trait_object(search_norm, env, |this, bound_norm| {
+            if let Some(found) = this.resolve_trait_object_method_named(
+                bound_norm,
+                member_name,
+                receiver_ty,
+                Some(access_span),
+            ) {
+                resolution = Some(found);
+                return true;
+            }
+            false
+        });
+        resolution
+    }
+
+    fn for_each_matching_bound_trait_object(
+        &mut self,
+        search_norm: TypeId,
+        env: &MemberQueryEnv<'_>,
+        mut visit: impl FnMut(&mut Self, TypeId) -> bool,
+    ) -> bool {
+        if env.is_empty() {
+            return false;
+        }
+
         let mut map = HashMap::new();
-        let mut instantiated_bounds = Vec::new();
         for (env_target, bound_tys) in env.active_bounds() {
             map.clear();
-            instantiated_bounds.clear();
-            let matched = {
+            let matched = if *env_target == search_norm {
+                true
+            } else {
                 let mut checker = ExprChecker::new(self.ctx, None);
-                if !checker.unify(*env_target, search_norm, &mut map) {
-                    false
-                } else {
-                    if map.is_empty() {
-                        instantiated_bounds.extend(bound_tys.iter().copied());
-                    } else {
-                        let mut subst = Substituter::new(&mut checker.ctx.type_registry, &map);
-                        for bound in bound_tys.iter().copied() {
-                            instantiated_bounds.push(subst.substitute(bound));
-                        }
-                    }
-                    true
-                }
+                checker.unify(*env_target, search_norm, &mut map)
             };
             if !matched {
                 continue;
             }
-            for bound_ty in instantiated_bounds.iter().copied() {
-                let bound_norm = self.ctx.type_registry.normalize(bound_ty);
-                if let TypeKind::TraitObject(trait_def_id, trait_args) =
-                    self.ctx.type_registry.get(bound_norm).clone()
-                    && let Some(resolution) = self.resolve_trait_object_method_named(
-                        trait_def_id,
-                        &trait_args,
-                        member_name,
-                        receiver_ty,
-                        Some(access_span),
-                    )
+
+            if map.is_empty() {
+                for bound_ty in bound_tys.iter().copied() {
+                    if matches!(self.ctx.type_registry.get(bound_ty), TypeKind::TraitObject(..))
+                        && visit(self, bound_ty)
+                    {
+                        return true;
+                    }
+                }
+                continue;
+            }
+
+            for bound_ty in bound_tys.iter().copied() {
+                let substituted = {
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    subst.substitute(bound_ty)
+                };
+                let bound_norm = self.ctx.type_registry.normalize(substituted);
+                if matches!(self.ctx.type_registry.get(bound_norm), TypeKind::TraitObject(..))
+                    && visit(self, bound_norm)
                 {
-                    return Some(resolution);
+                    return true;
                 }
             }
         }
 
-        None
+        false
     }
 
     fn collect_impl_method_candidates(
@@ -804,6 +827,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         member_name: SymbolId,
     ) -> Option<MemberCandidate> {
+        let receiver_norm = self.ctx.type_registry.normalize(receiver_norm);
+        let cache_key = (receiver_norm, member_name);
+        if let Some(cached) = self.ctx.impl_method_query_cache.get(&cache_key).cloned() {
+            return cached;
+        }
+
         let mut checker = ExprChecker::new(self.ctx, None);
         let mut map = HashMap::new();
         let method_ids_ptr = checker
@@ -856,7 +885,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     continue;
                 }
 
-                return Some(MemberCandidate {
+                let candidate = MemberCandidate {
                     name: member_name,
                     kind: SymbolKind::Function,
                     type_id: checker
@@ -866,7 +895,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     def_id: Some(method_id),
                     definition_span: function_name_span,
                     is_mut: false,
-                });
+                };
+                checker
+                    .ctx
+                    .impl_method_query_cache
+                    .insert(cache_key, Some(candidate.clone()));
+                return Some(candidate);
             }
             map.clear();
 
@@ -883,7 +917,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .map(|param| map.get(&param.name).copied().unwrap_or(TypeId::ERROR))
                 .collect::<Vec<_>>();
 
-            return Some(MemberCandidate {
+            let candidate = MemberCandidate {
                 name: member_name,
                 kind: SymbolKind::Function,
                 type_id: checker
@@ -893,9 +927,15 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 def_id: Some(method_id),
                 definition_span: function_name_span,
                 is_mut: false,
-            });
+            };
+            checker
+                .ctx
+                .impl_method_query_cache
+                .insert(cache_key, Some(candidate.clone()));
+            return Some(candidate);
         }
 
+        checker.ctx.impl_method_query_cache.insert(cache_key, None);
         None
     }
 
@@ -918,21 +958,36 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
     fn resolve_trait_object_method_named(
         &mut self,
-        trait_def_id: DefId,
-        trait_args: &[TypeId],
+        trait_object_ty: TypeId,
         member_name: SymbolId,
         receiver_ty: TypeId,
         diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
+        let trait_object_ty = self.ctx.type_registry.normalize(trait_object_ty);
+        let TypeKind::TraitObject(trait_def_id, trait_args) =
+            self.ctx.type_registry.get(trait_object_ty).clone()
+        else {
+            return None;
+        };
+
+        let cache_key = (trait_object_ty, member_name, receiver_ty);
+        if let Some(cached) = self.ctx.trait_method_query_cache.get(&cache_key).cloned() {
+            return Some(cached);
+        }
+
         let mut visited = HashSet::new();
-        self.resolve_trait_method_in_hierarchy(
+        let resolution = self.resolve_trait_method_in_hierarchy(
             trait_def_id,
-            trait_args,
+            &trait_args,
             member_name,
             receiver_ty,
             &mut visited,
             diagnostic_span,
-        )
+        );
+        if let Some(resolution) = resolution.clone() {
+            self.ctx.trait_method_query_cache.insert(cache_key, resolution);
+        }
+        resolution
     }
 
     fn collect_trait_methods_in_hierarchy(
@@ -960,12 +1015,18 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         };
         // Safety: trait definitions are immutable during semantic member queries.
         let trait_def = unsafe { &*trait_ptr };
-        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
-            .generics
-            .iter()
-            .zip(trait_args.iter())
-            .map(|(param, arg)| (param.name, *arg))
-            .collect();
+        let trait_arg_map = if trait_def.generics.is_empty() || trait_args.is_empty() {
+            None
+        } else {
+            Some(
+                trait_def
+                    .generics
+                    .iter()
+                    .zip(trait_args.iter())
+                    .map(|(param, arg)| (param.name, *arg))
+                    .collect::<HashMap<_, _>>(),
+            )
+        };
 
         for (method_name, method_ty) in &trait_def.resolved_methods {
             let mut method_ty = *method_ty;
@@ -986,8 +1047,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 });
             }
 
-            if !trait_arg_map.is_empty() {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+            if let Some(trait_arg_map) = trait_arg_map.as_ref() {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 method_ty = subst.substitute(method_ty);
             }
 
@@ -1005,11 +1066,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         }
 
         for &super_ty in &trait_def.resolved_supertraits {
-            let inst_super_ty = if trait_arg_map.is_empty() {
-                super_ty
-            } else {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+            let inst_super_ty = if let Some(trait_arg_map) = trait_arg_map.as_ref() {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 subst.substitute(super_ty)
+            } else {
+                super_ty
             };
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
@@ -1050,12 +1111,18 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             })?;
         // Safety: trait definitions are immutable during member resolution.
         let trait_def = unsafe { &*trait_ptr };
-        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
-            .generics
-            .iter()
-            .zip(trait_args.iter())
-            .map(|(param, arg)| (param.name, *arg))
-            .collect();
+        let trait_arg_map = if trait_def.generics.is_empty() || trait_args.is_empty() {
+            None
+        } else {
+            Some(
+                trait_def
+                    .generics
+                    .iter()
+                    .zip(trait_args.iter())
+                    .map(|(param, arg)| (param.name, *arg))
+                    .collect::<HashMap<_, _>>(),
+            )
+        };
 
         if let Some((_, method_ty)) = trait_def
             .resolved_methods
@@ -1080,8 +1147,8 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 });
             }
 
-            if !trait_arg_map.is_empty() {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+            if let Some(trait_arg_map) = trait_arg_map.as_ref() {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 method_ty = subst.substitute(method_ty);
             }
 
@@ -1104,11 +1171,11 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
         let mut matches = Vec::new();
         for &super_ty in &trait_def.resolved_supertraits {
-            let inst_super_ty = if trait_arg_map.is_empty() {
-                super_ty
-            } else {
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &trait_arg_map);
+            let inst_super_ty = if let Some(trait_arg_map) = trait_arg_map.as_ref() {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, trait_arg_map);
                 subst.substitute(super_ty)
+            } else {
+                super_ty
             };
             let inst_super_norm = self.ctx.type_registry.normalize(inst_super_ty);
 
@@ -1160,6 +1227,20 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         args: &[TypeId],
         node_id: kernc_utils::NodeId,
     ) -> TypeId {
+        if generics.is_empty() || args.is_empty() {
+            return self
+                .ctx
+                .node_types
+                .get(&node_id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+        }
+
+        let cache_key = (node_id, args.to_vec());
+        if let Some(&field_ty) = self.ctx.field_type_subst_cache.get(&cache_key) {
+            return field_ty;
+        }
+
         let mut field_ty = self
             .ctx
             .node_types
@@ -1167,16 +1248,15 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .copied()
             .unwrap_or(TypeId::ERROR);
 
-        if !generics.is_empty() && !args.is_empty() {
-            let mut map = HashMap::new();
-            for (index, param) in generics.iter().enumerate() {
-                if let Some(arg) = args.get(index).copied() {
-                    map.insert(param.name, arg);
-                }
+        let mut map = HashMap::new();
+        for (index, param) in generics.iter().enumerate() {
+            if let Some(arg) = args.get(index).copied() {
+                map.insert(param.name, arg);
             }
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-            field_ty = subst.substitute(field_ty);
         }
+        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+        field_ty = subst.substitute(field_ty);
+        self.ctx.field_type_subst_cache.insert(cache_key, field_ty);
 
         field_ty
     }

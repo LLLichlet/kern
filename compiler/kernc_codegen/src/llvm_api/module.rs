@@ -4,9 +4,9 @@ use llvm_sys::core::LLVMPrintModuleToFile;
 #[cfg(not(windows))]
 use llvm_sys::core::LLVMPrintModuleToString;
 use llvm_sys::core::{
-    LLVMAddFunction, LLVMAddGlobal, LLVMDisposeMessage, LLVMDisposeModule,
-    LLVMGetFirstFunction, LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal,
-    LLVMGetNextFunction, LLVMSetLinkage,
+    LLVMAddFunction, LLVMAddGlobal, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetFirstFunction,
+    LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetNextFunction,
+    LLVMSetLinkage,
 };
 use llvm_sys::prelude::LLVMModuleRef;
 use llvm_sys::target::LLVMSetModuleDataLayout;

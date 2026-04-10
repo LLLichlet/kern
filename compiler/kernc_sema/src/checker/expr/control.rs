@@ -11,9 +11,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         def_id: crate::def::DefId,
         span: Span,
         context: &str,
-    ) -> Option<crate::def::EnumDef> {
-        match self.ctx.defs.get(def_id.0 as usize).cloned() {
-            Some(Def::Enum(def)) => Some(def),
+    ) -> Option<*const crate::def::EnumDef> {
+        match self.ctx.defs.get(def_id.0 as usize) {
+            Some(Def::Enum(def)) => Some(std::ptr::from_ref(def)),
             Some(other) => {
                 self.ctx.emit_ice(
                     span,
@@ -103,7 +103,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let missing: Vec<_> = match self.ctx.type_registry.get(norm_target) {
                     TypeKind::Enum(def_id, _) => self
                         .match_enum_def(*def_id, span, "check match exhaustiveness")
-                        .map(|adt_def| {
+                        .map(|adt_def| unsafe {
+                            let adt_def = &*adt_def;
                             adt_def
                                 .variants
                                 .iter()

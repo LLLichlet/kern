@@ -108,7 +108,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         }
 
-        self.measure_phase("        lower_stmt_expr_wrap", |_| Some(MastStmt::Expr(lowered)))
+        self.measure_phase("        lower_stmt_expr_wrap", |_| {
+            Some(MastStmt::Expr(lowered))
+        })
     }
 
     fn push_defer_in_current_scope(&mut self, span: Span, deferred: MastExpr) {
@@ -703,37 +705,44 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             "        lower_let_binding_forward_value_init",
                             |this| this.lower_expr(init, subst_map, Some(target_ty)),
                         );
-                        self.measure_phase("        lower_let_binding_forward_value_record", |this| {
-                            this.record_local_value_forwarding(
-                                expr.span,
-                                binding.name,
-                                init,
-                                "recording forwardable pure value binding",
-                            );
-                        });
+                        self.measure_phase(
+                            "        lower_let_binding_forward_value_record",
+                            |this| {
+                                this.record_local_value_forwarding(
+                                    expr.span,
+                                    binding.name,
+                                    init,
+                                    "recording forwardable pure value binding",
+                                );
+                            },
+                        );
                         return Vec::new();
                     }
 
                     if !binding.is_mut
-                        && let Some(source_name) = self.measure_phase(
-                            "        lower_let_binding_forward_alias",
-                            |this| this.forwardable_binding_source(expr.id),
-                        )
+                        && let Some(source_name) = self
+                            .measure_phase("        lower_let_binding_forward_alias", |this| {
+                                this.forwardable_binding_source(expr.id)
+                            })
                     {
-                        self.measure_phase("        lower_let_binding_forward_alias_record", |this| {
-                            this.record_local_forwarding(
-                                expr.span,
-                                binding.name,
-                                source_name,
-                                "recording forwardable immutable alias binding",
-                            );
-                        });
+                        self.measure_phase(
+                            "        lower_let_binding_forward_alias_record",
+                            |this| {
+                                this.record_local_forwarding(
+                                    expr.span,
+                                    binding.name,
+                                    source_name,
+                                    "recording forwardable immutable alias binding",
+                                );
+                            },
+                        );
                         return Vec::new();
                     }
 
-                    let init = if self.measure_phase("        lower_let_binding_dead_init", |this| {
-                        this.is_pure_dead_initializer(expr.id)
-                    }) {
+                    let init = if self
+                        .measure_phase("        lower_let_binding_dead_init", |this| {
+                            this.is_pure_dead_initializer(expr.id)
+                        }) {
                         MastExpr::new(target_ty, MastExprKind::Undef, expr.span)
                     } else {
                         self.measure_phase("        lower_let_binding_init", |this| {
@@ -764,15 +773,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        let lowered_init =
-            self.measure_phase("        lower_let_pattern_init", |this| {
-                this.lower_expr(init, subst_map, None)
-            });
+        let lowered_init = self.measure_phase("        lower_let_pattern_init", |this| {
+            this.lower_expr(init, subst_map, None)
+        });
         let target_ty = lowered_init.ty;
-        let (target_let, target_var_expr) = self.measure_phase(
-            "        lower_let_pattern_target",
-            |this| this.build_match_target_binding(target_ty, lowered_init, init.span),
-        );
+        let (target_let, target_var_expr) = self
+            .measure_phase("        lower_let_pattern_target", |this| {
+                this.build_match_target_binding(target_ty, lowered_init, init.span)
+            });
 
         let mut bindings = Vec::new();
         let condition = self.measure_phase("        lower_let_pattern_plan", |this| {
@@ -822,15 +830,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
             let lowered_else = if let Some(else_pattern) = else_pattern {
                 let mut else_bindings = Vec::new();
-                let else_condition = self.measure_phase("        lower_let_else_pattern_plan", |this| {
-                    this.collect_pattern_plan(
-                        expr.span,
-                        else_pattern,
-                        &target_var_expr,
-                        target_ty,
-                        &mut else_bindings,
-                    )
-                });
+                let else_condition =
+                    self.measure_phase("        lower_let_else_pattern_plan", |this| {
+                        this.collect_pattern_plan(
+                            expr.span,
+                            else_pattern,
+                            &target_var_expr,
+                            target_ty,
+                            &mut else_bindings,
+                        )
+                    });
                 let else_body = self.measure_phase("        lower_let_else_pattern_body", |this| {
                     this.lower_match_pattern_body(else_expr, else_bindings, subst_map, TypeId::VOID)
                 });

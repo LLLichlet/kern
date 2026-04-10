@@ -307,7 +307,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             }
             return self
                 .builder
-                .build_extract_value(lhs_val.into_struct_value(), field_idx as u32, "field_extract")
+                .build_extract_value(
+                    lhs_val.into_struct_value(),
+                    field_idx as u32,
+                    "field_extract",
+                )
                 .unwrap();
         }
 

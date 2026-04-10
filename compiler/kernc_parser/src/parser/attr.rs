@@ -10,10 +10,10 @@ impl<'a> Parser<'a> {
         }
 
         if expect_module_level {
-            self.stream.peek_nth(1).tag == TokenType::Bang
-                && self.stream.peek_nth(2).tag == TokenType::LBracket
+            self.stream.peek_tag_nth(1) == TokenType::Bang
+                && self.stream.peek_tag_nth(2) == TokenType::LBracket
         } else {
-            self.stream.peek_nth(1).tag == TokenType::LBracket
+            self.stream.peek_tag_nth(1) == TokenType::LBracket
         }
     }
 
@@ -27,7 +27,7 @@ impl<'a> Parser<'a> {
         let mut attrs = Vec::new();
 
         while self.is_at_attribute() {
-            let is_bang = self.stream.peek_nth(1).tag == TokenType::Bang;
+            let is_bang = self.stream.peek_tag_nth(1) == TokenType::Bang;
 
             // Stop as soon as the attribute level no longer matches the caller's expectation.
             if is_bang != expect_module_level {

@@ -542,16 +542,17 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         // Push active bounds from the function's where-clauses into the current context.
         let prev_bounds_len = self.ctx.active_bounds.len();
         for clause in &f.where_clauses {
-            let target_ty = self
-                .ctx
-                .node_types
-                .get(&clause.target_ty.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let target_ty = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
                 if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
-                    bounds.push(bound_ty);
+                    bounds.push(self.ctx.type_registry.normalize(bound_ty));
                 }
             }
             self.ctx.active_bounds.push((target_ty, bounds));
@@ -782,16 +783,17 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
         let prev_bounds_len = self.ctx.active_bounds.len();
         for clause in &i.where_clauses {
-            let target_ty = self
-                .ctx
-                .node_types
-                .get(&clause.target_ty.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
+            let target_ty = self.ctx.type_registry.normalize(
+                self.ctx
+                    .node_types
+                    .get(&clause.target_ty.id)
+                    .copied()
+                    .unwrap_or(TypeId::ERROR),
+            );
             let mut bounds = Vec::new();
             for bound in &clause.bounds {
                 if let Some(&bound_ty) = self.ctx.node_types.get(&bound.id) {
-                    bounds.push(bound_ty);
+                    bounds.push(self.ctx.type_registry.normalize(bound_ty));
                 }
             }
             self.ctx.active_bounds.push((target_ty, bounds));

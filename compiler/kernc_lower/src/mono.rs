@@ -9,6 +9,18 @@ use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn aligned_union_storage_size(size: u64, align: u64) -> usize {
+        let size = size.max(1);
+        let align = align.max(1);
+        let remainder = size % align;
+        let padded = if remainder == 0 {
+            size
+        } else {
+            size + (align - remainder)
+        };
+        padded as usize
+    }
+
     pub(crate) fn drain_pending_function_instantiations(&mut self) {
         let mut next_pending = 0;
         while next_pending < self.pending_function_instantiations.len() {
@@ -352,11 +364,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 return id;
             };
 
-            let physical_to_ast = {
-                let mut layout = LayoutEngine::new(this.ctx);
-                let (_, p2a) = layout.get_struct_mapping(def_id, args, 0);
-                p2a
-            };
+            let (_, physical_to_ast) = this.cached_named_struct_mapping(def_id, args);
 
             let mut mast_fields = Vec::with_capacity(def.fields.len());
 
@@ -416,8 +424,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return id;
         };
 
-        let mut layout = LayoutEngine::new(self.ctx);
-        let (_, physical_to_ast) = layout.get_anon_struct_mapping(is_extern, &fields, 0);
+        let (_, physical_to_ast) = self.cached_anon_struct_mapping(norm_ty, is_extern, &fields);
 
         let mut mast_fields = Vec::with_capacity(fields.len());
 
@@ -499,7 +506,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern,
             is_union: true,
             largest_field_idx,
-            union_size: max_size.max(1) as usize,
+            union_size: Self::aligned_union_storage_size(max_size, max_align),
             union_align: max_align.max(1) as usize,
             attributes: vec![],
         });
@@ -541,7 +548,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut largest_idx = 0;
         let mut max_size = 0;
         let mut max_align = 1;
-        for (idx, variant) in enum_def.variants.iter().enumerate() {
+        for variant in &enum_def.variants {
             let field_ty = variant.payload_ty.unwrap_or(TypeId::VOID);
             self.track_pure_enum_repr_in_type(field_ty);
 
@@ -549,9 +556,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 name: variant.name,
                 ty: field_ty,
             });
+        }
 
+        let mut layout = LayoutEngine::new(self.ctx);
+        for (idx, field) in union_fields.iter().enumerate() {
+            let field_ty = field.ty;
             if field_ty != TypeId::VOID && field_ty != TypeId::ERROR {
-                let mut layout = LayoutEngine::new(self.ctx);
                 let size = layout.compute_type_size(field_ty);
                 let align = layout.compute_type_align(field_ty);
                 if size > max_size {
@@ -571,7 +581,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: false,
             is_union: true,
             largest_field_idx: largest_idx,
-            union_size: max_size.max(1) as usize,
+            union_size: Self::aligned_union_storage_size(max_size, max_align),
             union_align: max_align.max(1) as usize,
             attributes: vec![],
         });
@@ -636,7 +646,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let mut max_align = 1;
         let mut largest_field_idx = 0;
 
-        for (idx, f) in def.fields.iter().enumerate() {
+        for f in &def.fields {
             let raw_ty = self
                 .ctx
                 .node_types
@@ -649,9 +659,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 name: f.name,
                 ty: conc_ty,
             });
-            let mut le = LayoutEngine::new(self.ctx);
-            let size = le.compute_type_size(conc_ty);
-            let align = le.compute_type_align(conc_ty);
+        }
+
+        let mut layout = LayoutEngine::new(self.ctx);
+        for (idx, field) in mast_fields.iter().enumerate() {
+            let size = layout.compute_type_size(field.ty);
+            let align = layout.compute_type_align(field.ty);
 
             if size > max_size {
                 max_size = size;
@@ -667,7 +680,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             is_extern: def.is_extern,
             is_union: true,
             largest_field_idx,
-            union_size: max_size.max(1) as usize,
+            union_size: Self::aligned_union_storage_size(max_size, max_align),
             union_align: max_align.max(1) as usize,
             attributes: vec![],
         });
@@ -724,7 +737,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mut max_size = 0;
             let mut max_align = 1;
 
-            for (idx, variant) in def.variants.iter().enumerate() {
+            for variant in &def.variants {
                 let field_ty = if let Some(payload_ast) = &variant.payload_type {
                     let raw_ty = this
                         .ctx
@@ -742,16 +755,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     name: variant.name,
                     ty: field_ty,
                 });
+            }
 
+            let mut layout = LayoutEngine::new(this.ctx);
+            for (idx, field) in union_fields.iter().enumerate() {
+                let field_ty = field.ty;
                 if field_ty != TypeId::VOID && field_ty != TypeId::ERROR {
-                    let size = {
-                        let mut le = LayoutEngine::new(this.ctx);
-                        le.compute_type_size(field_ty)
-                    };
-                    let align = {
-                        let mut le = LayoutEngine::new(this.ctx);
-                        le.compute_type_align(field_ty)
-                    };
+                    let size = layout.compute_type_size(field_ty);
+                    let align = layout.compute_type_align(field_ty);
 
                     if size > max_size {
                         max_size = size;
@@ -768,7 +779,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 is_extern: false,
                 is_union: true,
                 largest_field_idx: largest_idx,
-                union_size: max_size.max(1) as usize,
+                union_size: Self::aligned_union_storage_size(max_size, max_align),
                 union_align: max_align.max(1) as usize,
                 attributes: vec![],
             });

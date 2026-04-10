@@ -489,8 +489,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
 
-        let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
-        let (_, physical_to_ast) = layout.get_struct_mapping(def_id, gen_args, 0);
+        let (_, physical_to_ast) = self.cached_named_struct_mapping(def_id, gen_args);
 
         let mut physical_ordered_exprs = Vec::with_capacity(s.fields.len());
         for &ast_idx in &physical_to_ast {
@@ -583,8 +582,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(field_def.ty)));
         }
 
-        let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
-        let (_, physical_to_ast) = layout.get_anon_struct_mapping(is_extern, &anon_fields, 0);
+        let (_, physical_to_ast) =
+            self.cached_anon_struct_mapping(norm_ty, is_extern, &anon_fields);
 
         let mut physical_ordered_exprs = Vec::with_capacity(anon_fields.len());
         for &ast_idx in &physical_to_ast {

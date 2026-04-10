@@ -1197,24 +1197,57 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_trait_ty: TypeId,
         _visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
-        for i in 0..self.ctx.active_bounds.len() {
-            let (env_target, env_bounds) = self.ctx.active_bounds[i].clone();
-            let mut map = HashMap::new();
+        if self.ctx.active_bounds.is_empty() {
+            return false;
+        }
+
+        let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
+        let target_norm = self.resolve_tv(target_trait_ty);
+        let source_norm = self.resolve_tv(source_ty);
+        let mut map = HashMap::new();
+        // Safety: this helper only reads `active_bounds`; it never resizes or replaces the vec.
+        for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
+            map.clear();
 
             // If the queried source type matches the contextual target type, inspect its bounds.
-            if self.unify(env_target, source_ty, &mut map) {
-                // Use a temporary block to keep mutable borrows isolated.
-                let instantiated_bounds: Vec<TypeId> = {
-                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                    env_bounds
-                        .into_iter()
-                        .map(|b| subst.substitute(b))
-                        .collect()
-                };
+            let matched = if *env_target == source_norm {
+                true
+            } else {
+                self.unify(*env_target, source_ty, &mut map)
+            };
+            if matched {
+                if map.is_empty() {
+                    for inst_env_bound in env_bounds.iter().copied() {
+                        let inst_norm = self.resolve_tv(inst_env_bound);
+                        let mut trait_map = HashMap::new();
 
-                for inst_env_bound in instantiated_bounds {
+                        if inst_norm == target_norm
+                            || inst_env_bound == target_trait_ty
+                            || self.unify(inst_env_bound, target_trait_ty, &mut trait_map)
+                        {
+                            return true;
+                        }
+
+                        if matches!(
+                            (
+                                self.ctx.type_registry.get(inst_norm),
+                                self.ctx.type_registry.get(target_norm)
+                            ),
+                            (TypeKind::TraitObject(..), TypeKind::TraitObject(..))
+                        ) && self.is_trait_object_upcast(inst_env_bound, target_trait_ty)
+                        {
+                            return true;
+                        }
+                    }
+                    continue;
+                }
+
+                for bound in env_bounds.iter().copied() {
+                    let inst_env_bound = {
+                        let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                        subst.substitute(bound)
+                    };
                     let inst_norm = self.resolve_tv(inst_env_bound);
-                    let target_norm = self.resolve_tv(target_trait_ty);
                     let mut trait_map = HashMap::new();
 
                     if inst_norm == target_norm
@@ -1247,8 +1280,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         target_trait_ty: TypeId,
         _visited: &mut std::collections::HashSet<DefId>,
     ) -> bool {
-        let trait_impl_ids = self.ctx.trait_impls.clone();
-        for impl_id in trait_impl_ids {
+        let target_norm = self.resolve_tv(target_trait_ty);
+        let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
+        // Safety: this helper only reads the collected impl id list; it never mutates the vec.
+        for impl_id in unsafe { &*trait_impl_ids_ptr }.iter().copied() {
             let Some(impl_ptr) = self
                 .ctx
                 .defs
@@ -1299,7 +1334,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 };
 
                 let inst_norm = self.resolve_tv(instantiated_trait_ty);
-                let target_norm = self.resolve_tv(target_trait_ty);
                 let mut trait_map = HashMap::new();
 
                 if inst_norm == target_norm

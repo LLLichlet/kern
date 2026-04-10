@@ -54,6 +54,22 @@ impl<'a> TokenStream<'a> {
         self.buffer[self.buffer_start + n]
     }
 
+    /// Peek only the tag of the `n`th token without copying the full token payload.
+    pub fn peek_tag_nth(&mut self, n: usize) -> TokenType {
+        self.fill_buffer(n);
+
+        let buffered_len = self.buffer.len().saturating_sub(self.buffer_start);
+        if n >= buffered_len {
+            return self
+                .buffer
+                .last()
+                .map(|token| token.tag)
+                .unwrap_or(TokenType::Eof);
+        }
+
+        self.buffer[self.buffer_start + n].tag
+    }
+
     /// Peek the current token.
     pub fn peek(&mut self) -> Token {
         self.peek_nth(0)
@@ -86,8 +102,7 @@ impl<'a> TokenStream<'a> {
             });
         self.buffer_start += 1;
         if self.buffer_start >= 64 && self.buffer_start * 2 >= self.buffer.len() {
-            self.buffer.drain(..self.buffer_start);
-            self.buffer_start = 0;
+            self.compact_buffer();
         }
         self.last_span = token.span;
         token
@@ -95,7 +110,7 @@ impl<'a> TokenStream<'a> {
 
     /// Check whether the current token has the requested type.
     pub fn check(&mut self, tag: TokenType) -> bool {
-        self.peek().tag == tag
+        self.peek_tag_nth(0) == tag
     }
 
     /// Consume the current token if it matches `tag`.
@@ -124,6 +139,19 @@ impl<'a> TokenStream<'a> {
 
     /// Return whether the stream has reached EOF.
     pub fn is_eof(&mut self) -> bool {
-        self.peek().tag == TokenType::Eof
+        self.peek_tag_nth(0) == TokenType::Eof
+    }
+
+    fn compact_buffer(&mut self) {
+        let remaining = self.buffer.len().saturating_sub(self.buffer_start);
+        if remaining == 0 {
+            self.buffer.clear();
+            self.buffer_start = 0;
+            return;
+        }
+
+        self.buffer.copy_within(self.buffer_start.., 0);
+        self.buffer.truncate(remaining);
+        self.buffer_start = 0;
     }
 }

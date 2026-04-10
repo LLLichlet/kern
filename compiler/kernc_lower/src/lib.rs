@@ -104,13 +104,17 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) local_statics: Vec<HashMap<SymbolId, MonoId>>,
     pub(crate) loop_frames: Vec<usize>,
     pub(crate) field_index_cache: HashMap<(TypeId, SymbolId), usize>,
+    pub(crate) named_struct_layout_cache: HashMap<(DefId, Vec<TypeId>), (Vec<usize>, Vec<usize>)>,
+    pub(crate) anon_struct_layout_cache: HashMap<TypeId, (Vec<usize>, Vec<usize>)>,
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
     pub(crate) closure_fn_map: HashMap<NodeId, MonoId>,
     pub(crate) anon_struct_cache: HashMap<TypeId, MonoId>,
     pub(crate) anon_union_cache: HashMap<TypeId, MonoId>,
     pub(crate) anon_enum_cache: HashMap<TypeId, MonoId>,
+    pub(crate) repr_tracked_types: HashSet<TypeId>,
     pub(crate) reachable_module_items: Option<HashSet<DefId>>,
     pub(crate) flow_lowering_hints: FlowLoweringHints,
+    pub(crate) forwarding_symbol_cache: HashMap<String, SymbolId>,
     pub(crate) current_owner_def_id: Option<DefId>,
     phase_totals: HashMap<&'static str, Duration>,
     cache_stats: LowerCacheStats,
@@ -153,17 +157,31 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             local_statics: Vec::new(),
             loop_frames: Vec::new(),
             field_index_cache: HashMap::new(),
+            named_struct_layout_cache: HashMap::new(),
+            anon_struct_layout_cache: HashMap::new(),
             adt_union_map: HashMap::new(),
             closure_fn_map: HashMap::new(),
             anon_struct_cache: HashMap::new(),
             anon_union_cache: HashMap::new(),
             anon_enum_cache: HashMap::new(),
+            repr_tracked_types: HashSet::new(),
             reachable_module_items: None,
             flow_lowering_hints: FlowLoweringHints::default(),
+            forwarding_symbol_cache: HashMap::new(),
             current_owner_def_id: None,
             phase_totals: HashMap::new(),
             cache_stats: LowerCacheStats::default(),
         }
+    }
+
+    fn cached_forwarding_symbol(&mut self, name: &str) -> SymbolId {
+        if let Some(&symbol) = self.forwarding_symbol_cache.get(name) {
+            return symbol;
+        }
+        let symbol = self.ctx.intern(name);
+        self.forwarding_symbol_cache
+            .insert(name.to_string(), symbol);
+        symbol
     }
 
     pub(crate) fn measure_phase<T, F>(&mut self, name: &'static str, f: F) -> T
@@ -229,7 +247,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .current_owner_flow_hints()
             .and_then(|hints| hints.forwarding.identifier_copy_sources.get(&expr_id))
             .cloned()?;
-        Some(self.ctx.intern(&name))
+        Some(self.cached_forwarding_symbol(&name))
     }
 
     pub(crate) fn forwardable_binding_source(&mut self, expr_id: NodeId) -> Option<SymbolId> {
@@ -237,7 +255,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .current_owner_flow_hints()
             .and_then(|hints| hints.forwarding.forwardable_binding_sources.get(&expr_id))
             .cloned()?;
-        Some(self.ctx.intern(&name))
+        Some(self.cached_forwarding_symbol(&name))
     }
 
     pub(crate) fn is_forwardable_value_binding(&self, expr_id: NodeId) -> bool {
@@ -342,6 +360,44 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(crate) fn has_local_binding(&self, name: SymbolId) -> bool {
         self.local_binding(name).is_some()
+    }
+
+    pub(crate) fn cached_named_struct_mapping(
+        &mut self,
+        def_id: DefId,
+        gen_args: &[TypeId],
+    ) -> (Vec<usize>, Vec<usize>) {
+        let key = (def_id, gen_args.to_vec());
+        if let Some(mapping) = self.named_struct_layout_cache.get(&key) {
+            return mapping.clone();
+        }
+
+        let mapping = {
+            let mut layout = kernc_sema::LayoutEngine::new(self.ctx);
+            layout.get_struct_mapping(def_id, gen_args, 0)
+        };
+        self.named_struct_layout_cache
+            .insert(key, mapping.clone());
+        mapping
+    }
+
+    pub(crate) fn cached_anon_struct_mapping(
+        &mut self,
+        norm_ty: TypeId,
+        is_extern: bool,
+        fields: &[kernc_sema::ty::AnonymousField],
+    ) -> (Vec<usize>, Vec<usize>) {
+        if let Some(mapping) = self.anon_struct_layout_cache.get(&norm_ty) {
+            return mapping.clone();
+        }
+
+        let mapping = {
+            let mut layout = kernc_sema::LayoutEngine::new(self.ctx);
+            layout.get_anon_struct_mapping(is_extern, fields, 0)
+        };
+        self.anon_struct_layout_cache
+            .insert(norm_ty, mapping.clone());
+        mapping
     }
 
     fn new_mono_id(&mut self) -> MonoId {
@@ -572,6 +628,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     pub(crate) fn track_pure_enum_repr_in_type(&mut self, ty: TypeId) {
         let norm_ty = self.ctx.type_registry.normalize(ty);
+        if !self.repr_tracked_types.insert(norm_ty) {
+            return;
+        }
         match self.ctx.type_registry.get(norm_ty).clone() {
             TypeKind::Pointer { elem, .. }
             | TypeKind::VolatilePtr { elem, .. }

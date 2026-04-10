@@ -4,12 +4,12 @@ use llvm_sys::core::{
     LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMCountParams,
     LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent,
     LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
-    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode,
-    LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam,
-    LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
-    LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment,
-    LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
-    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf,
+    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth,
+    LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam, LLVMGetReturnType,
+    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsAInstruction,
+    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
+    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
+    LLVMTypeOf,
 };
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{

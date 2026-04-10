@@ -28,22 +28,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn function_params_from_sig(&mut self, sig_ty: TypeId, span: Span) -> Option<Vec<TypeId>> {
-        match self.ctx.type_registry.get(sig_ty).clone() {
-            TypeKind::Function { params, .. } => Some(params),
-            other => {
-                self.ctx.emit_ice(
-                    span,
-                    format!(
-                        "Compiler ICE: expected function signature type during call checking, found `{:?}`.",
-                        other
-                    ),
-                );
-                None
-            }
-        }
-    }
-
     fn intrinsic_def_from_callee_ty(&self, callee_ty: TypeId) -> Option<DefId> {
         match self
             .ctx
@@ -352,6 +336,38 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         Some(arg_tys)
     }
 
+    fn instantiate_call_signature(
+        &mut self,
+        callee_ty: TypeId,
+        raw_sig: TypeId,
+        generics: &[ast::GenericParam],
+        generic_args: &[TypeId],
+    ) -> TypeId {
+        if generics.is_empty() || generic_args.is_empty() {
+            return raw_sig;
+        }
+
+        if let Some(&cached_sig) = self.ctx.call_signature_instantiation_cache.get(&callee_ty) {
+            return cached_sig;
+        }
+
+        let mut map = HashMap::with_capacity(generic_args.len());
+        for (param, generic_arg) in generics.iter().zip(generic_args.iter()) {
+            map.insert(param.name, *generic_arg);
+        }
+
+        let sig_ty = if map.is_empty() {
+            raw_sig
+        } else {
+            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+            subst.substitute(raw_sig)
+        };
+        self.ctx
+            .call_signature_instantiation_cache
+            .insert(callee_ty, sig_ty);
+        sig_ty
+    }
+
     pub(crate) fn check_call(&mut self, callee: &Expr, args: &[Expr], span: Span) -> TypeId {
         // 1. Intercept `@asm` macro invocations.
         if let ExprKind::Identifier(sym) = &callee.kind
@@ -395,24 +411,23 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 5. Validate the final signature and dispatch strategy.
-        let sig_kind = self.ctx.type_registry.get(sig_ty).clone();
-
-        // Extract call parameters, return type, and varargs metadata.
-        let (params, ret, is_variadic) = match sig_kind {
+        // Extract call parameters, return type, and varargs metadata without cloning parameter
+        // vectors on every call-site check.
+        let (params_ptr, ret, is_variadic) = match self.ctx.type_registry.get(sig_ty) {
             // A. Plain functions.
             TypeKind::Function {
                 params,
                 ret,
                 is_variadic,
-            } => (params, ret, is_variadic),
+            } => (std::ptr::from_ref(params.as_slice()), *ret, *is_variadic),
 
             // B. Closure fat pointers (`*Fn`).
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
-                let inner_norm = self.ctx.type_registry.normalize(elem);
+                let inner_norm = self.ctx.type_registry.normalize(*elem);
                 if let TypeKind::ClosureInterface { params, ret } =
-                    self.ctx.type_registry.get(inner_norm).clone()
+                    self.ctx.type_registry.get(inner_norm)
                 {
-                    (params, ret, false) // Closures never support varargs.
+                    (std::ptr::from_ref(params.as_slice()), *ret, false)
                 } else {
                     let callee_str = self.ctx.ty_to_string(callee_ty);
                     self.ctx
@@ -433,6 +448,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return TypeId::ERROR;
             }
         };
+        // Safety: signature parameter buffers are immutable after interning; later lookups may
+        // grow the registry, but they do not mutate these interned parameter slices.
+        let params = unsafe { &*params_ptr };
 
         self.check_call_arity(args.len(), params.len(), is_method, is_variadic, span);
 
@@ -469,13 +487,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if !handled_intrinsic {
             let arguments_started = Instant::now();
-            self.check_call_arguments(
-                args,
-                &params,
-                is_method,
-                is_variadic,
-                inferred_arg_tys.as_deref(),
-            );
+            self.check_call_arguments(args, params, is_method, is_variadic, inferred_arg_tys.as_deref());
             self.ctx.expr_timing_stats.call_arguments += arguments_started.elapsed();
         }
         ret
@@ -493,33 +505,44 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> (TypeId, Option<TypeId>, Option<Vec<Option<TypeId>>>) {
         if let TypeKind::FnDef(def_id, explicit_args) = self.ctx.type_registry.get(norm_callee) {
             let def_id = *def_id;
+            let explicit_args_ptr = std::ptr::from_ref(explicit_args.as_slice());
             let explicit_args_len = explicit_args.len();
-            let explicit_args = (explicit_args_len != 0).then(|| explicit_args.clone());
-            let (raw_sig, fn_name_id, generics_count) = match &self.ctx.defs[def_id.0 as usize] {
-                Def::Function(func) => {
-                    let Some(raw_sig) = func.resolved_sig else {
-                        self.ctx.emit_ice(
-                            span,
-                            format!(
-                                "Compiler ICE: function `{}` has no resolved signature during call checking.",
-                        self.ctx.resolve(func.name)
-                            ),
-                        );
-                        return (TypeId::ERROR, None, None);
-                    };
-                    (raw_sig, func.name, func.generics.len())
-                }
-                other => {
-                    self.ctx.emit_ice(
-                        span,
-                        format!(
-                            "Compiler ICE: expected function Def for callee, found `{:?}`.",
-                            other
-                        ),
-                    );
-                    return (TypeId::ERROR, None, None);
-                }
+            // Safety: interned `FnDef` generic arguments are immutable in the type registry.
+            let explicit_args = unsafe { &*explicit_args_ptr };
+            let Some(function_ptr) =
+                self.ctx
+                    .defs
+                    .get(def_id.0 as usize)
+                    .and_then(|def| match def {
+                        Def::Function(func) => Some(std::ptr::from_ref(func)),
+                        _ => None,
+                    })
+            else {
+                let other = &self.ctx.defs[def_id.0 as usize];
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: expected function Def for callee, found `{:?}`.",
+                        other
+                    ),
+                );
+                return (TypeId::ERROR, None, None);
             };
+            // Safety: semantic defs are immutable while checking expressions.
+            let function = unsafe { &*function_ptr };
+            let Some(raw_sig) = function.resolved_sig else {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: function `{}` has no resolved signature during call checking.",
+                        self.ctx.resolve(function.name)
+                    ),
+                );
+                return (TypeId::ERROR, None, None);
+            };
+            let fn_name_id = function.name;
+            let generics = function.generics.as_slice();
+            let generics_count = generics.len();
 
             // Monomorphic callees can return their original signature directly.
             if generics_count == 0 {
@@ -540,20 +563,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None, None);
             }
 
-            let generics = match &self.ctx.defs[def_id.0 as usize] {
-                Def::Function(func) => func.generics.clone(),
-                _ => return (TypeId::ERROR, None, None),
-            };
-            let explicit_args = explicit_args.unwrap_or_default();
-
             // Rule A: the user supplied a complete explicit generic argument list.
             if explicit_args.len() == generics_count {
-                let mut map = HashMap::new();
-                for (i, param) in generics.iter().enumerate() {
-                    map.insert(param.name, explicit_args[i]);
-                }
-                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
-                return (subst.substitute(raw_sig), None, None);
+                return (
+                    self.instantiate_call_signature(norm_callee, raw_sig, generics, explicit_args),
+                    None,
+                    None,
+                );
             }
 
             // Rule B: partial user-written generic lists are rejected, except for receiver-bound prefixes.
@@ -567,20 +583,45 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             // Rule C: if generics are omitted entirely, infer them from usage.
             let mut map = HashMap::new();
-            for (i, explicit_arg) in explicit_args.iter().enumerate() {
-                map.insert(generics[i].name, *explicit_arg);
+            for (param, explicit_arg) in generics.iter().zip(explicit_args.iter()) {
+                map.insert(param.name, *explicit_arg);
             }
-            let Some(raw_params) = self.function_params_from_sig(raw_sig, span) else {
-                return (TypeId::ERROR, None, None);
+            let raw_params_ptr = match self.ctx.type_registry.get(raw_sig) {
+                TypeKind::Function { params, .. } => std::ptr::from_ref(params.as_slice()),
+                other => {
+                    self.ctx.emit_ice(
+                        span,
+                        format!(
+                            "Compiler ICE: expected function signature type during call checking, found `{:?}`.",
+                            other
+                        ),
+                    );
+                    return (TypeId::ERROR, None, None);
+                }
             };
+            // Safety: the resolved signature is immutable; local interning may grow the registry,
+            // but it does not mutate the parameter buffer referenced by this slice.
+            let raw_params = unsafe { &*raw_params_ptr };
+            let raw_param_count = raw_params.len();
+            if raw_param_count == 0 && is_method {
+                self.ctx.emit_ice(
+                    span,
+                    format!(
+                        "Compiler ICE: method call `{}` resolved to a signature without receiver parameter.",
+                        self.ctx.resolve(fn_name_id)
+                    ),
+                );
+                return (TypeId::ERROR, None, None);
+            }
             let mut inferred_arg_tys = vec![None; args.len()];
 
             let param_offset = if is_method { 1 } else { 0 };
 
             // 1. Infer from the receiver first, for example in `list.push(...)`.
-            if is_method && !raw_params.is_empty() {
+            if is_method {
                 let mut stripped_recv = self.resolve_tv(receiver_ty);
-                let expected_recv = self.resolve_tv(raw_params[0]);
+                let expected_recv =
+                    self.resolve_tv(raw_params.first().copied().unwrap_or(TypeId::ERROR));
                 if let TypeKind::Pointer { is_mut: false, .. } =
                     self.ctx.type_registry.get(expected_recv)
                 {
@@ -609,12 +650,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // 2. Infer from positional arguments.
             for (i, arg) in args.iter().enumerate() {
                 let sig_idx = i + param_offset;
-                if sig_idx < raw_params.len() {
+                let expected_param = raw_params.get(sig_idx).copied();
+                if let Some(expected_param) = expected_param {
                     let arg_ty = self.check_expr(arg, None);
                     inferred_arg_tys[i] = Some(arg_ty);
                     let arg_norm = self.resolve_tv(arg_ty);
                     if arg_norm != TypeId::ERROR {
-                        self.unify(raw_params[sig_idx], arg_norm, &mut map);
+                        self.unify(expected_param, arg_norm, &mut map);
                     }
                 }
             }
@@ -622,7 +664,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // 3. Ensure every generic parameter was inferred.
             let mut missing_generics = Vec::new();
             let mut resolved_args = Vec::new();
-            for param in &generics {
+            for param in generics {
                 if let Some(&inferred_ty) = map.get(&param.name) {
                     resolved_args.push(inferred_ty);
                 } else {
@@ -654,10 +696,14 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .ctx
                 .type_registry
                 .intern(TypeKind::FnDef(def_id, resolved_args));
-
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+            let inferred_args_ptr = match self.ctx.type_registry.get(inferred_callee_ty) {
+                TypeKind::FnDef(_, args) => std::ptr::from_ref(args.as_slice()),
+                _ => unreachable!("just interned FnDef must remain a FnDef"),
+            };
+            // Safety: the inferred `FnDef` arguments are interned immutably in the type registry.
+            let inferred_args = unsafe { &*inferred_args_ptr };
             return (
-                subst.substitute(raw_sig),
+                self.instantiate_call_signature(inferred_callee_ty, raw_sig, generics, inferred_args),
                 Some(inferred_callee_ty),
                 Some(inferred_arg_tys),
             );
@@ -778,11 +824,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
             if sig_param_idx < params.len() {
                 // 1. Check a regular fixed parameter.
+                let expected = params[sig_param_idx];
                 let arg_ty = inferred_arg_tys
                     .and_then(|tys| tys.get(i))
                     .and_then(|ty| *ty)
-                    .unwrap_or_else(|| self.check_expr(arg, Some(params[sig_param_idx])));
-                self.check_coercion(arg, params[sig_param_idx], arg_ty);
+                    .unwrap_or_else(|| self.check_expr(arg, Some(expected)));
+                self.check_coercion(arg, expected, arg_ty);
             } else {
                 // 2. Check trailing variadic arguments under C ABI rules.
                 let arg_ty = inferred_arg_tys
@@ -922,16 +969,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
 
         // 1. Extract the callee's where-clauses only when they are actually present.
-        let where_clauses = match &self.ctx.defs[def_id.0 as usize] {
-            Def::Function(f) => f.where_clauses.clone(),
-            Def::Struct(s) => s.where_clauses.clone(),
-            Def::Union(u) => u.where_clauses.clone(),
-            Def::TypeAlias(t) => t.where_clauses.clone(),
-            Def::Impl(i) => i.where_clauses.clone(),
-            Def::Enum(e) => e.where_clauses.clone(),
-            Def::Trait(t) => t.where_clauses.clone(),
+        let where_clauses_ptr = match &self.ctx.defs[def_id.0 as usize] {
+            Def::Function(f) => std::ptr::from_ref(f.where_clauses.as_slice()),
+            Def::Struct(s) => std::ptr::from_ref(s.where_clauses.as_slice()),
+            Def::Union(u) => std::ptr::from_ref(u.where_clauses.as_slice()),
+            Def::TypeAlias(t) => std::ptr::from_ref(t.where_clauses.as_slice()),
+            Def::Impl(i) => std::ptr::from_ref(i.where_clauses.as_slice()),
+            Def::Enum(e) => std::ptr::from_ref(e.where_clauses.as_slice()),
+            Def::Trait(t) => std::ptr::from_ref(t.where_clauses.as_slice()),
             _ => return,
         };
+        // Safety: semantic defs stay immutable while call checking walks their bounds.
+        let where_clauses = unsafe { &*where_clauses_ptr };
 
         // 2. Build the generic argument substitution map.
         let mut map = std::collections::HashMap::new();
@@ -941,46 +990,42 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
         }
 
-        // 3. Collect the type pairs that must satisfy the bounds.
-        let mut pairs_to_check = Vec::new();
-        {
-            let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+        // 3. Stream each instantiated obligation directly into trait checking.
+        for clause in where_clauses {
+            let original_target = self
+                .ctx
+                .node_types
+                .get(&clause.target_ty.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let sub_target = {
+                let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                subst.substitute(original_target)
+            };
 
-            for clause in where_clauses {
-                let original_target = self
+            for bound_ast in &clause.bounds {
+                let original_bound = self
                     .ctx
                     .node_types
-                    .get(&clause.target_ty.id)
+                    .get(&bound_ast.id)
                     .copied()
                     .unwrap_or(TypeId::ERROR);
-                let sub_target = subst.substitute(original_target);
+                let sub_bound = {
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    subst.substitute(original_bound)
+                };
 
-                for bound_ast in clause.bounds {
-                    let original_bound = self
-                        .ctx
-                        .node_types
-                        .get(&bound_ast.id)
-                        .copied()
-                        .unwrap_or(TypeId::ERROR);
-                    let sub_bound = subst.substitute(original_bound);
-
-                    pairs_to_check.push((sub_target, sub_bound));
+                if sub_target != TypeId::ERROR
+                    && sub_bound != TypeId::ERROR
+                    && !self.check_trait_impl(sub_target, sub_bound)
+                {
+                    let req_str = self.ctx.ty_to_string(sub_bound);
+                    let act_str = self.ctx.ty_to_string(sub_target);
+                    self.ctx
+                        .struct_error(span, "type does not satisfy trait bounds")
+                        .with_hint(format!("required bound: `{}: {}`", act_str, req_str))
+                        .emit();
                 }
-            }
-        }
-
-        // 4. Check the required trait obligations.
-        for (sub_target, sub_bound) in pairs_to_check {
-            if sub_target != TypeId::ERROR
-                && sub_bound != TypeId::ERROR
-                && !self.check_trait_impl(sub_target, sub_bound)
-            {
-                let req_str = self.ctx.ty_to_string(sub_bound);
-                let act_str = self.ctx.ty_to_string(sub_target);
-                self.ctx
-                    .struct_error(span, "type does not satisfy trait bounds")
-                    .with_hint(format!("required bound: `{}: {}`", act_str, req_str))
-                    .emit();
             }
         }
     }

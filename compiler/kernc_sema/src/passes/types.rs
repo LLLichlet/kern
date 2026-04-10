@@ -69,8 +69,6 @@ enum ResolveItemSpec {
     TypeAlias(TypeAliasResolveSpec),
     Impl(ImplResolveSpec),
     Enum(EnumResolveSpec),
-    Global,
-    Module,
 }
 
 impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
@@ -190,8 +188,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 backing_type: a.backing_type.clone(),
                 variants: a.variants.clone(),
             }),
-            Def::Global(_) => ResolveItemSpec::Global,
-            Def::Module(_) => ResolveItemSpec::Module,
+            Def::Global(_) | Def::Module(_) => return,
         };
 
         match spec {
@@ -202,7 +199,6 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ResolveItemSpec::TypeAlias(t) => self.resolve_type_alias_item(&t, parent_scope),
             ResolveItemSpec::Impl(i) => self.resolve_impl_item(&i, parent_scope),
             ResolveItemSpec::Enum(a) => self.resolve_enum_item(item_id, &a, parent_scope),
-            ResolveItemSpec::Global | ResolveItemSpec::Module => {}
         }
     }
 

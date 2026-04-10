@@ -2,7 +2,7 @@ use super::{
     Diagnostic, DiagnosticBuilder, DiagnosticLevel, FileId, Interner, NodeId, SourceManager, Span,
     SymbolId,
 };
-use crate::config::{CompileOptions, TargetMachine};
+use crate::config::{CompileOptions, RuntimeEntry, TargetMachine};
 use std::collections::HashMap;
 use std::io::IsTerminal;
 use std::path::Path;
@@ -23,6 +23,7 @@ pub struct Session {
 
     // --- 4. Effective compile options ---
     pub target: TargetMachine,
+    pub runtime_entry: RuntimeEntry,
     pub custom_defines: HashMap<String, String>,
 }
 
@@ -42,6 +43,7 @@ impl Session {
             next_node_id: 0,
             use_color: std::io::stderr().is_terminal(),
             target: TargetMachine::default(),
+            runtime_entry: RuntimeEntry::None,
             custom_defines: HashMap::new(),
         }
     }
@@ -203,6 +205,7 @@ impl Session {
 
     pub fn apply_options(&mut self, options: &CompileOptions) {
         self.target = options.target.clone();
+        self.runtime_entry = options.runtime_entry;
         self.custom_defines = options.custom_defines.clone();
     }
 }

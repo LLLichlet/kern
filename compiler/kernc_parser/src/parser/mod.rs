@@ -89,8 +89,14 @@ impl<'a> Parser<'a> {
     }
 
     fn match_token(&mut self, tags: &[TokenType]) -> bool {
-        let current = self.peek().tag;
-        if tags.contains(&current) {
+        let current = self.stream.peek_tag_nth(0);
+        let matched = match tags {
+            [single] => current == *single,
+            [first, second] => current == *first || current == *second,
+            [first, second, third] => current == *first || current == *second || current == *third,
+            _ => tags.contains(&current),
+        };
+        if matched {
             self.advance();
             return true;
         }
@@ -103,8 +109,13 @@ impl<'a> Parser<'a> {
         }
         self.advance();
 
-        let next = self.peek().tag;
-        !end_tags.contains(&next)
+        let next = self.stream.peek_tag_nth(0);
+        match end_tags {
+            [single] => next != *single,
+            [first, second] => next != *first && next != *second,
+            [first, second, third] => next != *first && next != *second && next != *third,
+            _ => !end_tags.contains(&next),
+        }
     }
 
     /// Consume one token and report a synchronized parse error on mismatch.
@@ -360,7 +371,7 @@ impl<'a> Parser<'a> {
 
         while !self.check(TokenType::Eof) {
             // A semicolon usually marks the end of the previous statement.
-            if self.stream.peek_nth(0).tag == TokenType::Semicolon {
+            if self.stream.peek_tag_nth(0) == TokenType::Semicolon {
                 self.advance();
                 return;
             }

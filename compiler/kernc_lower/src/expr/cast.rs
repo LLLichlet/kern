@@ -373,12 +373,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             return None;
         }
 
-        let physical_to_ast = {
-            let mut layout = LayoutEngine::new(self.ctx);
-            let (_, physical_to_ast) =
-                layout.get_struct_mapping(rewrite.def_id, rewrite.gen_args, 0);
-            physical_to_ast
-        };
+        let (_, physical_to_ast) =
+            self.cached_named_struct_mapping(rewrite.def_id, rewrite.gen_args);
         if physical_to_ast.len() != rewrite.fields.len() {
             self.ctx.emit_ice(
                 rewrite.span,
@@ -403,12 +399,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .collect::<HashMap<_, _>>();
 
         let struct_id = self.instantiate_anon_struct(rewrite.exp_base);
-        let anon_physical_to_ast = {
-            let mut layout = LayoutEngine::new(self.ctx);
-            let (_, anon_physical_to_ast) =
-                layout.get_anon_struct_mapping(rewrite.anon_is_extern, rewrite.anon_fields, 0);
-            anon_physical_to_ast
-        };
+        let (_, anon_physical_to_ast) = self.cached_anon_struct_mapping(
+            rewrite.exp_base,
+            rewrite.anon_is_extern,
+            rewrite.anon_fields,
+        );
 
         let mut rewritten_fields = Vec::with_capacity(rewrite.anon_fields.len());
         for &ast_idx in &anon_physical_to_ast {

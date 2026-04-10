@@ -355,8 +355,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         return 0;
                     }
                 };
-                let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
-                let (ast_to_physical, _) = layout.get_struct_mapping(def_id, &gen_args, 0);
+                let (ast_to_physical, _) = self.cached_named_struct_mapping(def_id, &gen_args);
                 let field_idx = ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
                     self.ctx.emit_ice(
                         span,
@@ -397,8 +396,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 );
                 return 0;
             };
-            let mut layout = kernc_sema::ty::LayoutEngine::new(self.ctx);
-            let (ast_to_physical, _) = layout.get_anon_struct_mapping(is_extern, fields, 0);
+            let (ast_to_physical, _) =
+                self.cached_anon_struct_mapping(norm, is_extern, fields);
             let field_idx = ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
                 self.ctx.emit_ice(
                     span,

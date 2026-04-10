@@ -11,13 +11,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     fn scalar_bit_width_of_type(&self, ty: BasicTypeEnum<'ctx>) -> Option<u64> {
         match ty {
             BasicTypeEnum::IntType(int_ty) => Some(int_ty.bit_width() as u64),
-            BasicTypeEnum::FloatType(_) => Some(match unsafe {
-                llvm_sys::core::LLVMGetTypeKind(ty.as_type_ref())
-            } {
-                llvm_sys::LLVMTypeKind::LLVMFloatTypeKind => 32,
-                llvm_sys::LLVMTypeKind::LLVMDoubleTypeKind => 64,
-                _ => return None,
-            }),
+            BasicTypeEnum::FloatType(_) => Some(
+                match unsafe { llvm_sys::core::LLVMGetTypeKind(ty.as_type_ref()) } {
+                    llvm_sys::LLVMTypeKind::LLVMFloatTypeKind => 32,
+                    llvm_sys::LLVMTypeKind::LLVMDoubleTypeKind => 64,
+                    _ => return None,
+                },
+            ),
             BasicTypeEnum::PointerType(_) => Some(self.sess.target.pointer_size * 8),
             _ => None,
         }
@@ -46,9 +46,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             BasicValueEnum::FloatValue(float_val) => {
                 self.builder.build_bit_cast(float_val, target_ty, name).ok()
             }
-            BasicValueEnum::PointerValue(ptr_val) => {
-                self.builder.build_ptr_to_int(ptr_val, target_ty, name).ok().map(Into::into)
-            }
+            BasicValueEnum::PointerValue(ptr_val) => self
+                .builder
+                .build_ptr_to_int(ptr_val, target_ty, name)
+                .ok()
+                .map(Into::into),
             _ => None,
         }
     }
@@ -211,7 +213,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .into_int_type();
         let tag_val = tag_llvm_ty.const_int(tag_value as u64, false);
 
-        let union_llvm_ty = struct_llvm_ty.get_field_type_at_index(1).unwrap().into_struct_type();
+        let union_llvm_ty = struct_llvm_ty
+            .get_field_type_at_index(1)
+            .unwrap()
+            .into_struct_type();
 
         // Store the payload into the union storage.
         let union_val = if payload.ty != TypeId::VOID && payload.ty != TypeId::ERROR {

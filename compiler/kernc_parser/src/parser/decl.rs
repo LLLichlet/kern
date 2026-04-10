@@ -6,7 +6,7 @@ use kernc_utils::Span;
 
 impl<'a> Parser<'a> {
     fn parse_generic_params(&mut self) -> ParseResult<Vec<GenericParam>> {
-        if self.check(TokenType::LBracket) && self.stream.peek_nth(1).tag == TokenType::RBracket {
+        if self.check(TokenType::LBracket) && self.stream.peek_tag_nth(1) == TokenType::RBracket {
             return Ok(Vec::new());
         }
         if !self.match_token(&[TokenType::LBracket]) {
@@ -161,7 +161,7 @@ impl<'a> Parser<'a> {
         let decl_res = match token.tag {
             TokenType::Mod => Ok(Some(self.parse_mod_decl(start_span, is_pub)?)),
             TokenType::Fn => Ok(Some(self.parse_fn_decl(start_span, is_pub, is_extern)?)),
-            TokenType::Const if self.stream.peek_nth(1).tag == TokenType::Fn => {
+            TokenType::Const if self.stream.peek_tag_nth(1) == TokenType::Fn => {
                 Ok(Some(self.parse_fn_decl(start_span, is_pub, is_extern)?))
             }
             TokenType::Type => Ok(Some(
@@ -332,7 +332,7 @@ impl<'a> Parser<'a> {
             };
 
             if self.check(TokenType::Fn)
-                || (self.check(TokenType::Const) && self.stream.peek_nth(1).tag == TokenType::Fn)
+                || (self.check(TokenType::Const) && self.stream.peek_tag_nth(1) == TokenType::Fn)
             {
                 let mut d = self.parse_fn_decl(d_start, is_pub, true)?;
                 d.docs = docs;
@@ -398,7 +398,7 @@ impl<'a> Parser<'a> {
                 self.peek().span
             };
             if self.check(TokenType::Fn)
-                || (self.check(TokenType::Const) && self.stream.peek_nth(1).tag == TokenType::Fn)
+                || (self.check(TokenType::Const) && self.stream.peek_tag_nth(1) == TokenType::Fn)
             {
                 let mut d = self.parse_fn_decl(d_start, is_pub, false)?;
                 d.docs = docs;

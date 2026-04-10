@@ -128,6 +128,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, generic_args) => {
                 let adt_def = self.match_enum_def(def_id, span, "inspect a pattern variant")?;
+                // Safety: semantic defs are immutable while type checking expressions.
+                let adt_def = unsafe { &*adt_def };
                 let generic_map = self.build_generic_arg_map(&adt_def.generics, &generic_args);
                 let variant = adt_def.variants.iter().find(|v| v.name == variant_name)?;
                 let definition_span = variant.name_span;
@@ -490,16 +492,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        let Some(Def::Enum(def)) = self.ctx.defs.get(def_id.0 as usize).cloned() else {
-            self.ctx.emit_ice(
-                span,
-                format!(
-                    "Kern ICE (Typeck): expected enum definition for DefId {} while checking `let ... else` patterns.",
-                    def_id.0
-                ),
-            );
+        let Some(def) =
+            self.match_enum_def(def_id, span, "check `let ... else` enum pattern coverage")
+        else {
             return false;
         };
+        // Safety: semantic defs are immutable while type checking expressions.
+        let def = unsafe { &*def };
 
         let mut handled = std::collections::HashSet::new();
         if let Some(name) = self.let_else_top_level_pattern_variant_name(primary) {
@@ -901,6 +900,8 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         match self.ctx.type_registry.get(norm_target).clone() {
             TypeKind::Enum(def_id, _) => {
                 let adt_def = self.match_enum_def(def_id, span, "access an enum variant")?;
+                // Safety: semantic defs are immutable while type checking expressions.
+                let adt_def = unsafe { &*adt_def };
                 let Some(variant) = adt_def
                     .variants
                     .iter()

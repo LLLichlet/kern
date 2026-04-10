@@ -8,11 +8,19 @@ use std::collections::HashMap;
 
 pub struct LayoutEngine<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
+    align_cache: HashMap<TypeId, u64>,
+    size_cache: HashMap<TypeId, u64>,
+    named_struct_mapping_cache: HashMap<(DefId, Vec<TypeId>), (Vec<usize>, Vec<usize>)>,
 }
 
 impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {
-        Self { ctx }
+        Self {
+            ctx,
+            align_cache: HashMap::new(),
+            size_cache: HashMap::new(),
+            named_struct_mapping_cache: HashMap::new(),
+        }
     }
 
     /// Compute the physical layout of a named struct.
@@ -23,6 +31,11 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         generic_args: &[TypeId],
         depth: usize,
     ) -> (Vec<usize>, Vec<usize>) {
+        let cache_key = (def_id, generic_args.to_vec());
+        if let Some(mapping) = self.named_struct_mapping_cache.get(&cache_key) {
+            return mapping.clone();
+        }
+
         let Some(struct_def) = self.lookup_struct_def(def_id, "build a struct layout mapping")
         else {
             return (Vec::new(), Vec::new());
@@ -54,7 +67,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             physical_to_ast[phys_idx] = meta.0;
         }
 
-        (ast_to_physical, physical_to_ast)
+        let mapping = (ast_to_physical, physical_to_ast);
+        self.named_struct_mapping_cache
+            .insert(cache_key, mapping.clone());
+        mapping
     }
 
     /// Compute the physical layout of an anonymous struct.
@@ -101,9 +117,12 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         }
 
         let norm = self.ctx.type_registry.normalize(ty);
+        if let Some(&align) = self.align_cache.get(&norm) {
+            return align;
+        }
         let kind = self.ctx.type_registry.get(norm).clone();
 
-        match kind {
+        let align = match kind {
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. } | TypeKind::Function { .. } => {
                 self.ctx.sess.target.pointer_size
             }
@@ -210,7 +229,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 self.ctx.emit_ice(kernc_utils::Span::default(), format!("Kern ICE (Layout): Attempted to compute alignment of an invalid or incomplete type: {:?}", kind));
                 1
             }
-        }
+        };
+
+        self.align_cache.insert(norm, align);
+        align
     }
 
     pub fn compute_type_size(&mut self, ty: TypeId) -> u64 {
@@ -223,9 +245,12 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
         }
 
         let norm = self.ctx.type_registry.normalize(ty);
+        if let Some(&size) = self.size_cache.get(&norm) {
+            return size;
+        }
         let kind = self.ctx.type_registry.get(norm).clone();
 
-        match kind {
+        let size = match kind {
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.ctx.type_registry.normalize(elem);
                 if matches!(
@@ -366,7 +391,10 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 self.ctx.emit_ice(kernc_utils::Span::default(), format!("Kern ICE (Layout): Cannot compute the size of an invalid or incomplete type: {:?}", kind));
                 0
             }
-        }
+        };
+
+        self.size_cache.insert(norm, size);
+        size
     }
 
     fn align_to(offset: u64, align: u64) -> u64 {

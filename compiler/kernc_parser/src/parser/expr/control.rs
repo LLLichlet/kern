@@ -390,22 +390,22 @@ impl<'a> Parser<'a> {
     }
 
     fn lookahead_type_path_end(&mut self, start: usize) -> Option<usize> {
-        if self.stream.peek_nth(start).tag != TokenType::Identifier {
+        if self.stream.peek_tag_nth(start) != TokenType::Identifier {
             return None;
         }
 
         let mut index = start + 1;
-        while self.stream.peek_nth(index).tag == TokenType::Dot
-            && self.stream.peek_nth(index + 1).tag == TokenType::Identifier
+        while self.stream.peek_tag_nth(index) == TokenType::Dot
+            && self.stream.peek_tag_nth(index + 1) == TokenType::Identifier
         {
             index += 2;
         }
 
-        if self.stream.peek_nth(index).tag == TokenType::LBracket {
+        if self.stream.peek_tag_nth(index) == TokenType::LBracket {
             let mut depth = 1;
             index += 1;
             while depth > 0 {
-                match self.stream.peek_nth(index).tag {
+                match self.stream.peek_tag_nth(index) {
                     TokenType::LBracket => depth += 1,
                     TokenType::RBracket => depth -= 1,
                     TokenType::Eof => return None,
@@ -422,21 +422,21 @@ impl<'a> Parser<'a> {
         let mut index = start;
 
         loop {
-            if self.stream.peek_nth(index).tag == TokenType::RBrace {
+            if self.stream.peek_tag_nth(index) == TokenType::RBrace {
                 return Some(index + 1);
             }
 
-            if self.stream.peek_nth(index).tag != TokenType::Identifier {
+            if self.stream.peek_tag_nth(index) != TokenType::Identifier {
                 return None;
             }
             index += 1;
 
-            if self.stream.peek_nth(index).tag == TokenType::Colon {
+            if self.stream.peek_tag_nth(index) == TokenType::Colon {
                 index += 1;
                 index = self.lookahead_pattern_end(index)?;
             }
 
-            match self.stream.peek_nth(index).tag {
+            match self.stream.peek_tag_nth(index) {
                 TokenType::Comma => index += 1,
                 TokenType::RBrace => return Some(index + 1),
                 _ => return None,
@@ -445,11 +445,11 @@ impl<'a> Parser<'a> {
     }
 
     fn lookahead_pattern_end(&mut self, start: usize) -> Option<usize> {
-        match self.stream.peek_nth(start).tag {
+        match self.stream.peek_tag_nth(start) {
             TokenType::Underscore => Some(start + 1),
             TokenType::DotLBrace => self.lookahead_destructure_pattern_end(start + 1),
             TokenType::Dot => {
-                if self.stream.peek_nth(start + 1).tag == TokenType::Identifier {
+                if self.stream.peek_tag_nth(start + 1) == TokenType::Identifier {
                     Some(start + 2)
                 } else {
                     None
@@ -457,9 +457,9 @@ impl<'a> Parser<'a> {
             }
             TokenType::Identifier => {
                 if let Some(index) = self.lookahead_type_path_end(start) {
-                    match self.stream.peek_nth(index).tag {
+                    match self.stream.peek_tag_nth(index) {
                         TokenType::Dot => {
-                            if self.stream.peek_nth(index + 1).tag == TokenType::Identifier {
+                            if self.stream.peek_tag_nth(index + 1) == TokenType::Identifier {
                                 return Some(index + 2);
                             }
                         }
@@ -473,7 +473,7 @@ impl<'a> Parser<'a> {
                 Some(start + 1)
             }
             TokenType::Mut => {
-                if self.stream.peek_nth(start + 1).tag == TokenType::Identifier {
+                if self.stream.peek_tag_nth(start + 1) == TokenType::Identifier {
                     Some(start + 2)
                 } else {
                     None
@@ -487,7 +487,7 @@ impl<'a> Parser<'a> {
         let Some(end) = self.lookahead_pattern_end(0) else {
             return false;
         };
-        self.stream.peek_nth(end).tag == TokenType::Arrow
+        self.stream.peek_tag_nth(end) == TokenType::Arrow
     }
 
     fn looks_like_typed_pattern(&mut self) -> bool {
@@ -495,10 +495,7 @@ impl<'a> Parser<'a> {
             return false;
         };
 
-        matches!(
-            self.stream.peek_nth(index).tag,
-            TokenType::Dot | TokenType::DotLBrace
-        )
+        matches!(self.stream.peek_tag_nth(index), TokenType::Dot | TokenType::DotLBrace)
     }
 
     pub(super) fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {

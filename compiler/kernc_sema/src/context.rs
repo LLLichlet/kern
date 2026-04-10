@@ -96,6 +96,16 @@ pub struct SemaContext<'a> {
     pub parent_modules_by_def: HashMap<DefId, DefId>,
     pub owner_scopes_by_def: HashMap<DefId, ScopeId>,
     pub expr_timing_stats: ExprTimingStats,
+    pub(crate) call_signature_instantiation_cache: HashMap<TypeId, TypeId>,
+    pub(crate) field_type_subst_cache: HashMap<(NodeId, Vec<TypeId>), TypeId>,
+    pub(crate) trait_method_query_cache:
+        HashMap<(TypeId, SymbolId, TypeId), crate::query::MemberResolution>,
+    pub(crate) impl_method_query_cache:
+        HashMap<(TypeId, SymbolId), Option<crate::query::MemberCandidate>>,
+    pub(crate) named_field_query_cache: HashMap<
+        (Option<DefId>, DefId, Vec<TypeId>, SymbolId),
+        Option<crate::query::MemberCandidate>,
+    >,
     identifier_references: Vec<(Span, Span)>,
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }
@@ -121,6 +131,11 @@ impl<'a> SemaContext<'a> {
             parent_modules_by_def: HashMap::new(),
             owner_scopes_by_def: HashMap::new(),
             expr_timing_stats: ExprTimingStats::default(),
+            call_signature_instantiation_cache: HashMap::new(),
+            field_type_subst_cache: HashMap::new(),
+            trait_method_query_cache: HashMap::new(),
+            impl_method_query_cache: HashMap::new(),
+            named_field_query_cache: HashMap::new(),
             global_impls: Vec::new(),
             trait_impls: Vec::new(),
             impl_methods_by_name: HashMap::new(),
@@ -201,6 +216,11 @@ impl<'a> SemaContext<'a> {
         self.parent_modules_by_def = snapshot.parent_modules_by_def;
         self.owner_scopes_by_def = snapshot.owner_scopes_by_def;
         self.expr_timing_stats = ExprTimingStats::default();
+        self.call_signature_instantiation_cache.clear();
+        self.field_type_subst_cache.clear();
+        self.trait_method_query_cache.clear();
+        self.impl_method_query_cache.clear();
+        self.named_field_query_cache.clear();
         self.identifier_references.clear();
         self.semantic_definitions.clear();
     }
@@ -424,16 +444,7 @@ impl<'a> SemaContext<'a> {
     }
 
     pub fn configured_runtime_entry(&self) -> RuntimeEntry {
-        match self
-            .sess
-            .custom_defines
-            .get("runtime_entry")
-            .map(String::as_str)
-        {
-            Some("rt") => RuntimeEntry::Rt,
-            Some("crt") => RuntimeEntry::Crt,
-            _ => RuntimeEntry::None,
-        }
+        self.sess.runtime_entry
     }
 
     pub fn program_entry_enabled(&self) -> bool {
@@ -464,11 +475,9 @@ impl<'a> SemaContext<'a> {
             Def::Function(function) => function.parent,
             Def::Global(global) => global.parent,
             Def::Impl(impl_def) => impl_def.parent_module,
-            Def::Struct(_)
-            | Def::Union(_)
-            | Def::Enum(_)
-            | Def::Trait(_)
-            | Def::TypeAlias(_) => self.def_parent_module(def_id),
+            Def::Struct(_) | Def::Union(_) | Def::Enum(_) | Def::Trait(_) | Def::TypeAlias(_) => {
+                self.def_parent_module(def_id)
+            }
         }
     }
 
@@ -758,8 +767,12 @@ mod tests {
         let left_seen = add_struct(&mut ctx, "SeenItem", Some(left_id));
         let right_seen = add_struct(&mut ctx, "SeenItem", Some(right_id));
 
-        let left_ty = ctx.type_registry.intern(TypeKind::Def(left_seen, Vec::new()));
-        let right_ty = ctx.type_registry.intern(TypeKind::Def(right_seen, Vec::new()));
+        let left_ty = ctx
+            .type_registry
+            .intern(TypeKind::Def(left_seen, Vec::new()));
+        let right_ty = ctx
+            .type_registry
+            .intern(TypeKind::Def(right_seen, Vec::new()));
 
         assert_ne!(ctx.mangle_type(left_ty), ctx.mangle_type(right_ty));
     }
@@ -776,8 +789,12 @@ mod tests {
         let right_seen = add_struct(&mut ctx, "SeenItem", Some(right_id));
         let parse_id = add_function(&mut ctx, "parse", Some(root_id));
 
-        let left_ty = ctx.type_registry.intern(TypeKind::Def(left_seen, Vec::new()));
-        let right_ty = ctx.type_registry.intern(TypeKind::Def(right_seen, Vec::new()));
+        let left_ty = ctx
+            .type_registry
+            .intern(TypeKind::Def(left_seen, Vec::new()));
+        let right_ty = ctx
+            .type_registry
+            .intern(TypeKind::Def(right_seen, Vec::new()));
 
         assert_ne!(
             ctx.get_export_name(parse_id, &[left_ty]),

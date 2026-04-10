@@ -212,6 +212,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_bitwise("@popCount", int_trait_id);
         self.inject_bitwise("@clz", int_trait_id);
         self.inject_bitwise("@ctz", int_trait_id);
+        self.inject_bitwise("@bswap", int_trait_id);
         self.inject_void_intrinsic("@trap", true);
         self.inject_void_intrinsic("@breakpoint", false);
         self.inject_memory_intrinsic(MemoryIntrinsicKind::Memcpy);
@@ -233,6 +234,55 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_atomic_rmw("@atomicRmwUMax");
         self.inject_atomic_rmw("@atomicRmwUMin");
         self.inject_atomic_fence();
+        self.inject_simd_any();
+        self.inject_simd_all();
+        self.inject_simd_select();
+        self.inject_simd_shuffle();
+        self.inject_simd_swizzle();
+        self.inject_simd_permute_unary("@simdReverse");
+        self.inject_simd_rotate("@simdRotateLeft");
+        self.inject_simd_rotate("@simdRotateRight");
+        self.inject_simd_pairwise("@simdInterleaveLo");
+        self.inject_simd_pairwise("@simdInterleaveHi");
+        self.inject_simd_pairwise("@simdZipLo");
+        self.inject_simd_pairwise("@simdZipHi");
+        self.inject_simd_pairwise("@simdConcatLo");
+        self.inject_simd_pairwise("@simdConcatHi");
+        self.inject_simd_pairwise("@simdDeinterleaveLo");
+        self.inject_simd_pairwise("@simdDeinterleaveHi");
+        self.inject_simd_pairwise("@simdUnzipLo");
+        self.inject_simd_pairwise("@simdUnzipHi");
+        self.inject_simd_extract_half("@simdLowHalf");
+        self.inject_simd_extract_half("@simdHighHalf");
+        self.inject_simd_insert_half("@simdWithLowHalf");
+        self.inject_simd_insert_half("@simdWithHighHalf");
+        self.inject_simd_reduce("@simdReduceAdd");
+        self.inject_simd_reduce("@simdReduceMul");
+        self.inject_simd_reduce("@simdReduceAnd");
+        self.inject_simd_reduce("@simdReduceOr");
+        self.inject_simd_reduce("@simdReduceXor");
+        self.inject_simd_reduce("@simdReduceMin");
+        self.inject_simd_reduce("@simdReduceMax");
+        self.inject_simd_abs();
+        self.inject_simd_float_unary("@simdSqrt");
+        self.inject_simd_float_unary("@simdFloor");
+        self.inject_simd_float_unary("@simdCeil");
+        self.inject_simd_float_unary("@simdTrunc");
+        self.inject_simd_float_unary("@simdRound");
+        self.inject_simd_pairwise("@simdMin");
+        self.inject_simd_pairwise("@simdMax");
+        self.inject_simd_clamp();
+        self.inject_simd_splat();
+        self.inject_simd_cast();
+        self.inject_simd_bitcast();
+        self.inject_simd_load();
+        self.inject_simd_store();
+        self.inject_simd_masked_load();
+        self.inject_simd_masked_store();
+        self.inject_simd_gather();
+        self.inject_simd_scatter();
+        self.inject_simd_masked_gather();
+        self.inject_simd_masked_scatter();
         self.inject_custom_define_consts();
     }
 
@@ -1264,6 +1314,516 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
 
     fn inject_atomic_fence(&mut self) {
         self.inject_builtin_function("@fence", vec![], vec![("order", TypeId::U8)], TypeId::VOID);
+    }
+
+    fn inject_simd_any(&mut self) {
+        let param_mask = GenericParam {
+            name: self.ctx.intern("Mask"),
+            span: Default::default(),
+        };
+        let mask_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_mask.name));
+        self.inject_builtin_function(
+            "@simdAny",
+            vec![param_mask],
+            vec![("mask", mask_ty)],
+            TypeId::BOOL,
+        );
+    }
+
+    fn inject_simd_all(&mut self) {
+        let param_mask = GenericParam {
+            name: self.ctx.intern("Mask"),
+            span: Default::default(),
+        };
+        let mask_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_mask.name));
+        self.inject_builtin_function(
+            "@simdAll",
+            vec![param_mask],
+            vec![("mask", mask_ty)],
+            TypeId::BOOL,
+        );
+    }
+
+    fn inject_simd_select(&mut self) {
+        let param_mask = GenericParam {
+            name: self.ctx.intern("Mask"),
+            span: Default::default(),
+        };
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let mask_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_mask.name));
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            "@simdSelect",
+            vec![param_mask, param_value],
+            vec![
+                ("mask", mask_ty),
+                ("on_true", value_ty),
+                ("on_false", value_ty),
+            ],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_shuffle(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let index_slice = self.ctx.type_registry.intern(TypeKind::Slice {
+            is_mut: false,
+            elem: TypeId::U32,
+        });
+        self.inject_builtin_function(
+            "@simdShuffle",
+            vec![param_value],
+            vec![
+                ("lhs", value_ty),
+                ("rhs", value_ty),
+                ("indices", index_slice),
+            ],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_swizzle(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let index_slice = self.ctx.type_registry.intern(TypeKind::Slice {
+            is_mut: false,
+            elem: TypeId::U32,
+        });
+        self.inject_builtin_function(
+            "@simdSwizzle",
+            vec![param_value],
+            vec![("value", value_ty), ("indices", index_slice)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_reduce(&mut self, name: &str) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(name, vec![param_value], vec![("value", value_ty)], value_ty);
+    }
+
+    fn inject_simd_extract_half(&mut self, name: &str) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            name,
+            vec![param_value],
+            vec![("value", TypeId::BOOL)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_insert_half(&mut self, name: &str) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            name,
+            vec![param_value],
+            vec![("base", value_ty), ("half", TypeId::BOOL)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_permute_unary(&mut self, name: &str) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(name, vec![param_value], vec![("value", value_ty)], value_ty);
+    }
+
+    fn inject_simd_rotate(&mut self, name: &str) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            name,
+            vec![param_value],
+            vec![("value", value_ty), ("amount", TypeId::USIZE)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_abs(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            "@simdAbs",
+            vec![param_value],
+            vec![("value", value_ty)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_float_unary(&mut self, name: &str) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(name, vec![param_value], vec![("value", value_ty)], value_ty);
+    }
+
+    fn inject_simd_pairwise(&mut self, name: &str) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            name,
+            vec![param_value],
+            vec![("lhs", value_ty), ("rhs", value_ty)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_clamp(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            "@simdClamp",
+            vec![param_value],
+            vec![("value", value_ty), ("lo", value_ty), ("hi", value_ty)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_splat(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            "@simdSplat",
+            vec![param_value],
+            vec![("value", TypeId::BOOL)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_cast(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            "@simdCast",
+            vec![param_value],
+            vec![("value", TypeId::BOOL)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_bitcast(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        self.inject_builtin_function(
+            "@simdBitcast",
+            vec![param_value],
+            vec![("value", TypeId::BOOL)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_load(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::U8,
+        });
+        self.inject_builtin_function(
+            "@simdLoad",
+            vec![param_value],
+            vec![("ptr", raw_ptr), ("align", TypeId::USIZE)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_store(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: TypeId::U8,
+        });
+        self.inject_builtin_function(
+            "@simdStore",
+            vec![param_value],
+            vec![
+                ("ptr", raw_ptr),
+                ("value", value_ty),
+                ("align", TypeId::USIZE),
+            ],
+            TypeId::VOID,
+        );
+    }
+
+    fn inject_simd_masked_load(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::U8,
+        });
+        self.inject_builtin_function(
+            "@simdMaskedLoad",
+            vec![param_value],
+            vec![
+                ("ptr", raw_ptr),
+                ("mask", TypeId::BOOL),
+                ("or_else", value_ty),
+                ("align", TypeId::USIZE),
+            ],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_masked_store(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: TypeId::U8,
+        });
+        self.inject_builtin_function(
+            "@simdMaskedStore",
+            vec![param_value],
+            vec![
+                ("ptr", raw_ptr),
+                ("mask", TypeId::BOOL),
+                ("value", value_ty),
+                ("align", TypeId::USIZE),
+            ],
+            TypeId::VOID,
+        );
+    }
+
+    fn inject_simd_gather(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::U8,
+        });
+        let index_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::USIZE,
+        });
+        self.inject_builtin_function(
+            "@simdGather",
+            vec![param_value],
+            vec![("ptr", raw_ptr), ("indices", index_ptr)],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_scatter(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: TypeId::U8,
+        });
+        let index_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::USIZE,
+        });
+        self.inject_builtin_function(
+            "@simdScatter",
+            vec![param_value],
+            vec![
+                ("ptr", raw_ptr),
+                ("indices", index_ptr),
+                ("value", value_ty),
+            ],
+            TypeId::VOID,
+        );
+    }
+
+    fn inject_simd_masked_gather(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::U8,
+        });
+        let index_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::USIZE,
+        });
+        self.inject_builtin_function(
+            "@simdMaskedGather",
+            vec![param_value],
+            vec![
+                ("ptr", raw_ptr),
+                ("indices", index_ptr),
+                ("mask", TypeId::BOOL),
+                ("or_else", value_ty),
+            ],
+            value_ty,
+        );
+    }
+
+    fn inject_simd_masked_scatter(&mut self) {
+        let param_value = GenericParam {
+            name: self.ctx.intern("Value"),
+            span: Default::default(),
+        };
+        let value_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_value.name));
+        let raw_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: true,
+            elem: TypeId::U8,
+        });
+        let index_ptr = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: TypeId::USIZE,
+        });
+        self.inject_builtin_function(
+            "@simdMaskedScatter",
+            vec![param_value],
+            vec![
+                ("ptr", raw_ptr),
+                ("indices", index_ptr),
+                ("mask", TypeId::BOOL),
+                ("value", value_ty),
+            ],
+            TypeId::VOID,
+        );
     }
 
     fn inject_builtin_function(

@@ -61,8 +61,22 @@ To achieve "high abstraction, low policy", Kern provides three core mechanisms:
   * **Integers**: `i8`, `i16`, `i32`, `i64`, `i128` (signed); `u8`, `u16`, `u32`, `u64`, `u128` (unsigned); `usize`, `isize` (pointer鈥憇ized).
   * **Floats**: `f32`, `f64`.
   * **Boolean**: `bool` (1 byte).
+  * **SIMD primitives**: Kern also provides builtin SIMD types written directly as names such as `f32x4`, `i32x4`, `u8x16`, and `boolx4`.
   * **Never**: `!` (diverging computations).
   * **Void**: `void` - A zero-sized type (ZST). It represents the absence of a meaningful value. Used primarily as the default return type for functions that produce no data, or to construct untyped raw pointers (`*mut void` / `*void`) for FFI and memory allocation.
+
+SIMD is part of the language, not a library abstraction and not an alias for arrays or slices. A type like `f32x4` is a first-class builtin type in its own right.
+
+The fixed-width SIMD family currently uses these source forms:
+
+  * Signed integer vectors: `i8xN`, `i16xN`, `i32xN`, `i64xN`, `i128xN`, `isizexN`
+  * Unsigned integer vectors: `u8xN`, `u16xN`, `u32xN`, `u64xN`, `u128xN`, `usizexN`
+  * Floating vectors: `f32xN`, `f64xN`
+  * Mask vectors: `boolxN`
+
+`N` is part of the type spelling and must be a positive lane count.
+
+`boolxN` is the SIMD mask family. It is not interchangeable with scalar `bool`, and it is not an array of booleans.
 
 ### 2.2 Mutability Model
 
@@ -112,7 +126,37 @@ In Kern, a pointer is still just a first-class value type. It can be stored, pas
       * For Arrays and Slices, `#` evaluates to the length (`usize`).
       * For Closures (`*Fn`), `#` evaluates to the captured state's raw pointer (`*mut void` / `*void`).
 
-### 2.5 Boundary Natural Conversion (BNC)
+### 2.5 SIMD Values
+
+Kern models SIMD as explicit fixed-lane machine vectors.
+
+  * Construction uses the ordinary typed initialization syntax:
+
+```kern
+let a = f32x4.{ 1.0, 2.0, 3.0, 4.0 };
+let b = i32x4.{ 1, 2, 3, 4 };
+let m = boolx4.{ true, false, true, false };
+```
+
+  * Lane access is syntax, not a library helper:
+
+```kern
+let x = a.[2];
+```
+
+  * Lane updates use the same syntax when the base storage is mutable:
+
+```kern
+let mut a = f32x4.{ 1.0, 2.0, 3.0, 4.0 };
+a.[2] = 9.0;
+```
+
+  * For the current fixed-width model, SIMD lane indexes in `.[]` must be compile-time constants and must be in range.
+  * SIMD values do not participate in slice semantics.
+  * `#` has no SIMD meaning. Lane count is part of the type, not runtime metadata.
+  * Kern does not define implicit conversion between `[N]T` and `TxN`.
+
+### 2.6 Boundary Natural Conversion (BNC)
 
 While Kern strictly enforces "explicit over implicit" (forbidding implicit integer narrowing, widening, or hidden control flow), it embraces **Boundary Natural Conversion (BNC)** to bridge compile-time static constraints with runtime dynamic interfaces ergonomically and safely.
 
@@ -357,6 +401,22 @@ These operators are modeled through builtin capability traits:
   * arithmetic: `+`, `-`, `*`, `/`, `%`
   * bitwise and shifts: `&`, `|`, `^`, `<<`, `>>`
   * unary value operators: unary `-`, `~`, `!`
+
+When both operands are the same SIMD shape, Kern also provides direct builtin SIMD operator semantics:
+
+  * arithmetic and bitwise operators apply lane-wise and return the same SIMD type
+  * comparison operators apply lane-wise and return `boolxN`
+  * scalar control-flow sites still require plain `bool`, so SIMD masks must be reduced explicitly
+
+Example:
+
+```kern
+let a = f32x4.{ 1.0, 2.0, 3.0, 4.0 };
+let b = f32x4.{ 5.0, 1.0, 3.0, 0.0 };
+
+let sum = a + b;   // f32x4
+let mask = a < b;  // boolx4
+```
 
 Kern deliberately does **not** treat every piece of syntax as overloadable. The following remain language-owned and are not modeled as user-overridable traits:
 
@@ -609,6 +669,8 @@ Startup ownership still belongs to the surrounding runtime/link environment:
   * a hosted C runtime may own initial process startup and call `main`
   * a freestanding object build may choose `runtime_entry = none`, in which case no special program entry is required
 
+When `runtime_entry != none`, the toolchain also loads `rt` as the startup companion root even if the program never imports `rt` explicitly. This is startup assembly only. It does **not** make ordinary `rt.*` APIs visible without `use`.
+
 Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through the ordinary `sys` OS/provider boundary, while libc remains an optional external provider choice rather than a semantic prerequisite for the language or standard library.
 
 When a runtime entry contract is enabled, the root `main` definition looks like:
@@ -826,6 +888,7 @@ A comma-separated list of tags attached to the AST for compiler side-effects. Me
   * `cold`: Marks a function as rarely executed, moving it out of the hot instruction cache and optimizing branching.
   * `naked`: Instructs the compiler to omit the standard function prologue and epilogue. Strictly used for hardware interrupt handlers and contextual context-switching alongside `@asm`.
   * `inline(always)` / `inline(never)`: Overrides the LLVM inliner's heuristic for a specific function.
+  * `target_feature("...")`: Attaches explicit backend CPU feature requirements to a function. The payload is a comma-separated feature list such as `#[target_feature("avx2,fma")]`.
 
 -----
 
@@ -927,3 +990,171 @@ Kern is freestanding and does not permit LLVM to lower oversized atomics into ru
 For both compare-and-exchange intrinsics, the operand evaluation order is fixed: `ptr`, then `expected`, then `desired`, from left to right. This matters when `expected` or `desired` contains side effects.
 
 Atomic synchronization is for shared memory, not MMIO. Device registers should continue to use Kern's volatile pointer types and ordinary dereferencing rules.
+
+### 14.5 SIMD Intrinsics
+
+Kern keeps SIMD as a builtin type family first, and reserves `@...` intrinsics only for operations that do not map cleanly onto ordinary expression syntax.
+
+  * `@simdAny(mask: boolxN) -> bool`
+    Returns `true` when any lane in `mask` is `true`.
+  * `@simdAll(mask: boolxN) -> bool`
+    Returns `true` only when every lane in `mask` is `true`.
+  * `@simdSelect(mask: boolxN, on_true: TxN, on_false: TxN) -> TxN`
+    Performs lane-wise selection. Lane `i` comes from `on_true.[i]` when `mask.[i]` is `true`, otherwise from `on_false.[i]`.
+  * `@simdShuffle(lhs: TxN, rhs: TxN, indices: [N]u32) -> TxN`
+    Produces a new vector by selecting lanes from the concatenated pair `lhs ++ rhs`. Index `0` addresses `lhs.[0]`, while index `N` addresses `rhs.[0]`.
+  * `@simdSwizzle(value: TxN, indices: [N]u32) -> TxN`
+    Unary lane permutation shorthand for the common case where every selected lane must come from `value` itself. Every index must be a compile-time constant in `0..N-1`.
+  * `@simdReverse(value: TxN) -> TxN`
+    Returns the same vector with its lane order reversed.
+  * `@simdRotateLeft(value: TxN, amount: usize) -> TxN`
+    Rotates lanes toward lower indices. `amount` must be a compile-time constant.
+  * `@simdRotateRight(value: TxN, amount: usize) -> TxN`
+    Rotates lanes toward higher indices. `amount` must be a compile-time constant.
+  * `@simdInterleaveLo(lhs: TxN, rhs: TxN) -> TxN`
+    Interleaves the lower half of `lhs` and `rhs` lane-by-lane. This requires an even lane count.
+  * `@simdInterleaveHi(lhs: TxN, rhs: TxN) -> TxN`
+    Interleaves the upper half of `lhs` and `rhs` lane-by-lane. This requires an even lane count.
+  * `@simdZipLo(lhs: TxN, rhs: TxN) -> TxN`
+    Alias for `@simdInterleaveLo`.
+  * `@simdZipHi(lhs: TxN, rhs: TxN) -> TxN`
+    Alias for `@simdInterleaveHi`.
+  * `@simdConcatLo(lhs: TxN, rhs: TxN) -> TxN`
+    Concatenates the lower half of `lhs` with the lower half of `rhs`. This requires an even lane count.
+  * `@simdConcatHi(lhs: TxN, rhs: TxN) -> TxN`
+    Concatenates the upper half of `lhs` with the upper half of `rhs`. This requires an even lane count.
+  * `@simdDeinterleaveLo(lhs: TxN, rhs: TxN) -> TxN`
+    Collects even-numbered lanes from `lhs`, then even-numbered lanes from `rhs`. This requires an even lane count.
+  * `@simdDeinterleaveHi(lhs: TxN, rhs: TxN) -> TxN`
+    Collects odd-numbered lanes from `lhs`, then odd-numbered lanes from `rhs`. This requires an even lane count.
+  * `@simdUnzipLo(lhs: TxN, rhs: TxN) -> TxN`
+    Alias for `@simdDeinterleaveLo`.
+  * `@simdUnzipHi(lhs: TxN, rhs: TxN) -> TxN`
+    Alias for `@simdDeinterleaveHi`.
+  * `@simdLowHalf[TxM](value: TxN) -> TxM`
+    Extracts the lower half of a vector. `N` must be exactly `2 * M`, and the lane element type must stay the same.
+  * `@simdHighHalf[TxM](value: TxN) -> TxM`
+    Extracts the upper half of a vector. `N` must be exactly `2 * M`, and the lane element type must stay the same.
+  * `@simdWithLowHalf[TxN](base: TxN, half: TxM) -> TxN`
+    Replaces the lower half of `base` with `half`. `N` must be exactly `2 * M`, and the lane element type must stay the same.
+  * `@simdWithHighHalf[TxN](base: TxN, half: TxM) -> TxN`
+    Replaces the upper half of `base` with `half`. `N` must be exactly `2 * M`, and the lane element type must stay the same.
+  * `@simdReduceAdd(value: TxN) -> T`
+    Horizontally adds all lanes and returns the scalar result.
+  * `@simdReduceMul(value: TxN) -> T`
+    Horizontally multiplies all lanes and returns the scalar result.
+  * `@simdReduceAnd(value: IxN) -> I`
+    Bitwise-AND reduction for integer or mask vectors.
+  * `@simdReduceOr(value: IxN) -> I`
+    Bitwise-OR reduction for integer or mask vectors.
+  * `@simdReduceXor(value: IxN) -> I`
+    Bitwise-XOR reduction for integer or mask vectors.
+  * `@simdReduceMin(value: TxN) -> T`
+    Returns the minimum lane for integer or floating-point vectors.
+  * `@simdReduceMax(value: TxN) -> T`
+    Returns the maximum lane for integer or floating-point vectors.
+  * `@simdAbs(value: TxN) -> TxN`
+    Lane-wise absolute value for signed integer or floating-point vectors. Signed integer lanes use two's-complement wrapping semantics, so the most-negative lane stays unchanged.
+  * `@simdMin(lhs: TxN, rhs: TxN) -> TxN`
+    Lane-wise minimum for integer or floating-point vectors. Each lane compares `lhs.[i]` with `rhs.[i]`; if `lhs.[i] < rhs.[i]`, the result lane is `lhs.[i]`, otherwise it is `rhs.[i]`.
+  * `@simdMax(lhs: TxN, rhs: TxN) -> TxN`
+    Lane-wise maximum for integer or floating-point vectors. Each lane compares `lhs.[i]` with `rhs.[i]`; if `lhs.[i] > rhs.[i]`, the result lane is `lhs.[i]`, otherwise it is `rhs.[i]`.
+  * `@simdClamp(value: TxN, lo: TxN, hi: TxN) -> TxN`
+    Lane-wise clamp for integer or floating-point vectors. Semantically this is `@simdMin(@simdMax(value, lo), hi)` on each lane.
+  * `@simdSqrt(value: FxN) -> FxN`
+    Lane-wise square root for floating-point vectors.
+  * `@simdFloor(value: FxN) -> FxN`
+    Lane-wise floor for floating-point vectors.
+  * `@simdCeil(value: FxN) -> FxN`
+    Lane-wise ceil for floating-point vectors.
+  * `@simdTrunc(value: FxN) -> FxN`
+    Lane-wise truncation toward zero for floating-point vectors.
+  * `@simdRound(value: FxN) -> FxN`
+    Lane-wise rounding to the nearest integral value, with halfway cases rounded away from zero.
+  * `@simdSplat[TxN](value: T) -> TxN`
+    Replicates one scalar lane value into every lane of the result vector.
+  * `@simdCast[UxN](value: TxN) -> UxN`
+    Performs lane-wise numeric conversion. The source and result vectors must have the same lane count. Source lanes may be integer, floating-point, or `bool`; result lanes may be integer or floating-point.
+  * `@simdBitcast[UxM](value: TxN) -> UxM`
+    Reinterprets the vector bits without changing them. The source and result vectors must have the same total size in bytes.
+  * `@simdLoad[TxN](ptr: *T, align: usize) -> TxN`
+    Loads a vector from contiguous scalar memory. `align` must be a compile-time non-zero power of two and is an explicit alignment promise made by the source program.
+  * `@simdStore[TxN](ptr: *mut T, value: TxN, align: usize) void`
+    Stores a vector to contiguous scalar memory. `align` follows the same rule and promise model as `@simdLoad`.
+  * `@simdMaskedLoad[TxN](ptr: *T, mask: boolxN, or_else: TxN, align: usize) -> TxN`
+    For lane `i`, loads from `ptr[i]` when `mask.[i]` is `true`, otherwise yields `or_else.[i]`. Masked-off lanes do not access memory.
+  * `@simdMaskedStore[TxN](ptr: *mut T, mask: boolxN, value: TxN, align: usize) void`
+    For lane `i`, stores `value.[i]` to `ptr[i]` only when `mask.[i]` is `true`. Masked-off lanes do not access memory.
+  * `@simdGather[TxN](ptr: *T, indices: *usize) -> TxN`
+    Loads lane `i` from `ptr[indices[i]]`. The `indices` pointer must reference at least `N` `usize` elements. Both pointers obey Kern's ordinary raw-pointer validity and alignment rules.
+  * `@simdScatter[TxN](ptr: *mut T, indices: *usize, value: TxN) void`
+    Stores lane `i` to `ptr[indices[i]]`. Scatter applies stores from lane `0` through lane `N - 1`, so duplicate indices are allowed and later lanes overwrite earlier lanes.
+  * `@simdMaskedGather[TxN](ptr: *T, indices: *usize, mask: boolxN, or_else: TxN) -> TxN`
+    For lane `i`, loads from `ptr[indices[i]]` when `mask.[i]` is `true`, otherwise yields `or_else.[i]`. Masked-off lanes do not access either `indices[i]` or `ptr[indices[i]]`.
+  * `@simdMaskedScatter[TxN](ptr: *mut T, indices: *usize, mask: boolxN, value: TxN) void`
+    For lane `i`, stores to `ptr[indices[i]]` only when `mask.[i]` is `true`. Scatter still applies active stores in lane order `0` through `N - 1`.
+
+These are value intrinsics, not control-flow forms. Their operands are all evaluated normally before the intrinsic is applied.
+
+The rearrangement helpers above are specified purely in terms of lane order. In the current implementation they lower to fixed `@simdShuffle` masks rather than backend-specific bespoke nodes.
+
+```kern
+let a = f32x4.{ 1.0, 2.0, 3.0, 4.0 };
+let b = f32x4.{ 5.0, 1.0, 3.0, 0.0 };
+let mask = a < b; // boolx4
+let mags = @simdAbs(f32x4.{ -1.0, 2.0, -0.0, -4.0 });
+let rev = @simdReverse(a);
+let rot = @simdRotateLeft(a, 1);
+let inter = @simdInterleaveLo(a, b);
+let cat = @simdConcatLo(a, b);
+let de = @simdDeinterleaveLo(inter, @simdInterleaveHi(a, b));
+let pair_min = @simdMin(i32x4.{ 9, 2, -4, 8 }, i32x4.{ 3, 7, -5, 8 });
+let pair_max = @simdMax(a, b);
+let clipped = @simdClamp(a, f32x4.{ 0.0, 1.5, 1.0, 0.0 }, f32x4.{ 3.0, 3.0, 3.0, 3.0 });
+let roots = @simdSqrt(f32x4.{ 1.0, 4.0, 9.0, 16.0 });
+let lowered = @simdFloor(f32x4.{ 1.9, -1.2, 2.0, -0.0 });
+let raised = @simdCeil(f32x4.{ 1.1, -1.8, 2.0, -0.0 });
+let chopped = @simdTrunc(f32x4.{ 1.9, -1.8, 2.0, -0.0 });
+let ones = @simdSplat[i32x4](1);
+let as_float = @simdCast[f32x4](ones);
+let bits = @simdBitcast[u32x4](as_float);
+
+if (@simdAny(mask)) {
+    let mixed = @simdSelect(mask, a, b);
+    let last = mixed.[3];
+}
+
+let data = [8]mut f32.{ 1.0, 2.0, 3.0, 4.0, 10.0, 20.0, 30.0, 40.0 };
+let picks = [4]usize.{ 7, 0, 5, 2 };
+let left = @simdLoad[f32x4](data.[0]..&, 4);
+let right = @simdLoad[f32x4](data.[4]..&, 4);
+let mixed = @simdShuffle(left, right, [4]u32.{ 0, 5, 2, 7 });
+let swizzled = @simdSwizzle(left, [4]u32.{ 3, 0, 2, 1 });
+let total = @simdReduceAdd(mixed);
+@simdStore(data.[0]..&, mixed, 4);
+let partial = @simdMaskedLoad[f32x4](data.[0]..&, boolx4.{ true, false, true, false }, f32x4.{ 0.0, 0.0, 0.0, 0.0 }, 4);
+@simdMaskedStore(data.[0]..&, boolx4.{ true, false, true, false }, partial, 4);
+let gathered = @simdGather[f32x4](data.[0]..&, picks.[0].&);
+@simdScatter(data.[0]..&, picks.[0].&, gathered);
+let masked_gather = @simdMaskedGather[f32x4](data.[0]..&, picks.[0].&, boolx4.{ true, false, true, false }, f32x4.{ -1.0, -1.0, -1.0, -1.0 });
+@simdMaskedScatter(data.[0]..&, picks.[0].&, boolx4.{ true, false, true, false }, masked_gather);
+let halves = @simdLowHalf[f32x2](swizzled);
+let restored = @simdWithHighHalf[f32x4](mixed, halves);
+```
+
+Like `@sizeOf` and `@trap`, these intrinsics are compiler-owned language mechanisms and remain available in freestanding code.
+
+The existing bit intrinsics also extend lane-wise to SIMD integer vectors:
+
+  * `@popCount(IxN) -> IxN`
+  * `@clz(IxN) -> IxN`
+  * `@ctz(IxN) -> IxN`
+  * `@bswap(IxN) -> IxN`
+
+Each lane is processed independently, and the result has the same SIMD type as the operand.
+
+For floating-point `@simdMin` and `@simdMax`, Kern uses the ordered comparisons above directly. This means unordered lanes such as `NaN` fall through to the `rhs` lane.
+
+`@simdClamp` inherits the same ordered-comparison rule because it is defined in terms of `@simdMax` followed by `@simdMin`.
+
+`@simdSqrt`, `@simdFloor`, `@simdCeil`, `@simdTrunc`, and `@simdRound` are floating-point-only. They are lane-wise value operations and do not imply any control-flow or mask semantics.

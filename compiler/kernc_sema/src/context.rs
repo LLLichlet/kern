@@ -554,6 +554,10 @@ impl<'a> SemaContext<'a> {
                 crate::ty::PrimitiveType::Str => "str".to_string(),
                 crate::ty::PrimitiveType::Never => "never".to_string(),
             },
+            crate::ty::TypeKind::Simd { elem, lanes } => {
+                let inner = self.mangle_type(elem);
+                format!("Simd{}x{}", inner, lanes)
+            }
             crate::ty::TypeKind::Pointer { is_mut, elem } => {
                 let inner = self.mangle_type(elem);
                 if is_mut {

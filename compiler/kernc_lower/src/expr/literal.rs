@@ -326,7 +326,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             ast::DataLiteralKind::Array(elems) => {
                 let is_target_array_like = matches!(
                     norm,
-                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } | TypeKind::Slice { .. }
+                    TypeKind::Array { .. }
+                        | TypeKind::ArrayInfer { .. }
+                        | TypeKind::Slice { .. }
+                        | TypeKind::Simd { .. }
                 );
                 if elems.is_empty() && !is_target_array_like {
                     // Treat these as empty aggregates so they are still instantiated correctly.

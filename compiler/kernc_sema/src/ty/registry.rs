@@ -117,6 +117,21 @@ impl TypeRegistry {
         }
     }
 
+    pub fn is_simd(&self, id: TypeId) -> bool {
+        matches!(self.get(self.normalize(id)), TypeKind::Simd { .. })
+    }
+
+    pub fn simd_info(&self, id: TypeId) -> Option<(TypeId, u16)> {
+        match self.get(self.normalize(id)) {
+            TypeKind::Simd { elem, lanes } => Some((*elem, *lanes)),
+            _ => None,
+        }
+    }
+
+    pub fn is_simd_mask(&self, id: TypeId) -> bool {
+        matches!(self.simd_info(id), Some((TypeId::BOOL, _)))
+    }
+
     /// Return whether the normalized type carries mutable reference semantics.
     pub fn is_mut_reference(&self, id: TypeId) -> bool {
         match self.get(self.normalize(id)) {
@@ -135,7 +150,8 @@ impl TypeRegistry {
             | TypeKind::VolatilePtr { elem, .. }
             | TypeKind::Slice { elem, .. }
             | TypeKind::Array { elem, .. }
-            | TypeKind::ArrayInfer { elem, .. } => Some(*elem),
+            | TypeKind::ArrayInfer { elem, .. }
+            | TypeKind::Simd { elem, .. } => Some(*elem),
             _ => None,
         }
     }

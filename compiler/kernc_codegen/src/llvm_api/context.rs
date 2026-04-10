@@ -1,10 +1,11 @@
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMConstStringInContext2, LLVMContextCreate,
     LLVMContextDispose, LLVMCreateBuilderInContext, LLVMCreateEnumAttribute,
-    LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm, LLVMInt1TypeInContext,
-    LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
-    LLVMIntTypeInContext, LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext,
-    LLVMStructCreateNamed, LLVMStructTypeInContext, LLVMVoidTypeInContext,
+    LLVMCreateStringAttribute, LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm,
+    LLVMInt1TypeInContext, LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext,
+    LLVMInt64TypeInContext, LLVMIntTypeInContext, LLVMModuleCreateWithNameInContext,
+    LLVMPointerTypeInContext, LLVMStructCreateNamed, LLVMStructTypeInContext,
+    LLVMVoidTypeInContext,
 };
 use llvm_sys::prelude::LLVMContextRef;
 
@@ -73,6 +74,20 @@ impl Context {
     pub fn create_enum_attribute(&self, kind_id: u32, val: u64) -> Attribute {
         Attribute {
             raw: unsafe { LLVMCreateEnumAttribute(self.raw, kind_id, val) },
+        }
+    }
+
+    pub fn create_string_attribute(&self, key: &str, value: &str) -> Attribute {
+        Attribute {
+            raw: unsafe {
+                LLVMCreateStringAttribute(
+                    self.raw,
+                    key.as_ptr() as *const _,
+                    key.len() as u32,
+                    value.as_ptr() as *const _,
+                    value.len() as u32,
+                )
+            },
         }
     }
 

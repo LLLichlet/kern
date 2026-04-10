@@ -164,6 +164,91 @@ pub enum MastExprKind {
         kind: BitIntrinsicKind,
         operand: Box<MastExpr>,
     },
+    SimdUnaryIntrinsic {
+        kind: SimdUnaryIntrinsicKind,
+        operand: Box<MastExpr>,
+    },
+    SimdBinaryIntrinsic {
+        kind: SimdBinaryIntrinsicKind,
+        lhs: Box<MastExpr>,
+        rhs: Box<MastExpr>,
+    },
+    SimdReduce {
+        kind: SimdReduceKind,
+        operand: Box<MastExpr>,
+    },
+    SimdAny {
+        operand: Box<MastExpr>,
+    },
+    SimdAll {
+        operand: Box<MastExpr>,
+    },
+    SimdSplat {
+        value: Box<MastExpr>,
+    },
+    SimdCast {
+        value: Box<MastExpr>,
+    },
+    SimdBitcast {
+        value: Box<MastExpr>,
+    },
+    SimdSelect {
+        mask: Box<MastExpr>,
+        on_true: Box<MastExpr>,
+        on_false: Box<MastExpr>,
+    },
+    SimdShuffle {
+        lhs: Box<MastExpr>,
+        rhs: Box<MastExpr>,
+        indices: Vec<u32>,
+    },
+    SimdInsertHalf {
+        base: Box<MastExpr>,
+        half: Box<MastExpr>,
+        high_half: bool,
+    },
+    SimdLoad {
+        ptr: Box<MastExpr>,
+        align: u32,
+    },
+    SimdStore {
+        ptr: Box<MastExpr>,
+        value: Box<MastExpr>,
+        align: u32,
+    },
+    SimdMaskedLoad {
+        ptr: Box<MastExpr>,
+        mask: Box<MastExpr>,
+        or_else: Box<MastExpr>,
+        align: u32,
+    },
+    SimdMaskedStore {
+        ptr: Box<MastExpr>,
+        mask: Box<MastExpr>,
+        value: Box<MastExpr>,
+        align: u32,
+    },
+    SimdGather {
+        ptr: Box<MastExpr>,
+        indices: Box<MastExpr>,
+    },
+    SimdScatter {
+        ptr: Box<MastExpr>,
+        indices: Box<MastExpr>,
+        value: Box<MastExpr>,
+    },
+    SimdMaskedGather {
+        ptr: Box<MastExpr>,
+        indices: Box<MastExpr>,
+        mask: Box<MastExpr>,
+        or_else: Box<MastExpr>,
+    },
+    SimdMaskedScatter {
+        ptr: Box<MastExpr>,
+        indices: Box<MastExpr>,
+        mask: Box<MastExpr>,
+        value: Box<MastExpr>,
+    },
     AtomicLoad {
         ptr: Box<MastExpr>,
         ordering: AtomicOrdering,
@@ -246,6 +331,33 @@ pub enum BitIntrinsicKind {
     Clz,
     Ctz,
     Bswap,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdUnaryIntrinsicKind {
+    Abs,
+    Sqrt,
+    Floor,
+    Ceil,
+    Trunc,
+    Round,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdBinaryIntrinsicKind {
+    Min,
+    Max,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdReduceKind {
+    Add,
+    Mul,
+    And,
+    Or,
+    Xor,
+    Min,
+    Max,
 }
 
 #[derive(Debug, Clone)]

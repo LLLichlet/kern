@@ -46,6 +46,12 @@ pub enum TypeKind {
     /// Primitive builtin type such as `i32`, `bool`, or `void`.
     Primitive(PrimitiveType),
 
+    /// Fixed-width SIMD vector such as `f32x4` or `boolx8`.
+    Simd {
+        elem: TypeId,
+        lanes: u16,
+    },
+
     /// Raw pointer, `*T` or `*mut T`.
     Pointer {
         is_mut: bool,

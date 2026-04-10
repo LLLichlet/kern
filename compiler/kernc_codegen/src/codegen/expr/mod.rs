@@ -169,6 +169,69 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             MastExprKind::BitIntrinsic { kind, operand } => {
                 self.compile_bit_intrinsic(*kind, operand, expected_llvm_ty)
             }
+            MastExprKind::SimdUnaryIntrinsic { kind, operand } => {
+                self.compile_simd_unary_intrinsic(*kind, operand, expr.ty)
+            }
+            MastExprKind::SimdBinaryIntrinsic { kind, lhs, rhs } => {
+                self.compile_simd_binary_intrinsic(*kind, lhs, rhs, expr.ty)
+            }
+            MastExprKind::SimdReduce { kind, operand } => {
+                self.compile_simd_reduce(*kind, operand, expr.ty)
+            }
+            MastExprKind::SimdAny { operand } => self.compile_simd_reduce_any(operand),
+            MastExprKind::SimdAll { operand } => self.compile_simd_reduce_all(operand),
+            MastExprKind::SimdSplat { value } => self.compile_simd_splat(value, expr.ty),
+            MastExprKind::SimdCast { value } => self.compile_simd_cast(value, expr.ty),
+            MastExprKind::SimdBitcast { value } => self.compile_simd_bitcast(value, expr.ty),
+            MastExprKind::SimdSelect {
+                mask,
+                on_true,
+                on_false,
+            } => self.compile_simd_select(mask, on_true, on_false),
+            MastExprKind::SimdShuffle { lhs, rhs, indices } => {
+                self.compile_simd_shuffle(lhs, rhs, indices)
+            }
+            MastExprKind::SimdInsertHalf {
+                base,
+                half,
+                high_half,
+            } => self.compile_simd_insert_half(base, half, expr.ty, *high_half),
+            MastExprKind::SimdLoad { ptr, align } => self.compile_simd_load(ptr, expr.ty, *align),
+            MastExprKind::SimdStore { ptr, value, align } => {
+                self.compile_simd_store(ptr, value, *align)
+            }
+            MastExprKind::SimdMaskedLoad {
+                ptr,
+                mask,
+                or_else,
+                align,
+            } => self.compile_simd_masked_load(ptr, mask, or_else, expr.ty, *align),
+            MastExprKind::SimdMaskedStore {
+                ptr,
+                mask,
+                value,
+                align,
+            } => self.compile_simd_masked_store(ptr, mask, value, *align),
+            MastExprKind::SimdGather { ptr, indices } => {
+                self.compile_simd_gather(ptr, indices, expr.ty)
+            }
+            MastExprKind::SimdScatter {
+                ptr,
+                indices,
+                value,
+            } => self.compile_simd_scatter(ptr, indices, value),
+            MastExprKind::SimdMaskedGather {
+                ptr,
+                indices,
+                mask,
+                or_else,
+            } => self.compile_simd_masked_gather(ptr, indices, mask, or_else, expr.ty),
+            MastExprKind::SimdMaskedScatter {
+                ptr,
+                indices,
+                mask,
+                value,
+            } => self.compile_simd_masked_scatter(ptr, indices, mask, value),
             MastExprKind::AtomicLoad { ptr, ordering } => {
                 self.compile_atomic_load(ptr, *ordering, expected_llvm_ty)
             }

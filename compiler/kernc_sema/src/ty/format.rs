@@ -30,6 +30,7 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
                 PrimitiveType::Str => "str".to_string(),
                 PrimitiveType::Never => "!".to_string(),
             },
+            TypeKind::Simd { elem, lanes } => format!("{}x{}", self.format(*elem), lanes),
             TypeKind::Pointer { is_mut, elem } => {
                 let m = if *is_mut { "mut " } else { "" };
                 format!("*{}{}", m, self.format(*elem))

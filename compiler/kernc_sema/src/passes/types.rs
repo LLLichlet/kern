@@ -929,8 +929,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             if i == 0 {
                 // First segment: a single identifier may refer to a builtin primitive.
                 if segments.len() == 1 {
-                    let name_str = self.ctx.resolve(segment);
-                    if let Some(prim_id) = self.resolve_builtin_primitive(name_str) {
+                    let name_str = self.ctx.resolve(segment).to_string();
+                    if let Some(prim_id) = self.resolve_builtin_primitive(&name_str) {
                         if !generics.is_empty() {
                             self.ctx
                                 .emit_error(span, "Primitive types do not take generic arguments");
@@ -1138,8 +1138,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
     //               Helpers
     // ==========================================
 
-    fn resolve_builtin_primitive(&self, name: &str) -> Option<TypeId> {
-        match name {
+    fn resolve_builtin_primitive(&mut self, name: &str) -> Option<TypeId> {
+        let scalar = match name {
             "void" => Some(TypeId::VOID),
             "bool" => Some(TypeId::BOOL),
             "i8" => Some(TypeId::I8),
@@ -1159,7 +1159,46 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             "str" => Some(TypeId::STR),
             "never" => Some(TypeId::NEVER),
             _ => None,
+        };
+
+        if scalar.is_some() {
+            return scalar;
         }
+
+        self.parse_builtin_simd(name)
+    }
+
+    fn parse_builtin_simd(&mut self, name: &str) -> Option<TypeId> {
+        let (base, lanes) = name.rsplit_once('x')?;
+        let lanes: u16 = lanes.parse().ok()?;
+        if lanes == 0 {
+            return None;
+        }
+
+        let elem = match base {
+            "bool" => Some(TypeId::BOOL),
+            "i8" => Some(TypeId::I8),
+            "i16" => Some(TypeId::I16),
+            "i32" => Some(TypeId::I32),
+            "i64" => Some(TypeId::I64),
+            "i128" => Some(TypeId::I128),
+            "isize" => Some(TypeId::ISIZE),
+            "u8" => Some(TypeId::U8),
+            "u16" => Some(TypeId::U16),
+            "u32" => Some(TypeId::U32),
+            "u64" => Some(TypeId::U64),
+            "u128" => Some(TypeId::U128),
+            "usize" => Some(TypeId::USIZE),
+            "f32" => Some(TypeId::F32),
+            "f64" => Some(TypeId::F64),
+            _ => None,
+        }?;
+
+        Some(
+            self.ctx
+                .type_registry
+                .intern(TypeKind::Simd { elem, lanes }),
+        )
     }
 
     fn check_type_generic_bounds(&mut self, span: Span, def_id: DefId, arg_tys: &[TypeId]) -> bool {

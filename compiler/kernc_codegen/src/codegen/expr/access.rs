@@ -135,6 +135,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let idx_val = idx_raw.into_int_value();
                 let norm_lhs = self.type_registry.normalize(lhs.ty);
 
+                if self.type_registry.is_simd(norm_lhs) {
+                    self.sess.emit_ice(
+                        expr.span,
+                        "Kern ICE (Codegen): attempted to form an lvalue for a SIMD lane.",
+                    );
+                    return self.null_ptr();
+                }
+
                 if let TypeKind::Slice { .. } = self.type_registry.get(norm_lhs) {
                     let slice_raw = self.compile_expr(lhs);
                     if self.current_block_is_terminated() {
@@ -352,6 +360,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
         let idx_val = idx_raw.into_int_value();
         let norm_lhs = self.type_registry.normalize(lhs.ty);
+
+        if self.type_registry.is_simd(norm_lhs) {
+            let vector_val = self.compile_expr(lhs);
+            if let Some(fallback) = self.expr_terminated_fallback(expected_ty) {
+                return fallback;
+            }
+            return self
+                .builder
+                .build_extract_element(vector_val.into_vector_value(), idx_val, "simd_lane")
+                .unwrap();
+        }
 
         let elem_ptr = if let TypeKind::Slice { .. } = self.type_registry.get(norm_lhs) {
             let slice_raw = self.compile_expr(lhs);

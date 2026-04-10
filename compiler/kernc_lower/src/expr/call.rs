@@ -18,6 +18,20 @@ pub(crate) struct DynamicDispatchCall {
 }
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn intrinsic_name_for_lowering(&mut self, callee_ty: TypeId) -> Option<String> {
+        let norm = self.ctx.type_registry.normalize(callee_ty);
+        let TypeKind::FnDef(def_id, _) = self.ctx.type_registry.get(norm).clone() else {
+            return None;
+        };
+        let Def::Function(func) = &self.ctx.defs[def_id.0 as usize] else {
+            return None;
+        };
+        if !func.is_intrinsic {
+            return None;
+        }
+        Some(self.ctx.resolve(func.name).to_string())
+    }
+
     fn builtin_trait_name(&mut self, trait_ty: TypeId) -> Option<String> {
         let norm = self.ctx.type_registry.normalize(trait_ty);
         let TypeKind::TraitObject(def_id, _) = self.ctx.type_registry.get(norm).clone() else {
@@ -102,7 +116,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 .into_iter()
                 .filter_map(|variant| variant.payload_ty)
                 .any(|payload_ty| self.type_contains_generic_placeholders(payload_ty)),
-            TypeKind::Primitive(_) | TypeKind::Error | TypeKind::Module(_) => false,
+            TypeKind::Primitive(_)
+            | TypeKind::Simd { .. }
+            | TypeKind::Error
+            | TypeKind::Module(_) => false,
         }
     }
 
@@ -410,6 +427,318 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 kind: BitIntrinsicKind::Bswap,
                 operand: Box::new(arg_masts.remove(0)),
             }),
+            "@simdAbs" => Some(MastExprKind::SimdUnaryIntrinsic {
+                kind: SimdUnaryIntrinsicKind::Abs,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdSqrt" => Some(MastExprKind::SimdUnaryIntrinsic {
+                kind: SimdUnaryIntrinsicKind::Sqrt,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdFloor" => Some(MastExprKind::SimdUnaryIntrinsic {
+                kind: SimdUnaryIntrinsicKind::Floor,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdCeil" => Some(MastExprKind::SimdUnaryIntrinsic {
+                kind: SimdUnaryIntrinsicKind::Ceil,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdTrunc" => Some(MastExprKind::SimdUnaryIntrinsic {
+                kind: SimdUnaryIntrinsicKind::Trunc,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdRound" => Some(MastExprKind::SimdUnaryIntrinsic {
+                kind: SimdUnaryIntrinsicKind::Round,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdAny" => Some(MastExprKind::SimdAny {
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdAll" => Some(MastExprKind::SimdAll {
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdSplat" => Some(MastExprKind::SimdSplat {
+                value: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdCast" => Some(MastExprKind::SimdCast {
+                value: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdBitcast" => Some(MastExprKind::SimdBitcast {
+                value: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdReduceAdd" => Some(MastExprKind::SimdReduce {
+                kind: SimdReduceKind::Add,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdReduceMul" => Some(MastExprKind::SimdReduce {
+                kind: SimdReduceKind::Mul,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdReduceAnd" => Some(MastExprKind::SimdReduce {
+                kind: SimdReduceKind::And,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdReduceOr" => Some(MastExprKind::SimdReduce {
+                kind: SimdReduceKind::Or,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdReduceXor" => Some(MastExprKind::SimdReduce {
+                kind: SimdReduceKind::Xor,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdReduceMin" => Some(MastExprKind::SimdReduce {
+                kind: SimdReduceKind::Min,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdReduceMax" => Some(MastExprKind::SimdReduce {
+                kind: SimdReduceKind::Max,
+                operand: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdMin" => Some(MastExprKind::SimdBinaryIntrinsic {
+                kind: SimdBinaryIntrinsicKind::Min,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdMax" => Some(MastExprKind::SimdBinaryIntrinsic {
+                kind: SimdBinaryIntrinsicKind::Max,
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdClamp" => {
+                let value = arg_masts.remove(0);
+                let lo = arg_masts.remove(0);
+                let hi = arg_masts.remove(0);
+                let inner_ty = value.ty;
+                let inner_span = value.span;
+                let clamped_low = MastExpr::new(
+                    inner_ty,
+                    MastExprKind::SimdBinaryIntrinsic {
+                        kind: SimdBinaryIntrinsicKind::Max,
+                        lhs: Box::new(value),
+                        rhs: Box::new(lo),
+                    },
+                    inner_span,
+                );
+                Some(MastExprKind::SimdBinaryIntrinsic {
+                    kind: SimdBinaryIntrinsicKind::Min,
+                    lhs: Box::new(clamped_low),
+                    rhs: Box::new(hi),
+                })
+            }
+            "@simdSelect" => Some(MastExprKind::SimdSelect {
+                mask: Box::new(arg_masts.remove(0)),
+                on_true: Box::new(arg_masts.remove(0)),
+                on_false: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdShuffle" => Some(MastExprKind::SimdShuffle {
+                lhs: Box::new(arg_masts.remove(0)),
+                rhs: Box::new(arg_masts.remove(0)),
+                indices: self.simd_shuffle_indices_arg(&args[2]),
+            }),
+            "@simdSwizzle" => {
+                let value = arg_masts.remove(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(value.clone()),
+                    rhs: Box::new(value),
+                    indices: self.simd_shuffle_indices_arg(&args[1]),
+                })
+            }
+            "@simdReverse" => {
+                let value = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(value.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(value.clone()),
+                    rhs: Box::new(value),
+                    indices: self.simd_reverse_indices(lanes),
+                })
+            }
+            "@simdRotateLeft" => {
+                let value = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(value.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(1);
+                let amount = self.simd_rotate_amount_arg(&args[1], lanes);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(value.clone()),
+                    rhs: Box::new(value),
+                    indices: self.simd_rotate_left_indices(lanes, amount),
+                })
+            }
+            "@simdRotateRight" => {
+                let value = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(value.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(1);
+                let amount = self.simd_rotate_amount_arg(&args[1], lanes);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(value.clone()),
+                    rhs: Box::new(value),
+                    indices: self.simd_rotate_right_indices(lanes, amount),
+                })
+            }
+            "@simdInterleaveLo" | "@simdZipLo" => {
+                let lhs = arg_masts.remove(0);
+                let rhs = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(lhs.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    indices: self.simd_interleave_indices(lanes, false),
+                })
+            }
+            "@simdInterleaveHi" | "@simdZipHi" => {
+                let lhs = arg_masts.remove(0);
+                let rhs = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(lhs.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    indices: self.simd_interleave_indices(lanes, true),
+                })
+            }
+            "@simdConcatLo" => {
+                let lhs = arg_masts.remove(0);
+                let rhs = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(lhs.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    indices: self.simd_concat_indices(lanes, false),
+                })
+            }
+            "@simdConcatHi" => {
+                let lhs = arg_masts.remove(0);
+                let rhs = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(lhs.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    indices: self.simd_concat_indices(lanes, true),
+                })
+            }
+            "@simdDeinterleaveLo" | "@simdUnzipLo" => {
+                let lhs = arg_masts.remove(0);
+                let rhs = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(lhs.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    indices: self.simd_deinterleave_indices(lanes, false),
+                })
+            }
+            "@simdDeinterleaveHi" | "@simdUnzipHi" => {
+                let lhs = arg_masts.remove(0);
+                let rhs = arg_masts.remove(0);
+                let lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(lhs.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(lhs),
+                    rhs: Box::new(rhs),
+                    indices: self.simd_deinterleave_indices(lanes, true),
+                })
+            }
+            "@simdLowHalf" | "@simdHighHalf" => {
+                let value = arg_masts.remove(0);
+                let full_lanes = self
+                    .ctx
+                    .type_registry
+                    .simd_info(value.ty)
+                    .map(|(_, lanes)| lanes)
+                    .unwrap_or(0);
+                Some(MastExprKind::SimdShuffle {
+                    lhs: Box::new(value.clone()),
+                    rhs: Box::new(value),
+                    indices: self
+                        .simd_extract_half_indices(full_lanes, name_str == "@simdHighHalf"),
+                })
+            }
+            "@simdWithLowHalf" | "@simdWithHighHalf" => Some(MastExprKind::SimdInsertHalf {
+                base: Box::new(arg_masts.remove(0)),
+                half: Box::new(arg_masts.remove(0)),
+                high_half: name_str == "@simdWithHighHalf",
+            }),
+            "@simdLoad" => Some(MastExprKind::SimdLoad {
+                ptr: Box::new(arg_masts.remove(0)),
+                align: self.simd_align_arg(&args[1]),
+            }),
+            "@simdStore" => Some(MastExprKind::SimdStore {
+                ptr: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                align: self.simd_align_arg(&args[2]),
+            }),
+            "@simdMaskedLoad" => Some(MastExprKind::SimdMaskedLoad {
+                ptr: Box::new(arg_masts.remove(0)),
+                mask: Box::new(arg_masts.remove(0)),
+                or_else: Box::new(arg_masts.remove(0)),
+                align: self.simd_align_arg(&args[3]),
+            }),
+            "@simdMaskedStore" => Some(MastExprKind::SimdMaskedStore {
+                ptr: Box::new(arg_masts.remove(0)),
+                mask: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+                align: self.simd_align_arg(&args[3]),
+            }),
+            "@simdGather" => Some(MastExprKind::SimdGather {
+                ptr: Box::new(arg_masts.remove(0)),
+                indices: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdScatter" => Some(MastExprKind::SimdScatter {
+                ptr: Box::new(arg_masts.remove(0)),
+                indices: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdMaskedGather" => Some(MastExprKind::SimdMaskedGather {
+                ptr: Box::new(arg_masts.remove(0)),
+                indices: Box::new(arg_masts.remove(0)),
+                mask: Box::new(arg_masts.remove(0)),
+                or_else: Box::new(arg_masts.remove(0)),
+            }),
+            "@simdMaskedScatter" => Some(MastExprKind::SimdMaskedScatter {
+                ptr: Box::new(arg_masts.remove(0)),
+                indices: Box::new(arg_masts.remove(0)),
+                mask: Box::new(arg_masts.remove(0)),
+                value: Box::new(arg_masts.remove(0)),
+            }),
             "@trap" => Some(MastExprKind::Trap),
             "@atomicLoad" => Some(MastExprKind::AtomicLoad {
                 ptr: Box::new(arg_masts.remove(0)),
@@ -594,6 +923,145 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
     }
 
+    fn simd_align_arg(&mut self, arg: &Expr) -> u32 {
+        let mut evaluator = ConstEvaluator::new(self.ctx);
+        match evaluator.eval_usize(arg) {
+            Ok(value) => u32::try_from(value).unwrap_or_else(|_| {
+                self.ctx.emit_ice(
+                    arg.span,
+                    format!(
+                        "Kern ICE (Lowering): SIMD alignment `{}` does not fit into u32.",
+                        value
+                    ),
+                );
+                1
+            }),
+            Err(_) => {
+                self.ctx.emit_ice(
+                    arg.span,
+                    "Kern ICE (Lowering): SIMD alignment argument was not reduced to a compile-time integer.",
+                );
+                1
+            }
+        }
+    }
+
+    fn simd_shuffle_indices_arg(&mut self, arg: &Expr) -> Vec<u32> {
+        let mut evaluator = ConstEvaluator::new(self.ctx);
+        match evaluator.eval_inner(arg, 0) {
+            Ok(ConstValue::Array(values)) => values
+                .into_iter()
+                .map(|value| match value {
+                    ConstValue::Int(idx) => u32::try_from(idx).unwrap_or_else(|_| {
+                        self.ctx.emit_ice(
+                            arg.span,
+                            format!(
+                                "Kern ICE (Lowering): SIMD shuffle index `{}` did not survive semantic validation.",
+                                idx
+                            ),
+                        );
+                        0
+                    }),
+                    other => {
+                        self.ctx.emit_ice(
+                            arg.span,
+                            format!(
+                                "Kern ICE (Lowering): SIMD shuffle indices must be integers, found `{:?}`.",
+                                other
+                            ),
+                        );
+                        0
+                    }
+                })
+                .collect(),
+            Ok(other) => {
+                self.ctx.emit_ice(
+                    arg.span,
+                    format!(
+                        "Kern ICE (Lowering): SIMD shuffle indices expected a constant array, found `{:?}`.",
+                        other
+                    ),
+                );
+                Vec::new()
+            }
+            Err(_) => {
+                self.ctx.emit_ice(
+                    arg.span,
+                    "Kern ICE (Lowering): SIMD shuffle indices were not reduced to compile-time constants.",
+                );
+                Vec::new()
+            }
+        }
+    }
+
+    fn simd_rotate_amount_arg(&mut self, arg: &Expr, lanes: u16) -> u32 {
+        let mut evaluator = ConstEvaluator::new(self.ctx);
+        match evaluator.eval_usize(arg) {
+            Ok(value) => (value % lanes as u64) as u32,
+            Err(_) => {
+                self.ctx.emit_ice(
+                    arg.span,
+                    "Kern ICE (Lowering): SIMD rotate amount argument was not reduced to a compile-time integer.",
+                );
+                0
+            }
+        }
+    }
+
+    fn simd_duplicate_shuffle_indices(
+        &mut self,
+        lanes: u16,
+        indices: impl Fn(u32) -> u32,
+    ) -> Vec<u32> {
+        (0..lanes as u32).map(indices).collect()
+    }
+
+    fn simd_reverse_indices(&mut self, lanes: u16) -> Vec<u32> {
+        self.simd_duplicate_shuffle_indices(lanes, |i| lanes as u32 - 1 - i)
+    }
+
+    fn simd_rotate_left_indices(&mut self, lanes: u16, amount: u32) -> Vec<u32> {
+        self.simd_duplicate_shuffle_indices(lanes, |i| i + amount)
+    }
+
+    fn simd_rotate_right_indices(&mut self, lanes: u16, amount: u32) -> Vec<u32> {
+        let lanes_u32 = lanes as u32;
+        self.simd_duplicate_shuffle_indices(lanes, |i| i + ((lanes_u32 - amount) % lanes_u32))
+    }
+
+    fn simd_interleave_indices(&mut self, lanes: u16, high_half: bool) -> Vec<u32> {
+        let half = lanes as u32 / 2;
+        let base = if high_half { half } else { 0 };
+        (0..half)
+            .flat_map(|i| [base + i, lanes as u32 + base + i])
+            .collect()
+    }
+
+    fn simd_concat_indices(&mut self, lanes: u16, high_half: bool) -> Vec<u32> {
+        let half = lanes as u32 / 2;
+        let base = if high_half { half } else { 0 };
+        (0..half)
+            .map(|i| base + i)
+            .chain((0..half).map(|i| lanes as u32 + base + i))
+            .collect()
+    }
+
+    fn simd_deinterleave_indices(&mut self, lanes: u16, odd_lanes: bool) -> Vec<u32> {
+        let step = 2;
+        let start = if odd_lanes { 1 } else { 0 };
+        let count = lanes as u32 / 2;
+        (0..count)
+            .map(|i| start + i * step)
+            .chain((0..count).map(|i| lanes as u32 + start + i * step))
+            .collect()
+    }
+
+    fn simd_extract_half_indices(&mut self, lanes: u16, high_half: bool) -> Vec<u32> {
+        let half = lanes as u32 / 2;
+        let start = if high_half { half } else { 0 };
+        (0..half).map(|i| start + i).collect()
+    }
+
     pub(crate) fn lower_call(
         &mut self,
         callee: &Expr,
@@ -620,12 +1088,35 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let method_call = self.measure_phase("            lower_call_detect_method", |this| {
             this.detect_method_call(callee, subst_map)
         });
+        let intrinsic_name = self.intrinsic_name_for_lowering(norm_callee);
 
         let arg_masts = self.measure_phase("            lower_call_args", |this| {
             let mut arg_masts = Vec::new();
             for (i, a) in args.iter().enumerate() {
                 let param_idx = if method_call.is_some() { i + 1 } else { i };
-                let exp_ty = expected_param_tys.get(param_idx).copied();
+                let exp_ty = if matches!(
+                    intrinsic_name.as_deref(),
+                    Some(
+                        "@simdSplat"
+                            | "@simdCast"
+                            | "@simdBitcast"
+                            | "@simdLowHalf"
+                            | "@simdHighHalf"
+                            | "@simdWithLowHalf"
+                            | "@simdWithHighHalf"
+                            | "@simdMaskedLoad"
+                            | "@simdMaskedStore"
+                            | "@simdMaskedGather"
+                            | "@simdMaskedScatter"
+                    )
+                ) {
+                    None
+                } else {
+                    expected_param_tys
+                        .get(param_idx)
+                        .copied()
+                        .filter(|&ty| ty != TypeId::ERROR)
+                };
                 arg_masts.push(this.lower_expr(a, subst_map, exp_ty));
             }
             arg_masts

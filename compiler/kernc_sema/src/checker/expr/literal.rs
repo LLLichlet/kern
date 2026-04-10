@@ -237,7 +237,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::DataLiteralKind::Array(elems) => {
                 let is_target_array_like = matches!(
                     kind_enum,
-                    TypeKind::Array { .. } | TypeKind::ArrayInfer { .. } | TypeKind::Slice { .. }
+                    TypeKind::Array { .. }
+                        | TypeKind::ArrayInfer { .. }
+                        | TypeKind::Slice { .. }
+                        | TypeKind::Simd { .. }
                 );
                 if elems.is_empty() && !is_target_array_like {
                     if is_data {
@@ -506,12 +509,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             TypeKind::Array { elem, len, is_mut } => (*elem, Some(*len), *is_mut),
             TypeKind::ArrayInfer { elem, is_mut } => (*elem, None, *is_mut),
             TypeKind::Slice { elem, is_mut } => (*elem, None, *is_mut),
+            TypeKind::Simd { elem, lanes } => (*elem, Some(*lanes as u64), false),
             _ => {
                 let ty_str = self.ctx.ty_to_string(expected);
                 self.ctx
                     .struct_error(
                         span,
-                        "expected an array or slice type for literal `.{ ... }`",
+                        "expected an array, slice, or SIMD type for literal `.{ ... }`",
                     )
                     .with_hint(format!("context expects `{}`", ty_str))
                     .emit();
@@ -581,16 +585,39 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> TypeId {
         // 1. Peel aliases and wrappers to inspect the real container type.
+        let simd_info = self.ctx.type_registry.simd_info(exp_norm);
         let (exp_elem_ty, is_infer, exp_is_mut) = match self.ctx.type_registry.get(exp_norm) {
             TypeKind::Array { elem, is_mut, .. } => (*elem, false, *is_mut),
             TypeKind::ArrayInfer { elem, is_mut } => (*elem, true, *is_mut),
             TypeKind::Slice { elem, is_mut } => (*elem, true, *is_mut),
+            TypeKind::Simd { .. } => {
+                let mut ce = ConstEvaluator::new(self.ctx);
+                let Ok(actual_len) = ce.eval_usize(count) else {
+                    return TypeId::ERROR;
+                };
+                let Some((elem, lanes)) = simd_info else {
+                    return TypeId::ERROR;
+                };
+                if actual_len != lanes as u64 {
+                    self.ctx
+                        .struct_error(
+                            count.span,
+                            format!(
+                                "repeat literal count ({}) does not match SIMD lane count ({})",
+                                actual_len, lanes
+                            ),
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                }
+                (elem, false, false)
+            }
             _ => {
                 let ty_str = self.ctx.ty_to_string(expected);
                 self.ctx
                     .struct_error(
                         span,
-                        "expected an array or slice type for repeat literal `.{ v; N }`",
+                        "expected an array, slice, or SIMD type for repeat literal `.{ v; N }`",
                     )
                     .with_hint(format!("context expects `{}`", ty_str))
                     .emit();
@@ -842,7 +869,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if is_untyped_literal
             && matches!(
                 self.ctx.type_registry.get(expected_norm),
-                TypeKind::Slice { .. } | TypeKind::Array { .. } | TypeKind::ArrayInfer { .. }
+                TypeKind::Slice { .. }
+                    | TypeKind::Array { .. }
+                    | TypeKind::ArrayInfer { .. }
+                    | TypeKind::Simd { .. }
             )
         {
             let exp_str = self.ctx.ty_to_string(expected);

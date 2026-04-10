@@ -231,8 +231,16 @@ pub(super) fn plan_codegen_units_with_report(
     }
     report.cluster_count = clusters.len();
     report.total_workload = clusters.iter().map(|cluster| cluster.workload).sum();
-    report.min_cluster_workload = clusters.iter().map(|cluster| cluster.workload).min().unwrap_or(0);
-    report.max_cluster_workload = clusters.iter().map(|cluster| cluster.workload).max().unwrap_or(0);
+    report.min_cluster_workload = clusters
+        .iter()
+        .map(|cluster| cluster.workload)
+        .min()
+        .unwrap_or(0);
+    report.max_cluster_workload = clusters
+        .iter()
+        .map(|cluster| cluster.workload)
+        .max()
+        .unwrap_or(0);
     report.promoted_function_count = clusters
         .iter()
         .map(|cluster| cluster.promoted_function_ids.len())
@@ -677,6 +685,13 @@ fn collect_expr_refs(expr: &MastExpr, refs: &mut ItemRefs) {
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
         | MastExprKind::BitIntrinsic { operand: inner, .. }
+        | MastExprKind::SimdUnaryIntrinsic { operand: inner, .. }
+        | MastExprKind::SimdReduce { operand: inner, .. }
+        | MastExprKind::SimdAny { operand: inner, .. }
+        | MastExprKind::SimdAll { operand: inner, .. }
+        | MastExprKind::SimdSplat { value: inner, .. }
+        | MastExprKind::SimdCast { value: inner, .. }
+        | MastExprKind::SimdBitcast { value: inner, .. }
         | MastExprKind::Cast { operand: inner, .. }
         | MastExprKind::Unary { operand: inner, .. } => collect_expr_refs(inner, refs),
         MastExprKind::StructInit { fields, .. } | MastExprKind::ArrayInit(fields) => {
@@ -690,6 +705,9 @@ fn collect_expr_refs(expr: &MastExpr, refs: &mut ItemRefs) {
         MastExprKind::FieldAccess { lhs, .. } => collect_expr_refs(lhs, refs),
         MastExprKind::IndexAccess { lhs, index }
         | MastExprKind::Binary {
+            lhs, rhs: index, ..
+        }
+        | MastExprKind::SimdBinaryIntrinsic {
             lhs, rhs: index, ..
         }
         | MastExprKind::Assign {
@@ -769,6 +787,77 @@ fn collect_expr_refs(expr: &MastExpr, refs: &mut ItemRefs) {
             collect_expr_refs(data_ptr, refs);
             collect_expr_refs(meta, refs);
         }
+        MastExprKind::SimdSelect {
+            mask,
+            on_true,
+            on_false,
+        } => {
+            collect_expr_refs(mask, refs);
+            collect_expr_refs(on_true, refs);
+            collect_expr_refs(on_false, refs);
+        }
+        MastExprKind::SimdShuffle { lhs, rhs, .. } => {
+            collect_expr_refs(lhs, refs);
+            collect_expr_refs(rhs, refs);
+        }
+        MastExprKind::SimdInsertHalf { base, half, .. } => {
+            collect_expr_refs(base, refs);
+            collect_expr_refs(half, refs);
+        }
+        MastExprKind::SimdLoad { ptr, .. } => collect_expr_refs(ptr, refs),
+        MastExprKind::SimdStore { ptr, value, .. } => {
+            collect_expr_refs(ptr, refs);
+            collect_expr_refs(value, refs);
+        }
+        MastExprKind::SimdMaskedLoad {
+            ptr, mask, or_else, ..
+        } => {
+            collect_expr_refs(ptr, refs);
+            collect_expr_refs(mask, refs);
+            collect_expr_refs(or_else, refs);
+        }
+        MastExprKind::SimdMaskedStore {
+            ptr, mask, value, ..
+        } => {
+            collect_expr_refs(ptr, refs);
+            collect_expr_refs(mask, refs);
+            collect_expr_refs(value, refs);
+        }
+        MastExprKind::SimdGather { ptr, indices } => {
+            collect_expr_refs(ptr, refs);
+            collect_expr_refs(indices, refs);
+        }
+        MastExprKind::SimdScatter {
+            ptr,
+            indices,
+            value,
+        } => {
+            collect_expr_refs(ptr, refs);
+            collect_expr_refs(indices, refs);
+            collect_expr_refs(value, refs);
+        }
+        MastExprKind::SimdMaskedGather {
+            ptr,
+            indices,
+            mask,
+            or_else,
+        } => {
+            collect_expr_refs(ptr, refs);
+            collect_expr_refs(indices, refs);
+            collect_expr_refs(mask, refs);
+            collect_expr_refs(or_else, refs);
+        }
+        MastExprKind::SimdMaskedScatter {
+            ptr,
+            indices,
+            mask,
+            value,
+        } => {
+            collect_expr_refs(ptr, refs);
+            collect_expr_refs(indices, refs);
+            collect_expr_refs(mask, refs);
+            collect_expr_refs(value, refs);
+        }
         MastExprKind::Block(block) => collect_block_refs(block, refs),
         MastExprKind::SliceOp {
             lhs, start, end, ..
@@ -839,6 +928,13 @@ fn expr_workload(expr: &MastExpr) -> usize {
         | MastExprKind::ExtractFatPtrData(inner)
         | MastExprKind::ExtractFatPtrMeta(inner)
         | MastExprKind::BitIntrinsic { operand: inner, .. }
+        | MastExprKind::SimdUnaryIntrinsic { operand: inner, .. }
+        | MastExprKind::SimdReduce { operand: inner, .. }
+        | MastExprKind::SimdAny { operand: inner, .. }
+        | MastExprKind::SimdAll { operand: inner, .. }
+        | MastExprKind::SimdSplat { value: inner, .. }
+        | MastExprKind::SimdCast { value: inner, .. }
+        | MastExprKind::SimdBitcast { value: inner, .. }
         | MastExprKind::Cast { operand: inner, .. }
         | MastExprKind::Unary { operand: inner, .. } => weight += expr_workload(inner),
         MastExprKind::StructInit { fields, .. } | MastExprKind::ArrayInit(fields) => {
@@ -852,6 +948,9 @@ fn expr_workload(expr: &MastExpr) -> usize {
         MastExprKind::FieldAccess { lhs, .. } => weight += expr_workload(lhs),
         MastExprKind::IndexAccess { lhs, index }
         | MastExprKind::Binary {
+            lhs, rhs: index, ..
+        }
+        | MastExprKind::SimdBinaryIntrinsic {
             lhs, rhs: index, ..
         }
         | MastExprKind::Assign {
@@ -921,6 +1020,65 @@ fn expr_workload(expr: &MastExpr) -> usize {
         }
         MastExprKind::ConstructFatPointer { data_ptr, meta } => {
             weight += expr_workload(data_ptr) + expr_workload(meta);
+        }
+        MastExprKind::SimdSelect {
+            mask,
+            on_true,
+            on_false,
+        } => {
+            weight += expr_workload(mask) + expr_workload(on_true) + expr_workload(on_false);
+        }
+        MastExprKind::SimdShuffle { lhs, rhs, .. } => {
+            weight += expr_workload(lhs) + expr_workload(rhs);
+        }
+        MastExprKind::SimdInsertHalf { base, half, .. } => {
+            weight += expr_workload(base) + expr_workload(half);
+        }
+        MastExprKind::SimdLoad { ptr, .. } => weight += expr_workload(ptr),
+        MastExprKind::SimdStore { ptr, value, .. } => {
+            weight += expr_workload(ptr) + expr_workload(value);
+        }
+        MastExprKind::SimdMaskedLoad {
+            ptr, mask, or_else, ..
+        } => {
+            weight += expr_workload(ptr) + expr_workload(mask) + expr_workload(or_else);
+        }
+        MastExprKind::SimdMaskedStore {
+            ptr, mask, value, ..
+        } => {
+            weight += expr_workload(ptr) + expr_workload(mask) + expr_workload(value);
+        }
+        MastExprKind::SimdGather { ptr, indices } => {
+            weight += expr_workload(ptr) + expr_workload(indices);
+        }
+        MastExprKind::SimdScatter {
+            ptr,
+            indices,
+            value,
+        } => {
+            weight += expr_workload(ptr) + expr_workload(indices) + expr_workload(value);
+        }
+        MastExprKind::SimdMaskedGather {
+            ptr,
+            indices,
+            mask,
+            or_else,
+        } => {
+            weight += expr_workload(ptr)
+                + expr_workload(indices)
+                + expr_workload(mask)
+                + expr_workload(or_else);
+        }
+        MastExprKind::SimdMaskedScatter {
+            ptr,
+            indices,
+            mask,
+            value,
+        } => {
+            weight += expr_workload(ptr)
+                + expr_workload(indices)
+                + expr_workload(mask)
+                + expr_workload(value);
         }
         MastExprKind::Block(block) => weight += block_workload(block),
         MastExprKind::SliceOp {

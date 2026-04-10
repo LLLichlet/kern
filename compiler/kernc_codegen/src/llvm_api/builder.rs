@@ -1,17 +1,17 @@
 use llvm_sys::core::{
     LLVMAddCase, LLVMBuildAShr, LLVMBuildAdd, LLVMBuildAlloca, LLVMBuildAnd,
     LLVMBuildAtomicCmpXchg, LLVMBuildAtomicRMW, LLVMBuildBitCast, LLVMBuildBr, LLVMBuildCall2,
-    LLVMBuildCondBr, LLVMBuildExtractValue, LLVMBuildFAdd, LLVMBuildFCmp, LLVMBuildFDiv,
-    LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPCast, LLVMBuildFPToSI, LLVMBuildFPToUI, LLVMBuildFRem,
-    LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp, LLVMBuildInsertValue,
-    LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2, LLVMBuildMemCpy, LLVMBuildMemMove,
-    LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot, LLVMBuildOr, LLVMBuildPhi,
-    LLVMBuildPointerCast, LLVMBuildPtrDiff2, LLVMBuildPtrToInt, LLVMBuildRet, LLVMBuildRetVoid,
-    LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem, LLVMBuildShl, LLVMBuildStore,
-    LLVMBuildStructGEP2, LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv,
-    LLVMBuildUIToFP, LLVMBuildURem, LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt,
-    LLVMClearInsertionPosition, LLVMDisposeBuilder, LLVMGetInsertBlock, LLVMPositionBuilderAtEnd,
-    LLVMPositionBuilderBefore,
+    LLVMBuildCondBr, LLVMBuildExtractElement, LLVMBuildExtractValue, LLVMBuildFAdd, LLVMBuildFCmp,
+    LLVMBuildFDiv, LLVMBuildFMul, LLVMBuildFNeg, LLVMBuildFPCast, LLVMBuildFPToSI, LLVMBuildFPToUI,
+    LLVMBuildFRem, LLVMBuildFSub, LLVMBuildFence, LLVMBuildGEP2, LLVMBuildICmp,
+    LLVMBuildInsertElement, LLVMBuildInsertValue, LLVMBuildIntToPtr, LLVMBuildLShr, LLVMBuildLoad2,
+    LLVMBuildMemCpy, LLVMBuildMemMove, LLVMBuildMemSet, LLVMBuildMul, LLVMBuildNeg, LLVMBuildNot,
+    LLVMBuildOr, LLVMBuildPhi, LLVMBuildPointerCast, LLVMBuildPtrDiff2, LLVMBuildPtrToInt,
+    LLVMBuildRet, LLVMBuildRetVoid, LLVMBuildSDiv, LLVMBuildSExt, LLVMBuildSIToFP, LLVMBuildSRem,
+    LLVMBuildSelect, LLVMBuildShl, LLVMBuildShuffleVector, LLVMBuildStore, LLVMBuildStructGEP2,
+    LLVMBuildSub, LLVMBuildSwitch, LLVMBuildTrunc, LLVMBuildUDiv, LLVMBuildUIToFP, LLVMBuildURem,
+    LLVMBuildUnreachable, LLVMBuildXor, LLVMBuildZExt, LLVMClearInsertionPosition,
+    LLVMDisposeBuilder, LLVMGetInsertBlock, LLVMPositionBuilderAtEnd, LLVMPositionBuilderBefore,
 };
 use llvm_sys::prelude::{LLVMBuilderRef, LLVMTypeRef, LLVMValueRef};
 use std::marker::PhantomData;
@@ -20,7 +20,8 @@ use super::{
     AggregateValue, AsTypeRef, AsValueRef, AtomicOrdering, AtomicRMWBinOp, BasicBlock,
     BasicMetadataValueEnum, BasicValue, BasicValueEnum, CallSiteValue, Context, FloatPredicate,
     FloatType, FloatValue, FunctionType, FunctionValue, InstructionValue, IntPredicate, IntType,
-    IntValue, LlvmResult, PhiValue, PointerType, PointerValue, StructValue, to_c_string,
+    IntValue, LlvmResult, PhiValue, PointerType, PointerValue, StructValue, VectorValue,
+    to_c_string,
 };
 pub struct Builder<'ctx> {
     pub(super) raw: LLVMBuilderRef,
@@ -546,6 +547,142 @@ impl<'ctx> Builder<'ctx> {
         }))
     }
 
+    pub fn build_basic_int_add(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildAdd, lhs, rhs, name)
+    }
+
+    pub fn build_basic_int_sub(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildSub, lhs, rhs, name)
+    }
+
+    pub fn build_basic_int_mul(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildMul, lhs, rhs, name)
+    }
+
+    pub fn build_basic_int_signed_div(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildSDiv, lhs, rhs, name)
+    }
+
+    pub fn build_basic_int_unsigned_div(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildUDiv, lhs, rhs, name)
+    }
+
+    pub fn build_basic_int_signed_rem(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildSRem, lhs, rhs, name)
+    }
+
+    pub fn build_basic_int_unsigned_rem(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildURem, lhs, rhs, name)
+    }
+
+    pub fn build_basic_and(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildAnd, lhs, rhs, name)
+    }
+
+    pub fn build_basic_or(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildOr, lhs, rhs, name)
+    }
+
+    pub fn build_basic_xor(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildXor, lhs, rhs, name)
+    }
+
+    pub fn build_basic_shl(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildShl, lhs, rhs, name)
+    }
+
+    pub fn build_basic_lshr(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildLShr, lhs, rhs, name)
+    }
+
+    pub fn build_basic_ashr(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildAShr, lhs, rhs, name)
+    }
+
+    pub fn build_basic_int_compare(
+        &self,
+        pred: IntPredicate,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildICmp(
+                self.raw,
+                pred.into(),
+                lhs.as_value_ref(),
+                rhs.as_value_ref(),
+                name.as_ptr(),
+            )
+        }))
+    }
+
     pub fn build_float_add(
         &self,
         lhs: FloatValue<'ctx>,
@@ -610,6 +747,70 @@ impl<'ctx> Builder<'ctx> {
         }))
     }
 
+    pub fn build_basic_float_add(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildFAdd, lhs, rhs, name)
+    }
+
+    pub fn build_basic_float_sub(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildFSub, lhs, rhs, name)
+    }
+
+    pub fn build_basic_float_mul(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildFMul, lhs, rhs, name)
+    }
+
+    pub fn build_basic_float_div(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildFDiv, lhs, rhs, name)
+    }
+
+    pub fn build_basic_float_rem(
+        &self,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        build_basic_bin(self.raw, LLVMBuildFRem, lhs, rhs, name)
+    }
+
+    pub fn build_basic_float_compare(
+        &self,
+        pred: FloatPredicate,
+        lhs: BasicValueEnum<'ctx>,
+        rhs: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildFCmp(
+                self.raw,
+                pred.into(),
+                lhs.as_value_ref(),
+                rhs.as_value_ref(),
+                name.as_ptr(),
+            )
+        }))
+    }
+
     pub fn build_int_neg(&self, value: IntValue<'ctx>, name: &str) -> LlvmResult<IntValue<'ctx>> {
         let name = to_c_string(name);
         Ok(IntValue::new(unsafe {
@@ -632,6 +833,113 @@ impl<'ctx> Builder<'ctx> {
         let name = to_c_string(name);
         Ok(IntValue::new(unsafe {
             LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr())
+        }))
+    }
+
+    pub fn build_basic_neg(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildNeg(self.raw, value.as_value_ref(), name.as_ptr())
+        }))
+    }
+
+    pub fn build_basic_float_neg(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildFNeg(self.raw, value.as_value_ref(), name.as_ptr())
+        }))
+    }
+
+    pub fn build_basic_not(
+        &self,
+        value: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildNot(self.raw, value.as_value_ref(), name.as_ptr())
+        }))
+    }
+
+    pub fn build_select(
+        &self,
+        cond: BasicValueEnum<'ctx>,
+        on_true: BasicValueEnum<'ctx>,
+        on_false: BasicValueEnum<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildSelect(
+                self.raw,
+                cond.as_value_ref(),
+                on_true.as_value_ref(),
+                on_false.as_value_ref(),
+                name.as_ptr(),
+            )
+        }))
+    }
+
+    pub fn build_extract_element(
+        &self,
+        vector: VectorValue<'ctx>,
+        index: IntValue<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildExtractElement(
+                self.raw,
+                vector.as_value_ref(),
+                index.as_value_ref(),
+                name.as_ptr(),
+            )
+        }))
+    }
+
+    pub fn build_insert_element(
+        &self,
+        vector: VectorValue<'ctx>,
+        element: BasicValueEnum<'ctx>,
+        index: IntValue<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildInsertElement(
+                self.raw,
+                vector.as_value_ref(),
+                element.as_value_ref(),
+                index.as_value_ref(),
+                name.as_ptr(),
+            )
+        }))
+    }
+
+    pub fn build_shuffle_vector(
+        &self,
+        lhs: VectorValue<'ctx>,
+        rhs: VectorValue<'ctx>,
+        mask: VectorValue<'ctx>,
+        name: &str,
+    ) -> LlvmResult<BasicValueEnum<'ctx>> {
+        let name = to_c_string(name);
+        Ok(BasicValueEnum::new(unsafe {
+            LLVMBuildShuffleVector(
+                self.raw,
+                lhs.as_value_ref(),
+                rhs.as_value_ref(),
+                mask.as_value_ref(),
+                name.as_ptr(),
+            )
         }))
     }
 
@@ -809,6 +1117,24 @@ fn build_float_bin<'ctx>(
 ) -> LlvmResult<FloatValue<'ctx>> {
     let name = to_c_string(name);
     Ok(FloatValue::new(unsafe {
+        f(
+            builder,
+            lhs.as_value_ref(),
+            rhs.as_value_ref(),
+            name.as_ptr(),
+        )
+    }))
+}
+
+fn build_basic_bin<'ctx>(
+    builder: LLVMBuilderRef,
+    f: unsafe extern "C" fn(LLVMBuilderRef, LLVMValueRef, LLVMValueRef, *const i8) -> LLVMValueRef,
+    lhs: BasicValueEnum<'ctx>,
+    rhs: BasicValueEnum<'ctx>,
+    name: &str,
+) -> LlvmResult<BasicValueEnum<'ctx>> {
+    let name = to_c_string(name);
+    Ok(BasicValueEnum::new(unsafe {
         f(
             builder,
             lhs.as_value_ref(),

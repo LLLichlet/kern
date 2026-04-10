@@ -106,6 +106,76 @@ This is one of Kern's main state-management tools. If a value encodes multiple
 states, prefer an `enum` and a `match` over sentinel integers and hidden
 control flow.
 
+## SIMD
+
+SIMD values are builtin types, not library wrappers and not array aliases.
+
+```kern
+let a = f32x4.{ 1.0, 2.0, 3.0, 4.0 };
+let b = f32x4.{ 5.0, 6.0, 7.0, 8.0 };
+let mask = a < b; // boolx4
+
+let lane = a.[2];
+
+let mut out = a;
+out.[2] = 9.0;
+
+if (@simdAny(mask)) {
+    out = @simdSelect(mask, b, out);
+}
+
+let mixed = @simdShuffle(a, b, [4]u32.{ 0, 5, 2, 7 });
+let swizzled = @simdSwizzle(a, [4]u32.{ 3, 0, 2, 1 });
+let rev = @simdReverse(a);
+let rot = @simdRotateLeft(a, 1);
+let inter = @simdInterleaveLo(a, b);
+let zip = @simdZipLo(a, b);
+let cat = @simdConcatLo(a, b);
+let de = @simdDeinterleaveLo(inter, @simdInterleaveHi(a, b));
+let unzip = @simdUnzipHi(inter, @simdInterleaveHi(a, b));
+let lo_half = @simdLowHalf[f32x2](a);
+let hi_half = @simdHighHalf[f32x2](b);
+let stitched = @simdWithLowHalf[f32x4](b, lo_half);
+let total = @simdReduceAdd(mixed);
+let mags = @simdAbs(f32x4.{ -1.0, 2.0, -0.0, -4.0 });
+let lo = @simdMin(i32x4.{ 9, 2, -4, 8 }, i32x4.{ 3, 7, -5, 8 });
+let hi = @simdMax(a, b);
+let clipped = @simdClamp(a, f32x4.{ 0.0, 1.5, 1.0, 0.0 }, f32x4.{ 3.0, 3.0, 3.0, 3.0 });
+let roots = @simdSqrt(f32x4.{ 1.0, 4.0, 9.0, 16.0 });
+let lowered = @simdFloor(f32x4.{ 1.9, -1.2, 2.0, -0.0 });
+let raised = @simdCeil(f32x4.{ 1.1, -1.8, 2.0, -0.0 });
+let chopped = @simdTrunc(f32x4.{ 1.9, -1.8, 2.0, -0.0 });
+let rounded = @simdRound(f32x4.{ 1.4, 1.6, -1.4, -1.6 });
+let ones = @simdSplat[i32x4](1);
+let as_float = @simdCast[f32x4](ones);
+let bits = @simdBitcast[u32x4](as_float);
+let pop = @popCount(u32x4.{ 1, 3, 7, 15 });
+let data = [4]mut f32.{ 10.0, 20.0, 30.0, 40.0 };
+let mask2 = boolx4.{ true, false, true, false };
+let partial = @simdMaskedLoad[f32x4](data.[0]..&, mask2, f32x4.{ 0.0, 0.0, 0.0, 0.0 }, 4);
+@simdMaskedStore(data.[0]..&, mask2, partial, 4);
+let idx = [4]usize.{ 3, 0, 2, 1 };
+let permuted = @simdGather[f32x4](data.[0]..&, idx.[0].&);
+@simdScatter(data.[0]..&, idx.[0].&, permuted);
+let masked = @simdMaskedGather[f32x4](data.[0]..&, idx.[0].&, mask2, f32x4.{ -1.0, -1.0, -1.0, -1.0 });
+@simdMaskedScatter(data.[0]..&, idx.[0].&, mask2, masked);
+```
+
+The important split is:
+
+- `f32x4`, `i32x4`, `boolx4`, and similar names are language primitives.
+- SIMD integer primitives cover the full builtin integer family, including `isizexN`, `usizexN`, `i128xN`, and `u128xN`.
+- `.[]` on SIMD means lane access.
+- SIMD comparisons return `boolxN`, not scalar `bool`.
+- `@simdAny`, `@simdAll`, and `@simdSelect` are compiler intrinsics for mask reduction and lane-wise selection.
+- `@simdShuffle` is the general two-input lane permutation primitive, while `@simdSwizzle` is the single-input shorthand.
+- `@simdReverse`, `@simdRotateLeft`, `@simdRotateRight`, `@simdInterleaveLo`, `@simdInterleaveHi`, `@simdZipLo`, `@simdZipHi`, `@simdConcatLo`, `@simdConcatHi`, `@simdDeinterleaveLo`, `@simdDeinterleaveHi`, `@simdUnzipLo`, and `@simdUnzipHi` are higher-level rearrangement helpers built on top of explicit shuffle semantics.
+- `@simdLowHalf`, `@simdHighHalf`, `@simdWithLowHalf`, and `@simdWithHighHalf` let you split and stitch vectors without treating SIMD as arrays.
+- `@simdAbs`, `@simdMin`, `@simdMax`, and `@simdClamp` cover common lane-wise numeric operations that do not have dedicated expression syntax.
+- `@simdSqrt`, `@simdFloor`, `@simdCeil`, `@simdTrunc`, and `@simdRound` cover common lane-wise floating-point math that does not have dedicated expression syntax.
+- Existing bit intrinsics such as `@popCount` and `@clz` also work lane-wise on SIMD integer vectors.
+- `@simdSplat`, `@simdCast`, `@simdBitcast`, `@simdShuffle`, `@simdReduce...`, `@simdLoad`, `@simdStore`, `@simdMaskedLoad`, `@simdMaskedStore`, `@simdGather`, `@simdScatter`, `@simdMaskedGather`, and `@simdMaskedScatter` cover the operations that do not fit ordinary expression syntax cleanly.
+
 ## Traits And Methods
 
 Traits define callable interfaces. `impl` attaches methods to concrete receiver
@@ -206,4 +276,3 @@ good default for compiler and tooling predictability.
 
 After this chapter, move directly to the `kernc` workflow. Learning Kern is much
 easier once you can compile small experiments quickly.
-

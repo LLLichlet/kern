@@ -1,10 +1,62 @@
 use super::ExprChecker;
 use crate::def::Def;
 use crate::ty::{TypeId, TypeKind};
-use kernc_ast::{BinaryOperator, Expr, UnaryOperator};
+use kernc_ast::{BinaryOperator, Expr, ExprKind, UnaryOperator};
 use kernc_utils::{DiagnosticCode, Span};
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn simd_compare_type(&mut self, ty: TypeId) -> TypeId {
+        let Some((_, lanes)) = self.ctx.type_registry.simd_info(ty) else {
+            return TypeId::ERROR;
+        };
+        self.ctx.type_registry.intern(TypeKind::Simd {
+            elem: TypeId::BOOL,
+            lanes,
+        })
+    }
+
+    fn has_builtin_simd_binary_fast_path(
+        &mut self,
+        op: BinaryOperator,
+        lhs_ty: TypeId,
+        rhs_ty: TypeId,
+    ) -> bool {
+        let Some((l_elem, l_lanes)) = self.ctx.type_registry.simd_info(lhs_ty) else {
+            return false;
+        };
+        let Some((r_elem, r_lanes)) = self.ctx.type_registry.simd_info(rhs_ty) else {
+            return false;
+        };
+
+        if l_elem != r_elem || l_lanes != r_lanes {
+            return false;
+        }
+
+        let elem_is_int = self.ctx.type_registry.is_integer(l_elem);
+        let elem_is_float = self.ctx.type_registry.is_float(l_elem);
+        let elem_is_bool = l_elem == TypeId::BOOL;
+
+        match op {
+            BinaryOperator::Add
+            | BinaryOperator::Subtract
+            | BinaryOperator::Multiply
+            | BinaryOperator::Divide
+            | BinaryOperator::Modulo => elem_is_int || elem_is_float,
+            BinaryOperator::Equal | BinaryOperator::NotEqual => {
+                elem_is_int || elem_is_float || elem_is_bool
+            }
+            BinaryOperator::LessThan
+            | BinaryOperator::GreaterThan
+            | BinaryOperator::LessOrEqual
+            | BinaryOperator::GreaterOrEqual => elem_is_int || elem_is_float,
+            BinaryOperator::BitwiseAnd | BinaryOperator::BitwiseOr | BinaryOperator::BitwiseXor => {
+                elem_is_int || elem_is_bool
+            }
+            BinaryOperator::ShiftLeft | BinaryOperator::ShiftRight => elem_is_int,
+            BinaryOperator::LogicalAnd | BinaryOperator::LogicalOr => false,
+        }
+    }
+
     fn fresh_type_var(&mut self) -> TypeId {
         let vid = self.type_vars.len() as u32;
         self.type_vars.push(None);
@@ -19,6 +71,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     ) -> bool {
         let l_norm = self.resolve_tv(lhs_ty);
         let r_norm = self.resolve_tv(rhs_ty);
+        if self.has_builtin_simd_binary_fast_path(op, l_norm, r_norm) {
+            return true;
+        }
         let is_l_ptr = matches!(
             self.ctx.type_registry.get(l_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
@@ -408,6 +463,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     if !self.check_coercion(rhs, l_norm, r_norm) {
                         return TypeId::ERROR;
                     }
+                    if self.ctx.type_registry.is_simd(l_norm) {
+                        return self.simd_compare_type(l_norm);
+                    }
                     return TypeId::BOOL;
                 }
 
@@ -429,6 +487,9 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     if !self.check_coercion(rhs, l_norm, r_norm) {
                         return TypeId::ERROR;
                     }
+                    if self.ctx.type_registry.is_simd(l_norm) {
+                        return self.simd_compare_type(l_norm);
+                    }
                     return TypeId::BOOL;
                 }
 
@@ -441,7 +502,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
             BitwiseAnd | BitwiseOr | BitwiseXor | ShiftLeft | ShiftRight => {
                 if self.has_builtin_binary_fast_path(op, l_norm, r_norm) {
-                    if !self.ctx.type_registry.is_integer(l_norm) {
+                    let bitwise_ok =
+                        if let Some((elem, _)) = self.ctx.type_registry.simd_info(l_norm) {
+                            self.ctx.type_registry.is_integer(elem) || elem == TypeId::BOOL
+                        } else {
+                            self.ctx.type_registry.is_integer(l_norm)
+                        };
+                    if !bitwise_ok {
                         self.ctx
                             .struct_error(lhs.span, "bitwise operations require integer types")
                             .emit();
@@ -488,9 +555,27 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return TypeId::ERROR;
         }
 
+        let norm_op = self.resolve_tv(op_ty);
+
         match op {
             UnaryOperator::AddressOf | UnaryOperator::MutAddressOf => {
                 let is_mut = op == UnaryOperator::MutAddressOf;
+
+                if let ExprKind::IndexAccess { lhs, .. } = &operand.kind {
+                    let lhs_ty = self
+                        .ctx
+                        .node_types
+                        .get(&lhs.id)
+                        .copied()
+                        .unwrap_or(TypeId::ERROR);
+                    if self.ctx.type_registry.is_simd(lhs_ty) {
+                        self.ctx
+                            .struct_error(span, "cannot take the address of a SIMD lane")
+                            .with_hint("read or write SIMD lanes through `.[]` directly")
+                            .emit();
+                        return TypeId::ERROR;
+                    }
+                }
 
                 // Mutable address-of requires a mutable lvalue.
                 if is_mut && !self.is_lvalue_mutable(operand) {
@@ -573,7 +658,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
             }
             UnaryOperator::Negate => {
-                let op_ty_id = self.resolve_tv(op_ty);
+                let op_ty_id = norm_op;
+                if let Some((elem, _)) = self.ctx.type_registry.simd_info(op_ty_id)
+                    && (self.ctx.type_registry.is_integer(elem)
+                        || self.ctx.type_registry.is_float(elem))
+                {
+                    return op_ty;
+                }
                 if self.ctx.type_registry.is_integer(op_ty_id)
                     || self.ctx.type_registry.is_float(op_ty_id)
                 {
@@ -582,13 +673,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)
             }
             UnaryOperator::LogicalNot => {
-                if self.resolve_tv(op_ty) == TypeId::BOOL {
-                    return TypeId::BOOL;
+                if norm_op == TypeId::BOOL || self.ctx.type_registry.is_simd_mask(norm_op) {
+                    return op_ty;
                 }
                 self.require_builtin_unary_trait(operand, op_ty, op, expected_ty)
             }
             UnaryOperator::BitwiseNot => {
-                let op_ty_id = self.resolve_tv(op_ty);
+                let op_ty_id = norm_op;
+                if let Some((elem, _)) = self.ctx.type_registry.simd_info(op_ty_id)
+                    && self.ctx.type_registry.is_integer(elem)
+                {
+                    return op_ty;
+                }
                 if self.ctx.type_registry.is_integer(op_ty_id) {
                     return op_ty;
                 }

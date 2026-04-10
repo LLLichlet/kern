@@ -1,15 +1,15 @@
 use llvm_sys::LLVMAttributeFunctionIndex;
 use llvm_sys::core::{
     LLVMAddAttributeAtIndex, LLVMAddIncoming, LLVMArrayType2, LLVMConstArray2, LLVMConstInt,
-    LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMCountParams,
-    LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType, LLVMGetBasicBlockParent,
-    LLVMGetBasicBlockTerminator, LLVMGetElementType, LLVMGetEnumAttributeKindForName,
-    LLVMGetFirstBasicBlock, LLVMGetFirstInstruction, LLVMGetInstructionOpcode, LLVMGetIntTypeWidth,
-    LLVMGetNextBasicBlock, LLVMGetNextInstruction, LLVMGetParam, LLVMGetReturnType,
-    LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2, LLVMGlobalGetValueType, LLVMIsAInstruction,
-    LLVMIsPackedStruct, LLVMSetAlignment, LLVMSetGlobalConstant, LLVMSetInitializer,
-    LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection, LLVMStructGetTypeAtIndex, LLVMStructSetBody,
-    LLVMTypeOf,
+    LLVMConstNamedStruct, LLVMConstNull, LLVMConstPointerNull, LLVMConstReal, LLVMConstVector,
+    LLVMCountParams, LLVMCountStructElementTypes, LLVMFunctionType, LLVMGetAllocatedType,
+    LLVMGetBasicBlockParent, LLVMGetBasicBlockTerminator, LLVMGetElementType,
+    LLVMGetEnumAttributeKindForName, LLVMGetFirstBasicBlock, LLVMGetFirstInstruction,
+    LLVMGetInstructionOpcode, LLVMGetIntTypeWidth, LLVMGetNextBasicBlock, LLVMGetNextInstruction,
+    LLVMGetParam, LLVMGetReturnType, LLVMGetTypeKind, LLVMGetUndef, LLVMGetValueName2,
+    LLVMGlobalGetValueType, LLVMIsAInstruction, LLVMIsPackedStruct, LLVMSetAlignment,
+    LLVMSetGlobalConstant, LLVMSetInitializer, LLVMSetLinkage, LLVMSetOrdering, LLVMSetSection,
+    LLVMStructGetTypeAtIndex, LLVMStructSetBody, LLVMTypeOf, LLVMVectorType,
 };
 use llvm_sys::prelude::{LLVMAttributeRef, LLVMBasicBlockRef, LLVMTypeRef, LLVMValueRef};
 use llvm_sys::{
@@ -564,6 +564,10 @@ impl<'ctx> BasicTypeEnum<'ctx> {
         ArrayType::new(unsafe { LLVMArrayType2(self.as_type_ref(), len as u64) })
     }
 
+    pub fn vector_type(self, len: u32) -> VectorType<'ctx> {
+        VectorType::new(unsafe { LLVMVectorType(self.as_type_ref(), len) })
+    }
+
     pub fn is_pointer_type(self) -> bool {
         matches!(self, Self::PointerType(_))
     }
@@ -657,6 +661,18 @@ impl<'ctx> From<ArrayType<'ctx>> for BasicTypeEnum<'ctx> {
     }
 }
 
+impl<'ctx> From<VectorType<'ctx>> for BasicTypeEnum<'ctx> {
+    fn from(value: VectorType<'ctx>) -> Self {
+        Self::VectorType(value)
+    }
+}
+
+impl<'ctx> From<ScalableVectorType<'ctx>> for BasicTypeEnum<'ctx> {
+    fn from(value: ScalableVectorType<'ctx>) -> Self {
+        Self::ScalableVectorType(value)
+    }
+}
+
 pub type BasicMetadataTypeEnum<'ctx> = BasicTypeEnum<'ctx>;
 
 macro_rules! impl_value_wrapper {
@@ -696,6 +712,8 @@ impl_value_wrapper!(FloatValue, FloatValue);
 impl_value_wrapper!(PointerValue, PointerValue);
 impl_value_wrapper!(StructValue, StructValue);
 impl_value_wrapper!(ArrayValue, ArrayValue);
+impl_value_wrapper!(VectorValue, VectorValue);
+impl_value_wrapper!(ScalableVectorValue, ScalableVectorValue);
 
 impl<'ctx> AggregateValue<'ctx> for StructValue<'ctx> {}
 impl<'ctx> AggregateValue<'ctx> for ArrayValue<'ctx> {}
@@ -746,6 +764,8 @@ pub enum BasicValueEnum<'ctx> {
     IntValue(IntValue<'ctx>),
     PointerValue(PointerValue<'ctx>),
     StructValue(StructValue<'ctx>),
+    VectorValue(VectorValue<'ctx>),
+    ScalableVectorValue(ScalableVectorValue<'ctx>),
 }
 
 impl<'ctx> BasicValueEnum<'ctx> {
@@ -756,8 +776,9 @@ impl<'ctx> BasicValueEnum<'ctx> {
             BasicTypeEnum::IntType(_) => Self::IntValue(IntValue::new(raw)),
             BasicTypeEnum::PointerType(_) => Self::PointerValue(PointerValue::new(raw)),
             BasicTypeEnum::StructType(_) => Self::StructValue(StructValue::new(raw)),
-            BasicTypeEnum::VectorType(_) | BasicTypeEnum::ScalableVectorType(_) => {
-                panic!("vector values are not supported in kernc llvm wrapper")
+            BasicTypeEnum::VectorType(_) => Self::VectorValue(VectorValue::new(raw)),
+            BasicTypeEnum::ScalableVectorType(_) => {
+                Self::ScalableVectorValue(ScalableVectorValue::new(raw))
             }
         }
     }
@@ -782,10 +803,21 @@ impl<'ctx> BasicValueEnum<'ctx> {
         matches!(self, Self::StructValue(_))
     }
 
+    pub fn is_vector_value(self) -> bool {
+        matches!(self, Self::VectorValue(_) | Self::ScalableVectorValue(_))
+    }
+
     pub fn into_array_value(self) -> ArrayValue<'ctx> {
         match self {
             Self::ArrayValue(value) => value,
             _ => panic!("expected array value"),
+        }
+    }
+
+    pub fn into_vector_value(self) -> VectorValue<'ctx> {
+        match self {
+            Self::VectorValue(value) => value,
+            _ => panic!("expected vector value"),
         }
     }
 
@@ -835,6 +867,8 @@ impl<'ctx> AsValueRef for BasicValueEnum<'ctx> {
             Self::IntValue(value) => value.as_value_ref(),
             Self::PointerValue(value) => value.as_value_ref(),
             Self::StructValue(value) => value.as_value_ref(),
+            Self::VectorValue(value) => value.as_value_ref(),
+            Self::ScalableVectorValue(value) => value.as_value_ref(),
         }
     }
 }
@@ -873,6 +907,26 @@ impl<'ctx> From<ArrayValue<'ctx>> for BasicValueEnum<'ctx> {
     fn from(value: ArrayValue<'ctx>) -> Self {
         Self::ArrayValue(value)
     }
+}
+
+impl<'ctx> From<VectorValue<'ctx>> for BasicValueEnum<'ctx> {
+    fn from(value: VectorValue<'ctx>) -> Self {
+        Self::VectorValue(value)
+    }
+}
+
+impl<'ctx> From<ScalableVectorValue<'ctx>> for BasicValueEnum<'ctx> {
+    fn from(value: ScalableVectorValue<'ctx>) -> Self {
+        Self::ScalableVectorValue(value)
+    }
+}
+
+pub fn const_vector<'ctx>(values: &[BasicValueEnum<'ctx>]) -> VectorValue<'ctx> {
+    let mut values = values
+        .iter()
+        .map(|value| value.as_value_ref())
+        .collect::<Vec<_>>();
+    VectorValue::new(unsafe { LLVMConstVector(values.as_mut_ptr(), values.len() as u32) })
 }
 
 pub type BasicMetadataValueEnum<'ctx> = BasicValueEnum<'ctx>;
@@ -1061,6 +1115,10 @@ impl<'ctx> InstructionValue<'ctx> {
 
     pub fn set_atomic_ordering(self, ordering: AtomicOrdering) {
         unsafe { LLVMSetOrdering(self.raw, ordering.into()) };
+    }
+
+    pub fn set_alignment(self, bytes: u32) {
+        unsafe { LLVMSetAlignment(self.raw, bytes) };
     }
 
     pub fn get_next_instruction(self) -> Option<InstructionValue<'ctx>> {

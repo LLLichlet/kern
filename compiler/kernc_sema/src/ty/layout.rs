@@ -127,6 +127,15 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
                 self.ctx.sess.target.pointer_size
             }
             TypeKind::Slice { .. } | TypeKind::TraitObject(..) => self.ctx.sess.target.pointer_size,
+            TypeKind::Simd { elem, lanes } => {
+                if elem == TypeId::BOOL {
+                    1
+                } else {
+                    let elem_align = self.compute_type_align_inner(elem, depth + 1);
+                    let elem_size = self.compute_type_size_inner(elem, depth + 1);
+                    elem_align.max(elem_size.saturating_mul(lanes as u64))
+                }
+            }
 
             TypeKind::Array { elem, .. } | TypeKind::ArrayInfer { elem, .. } => {
                 self.compute_type_align_inner(elem, depth + 1)
@@ -265,6 +274,13 @@ impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {
             TypeKind::Function { .. } => self.ctx.sess.target.pointer_size,
             TypeKind::Slice { .. } | TypeKind::TraitObject(..) => {
                 self.ctx.sess.target.pointer_size * 2
+            }
+            TypeKind::Simd { elem, lanes } => {
+                if elem == TypeId::BOOL {
+                    (lanes as u64).div_ceil(8)
+                } else {
+                    self.compute_type_size_inner(elem, depth + 1) * lanes as u64
+                }
             }
 
             // Fixed-size arrays have known size; `ArrayInfer` still counts as unknown here.

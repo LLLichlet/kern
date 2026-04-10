@@ -56,6 +56,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     self.context.struct_type(&[], false).into()
                 }
             },
+            TypeKind::Simd { elem, lanes } => {
+                let lane_ty = self.get_llvm_type(elem);
+                lane_ty.vector_type(lanes as u32).into()
+            }
             TypeKind::Pointer { elem, .. } | TypeKind::VolatilePtr { elem, .. } => {
                 let elem_norm = self.type_registry.normalize(elem);
                 // Special-case pointers to trait objects or closure interfaces: they lower as fat-pointer structs.

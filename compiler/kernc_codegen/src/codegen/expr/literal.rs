@@ -260,19 +260,45 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         elems: &[MastExpr],
         expected_ty: BasicTypeEnum<'ctx>,
     ) -> BasicValueEnum<'ctx> {
-        let array_llvm_ty = expected_ty.into_array_type();
-        let mut current_array = array_llvm_ty.const_zero();
-        for (idx, elem_expr) in elems.iter().enumerate() {
-            let elem_val = self.compile_expr(elem_expr);
-            if self.current_block_is_terminated() {
-                return array_llvm_ty.const_zero().into();
+        match expected_ty {
+            BasicTypeEnum::ArrayType(array_llvm_ty) => {
+                let mut current_array = array_llvm_ty.const_zero();
+                for (idx, elem_expr) in elems.iter().enumerate() {
+                    let elem_val = self.compile_expr(elem_expr);
+                    if self.current_block_is_terminated() {
+                        return array_llvm_ty.const_zero().into();
+                    }
+                    current_array = self
+                        .builder
+                        .build_insert_value(current_array, elem_val, idx as u32, "arr_init")
+                        .unwrap()
+                        .into_array_value();
+                }
+                current_array.into()
             }
-            current_array = self
-                .builder
-                .build_insert_value(current_array, elem_val, idx as u32, "arr_init")
-                .unwrap()
-                .into_array_value();
+            BasicTypeEnum::VectorType(vector_llvm_ty) => {
+                let mut current_vector = vector_llvm_ty.const_zero().into_vector_value();
+                for (idx, elem_expr) in elems.iter().enumerate() {
+                    let elem_val = self.compile_expr(elem_expr);
+                    if self.current_block_is_terminated() {
+                        return vector_llvm_ty.const_zero();
+                    }
+                    let index = self.context.i32_type().const_int(idx as u64, false);
+                    current_vector = self
+                        .builder
+                        .build_insert_element(current_vector, elem_val, index, "vec_init")
+                        .unwrap()
+                        .into_vector_value();
+                }
+                current_vector.into()
+            }
+            _ => {
+                self.sess.emit_ice(
+                    kernc_utils::Span::default(),
+                    "Kern ICE (Codegen): array initializer used with a non-array/non-vector type.",
+                );
+                expected_ty.const_zero()
+            }
         }
-        current_array.into()
     }
 }

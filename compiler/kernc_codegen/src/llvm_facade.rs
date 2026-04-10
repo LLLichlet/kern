@@ -60,6 +60,11 @@ pub mod intrinsics {
                 "llvm.ctlz" => Some(Self { name: "llvm.ctlz" }),
                 "llvm.cttz" => Some(Self { name: "llvm.cttz" }),
                 "llvm.bswap" => Some(Self { name: "llvm.bswap" }),
+                "llvm.sqrt" => Some(Self { name: "llvm.sqrt" }),
+                "llvm.floor" => Some(Self { name: "llvm.floor" }),
+                "llvm.ceil" => Some(Self { name: "llvm.ceil" }),
+                "llvm.trunc" => Some(Self { name: "llvm.trunc" }),
+                "llvm.round" => Some(Self { name: "llvm.round" }),
                 _ => None,
             }
         }

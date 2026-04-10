@@ -1,5 +1,5 @@
 use super::ExprChecker;
-use crate::checker::Substituter;
+use crate::checker::{ConstEvaluator, Substituter};
 use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
 use crate::query::{MemberQuery, MemberQueryEnv};
@@ -840,11 +840,41 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         let norm_lhs = self.resolve_tv(lhs_ty);
         match self.ctx.type_registry.get(norm_lhs).clone() {
+            TypeKind::Simd { elem, lanes } => {
+                let mut evaluator = ConstEvaluator::new(self.ctx);
+                let Ok(lane_idx) = evaluator.eval_usize(index) else {
+                    self.ctx
+                        .struct_error(
+                            index.span,
+                            "SIMD lane index must be a compile-time constant",
+                        )
+                        .with_hint("example: `vec.[2]`")
+                        .emit();
+                    return TypeId::ERROR;
+                };
+
+                if lane_idx >= lanes as u64 {
+                    self.ctx
+                        .struct_error(
+                            index.span,
+                            format!(
+                                "SIMD lane index {} is out of bounds for `{}`",
+                                lane_idx,
+                                self.ctx.ty_to_string(norm_lhs)
+                            ),
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                }
+
+                elem
+            }
             TypeKind::Array { elem, .. } | TypeKind::Slice { elem, .. } => elem,
             TypeKind::Error => TypeId::ERROR,
             _ => {
                 self.ctx
-                    .struct_error(lhs.span, "cannot index into a non-array/non-slice type")
+                    .struct_error(lhs.span, "cannot index into this type")
+                    .with_hint("only arrays, slices, and SIMD values support `.[]`")
                     .emit();
                 TypeId::ERROR
             }

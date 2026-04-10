@@ -115,6 +115,14 @@ This is the correct low-level contract for Kern's philosophy. It is explicit, st
 
 Higher-level argument handling belongs in ordinary libraries, not in the compiler-owned ABI itself. The current wrapper lives in `std.proc` as `std.proc.Args` and `std.proc.args(argc, argv)`.
 
+When this contract is enabled, the toolchain also loads `rt` as the startup companion root even if the source program never writes `use rt;`.
+
+That behavior is intentionally narrow:
+
+- it exists only so the selected startup shim can contribute `_start`, `main`, and related entry glue
+- it is not a general visibility shortcut for runtime APIs
+- explicit module imports remain mandatory for ordinary `rt.*`, `base.*`, `sys.*`, or `std.*` symbols
+
 ## Library Organization
 
 The public library/runtime split is:

@@ -1151,25 +1151,75 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let Some(eq_def_id) = self.ctx.builtin_def("Eq") else {
             return false;
         };
-        if trait_def_id != eq_def_id || trait_args.len() != 1 || trait_args[0] != source_norm {
-            return false;
+        if trait_def_id == eq_def_id && trait_args.len() == 1 && trait_args[0] == source_norm {
+            return match self.ctx.type_registry.get(source_norm).clone() {
+                TypeKind::Enum(def_id, _) => {
+                    let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
+                        return false;
+                    };
+                    def.variants
+                        .iter()
+                        .all(|variant| variant.payload_type.is_none())
+                }
+                TypeKind::AnonymousEnum(anon) => anon
+                    .variants
+                    .iter()
+                    .all(|variant| variant.payload_ty.is_none()),
+                _ => false,
+            };
         }
 
-        match self.ctx.type_registry.get(source_norm).clone() {
-            TypeKind::Enum(def_id, _) => {
-                let Def::Enum(def) = &self.ctx.defs[def_id.0 as usize] else {
-                    return false;
-                };
-                def.variants
-                    .iter()
-                    .all(|variant| variant.payload_type.is_none())
-            }
-            TypeKind::AnonymousEnum(anon) => anon
-                .variants
-                .iter()
-                .all(|variant| variant.payload_ty.is_none()),
-            _ => false,
+        let simd_elem = self
+            .ctx
+            .type_registry
+            .simd_info(source_norm)
+            .map(|(elem, _)| self.resolve_tv(elem));
+
+        let Some(integer_def_id) = self.ctx.builtin_def("Integer") else {
+            return false;
+        };
+        if trait_def_id == integer_def_id && trait_args.is_empty() {
+            return matches!(
+                simd_elem,
+                Some(elem) if self.ctx.type_registry.is_integer(elem)
+            );
         }
+
+        let Some(signed_integer_def_id) = self.ctx.builtin_def("SignedInteger") else {
+            return false;
+        };
+        if trait_def_id == signed_integer_def_id && trait_args.is_empty() {
+            return matches!(
+                simd_elem,
+                Some(
+                    TypeId::I8
+                        | TypeId::I16
+                        | TypeId::I32
+                        | TypeId::I64
+                        | TypeId::I128
+                        | TypeId::ISIZE
+                )
+            );
+        }
+
+        let Some(unsigned_integer_def_id) = self.ctx.builtin_def("UnsignedInteger") else {
+            return false;
+        };
+        if trait_def_id == unsigned_integer_def_id && trait_args.is_empty() {
+            return matches!(
+                simd_elem,
+                Some(
+                    TypeId::U8
+                        | TypeId::U16
+                        | TypeId::U32
+                        | TypeId::U64
+                        | TypeId::U128
+                        | TypeId::USIZE
+                )
+            );
+        }
+
+        false
     }
 
     fn check_trait_impl_inner(

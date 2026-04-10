@@ -122,6 +122,12 @@ Automatic alias injection intentionally exposes only the public library surface:
 - `std` is injected only for `--library-bundle std`
 - `rt` is not injected by library bundle selection alone; `kernc` injects it only as the companion runtime root when `runtime_entry != none`
 
+The `rt` companion-root rule is startup wiring, not ordinary name injection:
+
+- it makes the `library/rt` root available so hosted startup symbols such as `_start` or `main` can be linked
+- it does not auto-import `rt.*` APIs into user scope
+- ordinary runtime/library APIs still require explicit `use` like any other module
+
 `kernc` resolves the official library paths through these environment variables first:
 
 1. `KERN_STD_PATH`

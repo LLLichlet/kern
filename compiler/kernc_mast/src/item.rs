@@ -203,7 +203,14 @@ fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
         | crate::MastExprKind::ExtractFatPtrMeta(inner)
         | crate::MastExprKind::Unary { operand: inner, .. }
         | crate::MastExprKind::Cast { operand: inner, .. }
-        | crate::MastExprKind::BitIntrinsic { operand: inner, .. } => visit_expr(inner, stats),
+        | crate::MastExprKind::BitIntrinsic { operand: inner, .. }
+        | crate::MastExprKind::SimdUnaryIntrinsic { operand: inner, .. }
+        | crate::MastExprKind::SimdReduce { operand: inner, .. }
+        | crate::MastExprKind::SimdAny { operand: inner, .. }
+        | crate::MastExprKind::SimdAll { operand: inner, .. }
+        | crate::MastExprKind::SimdSplat { value: inner, .. }
+        | crate::MastExprKind::SimdCast { value: inner, .. }
+        | crate::MastExprKind::SimdBitcast { value: inner, .. } => visit_expr(inner, stats),
 
         crate::MastExprKind::StructInit { fields, .. } | crate::MastExprKind::ArrayInit(fields) => {
             for field in fields {
@@ -272,7 +279,8 @@ fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
         }
 
         crate::MastExprKind::Binary { lhs, rhs, .. }
-        | crate::MastExprKind::Assign { lhs, rhs, .. } => {
+        | crate::MastExprKind::Assign { lhs, rhs, .. }
+        | crate::MastExprKind::SimdBinaryIntrinsic { lhs, rhs, .. } => {
             if matches!(&expr.kind, crate::MastExprKind::Assign { .. }) {
                 stats.assignments += 1;
             }
@@ -283,6 +291,88 @@ fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
         crate::MastExprKind::ConstructFatPointer { data_ptr, meta } => {
             visit_expr(data_ptr, stats);
             visit_expr(meta, stats);
+        }
+
+        crate::MastExprKind::SimdSelect {
+            mask,
+            on_true,
+            on_false,
+        } => {
+            visit_expr(mask, stats);
+            visit_expr(on_true, stats);
+            visit_expr(on_false, stats);
+        }
+
+        crate::MastExprKind::SimdShuffle { lhs, rhs, .. } => {
+            visit_expr(lhs, stats);
+            visit_expr(rhs, stats);
+        }
+
+        crate::MastExprKind::SimdInsertHalf { base, half, .. } => {
+            visit_expr(base, stats);
+            visit_expr(half, stats);
+        }
+
+        crate::MastExprKind::SimdLoad { ptr, .. } => visit_expr(ptr, stats),
+
+        crate::MastExprKind::SimdStore { ptr, value, .. } => {
+            visit_expr(ptr, stats);
+            visit_expr(value, stats);
+        }
+
+        crate::MastExprKind::SimdMaskedLoad {
+            ptr, mask, or_else, ..
+        } => {
+            visit_expr(ptr, stats);
+            visit_expr(mask, stats);
+            visit_expr(or_else, stats);
+        }
+
+        crate::MastExprKind::SimdMaskedStore {
+            ptr, mask, value, ..
+        } => {
+            visit_expr(ptr, stats);
+            visit_expr(mask, stats);
+            visit_expr(value, stats);
+        }
+
+        crate::MastExprKind::SimdGather { ptr, indices } => {
+            visit_expr(ptr, stats);
+            visit_expr(indices, stats);
+        }
+
+        crate::MastExprKind::SimdScatter {
+            ptr,
+            indices,
+            value,
+        } => {
+            visit_expr(ptr, stats);
+            visit_expr(indices, stats);
+            visit_expr(value, stats);
+        }
+
+        crate::MastExprKind::SimdMaskedGather {
+            ptr,
+            indices,
+            mask,
+            or_else,
+        } => {
+            visit_expr(ptr, stats);
+            visit_expr(indices, stats);
+            visit_expr(mask, stats);
+            visit_expr(or_else, stats);
+        }
+
+        crate::MastExprKind::SimdMaskedScatter {
+            ptr,
+            indices,
+            mask,
+            value,
+        } => {
+            visit_expr(ptr, stats);
+            visit_expr(indices, stats);
+            visit_expr(mask, stats);
+            visit_expr(value, stats);
         }
 
         crate::MastExprKind::Block(block) => visit_block(block, stats),

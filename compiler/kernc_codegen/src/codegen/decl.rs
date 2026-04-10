@@ -407,15 +407,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     BasicTypeEnum::PointerType(p) => p.fn_type(&param_types, f.is_variadic),
                     BasicTypeEnum::StructType(s) => s.fn_type(&param_types, f.is_variadic),
                     BasicTypeEnum::ArrayType(a) => a.fn_type(&param_types, f.is_variadic),
-                    _ => {
-                        self.sess.emit_ice(
-                            Span::default(),
-                            format!("Invalid LLVM return type for function {}", f.name),
-                        );
-                        self.context
-                            .void_type()
-                            .fn_type(&param_types, f.is_variadic)
-                    }
+                    BasicTypeEnum::VectorType(v) => v.fn_type(&param_types, f.is_variadic),
+                    BasicTypeEnum::ScalableVectorType(v) => v.fn_type(&param_types, f.is_variadic),
                 }
             };
 
@@ -425,6 +418,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let mut inline_kind = None;
             let mut link_section = None;
             let mut has_export_name = false;
+            let mut target_features = Vec::new();
 
             for attr in &f.attributes {
                 match attr {
@@ -447,6 +441,17 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                                 inline_kind = Some("alwaysinline");
                             } else if mode_name == "never" {
                                 inline_kind = Some("noinline");
+                            }
+                        } else if name_str == "target_feature"
+                            && let ast::ExprKind::String(spec) = &expr.kind
+                        {
+                            for feature in spec.split(',').map(str::trim).filter(|s| !s.is_empty())
+                            {
+                                if feature.starts_with('+') || feature.starts_with('-') {
+                                    target_features.push(feature.to_string());
+                                } else {
+                                    target_features.push(format!("+{}", feature));
+                                }
                             }
                         }
                     }
@@ -497,6 +502,13 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let kind_id = Attribute::get_named_enum_kind_id(attr_name);
                 let inline_attr = self.context.create_enum_attribute(kind_id, 0);
                 llvm_func.add_attribute(AttributeLoc::Function, inline_attr);
+            }
+            if !target_features.is_empty() {
+                let features = target_features.join(",");
+                let attr = self
+                    .context
+                    .create_string_attribute("target-features", &features);
+                llvm_func.add_attribute(AttributeLoc::Function, attr);
             }
             if let Some(sec) = link_section.or_else(|| {
                 (!has_export_name)

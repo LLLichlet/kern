@@ -43,6 +43,7 @@ where
 
         match kind {
             TypeKind::Primitive(_)
+            | TypeKind::Simd { .. }
             | TypeKind::Error
             | TypeKind::Module(_)
             | TypeKind::TypeVar(_) => ty,

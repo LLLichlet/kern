@@ -8,6 +8,48 @@ use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{Span, SymbolId};
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
+    fn has_builtin_simd_binary_fast_path(
+        &mut self,
+        op: ast::BinaryOperator,
+        lhs_ty: TypeId,
+        rhs_ty: TypeId,
+    ) -> bool {
+        let Some((l_elem, l_lanes)) = self.ctx.type_registry.simd_info(lhs_ty) else {
+            return false;
+        };
+        let Some((r_elem, r_lanes)) = self.ctx.type_registry.simd_info(rhs_ty) else {
+            return false;
+        };
+
+        if l_elem != r_elem || l_lanes != r_lanes {
+            return false;
+        }
+
+        let elem_is_int = self.ctx.type_registry.is_integer(l_elem);
+        let elem_is_float = self.ctx.type_registry.is_float(l_elem);
+        let elem_is_bool = l_elem == TypeId::BOOL;
+
+        match op {
+            ast::BinaryOperator::Add
+            | ast::BinaryOperator::Subtract
+            | ast::BinaryOperator::Multiply
+            | ast::BinaryOperator::Divide
+            | ast::BinaryOperator::Modulo => elem_is_int || elem_is_float,
+            ast::BinaryOperator::Equal | ast::BinaryOperator::NotEqual => {
+                elem_is_int || elem_is_float || elem_is_bool
+            }
+            ast::BinaryOperator::LessThan
+            | ast::BinaryOperator::GreaterThan
+            | ast::BinaryOperator::LessOrEqual
+            | ast::BinaryOperator::GreaterOrEqual => elem_is_int || elem_is_float,
+            ast::BinaryOperator::BitwiseAnd
+            | ast::BinaryOperator::BitwiseOr
+            | ast::BinaryOperator::BitwiseXor => elem_is_int || elem_is_bool,
+            ast::BinaryOperator::ShiftLeft | ast::BinaryOperator::ShiftRight => elem_is_int,
+            ast::BinaryOperator::LogicalAnd | ast::BinaryOperator::LogicalOr => false,
+        }
+    }
+
     fn has_builtin_binary_fast_path(
         &mut self,
         op: ast::BinaryOperator,
@@ -16,6 +58,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     ) -> bool {
         let l_norm = self.ctx.type_registry.normalize(lhs_ty);
         let r_norm = self.ctx.type_registry.normalize(rhs_ty);
+        if self.has_builtin_simd_binary_fast_path(op, l_norm, r_norm) {
+            return true;
+        }
         let is_l_ptr = matches!(
             self.ctx.type_registry.get(l_norm),
             TypeKind::Pointer { .. } | TypeKind::VolatilePtr { .. }
@@ -106,10 +151,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let norm = self.ctx.type_registry.normalize(operand_ty);
         match op {
             ast::UnaryOperator::Negate => {
+                if let Some((elem, _)) = self.ctx.type_registry.simd_info(norm) {
+                    return self.ctx.type_registry.is_integer(elem)
+                        || self.ctx.type_registry.is_float(elem);
+                }
                 self.ctx.type_registry.is_integer(norm) || self.ctx.type_registry.is_float(norm)
             }
-            ast::UnaryOperator::LogicalNot => norm == TypeId::BOOL,
-            ast::UnaryOperator::BitwiseNot => self.ctx.type_registry.is_integer(norm),
+            ast::UnaryOperator::LogicalNot => {
+                norm == TypeId::BOOL || self.ctx.type_registry.is_simd_mask(norm)
+            }
+            ast::UnaryOperator::BitwiseNot => {
+                if let Some((elem, _)) = self.ctx.type_registry.simd_info(norm) {
+                    return self.ctx.type_registry.is_integer(elem);
+                }
+                self.ctx.type_registry.is_integer(norm)
+            }
             ast::UnaryOperator::AddressOf
             | ast::UnaryOperator::MutAddressOf
             | ast::UnaryOperator::MetaOf

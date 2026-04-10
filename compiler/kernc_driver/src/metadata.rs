@@ -4,11 +4,12 @@ use crate::doc::{
 };
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -18,6 +19,7 @@ const KMETA_FORMAT_VERSION: u32 = 2;
 const KMETA_KIND_SOURCE_SNAPSHOT: &str = "source_snapshot";
 const KMETA_SOURCE_ROOT: &str = "src";
 const KMETA_OUTPUT_LOCK_POLL_INTERVAL: Duration = Duration::from_millis(100);
+static KMETA_STAGE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 struct MetadataOutputLock {
     path: PathBuf,
@@ -86,12 +88,8 @@ pub fn emit_package_metadata(
         ));
     };
 
-    if output_root.exists() {
-        fs::remove_dir_all(output_root)
-            .map_err(|err| format!("failed to clear `{}`: {err}", output_root.display()))?;
-    }
-    fs::create_dir_all(output_root)
-        .map_err(|err| format!("failed to create `{}`: {err}", output_root.display()))?;
+    let staged_root = metadata_stage_root(output_root);
+    create_clean_dir(&staged_root)?;
 
     let manifest = KmetaManifest::source_snapshot(
         package_name.to_string(),
@@ -99,15 +97,22 @@ pub fn emit_package_metadata(
         ctx.resolve(root_module.name).to_string(),
         format!("{}/init.rn", KMETA_SOURCE_ROOT),
     );
-    write_manifest(&output_root.join(KMETA_MANIFEST_FILE), &manifest)?;
-    write_docs(
-        &output_root.join(KMETA_DOCS_FILE),
-        &render_kmeta_docs_toml(&collect_kmeta_doc_items(ctx)),
-    )?;
+    let emit_result = (|| {
+        write_manifest(&staged_root.join(KMETA_MANIFEST_FILE), &manifest)?;
+        write_docs(
+            &staged_root.join(KMETA_DOCS_FILE),
+            &render_kmeta_docs_toml(&collect_kmeta_doc_items(ctx)),
+        )?;
+        copy_source_snapshot_tree(&root_path, root_dir, &staged_root)?;
+        publish_staged_metadata_output(&staged_root, output_root)
+    })();
 
-    copy_source_snapshot_tree(&root_path, root_dir, output_root)?;
-
-    Ok(())
+    let cleanup_result = remove_path_if_exists(&staged_root);
+    match (emit_result, cleanup_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Err(err), _) => Err(err),
+        (Ok(()), Err(err)) => Err(err),
+    }
 }
 
 pub fn load_manifest(metadata_root: &Path) -> Result<Option<KmetaManifest>, String> {
@@ -187,6 +192,25 @@ fn metadata_output_lock_path(output_root: &Path) -> PathBuf {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join(lock_name)
+}
+
+fn metadata_stage_root(output_root: &Path) -> PathBuf {
+    let file_name = output_root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("kmeta");
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let counter = KMETA_STAGE_COUNTER.fetch_add(1, Ordering::Relaxed);
+    output_root
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join(format!(
+            ".{file_name}.kmeta-stage-{}-{nonce}-{counter}",
+            std::process::id()
+        ))
 }
 
 fn try_acquire_metadata_output_lock(
@@ -380,6 +404,170 @@ fn copy_source_snapshot_tree(
                     dest_path.display()
                 )
             })?;
+        }
+    }
+
+    Ok(())
+}
+
+fn create_clean_dir(path: &Path) -> Result<(), String> {
+    remove_path_if_exists(path)?;
+    fs::create_dir_all(path).map_err(|err| format!("failed to create `{}`: {err}", path.display()))
+}
+
+fn remove_path_if_exists(path: &Path) -> Result<(), String> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_dir() => fs::remove_dir_all(path)
+            .map_err(|err| format!("failed to clear `{}`: {err}", path.display())),
+        Ok(_) => fs::remove_file(path)
+            .map_err(|err| format!("failed to clear `{}`: {err}", path.display())),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(format!("failed to inspect `{}`: {err}", path.display())),
+    }
+}
+
+fn publish_staged_metadata_output(staged_root: &Path, output_root: &Path) -> Result<(), String> {
+    fs::create_dir_all(output_root)
+        .map_err(|err| format!("failed to create `{}`: {err}", output_root.display()))?;
+
+    synchronize_staged_dir(
+        &staged_root.join(KMETA_SOURCE_ROOT),
+        &output_root.join(KMETA_SOURCE_ROOT),
+    )?;
+
+    replace_staged_file(
+        &staged_root.join(KMETA_DOCS_FILE),
+        &output_root.join(KMETA_DOCS_FILE),
+    )?;
+    replace_staged_file(
+        &staged_root.join(KMETA_MANIFEST_FILE),
+        &output_root.join(KMETA_MANIFEST_FILE),
+    )?;
+
+    Ok(())
+}
+
+fn synchronize_staged_dir(staged_path: &Path, output_path: &Path) -> Result<(), String> {
+    fs::create_dir_all(output_path)
+        .map_err(|err| format!("failed to create `{}`: {err}", output_path.display()))?;
+
+    let mut expected_files = BTreeSet::new();
+    let mut pending = vec![staged_path.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        let entries = fs::read_dir(&dir)
+            .map_err(|err| format!("failed to read `{}`: {err}", dir.display()))?;
+        let mut paths = entries
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("failed to enumerate `{}`: {err}", dir.display()))?;
+        paths.sort();
+
+        for path in paths {
+            let relative = path.strip_prefix(staged_path).map_err(|err| {
+                format!(
+                    "failed to resolve staged path `{}` under `{}`: {err}",
+                    path.display(),
+                    staged_path.display()
+                )
+            })?;
+            let destination = output_path.join(relative);
+
+            if path.is_dir() {
+                fs::create_dir_all(&destination).map_err(|err| {
+                    format!("failed to create `{}`: {err}", destination.display())
+                })?;
+                pending.push(path);
+                continue;
+            }
+            if !path.is_file() {
+                continue;
+            }
+
+            if let Some(parent) = destination.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|err| format!("failed to create `{}`: {err}", parent.display()))?;
+            }
+            fs::copy(&path, &destination).map_err(|err| {
+                format!(
+                    "failed to copy `{}` to `{}`: {err}",
+                    path.display(),
+                    destination.display()
+                )
+            })?;
+            expected_files.insert(relative.to_path_buf());
+        }
+    }
+
+    prune_unexpected_snapshot_entries(output_path, &expected_files)
+}
+
+fn replace_staged_file(staged_path: &Path, output_path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    if output_path.exists() {
+        fs::remove_file(output_path)
+            .map_err(|err| format!("failed to replace `{}`: {err}", output_path.display()))?;
+    }
+
+    fs::rename(staged_path, output_path).map_err(|err| {
+        format!(
+            "failed to publish `{}` to `{}`: {err}",
+            staged_path.display(),
+            output_path.display()
+        )
+    })
+}
+
+fn prune_unexpected_snapshot_entries(
+    output_root: &Path,
+    expected_files: &BTreeSet<PathBuf>,
+) -> Result<(), String> {
+    let mut pending = vec![output_root.to_path_buf()];
+    let mut directories = Vec::new();
+
+    while let Some(dir) = pending.pop() {
+        let entries = fs::read_dir(&dir)
+            .map_err(|err| format!("failed to read `{}`: {err}", dir.display()))?;
+        let mut paths = entries
+            .map(|entry| entry.map(|entry| entry.path()))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|err| format!("failed to enumerate `{}`: {err}", dir.display()))?;
+        paths.sort();
+
+        for path in paths {
+            let relative = path.strip_prefix(output_root).map_err(|err| {
+                format!(
+                    "failed to resolve output path `{}` under `{}`: {err}",
+                    path.display(),
+                    output_root.display()
+                )
+            })?;
+
+            if path.is_dir() {
+                directories.push(path.clone());
+                pending.push(path);
+                continue;
+            }
+
+            if expected_files.contains(relative) {
+                continue;
+            }
+
+            remove_path_if_exists(&path)?;
+        }
+    }
+
+    directories.sort_by_key(|path| path.components().count());
+    for dir in directories.into_iter().rev() {
+        match fs::remove_dir(&dir) {
+            Ok(()) => {}
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    ErrorKind::NotFound | ErrorKind::DirectoryNotEmpty
+                ) => {}
+            Err(err) => {
+                return Err(format!("failed to prune `{}`: {err}", dir.display()));
+            }
         }
     }
 
@@ -759,7 +947,10 @@ fn parse_quoted(raw: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MetadataOutputLock, metadata_output_lock_path, parse_docs};
+    use super::{
+        KMETA_DOCS_FILE, KMETA_MANIFEST_FILE, KMETA_SOURCE_ROOT, MetadataOutputLock,
+        metadata_output_lock_path, parse_docs, publish_staged_metadata_output,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::sync::mpsc;
@@ -866,6 +1057,69 @@ raw = "Line one\nLine two\r\nTabbed\tvalue"
         assert!(
             !lock_path.exists(),
             "expected metadata lock file to be removed after release"
+        );
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn publishing_staged_metadata_replaces_managed_snapshot_entries_only() {
+        let root = temp_dir("kernc-kmeta-stage-publish");
+        let output_root = root.join("meta").join("pkg");
+        let staged_root = root.join("meta").join(".pkg.stage");
+
+        fs::create_dir_all(output_root.join(KMETA_SOURCE_ROOT).join("old")).unwrap();
+        fs::write(output_root.join(KMETA_MANIFEST_FILE), "old manifest").unwrap();
+        fs::write(output_root.join(KMETA_DOCS_FILE), "old docs").unwrap();
+        fs::write(
+            output_root
+                .join(KMETA_SOURCE_ROOT)
+                .join("old")
+                .join("stale.rn"),
+            "pub fn stale() i32 { return 0; }\n",
+        )
+        .unwrap();
+        fs::write(output_root.join("keep.txt"), "keep").unwrap();
+
+        fs::create_dir_all(staged_root.join(KMETA_SOURCE_ROOT).join("new")).unwrap();
+        fs::write(staged_root.join(KMETA_MANIFEST_FILE), "new manifest").unwrap();
+        fs::write(staged_root.join(KMETA_DOCS_FILE), "new docs").unwrap();
+        fs::write(
+            staged_root
+                .join(KMETA_SOURCE_ROOT)
+                .join("new")
+                .join("fresh.rn"),
+            "pub fn fresh() i32 { return 1; }\n",
+        )
+        .unwrap();
+
+        publish_staged_metadata_output(&staged_root, &output_root).unwrap();
+
+        assert_eq!(
+            fs::read_to_string(output_root.join(KMETA_MANIFEST_FILE)).unwrap(),
+            "new manifest"
+        );
+        assert_eq!(
+            fs::read_to_string(output_root.join(KMETA_DOCS_FILE)).unwrap(),
+            "new docs"
+        );
+        assert!(
+            output_root
+                .join(KMETA_SOURCE_ROOT)
+                .join("new")
+                .join("fresh.rn")
+                .is_file()
+        );
+        assert!(
+            !output_root
+                .join(KMETA_SOURCE_ROOT)
+                .join("old")
+                .join("stale.rn")
+                .exists()
+        );
+        assert_eq!(
+            fs::read_to_string(output_root.join("keep.txt")).unwrap(),
+            "keep"
         );
 
         let _ = fs::remove_dir_all(root);

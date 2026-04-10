@@ -169,18 +169,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
 
     pub fn check_all(&mut self) {
         let defs_clone = self.ctx.defs.clone();
-
-        // === Phase 1: resolve global constant dependencies ===
-        let mut globals = Vec::new();
-        for def in &defs_clone {
-            if let Def::Module(m) = def {
-                for item_id in &m.items {
-                    if matches!(self.ctx.defs[item_id.0 as usize], Def::Global(_)) {
-                        globals.push((*item_id, m.scope_id));
-                    }
-                }
-            }
-        }
+        let (globals, body_worklist) = self.collect_worklists_from_defs(&defs_clone);
 
         let mut changed = true;
         let mut max_iters = 100; // Prevent real dependency cycles from looping forever.
@@ -265,32 +254,18 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         // === Phase 3: check regular items such as functions and impl blocks ===
-        for def in defs_clone {
-            if let Def::Module(m) = def {
-                self.ctx.scopes.set_current_scope(m.scope_id);
-                for item_id in m.items {
-                    let d = &self.ctx.defs[item_id.0 as usize];
-                    if !matches!(d, Def::Global(_)) {
-                        // Globals were already handled in the dependency pass.
-                        self.check_item(item_id, m.scope_id);
-                    }
-                }
-            }
+        for (item_id, scope_id) in body_worklist {
+            self.ctx.scopes.set_current_scope(scope_id);
+            self.check_item(item_id, scope_id);
         }
     }
 
+    pub fn worklists(&self) -> (Vec<(DefId, ScopeId)>, Vec<BodyWorkItem>) {
+        self.collect_worklists_from_defs(&self.ctx.defs)
+    }
+
     pub fn global_worklist(&self) -> Vec<(DefId, ScopeId)> {
-        let mut globals = Vec::new();
-        for def in &self.ctx.defs {
-            if let Def::Module(module) = def {
-                for item_id in &module.items {
-                    if matches!(self.ctx.defs[item_id.0 as usize], Def::Global(_)) {
-                        globals.push((*item_id, module.scope_id));
-                    }
-                }
-            }
-        }
-        globals
+        self.worklists().0
     }
 
     pub fn resolve_global_worklist(&mut self, globals: &[(DefId, ScopeId)]) {
@@ -378,17 +353,7 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
     }
 
     pub fn body_worklist(&self) -> Vec<BodyWorkItem> {
-        let mut worklist = Vec::new();
-        for def in &self.ctx.defs {
-            if let Def::Module(module) = def {
-                for item_id in &module.items {
-                    if !matches!(self.ctx.defs[item_id.0 as usize], Def::Global(_)) {
-                        worklist.push((*item_id, module.scope_id));
-                    }
-                }
-            }
-        }
-        worklist
+        self.worklists().1
     }
 
     pub fn check_body_worklist(&mut self, worklist: &[BodyWorkItem]) -> TypeckBodyTimings {
@@ -406,6 +371,30 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         let init_ty = checker.check_expr(&global.value, None);
         self.ctx.scopes.set_current_scope(scope_id);
         init_ty
+    }
+
+    fn collect_worklists_from_defs(
+        &self,
+        defs: &[Def],
+    ) -> (Vec<(DefId, ScopeId)>, Vec<BodyWorkItem>) {
+        let mut globals = Vec::new();
+        let mut bodies = Vec::new();
+
+        for def in defs {
+            let Def::Module(module) = def else {
+                continue;
+            };
+
+            for item_id in &module.items {
+                if matches!(defs[item_id.0 as usize], Def::Global(_)) {
+                    globals.push((*item_id, module.scope_id));
+                } else {
+                    bodies.push((*item_id, module.scope_id));
+                }
+            }
+        }
+
+        (globals, bodies)
     }
 
     fn check_item(&mut self, id: crate::def::DefId, parent_scope: ScopeId) {
@@ -557,6 +546,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }
             self.ctx.active_bounds.push((target_ty, bounds));
         }
+        if self.ctx.active_bounds.len() != prev_bounds_len {
+            self.ctx.bound_trait_match_cache.clear();
+            self.ctx.impl_applicability_cache.clear();
+        }
 
         for (i, param_ast) in f.params.iter().enumerate() {
             if i < param_tys.len() {
@@ -616,6 +609,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         self.body_timings.function_return += return_started.elapsed();
 
         self.ctx.active_bounds.truncate(prev_bounds_len); // Drop bounds introduced by this function scope.
+        self.ctx.bound_trait_match_cache.clear();
+        self.ctx.impl_applicability_cache.clear();
         self.ctx.scopes.exit_scope(); // Leave the function scope.
 
         let elapsed = function_started.elapsed();
@@ -798,6 +793,10 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
             }
             self.ctx.active_bounds.push((target_ty, bounds));
         }
+        if self.ctx.active_bounds.len() != prev_bounds_len {
+            self.ctx.bound_trait_match_cache.clear();
+            self.ctx.impl_applicability_cache.clear();
+        }
 
         // Inject the `Self` type for the impl target.
         let target_ty = self
@@ -836,6 +835,8 @@ impl<'a, 'ctx> TypeckDriver<'a, 'ctx> {
         }
 
         self.ctx.active_bounds.truncate(prev_bounds_len);
+        self.ctx.bound_trait_match_cache.clear();
+        self.ctx.impl_applicability_cache.clear();
         self.ctx.scopes.exit_scope();
     }
 }

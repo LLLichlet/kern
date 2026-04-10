@@ -7,8 +7,7 @@ use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
-use kernc_utils::{AtomicOrdering, Span};
-use std::collections::HashMap;
+use kernc_utils::{AtomicOrdering, FastHashMap, Span};
 use std::time::Instant;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -351,7 +350,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return cached_sig;
         }
 
-        let mut map = HashMap::with_capacity(generic_args.len());
+        let mut map = FastHashMap::default();
         for (param, generic_arg) in generics.iter().zip(generic_args.iter()) {
             map.insert(param.name, *generic_arg);
         }
@@ -487,7 +486,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
         if !handled_intrinsic {
             let arguments_started = Instant::now();
-            self.check_call_arguments(args, params, is_method, is_variadic, inferred_arg_tys.as_deref());
+            self.check_call_arguments(
+                args,
+                params,
+                is_method,
+                is_variadic,
+                inferred_arg_tys.as_deref(),
+            );
             self.ctx.expr_timing_stats.call_arguments += arguments_started.elapsed();
         }
         ret
@@ -582,7 +587,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             }
 
             // Rule C: if generics are omitted entirely, infer them from usage.
-            let mut map = HashMap::new();
+            let mut map = FastHashMap::default();
             for (param, explicit_arg) in generics.iter().zip(explicit_args.iter()) {
                 map.insert(param.name, *explicit_arg);
             }
@@ -703,7 +708,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             // Safety: the inferred `FnDef` arguments are interned immutably in the type registry.
             let inferred_args = unsafe { &*inferred_args_ptr };
             return (
-                self.instantiate_call_signature(inferred_callee_ty, raw_sig, generics, inferred_args),
+                self.instantiate_call_signature(
+                    inferred_callee_ty,
+                    raw_sig,
+                    generics,
+                    inferred_args,
+                ),
                 Some(inferred_callee_ty),
                 Some(inferred_arg_tys),
             );
@@ -983,7 +993,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let where_clauses = unsafe { &*where_clauses_ptr };
 
         // 2. Build the generic argument substitution map.
-        let mut map = std::collections::HashMap::new();
+        let mut map = FastHashMap::default();
         for (i, param) in generics.iter().enumerate() {
             if i < arg_tys.len() {
                 map.insert(param.name, arg_tys[i]);

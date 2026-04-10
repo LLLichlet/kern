@@ -4,8 +4,9 @@ use crate::def::{Def, DefId};
 use crate::passes::TypeResolver;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{Expr, ExprKind, UnaryOperator};
-use kernc_utils::{DiagnosticCode, Span, SymbolId};
-use std::collections::{HashMap, HashSet};
+use kernc_utils::{DiagnosticCode, FastHashMap, FastHashSet, Span, SymbolId};
+use std::collections::HashMap;
+use std::hash::BuildHasher;
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     /// Check whether an expression can be implicitly coerced to the target type.
@@ -172,7 +173,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        let mut visited = HashSet::new();
+        let mut visited = FastHashSet::default();
         self.find_supertrait_in_hierarchy(source_norm, target_norm, &mut visited)
             .is_some()
     }
@@ -181,7 +182,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         source_trait_ty: TypeId,
         target_trait_ty: TypeId,
-        visited: &mut HashSet<TypeId>,
+        visited: &mut FastHashSet<TypeId>,
     ) -> Option<TypeId> {
         let source_norm = self.resolve_tv(source_trait_ty);
         let target_norm = self.resolve_tv(target_trait_ty);
@@ -200,7 +201,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         };
 
-        let trait_arg_map: HashMap<SymbolId, TypeId> = trait_def
+        let trait_arg_map: FastHashMap<SymbolId, TypeId> = trait_def
             .generics
             .iter()
             .zip(source_args.iter())
@@ -335,7 +336,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     return false;
                 }
 
-                let mut subst_map = std::collections::HashMap::new();
+                let mut subst_map = FastHashMap::default();
                 for (i, param) in act_enum.generics.iter().enumerate() {
                     subst_map.insert(param.name, act_args[i]);
                 }
@@ -407,7 +408,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 .unwrap_or(TypeId::ERROR);
 
             let inst_ty = if !generics.is_empty() && !args.is_empty() {
-                let mut map = std::collections::HashMap::new();
+                let mut map = FastHashMap::default();
                 for (i, param) in generics.iter().enumerate() {
                     map.insert(param.name, args[i]);
                 }
@@ -622,7 +623,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return false;
         }
 
-        let mut map = HashMap::new();
+        let mut map = FastHashMap::default();
         for (expected, actual) in expected_params.iter().zip(actual_params.iter()) {
             if !self.unify(*expected, *actual, &mut map) {
                 return false;
@@ -703,7 +704,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return Some((params, ret));
         }
 
-        let mut map = HashMap::new();
+        let mut map = FastHashMap::default();
         for (i, param) in fn_def.generics.iter().enumerate() {
             if let Some(&arg) = args.get(i) {
                 map.insert(param.name, arg);
@@ -716,13 +717,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         Some((inst_params, inst_ret))
     }
 
-    fn unify_signature_shape(
+    fn unify_signature_shape<S: BuildHasher>(
         &mut self,
         expected_params: &[TypeId],
         expected_ret: TypeId,
         actual_params: &[TypeId],
         actual_ret: TypeId,
-        map: &mut std::collections::HashMap<SymbolId, TypeId>,
+        map: &mut HashMap<SymbolId, TypeId, S>,
     ) -> bool {
         expected_params.len() == actual_params.len()
             && expected_params
@@ -732,12 +733,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             && self.unify(expected_ret, actual_ret, map)
     }
 
-    fn unify_closure_interface_with_concrete(
+    fn unify_closure_interface_with_concrete<S: BuildHasher>(
         &mut self,
         expected_params: &[TypeId],
         expected_ret: TypeId,
         concrete_kind: &TypeKind,
-        map: &mut std::collections::HashMap<SymbolId, TypeId>,
+        map: &mut HashMap<SymbolId, TypeId, S>,
     ) -> bool {
         match concrete_kind {
             TypeKind::AnonymousState { params, ret, .. }
@@ -761,12 +762,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    fn unify_function_with_concrete(
+    fn unify_function_with_concrete<S: BuildHasher>(
         &mut self,
         expected_params: &[TypeId],
         expected_ret: TypeId,
         concrete_kind: &TypeKind,
-        map: &mut std::collections::HashMap<SymbolId, TypeId>,
+        map: &mut HashMap<SymbolId, TypeId, S>,
     ) -> bool {
         match concrete_kind {
             TypeKind::AnonymousState {
@@ -798,11 +799,11 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    pub(crate) fn unify(
+    pub(crate) fn unify<S: BuildHasher>(
         &mut self,
         generic_ty: TypeId,
         concrete_ty: TypeId,
-        map: &mut std::collections::HashMap<SymbolId, TypeId>,
+        map: &mut HashMap<SymbolId, TypeId, S>,
     ) -> bool {
         let gen_norm = self.resolve_tv(generic_ty);
         let con_norm = self.resolve_tv(concrete_ty);
@@ -1092,7 +1093,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     }
 
     pub(crate) fn check_trait_impl(&mut self, source_ty: TypeId, target_trait_ty: TypeId) -> bool {
-        let mut visited = HashSet::new();
+        let mut visited = FastHashSet::default();
         if self.check_trait_impl_inner(source_ty, target_trait_ty, &mut visited) {
             return true;
         }
@@ -1126,7 +1127,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         };
 
         if let Some(down_ty) = downgraded {
-            let mut visited = HashSet::new(); // Restart the search with a fresh visited set.
+            let mut visited = FastHashSet::default(); // Restart the search with a fresh visited set.
             return self.check_trait_impl_inner(down_ty, target_trait_ty, &mut visited);
         }
 
@@ -1175,7 +1176,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         source_ty: TypeId,
         target_trait_ty: TypeId,
-        visited: &mut std::collections::HashSet<DefId>,
+        visited: &mut FastHashSet<DefId>,
     ) -> bool {
         // === 1. Check active where-bounds from the current environment first ===
         if self.check_trait_impl_in_env_bounds(source_ty, target_trait_ty, visited) {
@@ -1195,7 +1196,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         source_ty: TypeId,
         target_trait_ty: TypeId,
-        _visited: &mut std::collections::HashSet<DefId>,
+        _visited: &mut FastHashSet<DefId>,
     ) -> bool {
         if self.ctx.active_bounds.is_empty() {
             return false;
@@ -1204,7 +1205,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
         let target_norm = self.resolve_tv(target_trait_ty);
         let source_norm = self.resolve_tv(source_ty);
-        let mut map = HashMap::new();
+        let mut map = FastHashMap::default();
         // Safety: this helper only reads `active_bounds`; it never resizes or replaces the vec.
         for (env_target, env_bounds) in unsafe { &*active_bounds_ptr } {
             map.clear();
@@ -1219,7 +1220,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if map.is_empty() {
                     for inst_env_bound in env_bounds.iter().copied() {
                         let inst_norm = self.resolve_tv(inst_env_bound);
-                        let mut trait_map = HashMap::new();
+                        let mut trait_map = FastHashMap::default();
 
                         if inst_norm == target_norm
                             || inst_env_bound == target_trait_ty
@@ -1248,7 +1249,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                         subst.substitute(bound)
                     };
                     let inst_norm = self.resolve_tv(inst_env_bound);
-                    let mut trait_map = HashMap::new();
+                    let mut trait_map = FastHashMap::default();
 
                     if inst_norm == target_norm
                         || inst_env_bound == target_trait_ty
@@ -1278,7 +1279,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         &mut self,
         source_ty: TypeId,
         target_trait_ty: TypeId,
-        _visited: &mut std::collections::HashSet<DefId>,
+        _visited: &mut FastHashSet<DefId>,
     ) -> bool {
         let target_norm = self.resolve_tv(target_trait_ty);
         let trait_impl_ids_ptr = std::ptr::from_ref(self.ctx.trait_impls.as_slice());
@@ -1325,7 +1326,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 continue;
             }
 
-            let mut map = HashMap::new();
+            let mut map = FastHashMap::default();
 
             if self.unify(impl_target_ty, source_ty, &mut map) {
                 let instantiated_trait_ty = {
@@ -1334,7 +1335,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 };
 
                 let inst_norm = self.resolve_tv(instantiated_trait_ty);
-                let mut trait_map = HashMap::new();
+                let mut trait_map = FastHashMap::default();
 
                 if inst_norm == target_norm
                     || instantiated_trait_ty == target_trait_ty

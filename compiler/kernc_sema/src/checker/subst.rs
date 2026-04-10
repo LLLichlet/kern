@@ -1,14 +1,36 @@
 use crate::ty::{TypeId, TypeKind, TypeRegistry};
 use kernc_utils::SymbolId;
 use std::collections::HashMap;
+use std::hash::BuildHasher;
 
-pub struct Substituter<'a> {
-    registry: &'a mut TypeRegistry,
-    map: &'a HashMap<SymbolId, TypeId>,
+pub trait TypeSubstMap {
+    fn is_empty(&self) -> bool;
+    fn get(&self, name: &SymbolId) -> Option<&TypeId>;
 }
 
-impl<'a> Substituter<'a> {
-    pub fn new(registry: &'a mut TypeRegistry, map: &'a HashMap<SymbolId, TypeId>) -> Self {
+impl<S> TypeSubstMap for HashMap<SymbolId, TypeId, S>
+where
+    S: BuildHasher,
+{
+    fn is_empty(&self) -> bool {
+        HashMap::is_empty(self)
+    }
+
+    fn get(&self, name: &SymbolId) -> Option<&TypeId> {
+        HashMap::get(self, name)
+    }
+}
+
+pub struct Substituter<'a, M> {
+    registry: &'a mut TypeRegistry,
+    map: &'a M,
+}
+
+impl<'a, M> Substituter<'a, M>
+where
+    M: TypeSubstMap,
+{
+    pub fn new(registry: &'a mut TypeRegistry, map: &'a M) -> Self {
         Self { registry, map }
     }
 

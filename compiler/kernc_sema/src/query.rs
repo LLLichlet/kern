@@ -4,9 +4,8 @@ use crate::def::{Def, DefId};
 use crate::scope::SymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast as ast;
-use kernc_utils::{Span, SymbolId};
+use kernc_utils::{FastHashMap, FastHashSet, Span, SymbolId};
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
 #[derive(Debug, Clone)]
@@ -431,7 +430,12 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         member_name: SymbolId,
         access_span: Span,
     ) -> Option<MemberCandidate> {
-        let cache_key = (current_module_id, def_id, generic_args.to_vec(), member_name);
+        let cache_key = (
+            current_module_id,
+            def_id,
+            generic_args.to_vec(),
+            member_name,
+        );
         if let Some(cached) = self.ctx.named_field_query_cache.get(&cache_key).cloned() {
             return cached;
         }
@@ -560,14 +564,15 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         access_span: Span,
     ) -> Option<MemberResolution> {
         let started = Instant::now();
-        if matches!(self.ctx.type_registry.get(search_norm), TypeKind::TraitObject(..))
-            && let Some(resolution) = self.resolve_trait_object_method_named(
-                search_norm,
-                member_name,
-                receiver_ty,
-                Some(access_span),
-            )
-        {
+        if matches!(
+            self.ctx.type_registry.get(search_norm),
+            TypeKind::TraitObject(..)
+        ) && let Some(resolution) = self.resolve_trait_object_method_named(
+            search_norm,
+            member_name,
+            receiver_ty,
+            Some(access_span),
+        ) {
             self.ctx.expr_timing_stats.access_field_query_trait_object += started.elapsed();
             return Some(resolution);
         }
@@ -684,7 +689,32 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return false;
         }
 
-        let mut map = HashMap::new();
+        let current_bounds = self.ctx.active_bounds.as_slice();
+        let can_use_cache = matches!(
+            &env.active_bounds,
+            Cow::Borrowed(bounds)
+                if bounds.len() == current_bounds.len()
+                    && std::ptr::eq(bounds.as_ptr(), current_bounds.as_ptr())
+        );
+
+        if can_use_cache
+            && let Some(cached_matches) =
+                self.ctx.bound_trait_match_cache.get(&search_norm).cloned()
+        {
+            for bound_norm in cached_matches {
+                if visit(self, bound_norm) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        let mut map = FastHashMap::default();
+        let mut matched_bounds = if can_use_cache {
+            Some(Vec::new())
+        } else {
+            None
+        };
         for (env_target, bound_tys) in env.active_bounds() {
             map.clear();
             let matched = if *env_target == search_norm {
@@ -699,10 +729,19 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
 
             if map.is_empty() {
                 for bound_ty in bound_tys.iter().copied() {
-                    if matches!(self.ctx.type_registry.get(bound_ty), TypeKind::TraitObject(..))
-                        && visit(self, bound_ty)
-                    {
-                        return true;
+                    if matches!(
+                        self.ctx.type_registry.get(bound_ty),
+                        TypeKind::TraitObject(..)
+                    ) {
+                        if let Some(bounds) = matched_bounds.as_mut() {
+                            bounds.push(bound_ty);
+                        }
+                        if visit(self, bound_ty) {
+                            if let Some(bounds) = matched_bounds {
+                                self.ctx.bound_trait_match_cache.insert(search_norm, bounds);
+                            }
+                            return true;
+                        }
                     }
                 }
                 continue;
@@ -714,12 +753,25 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     subst.substitute(bound_ty)
                 };
                 let bound_norm = self.ctx.type_registry.normalize(substituted);
-                if matches!(self.ctx.type_registry.get(bound_norm), TypeKind::TraitObject(..))
-                    && visit(self, bound_norm)
-                {
-                    return true;
+                if matches!(
+                    self.ctx.type_registry.get(bound_norm),
+                    TypeKind::TraitObject(..)
+                ) {
+                    if let Some(bounds) = matched_bounds.as_mut() {
+                        bounds.push(bound_norm);
+                    }
+                    if visit(self, bound_norm) {
+                        if let Some(bounds) = matched_bounds {
+                            self.ctx.bound_trait_match_cache.insert(search_norm, bounds);
+                        }
+                        return true;
+                    }
                 }
             }
+        }
+
+        if let Some(bounds) = matched_bounds {
+            self.ctx.bound_trait_match_cache.insert(search_norm, bounds);
         }
 
         false
@@ -730,80 +782,33 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_norm: TypeId,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let mut checker = ExprChecker::new(self.ctx, None);
-        let mut map = HashMap::new();
-        let impl_count = checker.ctx.global_impls.len();
+        let impl_count = self.ctx.global_impls.len();
         for impl_index in 0..impl_count {
-            let impl_id = checker.ctx.global_impls[impl_index];
-            let Some(impl_ptr) =
-                checker
-                    .ctx
-                    .defs
-                    .get(impl_id.0 as usize)
-                    .and_then(|def| match def {
-                        Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
-                        _ => None,
-                    })
+            let impl_id = self.ctx.global_impls[impl_index];
+            let Some(impl_ptr) = self
+                .ctx
+                .defs
+                .get(impl_id.0 as usize)
+                .and_then(|def| match def {
+                    Def::Impl(impl_def) => Some(std::ptr::from_ref(impl_def)),
+                    _ => None,
+                })
             else {
                 continue;
             };
 
             // Safety: queries do not mutate `defs`; avoid cloning every impl block just to inspect it.
             let impl_def = unsafe { &*impl_ptr };
-            let impl_target_ty = checker
-                .ctx
-                .node_types
-                .get(&impl_def.target_type.id)
-                .copied()
-                .unwrap_or(TypeId::ERROR);
-
-            if impl_def.generics.is_empty() && impl_def.where_clauses.is_empty() {
-                if checker.ctx.type_registry.normalize(impl_target_ty) != receiver_norm {
-                    continue;
-                }
-
-                for method_id in &impl_def.methods {
-                    let Def::Function(function) = &checker.ctx.defs[method_id.0 as usize] else {
-                        continue;
-                    };
-                    let type_id = checker
-                        .ctx
-                        .type_registry
-                        .intern(TypeKind::FnDef(*method_id, Vec::new()));
-                    push_member_candidate(
-                        candidates,
-                        MemberCandidate {
-                            name: function.name,
-                            kind: SymbolKind::Function,
-                            type_id,
-                            def_id: Some(*method_id),
-                            definition_span: function.name_span,
-                            is_mut: false,
-                        },
-                    );
-                }
+            let Some(resolved_impl_args) = self.resolve_impl_applicability(receiver_norm, impl_id)
+            else {
                 continue;
-            }
-            map.clear();
-
-            if !checker.unify(impl_target_ty, receiver_norm, &mut map) {
-                continue;
-            }
-            if !impl_bounds_satisfied(&mut checker, &impl_def.where_clauses, &map) {
-                continue;
-            }
-
-            let resolved_impl_args = impl_def
-                .generics
-                .iter()
-                .map(|param| map.get(&param.name).copied().unwrap_or(TypeId::ERROR))
-                .collect::<Vec<_>>();
+            };
 
             for method_id in &impl_def.methods {
-                let Def::Function(function) = &checker.ctx.defs[method_id.0 as usize] else {
+                let Def::Function(function) = &self.ctx.defs[method_id.0 as usize] else {
                     continue;
                 };
-                let type_id = checker
+                let type_id = self
                     .ctx
                     .type_registry
                     .intern(TypeKind::FnDef(*method_id, resolved_impl_args.clone()));
@@ -833,9 +838,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return cached;
         }
 
-        let mut checker = ExprChecker::new(self.ctx, None);
-        let mut map = HashMap::new();
-        let method_ids_ptr = checker
+        let method_ids_ptr = self
             .ctx
             .impl_methods_by_name
             .get(&member_name)
@@ -844,7 +847,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         // Safety: method-name indexes are immutable during member lookup.
         let method_ids = unsafe { &*method_ids_ptr };
         for &method_id in method_ids {
-            let Some((impl_id, function_name_span)) = checker
+            let Some((impl_id, function_name_span)) = self
                 .ctx
                 .defs
                 .get(method_id.0 as usize)
@@ -858,6 +861,44 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 continue;
             };
 
+            let Some(resolved_impl_args) = self.resolve_impl_applicability(receiver_norm, impl_id)
+            else {
+                continue;
+            };
+
+            let candidate = MemberCandidate {
+                name: member_name,
+                kind: SymbolKind::Function,
+                type_id: self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::FnDef(method_id, resolved_impl_args)),
+                def_id: Some(method_id),
+                definition_span: function_name_span,
+                is_mut: false,
+            };
+            self.ctx
+                .impl_method_query_cache
+                .insert(cache_key, Some(candidate.clone()));
+            return Some(candidate);
+        }
+
+        self.ctx.impl_method_query_cache.insert(cache_key, None);
+        None
+    }
+
+    fn resolve_impl_applicability(
+        &mut self,
+        receiver_norm: TypeId,
+        impl_id: DefId,
+    ) -> Option<Vec<TypeId>> {
+        let cache_key = (receiver_norm, impl_id);
+        if let Some(cached) = self.ctx.impl_applicability_cache.get(&cache_key).cloned() {
+            return cached;
+        }
+
+        let resolved_args = {
+            let mut checker = ExprChecker::new(self.ctx, None);
             let Some(impl_ptr) =
                 checker
                     .ctx
@@ -868,10 +909,10 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                         _ => None,
                     })
             else {
-                continue;
+                checker.ctx.impl_applicability_cache.insert(cache_key, None);
+                return None;
             };
 
-            // Safety: queries only read semantic definitions.
             let impl_def = unsafe { &*impl_ptr };
             let impl_target_ty = checker
                 .ctx
@@ -881,62 +922,33 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                 .unwrap_or(TypeId::ERROR);
 
             if impl_def.generics.is_empty() && impl_def.where_clauses.is_empty() {
-                if checker.ctx.type_registry.normalize(impl_target_ty) != receiver_norm {
-                    continue;
+                if checker.ctx.type_registry.normalize(impl_target_ty) == receiver_norm {
+                    Some(Vec::new())
+                } else {
+                    None
                 }
-
-                let candidate = MemberCandidate {
-                    name: member_name,
-                    kind: SymbolKind::Function,
-                    type_id: checker
-                        .ctx
-                        .type_registry
-                        .intern(TypeKind::FnDef(method_id, Vec::new())),
-                    def_id: Some(method_id),
-                    definition_span: function_name_span,
-                    is_mut: false,
-                };
-                checker
-                    .ctx
-                    .impl_method_query_cache
-                    .insert(cache_key, Some(candidate.clone()));
-                return Some(candidate);
+            } else {
+                let mut map = FastHashMap::default();
+                if !checker.unify(impl_target_ty, receiver_norm, &mut map)
+                    || !impl_bounds_satisfied(&mut checker, &impl_def.where_clauses, &map)
+                {
+                    None
+                } else {
+                    Some(
+                        impl_def
+                            .generics
+                            .iter()
+                            .map(|param| map.get(&param.name).copied().unwrap_or(TypeId::ERROR))
+                            .collect::<Vec<_>>(),
+                    )
+                }
             }
-            map.clear();
+        };
 
-            if !checker.unify(impl_target_ty, receiver_norm, &mut map) {
-                continue;
-            }
-            if !impl_bounds_satisfied(&mut checker, &impl_def.where_clauses, &map) {
-                continue;
-            }
-
-            let resolved_impl_args = impl_def
-                .generics
-                .iter()
-                .map(|param| map.get(&param.name).copied().unwrap_or(TypeId::ERROR))
-                .collect::<Vec<_>>();
-
-            let candidate = MemberCandidate {
-                name: member_name,
-                kind: SymbolKind::Function,
-                type_id: checker
-                    .ctx
-                    .type_registry
-                    .intern(TypeKind::FnDef(method_id, resolved_impl_args)),
-                def_id: Some(method_id),
-                definition_span: function_name_span,
-                is_mut: false,
-            };
-            checker
-                .ctx
-                .impl_method_query_cache
-                .insert(cache_key, Some(candidate.clone()));
-            return Some(candidate);
-        }
-
-        checker.ctx.impl_method_query_cache.insert(cache_key, None);
-        None
+        self.ctx
+            .impl_applicability_cache
+            .insert(cache_key, resolved_args.clone());
+        resolved_args
     }
 
     fn collect_trait_object_method_candidates(
@@ -946,7 +958,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         receiver_ty: TypeId,
         candidates: &mut Vec<MemberCandidate>,
     ) {
-        let mut visited = HashSet::new();
+        let mut visited = FastHashSet::default();
         self.collect_trait_methods_in_hierarchy(
             trait_def_id,
             trait_args,
@@ -975,7 +987,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             return Some(cached);
         }
 
-        let mut visited = HashSet::new();
+        let mut visited = FastHashSet::default();
         let resolution = self.resolve_trait_method_in_hierarchy(
             trait_def_id,
             &trait_args,
@@ -985,7 +997,9 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             diagnostic_span,
         );
         if let Some(resolution) = resolution.clone() {
-            self.ctx.trait_method_query_cache.insert(cache_key, resolution);
+            self.ctx
+                .trait_method_query_cache
+                .insert(cache_key, resolution);
         }
         resolution
     }
@@ -995,7 +1009,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         trait_def_id: DefId,
         trait_args: &[TypeId],
         receiver_ty: TypeId,
-        visited: &mut HashSet<DefId>,
+        visited: &mut FastHashSet<DefId>,
         candidates: &mut Vec<MemberCandidate>,
     ) {
         if !visited.insert(trait_def_id) {
@@ -1024,7 +1038,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     .iter()
                     .zip(trait_args.iter())
                     .map(|(param, arg)| (param.name, *arg))
-                    .collect::<HashMap<_, _>>(),
+                    .collect::<FastHashMap<_, _>>(),
             )
         };
 
@@ -1094,7 +1108,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
         trait_args: &[TypeId],
         member_name: SymbolId,
         receiver_ty: TypeId,
-        visited: &mut HashSet<DefId>,
+        visited: &mut FastHashSet<DefId>,
         diagnostic_span: Option<Span>,
     ) -> Option<MemberResolution> {
         if !visited.insert(trait_def_id) {
@@ -1120,7 +1134,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
                     .iter()
                     .zip(trait_args.iter())
                     .map(|(param, arg)| (param.name, *arg))
-                    .collect::<HashMap<_, _>>(),
+                    .collect::<FastHashMap<_, _>>(),
             )
         };
 
@@ -1248,7 +1262,7 @@ impl<'a, 'ctx> MemberQuery<'a, 'ctx> {
             .copied()
             .unwrap_or(TypeId::ERROR);
 
-        let mut map = HashMap::new();
+        let mut map = FastHashMap::default();
         for (index, param) in generics.iter().enumerate() {
             if let Some(arg) = args.get(index).copied() {
                 map.insert(param.name, arg);
@@ -1295,7 +1309,7 @@ fn trait_method_span(trait_def: &crate::def::TraitDef, method_name: SymbolId) ->
 fn impl_bounds_satisfied(
     checker: &mut ExprChecker<'_, '_>,
     where_clauses: &[ast::WhereClause],
-    map: &HashMap<SymbolId, TypeId>,
+    map: &FastHashMap<SymbolId, TypeId>,
 ) -> bool {
     let mut pairs_to_check = Vec::new();
 

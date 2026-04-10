@@ -1,6 +1,8 @@
 use kernc_utils::AtomicOrdering;
 use kernc_utils::config::RuntimeEntry;
-use kernc_utils::{DiagnosticBuilder, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
+use kernc_utils::{
+    DiagnosticBuilder, DiagnosticLevel, FastHashMap, FileId, NodeId, Session, Span, SymbolId,
+};
 use std::collections::{BTreeMap, HashMap};
 use std::time::Duration;
 
@@ -12,20 +14,20 @@ use crate::ty::{TypeFormatter, TypeId, TypeRegistry};
 #[derive(Clone)]
 pub struct SemaStructureSnapshot {
     pub type_registry: TypeRegistry,
-    pub node_types: HashMap<NodeId, TypeId>,
-    pub atomic_orderings: HashMap<NodeId, AtomicOrdering>,
-    pub trait_method_owners: HashMap<NodeId, TypeId>,
-    pub builtin_defs: HashMap<SymbolId, DefId>,
+    pub node_types: FastHashMap<NodeId, TypeId>,
+    pub atomic_orderings: FastHashMap<NodeId, AtomicOrdering>,
+    pub trait_method_owners: FastHashMap<NodeId, TypeId>,
+    pub builtin_defs: FastHashMap<SymbolId, DefId>,
     pub defs: Vec<Def>,
     pub scopes: SymbolTable,
     pub global_impls: Vec<DefId>,
     pub trait_impls: Vec<DefId>,
-    pub impl_methods_by_name: HashMap<SymbolId, Vec<DefId>>,
-    pub alias_roots: HashMap<SymbolId, DefId>,
+    pub impl_methods_by_name: FastHashMap<SymbolId, Vec<DefId>>,
+    pub alias_roots: FastHashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
-    pub module_defs_by_scope: HashMap<ScopeId, DefId>,
-    pub parent_modules_by_def: HashMap<DefId, DefId>,
-    pub owner_scopes_by_def: HashMap<DefId, ScopeId>,
+    pub module_defs_by_scope: FastHashMap<ScopeId, DefId>,
+    pub parent_modules_by_def: FastHashMap<DefId, DefId>,
+    pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -73,10 +75,10 @@ pub struct SemaContext<'a> {
     // 2. Type-system state.
     pub type_registry: TypeRegistry,
     // Final inferred type for each AST node.
-    pub node_types: HashMap<NodeId, TypeId>,
-    pub atomic_orderings: HashMap<NodeId, AtomicOrdering>,
-    pub trait_method_owners: HashMap<NodeId, TypeId>,
-    pub builtin_defs: HashMap<SymbolId, DefId>,
+    pub node_types: FastHashMap<NodeId, TypeId>,
+    pub atomic_orderings: FastHashMap<NodeId, AtomicOrdering>,
+    pub trait_method_owners: FastHashMap<NodeId, TypeId>,
+    pub builtin_defs: FastHashMap<SymbolId, DefId>,
     // Active trait bounds introduced by the current generic scope.
     pub active_bounds: Vec<(TypeId, Vec<TypeId>)>,
 
@@ -85,24 +87,26 @@ pub struct SemaContext<'a> {
     pub scopes: SymbolTable,
     pub global_impls: Vec<DefId>,
     pub trait_impls: Vec<DefId>,
-    pub impl_methods_by_name: HashMap<SymbolId, Vec<DefId>>,
+    pub impl_methods_by_name: FastHashMap<SymbolId, Vec<DefId>>,
 
     // 4. Module and package resolution state.
     pub module_aliases: HashMap<String, String>,
     pub module_interface_aliases: HashMap<String, String>,
-    pub alias_roots: HashMap<SymbolId, DefId>,
+    pub alias_roots: FastHashMap<SymbolId, DefId>,
     pub root_module: Option<DefId>,
-    pub module_defs_by_scope: HashMap<ScopeId, DefId>,
-    pub parent_modules_by_def: HashMap<DefId, DefId>,
-    pub owner_scopes_by_def: HashMap<DefId, ScopeId>,
+    pub module_defs_by_scope: FastHashMap<ScopeId, DefId>,
+    pub parent_modules_by_def: FastHashMap<DefId, DefId>,
+    pub owner_scopes_by_def: FastHashMap<DefId, ScopeId>,
     pub expr_timing_stats: ExprTimingStats,
-    pub(crate) call_signature_instantiation_cache: HashMap<TypeId, TypeId>,
-    pub(crate) field_type_subst_cache: HashMap<(NodeId, Vec<TypeId>), TypeId>,
+    pub(crate) call_signature_instantiation_cache: FastHashMap<TypeId, TypeId>,
+    pub(crate) field_type_subst_cache: FastHashMap<(NodeId, Vec<TypeId>), TypeId>,
     pub(crate) trait_method_query_cache:
-        HashMap<(TypeId, SymbolId, TypeId), crate::query::MemberResolution>,
+        FastHashMap<(TypeId, SymbolId, TypeId), crate::query::MemberResolution>,
     pub(crate) impl_method_query_cache:
-        HashMap<(TypeId, SymbolId), Option<crate::query::MemberCandidate>>,
-    pub(crate) named_field_query_cache: HashMap<
+        FastHashMap<(TypeId, SymbolId), Option<crate::query::MemberCandidate>>,
+    pub(crate) bound_trait_match_cache: FastHashMap<TypeId, Vec<TypeId>>,
+    pub(crate) impl_applicability_cache: FastHashMap<(TypeId, DefId), Option<Vec<TypeId>>>,
+    pub(crate) named_field_query_cache: FastHashMap<
         (Option<DefId>, DefId, Vec<TypeId>, SymbolId),
         Option<crate::query::MemberCandidate>,
     >,
@@ -116,29 +120,31 @@ impl<'a> SemaContext<'a> {
         Self {
             sess,
             type_registry: TypeRegistry::new(),
-            node_types: HashMap::new(),
-            atomic_orderings: HashMap::new(),
-            trait_method_owners: HashMap::new(),
-            builtin_defs: HashMap::new(),
+            node_types: FastHashMap::default(),
+            atomic_orderings: FastHashMap::default(),
+            trait_method_owners: FastHashMap::default(),
+            builtin_defs: FastHashMap::default(),
             active_bounds: Vec::new(),
             defs: Vec::new(),
             scopes: SymbolTable::new(),
             module_aliases: HashMap::new(),
             module_interface_aliases: HashMap::new(),
-            alias_roots: HashMap::new(),
+            alias_roots: FastHashMap::default(),
             root_module: None,
-            module_defs_by_scope: HashMap::new(),
-            parent_modules_by_def: HashMap::new(),
-            owner_scopes_by_def: HashMap::new(),
+            module_defs_by_scope: FastHashMap::default(),
+            parent_modules_by_def: FastHashMap::default(),
+            owner_scopes_by_def: FastHashMap::default(),
             expr_timing_stats: ExprTimingStats::default(),
-            call_signature_instantiation_cache: HashMap::new(),
-            field_type_subst_cache: HashMap::new(),
-            trait_method_query_cache: HashMap::new(),
-            impl_method_query_cache: HashMap::new(),
-            named_field_query_cache: HashMap::new(),
+            call_signature_instantiation_cache: FastHashMap::default(),
+            field_type_subst_cache: FastHashMap::default(),
+            trait_method_query_cache: FastHashMap::default(),
+            impl_method_query_cache: FastHashMap::default(),
+            bound_trait_match_cache: FastHashMap::default(),
+            impl_applicability_cache: FastHashMap::default(),
+            named_field_query_cache: FastHashMap::default(),
             global_impls: Vec::new(),
             trait_impls: Vec::new(),
-            impl_methods_by_name: HashMap::new(),
+            impl_methods_by_name: FastHashMap::default(),
             identifier_references: Vec::new(),
             semantic_definitions: BTreeMap::new(),
         }
@@ -205,6 +211,8 @@ impl<'a> SemaContext<'a> {
         self.trait_method_owners = snapshot.trait_method_owners;
         self.builtin_defs = snapshot.builtin_defs;
         self.active_bounds.clear();
+        self.bound_trait_match_cache.clear();
+        self.impl_applicability_cache.clear();
         self.defs = snapshot.defs;
         self.scopes = snapshot.scopes;
         self.global_impls = snapshot.global_impls;
@@ -220,6 +228,8 @@ impl<'a> SemaContext<'a> {
         self.field_type_subst_cache.clear();
         self.trait_method_query_cache.clear();
         self.impl_method_query_cache.clear();
+        self.bound_trait_match_cache.clear();
+        self.impl_applicability_cache.clear();
         self.named_field_query_cache.clear();
         self.identifier_references.clear();
         self.semantic_definitions.clear();

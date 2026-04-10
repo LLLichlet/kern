@@ -5,7 +5,9 @@ mod ty;
 
 use super::TokenStream;
 use kernc_lexer::{Token, TokenType, Tokenizer};
-use kernc_utils::{DiagnosticCode, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
+use kernc_utils::{
+    DiagnosticCode, DiagnosticLevel, FastHashMap, FileId, NodeId, Session, Span, SymbolId,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseError;
@@ -21,6 +23,7 @@ pub struct Parser<'a> {
     source: &'a str,
     stream: TokenStream<'a>,
     session: &'a mut Session,
+    symbol_cache: FastHashMap<&'a str, SymbolId>,
     // Parser-level error recovery state.
     panic_mode: bool,
     options: ParserOptions,
@@ -59,6 +62,7 @@ impl<'a> Parser<'a> {
             source,
             stream,
             session,
+            symbol_cache: FastHashMap::default(),
             panic_mode: false,
             options,
         }
@@ -166,7 +170,13 @@ impl<'a> Parser<'a> {
     fn intern_token(&mut self, token: Token) -> SymbolId {
         let source = self.source;
         let text = source.get(token.span.start..token.span.end).unwrap_or("");
-        self.session.interner.intern(text)
+        if let Some(&sym) = self.symbol_cache.get(text) {
+            return sym;
+        }
+
+        let sym = self.session.interner.intern(text);
+        self.symbol_cache.insert(text, sym);
+        sym
     }
 
     fn describe_token(&self, token: Token) -> String {

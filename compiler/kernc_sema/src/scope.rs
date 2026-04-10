@@ -1,7 +1,6 @@
 use crate::def::DefId;
 use crate::ty::TypeId;
-use kernc_utils::{NodeId, Span, SymbolId};
-use std::collections::HashMap;
+use kernc_utils::{FastHashMap, NodeId, Span, SymbolId};
 
 /// Globally unique scope identifier.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -41,7 +40,7 @@ pub struct Scope {
     pub id: ScopeId,
     /// Parent scope. Module roots may point to the builtin scope or be absent.
     pub parent: Option<ScopeId>,
-    pub symbols: HashMap<SymbolId, SymbolInfo>,
+    pub symbols: FastHashMap<SymbolId, SymbolInfo>,
 }
 
 impl Scope {
@@ -49,7 +48,7 @@ impl Scope {
         Self {
             id,
             parent,
-            symbols: HashMap::new(),
+            symbols: FastHashMap::default(),
         }
     }
 }

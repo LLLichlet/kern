@@ -7,7 +7,7 @@ use crate::scope::{SymbolInfo, SymbolKind};
 use crate::semantic::SemanticSymbolKind;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, TypeNode};
-use kernc_utils::{DiagnosticCode, NodeId, Span, SymbolId};
+use kernc_utils::{DiagnosticCode, FastHashSet, NodeId, Span, SymbolId};
 use std::time::Instant;
 
 pub(crate) struct LetElseClause<'a> {
@@ -396,7 +396,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             return;
                         };
 
-                        let mut seen = std::collections::HashSet::new();
+                        let mut seen = FastHashSet::default();
                         for field in &destructure.fields {
                             if !seen.insert(field.name) {
                                 self.ctx
@@ -464,7 +464,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return true;
         }
 
-        let mut handled = std::collections::HashSet::new();
+        let mut handled = FastHashSet::default();
         if let Some(name) = self.let_else_top_level_pattern_variant_name(primary) {
             handled.insert(name);
         }
@@ -500,7 +500,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         // Safety: semantic defs are immutable while type checking expressions.
         let def = unsafe { &*def };
 
-        let mut handled = std::collections::HashSet::new();
+        let mut handled = FastHashSet::default();
         if let Some(name) = self.let_else_top_level_pattern_variant_name(primary) {
             handled.insert(name);
         }
@@ -513,9 +513,17 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             .all(|variant| handled.contains(&variant.name))
     }
 
-    fn current_module_id(&self) -> Option<DefId> {
+    fn cached_current_module_id(&mut self) -> Option<DefId> {
         let current_scope = self.ctx.scopes.current_scope_id()?;
-        self.ctx.module_for_scope(current_scope)
+        if let Some((cached_scope, module_id)) = self.current_module_cache
+            && cached_scope == current_scope
+        {
+            return module_id;
+        }
+
+        let module_id = self.ctx.module_for_scope(current_scope);
+        self.current_module_cache = Some((current_scope, module_id));
+        module_id
     }
 
     fn global_owner_scope(&self, def_id: DefId) -> Option<crate::scope::ScopeId> {
@@ -1154,7 +1162,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         span: Span,
     ) -> Option<crate::query::MemberResolution> {
         let active_bounds_ptr = std::ptr::from_ref(self.ctx.active_bounds.as_slice());
-        let current_module_id = self.current_module_id();
+        let current_module_id = self.cached_current_module_id();
         let mut query = MemberQuery::new(self.ctx);
         // Safety: member queries only read active generic bounds. The query may mutate other
         // semantic state, but it does not resize or replace `ctx.active_bounds`.

@@ -1,5 +1,5 @@
 use super::{PrimitiveType, TypeId, TypeKind};
-use std::collections::HashMap;
+use kernc_utils::FastHashMap;
 
 /// Interning table for semantic types.
 #[derive(Clone)]
@@ -8,7 +8,7 @@ pub struct TypeRegistry {
     types: Vec<TypeKind>,
 
     /// Deduplication map that guarantees identical types share one `TypeId`.
-    interner: HashMap<TypeKind, TypeId>,
+    interner: FastHashMap<TypeKind, TypeId>,
 }
 
 impl Default for TypeRegistry {
@@ -21,7 +21,7 @@ impl TypeRegistry {
     pub fn new() -> Self {
         let mut reg = Self {
             types: Vec::new(),
-            interner: HashMap::new(),
+            interner: FastHashMap::default(),
         };
         reg.init_primitives();
         reg

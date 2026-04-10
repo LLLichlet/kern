@@ -1,5 +1,7 @@
 use crate::context::SemaContext;
+use crate::def::DefId;
 use crate::passes::TypeResolver;
+use crate::scope::ScopeId;
 use crate::ty::{TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use std::time::Instant;
@@ -19,6 +21,7 @@ pub(crate) struct ExprChecker<'a, 'ctx> {
     pub(crate) current_return_type: Option<TypeId>,
     pub(crate) has_returned: bool,
     pub(crate) type_vars: Vec<Option<TypeId>>,
+    pub(crate) current_module_cache: Option<(ScopeId, Option<DefId>)>,
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
@@ -28,6 +31,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             current_return_type,
             has_returned: false,
             type_vars: Vec::new(),
+            current_module_cache: None,
         }
     }
 

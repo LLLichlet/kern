@@ -1,6 +1,7 @@
 pub mod atomic;
 pub mod config;
 mod diagnostic;
+mod fast_hash;
 mod interner;
 mod node;
 mod session;
@@ -11,6 +12,7 @@ pub use atomic::{AtomicOrdering, AtomicRmwOp};
 pub use diagnostic::{
     Diagnostic, DiagnosticBuilder, DiagnosticCode, DiagnosticLevel, DiagnosticTag,
 };
+pub use fast_hash::{FastHashMap, FastHashSet};
 pub use interner::{Interner, SymbolId};
 pub use node::NodeId;
 pub use session::Session;

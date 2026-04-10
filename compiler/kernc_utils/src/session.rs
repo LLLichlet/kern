@@ -54,6 +54,15 @@ impl Session {
         NodeId(id)
     }
 
+    pub fn reserve_node_ids(&mut self, count: u32) -> NodeId {
+        let start = self.next_node_id;
+        self.next_node_id = self
+            .next_node_id
+            .checked_add(count)
+            .expect("node id space exhausted");
+        NodeId(start)
+    }
+
     pub fn report(&mut self, span: Span, level: DiagnosticLevel, msg: String) {
         if level == DiagnosticLevel::Error || level == DiagnosticLevel::Ice {
             self.error_count += 1;

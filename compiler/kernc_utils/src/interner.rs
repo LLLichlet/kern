@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use std::sync::Arc;
+
+use crate::FastHashMap;
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct SymbolId(pub usize);
@@ -6,9 +8,9 @@ pub struct SymbolId(pub usize);
 #[derive(Default, Debug, Clone)]
 pub struct Interner {
     /// string -> id
-    map: HashMap<String, SymbolId>,
+    map: FastHashMap<Arc<str>, SymbolId>,
     /// id -> string
-    vec: Vec<String>,
+    vec: Vec<Arc<str>>,
 }
 
 impl Interner {
@@ -22,13 +24,36 @@ impl Interner {
         }
 
         let sym = SymbolId(self.vec.len());
-        let name_string = name.to_string();
-        self.vec.push(name_string.clone());
-        self.map.insert(name_string, sym);
+        let shared = Arc::<str>::from(name);
+        self.vec.push(shared.clone());
+        self.map.insert(shared, sym);
         sym
     }
 
     pub fn resolve(&self, sym: SymbolId) -> Option<&str> {
-        self.vec.get(sym.0).map(|s| s.as_str())
+        self.vec.get(sym.0).map(|s| s.as_ref())
+    }
+
+    pub fn intern_snapshot(&mut self, symbols: &[Arc<str>]) -> Vec<SymbolId> {
+        self.map.reserve(symbols.len());
+        self.vec.reserve(symbols.len());
+
+        let mut ids = Vec::with_capacity(symbols.len());
+        for symbol in symbols {
+            if let Some(&sym) = self.map.get(symbol.as_ref()) {
+                ids.push(sym);
+                continue;
+            }
+
+            let sym = SymbolId(self.vec.len());
+            self.vec.push(symbol.clone());
+            self.map.insert(symbol.clone(), sym);
+            ids.push(sym);
+        }
+        ids
+    }
+
+    pub fn snapshot_symbols(&self) -> Vec<Arc<str>> {
+        self.vec.clone()
     }
 }

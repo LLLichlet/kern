@@ -1,6 +1,6 @@
 use super::{
-    build_domain_tag, expect_arg, expect_bool, expect_string, option_none, option_some,
-    plan_argument_value, pure_enum_value, target_kind_tag, BuildScriptContext, BuildScriptTool,
+    BuildScriptContext, BuildScriptTool, build_domain_tag, expect_arg, expect_bool, expect_string,
+    option_none, option_some, plan_argument_value, pure_enum_value, target_kind_tag,
 };
 use crate::build_plan::{
     BuildUnit, GeneratedFile, GeneratedFileOrigin, SourceRootBinding, StagedAction,

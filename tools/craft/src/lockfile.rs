@@ -143,7 +143,7 @@ impl Lockfile {
 
 #[cfg(test)]
 mod tests {
-    use super::{lock_status, sync_lockfile, LockStatus, LockWriteResult, Lockfile};
+    use super::{LockStatus, LockWriteResult, Lockfile, lock_status, sync_lockfile};
     use crate::elaborate::plan;
     use crate::manifest::Manifest;
     use crate::workspace::load_members;

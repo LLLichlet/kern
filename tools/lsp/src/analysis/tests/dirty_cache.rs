@@ -380,14 +380,18 @@ fn structural_dirty_edit_falls_back_to_dirty_structure_analysis() {
         .iter()
         .find(|bundle| bundle.uri == uri)
         .unwrap();
-    assert!(bundle
-        .diagnostics
-        .iter()
-        .all(|diagnostic| diagnostic.severity == 2));
-    assert!(bundle
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.code.as_deref() == Some("unused-private-item")));
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == 2)
+    );
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.code.as_deref() == Some("unused-private-item"))
+    );
     assert_eq!(analysis.structure_cache.borrow().len(), 2);
     assert_eq!(analysis.artifact_cache.borrow().len(), 2);
 }
@@ -444,10 +448,12 @@ fn function_body_fast_path_preserves_clean_sibling_diagnostics() {
         .unwrap();
 
     assert!(good_bundle.diagnostics.is_empty());
-    assert!(bad_bundle
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.message.contains("undeclared identifier")));
+    assert!(
+        bad_bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("undeclared identifier"))
+    );
 }
 
 #[test]

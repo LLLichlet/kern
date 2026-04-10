@@ -1,15 +1,13 @@
 use super::control::collect_control_facts;
 use super::dataflow::{
     CfgTopology, collect_binding_summaries, collect_def_uses, collect_definition_facts,
-    collect_node_facts, collect_node_transfers, collect_resolved_uses,
-    collect_single_source_uses, collect_use_defs, compute_liveness,
-    compute_reaching_definitions, materialize_liveness, materialize_reaching_definitions,
+    collect_node_facts, collect_node_transfers, collect_resolved_uses, collect_single_source_uses,
+    collect_use_defs, compute_liveness, compute_reaching_definitions, materialize_liveness,
+    materialize_reaching_definitions,
 };
 use super::optimize::collect_owner_optimization_facts;
 use super::*;
-use crate::compiler::{
-    AnalysisFlowOwner, AnalysisFlowRegion,
-};
+use crate::compiler::{AnalysisFlowOwner, AnalysisFlowRegion};
 use kernc_lower::FlowLoweringHints;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};

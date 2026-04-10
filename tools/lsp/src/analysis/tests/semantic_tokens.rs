@@ -30,9 +30,11 @@ fn semantic_tokens_for_dirty_documents_fall_back_to_lexical_tokens() {
 
     let decoded = decode_semantic_tokens(&analysis.semantic_tokens(&uri).unwrap());
     assert!(!decoded.is_empty());
-    assert!(decoded
-        .iter()
-        .any(|token| token.2 == SemanticTokenTypes::KEYWORD));
+    assert!(
+        decoded
+            .iter()
+            .any(|token| token.2 == SemanticTokenTypes::KEYWORD)
+    );
 }
 
 #[test]

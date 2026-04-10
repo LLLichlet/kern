@@ -11,9 +11,8 @@ use super::{
     AnalysisFlowCfgEdgeKind, AnalysisFlowCfgNode, AnalysisFlowCfgNodeKind, AnalysisFlowDefUse,
     AnalysisFlowDefinitionFacts, AnalysisFlowDefinitionKind, AnalysisFlowDefinitionRef,
     AnalysisFlowLiveness, AnalysisFlowNodeEffects, AnalysisFlowNodeFacts, AnalysisFlowNodeId,
-    AnalysisFlowNodeTransfer, AnalysisFlowOwnerKind, AnalysisFlowReaching,
-    AnalysisFlowRegionKind, AnalysisFlowResolvedUse, AnalysisFlowSingleSourceUse,
-    AnalysisFlowSummary, AnalysisFlowUseDef,
+    AnalysisFlowNodeTransfer, AnalysisFlowOwnerKind, AnalysisFlowReaching, AnalysisFlowRegionKind,
+    AnalysisFlowResolvedUse, AnalysisFlowSingleSourceUse, AnalysisFlowSummary, AnalysisFlowUseDef,
 };
 use kernc_ast as ast;
 use kernc_sema::SemaContext;

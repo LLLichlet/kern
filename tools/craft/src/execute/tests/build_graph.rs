@@ -520,15 +520,21 @@ pub fn value() i32 {
     let initial_jobs =
         parallel_target_compile_jobs(&action_plan, &local_library_actions, &Default::default());
     assert_eq!(initial_jobs.len(), 2);
-    assert!(initial_jobs
-        .iter()
-        .any(|job| job.compile_action.package_id.name == "util"));
-    assert!(initial_jobs
-        .iter()
-        .any(|job| job.compile_action.package_id.name == "extra"));
-    assert!(initial_jobs
-        .iter()
-        .all(|job| job.compile_action.package_id.name != "app"));
+    assert!(
+        initial_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "util")
+    );
+    assert!(
+        initial_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "extra")
+    );
+    assert!(
+        initial_jobs
+            .iter()
+            .all(|job| job.compile_action.package_id.name != "app")
+    );
 
     let util_action = action_plan
         .compile_actions
@@ -538,15 +544,21 @@ pub fn value() i32 {
     let mut compiled = std::collections::BTreeSet::from([util_action.object_path.clone()]);
     let second_jobs = parallel_target_compile_jobs(&action_plan, &local_library_actions, &compiled);
     assert_eq!(second_jobs.len(), 2);
-    assert!(second_jobs
-        .iter()
-        .any(|job| job.compile_action.package_id.name == "app"));
-    assert!(second_jobs
-        .iter()
-        .any(|job| job.compile_action.package_id.name == "extra"));
-    assert!(second_jobs
-        .iter()
-        .all(|job| job.compile_action.package_id.name != "util"));
+    assert!(
+        second_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "app")
+    );
+    assert!(
+        second_jobs
+            .iter()
+            .any(|job| job.compile_action.package_id.name == "extra")
+    );
+    assert!(
+        second_jobs
+            .iter()
+            .all(|job| job.compile_action.package_id.name != "util")
+    );
 
     compiled.extend(
         second_jobs
@@ -763,10 +775,12 @@ fn bar() i32 {
     let object_dir = super::multi_object_output_dir(&util_action.object_path);
     assert!(util_action.object_path.is_file());
     assert!(object_dir.is_dir());
-    assert!(fs::read_dir(&object_dir)
-        .unwrap()
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .any(|path| path.extension().and_then(|ext| ext.to_str()) == Some("o")));
+    assert!(
+        fs::read_dir(&object_dir)
+            .unwrap()
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .any(|path| path.extension().and_then(|ext| ext.to_str()) == Some("o"))
+    );
 
     let _ = fs::remove_dir_all(root);
 }

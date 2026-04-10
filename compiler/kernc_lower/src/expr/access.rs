@@ -396,8 +396,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 );
                 return 0;
             };
-            let (ast_to_physical, _) =
-                self.cached_anon_struct_mapping(norm, is_extern, fields);
+            let (ast_to_physical, _) = self.cached_anon_struct_mapping(norm, is_extern, fields);
             let field_idx = ast_to_physical.get(ast_idx).copied().unwrap_or_else(|| {
                 self.ctx.emit_ice(
                     span,

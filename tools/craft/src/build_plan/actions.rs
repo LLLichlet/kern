@@ -62,10 +62,7 @@ impl CompileAction {
 }
 
 impl BuildPlan {
-    pub fn filtered_package_closure(
-        &self,
-        roots: &[(BuildDomain, PackageId)],
-    ) -> Self {
+    pub fn filtered_package_closure(&self, roots: &[(BuildDomain, PackageId)]) -> Self {
         let mut keep = BTreeSet::new();
         let mut stack = roots.to_vec();
 

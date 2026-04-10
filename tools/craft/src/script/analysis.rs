@@ -2,8 +2,8 @@ use crate::error::{Error, Result};
 use kernc_driver::CompilerDriver;
 use kernc_sema::def::{Def, DefId, Visibility};
 use kernc_sema::ty::{TypeId, TypeKind};
-use kernc_utils::config::CompileOptions;
 use kernc_utils::Session;
+use kernc_utils::config::CompileOptions;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Copy)]

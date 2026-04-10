@@ -1,6 +1,6 @@
 use super::{load_current_analysis_context, sync_analysis_context};
 use crate::build_plan;
-use crate::elaborate::{plan, FeatureSelection};
+use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
 use crate::workspace::load_members;
 use std::fs;
@@ -194,7 +194,9 @@ root = \"src/main.rn\"
     )
     .unwrap();
 
-    assert!(load_current_analysis_context(&manifest_path, &root)
-        .unwrap()
-        .is_none());
+    assert!(
+        load_current_analysis_context(&manifest_path, &root)
+            .unwrap()
+            .is_none()
+    );
 }

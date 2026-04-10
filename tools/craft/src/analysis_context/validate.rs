@@ -1,6 +1,6 @@
 use super::{
-    digest_file, path_and_digest_current, relative_display, resolve_context_path, AnalysisContext,
-    ANALYSIS_CONTEXT_VERSION,
+    ANALYSIS_CONTEXT_VERSION, AnalysisContext, digest_file, path_and_digest_current,
+    relative_display, resolve_context_path,
 };
 use crate::error::{Error, Result};
 use std::collections::BTreeSet;

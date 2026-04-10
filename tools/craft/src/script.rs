@@ -2,9 +2,9 @@ mod analysis;
 mod build_host;
 
 use self::analysis::{
-    prepare_script, validate_script, PreparedScript, BUILD_SCRIPT_ENTRY, CRAFT_SCRIPT_ENTRY,
+    BUILD_SCRIPT_ENTRY, CRAFT_SCRIPT_ENTRY, PreparedScript, prepare_script, validate_script,
 };
-use self::build_host::{build_argument_value, BuildUnitHost};
+use self::build_host::{BuildUnitHost, build_argument_value};
 use crate::build_plan::{BuildUnit, StagedAction};
 use crate::error::{Error, Result};
 use crate::graph::BuildDomain;
@@ -748,8 +748,8 @@ impl ScriptOs {
 #[cfg(test)]
 mod tests {
     use super::{
-        default_profile_codegen_units, manifest_profile, validate_build_script,
-        validate_craft_script, Manifest, ProfileSelection,
+        Manifest, ProfileSelection, default_profile_codegen_units, manifest_profile,
+        validate_build_script, validate_craft_script,
     };
     use std::fs;
     use std::path::PathBuf;

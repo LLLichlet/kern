@@ -140,10 +140,12 @@ root = \"src/lib.rn\"
         super::normalize_path(&resolved.input_file),
         super::normalize_path(&app_dir.join("craft.rn"))
     );
-    assert!(resolved
-        .compile_options
-        .module_aliases
-        .contains_key("craft"));
+    assert!(
+        resolved
+            .compile_options
+            .module_aliases
+            .contains_key("craft")
+    );
 }
 
 #[test]
@@ -664,11 +666,13 @@ pub fn build(b: *mut builder.Builder) void {
         .join("src")
         .join("main.rn");
     assert!(generated_main.is_file());
-    assert!(generated_main
-        .parent()
-        .unwrap()
-        .join("build_info.rn")
-        .is_file());
+    assert!(
+        generated_main
+            .parent()
+            .unwrap()
+            .join("build_info.rn")
+            .is_file()
+    );
 
     let uri = file_path_to_uri(&root.join("src/main.rn")).unwrap();
     let source = fs::read_to_string(root.join("src/main.rn")).unwrap();

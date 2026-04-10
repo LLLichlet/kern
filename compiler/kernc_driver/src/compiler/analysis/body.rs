@@ -291,11 +291,7 @@ impl CompilerDriver {
         true
     }
 
-    fn apply_resolved_globals(
-        &self,
-        ctx: &mut SemaContext<'_>,
-        globals: &[ResolvedGlobalType],
-    ) {
+    fn apply_resolved_globals(&self, ctx: &mut SemaContext<'_>, globals: &[ResolvedGlobalType]) {
         for global in globals {
             let _ = ctx
                 .scopes

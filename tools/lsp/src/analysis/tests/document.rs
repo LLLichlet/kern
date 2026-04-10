@@ -293,10 +293,12 @@ fn invalid_incremental_sync_range_keeps_previous_text() {
         .find(|bundle| bundle.uri == uri)
         .unwrap();
     assert_eq!(analysis.documents.get(&uri).unwrap().text, "let value = 1;");
-    assert!(bundle
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.message.contains("invalid start position")));
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.message.contains("invalid start position"))
+    );
 }
 
 #[test]

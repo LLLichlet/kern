@@ -273,13 +273,17 @@ let _ = b.copy_package_dir_to_artifact("assets", "bundle/assets");
 
     let summary = run(&build_plan, &action_plan, unit).unwrap();
     assert!(summary.executable.is_file());
-    assert!(Path::new(&link_nodes[0].output)
-        .join("config.json")
-        .exists());
-    assert!(Path::new(&link_nodes[0].output)
-        .join("images")
-        .join("logo.txt")
-        .exists());
+    assert!(
+        Path::new(&link_nodes[0].output)
+            .join("config.json")
+            .exists()
+    );
+    assert!(
+        Path::new(&link_nodes[0].output)
+            .join("images")
+            .join("logo.txt")
+            .exists()
+    );
 
     let _ = fs::remove_dir_all(root);
 }

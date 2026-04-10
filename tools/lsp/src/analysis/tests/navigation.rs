@@ -395,15 +395,19 @@ fn hover_renders_native_docs_after_signature() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn helper: fn(i32) i32"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Read one byte from the receiver register."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Read one byte from the receiver register.")
+    );
     assert!(hover.contents.value.contains("**Safety**"));
-    assert!(hover
-        .contents
-        .value
-        .contains("`self` must point to a mapped UART object."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("`self` must point to a mapped UART object.")
+    );
 }
 
 #[test]
@@ -468,15 +472,19 @@ fn hover_reuses_docs_from_imported_kmeta_packages() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn helper: fn() i32"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Imported helper from a kmeta package."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Imported helper from a kmeta package.")
+    );
     assert!(hover.contents.value.contains("**Safety**"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Pure helper with no hidden runtime policy."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Pure helper with no hidden runtime policy.")
+    );
 }
 
 #[test]
@@ -507,10 +515,12 @@ fn hover_resolves_std_module_docs_from_use_alias() {
         .unwrap();
 
     assert!(hover.contents.value.contains("module io"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Text and byte-oriented output helpers."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Text and byte-oriented output helpers.")
+    );
 }
 
 #[test]
@@ -541,10 +551,12 @@ fn hover_resolves_std_reexported_function_docs_from_member_access() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn println:"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Formats into standard output and appends a newline."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Formats into standard output and appends a newline.")
+    );
 }
 
 #[test]
@@ -613,15 +625,19 @@ fn hover_renders_doc_comments_for_impl_method_reference() {
         .unwrap();
 
     assert!(hover.contents.value.contains("fn get: fn(Counter) i32"));
-    assert!(hover
-        .contents
-        .value
-        .contains("Read the current counter value."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("Read the current counter value.")
+    );
     assert!(hover.contents.value.contains("**Safety**"));
-    assert!(hover
-        .contents
-        .value
-        .contains("keep `self` bound to a live counter object."));
+    assert!(
+        hover
+            .contents
+            .value
+            .contains("keep `self` bound to a live counter object.")
+    );
 }
 
 #[test]

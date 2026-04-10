@@ -495,7 +495,10 @@ impl<'a> Parser<'a> {
             return false;
         };
 
-        matches!(self.stream.peek_tag_nth(index), TokenType::Dot | TokenType::DotLBrace)
+        matches!(
+            self.stream.peek_tag_nth(index),
+            TokenType::Dot | TokenType::DotLBrace
+        )
     }
 
     pub(super) fn parse_decl_expr(&mut self, start_token: Token) -> ParseResult<Expr> {

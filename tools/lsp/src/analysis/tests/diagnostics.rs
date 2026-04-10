@@ -28,18 +28,24 @@ fn diagnostics_include_native_doc_lints_as_warnings() {
         .iter()
         .find(|bundle| bundle.uri == uri)
         .expect("expected diagnostics bundle");
-    assert!(bundle
-        .diagnostics
-        .iter()
-        .all(|diagnostic| diagnostic.severity == 2));
-    assert!(bundle
-        .diagnostics
-        .iter()
-        .any(|diagnostic| { diagnostic.message.contains("missing a summary paragraph") }));
-    assert!(bundle
-        .diagnostics
-        .iter()
-        .any(|diagnostic| { diagnostic.message.contains("unknown doc section `Strange`") }));
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == 2)
+    );
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("missing a summary paragraph") })
+    );
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("unknown doc section `Strange`") })
+    );
     assert!(bundle.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .message
@@ -75,10 +81,12 @@ fn diagnostics_include_native_doc_lints_for_impl_methods() {
         .iter()
         .find(|bundle| bundle.uri == uri)
         .expect("expected diagnostics bundle");
-    assert!(bundle
-        .diagnostics
-        .iter()
-        .all(|diagnostic| diagnostic.severity == 2));
+    assert!(
+        bundle
+            .diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic.severity == 2)
+    );
     assert!(bundle.diagnostics.iter().any(|diagnostic| {
         diagnostic
             .message
@@ -212,10 +220,12 @@ fn diagnostics_warn_for_unused_parameter_and_local_binding() {
             .message
             .contains("local variable `unused_local` is never used")
     }));
-    assert!(!bundle
-        .diagnostics
-        .iter()
-        .any(|diagnostic| { diagnostic.message.contains("parameter `_` is never used") }));
+    assert!(
+        !bundle
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.message.contains("parameter `_` is never used") })
+    );
 }
 
 #[test]

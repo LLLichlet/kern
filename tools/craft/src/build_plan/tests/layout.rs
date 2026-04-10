@@ -130,7 +130,11 @@ root = "src/lib.rn"
 "#,
     )
     .unwrap();
-    fs::write(util_dir.join("src/lib.rn"), "pub fn value() i32 { return 0; }\n").unwrap();
+    fs::write(
+        util_dir.join("src/lib.rn"),
+        "pub fn value() i32 { return 0; }\n",
+    )
+    .unwrap();
 
     let manifest_path = root.join("Craft.toml");
     let manifest = Manifest::load(&manifest_path).unwrap();
@@ -155,12 +159,24 @@ root = "src/lib.rn"
 
     let filtered = build_plan.filtered_package_closure(&[(BuildDomain::Target, app_id)]);
 
-    assert!(filtered.packages.iter().any(|package| package.package_id.name == "app"));
-    assert!(filtered.packages.iter().any(|package| package.package_id.name == "util"));
-    assert!(filtered
-        .packages
-        .iter()
-        .all(|package| package.package_id.name != "rootpkg"));
+    assert!(
+        filtered
+            .packages
+            .iter()
+            .any(|package| package.package_id.name == "app")
+    );
+    assert!(
+        filtered
+            .packages
+            .iter()
+            .any(|package| package.package_id.name == "util")
+    );
+    assert!(
+        filtered
+            .packages
+            .iter()
+            .all(|package| package.package_id.name != "rootpkg")
+    );
 
     let _ = fs::remove_dir_all(root);
 }

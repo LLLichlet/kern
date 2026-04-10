@@ -10,8 +10,8 @@ mod semantic_tokens;
 use super::cache::AnalysisCacheKey;
 use super::semantic::{SemanticModifiers, SemanticTokenTypes};
 use super::{
-    byte_offset_to_position, cleared_uris, file_path_to_uri, hash_source_text, normalize_path,
-    position_to_byte_offset, uri_to_file_path, AnalysisEngine, AnalysisSettings, DiagnosticBundle,
+    AnalysisEngine, AnalysisSettings, DiagnosticBundle, byte_offset_to_position, cleared_uris,
+    file_path_to_uri, hash_source_text, normalize_path, position_to_byte_offset, uri_to_file_path,
 };
 use crate::protocol::{
     DiagnosticTag, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
@@ -19,8 +19,8 @@ use crate::protocol::{
     TextDocumentItem, VersionedTextDocumentIdentifier,
 };
 use craft::analysis_context;
-use kernc_utils::config::{CompileOptions, LibraryBundle};
 use kernc_utils::SourceFile;
+use kernc_utils::config::{CompileOptions, LibraryBundle};
 use std::collections::BTreeSet;
 use std::fs;
 use std::path::PathBuf;

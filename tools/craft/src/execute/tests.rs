@@ -4,7 +4,7 @@ use super::{
     runtime_profile_key, test, validate_package_metadata_root,
 };
 use crate::build_plan;
-use crate::elaborate::{plan, FeatureSelection};
+use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
 use crate::workspace;
 use std::fs;

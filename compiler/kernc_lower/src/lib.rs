@@ -376,8 +376,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mut layout = kernc_sema::LayoutEngine::new(self.ctx);
             layout.get_struct_mapping(def_id, gen_args, 0)
         };
-        self.named_struct_layout_cache
-            .insert(key, mapping.clone());
+        self.named_struct_layout_cache.insert(key, mapping.clone());
         mapping
     }
 

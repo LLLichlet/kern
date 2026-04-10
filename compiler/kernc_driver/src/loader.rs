@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -79,26 +79,547 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         let path = PathBuf::from(root_file);
         let root_id = self.load_module(path, None, root_name, false);
         self.ctx.root_module = root_id;
-        self.load_alias_roots(false);
-        self.load_alias_roots(true);
+        self.load_referenced_alias_roots(false);
+        self.load_referenced_alias_roots(true);
         root_id
     }
 
-    fn load_alias_roots(&mut self, imported: bool) {
+    fn load_referenced_alias_roots(&mut self, imported: bool) {
         let aliases = if imported {
             self.ctx.module_interface_aliases.clone()
         } else {
             self.ctx.module_aliases.clone()
         };
-        for (alias_name, alias_path) in aliases {
-            let alias_sym = self.ctx.intern(&alias_name);
-            let Some(root) = self.resolve_root_module(&PathBuf::from(&alias_path), imported) else {
-                continue;
-            };
+        if aliases.is_empty() {
+            return;
+        }
 
-            let module_name = root.declared_root_name.unwrap_or(alias_sym);
-            if let Some(mod_id) = self.load_module(root.entry_path, None, module_name, imported) {
-                self.ctx.alias_roots.insert(alias_sym, mod_id);
+        let mut pending = aliases
+            .into_iter()
+            .map(|(alias_name, alias_path)| (self.ctx.intern(&alias_name), alias_path))
+            .collect::<Vec<_>>();
+
+        loop {
+            if pending.is_empty() {
+                break;
+            }
+
+            let available_aliases = pending
+                .iter()
+                .map(|(alias_sym, _)| *alias_sym)
+                .collect::<HashSet<_>>();
+            let referenced_aliases = self.collect_referenced_aliases(&available_aliases);
+            if referenced_aliases.is_empty() {
+                break;
+            }
+
+            let mut progressed = false;
+            let mut remaining = Vec::with_capacity(pending.len());
+
+            for (alias_sym, alias_path) in pending {
+                if !referenced_aliases.contains(&alias_sym) {
+                    remaining.push((alias_sym, alias_path));
+                    continue;
+                }
+
+                let Some(root) = self.resolve_root_module(&PathBuf::from(&alias_path), imported)
+                else {
+                    progressed = true;
+                    continue;
+                };
+
+                let module_name = root.declared_root_name.unwrap_or(alias_sym);
+                if let Some(mod_id) = self.load_module(root.entry_path, None, module_name, imported)
+                {
+                    self.ctx.alias_roots.insert(alias_sym, mod_id);
+                }
+                progressed = true;
+            }
+
+            if !progressed {
+                break;
+            }
+
+            pending = remaining;
+        }
+    }
+
+    fn collect_referenced_aliases(&self, alias_names: &HashSet<SymbolId>) -> HashSet<SymbolId> {
+        let mut referenced = HashSet::new();
+        for (_, module) in &self.asts {
+            Self::collect_module_alias_references(module, alias_names, &mut referenced);
+        }
+        referenced
+    }
+
+    fn collect_module_alias_references(
+        module: &ast::Module,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        for attribute in &module.attributes {
+            Self::collect_attribute_alias_references(attribute, alias_names, referenced);
+        }
+        for decl in &module.decls {
+            Self::collect_decl_alias_references(decl, alias_names, referenced);
+        }
+    }
+
+    fn collect_decl_alias_references(
+        decl: &ast::Decl,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        for attribute in &decl.attributes {
+            Self::collect_attribute_alias_references(attribute, alias_names, referenced);
+        }
+
+        match &decl.kind {
+            ast::DeclKind::Function {
+                generics: _,
+                where_clauses,
+                params,
+                ret_type,
+                body,
+                ..
+            } => {
+                for clause in where_clauses {
+                    Self::collect_where_clause_alias_references(clause, alias_names, referenced);
+                }
+                for param in params {
+                    Self::collect_func_param_alias_references(param, alias_names, referenced);
+                }
+                Self::collect_type_alias_references(ret_type, alias_names, referenced);
+                if let Some(body) = body {
+                    Self::collect_expr_alias_references(body, alias_names, referenced);
+                }
+            }
+            ast::DeclKind::Var { value, .. } => {
+                Self::collect_expr_alias_references(value, alias_names, referenced);
+            }
+            ast::DeclKind::TypeAlias {
+                bounds,
+                where_clauses,
+                target,
+                ..
+            } => {
+                for bound in bounds {
+                    Self::collect_type_alias_references(bound, alias_names, referenced);
+                }
+                for clause in where_clauses {
+                    Self::collect_where_clause_alias_references(clause, alias_names, referenced);
+                }
+                Self::collect_type_alias_references(target, alias_names, referenced);
+            }
+            ast::DeclKind::ModDecl { .. } => {}
+            ast::DeclKind::Use { kind, path, target, .. } => {
+                if matches!(kind, ast::UsePathKind::Root)
+                    && let Some(&root) = path.first()
+                    && alias_names.contains(&root)
+                {
+                    referenced.insert(root);
+                }
+                if let ast::UseTarget::Members(members) = target {
+                    for member in members {
+                        if let Some(&root) = member.path.first()
+                            && alias_names.contains(&root)
+                        {
+                            referenced.insert(root);
+                        }
+                    }
+                }
+            }
+            ast::DeclKind::ExternBlock { decls, .. } => {
+                for decl in decls {
+                    Self::collect_decl_alias_references(decl, alias_names, referenced);
+                }
+            }
+            ast::DeclKind::Impl {
+                where_clauses,
+                target_type,
+                trait_type,
+                decls,
+                ..
+            } => {
+                for clause in where_clauses {
+                    Self::collect_where_clause_alias_references(clause, alias_names, referenced);
+                }
+                Self::collect_type_alias_references(target_type, alias_names, referenced);
+                if let Some(trait_type) = trait_type {
+                    Self::collect_type_alias_references(trait_type, alias_names, referenced);
+                }
+                for decl in decls {
+                    Self::collect_decl_alias_references(decl, alias_names, referenced);
+                }
+            }
+        }
+    }
+
+    fn collect_attribute_alias_references(
+        attribute: &ast::Attribute,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        match &attribute.kind {
+            ast::AttributeKind::If(expr) => {
+                Self::collect_expr_alias_references(expr, alias_names, referenced);
+            }
+            ast::AttributeKind::Meta(items) => {
+                for item in items {
+                    if let ast::MetaItem::Call(_, expr) = item {
+                        Self::collect_expr_alias_references(expr, alias_names, referenced);
+                    }
+                }
+            }
+        }
+    }
+
+    fn collect_where_clause_alias_references(
+        clause: &ast::WhereClause,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        Self::collect_type_alias_references(&clause.target_ty, alias_names, referenced);
+        for bound in &clause.bounds {
+            Self::collect_type_alias_references(bound, alias_names, referenced);
+        }
+    }
+
+    fn collect_func_param_alias_references(
+        param: &ast::FuncParam,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        Self::collect_type_alias_references(&param.type_node, alias_names, referenced);
+    }
+
+    fn collect_type_alias_references(
+        ty: &ast::TypeNode,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        match &ty.kind {
+            ast::TypeKind::Path {
+                segments, generics, ..
+            } => {
+                if let Some(&root) = segments.first()
+                    && alias_names.contains(&root)
+                {
+                    referenced.insert(root);
+                }
+                for generic in generics {
+                    Self::collect_type_alias_references(generic, alias_names, referenced);
+                }
+            }
+            ast::TypeKind::Pointer { elem, .. }
+            | ast::TypeKind::VolatilePtr { elem, .. }
+            | ast::TypeKind::ArrayInfer { elem, .. }
+            | ast::TypeKind::Slice { elem, .. } => {
+                Self::collect_type_alias_references(elem, alias_names, referenced);
+            }
+            ast::TypeKind::Array { elem, len, .. } => {
+                Self::collect_type_alias_references(elem, alias_names, referenced);
+                Self::collect_expr_alias_references(len, alias_names, referenced);
+            }
+            ast::TypeKind::Function { params, ret, .. }
+            | ast::TypeKind::ClosureInterface { params, ret } => {
+                for param in params {
+                    Self::collect_type_alias_references(param, alias_names, referenced);
+                }
+                if let Some(ret) = ret {
+                    Self::collect_type_alias_references(ret, alias_names, referenced);
+                }
+            }
+            ast::TypeKind::Struct { fields, .. }
+            | ast::TypeKind::Union { fields, .. }
+            | ast::TypeKind::Trait { fields } => {
+                for field in fields {
+                    Self::collect_struct_field_alias_references(field, alias_names, referenced);
+                }
+            }
+            ast::TypeKind::Enum {
+                backing_type,
+                variants,
+            } => {
+                if let Some(backing_type) = backing_type {
+                    Self::collect_type_alias_references(backing_type, alias_names, referenced);
+                }
+                for variant in variants {
+                    if let Some(payload_type) = &variant.payload_type {
+                        Self::collect_type_alias_references(payload_type, alias_names, referenced);
+                    }
+                    if let Some(value) = &variant.value {
+                        Self::collect_expr_alias_references(value, alias_names, referenced);
+                    }
+                }
+            }
+            ast::TypeKind::TypeOf(expr) => {
+                Self::collect_expr_alias_references(expr, alias_names, referenced);
+            }
+            ast::TypeKind::Infer
+            | ast::TypeKind::SelfType
+            | ast::TypeKind::Never
+            | ast::TypeKind::Void => {}
+        }
+    }
+
+    fn collect_struct_field_alias_references(
+        field: &ast::StructFieldDef,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        Self::collect_type_alias_references(&field.type_node, alias_names, referenced);
+        if let Some(default_value) = &field.default_value {
+            Self::collect_expr_alias_references(default_value, alias_names, referenced);
+        }
+    }
+
+    fn collect_expr_alias_references(
+        expr: &ast::Expr,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        match &expr.kind {
+            ast::ExprKind::Let {
+                pattern,
+                init,
+                else_pattern,
+                else_branch,
+            } => {
+                Self::collect_let_pattern_alias_references(pattern, alias_names, referenced);
+                Self::collect_expr_alias_references(init, alias_names, referenced);
+                if let Some(else_pattern) = else_pattern {
+                    Self::collect_pattern_alias_references(else_pattern, alias_names, referenced);
+                }
+                if let Some(else_branch) = else_branch {
+                    Self::collect_expr_alias_references(else_branch, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::Static { init, .. } => {
+                Self::collect_expr_alias_references(init, alias_names, referenced);
+            }
+            ast::ExprKind::Identifier(name) => {
+                if alias_names.contains(name) {
+                    referenced.insert(*name);
+                }
+            }
+            ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
+                Self::collect_expr_alias_references(lhs, alias_names, referenced);
+                Self::collect_expr_alias_references(rhs, alias_names, referenced);
+            }
+            ast::ExprKind::Unary { operand, .. } => {
+                Self::collect_expr_alias_references(operand, alias_names, referenced);
+            }
+            ast::ExprKind::FieldAccess { lhs, .. } => {
+                Self::collect_expr_alias_references(lhs, alias_names, referenced);
+            }
+            ast::ExprKind::IndexAccess { lhs, index, .. } => {
+                Self::collect_expr_alias_references(lhs, alias_names, referenced);
+                Self::collect_expr_alias_references(index, alias_names, referenced);
+            }
+            ast::ExprKind::Call { callee, args } => {
+                Self::collect_expr_alias_references(callee, alias_names, referenced);
+                for arg in args {
+                    Self::collect_expr_alias_references(arg, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::DataInit { type_node, literal } => {
+                if let Some(type_node) = type_node {
+                    Self::collect_type_alias_references(type_node, alias_names, referenced);
+                }
+                Self::collect_data_literal_alias_references(literal, alias_names, referenced);
+            }
+            ast::ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                Self::collect_expr_alias_references(cond, alias_names, referenced);
+                Self::collect_expr_alias_references(then_branch, alias_names, referenced);
+                if let Some(else_branch) = else_branch {
+                    Self::collect_expr_alias_references(else_branch, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::Match { target, arms } => {
+                Self::collect_expr_alias_references(target, alias_names, referenced);
+                for arm in arms {
+                    for pattern in &arm.patterns {
+                        Self::collect_match_pattern_alias_references(
+                            pattern,
+                            alias_names,
+                            referenced,
+                        );
+                    }
+                    Self::collect_expr_alias_references(&arm.body, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::Block { stmts, result } => {
+                for stmt in stmts {
+                    for attribute in &stmt.attributes {
+                        Self::collect_attribute_alias_references(
+                            attribute,
+                            alias_names,
+                            referenced,
+                        );
+                    }
+                    match &stmt.kind {
+                        ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
+                            Self::collect_expr_alias_references(expr, alias_names, referenced);
+                        }
+                    }
+                }
+                if let Some(result) = result {
+                    Self::collect_expr_alias_references(result, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::For {
+                init,
+                cond,
+                post,
+                body,
+            } => {
+                if let Some(init) = init {
+                    Self::collect_expr_alias_references(init, alias_names, referenced);
+                }
+                if let Some(cond) = cond {
+                    Self::collect_expr_alias_references(cond, alias_names, referenced);
+                }
+                if let Some(post) = post {
+                    Self::collect_expr_alias_references(post, alias_names, referenced);
+                }
+                Self::collect_expr_alias_references(body, alias_names, referenced);
+            }
+            ast::ExprKind::SliceOp {
+                lhs, start, end, ..
+            } => {
+                Self::collect_expr_alias_references(lhs, alias_names, referenced);
+                if let Some(start) = start {
+                    Self::collect_expr_alias_references(start, alias_names, referenced);
+                }
+                if let Some(end) = end {
+                    Self::collect_expr_alias_references(end, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::Defer { expr } => {
+                Self::collect_expr_alias_references(expr, alias_names, referenced);
+            }
+            ast::ExprKind::Return(value) => {
+                if let Some(value) = value {
+                    Self::collect_expr_alias_references(value, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::As { lhs, target } => {
+                Self::collect_expr_alias_references(lhs, alias_names, referenced);
+                Self::collect_type_alias_references(target, alias_names, referenced);
+            }
+            ast::ExprKind::GenericInstantiation { target, types } => {
+                Self::collect_expr_alias_references(target, alias_names, referenced);
+                for ty in types {
+                    Self::collect_type_alias_references(ty, alias_names, referenced);
+                }
+            }
+            ast::ExprKind::Closure {
+                captures,
+                params,
+                ret_type,
+                body,
+            } => {
+                for capture in captures {
+                    Self::collect_expr_alias_references(&capture.value, alias_names, referenced);
+                }
+                for param in params {
+                    Self::collect_func_param_alias_references(param, alias_names, referenced);
+                }
+                Self::collect_type_alias_references(ret_type, alias_names, referenced);
+                Self::collect_expr_alias_references(body, alias_names, referenced);
+            }
+            ast::ExprKind::Integer(_)
+            | ast::ExprKind::Float(_)
+            | ast::ExprKind::Bool(_)
+            | ast::ExprKind::Char(_)
+            | ast::ExprKind::ByteChar(_)
+            | ast::ExprKind::String(_)
+            | ast::ExprKind::EnumLiteral { .. }
+            | ast::ExprKind::Break
+            | ast::ExprKind::Continue
+            | ast::ExprKind::Undef
+            | ast::ExprKind::Infer
+            | ast::ExprKind::SelfValue => {}
+        }
+    }
+
+    fn collect_data_literal_alias_references(
+        literal: &ast::DataLiteralKind,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        match literal {
+            ast::DataLiteralKind::Struct(fields) => {
+                for field in fields {
+                    Self::collect_expr_alias_references(&field.value, alias_names, referenced);
+                }
+            }
+            ast::DataLiteralKind::Array(items) => {
+                for item in items {
+                    Self::collect_expr_alias_references(item, alias_names, referenced);
+                }
+            }
+            ast::DataLiteralKind::Repeat { value, count } => {
+                Self::collect_expr_alias_references(value, alias_names, referenced);
+                Self::collect_expr_alias_references(count, alias_names, referenced);
+            }
+            ast::DataLiteralKind::Scalar(value) => {
+                Self::collect_expr_alias_references(value, alias_names, referenced);
+            }
+        }
+    }
+
+    fn collect_let_pattern_alias_references(
+        pattern: &ast::LetPattern,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        Self::collect_pattern_alias_references(&pattern.pattern, alias_names, referenced);
+    }
+
+    fn collect_pattern_alias_references(
+        pattern: &ast::Pattern,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        match &pattern.kind {
+            ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => {}
+            ast::PatternKind::Variant(variant) => {
+                if let Some(target_type) = &variant.target_type {
+                    Self::collect_type_alias_references(target_type, alias_names, referenced);
+                }
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                if let Some(target_type) = &destructure.target_type {
+                    Self::collect_type_alias_references(target_type, alias_names, referenced);
+                }
+                for field in &destructure.fields {
+                    Self::collect_pattern_alias_references(&field.pattern, alias_names, referenced);
+                }
+            }
+        }
+    }
+
+    fn collect_match_pattern_alias_references(
+        pattern: &ast::MatchPattern,
+        alias_names: &HashSet<SymbolId>,
+        referenced: &mut HashSet<SymbolId>,
+    ) {
+        match &pattern.kind {
+            ast::MatchPatternKind::Value(value) => {
+                Self::collect_expr_alias_references(value, alias_names, referenced);
+            }
+            ast::MatchPatternKind::Range { start, end, .. } => {
+                Self::collect_expr_alias_references(start, alias_names, referenced);
+                Self::collect_expr_alias_references(end, alias_names, referenced);
+            }
+            ast::MatchPatternKind::Pattern(pattern) => {
+                Self::collect_pattern_alias_references(pattern, alias_names, referenced);
             }
         }
     }

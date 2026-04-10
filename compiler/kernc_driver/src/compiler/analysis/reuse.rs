@@ -62,11 +62,11 @@ pub(super) fn module_source_changed(
     let clean_source = clean_session
         .source_manager
         .get_file(clean_file_id)
-        .map(|file| file.src.as_str());
+        .map(|file| file.src.as_ref());
     let parsed_source = parsed_session
         .source_manager
         .get_file(parsed_file_id)
-        .map(|file| file.src.as_str());
+        .map(|file| file.src.as_ref());
     clean_source != parsed_source
 }
 

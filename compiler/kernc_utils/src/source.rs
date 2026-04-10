@@ -1,6 +1,7 @@
 use super::Span;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::{fs, io};
 
 /// =========================================================
@@ -31,12 +32,13 @@ pub struct Location {
 pub struct SourceFile {
     pub path: PathBuf,
     pub name: String,
-    pub src: String,
+    pub src: Arc<str>,
     pub line_starts: Vec<usize>,
 }
 
 impl SourceFile {
-    pub fn new(path: PathBuf, src: String) -> Self {
+    pub fn new(path: PathBuf, src: impl Into<Arc<str>>) -> Self {
+        let src = src.into();
         let line_starts = std::iter::once(0)
             .chain(src.match_indices('\n').map(|(i, _)| i + 1))
             .collect();
@@ -151,7 +153,7 @@ impl SourceManager {
     }
 
     /// Register an in-memory file, typically for tests or REPL usage.
-    pub fn add_file(&mut self, name: String, src: String) -> FileId {
+    pub fn add_file(&mut self, name: String, src: impl Into<Arc<str>>) -> FileId {
         let file = SourceFile::new(PathBuf::from(name), src);
         let id = FileId(self.files.len());
         self.file_ids_by_path.entry(file.path.clone()).or_insert(id);
@@ -210,7 +212,7 @@ impl SourceManager {
         self.file_ids_by_path.get(path).copied()
     }
 
-    pub fn update_file(&mut self, id: FileId, new_src: String) {
+    pub fn update_file(&mut self, id: FileId, new_src: impl Into<Arc<str>>) {
         if let Some(file) = self.files.get_mut(id.get()) {
             // Replace the contents while preserving the logical path.
             *file = SourceFile::new(file.path.clone(), new_src);

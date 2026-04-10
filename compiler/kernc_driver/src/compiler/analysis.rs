@@ -834,9 +834,8 @@ impl CompilerDriver {
             self.load_asts(&mut ctx, input_file, collect_docs)
         })?;
         phase_timings.extend(loaded.phase_timings);
-        let asts = loaded.asts;
         if !measure_body_phase(&mut phase_timings, "  structure_collect", || {
-            self.run_collect_phase(&mut ctx, &asts)
+            self.run_collect_phase_owned(&mut ctx, loaded.asts)
         }) {
             return None;
         }
@@ -1183,6 +1182,18 @@ impl CompilerDriver {
         let mut collector = Collector::new(ctx);
         for (mod_id, ast) in asts {
             collector.collect_ast(*mod_id, ast);
+        }
+        Self::report_diagnostics_if_errors(collector.context())
+    }
+
+    fn run_collect_phase_owned<'a>(
+        &self,
+        ctx: &mut SemaContext<'a>,
+        asts: Vec<(DefId, ast::Module)>,
+    ) -> bool {
+        let mut collector = Collector::new(ctx);
+        for (mod_id, ast) in asts {
+            collector.collect_ast_owned(mod_id, ast);
         }
         Self::report_diagnostics_if_errors(collector.context())
     }

@@ -39,8 +39,8 @@ impl FrontendLoadTimings {
 #[derive(Clone)]
 pub struct FrontendDatabase {
     db: Database,
-    source_overrides: Input<PathBuf, String>,
-    source_texts: Query<PathBuf, Option<String>>,
+    source_overrides: Input<PathBuf, Arc<str>>,
+    source_texts: Query<PathBuf, Option<Arc<str>>>,
     #[cfg(test)]
     parsed_modules: Memo<PathBuf, Option<FrontendParsedModule>>,
     known_override_paths: Arc<Mutex<HashSet<PathBuf>>>,
@@ -58,7 +58,7 @@ impl FrontendDatabase {
                 }
 
                 match std::fs::read_to_string(path) {
-                    Ok(text) => Ok(Some(text)),
+                    Ok(text) => Ok(Some(Arc::<str>::from(text))),
                     Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
                     Err(_) => Ok(None),
                 }
@@ -82,13 +82,15 @@ impl FrontendDatabase {
 
     #[cfg(test)]
     pub fn set_source_override(&self, path: PathBuf, text: String) {
-        let _ = self.source_overrides.set(&self.db, path, text);
+        let _ = self
+            .source_overrides
+            .set(&self.db, path, Arc::<str>::from(text));
     }
 
     pub fn sync_source_overrides(&self, overrides: &crate::compiler::SourceOverrides) {
         let normalized = overrides
             .iter()
-            .map(|(path, text)| (normalize_path(path), text.clone()))
+            .map(|(path, text)| (normalize_path(path), Arc::<str>::from(text.as_str())))
             .collect::<HashMap<_, _>>();
 
         let mut known = self.known_override_paths.lock().unwrap();
@@ -169,17 +171,22 @@ impl FrontendDatabase {
         self.uncached_parse_count.load(Ordering::SeqCst)
     }
 
-    fn ensure_file_id(&self, session: &mut Session, path: &Path, source: &str) -> FileId {
+    fn ensure_file_id(&self, session: &mut Session, path: &Path, source: &Arc<str>) -> FileId {
         if let Some(file_id) = session.source_manager.find_file_id_by_path(path) {
-            session
+            let needs_update = session
                 .source_manager
-                .update_file(file_id, source.to_string());
+                .get_file(file_id)
+                .map(|file| file.src.as_ref() != source.as_ref())
+                .unwrap_or(true);
+            if needs_update {
+                session.source_manager.update_file(file_id, source.clone());
+            }
             return file_id;
         }
 
         session
             .source_manager
-            .add_file(path.to_string_lossy().to_string(), source.to_string())
+            .add_file(path.to_string_lossy().to_string(), source.clone())
     }
 
     #[cfg(test)]
@@ -187,7 +194,7 @@ impl FrontendDatabase {
         &self,
         session: &mut Session,
         normalized: &Path,
-        source: &str,
+        source: &Arc<str>,
     ) -> Option<FrontendParsedModule> {
         self.parse_frontend_module_profiled(session, normalized, source, true)
             .0
@@ -197,7 +204,7 @@ impl FrontendDatabase {
         &self,
         session: &mut Session,
         normalized: &Path,
-        source: &str,
+        source: &Arc<str>,
         collect_docs: bool,
     ) -> (Option<FrontendParsedModule>, FrontendLoadTimings) {
         let mut timings = FrontendLoadTimings::default();
@@ -208,9 +215,9 @@ impl FrontendDatabase {
 
         let parse_started = Instant::now();
         let mut parser = if collect_docs {
-            Parser::new(source, file_id, session)
+            Parser::new(source.as_ref(), file_id, session)
         } else {
-            Parser::new_without_docs(source, file_id, session)
+            Parser::new_without_docs(source.as_ref(), file_id, session)
         };
         let mut ast = match parser.parse_module() {
             Ok(ast) => ast,
@@ -219,7 +226,7 @@ impl FrontendDatabase {
         timings.parse = parse_started.elapsed();
         ast.path = normalized.to_string_lossy().to_string();
 
-        if source_may_need_pruning(source) {
+        if source_may_need_pruning(source.as_ref()) {
             let prune_started = Instant::now();
             let mut pruner = Pruner::new(session);
             pruner.prune_module(&mut ast);
@@ -315,7 +322,8 @@ mod tests {
                 .source_manager
                 .get_file(first.file_id)
                 .expect("file should stay registered")
-                .src,
+                .src
+                .as_ref(),
             "fn main() i32 { return 2; }"
         );
     }

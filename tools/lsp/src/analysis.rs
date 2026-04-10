@@ -22,19 +22,21 @@ use self::text::{
     position_to_byte_offset, single_server_diagnostic, span_contains_offset, span_to_range,
     trim_line_ending, uri_to_file_path,
 };
+use crate::defaults::default_analysis_compile_options;
 use crate::protocol::{
     CodeAction, CompletionItem, DidChangeTextDocumentParams, DidCloseTextDocumentParams,
     DidOpenTextDocumentParams, DocumentHighlight, DocumentSymbol, Hover, Location, Position,
     PrepareRenameResult, Range, SemanticTokens, SignatureHelp, TextDocumentContentChangeEvent,
     WorkspaceEdit,
 };
-use crate::defaults::default_analysis_compile_options;
 use craft::project::{AnalysisProject, ResolvedAnalysis, resolve_project_manifest_path};
 use kernc_driver::{
     AnalysisArtifact, AnalysisSurfaceArtifact, CompilerDriver, IncrementalDriverKey,
     ParsedModuleArtifact, SourceOverrides, StructureArtifact, TargetedAnalysisReport,
 };
-use kernc_utils::config::{CompileOptions, inject_default_library_aliases, inject_driver_condition_defines};
+use kernc_utils::config::{
+    CompileOptions, inject_default_library_aliases, inject_driver_condition_defines,
+};
 use kernc_utils::{Session, SourceFile, Span};
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;

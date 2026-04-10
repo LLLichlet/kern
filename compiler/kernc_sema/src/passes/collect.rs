@@ -151,6 +151,110 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.current_module_imported = parent_module_imported;
     }
 
+    pub fn collect_ast_owned(&mut self, mod_id: DefId, module: ast::Module) {
+        let (scope_id, submodules) =
+            if let Some(Def::Module(m)) = self.ctx.defs.get(mod_id.0 as usize) {
+                (m.scope_id, m.submodules.clone())
+            } else {
+                self.ctx.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Collect): DefId {} is not a module during AST collection.",
+                        mod_id.0
+                    ),
+                );
+                return;
+            };
+
+        let parent_module = self.current_module;
+        let parent_module_imported = self.current_module_imported;
+        self.current_module = Some(mod_id);
+        self.current_module_imported = matches!(
+            self.ctx.defs.get(mod_id.0 as usize),
+            Some(Def::Module(ModuleDef {
+                is_imported: true,
+                ..
+            }))
+        );
+
+        let prev_scope = self.ctx.scopes.current_scope_id();
+        self.ctx.scopes.set_current_scope(scope_id);
+
+        let ast::Module { docs, decls, .. } = module;
+        let mut item_ids = Vec::new();
+        let mut imports = Vec::new();
+
+        for decl in decls {
+            match decl {
+                Decl {
+                    kind:
+                        DeclKind::Use {
+                            kind,
+                            path,
+                            target,
+                            is_reexport,
+                        },
+                    span,
+                    ..
+                } => {
+                    imports.push(ImportDef {
+                        path_kind: kind,
+                        path,
+                        target,
+                        is_reexport,
+                        span,
+                    });
+                }
+                Decl {
+                    kind: DeclKind::ModDecl { is_pub },
+                    id,
+                    name,
+                    name_span,
+                    ..
+                } => {
+                    if let Some(&sub_id) = submodules.get(&name) {
+                        self.define_symbol(SymbolDefSpec {
+                            name,
+                            kind: SymbolKind::Module,
+                            node_id: id,
+                            def_id: Some(sub_id),
+                            span: name_span,
+                            is_pub,
+                            is_mut: false,
+                        });
+                    }
+                }
+                Decl {
+                    kind: DeclKind::ExternBlock { decls, .. },
+                    ..
+                } => {
+                    for ext_decl in decls {
+                        if let Some(def_id) = self.collect_decl_owned(ext_decl, None, true, &[]) {
+                            item_ids.push(def_id);
+                        }
+                    }
+                }
+                other_decl => {
+                    if let Some(def_id) = self.collect_decl_owned(other_decl, None, false, &[]) {
+                        item_ids.push(def_id);
+                    }
+                }
+            }
+        }
+
+        if let Def::Module(m) = &mut self.ctx.defs[mod_id.0 as usize] {
+            m.items = item_ids;
+            m.imports = imports;
+            m.docs = Self::take_docs_if_present(docs);
+        }
+
+        if let Some(prev) = prev_scope {
+            self.ctx.scopes.set_current_scope(prev);
+        }
+        self.current_module = parent_module;
+        self.current_module_imported = parent_module_imported;
+    }
+
     /// Collect a single declaration.
     /// `parent_impl` identifies the enclosing impl block, if any.
     /// `force_extern` marks declarations originating from an `extern` block.
@@ -253,6 +357,122 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         }
     }
 
+    fn collect_decl_owned(
+        &mut self,
+        decl: Decl,
+        parent_impl: Option<DefId>,
+        force_extern: bool,
+        impl_generics: &[ast::GenericParam],
+    ) -> Option<DefId> {
+        let vis = decl.is_pub.into();
+        let Decl {
+            id,
+            span,
+            name_span,
+            name,
+            docs,
+            attributes,
+            kind,
+            ..
+        } = decl;
+
+        match kind {
+            DeclKind::Function {
+                generics,
+                where_clauses,
+                params,
+                ret_type,
+                body,
+                is_const,
+                is_extern,
+                is_variadic,
+            } => {
+                let mut combined_generics = impl_generics.to_vec();
+                combined_generics.extend(generics);
+
+                self.collect_function_owned(
+                    id,
+                    span,
+                    name_span,
+                    name,
+                    docs,
+                    attributes,
+                    vis,
+                    parent_impl,
+                    is_const,
+                    force_extern || is_extern,
+                    combined_generics,
+                    where_clauses,
+                    params,
+                    ret_type,
+                    body,
+                    is_variadic,
+                )
+            }
+            DeclKind::Var {
+                value,
+                is_static,
+                is_extern,
+                is_mut,
+            } => self.collect_global_owned(
+                id,
+                span,
+                name_span,
+                name,
+                docs,
+                attributes,
+                vis,
+                force_extern || is_extern,
+                value,
+                is_static,
+                is_mut,
+            ),
+            DeclKind::TypeAlias {
+                generics,
+                target,
+                is_extern,
+                where_clauses,
+                bounds,
+            } => self.collect_type_alias_or_struct_owned(
+                id,
+                span,
+                name_span,
+                name,
+                docs,
+                attributes,
+                vis,
+                force_extern || is_extern,
+                generics,
+                where_clauses,
+                bounds,
+                target,
+            ),
+            DeclKind::Impl {
+                generics,
+                where_clauses,
+                target_type,
+                trait_type,
+                decls,
+            } => self.collect_impl_owned(
+                span,
+                generics,
+                where_clauses,
+                target_type,
+                trait_type,
+                decls,
+            ),
+            DeclKind::ExternBlock { .. } => {
+                self.ctx.emit_error(
+                    span,
+                    "`extern` blocks are only allowed at the module top-level",
+                );
+                None
+            }
+            DeclKind::Use { .. } => None,
+            DeclKind::ModDecl { .. } => None,
+        }
+    }
+
     fn collect_function(&mut self, decl: &Decl, spec: FunctionCollectSpec<'_>) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
 
@@ -323,6 +543,93 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn collect_function_owned(
+        &mut self,
+        node_id: NodeId,
+        span: Span,
+        name_span: Span,
+        name: SymbolId,
+        docs: Option<ast::DocBlock>,
+        attributes: Vec<ast::Attribute>,
+        vis: Visibility,
+        parent_impl: Option<DefId>,
+        is_const: bool,
+        is_extern: bool,
+        generics: Vec<ast::GenericParam>,
+        where_clauses: Vec<ast::WhereClause>,
+        params: Vec<ast::FuncParam>,
+        ret_type: ast::TypeNode,
+        body: Option<Box<ast::Expr>>,
+        is_variadic: bool,
+    ) -> Option<DefId> {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        let mut actual_params = params;
+
+        if parent_impl.is_some() {
+            let self_sym = self.ctx.intern("self");
+            let self_node_id = self.ctx.next_node_id();
+
+            actual_params.insert(
+                0,
+                ast::FuncParam {
+                    pattern: ast::BindingPattern {
+                        name: self_sym,
+                        name_span: span,
+                        is_mut: false,
+                        span,
+                    },
+                    type_node: ast::TypeNode {
+                        id: self_node_id,
+                        span,
+                        kind: ast::TypeKind::SelfType,
+                    },
+                    span,
+                },
+            );
+        }
+
+        let func_def = FunctionDef {
+            id: def_id,
+            name,
+            name_span,
+            vis,
+            parent: parent_impl.or(self.current_module),
+            is_imported: self.current_module_imported,
+            generics,
+            where_clauses,
+            params: actual_params,
+            ret_type,
+            body,
+            is_const,
+            is_extern,
+            is_variadic,
+            is_intrinsic: false,
+            span,
+            resolved_sig: None,
+            docs: Self::take_docs_if_present(docs),
+            attributes,
+        };
+
+        self.ctx.add_def(Def::Function(func_def));
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+
+        if parent_impl.is_none() {
+            self.define_symbol(SymbolDefSpec {
+                name,
+                kind: SymbolKind::Function,
+                node_id,
+                def_id: Some(def_id),
+                span: name_span,
+                is_pub: vis == Visibility::Public,
+                is_mut: false,
+            });
+        }
+
+        Some(def_id)
+    }
+
     fn collect_global(
         &mut self,
         decl: &Decl,
@@ -367,6 +674,61 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             def_id: Some(def_id),
             span: decl.name_span,
             is_pub,
+            is_mut,
+        });
+
+        Some(def_id)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn collect_global_owned(
+        &mut self,
+        node_id: NodeId,
+        span: Span,
+        name_span: Span,
+        name: SymbolId,
+        docs: Option<ast::DocBlock>,
+        attributes: Vec<ast::Attribute>,
+        vis: Visibility,
+        is_extern: bool,
+        value: ast::Expr,
+        is_static: bool,
+        is_mut: bool,
+    ) -> Option<DefId> {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+
+        let global_def = GlobalDef {
+            id: def_id,
+            name,
+            vis,
+            parent: self.current_module,
+            is_imported: self.current_module_imported,
+            value,
+            is_static,
+            is_extern,
+            is_mut,
+            span,
+            docs: Self::take_docs_if_present(docs),
+            attributes,
+        };
+
+        self.ctx.add_def(Def::Global(global_def));
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+
+        let sym_kind = if is_static {
+            SymbolKind::Static
+        } else {
+            SymbolKind::Const
+        };
+
+        self.define_symbol(SymbolDefSpec {
+            name,
+            kind: sym_kind,
+            node_id,
+            def_id: Some(def_id),
+            span: name_span,
+            is_pub: vis == Visibility::Public,
             is_mut,
         });
 
@@ -497,6 +859,146 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn collect_type_alias_or_struct_owned(
+        &mut self,
+        node_id: NodeId,
+        span: Span,
+        name_span: Span,
+        name: SymbolId,
+        docs: Option<ast::DocBlock>,
+        attributes: Vec<ast::Attribute>,
+        vis: Visibility,
+        is_extern: bool,
+        generics: Vec<ast::GenericParam>,
+        where_clauses: Vec<ast::WhereClause>,
+        bounds: Vec<ast::TypeNode>,
+        target: ast::TypeNode,
+    ) -> Option<DefId> {
+        let def_id = DefId(self.ctx.defs.len() as u32);
+        let mut sym_kind = SymbolKind::TypeAlias;
+
+        let ast::TypeNode {
+            id: target_id,
+            span: target_span,
+            kind: target_kind,
+        } = target;
+
+        let def = match target_kind {
+            TypeKind::Struct {
+                is_extern: target_extern,
+                fields,
+            } => {
+                sym_kind = SymbolKind::Struct;
+                Def::Struct(StructDef {
+                    id: def_id,
+                    name,
+                    vis,
+                    parent_module: self.current_module,
+                    is_imported: self.current_module_imported,
+                    generics,
+                    where_clauses,
+                    fields,
+                    is_extern: is_extern || target_extern,
+                    span,
+                    docs: Self::take_docs_if_present(docs),
+                    attributes,
+                })
+            }
+            TypeKind::Union {
+                is_extern: target_extern,
+                fields,
+            } => {
+                sym_kind = SymbolKind::Union;
+                Def::Union(UnionDef {
+                    id: def_id,
+                    name,
+                    vis,
+                    parent_module: self.current_module,
+                    is_imported: self.current_module_imported,
+                    generics,
+                    where_clauses,
+                    fields,
+                    is_extern: is_extern || target_extern,
+                    span,
+                    docs: Self::take_docs_if_present(docs),
+                })
+            }
+            TypeKind::Enum {
+                backing_type,
+                variants,
+            } => {
+                if is_extern {
+                    self.ctx
+                        .struct_error(span, "enum types do not support `extern`")
+                        .with_hint("use `extern` on structs or unions for C-ABI layout control")
+                        .emit();
+                }
+                sym_kind = SymbolKind::Enum;
+                Def::Enum(EnumDef {
+                    id: def_id,
+                    name,
+                    vis,
+                    is_imported: self.current_module_imported,
+                    generics,
+                    where_clauses,
+                    backing_type,
+                    variants,
+                    span,
+                    docs: Self::take_docs_if_present(docs),
+                })
+            }
+            TypeKind::Trait { fields } => {
+                sym_kind = SymbolKind::Trait;
+                Def::Trait(TraitDef {
+                    id: def_id,
+                    name,
+                    vis,
+                    is_imported: self.current_module_imported,
+                    generics,
+                    where_clauses,
+                    supertraits: bounds,
+                    methods: fields,
+                    resolved_methods: Vec::new(),
+                    resolved_supertraits: Vec::new(),
+                    is_builtin: false,
+                    span,
+                    docs: Self::take_docs_if_present(docs),
+                })
+            }
+            kind => Def::TypeAlias(TypeAliasDef {
+                id: def_id,
+                name,
+                vis,
+                is_imported: self.current_module_imported,
+                generics,
+                where_clauses,
+                target: ast::TypeNode {
+                    id: target_id,
+                    span: target_span,
+                    kind,
+                },
+                span,
+                docs: Self::take_docs_if_present(docs),
+            }),
+        };
+
+        self.ctx.add_def(def);
+        self.ctx
+            .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+        self.define_symbol(SymbolDefSpec {
+            name,
+            kind: sym_kind,
+            node_id,
+            def_id: Some(def_id),
+            span: name_span,
+            is_pub: vis == Visibility::Public,
+            is_mut: false,
+        });
+
+        Some(def_id)
+    }
+
     fn collect_impl(
         &mut self,
         decl: &Decl,
@@ -539,6 +1041,77 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     method_decl.span,
                     "Only functions are allowed inside `impl` blocks",
                 );
+            }
+        }
+
+        self.ctx.scopes.exit_scope();
+
+        if let Def::Impl(i) = &mut self.ctx.defs[impl_id.0 as usize] {
+            i.methods = method_ids.clone();
+        }
+
+        for method_id in method_ids {
+            let Some(Def::Function(function)) = self.ctx.defs.get(method_id.0 as usize) else {
+                continue;
+            };
+            self.ctx
+                .impl_methods_by_name
+                .entry(function.name)
+                .or_default()
+                .push(method_id);
+        }
+
+        Some(impl_id)
+    }
+
+    fn collect_impl_owned(
+        &mut self,
+        span: Span,
+        generics: Vec<ast::GenericParam>,
+        where_clauses: Vec<ast::WhereClause>,
+        target_type: ast::TypeNode,
+        trait_type: Option<ast::TypeNode>,
+        decls: Vec<Decl>,
+    ) -> Option<DefId> {
+        let impl_id = DefId(self.ctx.defs.len() as u32);
+        self.ctx.global_impls.push(impl_id);
+        if trait_type.is_some() {
+            self.ctx.trait_impls.push(impl_id);
+        }
+        let mut method_ids = Vec::new();
+        self.ctx.add_def(Def::Impl(ImplDef {
+            id: impl_id,
+            parent_module: self.current_module,
+            is_imported: self.current_module_imported,
+            generics: generics.clone(),
+            where_clauses,
+            target_type,
+            trait_type,
+            methods: Vec::new(),
+            span,
+        }));
+        self.ctx
+            .register_def_owner(impl_id, self.current_module, self.current_owner_scope());
+
+        self.ctx.scopes.enter_scope();
+        self.inject_generic_params(&generics);
+
+        for method_decl in decls {
+            match method_decl {
+                decl @ Decl {
+                    kind: DeclKind::Function { .. },
+                    ..
+                } => {
+                    if let Some(m_id) =
+                        self.collect_decl_owned(decl, Some(impl_id), false, &generics)
+                    {
+                        method_ids.push(m_id);
+                    }
+                }
+                Decl { span, .. } => {
+                    self.ctx
+                        .emit_error(span, "Only functions are allowed inside `impl` blocks");
+                }
             }
         }
 
@@ -622,6 +1195,13 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     fn clone_docs_if_present(docs: &Option<ast::DocBlock>) -> Option<ast::DocBlock> {
         match docs {
             Some(block) if !block.lines.is_empty() => Some(block.clone()),
+            _ => None,
+        }
+    }
+
+    fn take_docs_if_present(docs: Option<ast::DocBlock>) -> Option<ast::DocBlock> {
+        match docs {
+            Some(block) if !block.lines.is_empty() => Some(block),
             _ => None,
         }
     }

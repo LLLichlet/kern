@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -8,7 +8,7 @@ use crate::metadata;
 use kernc_ast as ast;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId, ModuleDef};
-use kernc_utils::SymbolId;
+use kernc_utils::{FastHashMap, FastHashSet, SymbolId};
 
 struct ResolvedRootModule {
     entry_path: PathBuf,
@@ -22,14 +22,15 @@ struct ModuleLoadTimings {
     frontend_ensure_file_id: Duration,
     frontend_parse: Duration,
     frontend_prune: Duration,
+    frontend_rebind: Duration,
     resolve_submodule_paths: Duration,
 }
 
 pub struct ModuleLoader<'a, 'ctx> {
     pub ctx: &'a mut SemaContext<'ctx>,
     // Prevent import cycles: physical absolute path -> module ID.
-    pub loaded_files: HashMap<PathBuf, DefId>,
-    path_exists_cache: HashMap<PathBuf, bool>,
+    pub loaded_files: FastHashMap<PathBuf, DefId>,
+    path_exists_cache: FastHashMap<PathBuf, bool>,
     // Cache parsed ASTs until the collector extracts semantic symbols.
     pub asts: Vec<(DefId, ast::Module)>,
     frontend: &'a FrontendDatabase,
@@ -45,8 +46,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
     ) -> Self {
         Self {
             ctx,
-            loaded_files: HashMap::new(),
-            path_exists_cache: HashMap::new(),
+            loaded_files: FastHashMap::default(),
+            path_exists_cache: FastHashMap::default(),
             asts: Vec::new(),
             frontend,
             timings: ModuleLoadTimings::default(),
@@ -64,6 +65,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ),
             ("    load_parse", self.timings.frontend_parse),
             ("    load_prune", self.timings.frontend_prune),
+            ("    load_rebind", self.timings.frontend_rebind),
             (
                 "    load_resolve_submodule_paths",
                 self.timings.resolve_submodule_paths,
@@ -107,7 +109,7 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             let available_aliases = pending
                 .iter()
                 .map(|(alias_sym, _)| *alias_sym)
-                .collect::<HashSet<_>>();
+                .collect::<FastHashSet<_>>();
             let referenced_aliases = self.collect_referenced_aliases(&available_aliases);
             if referenced_aliases.is_empty() {
                 break;
@@ -144,8 +146,11 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         }
     }
 
-    fn collect_referenced_aliases(&self, alias_names: &HashSet<SymbolId>) -> HashSet<SymbolId> {
-        let mut referenced = HashSet::new();
+    fn collect_referenced_aliases(
+        &self,
+        alias_names: &FastHashSet<SymbolId>,
+    ) -> FastHashSet<SymbolId> {
+        let mut referenced = FastHashSet::default();
         for (_, module) in &self.asts {
             Self::collect_module_alias_references(module, alias_names, &mut referenced);
         }
@@ -154,8 +159,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_module_alias_references(
         module: &ast::Module,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         for attribute in &module.attributes {
             Self::collect_attribute_alias_references(attribute, alias_names, referenced);
@@ -167,8 +172,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_decl_alias_references(
         decl: &ast::Decl,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         for attribute in &decl.attributes {
             Self::collect_attribute_alias_references(attribute, alias_names, referenced);
@@ -212,7 +217,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 Self::collect_type_alias_references(target, alias_names, referenced);
             }
             ast::DeclKind::ModDecl { .. } => {}
-            ast::DeclKind::Use { kind, path, target, .. } => {
+            ast::DeclKind::Use {
+                kind, path, target, ..
+            } => {
                 if matches!(kind, ast::UsePathKind::Root)
                     && let Some(&root) = path.first()
                     && alias_names.contains(&root)
@@ -257,8 +264,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_attribute_alias_references(
         attribute: &ast::Attribute,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &attribute.kind {
             ast::AttributeKind::If(expr) => {
@@ -276,8 +283,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_where_clause_alias_references(
         clause: &ast::WhereClause,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         Self::collect_type_alias_references(&clause.target_ty, alias_names, referenced);
         for bound in &clause.bounds {
@@ -287,16 +294,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_func_param_alias_references(
         param: &ast::FuncParam,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         Self::collect_type_alias_references(&param.type_node, alias_names, referenced);
     }
 
     fn collect_type_alias_references(
         ty: &ast::TypeNode,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &ty.kind {
             ast::TypeKind::Path {
@@ -365,8 +372,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_struct_field_alias_references(
         field: &ast::StructFieldDef,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         Self::collect_type_alias_references(&field.type_node, alias_names, referenced);
         if let Some(default_value) = &field.default_value {
@@ -376,8 +383,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_expr_alias_references(
         expr: &ast::Expr,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &expr.kind {
             ast::ExprKind::Let {
@@ -550,8 +557,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_data_literal_alias_references(
         literal: &ast::DataLiteralKind,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         match literal {
             ast::DataLiteralKind::Struct(fields) => {
@@ -576,16 +583,16 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_let_pattern_alias_references(
         pattern: &ast::LetPattern,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         Self::collect_pattern_alias_references(&pattern.pattern, alias_names, referenced);
     }
 
     fn collect_pattern_alias_references(
         pattern: &ast::Pattern,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &pattern.kind {
             ast::PatternKind::Binding(_) | ast::PatternKind::Ignore => {}
@@ -607,8 +614,8 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
 
     fn collect_match_pattern_alias_references(
         pattern: &ast::MatchPattern,
-        alias_names: &HashSet<SymbolId>,
-        referenced: &mut HashSet<SymbolId>,
+        alias_names: &FastHashSet<SymbolId>,
+        referenced: &mut FastHashSet<SymbolId>,
     ) {
         match &pattern.kind {
             ast::MatchPatternKind::Value(value) => {
@@ -749,18 +756,17 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             return Some(mod_id);
         }
 
-        let parsed = match self
-            .frontend
-            .load_parsed_module_uncached_normalized_profiled(
-                self.ctx.sess,
-                &abs_path,
-                self.collect_docs,
-            ) {
+        let parsed = match self.frontend.load_parsed_module_normalized_profiled(
+            self.ctx.sess,
+            &abs_path,
+            self.collect_docs,
+        ) {
             Ok(Some((parsed, timings))) => {
                 self.timings.frontend_read_source += timings.read_source;
                 self.timings.frontend_ensure_file_id += timings.ensure_file_id;
                 self.timings.frontend_parse += timings.parse;
                 self.timings.frontend_prune += timings.prune;
+                self.timings.frontend_rebind += timings.rebind;
                 parsed
             }
             Ok(None) => {

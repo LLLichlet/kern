@@ -6,12 +6,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
-#[cfg(test)]
 use kernc_db::Memo;
 use kernc_db::{Database, Input, Query};
 use kernc_parser::Parser;
 use kernc_sema::passes::Pruner;
-use kernc_utils::{FileId, Session};
+use kernc_utils::{Diagnostic, DiagnosticLevel, FileId, NodeId, Session, Span, SymbolId};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FrontendParsedModule {
@@ -25,6 +24,7 @@ pub(crate) struct FrontendLoadTimings {
     pub(crate) ensure_file_id: Duration,
     pub(crate) parse: Duration,
     pub(crate) prune: Duration,
+    pub(crate) rebind: Duration,
 }
 
 impl FrontendLoadTimings {
@@ -33,7 +33,33 @@ impl FrontendLoadTimings {
         self.ensure_file_id += other.ensure_file_id;
         self.parse += other.parse;
         self.prune += other.prune;
+        self.rebind += other.rebind;
     }
+}
+
+#[derive(Debug, Clone)]
+struct CachedParsedModule {
+    ast: ast::Module,
+    symbols: Vec<Arc<str>>,
+    node_count: u32,
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedParseFailure {
+    diagnostics: Vec<Diagnostic>,
+}
+
+#[derive(Debug, Clone)]
+struct CachedParseRecord {
+    source: Arc<str>,
+    outcome: CachedParseOutcome,
+}
+
+#[derive(Debug, Clone)]
+enum CachedParseOutcome {
+    Parsed(CachedParsedModule),
+    Failed(CachedParseFailure),
 }
 
 #[derive(Clone)]
@@ -41,8 +67,7 @@ pub struct FrontendDatabase {
     db: Database,
     source_overrides: Input<PathBuf, Arc<str>>,
     source_texts: Query<PathBuf, Option<Arc<str>>>,
-    #[cfg(test)]
-    parsed_modules: Memo<PathBuf, Option<FrontendParsedModule>>,
+    parsed_modules: Memo<(PathBuf, bool), Option<Arc<CachedParseRecord>>>,
     known_override_paths: Arc<Mutex<HashSet<PathBuf>>>,
     uncached_parse_count: Arc<AtomicUsize>,
 }
@@ -69,7 +94,6 @@ impl FrontendDatabase {
             db: Database::new(),
             source_overrides,
             source_texts,
-            #[cfg(test)]
             parsed_modules: Memo::new(),
             known_override_paths: Arc::new(Mutex::new(HashSet::new())),
             uncached_parse_count: Arc::new(AtomicUsize::new(0)),
@@ -132,38 +156,64 @@ impl FrontendDatabase {
         path: &Path,
     ) -> Result<Option<FrontendParsedModule>, kernc_db::Cycle> {
         let normalized = normalize_path(path);
-
-        self.parsed_modules.get_with(
-            &self.db,
-            "frontend_parsed_module",
-            normalized.clone(),
-            || {
-                let Some(source) = self.source_texts.get(&self.db, normalized.clone())? else {
-                    return Ok(None);
-                };
-                Ok(self.parse_frontend_module(session, &normalized, &source))
-            },
-        )
+        self.load_parsed_module_normalized_profiled(session, &normalized, true)
+            .map(|parsed| parsed.map(|(parsed, _)| parsed))
     }
 
-    pub(crate) fn load_parsed_module_uncached_normalized_profiled(
+    pub(crate) fn load_parsed_module_normalized_profiled(
         &self,
         session: &mut Session,
         normalized: &Path,
         collect_docs: bool,
     ) -> Result<Option<(FrontendParsedModule, FrontendLoadTimings)>, kernc_db::Cycle> {
-        self.uncached_parse_count.fetch_add(1, Ordering::SeqCst);
-
         let mut timings = FrontendLoadTimings::default();
-        let read_started = Instant::now();
-        let Some(source) = self.source_texts.get(&self.db, normalized.to_path_buf())? else {
+        let key = (normalized.to_path_buf(), collect_docs);
+        let mut computed_timings = FrontendLoadTimings::default();
+        let Some(record) =
+            self.parsed_modules
+                .get_with(&self.db, "frontend_parsed_module", key, || {
+                    let read_started = Instant::now();
+                    let Some(source) = self.source_texts.get(&self.db, normalized.to_path_buf())?
+                    else {
+                        return Ok(None);
+                    };
+                    computed_timings.read_source = read_started.elapsed();
+                    let (outcome, parse_timings) =
+                        self.compute_cached_parse_outcome(&source, collect_docs);
+                    computed_timings.add(parse_timings);
+                    Ok(Some(Arc::new(CachedParseRecord { source, outcome })))
+                })?
+        else {
             return Ok(None);
         };
-        timings.read_source = read_started.elapsed();
+        timings.add(computed_timings);
 
-        let (parsed, parse_timings) =
-            self.parse_frontend_module_profiled(session, normalized, &source, collect_docs);
-        timings.add(parse_timings);
+        let ensure_started = Instant::now();
+        let file_id = self.ensure_file_id(session, normalized, &record.source);
+        timings.ensure_file_id += ensure_started.elapsed();
+
+        let rebind_started = Instant::now();
+        let mut parsed = match &record.outcome {
+            CachedParseOutcome::Parsed(cached) => {
+                self.replay_diagnostics(session, file_id, &cached.diagnostics);
+                Some(self.bind_cached_module(session, normalized, file_id, &cached))
+            }
+            CachedParseOutcome::Failed(failure) => {
+                self.replay_diagnostics(session, file_id, &failure.diagnostics);
+                None
+            }
+        };
+        timings.rebind += rebind_started.elapsed();
+
+        if let Some(parsed) = &mut parsed
+            && source_may_need_pruning(record.source.as_ref())
+        {
+            let prune_started = Instant::now();
+            let mut pruner = Pruner::new(session);
+            pruner.prune_module(&mut parsed.ast);
+            timings.prune += prune_started.elapsed();
+        }
+
         Ok(parsed.map(|parsed| (parsed, timings)))
     }
 
@@ -189,29 +239,41 @@ impl FrontendDatabase {
             .add_file(path.to_string_lossy().to_string(), source.clone())
     }
 
-    #[cfg(test)]
-    fn parse_frontend_module(
+    fn compute_cached_parse_outcome(
         &self,
-        session: &mut Session,
-        normalized: &Path,
         source: &Arc<str>,
-    ) -> Option<FrontendParsedModule> {
-        self.parse_frontend_module_profiled(session, normalized, source, true)
-            .0
+        collect_docs: bool,
+    ) -> (CachedParseOutcome, FrontendLoadTimings) {
+        self.uncached_parse_count.fetch_add(1, Ordering::SeqCst);
+
+        let mut parse_session = Session::new();
+        let (parsed, timings) = self.parse_frontend_module_profiled(
+            &mut parse_session,
+            FileId(0),
+            source,
+            collect_docs,
+        );
+        let diagnostics = parse_session.diagnostics.clone();
+        let outcome = match parsed {
+            Some(ast) => CachedParseOutcome::Parsed(CachedParsedModule {
+                ast,
+                symbols: parse_session.interner.snapshot_symbols(),
+                node_count: parse_session.next_node_id,
+                diagnostics,
+            }),
+            None => CachedParseOutcome::Failed(CachedParseFailure { diagnostics }),
+        };
+        (outcome, timings)
     }
 
     fn parse_frontend_module_profiled(
         &self,
         session: &mut Session,
-        normalized: &Path,
+        file_id: FileId,
         source: &Arc<str>,
         collect_docs: bool,
-    ) -> (Option<FrontendParsedModule>, FrontendLoadTimings) {
+    ) -> (Option<ast::Module>, FrontendLoadTimings) {
         let mut timings = FrontendLoadTimings::default();
-
-        let ensure_file_started = Instant::now();
-        let file_id = self.ensure_file_id(session, normalized, source);
-        timings.ensure_file_id = ensure_file_started.elapsed();
 
         let parse_started = Instant::now();
         let mut parser = if collect_docs {
@@ -219,21 +281,52 @@ impl FrontendDatabase {
         } else {
             Parser::new_without_docs(source.as_ref(), file_id, session)
         };
-        let mut ast = match parser.parse_module() {
+        let ast = match parser.parse_module() {
             Ok(ast) => ast,
             Err(_) => return (None, timings),
         };
         timings.parse = parse_started.elapsed();
+
+        (Some(ast), timings)
+    }
+
+    fn bind_cached_module(
+        &self,
+        session: &mut Session,
+        normalized: &Path,
+        file_id: FileId,
+        cached: &CachedParsedModule,
+    ) -> FrontendParsedModule {
+        let mut ast = cached.ast.clone();
         ast.path = normalized.to_string_lossy().to_string();
+        let symbol_map = session.interner.intern_snapshot(&cached.symbols);
+        let node_base = session.reserve_node_ids(cached.node_count);
+        let mut rebinder = CachedAstRebinder {
+            file_id,
+            node_base,
+            symbol_map: &symbol_map,
+        };
+        rebinder.rebind_module(&mut ast);
+        FrontendParsedModule { file_id, ast }
+    }
 
-        if source_may_need_pruning(source.as_ref()) {
-            let prune_started = Instant::now();
-            let mut pruner = Pruner::new(session);
-            pruner.prune_module(&mut ast);
-            timings.prune = prune_started.elapsed();
+    fn replay_diagnostics(
+        &self,
+        session: &mut Session,
+        file_id: FileId,
+        diagnostics: &[Diagnostic],
+    ) {
+        for diagnostic in diagnostics {
+            session
+                .diagnostics
+                .push(rebind_diagnostic(diagnostic, file_id));
+            if matches!(
+                diagnostic.level,
+                DiagnosticLevel::Error | DiagnosticLevel::Ice
+            ) {
+                session.error_count += 1;
+            }
         }
-
-        (Some(FrontendParsedModule { file_id, ast }), timings)
     }
 }
 
@@ -290,8 +383,571 @@ fn source_may_need_pruning(source: &str) -> bool {
     source.contains("#[") || source.contains("#![")
 }
 
+struct CachedAstRebinder<'a> {
+    file_id: FileId,
+    node_base: NodeId,
+    symbol_map: &'a [SymbolId],
+}
+
+impl CachedAstRebinder<'_> {
+    fn rebind_module(&mut self, module: &mut ast::Module) {
+        self.rebind_doc_block(module.docs.as_mut());
+        for attribute in &mut module.attributes {
+            self.rebind_attribute(attribute);
+        }
+        for decl in &mut module.decls {
+            self.rebind_decl(decl);
+        }
+    }
+
+    fn rebind_decl(&mut self, decl: &mut ast::Decl) {
+        decl.id = self.rebind_node_id(decl.id);
+        self.rebind_span(&mut decl.span);
+        self.rebind_span(&mut decl.name_span);
+        decl.name = self.rebind_symbol(decl.name);
+        self.rebind_doc_block(decl.docs.as_mut());
+        for attribute in &mut decl.attributes {
+            self.rebind_attribute(attribute);
+        }
+
+        match &mut decl.kind {
+            ast::DeclKind::Function {
+                generics,
+                where_clauses,
+                params,
+                ret_type,
+                body,
+                ..
+            } => {
+                for generic in generics {
+                    self.rebind_generic_param(generic);
+                }
+                for clause in where_clauses {
+                    self.rebind_where_clause(clause);
+                }
+                for param in params {
+                    self.rebind_func_param(param);
+                }
+                self.rebind_type_node(ret_type);
+                if let Some(body) = body {
+                    self.rebind_expr(body);
+                }
+            }
+            ast::DeclKind::Var { value, .. } => self.rebind_expr(value),
+            ast::DeclKind::TypeAlias {
+                generics,
+                bounds,
+                where_clauses,
+                target,
+                ..
+            } => {
+                for generic in generics {
+                    self.rebind_generic_param(generic);
+                }
+                for bound in bounds {
+                    self.rebind_type_node(bound);
+                }
+                for clause in where_clauses {
+                    self.rebind_where_clause(clause);
+                }
+                self.rebind_type_node(target);
+            }
+            ast::DeclKind::ModDecl { .. } => {}
+            ast::DeclKind::Use { path, target, .. } => {
+                self.rebind_symbols(path);
+                self.rebind_use_target(target);
+            }
+            ast::DeclKind::ExternBlock { decls, .. } => {
+                for decl in decls {
+                    self.rebind_decl(decl);
+                }
+            }
+            ast::DeclKind::Impl {
+                generics,
+                where_clauses,
+                target_type,
+                trait_type,
+                decls,
+            } => {
+                for generic in generics {
+                    self.rebind_generic_param(generic);
+                }
+                for clause in where_clauses {
+                    self.rebind_where_clause(clause);
+                }
+                self.rebind_type_node(target_type);
+                if let Some(trait_type) = trait_type {
+                    self.rebind_type_node(trait_type);
+                }
+                for decl in decls {
+                    self.rebind_decl(decl);
+                }
+            }
+        }
+    }
+
+    fn rebind_where_clause(&mut self, clause: &mut ast::WhereClause) {
+        self.rebind_span(&mut clause.span);
+        self.rebind_type_node(&mut clause.target_ty);
+        for bound in &mut clause.bounds {
+            self.rebind_type_node(bound);
+        }
+    }
+
+    fn rebind_generic_param(&mut self, generic: &mut ast::GenericParam) {
+        generic.name = self.rebind_symbol(generic.name);
+        self.rebind_span(&mut generic.span);
+    }
+
+    fn rebind_func_param(&mut self, param: &mut ast::FuncParam) {
+        self.rebind_binding_pattern(&mut param.pattern);
+        self.rebind_type_node(&mut param.type_node);
+        self.rebind_span(&mut param.span);
+    }
+
+    fn rebind_use_target(&mut self, target: &mut ast::UseTarget) {
+        match target {
+            ast::UseTarget::Module(alias) => {
+                if let Some(alias) = alias {
+                    *alias = self.rebind_symbol(*alias);
+                }
+            }
+            ast::UseTarget::Members(members) => {
+                for member in members {
+                    self.rebind_use_member(member);
+                }
+            }
+        }
+    }
+
+    fn rebind_use_member(&mut self, member: &mut ast::UseMember) {
+        self.rebind_symbols(&mut member.path);
+        if let Some(alias) = &mut member.alias {
+            *alias = self.rebind_symbol(*alias);
+        }
+        self.rebind_span(&mut member.span);
+    }
+
+    fn rebind_expr(&mut self, expr: &mut ast::Expr) {
+        expr.id = self.rebind_node_id(expr.id);
+        self.rebind_span(&mut expr.span);
+
+        match &mut expr.kind {
+            ast::ExprKind::Let {
+                pattern,
+                init,
+                else_pattern,
+                else_branch,
+            } => {
+                self.rebind_let_pattern(pattern);
+                self.rebind_expr(init);
+                if let Some(pattern) = else_pattern {
+                    self.rebind_pattern(pattern);
+                }
+                if let Some(branch) = else_branch {
+                    self.rebind_expr(branch);
+                }
+            }
+            ast::ExprKind::Static { pattern, init } => {
+                self.rebind_binding_pattern(pattern);
+                self.rebind_expr(init);
+            }
+            ast::ExprKind::Integer(..)
+            | ast::ExprKind::Float(..)
+            | ast::ExprKind::Bool(..)
+            | ast::ExprKind::Char(..)
+            | ast::ExprKind::ByteChar(..)
+            | ast::ExprKind::String(..)
+            | ast::ExprKind::Break
+            | ast::ExprKind::Continue
+            | ast::ExprKind::Undef
+            | ast::ExprKind::Infer
+            | ast::ExprKind::SelfValue => {}
+            ast::ExprKind::Identifier(symbol) => *symbol = self.rebind_symbol(*symbol),
+            ast::ExprKind::Binary { lhs, rhs, .. } => {
+                self.rebind_expr(lhs);
+                self.rebind_expr(rhs);
+            }
+            ast::ExprKind::Unary { operand, .. } => self.rebind_expr(operand),
+            ast::ExprKind::FieldAccess {
+                lhs,
+                field,
+                field_span,
+            } => {
+                self.rebind_expr(lhs);
+                *field = self.rebind_symbol(*field);
+                self.rebind_span(field_span);
+            }
+            ast::ExprKind::IndexAccess { lhs, index, .. } => {
+                self.rebind_expr(lhs);
+                self.rebind_expr(index);
+            }
+            ast::ExprKind::Call { callee, args } => {
+                self.rebind_expr(callee);
+                for arg in args {
+                    self.rebind_expr(arg);
+                }
+            }
+            ast::ExprKind::DataInit { type_node, literal } => {
+                if let Some(type_node) = type_node {
+                    self.rebind_type_node(type_node);
+                }
+                self.rebind_data_literal(literal);
+            }
+            ast::ExprKind::EnumLiteral {
+                variant,
+                variant_span,
+            } => {
+                *variant = self.rebind_symbol(*variant);
+                self.rebind_span(variant_span);
+            }
+            ast::ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                self.rebind_expr(cond);
+                self.rebind_expr(then_branch);
+                if let Some(branch) = else_branch {
+                    self.rebind_expr(branch);
+                }
+            }
+            ast::ExprKind::Match { target, arms } => {
+                self.rebind_expr(target);
+                for arm in arms {
+                    self.rebind_match_arm(arm);
+                }
+            }
+            ast::ExprKind::Block { stmts, result } => {
+                for stmt in stmts {
+                    self.rebind_stmt(stmt);
+                }
+                if let Some(result) = result {
+                    self.rebind_expr(result);
+                }
+            }
+            ast::ExprKind::For {
+                init,
+                cond,
+                post,
+                body,
+            } => {
+                if let Some(init) = init {
+                    self.rebind_expr(init);
+                }
+                if let Some(cond) = cond {
+                    self.rebind_expr(cond);
+                }
+                if let Some(post) = post {
+                    self.rebind_expr(post);
+                }
+                self.rebind_expr(body);
+            }
+            ast::ExprKind::SliceOp {
+                lhs, start, end, ..
+            } => {
+                self.rebind_expr(lhs);
+                if let Some(start) = start {
+                    self.rebind_expr(start);
+                }
+                if let Some(end) = end {
+                    self.rebind_expr(end);
+                }
+            }
+            ast::ExprKind::Defer { expr } => self.rebind_expr(expr),
+            ast::ExprKind::Return(expr) => {
+                if let Some(expr) = expr {
+                    self.rebind_expr(expr);
+                }
+            }
+            ast::ExprKind::Assign { lhs, rhs, .. } => {
+                self.rebind_expr(lhs);
+                self.rebind_expr(rhs);
+            }
+            ast::ExprKind::As { lhs, target } => {
+                self.rebind_expr(lhs);
+                self.rebind_type_node(target);
+            }
+            ast::ExprKind::GenericInstantiation { target, types } => {
+                self.rebind_expr(target);
+                for ty in types {
+                    self.rebind_type_node(ty);
+                }
+            }
+            ast::ExprKind::Closure {
+                captures,
+                params,
+                ret_type,
+                body,
+            } => {
+                for capture in captures {
+                    self.rebind_capture_pattern(capture);
+                }
+                for param in params {
+                    self.rebind_func_param(param);
+                }
+                self.rebind_type_node(ret_type);
+                self.rebind_expr(body);
+            }
+        }
+    }
+
+    fn rebind_data_literal(&mut self, literal: &mut ast::DataLiteralKind) {
+        match literal {
+            ast::DataLiteralKind::Struct(fields) => {
+                for field in fields {
+                    self.rebind_struct_field_init(field);
+                }
+            }
+            ast::DataLiteralKind::Array(exprs) => {
+                for expr in exprs {
+                    self.rebind_expr(expr);
+                }
+            }
+            ast::DataLiteralKind::Repeat { value, count } => {
+                self.rebind_expr(value);
+                self.rebind_expr(count);
+            }
+            ast::DataLiteralKind::Scalar(expr) => self.rebind_expr(expr),
+        }
+    }
+
+    fn rebind_struct_field_init(&mut self, field: &mut ast::StructFieldInit) {
+        field.name = self.rebind_symbol(field.name);
+        self.rebind_span(&mut field.name_span);
+        self.rebind_expr(&mut field.value);
+        self.rebind_span(&mut field.span);
+    }
+
+    fn rebind_capture_pattern(&mut self, capture: &mut ast::CapturePattern) {
+        capture.name = self.rebind_symbol(capture.name);
+        self.rebind_span(&mut capture.name_span);
+        self.rebind_expr(&mut capture.value);
+        self.rebind_span(&mut capture.span);
+    }
+
+    fn rebind_match_arm(&mut self, arm: &mut ast::MatchArm) {
+        for pattern in &mut arm.patterns {
+            self.rebind_match_pattern(pattern);
+        }
+        self.rebind_expr(&mut arm.body);
+        self.rebind_span(&mut arm.span);
+    }
+
+    fn rebind_stmt(&mut self, stmt: &mut ast::Stmt) {
+        stmt.id = self.rebind_node_id(stmt.id);
+        self.rebind_span(&mut stmt.span);
+        for attribute in &mut stmt.attributes {
+            self.rebind_attribute(attribute);
+        }
+        match &mut stmt.kind {
+            ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
+                self.rebind_expr(expr)
+            }
+        }
+    }
+
+    fn rebind_type_node(&mut self, ty: &mut ast::TypeNode) {
+        ty.id = self.rebind_node_id(ty.id);
+        self.rebind_span(&mut ty.span);
+
+        match &mut ty.kind {
+            ast::TypeKind::Path {
+                segments,
+                segment_spans,
+                generics,
+            } => {
+                self.rebind_symbols(segments);
+                for span in segment_spans {
+                    self.rebind_span(span);
+                }
+                for generic in generics {
+                    self.rebind_type_node(generic);
+                }
+            }
+            ast::TypeKind::Pointer { elem, .. }
+            | ast::TypeKind::VolatilePtr { elem, .. }
+            | ast::TypeKind::ArrayInfer { elem, .. }
+            | ast::TypeKind::Slice { elem, .. } => self.rebind_type_node(elem),
+            ast::TypeKind::Array { elem, len, .. } => {
+                self.rebind_type_node(elem);
+                self.rebind_expr(len);
+            }
+            ast::TypeKind::Function { params, ret, .. }
+            | ast::TypeKind::ClosureInterface { params, ret } => {
+                for param in params {
+                    self.rebind_type_node(param);
+                }
+                if let Some(ret) = ret {
+                    self.rebind_type_node(ret);
+                }
+            }
+            ast::TypeKind::Struct { fields, .. }
+            | ast::TypeKind::Union { fields, .. }
+            | ast::TypeKind::Trait { fields } => {
+                for field in fields {
+                    self.rebind_struct_field_def(field);
+                }
+            }
+            ast::TypeKind::Enum {
+                backing_type,
+                variants,
+            } => {
+                if let Some(backing_type) = backing_type {
+                    self.rebind_type_node(backing_type);
+                }
+                for variant in variants {
+                    self.rebind_enum_variant(variant);
+                }
+            }
+            ast::TypeKind::Infer
+            | ast::TypeKind::SelfType
+            | ast::TypeKind::Never
+            | ast::TypeKind::Void => {}
+            ast::TypeKind::TypeOf(expr) => self.rebind_expr(expr),
+        }
+    }
+
+    fn rebind_struct_field_def(&mut self, field: &mut ast::StructFieldDef) {
+        field.name = self.rebind_symbol(field.name);
+        self.rebind_span(&mut field.name_span);
+        self.rebind_doc_block(field.docs.as_mut());
+        self.rebind_type_node(&mut field.type_node);
+        if let Some(default_value) = &mut field.default_value {
+            self.rebind_expr(default_value);
+        }
+        self.rebind_span(&mut field.span);
+    }
+
+    fn rebind_enum_variant(&mut self, variant: &mut ast::EnumVariant) {
+        variant.name = self.rebind_symbol(variant.name);
+        self.rebind_span(&mut variant.name_span);
+        self.rebind_doc_block(variant.docs.as_mut());
+        if let Some(payload_type) = &mut variant.payload_type {
+            self.rebind_type_node(payload_type);
+        }
+        if let Some(value) = &mut variant.value {
+            self.rebind_expr(value);
+        }
+        self.rebind_span(&mut variant.span);
+    }
+
+    fn rebind_attribute(&mut self, attribute: &mut ast::Attribute) {
+        self.rebind_span(&mut attribute.span);
+        match &mut attribute.kind {
+            ast::AttributeKind::If(expr) => self.rebind_expr(expr),
+            ast::AttributeKind::Meta(items) => {
+                for item in items {
+                    self.rebind_meta_item(item);
+                }
+            }
+        }
+    }
+
+    fn rebind_meta_item(&mut self, item: &mut ast::MetaItem) {
+        match item {
+            ast::MetaItem::Marker(symbol) => *symbol = self.rebind_symbol(*symbol),
+            ast::MetaItem::Call(symbol, expr) => {
+                *symbol = self.rebind_symbol(*symbol);
+                self.rebind_expr(expr);
+            }
+        }
+    }
+
+    fn rebind_binding_pattern(&mut self, pattern: &mut ast::BindingPattern) {
+        pattern.name = self.rebind_symbol(pattern.name);
+        self.rebind_span(&mut pattern.name_span);
+        self.rebind_span(&mut pattern.span);
+    }
+
+    fn rebind_pattern(&mut self, pattern: &mut ast::Pattern) {
+        self.rebind_span(&mut pattern.span);
+        match &mut pattern.kind {
+            ast::PatternKind::Binding(binding) => self.rebind_binding_pattern(binding),
+            ast::PatternKind::Ignore => {}
+            ast::PatternKind::Variant(variant) => {
+                if let Some(target_type) = &mut variant.target_type {
+                    self.rebind_type_node(target_type);
+                }
+                variant.variant_name = self.rebind_symbol(variant.variant_name);
+                self.rebind_span(&mut variant.variant_span);
+            }
+            ast::PatternKind::Destructure(destructure) => {
+                if let Some(target_type) = &mut destructure.target_type {
+                    self.rebind_type_node(target_type);
+                }
+                for field in &mut destructure.fields {
+                    field.name = self.rebind_symbol(field.name);
+                    self.rebind_span(&mut field.name_span);
+                    self.rebind_pattern(&mut field.pattern);
+                    self.rebind_span(&mut field.span);
+                }
+            }
+        }
+    }
+
+    fn rebind_let_pattern(&mut self, pattern: &mut ast::LetPattern) {
+        self.rebind_pattern(&mut pattern.pattern);
+        self.rebind_span(&mut pattern.span);
+    }
+
+    fn rebind_match_pattern(&mut self, pattern: &mut ast::MatchPattern) {
+        self.rebind_span(&mut pattern.span);
+        match &mut pattern.kind {
+            ast::MatchPatternKind::Value(expr) => self.rebind_expr(expr),
+            ast::MatchPatternKind::Range { start, end, .. } => {
+                self.rebind_expr(start);
+                self.rebind_expr(end);
+            }
+            ast::MatchPatternKind::Pattern(pattern) => self.rebind_pattern(pattern),
+        }
+    }
+
+    fn rebind_doc_block(&mut self, doc: Option<&mut ast::DocBlock>) {
+        let Some(doc) = doc else {
+            return;
+        };
+        self.rebind_span(&mut doc.span);
+        for line in &mut doc.lines {
+            self.rebind_span(&mut line.span);
+        }
+    }
+
+    fn rebind_symbols(&self, symbols: &mut [SymbolId]) {
+        for symbol in symbols {
+            *symbol = self.rebind_symbol(*symbol);
+        }
+    }
+
+    fn rebind_node_id(&self, id: NodeId) -> NodeId {
+        NodeId(self.node_base.0 + id.0)
+    }
+
+    fn rebind_symbol(&self, symbol: SymbolId) -> SymbolId {
+        self.symbol_map
+            .get(symbol.0)
+            .copied()
+            .expect("cached symbol id must exist in cached symbol table")
+    }
+
+    fn rebind_span(&self, span: &mut Span) {
+        span.file = self.file_id;
+    }
+}
+
+fn rebind_diagnostic(diagnostic: &Diagnostic, file_id: FileId) -> Diagnostic {
+    let mut rebound = diagnostic.clone();
+    rebound.primary_span.file = file_id;
+    for (span, _) in &mut rebound.related_spans {
+        span.file = file_id;
+    }
+    rebound
+}
+
 #[cfg(test)]
 mod tests {
+    use kernc_ast as ast;
+
     use super::FrontendDatabase;
     use kernc_utils::Session;
 
@@ -341,7 +997,7 @@ mod tests {
             .load_parsed_module(&mut session, &path)
             .unwrap()
             .expect("module should parse");
-        let node_id_after_first_parse = session.next_node_id;
+        let parse_count_after_first_load = db.uncached_parse_count();
 
         let second = db
             .load_parsed_module(&mut session, &path)
@@ -349,6 +1005,183 @@ mod tests {
             .expect("module should parse");
 
         assert_eq!(first.file_id, second.file_id);
-        assert_eq!(session.next_node_id, node_id_after_first_parse);
+        assert_eq!(db.uncached_parse_count(), parse_count_after_first_load);
+    }
+
+    #[test]
+    fn cached_parse_rebinds_symbols_into_new_sessions() {
+        let db = FrontendDatabase::new();
+        let mut first_session = Session::new();
+        let mut second_session = Session::new();
+        let path =
+            std::env::temp_dir().join(format!("kern_frontend_db_{}_rebind.rn", std::process::id()));
+
+        db.set_source_override(
+            path.clone(),
+            "fn answer() i32 { return helper; }".to_string(),
+        );
+
+        let _ = db
+            .load_parsed_module(&mut first_session, &path)
+            .unwrap()
+            .expect("module should parse");
+        let parse_count_after_first_load = db.uncached_parse_count();
+
+        let second = db
+            .load_parsed_module(&mut second_session, &path)
+            .unwrap()
+            .expect("module should parse");
+
+        assert_eq!(db.uncached_parse_count(), parse_count_after_first_load);
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &second.ast.decls[0].kind
+        else {
+            panic!("expected cached function body");
+        };
+        let mut seen_helper = false;
+        collect_identifier_symbols(body, &mut |symbol| {
+            if second_session.resolve(symbol) == "helper" {
+                seen_helper = true;
+            }
+        });
+        assert!(
+            seen_helper,
+            "expected cached symbols to rebind into the new session"
+        );
+    }
+
+    fn collect_identifier_symbols(expr: &ast::Expr, visit: &mut impl FnMut(kernc_utils::SymbolId)) {
+        match &expr.kind {
+            ast::ExprKind::Identifier(symbol) => visit(*symbol),
+            ast::ExprKind::Let {
+                init, else_branch, ..
+            } => {
+                collect_identifier_symbols(init, visit);
+                if let Some(else_branch) = else_branch {
+                    collect_identifier_symbols(else_branch, visit);
+                }
+            }
+            ast::ExprKind::Static { init, .. } => collect_identifier_symbols(init, visit),
+            ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
+                collect_identifier_symbols(lhs, visit);
+                collect_identifier_symbols(rhs, visit);
+            }
+            ast::ExprKind::Unary { operand, .. } | ast::ExprKind::Defer { expr: operand } => {
+                collect_identifier_symbols(operand, visit)
+            }
+            ast::ExprKind::FieldAccess { lhs, .. } => collect_identifier_symbols(lhs, visit),
+            ast::ExprKind::IndexAccess { lhs, index, .. } => {
+                collect_identifier_symbols(lhs, visit);
+                collect_identifier_symbols(index, visit);
+            }
+            ast::ExprKind::Call { callee, args } => {
+                collect_identifier_symbols(callee, visit);
+                for arg in args {
+                    collect_identifier_symbols(arg, visit);
+                }
+            }
+            ast::ExprKind::DataInit { literal, .. } => match literal {
+                ast::DataLiteralKind::Struct(fields) => {
+                    for field in fields {
+                        collect_identifier_symbols(&field.value, visit);
+                    }
+                }
+                ast::DataLiteralKind::Array(values) => {
+                    for value in values {
+                        collect_identifier_symbols(value, visit);
+                    }
+                }
+                ast::DataLiteralKind::Repeat { value, count } => {
+                    collect_identifier_symbols(value, visit);
+                    collect_identifier_symbols(count, visit);
+                }
+                ast::DataLiteralKind::Scalar(value) => collect_identifier_symbols(value, visit),
+            },
+            ast::ExprKind::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
+                collect_identifier_symbols(cond, visit);
+                collect_identifier_symbols(then_branch, visit);
+                if let Some(else_branch) = else_branch {
+                    collect_identifier_symbols(else_branch, visit);
+                }
+            }
+            ast::ExprKind::Match { target, arms } => {
+                collect_identifier_symbols(target, visit);
+                for arm in arms {
+                    collect_identifier_symbols(&arm.body, visit);
+                }
+            }
+            ast::ExprKind::Block { stmts, result } => {
+                for stmt in stmts {
+                    match &stmt.kind {
+                        ast::StmtKind::ExprStmt(expr) | ast::StmtKind::ExprValue(expr) => {
+                            collect_identifier_symbols(expr, visit);
+                        }
+                    }
+                }
+                if let Some(result) = result {
+                    collect_identifier_symbols(result, visit);
+                }
+            }
+            ast::ExprKind::For {
+                init,
+                cond,
+                post,
+                body,
+            } => {
+                if let Some(init) = init {
+                    collect_identifier_symbols(init, visit);
+                }
+                if let Some(cond) = cond {
+                    collect_identifier_symbols(cond, visit);
+                }
+                if let Some(post) = post {
+                    collect_identifier_symbols(post, visit);
+                }
+                collect_identifier_symbols(body, visit);
+            }
+            ast::ExprKind::SliceOp {
+                lhs, start, end, ..
+            } => {
+                collect_identifier_symbols(lhs, visit);
+                if let Some(start) = start {
+                    collect_identifier_symbols(start, visit);
+                }
+                if let Some(end) = end {
+                    collect_identifier_symbols(end, visit);
+                }
+            }
+            ast::ExprKind::Return(value) => {
+                if let Some(value) = value {
+                    collect_identifier_symbols(value, visit);
+                }
+            }
+            ast::ExprKind::As { lhs, .. }
+            | ast::ExprKind::GenericInstantiation { target: lhs, .. } => {
+                collect_identifier_symbols(lhs, visit);
+            }
+            ast::ExprKind::Closure { captures, body, .. } => {
+                for capture in captures {
+                    collect_identifier_symbols(&capture.value, visit);
+                }
+                collect_identifier_symbols(body, visit);
+            }
+            ast::ExprKind::EnumLiteral { .. }
+            | ast::ExprKind::Integer(..)
+            | ast::ExprKind::Float(..)
+            | ast::ExprKind::Bool(..)
+            | ast::ExprKind::Char(..)
+            | ast::ExprKind::ByteChar(..)
+            | ast::ExprKind::String(..)
+            | ast::ExprKind::Break
+            | ast::ExprKind::Continue
+            | ast::ExprKind::Undef
+            | ast::ExprKind::Infer
+            | ast::ExprKind::SelfValue => {}
+        }
     }
 }

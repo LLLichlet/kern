@@ -180,6 +180,90 @@ fn structure_cache_reuses_loaded_frontend_modules_until_input_changes() {
 }
 
 #[test]
+fn analyze_structure_reuses_clean_typed_structure_for_body_only_overrides() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_structure_body_only_reuse_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let clean = SourceOverrides::new();
+
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &clean)
+            .is_some()
+    );
+    let reuse_count = driver.body_only_structure_reuse_count();
+    let parse_count = driver.uncached_parse_count();
+
+    let mut dirty = SourceOverrides::new();
+    dirty.insert(main.clone(), "fn main() i32 { return 2; }".to_string());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &dirty)
+            .is_some()
+    );
+    assert_eq!(driver.body_only_structure_reuse_count(), reuse_count + 1);
+
+    let dirty_parse_count = driver.uncached_parse_count();
+    assert!(dirty_parse_count > parse_count);
+
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &dirty)
+            .is_some()
+    );
+    assert_eq!(driver.body_only_structure_reuse_count(), reuse_count + 1);
+    assert_eq!(driver.uncached_parse_count(), dirty_parse_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analyze_structure_does_not_reuse_clean_typed_structure_for_surface_changes() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_structure_surface_change_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let clean = SourceOverrides::new();
+
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &clean)
+            .is_some()
+    );
+    let reuse_count = driver.body_only_structure_reuse_count();
+
+    let mut dirty = SourceOverrides::new();
+    dirty.insert(main.clone(), "fn main() bool { return true; }".to_string());
+    assert!(
+        driver
+            .analyze_structure(main.to_str().unwrap(), &dirty)
+            .is_some()
+    );
+    assert_eq!(driver.body_only_structure_reuse_count(), reuse_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn parse_modules_reuses_cached_structure_without_extra_frontend_parse() {
     let root = std::env::temp_dir().join(format!(
         "kern_parse_modules_cache_{}_{}",
@@ -230,11 +314,7 @@ fn analyze_structure_only_loads_referenced_alias_roots() {
     fs::create_dir_all(&foo).unwrap();
     fs::create_dir_all(&bar).unwrap();
 
-    fs::write(
-        &main,
-        "use foo.answer;\nfn main() i32 { return answer; }\n",
-    )
-    .unwrap();
+    fs::write(&main, "use foo.answer;\nfn main() i32 { return answer; }\n").unwrap();
     fs::write(foo.join("init.rn"), "pub const answer = 7;\n").unwrap();
     fs::write(bar.join("init.rn"), "pub const unused = 9;\n").unwrap();
 
@@ -634,6 +714,82 @@ fn analyze_outline_reuses_collected_cache_without_extra_frontend_parse() {
 }
 
 #[test]
+fn analyze_outline_reuses_clean_collected_structure_for_body_only_overrides() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_outline_body_only_reuse_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let clean = SourceOverrides::new();
+
+    let parsed = driver
+        .parse_modules(main.to_str().unwrap(), &clean)
+        .expect("parsed modules should warm clean collected cache");
+    assert!(!parsed.modules.is_empty());
+    let reuse_count = driver.body_only_collected_reuse_count();
+    let parse_count = driver.uncached_parse_count();
+
+    let mut dirty = SourceOverrides::new();
+    dirty.insert(main.clone(), "fn main() i32 { return 2; }".to_string());
+    let outline = driver.analyze_outline(main.to_str().unwrap(), &dirty);
+    assert!(!outline.symbols.is_empty());
+    assert_eq!(driver.body_only_collected_reuse_count(), reuse_count + 1);
+
+    let dirty_parse_count = driver.uncached_parse_count();
+    assert!(dirty_parse_count > parse_count);
+
+    let outline = driver.analyze_outline(main.to_str().unwrap(), &dirty);
+    assert!(!outline.symbols.is_empty());
+    assert_eq!(driver.body_only_collected_reuse_count(), reuse_count + 1);
+    assert_eq!(driver.uncached_parse_count(), dirty_parse_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analyze_outline_does_not_reuse_clean_collected_structure_for_surface_changes() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_outline_surface_change_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let clean = SourceOverrides::new();
+
+    let parsed = driver
+        .parse_modules(main.to_str().unwrap(), &clean)
+        .expect("parsed modules should warm clean collected cache");
+    assert!(!parsed.modules.is_empty());
+    let reuse_count = driver.body_only_collected_reuse_count();
+
+    let mut dirty = SourceOverrides::new();
+    dirty.insert(
+        main.clone(),
+        "fn main(value: i32) i32 { return value; }".to_string(),
+    );
+    let outline = driver.analyze_outline(main.to_str().unwrap(), &dirty);
+    assert!(!outline.symbols.is_empty());
+    assert_eq!(driver.body_only_collected_reuse_count(), reuse_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn imported_structure_cache_reuses_loaded_frontend_modules_without_type_stage() {
     let root = std::env::temp_dir().join(format!(
         "kern_imported_structure_cache_{}_{}",
@@ -667,6 +823,93 @@ fn imported_structure_cache_reuses_loaded_frontend_modules_without_type_stage() 
             .is_empty()
     );
     assert_eq!(driver.uncached_parse_count(), parse_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analyze_imported_structure_reuses_clean_imported_structure_for_body_only_overrides() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_imported_body_only_reuse_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let clean = SourceOverrides::new();
+
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &clean)
+            .is_some()
+    );
+    let reuse_count = driver.body_only_imported_reuse_count();
+    let parse_count = driver.uncached_parse_count();
+
+    let mut dirty = SourceOverrides::new();
+    dirty.insert(main.clone(), "fn main() i32 { return 2; }".to_string());
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &dirty)
+            .is_some()
+    );
+    assert_eq!(driver.body_only_imported_reuse_count(), reuse_count + 1);
+
+    let dirty_parse_count = driver.uncached_parse_count();
+    assert!(dirty_parse_count > parse_count);
+
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &dirty)
+            .is_some()
+    );
+    assert_eq!(driver.body_only_imported_reuse_count(), reuse_count + 1);
+    assert_eq!(driver.uncached_parse_count(), dirty_parse_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analyze_imported_structure_does_not_reuse_clean_imported_structure_for_surface_changes() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_imported_surface_change_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    fs::write(&main, "fn main() i32 { return 1; }").unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let clean = SourceOverrides::new();
+
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &clean)
+            .is_some()
+    );
+    let reuse_count = driver.body_only_imported_reuse_count();
+
+    let mut dirty = SourceOverrides::new();
+    dirty.insert(
+        main.clone(),
+        "fn main(value: i32) i32 { return value; }".to_string(),
+    );
+    assert!(
+        driver
+            .analyze_imported_structure(main.to_str().unwrap(), &dirty)
+            .is_some()
+    );
+    assert_eq!(driver.body_only_imported_reuse_count(), reuse_count);
 
     let _ = fs::remove_dir_all(&root);
 }

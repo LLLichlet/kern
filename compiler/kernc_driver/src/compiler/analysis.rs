@@ -106,25 +106,38 @@ impl CompilerDriver {
         source_overrides: &SourceOverrides,
     ) -> Option<ImportedStructureArtifact> {
         if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
-            return Some(self.imported_structure_from_typed(&structure));
+            return Some(self.finalize_imported_structure_artifact(
+                input_file,
+                source_overrides,
+                self.imported_structure_from_typed(&structure),
+            ));
         }
 
         if let Some(imported) =
             self.cached_imported_structure_artifact(input_file, source_overrides)
         {
-            return Some(imported);
+            return Some(self.finalize_imported_structure_artifact(
+                input_file,
+                source_overrides,
+                imported,
+            ));
         }
 
         if let Some(collected) =
             self.cached_collected_structure_artifact(input_file, source_overrides)
         {
-            return self.build_imported_structure(&collected);
+            return self.build_imported_structure(&collected).map(|imported| {
+                self.finalize_imported_structure_artifact(input_file, source_overrides, imported)
+            });
         }
 
         let mut session = Session::new();
         session.apply_options(&self.options);
         self.try_analyze_imported_structure(session, input_file, source_overrides)
             .ok()
+            .map(|imported| {
+                self.finalize_imported_structure_artifact(input_file, source_overrides, imported)
+            })
     }
 
     pub fn analyze_surface(
@@ -277,7 +290,7 @@ impl CompilerDriver {
         let mut session = parsed.session.clone();
         let mut ctx = self.build_sema_context(&mut session);
         ctx.restore_structure(structure.snapshot.clone());
-        if !self.rebind_body_only_modules(&mut ctx, structure, parsed) {
+        if !self.rebind_body_only_modules(&mut ctx, &structure.session, &structure.asts, parsed) {
             return None;
         }
         let succeeded = self.run_body_pipeline(&mut ctx);
@@ -301,7 +314,7 @@ impl CompilerDriver {
         if plan.worklist.is_empty() {
             return None;
         }
-        if !self.rebind_body_only_modules(&mut ctx, structure, parsed) {
+        if !self.rebind_body_only_modules(&mut ctx, &structure.session, &structure.asts, parsed) {
             return None;
         }
 
@@ -492,13 +505,16 @@ impl CompilerDriver {
     ) -> Result<StructureArtifact, Box<Session>> {
         self.sync_source_overrides(source_overrides);
         if let Some(structure) = self.cached_structure_artifact(input_file, source_overrides) {
-            return Ok(structure);
+            return Ok(self.finalize_structure_artifact(input_file, source_overrides, structure));
         }
         if let Some(imported) =
             self.cached_imported_structure_artifact(input_file, source_overrides)
         {
             return self
                 .build_typed_structure(&imported)
+                .map(|structure| {
+                    self.finalize_structure_artifact(input_file, source_overrides, structure)
+                })
                 .ok_or_else(|| Box::new(session));
         }
         let cache_key = self.structure_cache_key(input_file, source_overrides);
@@ -506,18 +522,32 @@ impl CompilerDriver {
             self.frontend.db(),
             "driver_structure_artifact",
             cache_key,
-            || Ok(self.compute_structure_artifact(input_file)),
+            || {
+                Ok(self
+                    .try_reuse_clean_typed_structure_artifact(input_file, source_overrides)
+                    .or_else(|| self.compute_structure_artifact(input_file)))
+            },
         ) {
-            Ok(Some(structure)) => Ok(structure),
+            Ok(Some(structure)) => {
+                Ok(self.finalize_structure_artifact(input_file, source_overrides, structure))
+            }
             Ok(None) => {
                 let structure =
                     self.compute_structure_artifact_into_session(&mut session, input_file);
-                structure.ok_or_else(|| Box::new(session))
+                structure
+                    .map(|structure| {
+                        self.finalize_structure_artifact(input_file, source_overrides, structure)
+                    })
+                    .ok_or_else(|| Box::new(session))
             }
             Err(_) => {
                 let structure =
                     self.compute_structure_artifact_into_session(&mut session, input_file);
-                structure.ok_or_else(|| Box::new(session))
+                structure
+                    .map(|structure| {
+                        self.finalize_structure_artifact(input_file, source_overrides, structure)
+                    })
+                    .ok_or_else(|| Box::new(session))
             }
         }
     }
@@ -622,6 +652,9 @@ impl CompilerDriver {
         session.apply_options(&self.options);
         self.try_analyze_collected_structure(session, input_file, source_overrides)
             .ok()
+            .map(|collected| {
+                self.finalize_collected_structure_artifact(input_file, source_overrides, collected)
+            })
     }
 
     fn cached_structure_artifact(
@@ -643,6 +676,39 @@ impl CompilerDriver {
             self.record_structure_cache_miss();
         }
         cached
+    }
+
+    fn cached_clean_structure_artifact(&self, input_file: &str) -> Option<StructureArtifact> {
+        let normalized = normalize_driver_path(Path::new(input_file));
+        self.clean_structure_reuse_artifacts
+            .lock()
+            .unwrap()
+            .get(&normalized)
+            .cloned()
+    }
+
+    fn cached_clean_collected_structure_artifact(
+        &self,
+        input_file: &str,
+    ) -> Option<CollectedStructureArtifact> {
+        let normalized = normalize_driver_path(Path::new(input_file));
+        self.clean_collected_reuse_artifacts
+            .lock()
+            .unwrap()
+            .get(&normalized)
+            .cloned()
+    }
+
+    fn cached_clean_imported_structure_artifact(
+        &self,
+        input_file: &str,
+    ) -> Option<ImportedStructureArtifact> {
+        let normalized = normalize_driver_path(Path::new(input_file));
+        self.clean_imported_reuse_artifacts
+            .lock()
+            .unwrap()
+            .get(&normalized)
+            .cloned()
     }
 
     fn cached_collected_structure_artifact(
@@ -707,18 +773,42 @@ impl CompilerDriver {
             self.frontend.db(),
             "driver_collected_structure_artifact",
             cache_key,
-            || Ok(self.compute_collected_structure_artifact(input_file)),
+            || {
+                Ok(self
+                    .try_reuse_clean_collected_structure_artifact(input_file, source_overrides)
+                    .or_else(|| self.compute_collected_structure_artifact(input_file)))
+            },
         ) {
-            Ok(Some(collected)) => Ok(collected),
+            Ok(Some(collected)) => Ok(self.finalize_collected_structure_artifact(
+                input_file,
+                source_overrides,
+                collected,
+            )),
             Ok(None) => {
                 let collected = self
                     .compute_collected_structure_artifact_into_session(&mut session, input_file);
-                collected.ok_or_else(|| Box::new(session))
+                collected
+                    .map(|collected| {
+                        self.finalize_collected_structure_artifact(
+                            input_file,
+                            source_overrides,
+                            collected,
+                        )
+                    })
+                    .ok_or_else(|| Box::new(session))
             }
             Err(_) => {
                 let collected = self
                     .compute_collected_structure_artifact_into_session(&mut session, input_file);
-                collected.ok_or_else(|| Box::new(session))
+                collected
+                    .map(|collected| {
+                        self.finalize_collected_structure_artifact(
+                            input_file,
+                            source_overrides,
+                            collected,
+                        )
+                    })
+                    .ok_or_else(|| Box::new(session))
             }
         }
     }
@@ -735,7 +825,11 @@ impl CompilerDriver {
             self.frontend.db(),
             "driver_imported_structure_artifact",
             cache_key,
-            || Ok(self.compute_imported_structure_artifact(input_file)),
+            || {
+                Ok(self
+                    .try_reuse_clean_imported_structure_artifact(input_file, source_overrides)
+                    .or_else(|| self.compute_imported_structure_artifact(input_file)))
+            },
         ) {
             Ok(Some(imported)) => Ok(imported),
             Ok(None) => {
@@ -811,6 +905,186 @@ impl CompilerDriver {
         let mut session = Session::new();
         session.apply_options(&self.options);
         self.compute_structure_artifact_into_session(&mut session, input_file)
+    }
+
+    fn try_reuse_clean_typed_structure_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> Option<StructureArtifact> {
+        if source_overrides.is_empty() {
+            return None;
+        }
+
+        let clean_structure = self.cached_clean_structure_artifact(input_file)?;
+        let parsed = self
+            .try_parse_modules(
+                clean_structure.session.clone(),
+                input_file,
+                source_overrides,
+            )
+            .ok()?;
+
+        let mut session = parsed.session.clone();
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(clean_structure.snapshot.clone());
+        if !self.rebind_body_only_modules(
+            &mut ctx,
+            &clean_structure.session,
+            &clean_structure.asts,
+            &parsed,
+        ) {
+            return None;
+        }
+
+        let asts = self.reused_asts(&clean_structure.asts, &parsed)?;
+        let symbols = self.collect_analysis_symbols(&ctx, &asts);
+        let completion_model = self.collect_structure_completion_model(&ctx, &asts);
+        let snapshot = ctx.structure_snapshot();
+        drop(ctx);
+
+        self.record_body_only_structure_reuse();
+        Some(StructureArtifact {
+            session,
+            asts,
+            symbols,
+            snapshot,
+            completion_model,
+        })
+    }
+
+    fn finalize_structure_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        structure: StructureArtifact,
+    ) -> StructureArtifact {
+        if source_overrides.is_empty() {
+            let normalized = normalize_driver_path(Path::new(input_file));
+            self.clean_structure_reuse_artifacts
+                .lock()
+                .unwrap()
+                .insert(normalized, structure.clone());
+        }
+        structure
+    }
+
+    fn try_reuse_clean_collected_structure_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> Option<CollectedStructureArtifact> {
+        if source_overrides.is_empty() {
+            return None;
+        }
+
+        let clean_collected = self.cached_clean_collected_structure_artifact(input_file)?;
+        let parsed = self
+            .try_parse_modules(
+                clean_collected.session.clone(),
+                input_file,
+                source_overrides,
+            )
+            .ok()?;
+
+        let mut session = parsed.session.clone();
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(clean_collected.snapshot.clone());
+        if !self.rebind_body_only_modules(
+            &mut ctx,
+            &clean_collected.session,
+            &clean_collected.asts,
+            &parsed,
+        ) {
+            return None;
+        }
+
+        let asts = self.reused_asts(&clean_collected.asts, &parsed)?;
+        let symbols = self.collect_analysis_symbols(&ctx, &asts);
+        let snapshot = ctx.structure_snapshot();
+        drop(ctx);
+
+        self.record_body_only_collected_reuse();
+        Some(CollectedStructureArtifact {
+            session,
+            asts,
+            symbols,
+            snapshot,
+        })
+    }
+
+    fn finalize_collected_structure_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        collected: CollectedStructureArtifact,
+    ) -> CollectedStructureArtifact {
+        if source_overrides.is_empty() {
+            let normalized = normalize_driver_path(Path::new(input_file));
+            self.clean_collected_reuse_artifacts
+                .lock()
+                .unwrap()
+                .insert(normalized, collected.clone());
+        }
+        collected
+    }
+
+    fn try_reuse_clean_imported_structure_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+    ) -> Option<ImportedStructureArtifact> {
+        if source_overrides.is_empty() {
+            return None;
+        }
+
+        let clean_imported = self.cached_clean_imported_structure_artifact(input_file)?;
+        let parsed = self
+            .try_parse_modules(clean_imported.session.clone(), input_file, source_overrides)
+            .ok()?;
+
+        let mut session = parsed.session.clone();
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(clean_imported.snapshot.clone());
+        if !self.rebind_body_only_modules(
+            &mut ctx,
+            &clean_imported.session,
+            &clean_imported.asts,
+            &parsed,
+        ) {
+            return None;
+        }
+
+        let asts = self.reused_asts(&clean_imported.asts, &parsed)?;
+        let symbols = self.collect_analysis_symbols(&ctx, &asts);
+        let completion_model = self.collect_structure_completion_model(&ctx, &asts);
+        let snapshot = ctx.structure_snapshot();
+        drop(ctx);
+
+        self.record_body_only_imported_reuse();
+        Some(ImportedStructureArtifact {
+            session,
+            asts,
+            symbols,
+            snapshot,
+            completion_model,
+        })
+    }
+
+    fn finalize_imported_structure_artifact(
+        &self,
+        input_file: &str,
+        source_overrides: &SourceOverrides,
+        imported: ImportedStructureArtifact,
+    ) -> ImportedStructureArtifact {
+        if source_overrides.is_empty() {
+            let normalized = normalize_driver_path(Path::new(input_file));
+            self.clean_imported_reuse_artifacts
+                .lock()
+                .unwrap()
+                .insert(normalized, imported.clone());
+        }
+        imported
     }
 
     fn compute_compile_structure_artifact(
@@ -907,6 +1181,51 @@ impl CompilerDriver {
         }
     }
 
+    fn reused_asts(
+        &self,
+        clean_asts: &[(DefId, ast::Module)],
+        parsed: &ParsedModuleArtifact,
+    ) -> Option<Vec<(DefId, ast::Module)>> {
+        if clean_asts.len() != parsed.modules.len() {
+            return None;
+        }
+
+        let parsed_modules = self.index_parsed_modules(parsed);
+        let mut asts = Vec::with_capacity(clean_asts.len());
+        for (module_id, clean_module) in clean_asts {
+            let parsed_module = parsed_modules.get(Path::new(clean_module.path.as_str()))?;
+            asts.push((*module_id, parsed_module.ast.clone()));
+        }
+        Some(asts)
+    }
+
+    fn index_clean_modules<'a>(
+        &self,
+        defs: &[kernc_sema::def::Def],
+        clean_session: &Session,
+        clean_asts: &'a [(DefId, ast::Module)],
+    ) -> Option<std::collections::BTreeMap<PathBuf, (DefId, &'a ast::Module)>> {
+        let mut modules = std::collections::BTreeMap::new();
+        for (module_id, module_ast) in clean_asts {
+            let path = clean_session
+                .source_manager
+                .get_file_path(module_file_id(defs, *module_id))?;
+            modules.insert(normalize_driver_path(path), (*module_id, module_ast));
+        }
+        Some(modules)
+    }
+
+    fn index_parsed_modules<'a>(
+        &self,
+        parsed: &'a ParsedModuleArtifact,
+    ) -> std::collections::BTreeMap<&'a Path, &'a ParsedModule> {
+        parsed
+            .modules
+            .iter()
+            .map(|parsed_module| (parsed_module.path.as_path(), parsed_module))
+            .collect()
+    }
+
     pub(super) fn try_parse_modules(
         &self,
         mut session: Session,
@@ -962,11 +1281,10 @@ impl CompilerDriver {
     ) -> Option<BodyPipelineReport> {
         let mut phase_timings = Vec::new();
         let mut typeck = TypeckDriver::new(ctx);
-        let globals = typeck.global_worklist();
+        let (globals, worklist) = typeck.worklists();
         measure_body_phase(&mut phase_timings, "typeck_globals", || {
             typeck.resolve_global_worklist(&globals);
         });
-        let worklist = typeck.body_worklist();
         let _ = measure_body_phase(&mut phase_timings, "typeck_bodies", || {
             typeck.check_body_worklist(&worklist)
         });
@@ -1551,47 +1869,28 @@ impl CompilerDriver {
     fn rebind_body_only_modules(
         &self,
         ctx: &mut SemaContext<'_>,
-        structure: &StructureArtifact,
+        clean_session: &Session,
+        clean_asts: &[(DefId, ast::Module)],
         parsed: &ParsedModuleArtifact,
     ) -> bool {
-        let mut clean_modules = Vec::with_capacity(structure.asts.len());
-        for (module_id, module_ast) in &structure.asts {
-            let Some(path) = structure
-                .session
-                .source_manager
-                .get_file_path(module_file_id(&ctx.defs, *module_id))
-            else {
-                return false;
-            };
-            clean_modules.push((normalize_driver_path(path), *module_id, module_ast));
-        }
-
-        if clean_modules.len() != parsed.modules.len() {
+        if clean_asts.len() != parsed.modules.len() {
             return false;
         }
 
+        let Some(clean_modules) = self.index_clean_modules(&ctx.defs, clean_session, clean_asts)
+        else {
+            return false;
+        };
+
         for parsed_module in &parsed.modules {
-            let Some(path) = parsed
-                .session
-                .source_manager
-                .get_file_path(parsed_module.file_id)
-            else {
-                return false;
-            };
-            let normalized = normalize_driver_path(path);
-            let Some((module_id, clean_module)) =
-                clean_modules
-                    .iter()
-                    .find_map(|(path, module_id, module_ast)| {
-                        (path == &normalized).then_some((*module_id, *module_ast))
-                    })
+            let Some((module_id, clean_module)) = clean_modules.get(parsed_module.path.as_path())
             else {
                 return false;
             };
 
-            let clean_file_id = module_file_id(&ctx.defs, module_id);
+            let clean_file_id = module_file_id(&ctx.defs, *module_id);
             let module_changed = module_source_changed(
-                &structure.session,
+                clean_session,
                 clean_file_id,
                 &parsed.session,
                 parsed_module.file_id,
@@ -1601,7 +1900,7 @@ impl CompilerDriver {
                 return false;
             }
 
-            if !rebind_module_defs(ctx, module_id, parsed_module) {
+            if !rebind_module_defs(ctx, *module_id, parsed_module) {
                 return false;
             }
         }
@@ -1657,30 +1956,13 @@ impl CompilerDriver {
         clean_asts: &[(DefId, ast::Module)],
         parsed: &ParsedModuleArtifact,
     ) -> Option<FunctionBodyReusePlan> {
-        let mut clean_modules = Vec::with_capacity(clean_asts.len());
-        for (module_id, module_ast) in clean_asts {
-            let path = ctx
-                .sess
-                .source_manager
-                .get_file_path(module_file_id(&ctx.defs, *module_id))?;
-            clean_modules.push((normalize_driver_path(path), *module_id, module_ast));
-        }
+        let clean_modules = self.index_clean_modules(&ctx.defs, ctx.sess, clean_asts)?;
 
         let mut worklist = Vec::new();
         let mut replaced_spans = Vec::new();
 
         for parsed_module in &parsed.modules {
-            let path = parsed
-                .session
-                .source_manager
-                .get_file_path(parsed_module.file_id)?;
-            let normalized = normalize_driver_path(path);
-            let (module_id, clean_module) =
-                clean_modules
-                    .iter()
-                    .find_map(|(path, module_id, module_ast)| {
-                        (path == &normalized).then_some((*module_id, *module_ast))
-                    })?;
+            let &(module_id, clean_module) = clean_modules.get(parsed_module.path.as_path())?;
 
             let clean_file_id = module_file_id(&ctx.defs, module_id);
             let module_changed = module_source_changed(

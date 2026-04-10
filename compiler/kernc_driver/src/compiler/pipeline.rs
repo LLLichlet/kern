@@ -55,6 +55,15 @@ impl CompilerDriver {
             collected_artifacts: Memo::new(),
             imported_artifacts: Memo::new(),
             structure_artifacts: Memo::new(),
+            clean_collected_reuse_artifacts: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            clean_imported_reuse_artifacts: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
+            clean_structure_reuse_artifacts: std::sync::Arc::new(std::sync::Mutex::new(
+                std::collections::HashMap::new(),
+            )),
             cache_counters: std::sync::Arc::new(Default::default()),
         }
     }
@@ -1025,8 +1034,14 @@ impl CompilerDriver {
             "  {:<18} {}",
             "  max_cluster_workload", report.max_cluster_workload
         );
-        println!("  {:<18} {}", "  min_unit_workload", report.min_unit_workload);
-        println!("  {:<18} {}", "  max_unit_workload", report.max_unit_workload);
+        println!(
+            "  {:<18} {}",
+            "  min_unit_workload", report.min_unit_workload
+        );
+        println!(
+            "  {:<18} {}",
+            "  max_unit_workload", report.max_unit_workload
+        );
         println!(
             "  {:<18} {}",
             "  promoted_functions", report.promoted_function_count

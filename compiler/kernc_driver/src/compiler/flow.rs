@@ -42,6 +42,7 @@ pub struct FlowTiming {
 pub struct FlowModel {
     owners: Vec<FlowOwnerFacts>,
     owner_body_lookup_by_file: HashMap<kernc_utils::FileId, Vec<(Span, DefId)>>,
+    referenced_item_edges: Vec<(DefId, DefId)>,
     phase_timings: Vec<FlowTiming>,
 }
 
@@ -589,7 +590,6 @@ impl FlowModel {
                     continue;
                 };
                 let owner = &mut owners[owner_index];
-
                 owner.referenced_def_ids.push(referenced_def_id);
                 owner.referenced_definition_spans.push(*definition_span);
             }
@@ -790,6 +790,15 @@ impl FlowModel {
         }
 
         let owner_body_lookup_by_file = build_owner_def_lookup_by_file(&owners);
+        let referenced_item_edges = owners
+            .iter()
+            .flat_map(|owner| {
+                owner
+                    .referenced_def_ids
+                    .iter()
+                    .map(move |&referenced_def_id| (owner.def_id, referenced_def_id))
+            })
+            .collect();
         let mut phase_timings = phase_totals
             .into_iter()
             .map(|(name, duration)| FlowTiming { name, duration })
@@ -798,6 +807,7 @@ impl FlowModel {
         Self {
             owners,
             owner_body_lookup_by_file,
+            referenced_item_edges,
             phase_timings,
         }
     }
@@ -806,19 +816,8 @@ impl FlowModel {
         find_owner_def_id(&self.owner_body_lookup_by_file, reference_span)
     }
 
-    pub fn referenced_item_edges(&self) -> Vec<(DefId, DefId)> {
-        let mut edges = Vec::new();
-        let mut seen = HashSet::new();
-
-        for owner in &self.owners {
-            for referenced_def_id in &owner.referenced_def_ids {
-                if seen.insert((owner.def_id, *referenced_def_id)) {
-                    edges.push((owner.def_id, *referenced_def_id));
-                }
-            }
-        }
-
-        edges
+    pub fn referenced_item_edges(&self) -> &[(DefId, DefId)] {
+        &self.referenced_item_edges
     }
 
     pub fn public_owners(&self) -> Vec<AnalysisFlowOwner> {

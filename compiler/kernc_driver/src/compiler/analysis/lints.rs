@@ -1,5 +1,80 @@
 use super::*;
 
+struct ScopeExportFacts {
+    definition_spans: std::collections::HashMap<DefId, Span>,
+    public_spans_by_def_id: std::collections::HashMap<DefId, Vec<Span>>,
+    root_public_spans_by_def_id: std::collections::HashMap<DefId, Vec<Span>>,
+}
+
+impl ScopeExportFacts {
+    fn for_context(ctx: &SemaContext<'_>) -> Self {
+        let mut definition_spans = std::collections::HashMap::new();
+        let mut public_spans_by_def_id = std::collections::HashMap::<DefId, Vec<Span>>::new();
+
+        for (_name, info) in ctx.scopes.all_symbols() {
+            let Some(def_id) = info.def_id else {
+                continue;
+            };
+            definition_spans.insert(def_id, info.span);
+            if info.is_pub {
+                public_spans_by_def_id
+                    .entry(def_id)
+                    .or_default()
+                    .push(info.span);
+            }
+        }
+
+        let mut root_public_spans_by_def_id = std::collections::HashMap::<DefId, Vec<Span>>::new();
+        if let Some(root_module_id) = ctx.root_module
+            && let Some(root_scope_id) =
+                ctx.defs
+                    .get(root_module_id.0 as usize)
+                    .and_then(|def| match def {
+                        kernc_sema::def::Def::Module(module) => Some(module.scope_id),
+                        _ => None,
+                    })
+        {
+            for (_name, info) in ctx.scopes.symbols_in_scope(root_scope_id) {
+                let Some(def_id) = info.def_id else {
+                    continue;
+                };
+                if info.is_pub {
+                    root_public_spans_by_def_id
+                        .entry(def_id)
+                        .or_default()
+                        .push(info.span);
+                }
+            }
+        }
+
+        Self {
+            definition_spans,
+            public_spans_by_def_id,
+            root_public_spans_by_def_id,
+        }
+    }
+
+    fn definition_span(&self, def_id: DefId) -> Option<Span> {
+        self.definition_spans.get(&def_id).copied()
+    }
+
+    fn is_publicly_exported(&self, def_id: DefId, definition_span: Span) -> bool {
+        self.public_spans_by_def_id
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .any(|&span| span != definition_span)
+    }
+
+    fn is_publicly_exported_from_root_module(&self, def_id: DefId, definition_span: Span) -> bool {
+        self.root_public_spans_by_def_id
+            .get(&def_id)
+            .into_iter()
+            .flatten()
+            .any(|&span| span != definition_span)
+    }
+}
+
 impl CompilerDriver {
     pub(super) fn emit_unused_private_item_warnings(
         &self,
@@ -101,7 +176,7 @@ impl CompilerDriver {
             }
         }
 
-        for (caller, callee) in flow.referenced_item_edges() {
+        for &(caller, callee) in flow.referenced_item_edges() {
             edges.entry(caller).or_default().insert(callee);
         }
 
@@ -197,7 +272,7 @@ impl CompilerDriver {
         ctx: &SemaContext<'_>,
     ) -> std::collections::HashMap<DefId, ReachabilityItemNode> {
         let mut nodes = std::collections::HashMap::new();
-        let scope_spans = self.module_item_definition_spans(ctx);
+        let scope_exports = ScopeExportFacts::for_context(ctx);
 
         for def in &ctx.defs {
             match def {
@@ -210,13 +285,9 @@ impl CompilerDriver {
                         continue;
                     }
                     let exported_via_pub_use =
-                        self.item_is_publicly_exported(function.id, function.name_span, ctx);
-                    let exported_from_root_module = self
-                        .item_is_publicly_exported_from_root_module(
-                            function.id,
-                            function.name_span,
-                            ctx,
-                        );
+                        scope_exports.is_publicly_exported(function.id, function.name_span);
+                    let exported_from_root_module = scope_exports
+                        .is_publicly_exported_from_root_module(function.id, function.name_span);
                     let is_root = function.vis == Visibility::Public
                         || function.is_extern
                         || self.item_has_export_name(&function.attributes, ctx)
@@ -248,13 +319,13 @@ impl CompilerDriver {
                     if global.is_imported {
                         continue;
                     }
-                    let Some(&name_span) = scope_spans.get(&global.id) else {
+                    let Some(name_span) = scope_exports.definition_span(global.id) else {
                         continue;
                     };
                     let exported_via_pub_use =
-                        self.item_is_publicly_exported(global.id, name_span, ctx);
+                        scope_exports.is_publicly_exported(global.id, name_span);
                     let exported_from_root_module =
-                        self.item_is_publicly_exported_from_root_module(global.id, name_span, ctx);
+                        scope_exports.is_publicly_exported_from_root_module(global.id, name_span);
                     let is_root = global.vis == Visibility::Public
                         || global.is_extern
                         || self.item_has_export_name(&global.attributes, ctx)
@@ -329,44 +400,6 @@ impl CompilerDriver {
                 }
             })
         })
-    }
-
-    fn item_is_publicly_exported(
-        &self,
-        def_id: DefId,
-        definition_span: Span,
-        ctx: &SemaContext<'_>,
-    ) -> bool {
-        ctx.scopes.all_symbols().any(|(_name, info)| {
-            info.def_id == Some(def_id) && info.is_pub && info.span != definition_span
-        })
-    }
-
-    fn item_is_publicly_exported_from_root_module(
-        &self,
-        def_id: DefId,
-        definition_span: Span,
-        ctx: &SemaContext<'_>,
-    ) -> bool {
-        let Some(root_module_id) = ctx.root_module else {
-            return false;
-        };
-        let Some(root_scope_id) =
-            ctx.defs
-                .get(root_module_id.0 as usize)
-                .and_then(|def| match def {
-                    kernc_sema::def::Def::Module(module) => Some(module.scope_id),
-                    _ => None,
-                })
-        else {
-            return false;
-        };
-
-        ctx.scopes
-            .symbols_in_scope(root_scope_id)
-            .any(|(_name, info)| {
-                info.def_id == Some(def_id) && info.is_pub && info.span != definition_span
-            })
     }
 
     fn unused_item_from_node(

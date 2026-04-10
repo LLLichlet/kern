@@ -9,8 +9,8 @@ mod signature;
 pub use self::codegen_units::{CodegenPlanFallback, CodegenPlanReport};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use kernc_ast as ast;
@@ -633,6 +633,9 @@ pub struct CompilerDriver {
     collected_artifacts: Memo<StructureCacheKey, Option<CollectedStructureArtifact>>,
     imported_artifacts: Memo<StructureCacheKey, Option<ImportedStructureArtifact>>,
     structure_artifacts: Memo<StructureCacheKey, Option<StructureArtifact>>,
+    clean_collected_reuse_artifacts: Arc<Mutex<HashMap<PathBuf, CollectedStructureArtifact>>>,
+    clean_imported_reuse_artifacts: Arc<Mutex<HashMap<PathBuf, ImportedStructureArtifact>>>,
+    clean_structure_reuse_artifacts: Arc<Mutex<HashMap<PathBuf, StructureArtifact>>>,
     cache_counters: Arc<CacheCounters>,
 }
 
@@ -665,6 +668,9 @@ struct CacheCounters {
     compile_structure_misses: AtomicUsize,
     structure_hits: AtomicUsize,
     structure_misses: AtomicUsize,
+    body_only_collected_reuses: AtomicUsize,
+    body_only_imported_reuses: AtomicUsize,
+    body_only_structure_reuses: AtomicUsize,
     imported_hits: AtomicUsize,
     imported_misses: AtomicUsize,
     collected_hits: AtomicUsize,
@@ -744,6 +750,9 @@ impl CompilerDriver {
             collected_artifacts: self.collected_artifacts.clone(),
             imported_artifacts: self.imported_artifacts.clone(),
             structure_artifacts: self.structure_artifacts.clone(),
+            clean_collected_reuse_artifacts: Arc::clone(&self.clean_collected_reuse_artifacts),
+            clean_imported_reuse_artifacts: Arc::clone(&self.clean_imported_reuse_artifacts),
+            clean_structure_reuse_artifacts: Arc::clone(&self.clean_structure_reuse_artifacts),
             cache_counters: Arc::clone(&self.cache_counters),
         })
     }
@@ -805,6 +814,24 @@ impl CompilerDriver {
             .fetch_add(1, Ordering::Relaxed);
     }
 
+    pub(super) fn record_body_only_collected_reuse(&self) {
+        self.cache_counters
+            .body_only_collected_reuses
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_body_only_imported_reuse(&self) {
+        self.cache_counters
+            .body_only_imported_reuses
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
+    pub(super) fn record_body_only_structure_reuse(&self) {
+        self.cache_counters
+            .body_only_structure_reuses
+            .fetch_add(1, Ordering::Relaxed);
+    }
+
     pub(super) fn record_imported_cache_hit(&self) {
         self.cache_counters
             .imported_hits
@@ -839,6 +866,27 @@ impl CompilerDriver {
         self.cache_counters
             .compile_structure_misses
             .fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn body_only_collected_reuse_count(&self) -> usize {
+        self.cache_counters
+            .body_only_collected_reuses
+            .load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn body_only_imported_reuse_count(&self) -> usize {
+        self.cache_counters
+            .body_only_imported_reuses
+            .load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn body_only_structure_reuse_count(&self) -> usize {
+        self.cache_counters
+            .body_only_structure_reuses
+            .load(Ordering::Relaxed)
     }
 }
 

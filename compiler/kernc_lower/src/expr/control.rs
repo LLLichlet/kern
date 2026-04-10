@@ -796,20 +796,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(else_expr) = else_branch {
             let mut outer_stmts = Vec::new();
             let mut success_stmts = Vec::new();
+            let mut finalized_bindings = Vec::new();
 
             self.measure_phase("        lower_let_else_bindings", |this| {
                 for binding in bindings {
-                    this.bind_local_type(
-                        expr.span,
-                        binding.name,
-                        binding.ty,
-                        binding.is_mut,
-                        "let pattern binding",
-                    );
+                    let temp_id = this.new_mono_id();
+                    let temp_name = this
+                        .ctx
+                        .intern(&format!("__let_else_binding_{}", temp_id.0));
+
+                    // Keep success values in hidden temps until the control-flow block
+                    // completes so the initializer still resolves any shadowed outer name.
                     outer_stmts.push(MastStmt::Let {
-                        name: binding.name,
+                        name: temp_name,
                         ty: binding.ty,
-                        is_mut: binding.is_mut,
+                        is_mut: false,
                         init: MastExpr::new(binding.ty, MastExprKind::Undef, expr.span),
                     });
                     success_stmts.push(MastStmt::Expr(MastExpr::new(
@@ -818,13 +819,22 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             op: ast::AssignmentOperator::Assign,
                             lhs: Box::new(MastExpr::new(
                                 binding.ty,
-                                MastExprKind::Var(binding.name),
+                                MastExprKind::Var(temp_name),
                                 expr.span,
                             )),
                             rhs: Box::new(binding.init),
                         },
                         expr.span,
                     )));
+
+                    this.bind_local_type(
+                        expr.span,
+                        binding.name,
+                        binding.ty,
+                        binding.is_mut,
+                        "let pattern binding",
+                    );
+                    finalized_bindings.push((binding.name, binding.ty, binding.is_mut, temp_name));
                 }
             });
 
@@ -895,6 +905,15 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     }),
                     expr.span,
                 )));
+
+                for (name, ty, is_mut, temp_name) in finalized_bindings {
+                    outer_stmts.push(MastStmt::Let {
+                        name,
+                        ty,
+                        is_mut,
+                        init: MastExpr::new(ty, MastExprKind::Var(temp_name), expr.span),
+                    });
+                }
             });
 
             outer_stmts

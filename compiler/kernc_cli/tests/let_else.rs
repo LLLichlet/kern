@@ -400,3 +400,39 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn let_else_shadowing_does_not_capture_its_own_uninitialized_binding() {
+    let output = build_and_run_source(
+        r#"
+type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};
+
+fn validate(count: u8) Result[u8, i32] {
+    if (count == u8.{0} or count > u8.{64}) {
+        return .{ Err: 99 };
+    }
+    return .{ Ok: count };
+}
+
+fn keep_valid(count: u8) i32 {
+    let .{ Ok: count } = validate(count) else .{ Err: err } => return err;
+    return count as i32;
+}
+
+fn main() i32 {
+    return keep_valid(u8.{8});
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(8),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

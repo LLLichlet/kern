@@ -1,0 +1,57 @@
+//! Ex-command parsing for the bottom command line.
+
+/// The parsed command-line actions supported by the first `bed` core.
+pub type Command = enum {
+    None,
+    Quit,
+    ForceQuit,
+    Write,
+    WriteQuit,
+    Edit: []u8,
+    WriteAs: []u8,
+    Unknown,
+};
+
+fn tail_after(text: []u8, count: usize) []u8 {
+    if (count >= #text) {
+        return "";
+    }
+    return text.[count .. #text].trim_ascii();
+}
+
+/// Parses one command line without the leading `:`.
+pub fn parse(line: []u8) Command {
+    let text = line.trim_ascii();
+    if (#text == 0) {
+        return .None;
+    }
+
+    if (text.eq("q")) {
+        return .Quit;
+    }
+    if (text.eq("q!")) {
+        return .ForceQuit;
+    }
+    if (text.eq("w")) {
+        return .Write;
+    }
+    if (text.eq("wq")) {
+        return .WriteQuit;
+    }
+    if (text.starts_with("e ")) {
+        let path = tail_after(text, 1);
+        if (#path == 0) {
+            return .Unknown;
+        }
+        return .{ Edit: path };
+    }
+    if (text.starts_with("w ")) {
+        let path = tail_after(text, 1);
+        if (#path == 0) {
+            return .Unknown;
+        }
+        return .{ WriteAs: path };
+    }
+
+    return .Unknown;
+}

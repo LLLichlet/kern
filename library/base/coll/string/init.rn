@@ -112,6 +112,11 @@ impl *mut String {
         return self.raw..&.pop();
     }
 
+    /// Removes and returns the byte at `index`.
+    pub fn remove_char(index: usize) Option[u8] {
+        return self.raw..&.remove(index);
+    }
+
     /// Shrinks capacity down to the current length.
     pub fn shrink_to_fit(alloc: *mut Allocator) bool {
         return self.raw..&.shrink_to_fit(alloc);

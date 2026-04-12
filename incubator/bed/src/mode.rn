@@ -1,0 +1,19 @@
+//! Editor mode state.
+
+/// The primary modal states exposed by the first `bed` core.
+pub type Mode = enum {
+    Normal,
+    Insert,
+    Command,
+};
+
+impl Mode {
+    /// Returns a short status-line label for the mode.
+    pub fn label() []u8 {
+        match (self) {
+            .Normal => return "NORMAL",
+            .Insert => return "INSERT",
+            .Command => return "COMMAND",
+        }
+    }
+}

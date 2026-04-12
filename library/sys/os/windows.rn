@@ -7,7 +7,7 @@
 
 use base.Result;
 use base.abi;
-use sys.os.{FileType, Metadata};
+use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
 /// Imports the required Win32 APIs from `kernel32.dll`.
@@ -36,6 +36,9 @@ extern {
         lpNumberOfBytesRead: *mut u32,
         lpOverlapped: *mut u8
     ) i32;
+    pub fn GetConsoleMode(hConsoleHandle: *mut u8, lpMode: *mut u32) i32;
+    pub fn SetConsoleMode(hConsoleHandle: *mut u8, dwMode: u32) i32;
+    pub fn GetConsoleScreenBufferInfo(hConsoleOutput: *mut u8, lpConsoleScreenBufferInfo: *mut ConsoleScreenBufferInfo) i32;
     pub fn CloseHandle(hObject: *mut u8) i32;
     pub fn DeleteFileW(lpFileName: *u16) i32;
     pub fn MoveFileW(lpExistingFileName: *u16, lpNewFileName: *u16) i32;
@@ -115,6 +118,31 @@ extern type Win32FindDataW = struct {
     cAlternateFileName: [14]u16,
 };
 
+extern type Coord = struct {
+    X: i16,
+    Y: i16,
+};
+
+extern type SmallRect = struct {
+    Left: i16,
+    Top: i16,
+    Right: i16,
+    Bottom: i16,
+};
+
+extern type ConsoleScreenBufferInfo = struct {
+    dwSize: Coord,
+    dwCursorPosition: Coord,
+    wAttributes: u16,
+    srWindow: SmallRect,
+    dwMaximumWindowSize: Coord,
+};
+
+/// Captured Windows console state for later restoration.
+pub type TerminalState = struct {
+    pub mode: u32,
+};
+
 const GENERIC_READ = u32.{2147483648};
 const GENERIC_WRITE = u32.{1073741824};
 const FILE_APPEND_DATA = u32.{4};
@@ -137,6 +165,10 @@ const ERROR_NO_MORE_FILES = isize.{18};
 const ERROR_INVALID_PARAMETER = isize.{87};
 const ERROR_FILE_EXISTS = isize.{80};
 const ERROR_ALREADY_EXISTS = isize.{183};
+const ENABLE_PROCESSED_INPUT = u32.{1};
+const ENABLE_LINE_INPUT = u32.{2};
+const ENABLE_ECHO_INPUT = u32.{4};
+const ENABLE_VIRTUAL_TERMINAL_INPUT = u32.{512};
 
 /// Returns the sentinel value used for invalid Win32 handles.
 pub fn invalid_handle() Handle {
@@ -195,6 +227,50 @@ pub fn get_stdout_handle() Handle {
 /// Returns the process handle for standard error.
 pub fn get_stderr_handle() Handle {
     return GetStdHandle(-12);
+}
+
+/// Returns `true` when `handle` refers to a console.
+pub fn is_terminal(handle: Handle) bool {
+    let mut mode = u32.{0};
+    return GetConsoleMode(handle, mode..&) != 0;
+}
+
+/// Returns the visible terminal dimensions for `handle`.
+pub fn terminal_size(handle: Handle) Result[TerminalSize, Error] {
+    let mut info = ConsoleScreenBufferInfo.{undef};
+    if (GetConsoleScreenBufferInfo(handle, info..&) == 0) {
+        return .{ Err: last_error() };
+    }
+
+    let rows = (info.srWindow.Bottom - info.srWindow.Top + i16.{1}) as usize;
+    let cols = (info.srWindow.Right - info.srWindow.Left + i16.{1}) as usize;
+    return .{ Ok: .{ rows: rows, cols: cols } };
+}
+
+/// Enables raw-ish console mode on one terminal handle and returns the previous state.
+pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
+    let mut mode = u32.{0};
+    if (GetConsoleMode(handle, mode..&) == 0) {
+        return .{ Err: last_error() };
+    }
+
+    let original = mode;
+    let raw_mode =
+        (mode & ~(ENABLE_PROCESSED_INPUT | ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT))
+        | ENABLE_VIRTUAL_TERMINAL_INPUT;
+    if (SetConsoleMode(handle, raw_mode) == 0) {
+        return .{ Err: last_error() };
+    }
+
+    return .{ Ok: .{ mode: original } };
+}
+
+/// Restores a previously captured console mode.
+pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool, Error] {
+    if (SetConsoleMode(handle, state.mode) == 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
 }
 
 /// Returns the number of UTF-16 code units before the terminating zero.

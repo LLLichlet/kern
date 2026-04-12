@@ -1,0 +1,469 @@
+//! The modal editor state machine and renderer.
+
+use base.Result;
+use base.coll.String;
+use base.mem.alloc.Allocator;
+use std.fs;
+use ..ansi;
+use ..buffer;
+use ..buffer.{Cursor, Error as BufferError, TextBuffer};
+use ..command;
+use ..input.Key;
+use ..mode.Mode;
+
+const NO_NAME = "[No Name]";
+
+fn open_path(alloc: *mut Allocator, path: []u8) Result[TextBuffer, BufferError] {
+    let exists = match (fs.exists(alloc, path)) {
+        .{ Ok: present } => present,
+        .{ Err: err } => return .{ Err: .{ Fs: err } },
+    };
+    if (exists) {
+        return buffer.open(alloc, path);
+    }
+    return buffer.empty(alloc, path);
+}
+
+fn push_truncated(out: *mut String, alloc: *mut Allocator, text: []u8, remaining: *mut usize) bool {
+    if (remaining.* == 0) {
+        return true;
+    }
+
+    let limit = if (#text < remaining.*) #text else remaining.*;
+    if (limit == 0) {
+        return true;
+    }
+    if (!out.push_str(alloc, text.[0 .. limit])) {
+        return false;
+    }
+    remaining.* -= limit;
+    return true;
+}
+
+fn push_rendered_line(out: *mut String, alloc: *mut Allocator, text: []u8, max_cols: usize) bool {
+    let mut used = usize.{0};
+    for (let mut i = usize.{0}; i < #text and used < max_cols; i += 1) {
+        let byte = text.[i];
+        if (byte == b'\t') {
+            let mut fill = usize.{4};
+            if (max_cols - used < fill) {
+                fill = max_cols - used;
+            }
+            for (let mut j = usize.{0}; j < fill; j += 1) {
+                if (!out.push_char(alloc, b' ')) {
+                    return false;
+                }
+            }
+            used += fill;
+            continue;
+        }
+
+        let shown = if (byte < u8.{32} and byte != b' ') { b'?' } else byte;
+        if (!out.push_char(alloc, shown)) {
+            return false;
+        }
+        used += 1;
+    }
+    return true;
+}
+
+/// The single-window editor core for the first `bed` milestone.
+pub type Editor = struct {
+    buffer: TextBuffer,
+    cursor: Cursor = Cursor.{ row: 0, col: 0 },
+    scroll_row: usize = 0,
+    mode: Mode = .Normal,
+    command_line: String = String.{},
+    message: String = String.{},
+    wants_quit: bool = false,
+};
+
+/// Creates a new unnamed editor.
+pub fn empty(alloc: *mut Allocator) Result[Editor, BufferError] {
+    let text_buffer = match (buffer.empty(alloc, "")) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    return .{ Ok: .{ buffer: text_buffer } };
+}
+
+/// Opens one path into an editor, creating a new named buffer when absent.
+pub fn open(alloc: *mut Allocator, path: []u8) Result[Editor, BufferError] {
+    let text_buffer = match (open_path(alloc, path)) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    return .{ Ok: .{ buffer: text_buffer } };
+}
+
+impl *mut Editor {
+    /// Releases the full editor state.
+    pub fn deinit(alloc: *mut Allocator) void {
+        self.buffer..&.deinit(alloc);
+        self.command_line..&.deinit(alloc);
+        self.message..&.deinit(alloc);
+        self.* = Editor.{ buffer: TextBuffer.{} };
+    }
+
+    fn set_message(alloc: *mut Allocator, text: []u8) void {
+        let _ = self.message..&.clone_from(alloc, text);
+    }
+
+    fn clamp_cursor() void {
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            self.cursor = .{ row: 0, col: 0 };
+            return;
+        }
+
+        if (self.cursor.row >= lines) {
+            self.cursor.row = lines - 1;
+        }
+        let line_len = self.buffer.&.line_len(self.cursor.row);
+        if (self.cursor.col > line_len) {
+            self.cursor.col = line_len;
+        }
+    }
+
+    fn main_rows(term_rows: usize) usize {
+        if (term_rows == 0) {
+            return 0;
+        }
+        return term_rows - 1;
+    }
+
+    fn ensure_cursor_visible(term_rows: usize) void {
+        let view_rows = self.main_rows(term_rows);
+        if (view_rows == 0) {
+            self.scroll_row = self.cursor.row;
+            return;
+        }
+
+        if (self.cursor.row < self.scroll_row) {
+            self.scroll_row = self.cursor.row;
+        }
+        if (self.cursor.row >= self.scroll_row + view_rows) {
+            self.scroll_row = self.cursor.row - view_rows + 1;
+        }
+    }
+
+    fn move_left() void {
+        if (self.cursor.col > 0) {
+            self.cursor.col -= 1;
+        }
+    }
+
+    fn move_right() void {
+        let line_len = self.buffer.&.line_len(self.cursor.row);
+        if (self.cursor.col < line_len) {
+            self.cursor.col += 1;
+        }
+    }
+
+    fn move_up() void {
+        if (self.cursor.row > 0) {
+            self.cursor.row -= 1;
+        }
+        self.clamp_cursor();
+    }
+
+    fn move_down() void {
+        if (self.cursor.row + 1 < self.buffer.&.line_count()) {
+            self.cursor.row += 1;
+        }
+        self.clamp_cursor();
+    }
+
+    fn move_line_start() void {
+        self.cursor.col = 0;
+    }
+
+    fn move_line_end() void {
+        self.cursor.col = self.buffer.&.line_len(self.cursor.row);
+    }
+
+    fn enter_command() void {
+        self.mode = .Command;
+        self.command_line..&.clear();
+    }
+
+    fn finish_command() void {
+        if (!self.wants_quit) {
+            self.mode = .Normal;
+        }
+    }
+
+    fn save_current(alloc: *mut Allocator) bool {
+        match (self.buffer..&.write(alloc)) {
+            .{ Ok: _ } => {
+                self.set_message(alloc, "written");
+                return true;
+            },
+            .{ Err: err } => {
+                match (err) {
+                    .OutOfMemory => self.set_message(alloc, "out of memory"),
+                    .MissingPath => self.set_message(alloc, "no file name"),
+                    .{ Fs: _ } => self.set_message(alloc, "write failed"),
+                }
+                return false;
+            },
+        }
+    }
+
+    fn replace_buffer(alloc: *mut Allocator, next: TextBuffer) void {
+        self.buffer..&.deinit(alloc);
+        self.buffer = next;
+        self.cursor = .{ row: 0, col: 0 };
+        self.scroll_row = 0;
+    }
+
+    fn edit_path(alloc: *mut Allocator, path: []u8) void {
+        if (self.buffer.&.is_dirty()) {
+            self.set_message(alloc, "buffer modified; write or :q!");
+            return;
+        }
+
+        let next = match (open_path(alloc, path)) {
+            .{ Ok: value } => value,
+            .{ Err: err } => {
+                match (err) {
+                    .OutOfMemory => self.set_message(alloc, "out of memory"),
+                    .MissingPath => self.set_message(alloc, "no file name"),
+                    .{ Fs: _ } => self.set_message(alloc, "open failed"),
+                }
+                return;
+            },
+        };
+
+        self.replace_buffer(alloc, next);
+        self.set_message(alloc, "opened");
+    }
+
+    fn run_command(alloc: *mut Allocator) void {
+        let parsed = command.parse(self.command_line.&.as_str());
+        match (parsed) {
+            .None => {}
+            .Quit => {
+                if (self.buffer.&.is_dirty()) {
+                    self.set_message(alloc, "buffer modified; use :q! or :w");
+                } else {
+                    self.wants_quit = true;
+                }
+            },
+            .ForceQuit => self.wants_quit = true,
+            .Write => {
+                let _ = self.save_current(alloc);
+            },
+            .WriteQuit => {
+                if (self.save_current(alloc)) {
+                    self.wants_quit = true;
+                }
+            },
+            .{ Edit: path } => self.edit_path(alloc, path),
+            .{ WriteAs: path } => {
+                if (!self.buffer..&.set_path(alloc, path)) {
+                    self.set_message(alloc, "out of memory");
+                } else {
+                    let _ = self.save_current(alloc);
+                }
+            },
+            .Unknown => self.set_message(alloc, "unknown command"),
+        }
+
+        self.command_line..&.clear();
+        self.finish_command();
+    }
+
+    fn handle_normal_key(alloc: *mut Allocator, key: Key) void {
+        match (key) {
+            .ArrowLeft => self.move_left(),
+            .ArrowRight => self.move_right(),
+            .ArrowUp => self.move_up(),
+            .ArrowDown => self.move_down(),
+            .CtrlC => self.wants_quit = true,
+            .Eof => self.wants_quit = true,
+            .{ Byte: byte } => match (byte) {
+                b'h' => self.move_left(),
+                b'j' => self.move_down(),
+                b'k' => self.move_up(),
+                b'l' => self.move_right(),
+                b'0' => self.move_line_start(),
+                b'$' => self.move_line_end(),
+                b'i' => self.mode = .Insert,
+                b':' => self.enter_command(),
+                b'x' => {
+                    let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                    self.clamp_cursor();
+                },
+                b'o' => {
+                    if (self.buffer..&.insert_blank_line_below(alloc, self.cursor.row)) {
+                        self.cursor.row += 1;
+                        self.cursor.col = 0;
+                        self.mode = .Insert;
+                    } else {
+                        self.set_message(alloc, "insert failed");
+                    }
+                },
+                _ => {}
+            },
+            _ => {}
+        }
+    }
+
+    fn handle_insert_key(alloc: *mut Allocator, key: Key) void {
+        match (key) {
+            .Escape => self.mode = .Normal,
+            .ArrowLeft => self.move_left(),
+            .ArrowRight => self.move_right(),
+            .ArrowUp => self.move_up(),
+            .ArrowDown => self.move_down(),
+            .Backspace => {
+                self.cursor = self.buffer..&.delete_backward(alloc, self.cursor.row, self.cursor.col);
+            },
+            .Enter => {
+                if (self.buffer..&.split_line(alloc, self.cursor.row, self.cursor.col)) {
+                    self.cursor.row += 1;
+                    self.cursor.col = 0;
+                } else {
+                    self.set_message(alloc, "split failed");
+                }
+            },
+            .{ Byte: byte } => {
+                if (byte >= u8.{32} and byte != u8.{127}) {
+                    if (self.buffer..&.insert_byte(alloc, self.cursor.row, self.cursor.col, byte)) {
+                        self.cursor.col += 1;
+                    } else {
+                        self.set_message(alloc, "insert failed");
+                    }
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn handle_command_key(alloc: *mut Allocator, key: Key) void {
+        match (key) {
+            .Escape => {
+                self.command_line..&.clear();
+                self.mode = .Normal;
+            },
+            .Backspace => {
+                let _ = self.command_line..&.pop_char();
+            },
+            .Enter => self.run_command(alloc),
+            .{ Byte: byte } => {
+                if (byte >= u8.{32} and byte != u8.{127}) {
+                    let _ = self.command_line..&.push_char(alloc, byte);
+                }
+            },
+            _ => {}
+        }
+    }
+
+    /// Dispatches one normalized key into the current editor mode.
+    pub fn handle_key(alloc: *mut Allocator, key: Key) void {
+        match (self.mode) {
+            .Normal => self.handle_normal_key(alloc, key),
+            .Insert => self.handle_insert_key(alloc, key),
+            .Command => self.handle_command_key(alloc, key),
+        }
+        self.clamp_cursor();
+    }
+
+    fn render_status_line(alloc: *mut Allocator, cols: usize, out: *mut String) bool {
+        let mut remaining = cols;
+
+        if (self.mode == .Command) {
+            if (!push_truncated(out, alloc, ":", remaining..&)) {
+                return false;
+            }
+            return push_truncated(out, alloc, self.command_line.&.as_str(), remaining..&);
+        }
+
+        if (!push_truncated(out, alloc, "-- ", remaining..&)) {
+            return false;
+        }
+        if (!push_truncated(out, alloc, self.mode.label(), remaining..&)) {
+            return false;
+        }
+        if (!push_truncated(out, alloc, " -- ", remaining..&)) {
+            return false;
+        }
+        if (!push_truncated(out, alloc, self.buffer.&.path_or(NO_NAME), remaining..&)) {
+            return false;
+        }
+        if (self.buffer.&.is_dirty() and !push_truncated(out, alloc, " [+]", remaining..&)) {
+            return false;
+        }
+        if (!self.message.&.is_empty()) {
+            if (!push_truncated(out, alloc, " | ", remaining..&)) {
+                return false;
+            }
+            if (!push_truncated(out, alloc, self.message.&.as_str(), remaining..&)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// Renders the full visible editor frame into `out`.
+    pub fn render_into(alloc: *mut Allocator, rows: usize, cols: usize, out: *mut String) bool {
+        out.clear();
+        if (rows == 0 or cols == 0) {
+            return true;
+        }
+
+        self.ensure_cursor_visible(rows);
+        if (!ansi.clear_screen(out, alloc)) {
+            return false;
+        }
+
+        let main_rows = self.main_rows(rows);
+        for (let mut screen_row = usize.{0}; screen_row < main_rows; screen_row += 1) {
+            let row = self.scroll_row + screen_row;
+            if (row < self.buffer.&.line_count()) {
+                if (!push_rendered_line(out, alloc, self.buffer.&.line(row), cols)) {
+                    return false;
+                }
+            } else if (!out.push_char(alloc, b'~')) {
+                return false;
+            }
+
+            if (!ansi.clear_line(out, alloc)) {
+                return false;
+            }
+            if (screen_row + 1 < rows and !out.push_char(alloc, b'\n')) {
+                return false;
+            }
+        }
+
+        if (!self.render_status_line(alloc, cols, out)) {
+            return false;
+        }
+        if (!ansi.clear_line(out, alloc)) {
+            return false;
+        }
+
+        let cursor_row = if (self.mode == .Command) {
+            rows
+        } else {
+            let visible = if (self.cursor.row < self.scroll_row) usize.{0} else self.cursor.row - self.scroll_row;
+            let max_row = if (main_rows == 0) usize.{0} else main_rows - 1;
+            let clamped = if (visible > max_row) max_row else visible;
+            clamped + 1
+        };
+
+        let raw_col = if (self.mode == .Command) {
+            self.command_line.&.len() + 2
+        } else {
+            self.cursor.col + 1
+        };
+        let cursor_col = if (raw_col > cols) cols else raw_col;
+        return ansi.move_cursor(out, alloc, cursor_row, cursor_col);
+    }
+
+    /// Returns `true` once the main loop should stop.
+    pub fn should_quit() bool {
+        return self.wants_quit;
+    }
+}

@@ -16,3 +16,4 @@ pub mod dbg;
 pub mod test;
 pub mod sync;
 pub mod time;
+pub mod term;

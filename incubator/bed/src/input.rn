@@ -1,0 +1,76 @@
+//! Terminal input decoding.
+
+use base.Option;
+use base.Result;
+use std.fs;
+
+/// The normalized key events used by `bed`.
+pub type Key = enum {
+    Eof,
+    Escape,
+    Enter,
+    Backspace,
+    ArrowUp,
+    ArrowDown,
+    ArrowLeft,
+    ArrowRight,
+    CtrlC,
+    Byte: u8,
+};
+
+fn read_optional_byte(stdin: *mut fs.File) Result[Option[u8], fs.Error] {
+    let buf = [1]mut u8.{undef};
+    let read = match (stdin.read(buf..[0 .. 1])) {
+        .{ Ok: count } => count,
+        .{ Err: err } => return .{ Err: err },
+    };
+    if (read == 0) {
+        return .{ Ok: .None };
+    }
+    return .{ Ok: .{ Some: buf.[0] } };
+}
+
+/// Reads one normalized key from raw terminal input.
+pub fn read_key(stdin: *mut fs.File) Result[Key, fs.Error] {
+    let first = match (read_optional_byte(stdin)) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+
+    let .{ Some: byte } = first else return .{ Ok: .Eof };
+    if (byte == u8.{3}) {
+        return .{ Ok: .CtrlC };
+    }
+    if (byte == b'\r' or byte == b'\n') {
+        return .{ Ok: .Enter };
+    }
+    if (byte == u8.{127}) {
+        return .{ Ok: .Backspace };
+    }
+    if (byte != u8.{27}) {
+        return .{ Ok: .{ Byte: byte } };
+    }
+
+    let second = match (read_optional_byte(stdin)) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    let .{ Some: second_byte } = second else return .{ Ok: .Escape };
+    if (second_byte != b'[') {
+        return .{ Ok: .Escape };
+    }
+
+    let third = match (read_optional_byte(stdin)) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    let .{ Some: third_byte } = third else return .{ Ok: .Escape };
+
+    match (third_byte) {
+        b'A' => return .{ Ok: .ArrowUp },
+        b'B' => return .{ Ok: .ArrowDown },
+        b'C' => return .{ Ok: .ArrowRight },
+        b'D' => return .{ Ok: .ArrowLeft },
+        _ => return .{ Ok: .Escape },
+    }
+}

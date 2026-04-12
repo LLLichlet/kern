@@ -1,0 +1,75 @@
+//! ANSI terminal rendering helpers.
+
+use base.coll.String;
+use base.mem.alloc.Allocator;
+
+/// Appends one unsigned decimal number.
+pub fn push_usize(out: *mut String, alloc: *mut Allocator, value: usize) bool {
+    if (value == 0) {
+        return out.push_char(alloc, b'0');
+    }
+
+    let digits = [32]mut u8.{undef};
+    let mut len = usize.{0};
+    let mut current = value;
+    for (; current > 0; ) {
+        digits.[len] = b'0' + (current % usize.{10}) as u8;
+        current /= usize.{10};
+        len += 1;
+    }
+
+    for (; len > 0; ) {
+        len -= 1;
+        if (!out.push_char(alloc, digits.[len])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+/// Enters the alternate screen buffer.
+pub fn enter_alt_screen(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[?1049h");
+}
+
+/// Leaves the alternate screen buffer.
+pub fn leave_alt_screen(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[?1049l");
+}
+
+/// Hides the terminal cursor.
+pub fn hide_cursor(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[?25l");
+}
+
+/// Shows the terminal cursor.
+pub fn show_cursor(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[?25h");
+}
+
+/// Clears the full visible screen and homes the cursor.
+pub fn clear_screen(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[2J\x1b[H");
+}
+
+/// Clears from the cursor to the end of the current line.
+pub fn clear_line(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[K");
+}
+
+/// Moves the cursor to a 1-based row and column.
+pub fn move_cursor(out: *mut String, alloc: *mut Allocator, row: usize, col: usize) bool {
+    if (!out.push_str(alloc, "\x1b[")) {
+        return false;
+    }
+    if (!push_usize(out, alloc, row)) {
+        return false;
+    }
+    if (!out.push_char(alloc, b';')) {
+        return false;
+    }
+    if (!push_usize(out, alloc, col)) {
+        return false;
+    }
+    return out.push_char(alloc, b'H');
+}

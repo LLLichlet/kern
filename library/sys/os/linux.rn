@@ -6,7 +6,7 @@
 //! keep the syscall boundary direct and typed.
 
 use base.Result;
-use sys.os.{FileType, Metadata};
+use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
 /// A Linux OS error code.
@@ -29,11 +29,28 @@ const O_TRUNC = usize.{512};
 const O_APPEND = usize.{1024};
 const DEFAULT_MODE = usize.{420};
 const MODE_DIR = usize.{493};
+const SYS_IOCTL = usize.{16};
 const UNLINKAT = usize.{263};
 const MKDIRAT = usize.{258};
 const NEWFSTATAT = usize.{262};
 const RENAMEAT = usize.{264};
 const GETDENTS64 = usize.{217};
+const TCGETS = usize.{21505};
+const TCSETS = usize.{21506};
+const TIOCGWINSZ = usize.{21523};
+const BRKINT = u32.{2};
+const ICRNL = u32.{256};
+const INPCK = u32.{16};
+const ISTRIP = u32.{32};
+const IXON = u32.{1024};
+const TTY_OPOST = u32.{1};
+const CS8 = u32.{48};
+const ECHO = u32.{8};
+const ICANON = u32.{2};
+const IEXTEN = u32.{32768};
+const ISIG = u32.{1};
+const VTIME = usize.{5};
+const VMIN = usize.{6};
 const ENOENT = isize.{2};
 const EEXIST = isize.{17};
 const S_IFMT = u32.{61440};
@@ -74,6 +91,27 @@ extern type Dirent64 = struct {
     d_name: u8,
 };
 
+extern type Termios = struct {
+    c_iflag: u32,
+    c_oflag: u32,
+    c_cflag: u32,
+    c_lflag: u32,
+    c_line: u8,
+    c_cc: [32]u8,
+    c_ispeed: u32,
+    c_ospeed: u32,
+};
+
+extern type WinSize = struct {
+    ws_row: u16,
+    ws_col: u16,
+    ws_xpixel: u16,
+    ws_ypixel: u16,
+};
+
+/// Captured Linux termios state for later restoration.
+pub type TerminalState = Termios;
+
 fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     let mut ret = isize.{undef};
 
@@ -110,6 +148,10 @@ fn match_environment_name(entry: *u8, name: *u8) *u8 {
 
         i += 1;
     }
+}
+
+fn ioctl_raw(handle: Handle, request: usize, arg: usize) isize {
+    return syscall3_raw(SYS_IOCTL, handle, request, arg);
 }
 
 /// Performs a raw 3-argument syscall.
@@ -236,6 +278,61 @@ pub fn get_stdout_handle() Handle {
 /// Returns the process handle for standard error.
 pub fn get_stderr_handle() Handle {
     return 2;
+}
+
+/// Returns `true` when `handle` refers to a terminal-like device.
+pub fn is_terminal(handle: Handle) bool {
+    let mut state = Termios.{undef};
+    return ioctl_raw(handle, TCGETS, state..& as usize) >= 0;
+}
+
+/// Returns the visible terminal dimensions for `handle`.
+pub fn terminal_size(handle: Handle) Result[TerminalSize, Error] {
+    let mut size = WinSize.{undef};
+    let ret = ioctl_raw(handle, TIOCGWINSZ, size..& as usize);
+    if (ret < 0) {
+        return error_result[TerminalSize](ret);
+    }
+
+    return .{
+        Ok: .{
+            rows: size.ws_row as usize,
+            cols: size.ws_col as usize,
+        },
+    };
+}
+
+/// Enables raw mode on one terminal handle and returns the previous state.
+pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
+    let mut state = Termios.{undef};
+    let get_ret = ioctl_raw(handle, TCGETS, state..& as usize);
+    if (get_ret < 0) {
+        return error_result[TerminalState](get_ret);
+    }
+
+    let original = state;
+    state.c_iflag = state.c_iflag & ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+    state.c_oflag = state.c_oflag & ~TTY_OPOST;
+    state.c_cflag = state.c_cflag | CS8;
+    state.c_lflag = state.c_lflag & ~(ECHO | ICANON | IEXTEN | ISIG);
+    state.c_cc.[VMIN] = 0;
+    state.c_cc.[VTIME] = 1;
+
+    let set_ret = ioctl_raw(handle, TCSETS, state..& as usize);
+    if (set_ret < 0) {
+        return error_result[TerminalState](set_ret);
+    }
+
+    return .{ Ok: original };
+}
+
+/// Restores a previously captured terminal state.
+pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool, Error] {
+    let ret = ioctl_raw(handle, TCSETS, state as usize);
+    if (ret < 0) {
+        return error_result[bool](ret);
+    }
+    return .{ Ok: true };
 }
 
 pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize) usize {

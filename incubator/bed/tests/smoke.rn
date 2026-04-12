@@ -1,0 +1,51 @@
+use base.mem.alloc.GPA;
+use std.test;
+use sys.mem.Page;
+use bed.{buffer, command};
+
+fn check_command_parse() void {
+    match (command.parse("q")) {
+        .Quit => {}
+        _ => test.fail("expected :q to parse as quit", .{}),
+    }
+
+    match (command.parse("q!")) {
+        .ForceQuit => {}
+        _ => test.fail("expected :q! to parse as force quit", .{}),
+    }
+
+    match (command.parse("w tmp.txt")) {
+        .{ WriteAs: path } => test.eq(path, "tmp.txt"),
+        _ => test.fail("expected :w <path> to parse as write-as", .{}),
+    }
+}
+
+fn check_buffer_editing() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut text = test.expect_ok(buffer.empty(gpa, ""));
+    defer text..&.deinit(gpa);
+
+    test.assert(text..&.insert_byte(gpa, 0, 0, b'a'), "expected insert a to succeed", .{});
+    test.assert(text..&.insert_byte(gpa, 0, 1, b'b'), "expected insert b to succeed", .{});
+    test.assert(text..&.split_line(gpa, 0, 1), "expected split to succeed", .{});
+    test.eq(text.&.line_count(), usize.{2});
+    test.eq(text.&.line(0), "a");
+    test.eq(text.&.line(1), "b");
+
+    let cursor = text..&.delete_backward(gpa, 1, 0);
+    test.eq(cursor.row, usize.{0});
+    test.eq(cursor.col, usize.{1});
+    test.eq(text.&.line_count(), usize.{1});
+    test.eq(text.&.line(0), "ab");
+
+    test.assert(text..&.delete_at(gpa, 0, 1), "expected delete at cursor to succeed", .{});
+    test.eq(text.&.line(0), "a");
+}
+
+fn main() i32 {
+    check_command_parse();
+    check_buffer_editing();
+    return 0;
+}

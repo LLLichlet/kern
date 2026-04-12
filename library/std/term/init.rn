@@ -1,0 +1,87 @@
+//! Terminal capability helpers.
+//!
+//! This module keeps TTY checks, raw mode, and viewport sizing explicit while
+//! building on top of the provider boundary in `sys.os`.
+
+use base.Result;
+use sys.os;
+
+/// Terminal errors surfaced through `std.term`.
+pub type Error = enum {
+    NotTerminal,
+    Os: os.Error,
+};
+
+/// The visible terminal dimensions.
+pub type Size = os.TerminalSize;
+
+/// Owns one active raw-mode terminal session and restores it on drop.
+pub type RawMode = struct {
+    handle: os.Handle,
+    state: os.TerminalState,
+    active: bool = false,
+};
+
+fn normalized_size(size: Size) Size {
+    let rows = if (size.rows == 0) usize.{24} else size.rows;
+    let cols = if (size.cols == 0) usize.{80} else size.cols;
+    return .{ rows: rows, cols: cols };
+}
+
+/// Returns `true` when standard input is attached to a terminal.
+pub fn stdin_is_terminal() bool {
+    return os.is_terminal(os.get_stdin_handle());
+}
+
+/// Returns `true` when standard output is attached to a terminal.
+pub fn stdout_is_terminal() bool {
+    return os.is_terminal(os.get_stdout_handle());
+}
+
+/// Enables raw mode on standard input.
+pub fn stdin_raw_mode() Result[RawMode, Error] {
+    let handle = os.get_stdin_handle();
+    if (!os.is_terminal(handle)) {
+        return .{ Err: .NotTerminal };
+    }
+
+    match (os.enable_raw_mode(handle)) {
+        .{ Ok: state } => return .{ Ok: .{ handle: handle, state: state, active: true } },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
+    }
+}
+
+/// Returns the current visible size for standard output.
+pub fn stdout_size() Result[Size, Error] {
+    let handle = os.get_stdout_handle();
+    if (!os.is_terminal(handle)) {
+        return .{ Err: .NotTerminal };
+    }
+
+    match (os.terminal_size(handle)) {
+        .{ Ok: size } => return .{ Ok: normalized_size(size) },
+        .{ Err: err } => return .{ Err: .{ Os: err } },
+    }
+}
+
+impl *mut RawMode {
+    /// Restores the terminal to the state captured before raw mode was enabled.
+    pub fn restore() Result[bool, Error] {
+        if (!self.active) {
+            return .{ Ok: true };
+        }
+
+        match (os.restore_terminal_mode(self.handle, self.state..&)) {
+            .{ Ok: restored } => {
+                self.active = false;
+                return .{ Ok: restored };
+            },
+            .{ Err: err } => return .{ Err: .{ Os: err } },
+        }
+    }
+
+    /// Best-effort destructor for raw terminal sessions.
+    pub fn deinit() void {
+        let _ = self.restore();
+    }
+}

@@ -6,7 +6,7 @@
 //! keep libc-backed OS calls explicit and close to the platform ABI.
 
 use base.Result;
-use sys.os.{FileType, Metadata};
+use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
 /// Imports the libc-backed OS entry points used by the Darwin runtime layer.
@@ -49,6 +49,21 @@ extern {
 
     #[export_name("munmap")]
     pub fn munmap(addr: *mut u8, len: usize) i32;
+
+    #[export_name("isatty")]
+    fn system_isatty(fd: i32) i32;
+
+    #[export_name("ioctl")]
+    fn system_ioctl(fd: i32, request: u64, ...) i32;
+
+    #[export_name("tcgetattr")]
+    fn system_tcgetattr(fd: i32, termios: *mut Termios) i32;
+
+    #[export_name("tcsetattr")]
+    fn system_tcsetattr(fd: i32, actions: i32, termios: *TerminalState) i32;
+
+    #[export_name("cfmakeraw")]
+    fn system_cfmakeraw(termios: *mut Termios) void;
 }
 
 #[if(arch == "aarch64")]
@@ -117,6 +132,26 @@ extern type Dirent = struct {
     d_name: [1024]u8,
 };
 
+extern type Termios = struct {
+    c_iflag: u64,
+    c_oflag: u64,
+    c_cflag: u64,
+    c_lflag: u64,
+    c_cc: [20]u8,
+    c_ispeed: u64,
+    c_ospeed: u64,
+};
+
+extern type WinSize = struct {
+    ws_row: u16,
+    ws_col: u16,
+    ws_xpixel: u16,
+    ws_ypixel: u16,
+};
+
+/// Captured Darwin termios state for later restoration.
+pub type TerminalState = Termios;
+
 /// Page protection flag for readable memory mappings.
 pub const PROT_READ = 0x01;
 /// Page protection flag for writable memory mappings.
@@ -139,6 +174,10 @@ const O_EXCL = i32.{2048};
 const O_TRUNC = i32.{1024};
 const DEFAULT_MODE = i32.{420};
 const MODE_DIR = i32.{493};
+const TIOCGWINSZ = u64.{1074295912};
+const TCSAFLUSH = i32.{2};
+const VMIN = usize.{16};
+const VTIME = usize.{17};
 const S_IFMT = u16.{61440};
 const S_IFDIR = u16.{16384};
 const S_IFREG = u16.{32768};
@@ -242,6 +281,52 @@ pub fn get_stdout_handle() Handle {
 /// Returns the process handle for standard error.
 pub fn get_stderr_handle() Handle {
     return 2;
+}
+
+/// Returns `true` when `handle` refers to a terminal-like device.
+pub fn is_terminal(handle: Handle) bool {
+    return system_isatty(handle) != 0;
+}
+
+/// Returns the visible terminal dimensions for `handle`.
+pub fn terminal_size(handle: Handle) Result[TerminalSize, Error] {
+    let mut size = WinSize.{undef};
+    if (system_ioctl(handle, TIOCGWINSZ, size..&) < 0) {
+        return .{ Err: last_error() };
+    }
+
+    return .{
+        Ok: .{
+            rows: size.ws_row as usize,
+            cols: size.ws_col as usize,
+        },
+    };
+}
+
+/// Enables raw mode on one terminal handle and returns the previous state.
+pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
+    let mut state = Termios.{undef};
+    if (system_tcgetattr(handle, state..&) < 0) {
+        return .{ Err: last_error() };
+    }
+
+    let original = state;
+    system_cfmakeraw(state..&);
+    state.c_cc.[VMIN] = 0;
+    state.c_cc.[VTIME] = 1;
+    if (system_tcsetattr(handle, TCSAFLUSH, state..&) < 0) {
+        return .{ Err: last_error() };
+    }
+
+    return .{ Ok: original };
+}
+
+/// Restores a previously captured terminal state.
+pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool, Error] {
+    if (system_tcsetattr(handle, TCSAFLUSH, state) < 0) {
+        return .{ Err: last_error() };
+    }
+    return .{ Ok: true };
 }
 
 /// Reads up to `len` bytes from `handle` into `ptr`.

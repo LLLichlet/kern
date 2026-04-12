@@ -27,6 +27,46 @@ struct AliasCollectSpec<'a> {
     target: &'a ast::TypeNode,
 }
 
+struct OwnedDeclHeader {
+    node_id: NodeId,
+    span: Span,
+    name_span: Span,
+    name: SymbolId,
+    docs: Option<ast::DocBlock>,
+    attributes: Vec<ast::Attribute>,
+    vis: Visibility,
+}
+
+struct FunctionCollectOwnedSpec {
+    header: OwnedDeclHeader,
+    parent_impl: Option<DefId>,
+    is_const: bool,
+    is_extern: bool,
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    params: Vec<ast::FuncParam>,
+    ret_type: ast::TypeNode,
+    body: Option<Box<ast::Expr>>,
+    is_variadic: bool,
+}
+
+struct GlobalCollectOwnedSpec {
+    header: OwnedDeclHeader,
+    is_extern: bool,
+    value: ast::Expr,
+    is_static: bool,
+    is_mut: bool,
+}
+
+struct AliasCollectOwnedSpec {
+    header: OwnedDeclHeader,
+    is_extern: bool,
+    generics: Vec<ast::GenericParam>,
+    where_clauses: Vec<ast::WhereClause>,
+    bounds: Vec<ast::TypeNode>,
+    target: ast::TypeNode,
+}
+
 struct SymbolDefSpec {
     name: SymbolId,
     kind: SymbolKind,
@@ -375,6 +415,15 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             kind,
             ..
         } = decl;
+        let header = OwnedDeclHeader {
+            node_id: id,
+            span,
+            name_span,
+            name,
+            docs,
+            attributes,
+            vis,
+        };
 
         match kind {
             DeclKind::Function {
@@ -390,63 +439,45 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 let mut combined_generics = impl_generics.to_vec();
                 combined_generics.extend(generics);
 
-                self.collect_function_owned(
-                    id,
-                    span,
-                    name_span,
-                    name,
-                    docs,
-                    attributes,
-                    vis,
+                self.collect_function_owned(FunctionCollectOwnedSpec {
+                    header,
                     parent_impl,
                     is_const,
-                    force_extern || is_extern,
-                    combined_generics,
+                    is_extern: force_extern || is_extern,
+                    generics: combined_generics,
                     where_clauses,
                     params,
                     ret_type,
                     body,
                     is_variadic,
-                )
+                })
             }
             DeclKind::Var {
                 value,
                 is_static,
                 is_extern,
                 is_mut,
-            } => self.collect_global_owned(
-                id,
-                span,
-                name_span,
-                name,
-                docs,
-                attributes,
-                vis,
-                force_extern || is_extern,
+            } => self.collect_global_owned(GlobalCollectOwnedSpec {
+                header,
+                is_extern: force_extern || is_extern,
                 value,
                 is_static,
                 is_mut,
-            ),
+            }),
             DeclKind::TypeAlias {
                 generics,
                 target,
                 is_extern,
                 where_clauses,
                 bounds,
-            } => self.collect_type_alias_or_struct_owned(
-                id,
-                span,
-                name_span,
-                name,
-                docs,
-                attributes,
-                vis,
-                force_extern || is_extern,
+            } => self.collect_type_alias_or_struct_owned(AliasCollectOwnedSpec {
+                header,
+                is_extern: force_extern || is_extern,
                 generics,
                 where_clauses,
                 bounds,
                 target,
-            ),
+            }),
             DeclKind::Impl {
                 generics,
                 where_clauses,
@@ -543,26 +574,28 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn collect_function_owned(
-        &mut self,
-        node_id: NodeId,
-        span: Span,
-        name_span: Span,
-        name: SymbolId,
-        docs: Option<ast::DocBlock>,
-        attributes: Vec<ast::Attribute>,
-        vis: Visibility,
-        parent_impl: Option<DefId>,
-        is_const: bool,
-        is_extern: bool,
-        generics: Vec<ast::GenericParam>,
-        where_clauses: Vec<ast::WhereClause>,
-        params: Vec<ast::FuncParam>,
-        ret_type: ast::TypeNode,
-        body: Option<Box<ast::Expr>>,
-        is_variadic: bool,
-    ) -> Option<DefId> {
+    fn collect_function_owned(&mut self, spec: FunctionCollectOwnedSpec) -> Option<DefId> {
+        let FunctionCollectOwnedSpec {
+            header:
+                OwnedDeclHeader {
+                    node_id,
+                    span,
+                    name_span,
+                    name,
+                    docs,
+                    attributes,
+                    vis,
+                },
+            parent_impl,
+            is_const,
+            is_extern,
+            generics,
+            where_clauses,
+            params,
+            ret_type,
+            body,
+            is_variadic,
+        } = spec;
         let def_id = DefId(self.ctx.defs.len() as u32);
         let mut actual_params = params;
 
@@ -680,21 +713,23 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn collect_global_owned(
-        &mut self,
-        node_id: NodeId,
-        span: Span,
-        name_span: Span,
-        name: SymbolId,
-        docs: Option<ast::DocBlock>,
-        attributes: Vec<ast::Attribute>,
-        vis: Visibility,
-        is_extern: bool,
-        value: ast::Expr,
-        is_static: bool,
-        is_mut: bool,
-    ) -> Option<DefId> {
+    fn collect_global_owned(&mut self, spec: GlobalCollectOwnedSpec) -> Option<DefId> {
+        let GlobalCollectOwnedSpec {
+            header:
+                OwnedDeclHeader {
+                    node_id,
+                    span,
+                    name_span,
+                    name,
+                    docs,
+                    attributes,
+                    vis,
+                },
+            is_extern,
+            value,
+            is_static,
+            is_mut,
+        } = spec;
         let def_id = DefId(self.ctx.defs.len() as u32);
 
         let global_def = GlobalDef {
@@ -859,22 +894,24 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         Some(def_id)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn collect_type_alias_or_struct_owned(
-        &mut self,
-        node_id: NodeId,
-        span: Span,
-        name_span: Span,
-        name: SymbolId,
-        docs: Option<ast::DocBlock>,
-        attributes: Vec<ast::Attribute>,
-        vis: Visibility,
-        is_extern: bool,
-        generics: Vec<ast::GenericParam>,
-        where_clauses: Vec<ast::WhereClause>,
-        bounds: Vec<ast::TypeNode>,
-        target: ast::TypeNode,
-    ) -> Option<DefId> {
+    fn collect_type_alias_or_struct_owned(&mut self, spec: AliasCollectOwnedSpec) -> Option<DefId> {
+        let AliasCollectOwnedSpec {
+            header:
+                OwnedDeclHeader {
+                    node_id,
+                    span,
+                    name_span,
+                    name,
+                    docs,
+                    attributes,
+                    vis,
+                },
+            is_extern,
+            generics,
+            where_clauses,
+            bounds,
+            target,
+        } = spec;
         let def_id = DefId(self.ctx.defs.len() as u32);
         let mut sym_kind = SymbolKind::TypeAlias;
 

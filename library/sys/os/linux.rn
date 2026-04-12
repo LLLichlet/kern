@@ -315,8 +315,8 @@ pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
     state.c_oflag = state.c_oflag & ~TTY_OPOST;
     state.c_cflag = state.c_cflag | CS8;
     state.c_lflag = state.c_lflag & ~(ECHO | ICANON | IEXTEN | ISIG);
-    state.c_cc.[VMIN] = 0;
-    state.c_cc.[VTIME] = 1;
+    state.c_cc.[VMIN] = 1;
+    state.c_cc.[VTIME] = 0;
 
     let set_ret = ioctl_raw(handle, TCSETS, state..& as usize);
     if (set_ret < 0) {

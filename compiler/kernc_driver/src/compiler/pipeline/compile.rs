@@ -1,6 +1,6 @@
 use super::*;
 use crate::compiler::codegen_units;
-use crate::compiler::{LinkTarget, TempDirGuard, TempFileGuard};
+use crate::compiler::{TempDirGuard, TempFileGuard};
 use kernc_utils::config::LinkerInputFlavor;
 use std::fs;
 use std::path::Path;
@@ -173,102 +173,90 @@ impl CompilerDriver {
 
         let lower_cache_stats = lowered.cache_stats;
         let cache_stats = self.cache_stats_since(cache_snapshot);
-
-        if codegen_unit_plans.is_empty() {
-            return self.compile_single_unit(
-                &mut ctx,
-                &loaded_sources,
-                &mut phase_timings,
-                &target,
-                &module_name,
-                &mir_report.module,
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
-            );
-        }
-
-        self.compile_partitioned_units(
-            &mut ctx,
-            &loaded_sources,
-            &mut phase_timings,
-            &target,
-            &module_name,
-            &mast_module,
-            &codegen_unit_plans,
+        let report_context = CompileReportContext {
+            loaded_sources: &loaded_sources,
             cache_stats,
             lower_cache_stats,
             mast_workload,
             mir_workload,
-            codegen_plan_report,
+            codegen_plan: &codegen_plan_report,
             collect_codegen_diagnostics,
-        )
+        };
+
+        if codegen_unit_plans.is_empty() {
+            let mut pipeline = CompilePipelineContext {
+                sema: &mut ctx,
+                phase_timings: &mut phase_timings,
+                target: &target,
+                module_name: &module_name,
+                report: report_context,
+            };
+            return self.compile_single_unit(&mut pipeline, &mir_report.module);
+        }
+
+        let mut pipeline = CompilePipelineContext {
+            sema: &mut ctx,
+            phase_timings: &mut phase_timings,
+            target: &target,
+            module_name: &module_name,
+            report: report_context,
+        };
+        self.compile_partitioned_units(&mut pipeline, &mast_module, &codegen_unit_plans)
     }
 
     fn compile_single_unit(
         &self,
-        ctx: &mut SemaContext<'_>,
-        loaded_sources: &[PathBuf],
-        phase_timings: &mut Vec<PhaseTiming>,
-        target: &LinkTarget,
-        module_name: &str,
+        pipeline: &mut CompilePipelineContext<'_, '_>,
         mir_module: &kernc_mir::MirModule,
-        cache_stats: CompileCacheStats,
-        lower_cache_stats: kernc_lower::LowerCacheStats,
-        mast_workload: kernc_mast::MastWorkloadStats,
-        mir_workload: kernc_mir::MirWorkloadStats,
-        codegen_plan_report: Option<CodegenPlanReport>,
-        collect_codegen_diagnostics: bool,
     ) -> Option<CompileReport> {
-        let link_input_path = self.prepare_link_input_path(target);
+        let link_input_path = self.prepare_link_input_path(pipeline.target);
         let _guard = self.temp_link_input_guard(&link_input_path);
         let (codegen_report, emit_result) = {
             let codegen_ctx = Context::create();
             let mut codegen = CodeGenerator::new(
                 &codegen_ctx,
-                module_name,
-                &mut *ctx.sess,
-                &ctx.type_registry,
+                pipeline.module_name,
+                &mut *pipeline.sema.sess,
+                &pipeline.sema.type_registry,
                 self.options.split_sections_for_gc,
             );
             codegen.set_asm_dialect(self.codegen_asm_dialect());
-            let codegen_report = Self::measure_phase(phase_timings, "codegen", || {
-                codegen.compile_mir(mir_module, collect_codegen_diagnostics)
+            let codegen_report = Self::measure_phase(pipeline.phase_timings, "codegen", || {
+                codegen.compile_mir(mir_module, pipeline.report.collect_codegen_diagnostics)
             });
-            phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+            pipeline
+                .phase_timings
+                .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
                 name: timing.name,
                 duration: timing.duration,
             }));
             let emit_result = if self.options.driver_mode == DriverMode::EmitLlvmIr {
-                Self::measure_phase(phase_timings, "emit_llvm_ir", || {
+                Self::measure_phase(pipeline.phase_timings, "emit_llvm_ir", || {
                     codegen.emit_llvm_ir(
-                        &target.triple,
+                        &pipeline.target.triple,
                         self.options.opt_level,
                         self.options.emit_llvm_stage,
-                        collect_codegen_diagnostics,
+                        pipeline.report.collect_codegen_diagnostics,
                     )
                 })
             } else if self.emit_thin_lto_bitcode_linker_input() {
-                Self::measure_phase(phase_timings, "emit_bitcode", || {
+                Self::measure_phase(pipeline.phase_timings, "emit_bitcode", || {
                     let (bitcode, report) = codegen.emit_thin_lto_bitcode(
-                        &target.triple,
+                        &pipeline.target.triple,
                         self.options.opt_level,
-                        collect_codegen_diagnostics,
+                        pipeline.report.collect_codegen_diagnostics,
                     )?;
                     fs::write(&link_input_path, bitcode)
                         .map_err(|err| format!("failed to stage ThinLTO linker input: {err}"))?;
                     Ok(report)
                 })
             } else {
-                Self::measure_phase(phase_timings, "emit_object", || {
+                Self::measure_phase(pipeline.phase_timings, "emit_object", || {
                     codegen.emit_to_file(
-                        &target.triple,
+                        &pipeline.target.triple,
                         &link_input_path,
                         self.options.opt_level,
-                        collect_codegen_diagnostics,
+                        pipeline.report.collect_codegen_diagnostics,
                     )
                 })
             };
@@ -286,29 +274,25 @@ impl CompilerDriver {
                 return None;
             }
         };
-        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+        pipeline
+            .phase_timings
+            .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
 
         if self.options.driver_mode == DriverMode::EmitLlvmIr {
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
             return Some(Self::build_compile_report(
-                loaded_sources.to_vec(),
-                std::mem::take(phase_timings),
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
+                pipeline.report,
+                std::mem::take(pipeline.phase_timings),
                 codegen_report,
                 Some(emit_report),
             ));
         }
 
         if self.options.driver_mode.emits_linker_input() {
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
             if self.options.report_progress {
                 println!(
                     "Successfully emitted linker input to `{}`",
@@ -316,34 +300,26 @@ impl CompilerDriver {
                 );
             }
             return Some(Self::build_compile_report(
-                loaded_sources.to_vec(),
-                std::mem::take(phase_timings),
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
+                pipeline.report,
+                std::mem::take(pipeline.phase_timings),
                 codegen_report,
                 Some(emit_report),
             ));
         }
 
-        let linked = Self::measure_phase(phase_timings, "link", || {
-            self.run_link_command(Some(&link_input_path), target, "Successfully compiled")
+        let linked = Self::measure_phase(pipeline.phase_timings, "link", || {
+            self.run_link_command(
+                Some(&link_input_path),
+                pipeline.target,
+                "Successfully compiled",
+            )
         });
         if linked {
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
         }
         linked.then_some(Self::build_compile_report(
-            loaded_sources.to_vec(),
-            std::mem::take(phase_timings),
-            cache_stats,
-            lower_cache_stats,
-            mast_workload,
-            mir_workload,
-            codegen_plan_report,
-            collect_codegen_diagnostics,
+            pipeline.report,
+            std::mem::take(pipeline.phase_timings),
             codegen_report,
             Some(emit_report),
         ))
@@ -358,53 +334,19 @@ impl CompilerDriver {
 
     fn compile_partitioned_units(
         &self,
-        ctx: &mut SemaContext<'_>,
-        loaded_sources: &[PathBuf],
-        phase_timings: &mut Vec<PhaseTiming>,
-        target: &LinkTarget,
-        module_name: &str,
+        pipeline: &mut CompilePipelineContext<'_, '_>,
         mast_module: &kernc_mast::MastModule,
         codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
-        cache_stats: CompileCacheStats,
-        lower_cache_stats: kernc_lower::LowerCacheStats,
-        mast_workload: kernc_mast::MastWorkloadStats,
-        mir_workload: kernc_mir::MirWorkloadStats,
-        codegen_plan_report: Option<CodegenPlanReport>,
-        collect_codegen_diagnostics: bool,
     ) -> Option<CompileReport> {
         if self.options.lto_mode == LtoMode::Full {
             return self.compile_partitioned_units_full_lto(
-                ctx,
-                loaded_sources,
-                phase_timings,
-                target,
-                module_name,
+                pipeline,
                 mast_module,
                 codegen_unit_plans,
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
             );
         }
         if self.options.lto_mode == LtoMode::Thin {
-            return self.compile_partitioned_units_thin_lto(
-                ctx,
-                loaded_sources,
-                phase_timings,
-                target,
-                module_name,
-                mast_module,
-                codegen_unit_plans,
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
-            );
+            return self.compile_partitioned_units_thin_lto(pipeline, mast_module, codegen_unit_plans);
         }
 
         let emit_multi_linker_input_dir = self.options.driver_mode.emits_linker_input()
@@ -422,14 +364,17 @@ impl CompilerDriver {
                 })
                 .collect::<Vec<_>>()
         };
+        let build_context = CodegenUnitBuildContext {
+            module_name: pipeline.module_name,
+            target_triple: &pipeline.target.triple,
+            session: pipeline.sema.sess,
+            type_registry: &pipeline.sema.type_registry,
+            collect_diagnostics: pipeline.report.collect_codegen_diagnostics,
+        };
         let unit_batch = match self.codegen_unit_artifacts(
             mast_module,
             codegen_unit_plans,
-            module_name,
-            &target.triple,
-            ctx.sess,
-            &ctx.type_registry,
-            collect_codegen_diagnostics,
+            &build_context,
         ) {
             Ok(artifacts) => artifacts,
             Err(err) => {
@@ -447,15 +392,19 @@ impl CompilerDriver {
             object_paths[artifact.index] = artifact.object_path;
         }
 
-        phase_timings.push(PhaseTiming {
+        pipeline.phase_timings.push(PhaseTiming {
             name: "codegen_units",
             duration: unit_batch.wall_duration,
         });
-        phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+        pipeline
+            .phase_timings
+            .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
-        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+        pipeline
+            .phase_timings
+            .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
@@ -469,16 +418,10 @@ impl CompilerDriver {
                     );
                     return None;
                 }
-                Self::print_buffered_diagnostics(ctx.sess);
+                Self::print_buffered_diagnostics(pipeline.sema.sess);
                 return Some(Self::build_compile_report(
-                    loaded_sources.to_vec(),
-                    std::mem::take(phase_timings),
-                    cache_stats,
-                    lower_cache_stats,
-                    mast_workload,
-                    mir_workload,
-                    codegen_plan_report,
-                    collect_codegen_diagnostics,
+                    pipeline.report,
+                    std::mem::take(pipeline.phase_timings),
                     codegen_report,
                     Some(emit_report),
                 ));
@@ -488,10 +431,10 @@ impl CompilerDriver {
             let merged_output_guard = TempFileGuard {
                 path: merged_output_path.clone(),
             };
-            let merged = Self::measure_phase(phase_timings, "merge_object", || {
+            let merged = Self::measure_phase(pipeline.phase_timings, "merge_object", || {
                 self.run_relocatable_link_command(
                     &object_paths,
-                    target,
+                    pipeline.target,
                     &merged_output_path,
                     &self.options.output_file,
                     "Successfully emitted linker input",
@@ -511,37 +454,29 @@ impl CompilerDriver {
                 return None;
             }
             drop(merged_output_guard);
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
             return Some(Self::build_compile_report(
-                loaded_sources.to_vec(),
-                std::mem::take(phase_timings),
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
+                pipeline.report,
+                std::mem::take(pipeline.phase_timings),
                 codegen_report,
                 Some(emit_report),
             ));
         }
 
-        let linked = Self::measure_phase(phase_timings, "link", || {
-            self.run_link_command_with_inputs(&object_paths, target, "Successfully compiled")
+        let linked = Self::measure_phase(pipeline.phase_timings, "link", || {
+            self.run_link_command_with_inputs(
+                &object_paths,
+                pipeline.target,
+                "Successfully compiled",
+            )
         });
         drop(object_guards);
         if linked {
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
         }
         linked.then_some(Self::build_compile_report(
-            loaded_sources.to_vec(),
-            std::mem::take(phase_timings),
-            cache_stats,
-            lower_cache_stats,
-            mast_workload,
-            mir_workload,
-            codegen_plan_report,
-            collect_codegen_diagnostics,
+            pipeline.report,
+            std::mem::take(pipeline.phase_timings),
             codegen_report,
             Some(emit_report),
         ))
@@ -549,19 +484,9 @@ impl CompilerDriver {
 
     fn compile_partitioned_units_thin_lto(
         &self,
-        ctx: &mut SemaContext<'_>,
-        loaded_sources: &[PathBuf],
-        phase_timings: &mut Vec<PhaseTiming>,
-        target: &LinkTarget,
-        module_name: &str,
+        pipeline: &mut CompilePipelineContext<'_, '_>,
         mast_module: &kernc_mast::MastModule,
         codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
-        cache_stats: CompileCacheStats,
-        lower_cache_stats: kernc_lower::LowerCacheStats,
-        mast_workload: kernc_mast::MastWorkloadStats,
-        mir_workload: kernc_mir::MirWorkloadStats,
-        codegen_plan_report: Option<CodegenPlanReport>,
-        collect_codegen_diagnostics: bool,
     ) -> Option<CompileReport> {
         type CompletedThinLtoUnit = (usize, String, Vec<u8>, CodegenReport, EmitObjectReport);
 
@@ -586,13 +511,13 @@ impl CompilerDriver {
                     std::thread::ScopedJoinHandle<'_, Result<CompletedThinLtoUnit, String>>,
                 >::with_capacity(chunk.len());
                 for unit in chunk {
-                    let mut worker_session = ctx.sess.clone();
-                    let worker_registry = ctx.type_registry.clone();
-                    let module_name = format!("{}_{}", module_name, unit.unit_name);
-                    let target_triple = target.triple.clone();
+                    let mut worker_session = pipeline.sema.sess.clone();
+                    let worker_registry = pipeline.sema.type_registry.clone();
+                    let module_name = format!("{}_{}", pipeline.module_name, unit.unit_name);
+                    let target_triple = pipeline.target.triple.clone();
                     let split_sections_for_gc = self.options.split_sections_for_gc;
                     let opt_level = self.options.opt_level;
-                    let collect_diagnostics = collect_codegen_diagnostics;
+                    let collect_diagnostics = pipeline.report.collect_codegen_diagnostics;
                     handles.push(scope.spawn(move || {
                         let codegen_ctx = Context::create();
                         let mut codegen = CodeGenerator::new(
@@ -647,25 +572,29 @@ impl CompilerDriver {
                 Self::absorb_codegen_report(&mut codegen_report, unit_report);
                 Self::absorb_emit_report(&mut emit_report, unit_emit_report);
                 ThinLtoModule {
-                    identifier: format!("{}_{}", module_name, unit_name),
+                    identifier: format!("{}_{}", pipeline.module_name, unit_name),
                     bitcode,
                 }
             })
             .collect::<Vec<_>>();
 
-        phase_timings.push(PhaseTiming {
+        pipeline.phase_timings.push(PhaseTiming {
             name: "codegen_units",
             duration: started.elapsed(),
         });
-        phase_timings.push(PhaseTiming {
+        pipeline.phase_timings.push(PhaseTiming {
             name: "  mir_units",
             duration: mir_unit_batch.wall_duration,
         });
-        phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+        pipeline
+            .phase_timings
+            .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
-        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+        pipeline
+            .phase_timings
+            .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
@@ -693,25 +622,19 @@ impl CompilerDriver {
                 }
                 link_input_paths.push(link_input_path);
             }
-            if emit_multi_linker_input_dir {
-                if let Err(err) = self.write_multi_linker_input_manifest(&link_input_paths) {
-                    eprintln!(
-                        "Error: Failed to record preserved linker inputs `{}`: {}",
-                        self.options.output_file, err
-                    );
-                    return None;
-                }
+            if emit_multi_linker_input_dir
+                && let Err(err) = self.write_multi_linker_input_manifest(&link_input_paths)
+            {
+                eprintln!(
+                    "Error: Failed to record preserved linker inputs `{}`: {}",
+                    self.options.output_file, err
+                );
+                return None;
             }
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
             return Some(Self::build_compile_report(
-                loaded_sources.to_vec(),
-                std::mem::take(phase_timings),
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
+                pipeline.report,
+                std::mem::take(pipeline.phase_timings),
                 codegen_report,
                 Some(emit_report),
             ));
@@ -740,7 +663,7 @@ impl CompilerDriver {
                 return None;
             }
         };
-        phase_timings.push(PhaseTiming {
+        pipeline.phase_timings.push(PhaseTiming {
             name: "thin_lto",
             duration: thin_lto_started.elapsed(),
         });
@@ -802,17 +725,11 @@ impl CompilerDriver {
                     );
                     return None;
                 }
-                Self::print_buffered_diagnostics(ctx.sess);
+                Self::print_buffered_diagnostics(pipeline.sema.sess);
                 drop(thin_lto_output_guard);
                 return Some(Self::build_compile_report(
-                    loaded_sources.to_vec(),
-                    std::mem::take(phase_timings),
-                    cache_stats,
-                    lower_cache_stats,
-                    mast_workload,
-                    mir_workload,
-                    codegen_plan_report,
-                    collect_codegen_diagnostics,
+                    pipeline.report,
+                    std::mem::take(pipeline.phase_timings),
                     codegen_report,
                     Some(emit_report),
                 ));
@@ -822,14 +739,14 @@ impl CompilerDriver {
             let merged_output_guard = TempFileGuard {
                 path: merged_output_path.clone(),
             };
-            let merged = Self::measure_phase(phase_timings, "merge_object", || {
+            let merged = Self::measure_phase(pipeline.phase_timings, "merge_object", || {
                 let inputs = object_paths
                     .iter()
                     .map(|(_, path)| path.to_string_lossy().to_string())
                     .collect::<Vec<_>>();
                 self.run_relocatable_link_command(
                     &inputs,
-                    target,
+                    pipeline.target,
                     &merged_output_path,
                     &self.options.output_file,
                     "Successfully emitted linker input",
@@ -848,42 +765,30 @@ impl CompilerDriver {
                 return None;
             }
             drop(merged_output_guard);
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
             drop(thin_lto_output_guard);
             return Some(Self::build_compile_report(
-                loaded_sources.to_vec(),
-                std::mem::take(phase_timings),
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
+                pipeline.report,
+                std::mem::take(pipeline.phase_timings),
                 codegen_report,
                 Some(emit_report),
             ));
         }
 
-        let linked = Self::measure_phase(phase_timings, "link", || {
+        let linked = Self::measure_phase(pipeline.phase_timings, "link", || {
             let inputs = object_paths
                 .iter()
                 .map(|(_, path)| path.to_string_lossy().to_string())
                 .collect::<Vec<_>>();
-            self.run_link_command_with_inputs(&inputs, target, "Successfully compiled")
+            self.run_link_command_with_inputs(&inputs, pipeline.target, "Successfully compiled")
         });
         if linked {
-            Self::print_buffered_diagnostics(ctx.sess);
+            Self::print_buffered_diagnostics(pipeline.sema.sess);
         }
         drop(thin_lto_output_guard);
         linked.then_some(Self::build_compile_report(
-            loaded_sources.to_vec(),
-            std::mem::take(phase_timings),
-            cache_stats,
-            lower_cache_stats,
-            mast_workload,
-            mir_workload,
-            codegen_plan_report,
-            collect_codegen_diagnostics,
+            pipeline.report,
+            std::mem::take(pipeline.phase_timings),
             codegen_report,
             Some(emit_report),
         ))
@@ -891,19 +796,9 @@ impl CompilerDriver {
 
     fn compile_partitioned_units_full_lto(
         &self,
-        ctx: &mut SemaContext<'_>,
-        loaded_sources: &[PathBuf],
-        phase_timings: &mut Vec<PhaseTiming>,
-        target: &LinkTarget,
-        module_name: &str,
+        pipeline: &mut CompilePipelineContext<'_, '_>,
         mast_module: &kernc_mast::MastModule,
         codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
-        cache_stats: CompileCacheStats,
-        lower_cache_stats: kernc_lower::LowerCacheStats,
-        mast_workload: kernc_mast::MastWorkloadStats,
-        mir_workload: kernc_mir::MirWorkloadStats,
-        codegen_plan_report: Option<CodegenPlanReport>,
-        collect_codegen_diagnostics: bool,
     ) -> Option<CompileReport> {
         type CompletedFullLtoUnit = (usize, String, Vec<u8>, CodegenReport);
 
@@ -928,11 +823,11 @@ impl CompilerDriver {
                     std::thread::ScopedJoinHandle<'_, Result<CompletedFullLtoUnit, String>>,
                 >::with_capacity(chunk.len());
                 for unit in chunk {
-                    let mut worker_session = ctx.sess.clone();
-                    let worker_registry = ctx.type_registry.clone();
-                    let module_name = format!("{}_{}", module_name, unit.unit_name);
+                    let mut worker_session = pipeline.sema.sess.clone();
+                    let worker_registry = pipeline.sema.type_registry.clone();
+                    let module_name = format!("{}_{}", pipeline.module_name, unit.unit_name);
                     let split_sections_for_gc = self.options.split_sections_for_gc;
-                    let collect_diagnostics = collect_codegen_diagnostics;
+                    let collect_diagnostics = pipeline.report.collect_codegen_diagnostics;
                     handles.push(scope.spawn(move || {
                         let codegen_ctx = Context::create();
                         let mut codegen = CodeGenerator::new(
@@ -981,19 +876,19 @@ impl CompilerDriver {
             eprintln!("Error: full LTO requires at least one materialized codegen unit.");
             return None;
         }
-        let mut merged_session = ctx.sess.clone();
+        let mut merged_session = pipeline.sema.sess.clone();
         let mut merged_codegen = CodeGenerator::new(
             &codegen_ctx,
-            &format!("{}_full_lto", module_name),
+            &format!("{}_full_lto", pipeline.module_name),
             &mut merged_session,
-            &ctx.type_registry,
+            &pipeline.sema.type_registry,
             self.options.split_sections_for_gc,
         );
         merged_codegen.set_asm_dialect(self.codegen_asm_dialect());
         for (_, unit_name, bitcode, unit_report) in completed {
             Self::absorb_codegen_report(&mut codegen_report, unit_report);
             let unit_module = match codegen_ctx
-                .parse_bitcode_module(&format!("{}_{}", module_name, unit_name), &bitcode)
+                .parse_bitcode_module(&format!("{}_{}", pipeline.module_name, unit_name), &bitcode)
             {
                 Ok(module) => module,
                 Err(err) => {
@@ -1015,42 +910,44 @@ impl CompilerDriver {
             link_duration += link_started.elapsed();
         }
 
-        phase_timings.push(PhaseTiming {
+        pipeline.phase_timings.push(PhaseTiming {
             name: "codegen_units",
             duration: started.elapsed(),
         });
-        phase_timings.push(PhaseTiming {
+        pipeline.phase_timings.push(PhaseTiming {
             name: "  mir_units",
             duration: mir_unit_batch.wall_duration,
         });
         if !link_duration.is_zero() {
-            phase_timings.push(PhaseTiming {
+            pipeline.phase_timings.push(PhaseTiming {
                 name: "lto_link",
                 duration: link_duration,
             });
         }
-        phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+        pipeline
+            .phase_timings
+            .extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
-        let link_input_path = self.prepare_link_input_path(target);
+        let link_input_path = self.prepare_link_input_path(pipeline.target);
         let _guard = self.temp_link_input_guard(&link_input_path);
         let emit_result = if self.options.driver_mode == DriverMode::EmitLlvmIr {
-            Self::measure_phase(phase_timings, "emit_llvm_ir", || {
+            Self::measure_phase(pipeline.phase_timings, "emit_llvm_ir", || {
                 merged_codegen.emit_llvm_ir(
-                    &target.triple,
+                    &pipeline.target.triple,
                     self.options.opt_level,
                     self.options.emit_llvm_stage,
-                    collect_codegen_diagnostics,
+                    pipeline.report.collect_codegen_diagnostics,
                 )
             })
         } else {
-            Self::measure_phase(phase_timings, "emit_object", || {
+            Self::measure_phase(pipeline.phase_timings, "emit_object", || {
                 merged_codegen.emit_to_file(
-                    &target.triple,
+                    &pipeline.target.triple,
                     &link_input_path,
                     self.options.opt_level,
-                    collect_codegen_diagnostics,
+                    pipeline.report.collect_codegen_diagnostics,
                 )
             })
         };
@@ -1067,7 +964,9 @@ impl CompilerDriver {
                 return None;
             }
         };
-        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+        pipeline
+            .phase_timings
+            .extend(emit_report.timings.iter().map(|timing| PhaseTiming {
             name: timing.name,
             duration: timing.duration,
         }));
@@ -1075,14 +974,8 @@ impl CompilerDriver {
         if self.options.driver_mode == DriverMode::EmitLlvmIr {
             Self::print_buffered_diagnostics(&merged_session);
             return Some(Self::build_compile_report(
-                loaded_sources.to_vec(),
-                std::mem::take(phase_timings),
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
+                pipeline.report,
+                std::mem::take(pipeline.phase_timings),
                 codegen_report,
                 Some(emit_report),
             ));
@@ -1097,34 +990,26 @@ impl CompilerDriver {
                 );
             }
             return Some(Self::build_compile_report(
-                loaded_sources.to_vec(),
-                std::mem::take(phase_timings),
-                cache_stats,
-                lower_cache_stats,
-                mast_workload,
-                mir_workload,
-                codegen_plan_report,
-                collect_codegen_diagnostics,
+                pipeline.report,
+                std::mem::take(pipeline.phase_timings),
                 codegen_report,
                 Some(emit_report),
             ));
         }
 
-        let linked = Self::measure_phase(phase_timings, "link", || {
-            self.run_link_command(Some(&link_input_path), target, "Successfully compiled")
+        let linked = Self::measure_phase(pipeline.phase_timings, "link", || {
+            self.run_link_command(
+                Some(&link_input_path),
+                pipeline.target,
+                "Successfully compiled",
+            )
         });
         if linked {
             Self::print_buffered_diagnostics(&merged_session);
         }
         linked.then_some(Self::build_compile_report(
-            loaded_sources.to_vec(),
-            std::mem::take(phase_timings),
-            cache_stats,
-            lower_cache_stats,
-            mast_workload,
-            mir_workload,
-            codegen_plan_report,
-            collect_codegen_diagnostics,
+            pipeline.report,
+            std::mem::take(pipeline.phase_timings),
             codegen_report,
             Some(emit_report),
         ))
@@ -1210,11 +1095,7 @@ impl CompilerDriver {
         &self,
         mast_module: &kernc_mast::MastModule,
         codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
-        module_name: &str,
-        target_triple: &str,
-        session: &Session,
-        type_registry: &kernc_sema::ty::TypeRegistry,
-        collect_diagnostics: bool,
+        build_context: &CodegenUnitBuildContext<'_>,
     ) -> Result<CodegenUnitBatch, String> {
         type PendingCodegenUnit = (usize, String, String, String, kernc_mast::MastModule);
         type CompletedCodegenUnit = (usize, String, String, CodegenReport, EmitObjectReport);
@@ -1225,11 +1106,7 @@ impl CompilerDriver {
             return self.codegen_unit_artifacts_serial(
                 mast_module,
                 codegen_unit_plans,
-                module_name,
-                target_triple,
-                session,
-                type_registry,
-                collect_diagnostics,
+                build_context,
             );
         }
 
@@ -1251,7 +1128,7 @@ impl CompilerDriver {
                 (
                     index,
                     unit.name.clone(),
-                    format!("{}_{}", module_name, unit.name),
+                    format!("{}_{}", build_context.module_name, unit.name),
                     object_path,
                     materialize_codegen_unit(mast_module, unit),
                 )
@@ -1267,12 +1144,11 @@ impl CompilerDriver {
                     std::thread::ScopedJoinHandle<'_, Result<CompletedCodegenUnit, String>>,
                 >::with_capacity(chunk.len());
                 for (index, unit_name, llvm_module_name, object_path, unit_module) in chunk {
-                    let mut worker_session = session.clone();
-                    let worker_registry = type_registry.clone();
-                    let target_triple = target_triple.to_string();
+                    let mut worker_session = build_context.session.clone();
+                    let worker_registry = build_context.type_registry.clone();
+                    let target_triple = build_context.target_triple.to_string();
                     let split_sections_for_gc = self.options.split_sections_for_gc;
                     let opt_level = self.options.opt_level;
-                    let collect_diagnostics = collect_diagnostics;
                     handles.push(scope.spawn(move || {
                         let codegen_ctx = Context::create();
                         let mut codegen = CodeGenerator::new(
@@ -1285,12 +1161,15 @@ impl CompilerDriver {
                         codegen.set_asm_dialect(asm_dialect);
                         let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
                         let codegen_report =
-                            codegen.compile_mir(&mir_report.module, collect_diagnostics);
+                            codegen.compile_mir(
+                                &mir_report.module,
+                                build_context.collect_diagnostics,
+                            );
                         let emit_report = codegen.emit_to_file(
                             &target_triple,
                             &object_path,
                             opt_level,
-                            collect_diagnostics,
+                            build_context.collect_diagnostics,
                         )?;
                         Ok::<_, String>((
                             index,
@@ -1334,23 +1213,19 @@ impl CompilerDriver {
         &self,
         mast_module: &kernc_mast::MastModule,
         codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
-        module_name: &str,
-        target_triple: &str,
-        session: &Session,
-        type_registry: &kernc_sema::ty::TypeRegistry,
-        collect_diagnostics: bool,
+        build_context: &CodegenUnitBuildContext<'_>,
     ) -> Result<CodegenUnitBatch, String> {
         let started = Instant::now();
         let mut artifacts = Vec::with_capacity(codegen_unit_plans.len());
         for (index, unit) in codegen_unit_plans.iter().enumerate() {
             let unit_module = materialize_codegen_unit(mast_module, unit);
-            let mut worker_session = session.clone();
+            let mut worker_session = build_context.session.clone();
             let codegen_ctx = Context::create();
             let mut codegen = CodeGenerator::new(
                 &codegen_ctx,
-                &format!("{}_{}", module_name, unit.name),
+                &format!("{}_{}", build_context.module_name, unit.name),
                 &mut worker_session,
-                type_registry,
+                build_context.type_registry,
                 self.options.split_sections_for_gc,
             );
             codegen.set_asm_dialect(match self.options.asm_dialect {
@@ -1358,7 +1233,8 @@ impl CompilerDriver {
                 AsmDialect::Att => InlineAsmDialect::ATT,
             });
             let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
-            let codegen_report = codegen.compile_mir(&mir_report.module, collect_diagnostics);
+            let codegen_report =
+                codegen.compile_mir(&mir_report.module, build_context.collect_diagnostics);
             let object_path = if self.options.driver_mode.emits_linker_input()
                 && self.options.emit_multi_linker_input_dir
             {
@@ -1367,10 +1243,10 @@ impl CompilerDriver {
                 self.make_temp_codegen_unit_path(&unit.name)
             };
             let emit_report = codegen.emit_to_file(
-                target_triple,
+                build_context.target_triple,
                 &object_path,
                 self.options.opt_level,
-                collect_diagnostics,
+                build_context.collect_diagnostics,
             )?;
             artifacts.push(CodegenUnitArtifacts {
                 index,

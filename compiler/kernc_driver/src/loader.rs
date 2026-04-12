@@ -151,14 +151,13 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
         alias_names: &FastHashSet<SymbolId>,
     ) -> FastHashSet<SymbolId> {
         let mut referenced = FastHashSet::default();
-        if self.ctx.program_entry_enabled() {
-            if let Some(rt) = alias_names
+        if self.ctx.program_entry_enabled()
+            && let Some(rt) = alias_names
                 .iter()
                 .copied()
                 .find(|alias| self.ctx.resolve(*alias) == "rt")
-            {
-                referenced.insert(rt);
-            }
+        {
+            referenced.insert(rt);
         }
         for (_, module) in &self.asts {
             Self::collect_module_alias_references(module, alias_names, &mut referenced);

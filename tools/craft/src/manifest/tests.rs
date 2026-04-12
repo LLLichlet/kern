@@ -283,10 +283,12 @@ bundle = "base"
     )
     .unwrap();
 
-    let mut options = CompileOptions::default();
-    options.runtime_entry = RuntimeEntry::None;
-    options.runtime_libc = false;
-    options.library_bundle = LibraryBundle::Std;
+    let mut options = CompileOptions {
+        runtime_entry: RuntimeEntry::None,
+        runtime_libc: false,
+        library_bundle: LibraryBundle::Std,
+        ..CompileOptions::default()
+    };
 
     manifest.apply_runtime_options_for_target(TargetKind::Lib, &mut options);
 
@@ -313,10 +315,12 @@ bundle = "base"
     )
     .unwrap();
 
-    let mut options = CompileOptions::default();
-    options.runtime_entry = RuntimeEntry::Rt;
-    options.runtime_libc = false;
-    options.library_bundle = LibraryBundle::Std;
+    let mut options = CompileOptions {
+        runtime_entry: RuntimeEntry::Rt,
+        runtime_libc: false,
+        library_bundle: LibraryBundle::Std,
+        ..CompileOptions::default()
+    };
 
     manifest.apply_runtime_options_for_target(TargetKind::Test, &mut options);
 

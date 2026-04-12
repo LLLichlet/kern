@@ -9,7 +9,7 @@ use kernc_utils::config::{CompileOptions, LibraryBundle};
 
 #[derive(Debug)]
 enum CliAction {
-    Run(CompileOptions),
+    Run(Box<CompileOptions>),
     Help,
     Version,
 }
@@ -26,15 +26,13 @@ fn main() {
     match action {
         CliAction::Help => {
             print_usage();
-            return;
         }
         CliAction::Version => {
             println!("{}", version_text());
-            return;
         }
         CliAction::Run(options) => {
             let analysis = analysis::AnalysisEngine::new(analysis::AnalysisSettings {
-                compile_options: options,
+                compile_options: *options,
             });
 
             if let Err(err) = server::run_with_analysis(analysis) {
@@ -107,7 +105,7 @@ where
         }
     }
 
-    Ok(CliAction::Run(options))
+    Ok(CliAction::Run(Box::new(options)))
 }
 
 fn parse_key_value(value: &str, flag: &str) -> Result<(String, String), String> {

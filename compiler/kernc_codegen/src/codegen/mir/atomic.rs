@@ -1,5 +1,15 @@
 use super::*;
 
+pub(super) struct AtomicCasArgs<'a> {
+    pub(super) result_ty: TypeId,
+    pub(super) weak: bool,
+    pub(super) ptr: &'a MirOperand,
+    pub(super) expected: &'a MirOperand,
+    pub(super) desired: &'a MirOperand,
+    pub(super) success: AtomicOrdering,
+    pub(super) failure: AtomicOrdering,
+}
+
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(super) fn compile_mir_slice_op(
         &mut self,
@@ -155,24 +165,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
     pub(super) fn compile_mir_atomic_cas(
         &mut self,
         body: &MirBody,
-        result_ty: TypeId,
-        weak: bool,
-        ptr: &MirOperand,
-        expected: &MirOperand,
-        desired: &MirOperand,
-        success: AtomicOrdering,
-        failure: AtomicOrdering,
+        cas: AtomicCasArgs<'_>,
     ) -> BasicValueEnum<'ctx> {
-        let llvm_ty = self.get_llvm_type(result_ty);
-        let ptr_val = self.compile_mir_operand(body, ptr).into_pointer_value();
+        let llvm_ty = self.get_llvm_type(cas.result_ty);
+        let ptr_val = self.compile_mir_operand(body, cas.ptr).into_pointer_value();
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
         }
-        let expected_val = self.compile_mir_operand(body, expected);
+        let expected_val = self.compile_mir_operand(body, cas.expected);
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
         }
-        let desired_val = self.compile_mir_operand(body, desired);
+        let desired_val = self.compile_mir_operand(body, cas.desired);
         if self.current_block_is_terminated() {
             return self.get_undef_val(llvm_ty);
         }
@@ -182,11 +186,11 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 ptr_val,
                 expected_val,
                 desired_val,
-                Self::llvm_atomic_ordering(success),
-                Self::llvm_atomic_ordering(failure),
+                Self::llvm_atomic_ordering(cas.success),
+                Self::llvm_atomic_ordering(cas.failure),
             )
             .unwrap();
-        if weak {
+        if cas.weak {
             let Some(cas_inst) = cas_pair.as_instruction() else {
                 self.sess.emit_ice(
                     Span::default(),
@@ -206,7 +210,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .build_extract_value(cas_pair, 1, "mir_cas_success")
             .unwrap();
 
-        let norm_ty = self.type_registry.normalize(result_ty);
+        let norm_ty = self.type_registry.normalize(cas.result_ty);
         let Some(&struct_id) = self.anon_struct_map.get(&norm_ty) else {
             self.sess.emit_ice(
                 Span::default(),
@@ -218,7 +222,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             return self.get_undef_val(llvm_ty);
         };
 
-        let struct_ty = self.get_llvm_type(result_ty).into_struct_type();
+        let struct_ty = self.get_llvm_type(cas.result_ty).into_struct_type();
         let mut result = struct_ty.const_zero();
         if let Some(idx) = self.struct_field_index_by_name(struct_id, "success") {
             result = self

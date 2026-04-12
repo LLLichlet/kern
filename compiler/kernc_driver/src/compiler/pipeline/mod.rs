@@ -8,8 +8,8 @@ use super::codegen_units::{
 #[cfg(test)]
 use super::flow::FlowModel;
 use super::{
-    CompileCacheStats, CompileReport, CompilerDriver, PhaseTiming, SourceOverrides,
-    StructureArtifact, StructureCacheKey,
+    CompileCacheStats, CompileReport, CompilerDriver, LinkTarget, PhaseTiming,
+    SourceOverrides, StructureArtifact, StructureCacheKey,
 };
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
@@ -47,6 +47,34 @@ struct CodegenUnitArtifacts {
 struct CodegenUnitBatch {
     artifacts: Vec<CodegenUnitArtifacts>,
     wall_duration: Duration,
+}
+
+#[derive(Clone, Copy)]
+struct CompileReportContext<'a> {
+    loaded_sources: &'a [PathBuf],
+    cache_stats: CompileCacheStats,
+    lower_cache_stats: kernc_lower::LowerCacheStats,
+    mast_workload: kernc_mast::MastWorkloadStats,
+    mir_workload: kernc_mir::MirWorkloadStats,
+    codegen_plan: &'a Option<CodegenPlanReport>,
+    collect_codegen_diagnostics: bool,
+}
+
+struct CompilePipelineContext<'a, 'ctx> {
+    sema: &'a mut SemaContext<'ctx>,
+    phase_timings: &'a mut Vec<PhaseTiming>,
+    target: &'a LinkTarget,
+    module_name: &'a str,
+    report: CompileReportContext<'a>,
+}
+
+#[derive(Clone, Copy)]
+struct CodegenUnitBuildContext<'a> {
+    module_name: &'a str,
+    target_triple: &'a str,
+    session: &'a Session,
+    type_registry: &'a kernc_sema::ty::TypeRegistry,
+    collect_diagnostics: bool,
 }
 
 impl CompilerDriver {

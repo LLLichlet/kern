@@ -11,6 +11,9 @@ use crate::scope::{ScopeId, SymbolTable};
 use crate::semantic::{SemanticDefinition, SemanticSymbolKind};
 use crate::ty::{TypeFormatter, TypeId, TypeRegistry};
 
+type NamedFieldQueryKey = (Option<DefId>, DefId, Vec<TypeId>, SymbolId);
+type NamedFieldQueryValue = Option<crate::query::MemberCandidate>;
+
 #[derive(Clone)]
 pub struct SemaStructureSnapshot {
     pub type_registry: TypeRegistry,
@@ -106,10 +109,7 @@ pub struct SemaContext<'a> {
         FastHashMap<(TypeId, SymbolId), Option<crate::query::MemberCandidate>>,
     pub(crate) bound_trait_match_cache: FastHashMap<TypeId, Vec<TypeId>>,
     pub(crate) impl_applicability_cache: FastHashMap<(TypeId, DefId), Option<Vec<TypeId>>>,
-    pub(crate) named_field_query_cache: FastHashMap<
-        (Option<DefId>, DefId, Vec<TypeId>, SymbolId),
-        Option<crate::query::MemberCandidate>,
-    >,
+    pub(crate) named_field_query_cache: FastHashMap<NamedFieldQueryKey, NamedFieldQueryValue>,
     identifier_references: Vec<(Span, Span)>,
     semantic_definitions: BTreeMap<Span, SemanticDefinition>,
 }

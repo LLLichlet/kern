@@ -46,17 +46,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         if let Some(info) = resolved_info.as_ref()
             && info.kind == SymbolKind::Const
             && let Some(def_id) = info.def_id
-        {
-            if let Some(kind) = self.measure_phase("          lower_ident_inline_const", |this| {
-                let const_expr_opt = if let Def::Global(g) = &this.ctx.defs[def_id.0 as usize] {
+            && let Some(kind) = self.measure_phase("          lower_ident_inline_const", |this| {
+                let const_expr = if let Def::Global(g) = &this.ctx.defs[def_id.0 as usize] {
                     Some(g.value.clone())
                 } else {
                     None
-                };
-
-                let Some(const_expr) = const_expr_opt else {
-                    return None;
-                };
+                }?;
 
                 let prev_scope = this.ctx.scopes.current_scope_id();
                 if let Some(owner_scope) = this.global_owner_scope(def_id) {
@@ -85,22 +80,21 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 }
 
                 lowered_kind
-            }) {
-                return kind;
-            }
+            })
+        {
+            return kind;
         }
 
         // First check whether this resolves to a top-level global.
         if let Some(info) = resolved_info
             && matches!(info.kind, SymbolKind::Const | SymbolKind::Static)
             && let Some(def_id) = info.def_id
-        {
-            if let Some(mono_id) = self.measure_phase("          lower_ident_global_ref", |this| {
+            && let Some(mono_id) = self.measure_phase("          lower_ident_global_ref", |this| {
                 this.ensure_global_lowered(def_id);
                 this.global_map.get(&def_id).copied()
-            }) {
-                return MastExprKind::GlobalRef(mono_id);
-            }
+            })
+        {
+            return MastExprKind::GlobalRef(mono_id);
         }
 
         // Then check for a local-scope static.

@@ -281,8 +281,10 @@ fn shared_incremental_state_rejects_semantic_option_changes() {
 
     assert!(driver.share_incremental_state(changed).is_none());
 
-    let mut changed_runtime = CompileOptions::default();
-    changed_runtime.runtime_entry = kernc_utils::config::RuntimeEntry::Rt;
+    let changed_runtime = CompileOptions {
+        runtime_entry: kernc_utils::config::RuntimeEntry::Rt,
+        ..CompileOptions::default()
+    };
     assert!(driver.share_incremental_state(changed_runtime).is_none());
 }
 

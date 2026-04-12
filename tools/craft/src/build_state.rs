@@ -40,6 +40,8 @@ struct FileDigestCacheEntry {
     digest: String,
 }
 
+type DigestedPath = (String, Option<u64>, Option<u128>);
+
 pub(crate) fn action_state_path(primary_output: &Path) -> PathBuf {
     let file_name = primary_output
         .file_name()
@@ -148,7 +150,7 @@ fn collect_state_paths(paths: &[PathBuf]) -> Result<Vec<ActionStatePath>> {
     Ok(entries)
 }
 
-fn digest_path(path: &Path) -> Result<Option<(String, Option<u64>, Option<u128>)>> {
+fn digest_path(path: &Path) -> Result<Option<DigestedPath>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -490,73 +492,6 @@ impl ActionState {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::{action_state_is_current, record_action_state};
-    use std::fs;
-    use std::path::PathBuf;
-    use std::thread;
-    use std::time::Duration;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    fn temp_dir(prefix: &str) -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_nanos();
-        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
-        fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    #[test]
-    fn action_state_detects_file_changes_after_cached_check() {
-        let root = temp_dir("craft-build-state");
-        let input = root.join("input.txt");
-        let output = root.join("output.txt");
-
-        fs::write(&input, "input").unwrap();
-        fs::write(&output, "alpha").unwrap();
-        record_action_state(
-            &output,
-            "fingerprint".to_string(),
-            std::slice::from_ref(&input),
-            std::slice::from_ref(&output),
-        )
-        .unwrap();
-
-        assert!(action_state_is_current(&output, "fingerprint").unwrap());
-        fs::write(&output, "changed-output").unwrap();
-        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
-
-        let _ = fs::remove_dir_all(root);
-    }
-
-    #[test]
-    fn action_state_detects_same_size_file_changes() {
-        let root = temp_dir("craft-build-state-same-size");
-        let input = root.join("input.txt");
-        let output = root.join("output.txt");
-
-        fs::write(&input, "input").unwrap();
-        fs::write(&output, "alpha").unwrap();
-        record_action_state(
-            &output,
-            "fingerprint".to_string(),
-            std::slice::from_ref(&input),
-            std::slice::from_ref(&output),
-        )
-        .unwrap();
-
-        assert!(action_state_is_current(&output, "fingerprint").unwrap());
-        thread::sleep(Duration::from_millis(20));
-        fs::write(&output, "bravo").unwrap();
-        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
-
-        let _ = fs::remove_dir_all(root);
-    }
-}
-
 fn normalize_state_path(path: &Path) -> PathBuf {
     strip_macos_private_var_prefix(strip_windows_verbatim_prefix(path.to_path_buf()))
 }
@@ -691,4 +626,71 @@ fn fnv1a64_update(mut hash: u64, bytes: &[u8]) -> u64 {
     }
 
     hash
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{action_state_is_current, record_action_state};
+    use std::fs;
+    use std::path::PathBuf;
+    use std::thread;
+    use std::time::Duration;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(prefix: &str) -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn action_state_detects_file_changes_after_cached_check() {
+        let root = temp_dir("craft-build-state");
+        let input = root.join("input.txt");
+        let output = root.join("output.txt");
+
+        fs::write(&input, "input").unwrap();
+        fs::write(&output, "alpha").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+
+        assert!(action_state_is_current(&output, "fingerprint").unwrap());
+        fs::write(&output, "changed-output").unwrap();
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn action_state_detects_same_size_file_changes() {
+        let root = temp_dir("craft-build-state-same-size");
+        let input = root.join("input.txt");
+        let output = root.join("output.txt");
+
+        fs::write(&input, "input").unwrap();
+        fs::write(&output, "alpha").unwrap();
+        record_action_state(
+            &output,
+            "fingerprint".to_string(),
+            std::slice::from_ref(&input),
+            std::slice::from_ref(&output),
+        )
+        .unwrap();
+
+        assert!(action_state_is_current(&output, "fingerprint").unwrap());
+        thread::sleep(Duration::from_millis(20));
+        fs::write(&output, "bravo").unwrap();
+        assert!(!action_state_is_current(&output, "fingerprint").unwrap());
+
+        let _ = fs::remove_dir_all(root);
+    }
 }

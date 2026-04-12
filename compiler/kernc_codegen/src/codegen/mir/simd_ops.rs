@@ -701,7 +701,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 "mir_simd_shuffle",
             )
             .unwrap()
-            .into()
     }
 
     pub(super) fn compile_mir_simd_insert_half(

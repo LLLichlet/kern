@@ -285,12 +285,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let expected_self_ty = lhs.ty;
         let call = self.lower_resolved_trait_method_call(
             lhs,
-            method_name,
             vec![rhs],
             owner_trait_ty,
-            callee_ty,
-            Some(expected_self_ty),
-            span,
+            super::call::MethodCallSite {
+                field: method_name,
+                norm_callee: callee_ty,
+                expected_self_ty: Some(expected_self_ty),
+                span,
+            },
         );
 
         if op == ast::BinaryOperator::NotEqual {
@@ -337,12 +339,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let expected_self_ty = operand.ty;
         self.lower_resolved_trait_method_call(
             operand,
-            method_name,
             vec![],
             owner_trait_ty,
-            callee_ty,
-            Some(expected_self_ty),
-            span,
+            super::call::MethodCallSite {
+                field: method_name,
+                norm_callee: callee_ty,
+                expected_self_ty: Some(expected_self_ty),
+                span,
+            },
         )
     }
 

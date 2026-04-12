@@ -196,7 +196,7 @@ impl FrontendDatabase {
         let mut parsed = match &record.outcome {
             CachedParseOutcome::Parsed(cached) => {
                 self.replay_diagnostics(session, file_id, &cached.diagnostics);
-                Some(self.bind_cached_module(session, normalized, file_id, &cached))
+                Some(self.bind_cached_module(session, normalized, file_id, cached))
             }
             CachedParseOutcome::Failed(failure) => {
                 self.replay_diagnostics(session, file_id, &failure.diagnostics);

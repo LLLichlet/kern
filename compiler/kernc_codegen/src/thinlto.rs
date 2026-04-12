@@ -23,6 +23,8 @@ const LTO_SYMBOL_DEFINITION_WEAKUNDEF: u32 = 0x500;
 const LTO_SYMBOL_SCOPE_MASK: u32 = 0x3800;
 const LTO_SYMBOL_SCOPE_INTERNAL: u32 = 0x800;
 
+type ThinLtoSymbolPolicy = (Vec<Vec<u8>>, Vec<Vec<u8>>);
+
 #[derive(Debug, Clone)]
 pub struct ThinLtoModule {
     pub identifier: String,
@@ -213,7 +215,7 @@ pub fn run_thin_lto(
 
 fn collect_symbol_policy(
     modules: &[ThinLtoModule],
-) -> Result<(Vec<Vec<u8>>, Vec<Vec<u8>>), String> {
+) -> Result<ThinLtoSymbolPolicy, String> {
     let mut must_preserve = BTreeSet::<Vec<u8>>::new();
     let mut defined = BTreeSet::<Vec<u8>>::new();
     let mut undefined = BTreeSet::<Vec<u8>>::new();

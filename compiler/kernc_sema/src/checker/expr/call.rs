@@ -10,6 +10,12 @@ use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_utils::{AtomicOrdering, FastHashMap, Span};
 use std::time::Instant;
 
+struct SimdRelationOperand<'a> {
+    ty: TypeId,
+    span: Span,
+    label: &'a str,
+}
+
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn is_signed_integer_type(&mut self, ty: TypeId) -> bool {
         matches!(
@@ -313,22 +319,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
     fn check_simd_half_relation(
         &mut self,
         intrinsic_name: &str,
-        full_ty: TypeId,
-        full_span: Span,
-        full_label: &str,
-        half_ty: TypeId,
-        half_span: Span,
-        half_label: &str,
+        full: SimdRelationOperand<'_>,
+        half: SimdRelationOperand<'_>,
     ) -> Option<(TypeId, u16, u16)> {
-        let norm_full = self.resolve_tv(full_ty);
+        let norm_full = self.resolve_tv(full.ty);
         let Some((full_elem, full_lanes)) = self.ctx.type_registry.simd_info(norm_full) else {
             if norm_full != TypeId::ERROR {
                 self.ctx
                     .struct_error(
-                        full_span,
+                        full.span,
                         format!(
                             "`{}` expects `{}` to be a SIMD value",
-                            intrinsic_name, full_label
+                            intrinsic_name, full.label
                         ),
                     )
                     .emit();
@@ -336,15 +338,15 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             return None;
         };
 
-        let norm_half = self.resolve_tv(half_ty);
+        let norm_half = self.resolve_tv(half.ty);
         let Some((half_elem, half_lanes)) = self.ctx.type_registry.simd_info(norm_half) else {
             if norm_half != TypeId::ERROR {
                 self.ctx
                     .struct_error(
-                        half_span,
+                        half.span,
                         format!(
                             "`{}` expects `{}` to be a SIMD value",
-                            intrinsic_name, half_label
+                            intrinsic_name, half.label
                         ),
                     )
                     .emit();
@@ -357,10 +359,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             let half_elem_str = self.ctx.ty_to_string(half_elem);
             self.ctx
                 .struct_error(
-                    half_span,
+                    half.span,
                     format!(
                         "`{}` requires `{}` and `{}` to use the same SIMD lane type",
-                        intrinsic_name, full_label, half_label
+                        intrinsic_name, full.label, half.label
                     ),
                 )
                 .with_hint(format!(
@@ -374,10 +376,10 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         if full_lanes != half_lanes.saturating_mul(2) {
             self.ctx
                 .struct_error(
-                    half_span,
+                    half.span,
                     format!(
                         "`{}` requires `{}` to have exactly twice as many lanes as `{}`",
-                        intrinsic_name, full_label, half_label
+                        intrinsic_name, full.label, half.label
                     ),
                 )
                 .with_hint(format!(
@@ -1086,12 +1088,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if self
                     .check_simd_half_relation(
                         intrinsic_name,
-                        value_ty,
-                        args[0].span,
-                        "value",
-                        norm_half,
-                        args[0].span,
-                        "result",
+                        SimdRelationOperand {
+                            ty: value_ty,
+                            span: args[0].span,
+                            label: "value",
+                        },
+                        SimdRelationOperand {
+                            ty: norm_half,
+                            span: args[0].span,
+                            label: "result",
+                        },
                     )
                     .is_none()
                 {
@@ -1130,12 +1136,16 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 if self
                     .check_simd_half_relation(
                         intrinsic_name,
-                        norm_full,
-                        args[0].span,
-                        "base",
-                        half_ty,
-                        args[1].span,
-                        "half",
+                        SimdRelationOperand {
+                            ty: norm_full,
+                            span: args[0].span,
+                            label: "base",
+                        },
+                        SimdRelationOperand {
+                            ty: half_ty,
+                            span: args[1].span,
+                            label: "half",
+                        },
                     )
                     .is_none()
                 {
@@ -1963,13 +1973,13 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                     intrinsic_name.as_str(),
                     inferred_callee_ty.unwrap_or(norm_callee),
                     args,
-                    &params,
+                    params,
                 );
                 let simd_ret = self.check_simd_intrinsic_call(
                     intrinsic_name.as_str(),
                     inferred_callee_ty.unwrap_or(norm_callee),
                     args,
-                    &params,
+                    params,
                     ret,
                 );
                 if let Some(simd_ret) = simd_ret {
@@ -2191,7 +2201,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 return (TypeId::ERROR, None, Some(inferred_arg_tys));
             }
 
-            self.check_generic_bounds(span, def_id, &generics, &resolved_args);
+            self.check_generic_bounds(span, def_id, generics, &resolved_args);
 
             // Build the instantiated `FnDef` type for later AST updates.
             let inferred_callee_ty = self

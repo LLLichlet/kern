@@ -17,6 +17,13 @@ pub(crate) struct DynamicDispatchCall {
     pub(crate) span: Span,
 }
 
+pub(crate) struct MethodCallSite {
+    pub(crate) field: SymbolId,
+    pub(crate) norm_callee: TypeId,
+    pub(crate) expected_self_ty: Option<TypeId>,
+    pub(crate) span: Span,
+}
+
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn intrinsic_name_for_lowering(&mut self, callee_ty: TypeId) -> Option<String> {
         let norm = self.ctx.type_registry.normalize(callee_ty);
@@ -1130,11 +1137,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 this.lower_method_call(
                     callee_id,
                     recv,
-                    field,
                     arg_masts,
-                    norm_callee,
-                    expected_param_tys.first().copied(),
-                    span,
+                    MethodCallSite {
+                        field,
+                        norm_callee,
+                        expected_self_ty: expected_param_tys.first().copied(),
+                        span,
+                    },
                 )
             })
         } else {
@@ -1275,11 +1284,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         &mut self,
         callee_id: NodeId,
         recv: MastExpr,
-        field: SymbolId,
         arg_masts: Vec<MastExpr>,
-        norm_callee: TypeId,
-        expected_self_ty: Option<TypeId>,
-        span: Span,
+        call: MethodCallSite,
     ) -> MastExprKind {
         // Resolve methods against the type that actually owns the implementation.
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
@@ -1301,24 +1307,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         self.lower_resolved_trait_method_call(
             recv,
-            field,
             arg_masts,
             owner_trait_ty,
-            norm_callee,
-            expected_self_ty,
-            span,
+            call,
         )
     }
 
     pub(crate) fn lower_resolved_trait_method_call(
         &mut self,
         recv: MastExpr,
-        field: SymbolId,
         mut arg_masts: Vec<MastExpr>,
         owner_trait_ty: TypeId,
-        norm_callee: TypeId,
-        expected_self_ty: Option<TypeId>,
-        span: Span,
+        call: MethodCallSite,
     ) -> MastExprKind {
         let norm_base = self.ctx.type_registry.normalize(recv.ty);
         let mut inner_ty = norm_base;
@@ -1328,7 +1328,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             inner_ty = elem;
         }
 
-        let field_name = self.ctx.resolve(field).to_string();
+        let field_name = self.ctx.resolve(call.field).to_string();
         if field_name == "eq"
             && self.builtin_trait_name(owner_trait_ty).as_deref() == Some("Eq")
             && arg_masts.len() == 1
@@ -1350,16 +1350,16 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     recv,
                     arg_masts,
                     DynamicDispatchCall {
-                        field,
+                        field: call.field,
                         recv_trait_ty: inner_ty,
                         owner_trait_ty,
-                        norm_callee,
-                        span,
+                        norm_callee: call.norm_callee,
+                        span: call.span,
                     },
                 )
             })
         } else if let TypeKind::FnDef(method_id, generics) =
-            self.ctx.type_registry.get(norm_callee).clone()
+            self.ctx.type_registry.get(call.norm_callee).clone()
         {
             if let Def::Function(func) = &self.ctx.defs[method_id.0 as usize]
                 && func.is_intrinsic
@@ -1376,9 +1376,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     arg_masts,
                     method_id,
                     &generics,
-                    norm_callee,
-                    expected_self_ty,
-                    span,
+                    call,
                 )
             })
         } else {
@@ -1396,7 +1394,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let method_ids_ptr = self
                 .ctx
                 .impl_methods_by_name
-                .get(&field)
+                .get(&call.field)
                 .map(|method_ids| std::ptr::from_ref(method_ids.as_slice()));
 
             if let Some(method_ids_ptr) = method_ids_ptr {
@@ -1568,7 +1566,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 let mut final_recv = recv;
 
                 // Normalize pointer-type differences for LLVM by inserting a bitcast after safe downgrades.
-                if let Some(exp_self) = expected_self_ty
+                if let Some(exp_self) = call.expected_self_ty
                     && final_recv.ty != exp_self
                 {
                     final_recv = MastExpr::new(
@@ -1577,7 +1575,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                             kind: MastCastKind::Bitcast,
                             operand: Box::new(final_recv),
                         },
-                        span,
+                        call.span,
                     );
                 }
 
@@ -1594,16 +1592,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
                 arg_masts.insert(0, final_recv);
                 let mono_id = self.instantiate_function(func_id, &resolved_impl_args);
-                let func_ref = MastExpr::new(norm_callee, MastExprKind::FuncRef(mono_id), span);
+                let func_ref = MastExpr::new(
+                    call.norm_callee,
+                    MastExprKind::FuncRef(mono_id),
+                    call.span,
+                );
                 MastExprKind::Call {
                     callee: Box::new(func_ref),
                     args: arg_masts,
                 }
             } else {
                 let type_name = self.ctx.ty_to_string(norm_base);
-                let field_name = self.ctx.resolve(field);
+                let field_name = self.ctx.resolve(call.field);
                 self.ctx.emit_ice(
-                    span,
+                    call.span,
                     format!(
                         "Kern ICE (Lowering): failed to devirtualize static trait method `{}` for exact type `{}`.",
                         field_name, type_name
@@ -1621,12 +1623,10 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         mut arg_masts: Vec<MastExpr>,
         method_id: DefId,
         generics: &[TypeId],
-        norm_callee: TypeId,
-        expected_self_ty: Option<TypeId>,
-        span: Span,
+        call: MethodCallSite,
     ) -> MastExprKind {
         recv = self.measure_phase("                lower_call_static_recv", |_this| {
-            if let Some(exp_self) = expected_self_ty
+            if let Some(exp_self) = call.expected_self_ty
                 && recv.ty != exp_self
             {
                 MastExpr::new(
@@ -1635,7 +1635,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                         kind: MastCastKind::Bitcast,
                         operand: Box::new(recv),
                     },
-                    span,
+                    call.span,
                 )
             } else {
                 recv
@@ -1649,7 +1649,8 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             this.instantiate_function(method_id, generics)
         });
         self.measure_phase("                lower_call_static_build", |_this| {
-            let func_ref = MastExpr::new(norm_callee, MastExprKind::FuncRef(func_id), span);
+            let func_ref =
+                MastExpr::new(call.norm_callee, MastExprKind::FuncRef(func_id), call.span);
             MastExprKind::Call {
                 callee: Box::new(func_ref),
                 args: arg_masts,

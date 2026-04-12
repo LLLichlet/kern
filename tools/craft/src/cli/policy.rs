@@ -155,9 +155,9 @@ pub(super) fn summarize_source_security(manifest: &Manifest) -> SourceSecuritySu
     }
 }
 
-fn release_policy_dependencies<'a>(
-    manifest: &'a Manifest,
-) -> BTreeMap<String, &'a crate::manifest::DetailedDependency> {
+fn release_policy_dependencies(
+    manifest: &Manifest,
+) -> BTreeMap<String, &crate::manifest::DetailedDependency> {
     let mut dependencies = BTreeMap::new();
 
     if let Some(workspace) = &manifest.workspace {

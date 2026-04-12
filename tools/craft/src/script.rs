@@ -266,9 +266,9 @@ fn default_profile_codegen_units(
 ) -> usize {
     match selection {
         ProfileSelection::Dev => 1,
-        ProfileSelection::Release if opt >= 2 => available_parallelism
-            .max(1)
-            .min(RELEASE_DEFAULT_MAX_CODEGEN_UNITS),
+        ProfileSelection::Release if opt >= 2 => {
+            available_parallelism.clamp(1, RELEASE_DEFAULT_MAX_CODEGEN_UNITS)
+        }
         ProfileSelection::Release => 1,
     }
 }

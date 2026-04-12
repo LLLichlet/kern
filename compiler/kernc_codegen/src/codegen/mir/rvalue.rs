@@ -312,7 +312,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let lhs_ty = self.mir_operand_ty(body, lhs).unwrap_or(TypeId::ERROR);
                 let rhs_ty = self.mir_operand_ty(body, rhs).unwrap_or(TypeId::ERROR);
                 if self.type_registry.is_simd(lhs_ty) {
-                    let result_ty = expected_ty.unwrap_or_else(|| {
+                    let result_ty = expected_ty.unwrap_or({
                         if matches!(
                             op,
                             BinaryOperator::Equal
@@ -399,7 +399,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     return self.zero_i8_value();
                 };
                 self.compile_mir_atomic_cas(
-                    body, result_ty, *weak, ptr, expected, desired, *success, *failure,
+                    body,
+                    super::atomic::AtomicCasArgs {
+                        result_ty,
+                        weak: *weak,
+                        ptr,
+                        expected,
+                        desired,
+                        success: *success,
+                        failure: *failure,
+                    },
                 )
             }
             MirRvalue::AtomicRmw {

@@ -57,7 +57,7 @@ fn runtime_cache_root(_workspace_root: &Path) -> Result<PathBuf> {
 
     #[cfg(test)]
     {
-        return Ok(_workspace_root.join(".craft").join("runtime-cache"));
+        Ok(_workspace_root.join(".craft").join("runtime-cache"))
     }
 
     #[cfg(not(test))]

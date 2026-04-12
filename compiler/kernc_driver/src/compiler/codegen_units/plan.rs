@@ -293,17 +293,17 @@ fn plan_codegen_units_impl(
     for unit in &mut units {
         unit.root_keys.sort_by_key(|key| item_key_sort_key(*key));
     }
-    if enable_imports {
-        if let Some(summary) = summary {
-            report.import_plan = Some(assign_imported_inline_functions(
-                &mut units,
-                &roots,
-                &shared_partitioned_functions,
-                summary,
-                &functions_by_id,
-                &workloads,
-            ));
-        }
+    if enable_imports
+        && let Some(summary) = summary
+    {
+        report.import_plan = Some(assign_imported_inline_functions(
+            &mut units,
+            &roots,
+            &shared_partitioned_functions,
+            summary,
+            &functions_by_id,
+            &workloads,
+        ));
     }
     report.planned_units = units.len();
     report.imported_function_count = units
@@ -369,6 +369,14 @@ fn assign_imported_inline_functions(
         max_unit_budget: remaining_budgets.iter().copied().max().unwrap_or(0),
         ..CodegenImportPlanReport::default()
     };
+    let units_snapshot = units.to_vec();
+    let import_context = ImportClosureContext {
+        units: &units_snapshot,
+        summary,
+        functions_by_id,
+        workloads,
+        shared_function_layout: &shared_function_layout,
+    };
 
     for unit_idx in 0..units.len() {
         let unit = &units[unit_idx];
@@ -386,11 +394,7 @@ fn assign_imported_inline_functions(
                 let import_workload = collect_import_closure(
                     *function_id,
                     unit_idx,
-                    units,
-                    summary,
-                    functions_by_id,
-                    workloads,
-                    &shared_function_layout,
+                    &import_context,
                     &mut closure,
                     &mut visited,
                 )?;
@@ -493,31 +497,35 @@ fn import_budget_for_unit(unit: &CodegenUnitPlan) -> usize {
     unit.workload.max(1).div_ceil(2).clamp(4, 32)
 }
 
+struct ImportClosureContext<'a> {
+    units: &'a [CodegenUnitPlan],
+    summary: &'a MirSummaryIndex,
+    functions_by_id: &'a HashMap<MonoId, &'a MastFunction>,
+    workloads: &'a HashMap<ItemKey, usize>,
+    shared_function_layout: &'a HashMap<MonoId, SharedFunctionLayout>,
+}
+
 fn collect_import_closure(
     function_id: MonoId,
     importer_unit_idx: usize,
-    units: &[CodegenUnitPlan],
-    summary: &MirSummaryIndex,
-    functions_by_id: &HashMap<MonoId, &MastFunction>,
-    workloads: &HashMap<ItemKey, usize>,
-    shared_function_layout: &HashMap<MonoId, SharedFunctionLayout>,
+    context: &ImportClosureContext<'_>,
     closure: &mut HashSet<MonoId>,
     visited: &mut HashSet<MonoId>,
 ) -> Option<usize> {
     if !visited.insert(function_id) {
         return Some(0);
     }
-    let unit = &units[importer_unit_idx];
+    let unit = &context.units[importer_unit_idx];
     if unit.function_ids.contains(&function_id) || unit.imported_function_ids.contains(&function_id)
     {
         return Some(0);
     }
 
-    let function = functions_by_id.get(&function_id).copied()?;
-    if !should_import_function(function, summary) {
+    let function = context.functions_by_id.get(&function_id).copied()?;
+    if !should_import_function(function, context.summary) {
         return None;
     }
-    let layout = shared_function_layout.get(&function_id)?;
+    let layout = context.shared_function_layout.get(&function_id)?;
     if layout.owner_unit_idx == importer_unit_idx {
         return Some(0);
     }
@@ -525,23 +533,19 @@ fn collect_import_closure(
         return None;
     }
 
-    let function_summary = summary.function(function_id)?;
+    let function_summary = context.summary.function(function_id)?;
     let mut import_workload = 0;
     for callee_id in &function_summary.refs.direct_callee_ids {
         if *callee_id == function_id {
             continue;
         }
-        if let Some(callee_summary) = summary.function(*callee_id)
+        if let Some(callee_summary) = context.summary.function(*callee_id)
             && callee_summary.body_role == MirItemBodyRole::InternalBody
         {
             import_workload += collect_import_closure(
                 *callee_id,
                 importer_unit_idx,
-                units,
-                summary,
-                functions_by_id,
-                workloads,
-                shared_function_layout,
+                context,
                 closure,
                 visited,
             )?;
@@ -549,7 +553,8 @@ fn collect_import_closure(
     }
 
     if closure.insert(function_id) {
-        import_workload += workloads
+        import_workload += context
+            .workloads
             .get(&ItemKey::Function(function_id))
             .copied()
             .unwrap_or(1);

@@ -3,14 +3,8 @@ use std::collections::HashMap;
 
 impl CompilerDriver {
     pub(super) fn build_compile_report(
-        loaded_sources: Vec<PathBuf>,
+        context: CompileReportContext<'_>,
         phase_timings: Vec<PhaseTiming>,
-        cache_stats: CompileCacheStats,
-        lower_cache_stats: kernc_lower::LowerCacheStats,
-        mast_workload: kernc_mast::MastWorkloadStats,
-        mir_workload: kernc_mir::MirWorkloadStats,
-        codegen_plan: Option<CodegenPlanReport>,
-        collect_codegen_diagnostics: bool,
         codegen_report: CodegenReport,
         emit_report: Option<EmitObjectReport>,
     ) -> CompileReport {
@@ -26,29 +20,39 @@ impl CompilerDriver {
             };
 
         CompileReport {
-            loaded_sources,
+            loaded_sources: context.loaded_sources.to_vec(),
             phase_timings,
-            cache_stats,
-            lower_cache_stats: Some(lower_cache_stats),
-            mast_workload: Some(mast_workload),
-            mir_workload: Some(mir_workload),
-            codegen_plan,
-            ir_instruction_stats: collect_codegen_diagnostics.then_some(codegen_report.ir_stats),
-            ir_cleanup_stats: collect_codegen_diagnostics
+            cache_stats: context.cache_stats,
+            lower_cache_stats: Some(context.lower_cache_stats),
+            mast_workload: Some(context.mast_workload),
+            mir_workload: Some(context.mir_workload),
+            codegen_plan: context.codegen_plan.clone(),
+            ir_instruction_stats: context
+                .collect_codegen_diagnostics
+                .then_some(codegen_report.ir_stats),
+            ir_cleanup_stats: context
+                .collect_codegen_diagnostics
                 .then_some(ir_cleanup_stats)
                 .flatten(),
-            remaining_alloca_stats: collect_codegen_diagnostics
+            remaining_alloca_stats: context
+                .collect_codegen_diagnostics
                 .then_some(remaining_alloca_stats)
                 .flatten(),
-            remaining_alloca_names: collect_codegen_diagnostics
-                .then_some(remaining_alloca_names)
-                .unwrap_or_default(),
-            ir_hot_functions: collect_codegen_diagnostics
-                .then_some(codegen_report.ir_hot_functions)
-                .unwrap_or_default(),
-            codegen_alloca_stats: collect_codegen_diagnostics
-                .then_some(codegen_report.alloca_stats)
-                .unwrap_or_default(),
+            remaining_alloca_names: if context.collect_codegen_diagnostics {
+                remaining_alloca_names
+            } else {
+                Default::default()
+            },
+            ir_hot_functions: if context.collect_codegen_diagnostics {
+                codegen_report.ir_hot_functions
+            } else {
+                Default::default()
+            },
+            codegen_alloca_stats: if context.collect_codegen_diagnostics {
+                codegen_report.alloca_stats
+            } else {
+                Default::default()
+            },
         }
     }
 

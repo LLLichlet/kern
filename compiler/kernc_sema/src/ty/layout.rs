@@ -6,11 +6,14 @@ use kernc_ast as ast;
 use kernc_utils::SymbolId;
 use std::collections::HashMap;
 
+type StructMapping = (Vec<usize>, Vec<usize>);
+type NamedStructMappingKey = (DefId, Vec<TypeId>);
+
 pub struct LayoutEngine<'a, 'ctx> {
     ctx: &'a mut SemaContext<'ctx>,
     align_cache: HashMap<TypeId, u64>,
     size_cache: HashMap<TypeId, u64>,
-    named_struct_mapping_cache: HashMap<(DefId, Vec<TypeId>), (Vec<usize>, Vec<usize>)>,
+    named_struct_mapping_cache: HashMap<NamedStructMappingKey, StructMapping>,
 }
 
 impl<'a, 'ctx> LayoutEngine<'a, 'ctx> {

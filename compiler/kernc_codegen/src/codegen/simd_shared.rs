@@ -60,7 +60,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         context: &str,
     ) -> Option<BasicValueEnum<'ctx>> {
         match self.get_llvm_type(ty) {
-            BasicTypeEnum::VectorType(vector_ty) => Some(vector_ty.const_zero().into()),
+            BasicTypeEnum::VectorType(vector_ty) => Some(vector_ty.const_zero()),
             _ => {
                 self.sess.emit_ice(
                     span,

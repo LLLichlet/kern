@@ -99,7 +99,7 @@ fn folded_terminator(terminator: &MirTerminator) -> Option<MirTerminator> {
             if let Some(case) = cases.iter().find(|case| case.values.contains(&value)) {
                 return Some(MirTerminator::Goto(case.block));
             }
-            default_block.map(|block| MirTerminator::Goto(block))
+            default_block.map(MirTerminator::Goto)
         }
         _ => None,
     }

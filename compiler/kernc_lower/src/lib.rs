@@ -72,7 +72,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) local_statics: Vec<HashMap<SymbolId, MonoId>>,
     pub(crate) loop_frames: Vec<usize>,
     pub(crate) field_index_cache: HashMap<(TypeId, SymbolId), usize>,
-    pub(crate) named_struct_layout_cache: HashMap<(DefId, Vec<TypeId>), (Vec<usize>, Vec<usize>)>,
+    pub(crate) named_struct_layout_cache: HashMap<NamedStructLayoutKey, StructLayoutMapping>,
     pub(crate) anon_struct_layout_cache: HashMap<TypeId, (Vec<usize>, Vec<usize>)>,
     pub(crate) adt_union_map: HashMap<MonoId, MonoId>,
     pub(crate) closure_fn_map: HashMap<NodeId, MonoId>,
@@ -88,6 +88,9 @@ pub struct Lowerer<'a, 'ctx> {
     phase_totals: HashMap<&'static str, Duration>,
     cache_stats: LowerCacheStats,
 }
+
+type StructLayoutMapping = (Vec<usize>, Vec<usize>);
+type NamedStructLayoutKey = (DefId, Vec<TypeId>);
 
 impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     pub fn new(ctx: &'a mut SemaContext<'ctx>) -> Self {

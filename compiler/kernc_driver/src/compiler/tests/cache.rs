@@ -1,5 +1,6 @@
 use super::*;
 use crate::CodegenPlanFallback;
+use kernc_utils::config::{LibraryBundle, RuntimeEntry};
 
 fn manifest_object_paths(manifest: &std::path::Path) -> Vec<String> {
     fs::read_to_string(manifest)
@@ -12,6 +13,15 @@ fn manifest_object_paths(manifest: &std::path::Path) -> Vec<String> {
 fn has_llvm_bitcode_magic(path: &std::path::Path) -> bool {
     fs::read(path)
         .map(|bytes| bytes.starts_with(b"BC\xc0\xde"))
+        .unwrap_or(false)
+}
+
+fn nm_reports_object(paths: &[String]) -> bool {
+    Command::new("nm")
+        .arg("-A")
+        .args(paths)
+        .output()
+        .map(|output| output.status.success())
         .unwrap_or(false)
 }
 
@@ -885,6 +895,140 @@ extern fn right(seed: i32) i32 {
             .all(|path| has_llvm_bitcode_magic(std::path::Path::new(path))),
         "expected preserved linker inputs to stay serialized as LLVM bitcode"
     );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_only_thin_lto_object_preserves_native_objects() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_thinlto_object_compile_only_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(
+        &main,
+        "\
+#[inline]
+fn shared(seed: i32) i32 {
+    if (seed > 0) {
+        return seed;
+    }
+    if (seed < 0) {
+        return -seed;
+    }
+    return 0;
+}
+
+extern fn left(seed: i32) i32 {
+    return shared(seed);
+}
+
+extern fn right(seed: i32) i32 {
+    return shared(seed);
+}
+",
+    )
+    .unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        codegen_units: 2,
+        lto_mode: LtoMode::Thin,
+        emit_multi_linker_input_dir: true,
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    driver
+        .compile_with_report()
+        .expect("ThinLTO object compile-only emission should succeed");
+
+    let linker_inputs = manifest_object_paths(&object);
+    assert_eq!(linker_inputs.len(), 2);
+    assert!(
+        linker_inputs
+            .iter()
+            .all(|path| !has_llvm_bitcode_magic(std::path::Path::new(path))),
+        "expected preserved linker inputs to be native objects instead of LLVM bitcode"
+    );
+    assert!(
+        nm_reports_object(&linker_inputs),
+        "expected preserved ThinLTO objects to be inspectable by `nm`"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_and_link_thin_lto_multi_cgu_produces_runnable_binary() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_thinlto_link_exec_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let executable = root.join("main.out");
+    fs::write(
+        &main,
+        "\
+#[inline]
+fn shared(seed: i32) i32 {
+    if (seed > 0) {
+        return seed;
+    }
+    if (seed < 0) {
+        return -seed;
+    }
+    return 0;
+}
+
+fn main() i32 {
+    return left(3) + right(-2) - 5;
+}
+
+fn left(seed: i32) i32 {
+    return shared(seed);
+}
+
+fn right(seed: i32) i32 {
+    return shared(seed);
+}
+",
+    )
+    .unwrap();
+
+    let mut options = CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: executable.to_string_lossy().to_string(),
+        runtime_entry: RuntimeEntry::Rt,
+        library_bundle: LibraryBundle::Std,
+        driver_mode: DriverMode::CompileAndLink,
+        codegen_units: 2,
+        lto_mode: LtoMode::Thin,
+        report_progress: false,
+        ..CompileOptions::default()
+    };
+    kernc_utils::config::apply_configured_library_aliases(&mut options);
+    kernc_utils::config::inject_driver_condition_defines(&mut options);
+    let driver = CompilerDriver::new(options);
+    driver
+        .compile_with_report()
+        .expect("multi-CGU ThinLTO compile-and-link should succeed");
+
+    let status = Command::new(&executable).status().unwrap();
+    assert_eq!(status.code(), Some(0));
 
     let _ = fs::remove_dir_all(&root);
 }

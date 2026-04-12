@@ -495,11 +495,10 @@ fn materialize_tree(source: &Path, dest: &Path) -> Result<FetchStatus> {
     }
 
     let existed = dest.exists();
-    if existed {
-        fs::remove_dir_all(dest).map_err(|err| Error::from_io(dest, err))?;
+    if dest.is_file() {
+        fs::remove_file(dest).map_err(|err| Error::from_io(dest, err))?;
     }
-    local_state::ensure_parent_dir(dest)?;
-    copy_dir_all(source, dest)?;
+    sync_dir_all(source, dest)?;
 
     Ok(if existed {
         FetchStatus::Updated
@@ -508,19 +507,47 @@ fn materialize_tree(source: &Path, dest: &Path) -> Result<FetchStatus> {
     })
 }
 
-fn copy_dir_all(source: &Path, dest: &Path) -> Result<()> {
+fn sync_dir_all(source: &Path, dest: &Path) -> Result<()> {
     local_state::ensure_dir(dest)?;
+
+    let mut source_names = std::collections::BTreeSet::new();
     for entry in fs::read_dir(source).map_err(|err| Error::from_io(source, err))? {
         let entry = entry.map_err(Error::from_io_plain)?;
         let file_type = entry.file_type().map_err(Error::from_io_plain)?;
+        let name = entry.file_name();
         let source_path = entry.path();
-        let dest_path = dest.join(entry.file_name());
+        let dest_path = dest.join(&name);
+        source_names.insert(name.clone());
+
         if file_type.is_dir() {
-            copy_dir_all(&source_path, &dest_path)?;
+            if dest_path.is_file() {
+                fs::remove_file(&dest_path).map_err(|err| Error::from_io(&dest_path, err))?;
+            }
+            sync_dir_all(&source_path, &dest_path)?;
         } else if file_type.is_file() {
+            if dest_path.is_dir() {
+                fs::remove_dir_all(&dest_path).map_err(|err| Error::from_io(&dest_path, err))?;
+            }
             fs::copy(&source_path, &dest_path).map_err(|err| Error::from_io(&dest_path, err))?;
         }
     }
+
+    for entry in fs::read_dir(dest).map_err(|err| Error::from_io(dest, err))? {
+        let entry = entry.map_err(Error::from_io_plain)?;
+        let name = entry.file_name();
+        if name == std::ffi::OsStr::new(".craft") || source_names.contains(&name) {
+            continue;
+        }
+
+        let path = entry.path();
+        let file_type = entry.file_type().map_err(Error::from_io_plain)?;
+        if file_type.is_dir() {
+            fs::remove_dir_all(&path).map_err(|err| Error::from_io(&path, err))?;
+        } else {
+            fs::remove_file(&path).map_err(|err| Error::from_io(&path, err))?;
+        }
+    }
+
     Ok(())
 }
 
@@ -560,6 +587,9 @@ fn collect_tree_entries(
         let path = entry.path();
         let file_type = entry.file_type().map_err(Error::from_io_plain)?;
         if file_type.is_dir() {
+            if entry.file_name() == std::ffi::OsStr::new(".craft") {
+                continue;
+            }
             collect_tree_entries(root, &path, entries)?;
         } else if file_type.is_file() {
             let relative = path
@@ -698,6 +728,68 @@ root = "src/lib.rn"
         assert_eq!(fetched[0].source.resolved_revision, None);
         assert!(fetched[0].cache_path.join("Craft.toml").is_file());
         assert_eq!(summarize_fetch(&fetched).created, 1);
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn refetch_preserves_cached_local_craft_state() {
+        let root = temp_dir("craft-fetch-preserve-craft-state");
+        let package_root = root.join("vendor").join("log");
+        fs::create_dir_all(package_root.join("src")).unwrap();
+        fs::write(
+            root.join("Craft.toml"),
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[dependencies]
+log = { path = "vendor/log", version = "1" }
+"#,
+        )
+        .unwrap();
+        fs::write(
+            package_root.join("Craft.toml"),
+            r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            package_root.join("src/lib.rn"),
+            "pub fn x() i32 { return 0; }\n",
+        )
+        .unwrap();
+
+        let manifest_path = root.join("Craft.toml");
+        let manifest = Manifest::load(&manifest_path).unwrap();
+        let elaboration = plan(
+            &manifest_path,
+            &manifest,
+            &[],
+            false,
+            crate::script::ScriptCommand::Lock,
+            &FeatureSelection::default(),
+        )
+        .unwrap();
+
+        let fetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
+        let cache_path = fetched[0].cache_path.clone();
+        let preserved = cache_path.join(".craft/build/release/obj/log.o");
+        fs::create_dir_all(preserved.parent().unwrap()).unwrap();
+        fs::write(&preserved, b"thinlto-cache").unwrap();
+
+        let refetched = fetch_external_packages(&elaboration.resolved_graph).unwrap();
+        assert_eq!(refetched[0].status, FetchStatus::Unchanged);
+        assert_eq!(fs::read(&preserved).unwrap(), b"thinlto-cache");
 
         let _ = fs::remove_dir_all(root);
     }

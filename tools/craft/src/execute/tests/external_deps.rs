@@ -161,6 +161,284 @@ return 1;
 }
 
 #[test]
+fn release_build_preserves_thinlto_bitcode_for_external_git_library() {
+    let root = temp_dir("craft-exec-external-git-thinlto");
+    let repo = root.join("log.git");
+    fs::create_dir_all(root.join("src")).unwrap();
+    init_git_package(
+        &repo,
+        r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.6.7"
+
+[profile.release]
+opt = 3
+codegen-units = 2
+
+[lib]
+root = "src/lib.rn"
+"#,
+        r#"
+pub fn answer() i32 {
+return 42;
+}
+"#,
+    );
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+opt = 3
+codegen-units = 2
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+log = {{ git = "{}", branch = "main", version = "1" }}
+"#,
+            toml_string_literal(&repo)
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+fn main() i32 {
+if (log.answer() == 42) {
+    return 0;
+}
+return 1;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let feature_selection = FeatureSelection {
+        profile: crate::script::ProfileSelection::Release,
+        ..Default::default()
+    };
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &feature_selection,
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.compile_actions, 2);
+    assert_eq!(summary.link_actions, 1);
+
+    let deps = external::requested_external_dependencies(&action_plan);
+    assert_eq!(deps.len(), 1);
+    let source_config = super::super::load_source_config(&build_plan).unwrap();
+    let loaded = external::load_external_package_actions(
+        &source_config,
+        &build_plan.workspace_root,
+        &deps[0],
+        crate::script::ScriptCommand::Build,
+        feature_selection.profile,
+    )
+    .unwrap();
+    let lib_action = loaded
+        .action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "log" && action.target_kind == crate::plan::TargetKind::Lib
+        })
+        .expect("expected external library compile action");
+    let linker_inputs = linker_input_paths_for_primary_output(&lib_action.object_path).unwrap();
+    assert!(
+        linker_inputs.iter().all(|path| super::has_llvm_bitcode_magic(path)),
+        "expected external release library to preserve ThinLTO bitcode inputs, got: {:?}",
+        linker_inputs
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn release_build_refreshes_updated_external_git_thinlto_library() {
+    let root = temp_dir("craft-exec-external-git-thinlto-refresh");
+    let repo = root.join("log.git");
+    fs::create_dir_all(root.join("src")).unwrap();
+    init_git_package(
+        &repo,
+        r#"
+[package]
+name = "log"
+version = "1"
+kern = "0.6.7"
+
+[profile.release]
+opt = 3
+codegen-units = 2
+
+[lib]
+root = "src/lib.rn"
+"#,
+        r#"
+pub fn answer() i32 {
+return 42;
+}
+"#,
+    );
+
+    fs::write(
+        root.join("Craft.toml"),
+        format!(
+            r#"
+[package]
+name = "app"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+opt = 3
+codegen-units = 2
+
+[[bin]]
+name = "app"
+root = "src/main.rn"
+
+[dependencies]
+log = {{ git = "{}", branch = "main", version = "1" }}
+"#,
+            toml_string_literal(&repo)
+        ),
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+fn main() i32 {
+return log.answer() - 42;
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let feature_selection = FeatureSelection {
+        profile: crate::script::ProfileSelection::Release,
+        ..Default::default()
+    };
+
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &feature_selection,
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let first_summary = build(&build_plan, &action_plan).unwrap();
+    assert_eq!(first_summary.compile_actions, 2);
+    assert_eq!(first_summary.link_actions, 1);
+
+    let executable = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "app")
+        .expect("expected app link action")
+        .artifact_path
+        .clone();
+    let first_status = Command::new(&executable).status().unwrap();
+    assert_eq!(first_status.code(), Some(0));
+
+    fs::write(
+        repo.join("src/lib.rn"),
+        r#"
+pub fn answer() i32 {
+return 43;
+}
+"#,
+    )
+    .unwrap();
+    run_git(&repo, ["add", "."]);
+    run_git(&repo, ["commit", "-m", "update answer"]);
+
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Build,
+        &feature_selection,
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let second_summary = build(&build_plan, &action_plan).unwrap();
+    assert!(
+        second_summary.compile_actions >= 1,
+        "expected updated external ThinLTO dependency to trigger at least one compile miss"
+    );
+    assert_eq!(second_summary.link_actions, 1);
+
+    let second_executable = action_plan
+        .link_actions
+        .iter()
+        .find(|action| action.package_id.name == "app")
+        .expect("expected app link action")
+        .artifact_path
+        .clone();
+    let second_status = Command::new(&second_executable).status().unwrap();
+    assert_eq!(second_status.code(), Some(1));
+
+    let deps = external::requested_external_dependencies(&action_plan);
+    assert_eq!(deps.len(), 1);
+    let source_config = super::super::load_source_config(&build_plan).unwrap();
+    let loaded = external::load_external_package_actions(
+        &source_config,
+        &build_plan.workspace_root,
+        &deps[0],
+        crate::script::ScriptCommand::Build,
+        feature_selection.profile,
+    )
+    .unwrap();
+    let lib_action = loaded
+        .action_plan
+        .compile_actions
+        .iter()
+        .find(|action| {
+            action.package_id.name == "log" && action.target_kind == crate::plan::TargetKind::Lib
+        })
+        .expect("expected external library compile action");
+    let linker_inputs = linker_input_paths_for_primary_output(&lib_action.object_path).unwrap();
+    assert!(
+        linker_inputs.iter().all(|path| super::has_llvm_bitcode_magic(path)),
+        "expected refreshed external release library to preserve ThinLTO bitcode inputs, got: {:?}",
+        linker_inputs
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn builds_and_runs_hosted_package_with_transitive_external_path_dependency() {
     let root = temp_dir("craft-exec-external-transitive");
     let log_root = root.join("vendor").join("log");

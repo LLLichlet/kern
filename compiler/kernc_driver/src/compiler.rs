@@ -651,6 +651,10 @@ struct TempFileGuard {
     path: String,
 }
 
+struct TempDirGuard {
+    path: String,
+}
+
 struct LinkTarget {
     triple: String,
     is_windows: bool,
@@ -694,6 +698,12 @@ pub(super) struct CacheCounterSnapshot {
 impl Drop for TempFileGuard {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+impl Drop for TempDirGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
     }
 }
 

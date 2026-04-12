@@ -1,8 +1,9 @@
 use super::*;
 use crate::compiler::codegen_units;
-use crate::compiler::{LinkTarget, TempFileGuard};
+use crate::compiler::{LinkTarget, TempDirGuard, TempFileGuard};
 use kernc_utils::config::LinkerInputFlavor;
 use std::fs;
+use std::path::Path;
 
 impl CompilerDriver {
     fn empty_compile_report(
@@ -716,7 +717,23 @@ impl CompilerDriver {
             ));
         }
 
-        let object_buffers = match run_thin_lto(&thin_modules) {
+        let thin_lto_output_dir = self.make_temp_thin_lto_output_dir_path();
+        if !Self::prepare_clean_output_dir(
+            Path::new(&thin_lto_output_dir),
+            "ThinLTO object directory",
+        ) {
+            return None;
+        }
+        let thin_lto_output_guard = TempDirGuard {
+            path: thin_lto_output_dir.clone(),
+        };
+        let object_outputs = match run_thin_lto(
+            &thin_modules,
+            &kernc_codegen::ThinLtoOptions {
+                generated_objects_dir: Some(PathBuf::from(&thin_lto_output_dir)),
+                cache_dir: None,
+            },
+        ) {
             Ok(objects) => objects,
             Err(err) => {
                 eprintln!("Error: LLVM ThinLTO failed during post-link processing: {err}");
@@ -728,47 +745,65 @@ impl CompilerDriver {
             duration: thin_lto_started.elapsed(),
         });
 
+        let mut object_paths = object_outputs
+            .into_iter()
+            .enumerate()
+            .map(|(index, object)| match object {
+                kernc_codegen::ThinLtoObject::File(path) => Ok((index, path)),
+                kernc_codegen::ThinLtoObject::Buffer(_) => Err(format!(
+                    "ThinLTO returned an unexpected in-memory object for output #{index}"
+                )),
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .unwrap_or_else(|err| {
+                eprintln!("Error: {err}");
+                Vec::new()
+            });
+        if object_paths.is_empty() {
+            return None;
+        }
+
         if emit_multi_linker_input_dir && !self.prepare_multi_linker_input_output_dir() {
             return None;
         }
-        let object_guards = if emit_multi_linker_input_dir {
-            Vec::new()
-        } else {
-            (0..object_buffers.len())
-                .map(|index| TempFileGuard {
-                    path: self.make_temp_codegen_unit_path(&format!("thin{index}")),
-                })
-                .collect::<Vec<_>>()
-        };
-        let mut object_paths = Vec::with_capacity(object_buffers.len());
-        for (index, object) in object_buffers.iter().enumerate() {
-            let object_path = if emit_multi_linker_input_dir {
-                self.make_multi_linker_input_codegen_unit_path(&format!("thin{index}"))
-            } else {
-                self.make_temp_codegen_unit_path(&format!("thin{index}"))
-            };
-            if let Err(err) = fs::write(&object_path, object) {
-                eprintln!(
-                    "Error: Failed to materialize ThinLTO object `{}`: {}",
-                    object_path, err
-                );
-                drop(object_guards);
-                return None;
+        if emit_multi_linker_input_dir {
+            let mut preserved_paths = Vec::with_capacity(object_paths.len());
+            for (index, object_path) in &object_paths {
+                let preserved_path =
+                    self.make_multi_linker_input_codegen_unit_path(&format!("thin{index}"));
+                if let Err(err) = fs::copy(object_path, &preserved_path) {
+                    eprintln!(
+                        "Error: Failed to preserve ThinLTO object `{}` as `{}`: {}",
+                        object_path.display(),
+                        preserved_path,
+                        err
+                    );
+                    return None;
+                }
+                preserved_paths.push(preserved_path);
             }
-            object_paths.push(object_path);
+            object_paths = preserved_paths
+                .into_iter()
+                .enumerate()
+                .map(|(index, path)| (index, PathBuf::from(path)))
+                .collect();
         }
 
         if self.options.driver_mode.emits_linker_input() {
             if emit_multi_linker_input_dir {
-                if let Err(err) = self.write_multi_linker_input_manifest(&object_paths) {
+                let manifest_paths = object_paths
+                    .iter()
+                    .map(|(_, path)| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                if let Err(err) = self.write_multi_linker_input_manifest(&manifest_paths) {
                     eprintln!(
                         "Error: Failed to record preserved linker inputs `{}`: {}",
                         self.options.output_file, err
                     );
-                    drop(object_guards);
                     return None;
                 }
                 Self::print_buffered_diagnostics(ctx.sess);
+                drop(thin_lto_output_guard);
                 return Some(Self::build_compile_report(
                     loaded_sources.to_vec(),
                     std::mem::take(phase_timings),
@@ -788,15 +823,18 @@ impl CompilerDriver {
                 path: merged_output_path.clone(),
             };
             let merged = Self::measure_phase(phase_timings, "merge_object", || {
+                let inputs = object_paths
+                    .iter()
+                    .map(|(_, path)| path.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
                 self.run_relocatable_link_command(
-                    &object_paths,
+                    &inputs,
                     target,
                     &merged_output_path,
                     &self.options.output_file,
                     "Successfully emitted linker input",
                 )
             });
-            drop(object_guards);
             if !merged {
                 drop(merged_output_guard);
                 return None;
@@ -811,6 +849,7 @@ impl CompilerDriver {
             }
             drop(merged_output_guard);
             Self::print_buffered_diagnostics(ctx.sess);
+            drop(thin_lto_output_guard);
             return Some(Self::build_compile_report(
                 loaded_sources.to_vec(),
                 std::mem::take(phase_timings),
@@ -826,12 +865,16 @@ impl CompilerDriver {
         }
 
         let linked = Self::measure_phase(phase_timings, "link", || {
-            self.run_link_command_with_inputs(&object_paths, target, "Successfully compiled")
+            let inputs = object_paths
+                .iter()
+                .map(|(_, path)| path.to_string_lossy().to_string())
+                .collect::<Vec<_>>();
+            self.run_link_command_with_inputs(&inputs, target, "Successfully compiled")
         });
-        drop(object_guards);
         if linked {
             Self::print_buffered_diagnostics(ctx.sess);
         }
+        drop(thin_lto_output_guard);
         linked.then_some(Self::build_compile_report(
             loaded_sources.to_vec(),
             std::mem::take(phase_timings),
@@ -1362,30 +1405,7 @@ impl CompilerDriver {
 
     fn prepare_multi_linker_input_output_dir(&self) -> bool {
         let dir = self.make_multi_linker_input_dir_path();
-        let dir_path = Path::new(&dir);
-        if dir_path.is_file() && fs::remove_file(dir_path).is_err() {
-            eprintln!(
-                "Error: Failed to remove stale linker-input file `{}`.",
-                dir_path.display()
-            );
-            return false;
-        }
-        if dir_path.is_dir() && fs::remove_dir_all(dir_path).is_err() {
-            eprintln!(
-                "Error: Failed to remove stale linker-input directory `{}`.",
-                dir_path.display()
-            );
-            return false;
-        }
-        if let Err(err) = fs::create_dir_all(dir_path) {
-            eprintln!(
-                "Error: Failed to create linker-input directory `{}`: {}",
-                dir_path.display(),
-                err
-            );
-            return false;
-        }
-        true
+        Self::prepare_clean_output_dir(Path::new(&dir), "linker-input directory")
     }
 
     fn write_multi_linker_input_manifest(&self, object_paths: &[String]) -> std::io::Result<()> {
@@ -1396,6 +1416,39 @@ impl CompilerDriver {
             contents.push('\n');
         }
         fs::write(&self.options.output_file, contents)
+    }
+
+    fn make_temp_thin_lto_output_dir_path(&self) -> String {
+        format!("{}.tmp.thinlto.d", self.options.output_file)
+    }
+
+    fn prepare_clean_output_dir(path: &Path, label: &str) -> bool {
+        if path.is_file() && fs::remove_file(path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale {} `{}`.",
+                label,
+                path.display()
+            );
+            return false;
+        }
+        if path.is_dir() && fs::remove_dir_all(path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale {} `{}`.",
+                label,
+                path.display()
+            );
+            return false;
+        }
+        if let Err(err) = fs::create_dir_all(path) {
+            eprintln!(
+                "Error: Failed to create {} `{}`: {}",
+                label,
+                path.display(),
+                err
+            );
+            return false;
+        }
+        true
     }
 }
 

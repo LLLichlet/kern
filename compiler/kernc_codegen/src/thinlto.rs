@@ -1,15 +1,17 @@
 use llvm_sys::lto::{
     LTOObjectBuffer, lto_codegen_model, lto_get_error_message,
     lto_module_create_from_memory_with_path, lto_module_dispose, lto_module_get_num_symbols,
-    lto_module_get_symbol_attribute, lto_module_get_symbol_name, thinlto_code_gen_t,
-    thinlto_codegen_add_cross_referenced_symbol, thinlto_codegen_add_module,
+    lto_module_get_symbol_attribute, lto_module_get_symbol_name, lto_module_is_thinlto,
+    thinlto_code_gen_t, thinlto_codegen_add_cross_referenced_symbol, thinlto_codegen_add_module,
     thinlto_codegen_add_must_preserve_symbol, thinlto_codegen_dispose, thinlto_codegen_process,
-    thinlto_codegen_set_cpu, thinlto_codegen_set_pic_model, thinlto_create_codegen,
-    thinlto_module_get_num_objects, thinlto_module_get_object,
+    thinlto_codegen_set_cache_dir, thinlto_codegen_set_cpu, thinlto_codegen_set_pic_model,
+    thinlto_create_codegen, thinlto_module_get_num_object_files, thinlto_module_get_num_objects,
+    thinlto_module_get_object, thinlto_module_get_object_file, thinlto_set_generated_objects_dir,
 };
 use std::collections::BTreeSet;
 use std::ffi::{CStr, CString};
 use std::os::raw::c_int;
+use std::path::{Path, PathBuf};
 use std::slice;
 
 const LTO_SYMBOL_DEFINITION_MASK: u32 = 0x700;
@@ -25,6 +27,18 @@ const LTO_SYMBOL_SCOPE_INTERNAL: u32 = 0x800;
 pub struct ThinLtoModule {
     pub identifier: String,
     pub bitcode: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct ThinLtoOptions {
+    pub generated_objects_dir: Option<PathBuf>,
+    pub cache_dir: Option<PathBuf>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThinLtoObject {
+    Buffer(Vec<u8>),
+    File(PathBuf),
 }
 
 struct ThinLtoCodegenGuard(thinlto_code_gen_t);
@@ -49,7 +63,10 @@ struct RawLtoObjectBuffer {
     size: usize,
 }
 
-pub fn run_thin_lto(modules: &[ThinLtoModule]) -> Result<Vec<Vec<u8>>, String> {
+pub fn run_thin_lto(
+    modules: &[ThinLtoModule],
+    options: &ThinLtoOptions,
+) -> Result<Vec<ThinLtoObject>, String> {
     if modules.is_empty() {
         return Ok(Vec::new());
     }
@@ -73,6 +90,13 @@ pub fn run_thin_lto(modules: &[ThinLtoModule]) -> Result<Vec<Vec<u8>>, String> {
         return Err(last_lto_error(
             "LLVM ThinLTO failed to configure the PIC model".to_string(),
         ));
+    }
+
+    if let Some(generated_objects_dir) = options.generated_objects_dir.as_deref() {
+        configure_generated_objects_dir(cg.0, generated_objects_dir)?;
+    }
+    if let Some(cache_dir) = options.cache_dir.as_deref() {
+        configure_cache_dir(cg.0, cache_dir)?;
     }
 
     let (must_preserve, cross_referenced) = collect_symbol_policy(modules)?;
@@ -157,6 +181,21 @@ pub fn run_thin_lto(modules: &[ThinLtoModule]) -> Result<Vec<Vec<u8>>, String> {
         thinlto_codegen_process(cg.0);
     }
 
+    if options.generated_objects_dir.is_some() {
+        let object_count = unsafe { thinlto_module_get_num_object_files(cg.0) as usize };
+        if object_count == 0 {
+            return Err(last_lto_error(
+                "LLVM ThinLTO did not produce any object files".to_string(),
+            ));
+        }
+
+        let mut objects = Vec::with_capacity(object_count);
+        for index in 0..object_count {
+            objects.push(ThinLtoObject::File(copy_object_file_path(index, cg.0)?));
+        }
+        return Ok(objects);
+    }
+
     let object_count = unsafe { thinlto_module_get_num_objects(cg.0) as usize };
     if object_count == 0 {
         return Err(last_lto_error(
@@ -167,7 +206,7 @@ pub fn run_thin_lto(modules: &[ThinLtoModule]) -> Result<Vec<Vec<u8>>, String> {
     let mut objects = Vec::with_capacity(object_count);
     for index in 0..object_count {
         let object = unsafe { thinlto_module_get_object(cg.0, index as u32) };
-        objects.push(copy_object_buffer(index, object)?);
+        objects.push(ThinLtoObject::Buffer(copy_object_buffer(index, object)?));
     }
     Ok(objects)
 }
@@ -200,6 +239,7 @@ fn collect_symbol_policy(
             )));
         }
         let lto_module = ThinLtoModuleGuard(lto_module);
+        let _has_thinlto_summary = unsafe { lto_module_is_thinlto(lto_module.0) } != 0;
         let symbol_count = unsafe { lto_module_get_num_symbols(lto_module.0) as usize };
         for index in 0..symbol_count {
             let name_ptr = unsafe { lto_module_get_symbol_name(lto_module.0, index as u32) };
@@ -235,6 +275,56 @@ fn copy_object_buffer(index: usize, object: LTOObjectBuffer) -> Result<Vec<u8>, 
         ));
     }
     Ok(unsafe { slice::from_raw_parts(object.buffer as *const u8, object.size).to_vec() })
+}
+
+fn copy_object_file_path(index: usize, codegen: thinlto_code_gen_t) -> Result<PathBuf, String> {
+    let path_ptr = unsafe { thinlto_module_get_object_file(codegen, index as u32) };
+    if path_ptr.is_null() {
+        return Err(format!(
+            "LLVM ThinLTO returned a null object-file path for output #{index}"
+        ));
+    }
+    let path = PathBuf::from(
+        unsafe { CStr::from_ptr(path_ptr) }
+            .to_string_lossy()
+            .into_owned(),
+    );
+    if !path.is_file() {
+        return Err(format!(
+            "LLVM ThinLTO reported object-file path `{}` for output #{index}, but the file does not exist",
+            path.display()
+        ));
+    }
+    Ok(path)
+}
+
+fn configure_generated_objects_dir(
+    codegen: thinlto_code_gen_t,
+    generated_objects_dir: &Path,
+) -> Result<(), String> {
+    let path = CString::new(generated_objects_dir.to_string_lossy().as_bytes()).map_err(|_| {
+        format!(
+            "ThinLTO generated-objects directory contains an interior NUL byte: `{}`",
+            generated_objects_dir.display()
+        )
+    })?;
+    unsafe {
+        thinlto_set_generated_objects_dir(codegen, path.as_ptr());
+    }
+    Ok(())
+}
+
+fn configure_cache_dir(codegen: thinlto_code_gen_t, cache_dir: &Path) -> Result<(), String> {
+    let path = CString::new(cache_dir.to_string_lossy().as_bytes()).map_err(|_| {
+        format!(
+            "ThinLTO cache directory contains an interior NUL byte: `{}`",
+            cache_dir.display()
+        )
+    })?;
+    unsafe {
+        thinlto_codegen_set_cache_dir(codegen, path.as_ptr());
+    }
+    Ok(())
 }
 
 fn is_definition(attrs: u32) -> bool {

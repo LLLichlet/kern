@@ -20,6 +20,17 @@ struct NamedStructAnonRewrite<'a> {
     span: Span,
 }
 
+struct NamedStructValueAnonRewrite<'a> {
+    def_id: kernc_sema::def::DefId,
+    gen_args: &'a [TypeId],
+    anon_is_extern: bool,
+    anon_fields: &'a [kernc_sema::ty::AnonymousField],
+    value_kind: MastExprKind,
+    concrete_ty: TypeId,
+    exp_base: TypeId,
+    span: Span,
+}
+
 struct NamedUnionAnonRewrite<'a> {
     def_id: kernc_sema::def::DefId,
     anon_is_extern: bool,
@@ -86,6 +97,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         if let Some(rewritten) = self.try_rewrite_named_aggregate_to_anonymous(
             mast_kind.clone(),
+            concrete_ty,
             conc_base,
             exp_base,
             span,
@@ -291,6 +303,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
     fn try_rewrite_named_aggregate_to_anonymous(
         &mut self,
         mast_kind: MastExprKind,
+        concrete_ty: TypeId,
         conc_base: TypeId,
         exp_base: TypeId,
         span: Span,
@@ -312,6 +325,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 exp_base,
                 span,
             }),
+            (TypeKind::AnonymousStruct(is_extern, anon_fields), TypeKind::Def(def_id, gen_args), value_kind) => {
+                self.rewrite_named_struct_value_to_anon(NamedStructValueAnonRewrite {
+                    def_id,
+                    gen_args: &gen_args,
+                    anon_is_extern: is_extern,
+                    anon_fields: &anon_fields,
+                    value_kind,
+                    concrete_ty,
+                    exp_base,
+                    span,
+                })
+            }
             (
                 TypeKind::AnonymousUnion(is_extern, anon_fields),
                 TypeKind::Def(def_id, gen_args),
@@ -329,6 +354,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     exp_base,
                     span,
                 })
+            }
+            (TypeKind::AnonymousUnion(..), TypeKind::Def(..), value_kind) => {
+                self.rewrite_named_value_reinterpret_to_anonymous(
+                    value_kind,
+                    concrete_ty,
+                    exp_base,
+                    span,
+                )
             }
             (
                 TypeKind::AnonymousEnum(anon_enum),
@@ -358,8 +391,68 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             {
                 Some(MastExpr::new(exp_base, MastExprKind::Integer(tag), span))
             }
+            (TypeKind::AnonymousEnum(..), TypeKind::Enum(..), value_kind) => {
+                self.rewrite_named_value_reinterpret_to_anonymous(
+                    value_kind,
+                    concrete_ty,
+                    exp_base,
+                    span,
+                )
+            }
             _ => None,
         }
+    }
+
+    fn rewrite_named_value_reinterpret_to_anonymous(
+        &mut self,
+        value_kind: MastExprKind,
+        concrete_ty: TypeId,
+        exp_base: TypeId,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let source_name = self.fresh_synth_symbol("anon_reinterpret");
+        let source_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: concrete_ty,
+        });
+        let target_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
+            is_mut: false,
+            elem: exp_base,
+        });
+
+        Some(MastExpr::new(
+            exp_base,
+            MastExprKind::Block(MastBlock {
+                stmts: vec![MastStmt::Let {
+                    name: source_name,
+                    ty: concrete_ty,
+                    is_mut: false,
+                    init: MastExpr::new(concrete_ty, value_kind, span),
+                }],
+                result: Some(Box::new(MastExpr::new(
+                    exp_base,
+                    MastExprKind::Deref(Box::new(MastExpr::new(
+                        target_ptr_ty,
+                        MastExprKind::Cast {
+                            kind: MastCastKind::Bitcast,
+                            operand: Box::new(MastExpr::new(
+                                source_ptr_ty,
+                                MastExprKind::AddressOf(Box::new(MastExpr::new(
+                                    concrete_ty,
+                                    MastExprKind::Var(source_name),
+                                    span,
+                                ))),
+                                span,
+                            )),
+                        },
+                        span,
+                    ))),
+                    span,
+                ))),
+                defers: Vec::new(),
+            }),
+            span,
+        ))
     }
 
     fn rewrite_named_struct_init_to_anon(
@@ -436,6 +529,100 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 struct_id,
                 fields: rewritten_fields,
             },
+            rewrite.span,
+        ))
+    }
+
+    fn rewrite_named_struct_value_to_anon(
+        &mut self,
+        rewrite: NamedStructValueAnonRewrite<'_>,
+    ) -> Option<MastExpr> {
+        let Def::Struct(struct_def) = self.ctx.defs.get(rewrite.def_id.0 as usize).cloned()? else {
+            return None;
+        };
+        if struct_def.is_extern != rewrite.anon_is_extern {
+            return None;
+        }
+
+        let mut subst_map = HashMap::new();
+        for (index, param) in struct_def.generics.iter().enumerate() {
+            let arg = rewrite.gen_args.get(index).copied().unwrap_or(TypeId::ERROR);
+            subst_map.insert(param.name, arg);
+        }
+
+        let source_name = self.fresh_synth_symbol("anon_decay");
+        let source_value = MastExpr::new(rewrite.concrete_ty, rewrite.value_kind, rewrite.span);
+        let source_ref = MastExpr::new(
+            rewrite.concrete_ty,
+            MastExprKind::Var(source_name),
+            rewrite.span,
+        );
+        let source_struct_id = self.instantiate_struct(rewrite.def_id, rewrite.gen_args);
+        let target_struct_id = self.instantiate_anon_struct(rewrite.exp_base);
+
+        let (_, named_physical_to_ast) =
+            self.cached_named_struct_mapping(rewrite.def_id, rewrite.gen_args);
+        let (_, anon_physical_to_ast) = self.cached_anon_struct_mapping(
+            rewrite.exp_base,
+            rewrite.anon_is_extern,
+            rewrite.anon_fields,
+        );
+
+        let mut source_by_name = HashMap::new();
+        for (phys_idx, &ast_idx) in named_physical_to_ast.iter().enumerate() {
+            let field = &struct_def.fields[ast_idx];
+            let raw_ty = self
+                .ctx
+                .node_types
+                .get(&field.type_node.id)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
+            let field_ty = self.substitute_type_with_map(raw_ty, &subst_map);
+            source_by_name.insert(
+                field.name,
+                MastExpr::new(
+                    field_ty,
+                    MastExprKind::FieldAccess {
+                        lhs: Box::new(source_ref.clone()),
+                        struct_id: source_struct_id,
+                        field_idx: phys_idx,
+                    },
+                    rewrite.span,
+                ),
+            );
+        }
+
+        let mut rewritten_fields = Vec::with_capacity(rewrite.anon_fields.len());
+        for &ast_idx in &anon_physical_to_ast {
+            let field = &rewrite.anon_fields[ast_idx];
+            let source_expr = source_by_name.get(&field.name).cloned()?;
+            rewritten_fields.push(self.apply_implicit_cast(
+                source_expr.kind,
+                source_expr.ty,
+                field.ty,
+                rewrite.span,
+            ));
+        }
+
+        Some(MastExpr::new(
+            rewrite.exp_base,
+            MastExprKind::Block(MastBlock {
+                stmts: vec![MastStmt::Let {
+                    name: source_name,
+                    ty: rewrite.concrete_ty,
+                    is_mut: false,
+                    init: source_value,
+                }],
+                result: Some(Box::new(MastExpr::new(
+                    rewrite.exp_base,
+                    MastExprKind::StructInit {
+                        struct_id: target_struct_id,
+                        fields: rewritten_fields,
+                    },
+                    rewrite.span,
+                ))),
+                defers: Vec::new(),
+            }),
             rewrite.span,
         ))
     }

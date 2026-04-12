@@ -84,6 +84,7 @@ pub struct Lowerer<'a, 'ctx> {
     pub(crate) flow_lowering_hints: FlowLoweringHints,
     pub(crate) forwarding_symbol_cache: HashMap<String, SymbolId>,
     pub(crate) current_owner_def_id: Option<DefId>,
+    pub(crate) next_synth_symbol: u32,
     phase_totals: HashMap<&'static str, Duration>,
     cache_stats: LowerCacheStats,
 }
@@ -132,6 +133,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             flow_lowering_hints: FlowLoweringHints::default(),
             forwarding_symbol_cache: HashMap::new(),
             current_owner_def_id: None,
+            next_synth_symbol: 0,
             phase_totals: HashMap::new(),
             cache_stats: LowerCacheStats::default(),
         }
@@ -144,6 +146,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let symbol = self.ctx.intern(name);
         self.forwarding_symbol_cache
             .insert(name.to_string(), symbol);
+        symbol
+    }
+
+    pub(crate) fn fresh_synth_symbol(&mut self, prefix: &str) -> SymbolId {
+        let symbol = self
+            .ctx
+            .intern(&format!("__{}_{}", prefix, self.next_synth_symbol));
+        self.next_synth_symbol += 1;
         symbol
     }
 

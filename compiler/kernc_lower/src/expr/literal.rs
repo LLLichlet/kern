@@ -144,6 +144,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         vtable_id: MonoId,
         span: Span,
     ) -> Option<MastExpr> {
+        let global_array_ty = self.vtable_global_type(vtable_id, span)?;
         let void_ptr_ty = self.ctx.type_registry.intern(TypeKind::Pointer {
             is_mut: false,
             elem: TypeId::VOID,
@@ -151,10 +152,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         Some(MastExpr::new(
             void_ptr_ty,
-            MastExprKind::Cast {
-                kind: MastCastKind::Bitcast,
-                operand: Box::new(self.vtable_global_addr_expr(vtable_id, span)?),
-            },
+            MastExprKind::AddressOf(Box::new(MastExpr::new(
+                global_array_ty,
+                MastExprKind::GlobalRef(vtable_id),
+                span,
+            ))),
             span,
         ))
     }

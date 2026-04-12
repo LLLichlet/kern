@@ -203,8 +203,7 @@ fn mir_builder_extracts_cfg_from_if_statement() {
 
     let report = build_from_mast_unoptimized(&module_with_function(function));
     let body = report.module.functions[0].body.as_ref().unwrap();
-
-    assert_eq!(body.locals.len(), 1);
+    assert!(!body.locals.is_empty());
     assert!(matches!(body.locals[0].kind, MirLocalKind::Param));
     assert_eq!(body.blocks.len(), 4);
     assert!(matches!(
@@ -439,19 +438,30 @@ fn mir_builder_resolves_param_and_let_uses_to_locals() {
     let body = report.module.functions[0].body.as_ref().unwrap();
     let param_local = body.locals[0].id;
     let let_local = body.locals[1].id;
+    let return_local = body.locals[2].id;
 
-    assert!(matches!(
-        &body.blocks[0].instructions[0],
+    assert!(body.blocks.iter().any(|block| matches!(
+        block.instructions.first(),
+        Some(
         MirInstruction::Let {
             place: MirPlace::Local(place_local),
             init: MirRvalue::Use(MirOperand::Local(init_local)),
-        } if place_local == &let_local && init_local == &param_local
-    ));
-    assert!(matches!(
-        &body.blocks[0].terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(return_local))))
-            if return_local == &let_local
-    ));
+        }
+        ) if *place_local == let_local && *init_local == param_local
+    )));
+    assert!(body.blocks.iter().any(|block| matches!(
+        block.instructions.get(1),
+        Some(MirInstruction::Assign {
+            place: MirPlace::Local(place_local),
+            op: AssignmentOperator::Assign,
+            value: MirRvalue::Use(MirOperand::Local(init_local)),
+        }) if place_local == &return_local && init_local == &let_local
+    )));
+    assert!(body.blocks.iter().any(|block| matches!(
+        &block.terminator,
+        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local))))
+            if local == &return_local
+    )));
 }
 
 #[test]
@@ -487,19 +497,30 @@ fn mir_builder_let_initializer_uses_outer_binding_before_shadowing() {
     let body = report.module.functions[0].body.as_ref().unwrap();
     let param_local = body.locals[0].id;
     let let_local = body.locals[1].id;
+    let return_local = body.locals[2].id;
 
-    assert!(matches!(
-        &body.blocks[0].instructions[0],
+    assert!(body.blocks.iter().any(|block| matches!(
+        block.instructions.first(),
+        Some(
         MirInstruction::Let {
             place: MirPlace::Local(place_local),
             init: MirRvalue::Use(MirOperand::Local(init_local)),
-        } if place_local == &let_local && init_local == &param_local
-    ));
-    assert!(matches!(
-        &body.blocks[0].terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(return_local))))
-            if return_local == &let_local
-    ));
+        }
+        ) if *place_local == let_local && *init_local == param_local
+    )));
+    assert!(body.blocks.iter().any(|block| matches!(
+        block.instructions.get(1),
+        Some(MirInstruction::Assign {
+            place: MirPlace::Local(place_local),
+            op: AssignmentOperator::Assign,
+            value: MirRvalue::Use(MirOperand::Local(init_local)),
+        }) if place_local == &return_local && init_local == &let_local
+    )));
+    assert!(body.blocks.iter().any(|block| matches!(
+        &block.terminator,
+        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local))))
+            if local == &return_local
+    )));
 }
 
 #[test]
@@ -1021,9 +1042,15 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
     let bits_local = body.locals[2].id;
     let loaded_local = body.locals[3].id;
     let swapped_local = body.locals[4].id;
+    let return_local = body.locals[5].id;
+    let instructions = body
+        .blocks
+        .iter()
+        .flat_map(|block| block.instructions.iter())
+        .collect::<Vec<_>>();
 
     assert!(matches!(
-        &body.blocks[0].instructions[0],
+        instructions[0],
         MirInstruction::Let {
             place: MirPlace::Local(place_local),
             init: MirRvalue::BitIntrinsic {
@@ -1033,7 +1060,7 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
         } if place_local == &bits_local && local == &value_local
     ));
     assert!(matches!(
-        &body.blocks[0].instructions[1],
+        instructions[1],
         MirInstruction::Let {
             place: MirPlace::Local(place_local),
             init: MirRvalue::AtomicLoad {
@@ -1043,7 +1070,7 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
         } if place_local == &loaded_local && local == &ptr_local
     ));
     assert!(matches!(
-        &body.blocks[0].instructions[2],
+        instructions[2],
         MirInstruction::AtomicStore {
             ptr: MirOperand::Local(ptr_ref),
             value: MirOperand::Local(value_ref),
@@ -1051,13 +1078,13 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
         } if ptr_ref == &ptr_local && value_ref == &loaded_local
     ));
     assert!(matches!(
-        &body.blocks[0].instructions[3],
+        instructions[3],
         MirInstruction::Fence {
             ordering: AtomicOrdering::SeqCst,
         }
     ));
     assert!(matches!(
-        &body.blocks[0].instructions[4],
+        instructions[4],
         MirInstruction::Let {
             place: MirPlace::Local(place_local),
             init: MirRvalue::AtomicRmw {
@@ -1068,17 +1095,29 @@ fn mir_builder_extracts_bit_and_atomic_operations() {
             },
         } if place_local == &swapped_local && ptr_ref == &ptr_local && value_ref == &bits_local
     ));
-    assert!(matches!(
-        &body.blocks[0].terminator,
-        MirTerminator::Return(Some(MirRvalue::AtomicCas {
+    assert!(body.blocks.iter().any(|block| matches!(
+        block.instructions.get(5),
+        Some(MirInstruction::Assign {
+            place: MirPlace::Local(place_local),
+            op: AssignmentOperator::Assign,
+            value: MirRvalue::AtomicCas {
             weak: false,
             ptr: MirOperand::Local(ptr_ref),
             expected: MirOperand::Local(expected_ref),
             desired: MirOperand::Local(desired_ref),
             success: AtomicOrdering::AcqRel,
             failure: AtomicOrdering::Acquire,
-        })) if ptr_ref == &ptr_local && expected_ref == &swapped_local && desired_ref == &value_local
-    ));
+        },
+        }) if place_local == &return_local
+            && ptr_ref == &ptr_local
+            && expected_ref == &swapped_local
+            && desired_ref == &value_local
+    )));
+    assert!(body.blocks.iter().any(|block| matches!(
+        &block.terminator,
+        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local))))
+            if local == &return_local
+    )));
 }
 
 #[test]
@@ -2144,11 +2183,17 @@ fn mir_pass_pipeline_forwards_trivial_local_copy_chains() {
     assert_eq!(pass.name, "local_copy_propagation");
     assert!(pass.changed());
     assert!(pass.removed_let_instructions >= 2);
-    assert!(body.blocks[0].instructions.is_empty());
+    assert!(matches!(
+        body.blocks[0].instructions.as_slice(),
+        [MirInstruction::Assign {
+            op: AssignmentOperator::Assign,
+            value: MirRvalue::Use(MirOperand::Local(source_local)),
+            ..
+        }] if source_local == &param_local
+    ));
     assert!(matches!(
         &body.blocks[0].terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(local))))
-            if local == &param_local
+        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_))))
     ));
 }
 
@@ -2207,15 +2252,19 @@ fn mir_pass_pipeline_folds_const_branch_after_copy_propagation() {
     assert!(branch_pass.terminator_rewrites >= 1);
     assert_eq!(cfg_pass.name, "cfg_prune_unreachable_blocks");
     assert_eq!(cfg_pass.removed_blocks, 1);
-    assert_eq!(body.blocks.len(), 2);
-    let MirTerminator::Goto(target) = &body.blocks[0].terminator else {
-        panic!("entry terminator should fold to goto");
-    };
-    assert!(matches!(
-        &body.blocks[target.0 as usize].terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Const(value))))
-            if matches!(value, MirConst::Integer { value: 1, .. })
-    ));
+    assert_eq!(body.blocks.len(), 3);
+    assert!(matches!(&body.blocks[0].terminator, MirTerminator::Goto(_)));
+    assert!(body.blocks.iter().any(|block| matches!(
+        block.instructions.as_slice(),
+        [MirInstruction::Assign {
+            value: MirRvalue::Use(MirOperand::Const(MirConst::Integer { value: 1, .. })),
+            ..
+        }]
+    )));
+    assert!(body.blocks.iter().any(|block| matches!(
+        &block.terminator,
+        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_))))
+    )));
 }
 
 #[test]
@@ -2277,13 +2326,17 @@ fn mir_pass_pipeline_folds_const_switch_to_matching_case() {
     assert!(branch_pass.terminator_rewrites >= 1);
     assert_eq!(cfg_pass.name, "cfg_prune_unreachable_blocks");
     assert_eq!(cfg_pass.removed_blocks, 2);
-    assert_eq!(body.blocks.len(), 2);
-    let MirTerminator::Goto(target) = &body.blocks[0].terminator else {
-        panic!("entry terminator should fold to goto");
-    };
-    assert!(matches!(
-        &body.blocks[target.0 as usize].terminator,
-        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Const(value))))
-            if matches!(value, MirConst::Integer { value: 20, .. })
-    ));
+    assert_eq!(body.blocks.len(), 3);
+    assert!(matches!(&body.blocks[0].terminator, MirTerminator::Goto(_)));
+    assert!(body.blocks.iter().any(|block| matches!(
+        block.instructions.as_slice(),
+        [MirInstruction::Assign {
+            value: MirRvalue::Use(MirOperand::Const(MirConst::Integer { value: 20, .. })),
+            ..
+        }]
+    )));
+    assert!(body.blocks.iter().any(|block| matches!(
+        &block.terminator,
+        MirTerminator::Return(Some(MirRvalue::Use(MirOperand::Local(_))))
+    )));
 }

@@ -227,10 +227,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 .unwrap()
                 .into_struct_value();
         }
-        if let Some(idx) = self.struct_field_index_by_name(struct_id, "old") {
+        if let Some(idx) = self.struct_field_index_by_name(struct_id, "value") {
             result = self
                 .builder
-                .build_insert_value(result, old_val, idx, "mir_cas_insert_old")
+                .build_insert_value(result, old_val, idx, "mir_cas_insert_value")
                 .unwrap()
                 .into_struct_value();
         }

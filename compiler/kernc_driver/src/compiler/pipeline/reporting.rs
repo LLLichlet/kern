@@ -396,6 +396,9 @@ impl CompilerDriver {
         }
         let fallback = match &report.fallback_reason {
             Some(CodegenPlanFallback::RequestedSingleUnit) => "requested_single_unit".to_string(),
+            Some(CodegenPlanFallback::ContainsControlFlowAsm { function_name }) => {
+                format!("contains_control_flow_asm({function_name})")
+            }
             Some(CodegenPlanFallback::NameCollision { item_kind, name }) => {
                 format!("name_collision({item_kind}:{name})")
             }

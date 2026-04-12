@@ -222,6 +222,12 @@ fn lower_static_init(expr: &MastExpr) -> LowerResult<MirStaticInit> {
                 .map(lower_static_init)
                 .collect::<LowerResult<Vec<_>>>()?,
         }),
+        MastExprKind::AddressOf(inner) => lower_static_address_of(expr.ty, inner, expr.span),
+        MastExprKind::ConstructFatPointer { data_ptr, meta } => Ok(MirStaticInit::FatPointer {
+            ty: expr.ty,
+            data_ptr: Box::new(lower_static_init(data_ptr)?),
+            meta: Box::new(lower_static_init(meta)?),
+        }),
         MastExprKind::StructInit { struct_id, fields } => Ok(MirStaticInit::Struct {
             ty: expr.ty,
             struct_id: *struct_id,
@@ -321,6 +327,87 @@ fn lower_static_init(expr: &MastExpr) -> LowerResult<MirStaticInit> {
                     | MastExprKind::StructInit { .. }
                     | MastExprKind::UnionInit { .. }
                     | MastExprKind::DataInit { .. } => unreachable!(),
+                    MastExprKind::FieldAccess { .. } => "field access",
+                    MastExprKind::IndexAccess { .. } => "index access",
+                }
+            ),
+        )),
+    }
+}
+
+fn lower_static_address_of(ty: TypeId, inner: &MastExpr, span: Span) -> LowerResult<MirStaticInit> {
+    match &inner.kind {
+        MastExprKind::GlobalRef(id) => {
+            Ok(MirStaticInit::Const(MirConst::GlobalRef { ty, id: *id }))
+        }
+        MastExprKind::FuncRef(id) => Ok(MirStaticInit::Const(MirConst::FuncRef { ty, id: *id })),
+        _ => Err(MirLowerError::new(
+            span,
+            format!(
+                "global initializer `address-of {}` is not representable as MIR static init",
+                match &inner.kind {
+                    MastExprKind::Var(_) => "variable reference",
+                    MastExprKind::Deref(_) => "deref",
+                    MastExprKind::AddressOf(_) => "address-of",
+                    MastExprKind::Call { .. } => "call",
+                    MastExprKind::If { .. } => "if expression",
+                    MastExprKind::Loop { .. } => "loop expression",
+                    MastExprKind::Switch { .. } => "switch expression",
+                    MastExprKind::Break => "break",
+                    MastExprKind::Continue => "continue",
+                    MastExprKind::Return(_) => "return",
+                    MastExprKind::Binary { .. } => "binary operator",
+                    MastExprKind::Unary { .. } => "unary operator",
+                    MastExprKind::Assign { .. } => "assignment",
+                    MastExprKind::Cast { .. } => "cast",
+                    MastExprKind::ConstructFatPointer { .. } => "fat-pointer construction",
+                    MastExprKind::ExtractFatPtrData(_) => "fat-pointer data projection",
+                    MastExprKind::ExtractFatPtrMeta(_) => "fat-pointer meta projection",
+                    MastExprKind::Block(_) => "block expression",
+                    MastExprKind::Asm(_) => "inline asm",
+                    MastExprKind::BitIntrinsic { .. } => "bit intrinsic",
+                    MastExprKind::SimdUnaryIntrinsic { .. } => "simd unary intrinsic",
+                    MastExprKind::SimdBinaryIntrinsic { .. } => "simd binary intrinsic",
+                    MastExprKind::SimdReduce { .. } => "simd reduce",
+                    MastExprKind::SimdAny { .. } => "simd any",
+                    MastExprKind::SimdAll { .. } => "simd all",
+                    MastExprKind::SimdBitmask { .. } => "simd bitmask",
+                    MastExprKind::SimdSplat { .. } => "simd splat",
+                    MastExprKind::SimdCast { .. } => "simd cast",
+                    MastExprKind::SimdBitcast { .. } => "simd bitcast",
+                    MastExprKind::SimdSelect { .. } => "simd select",
+                    MastExprKind::SimdShuffle { .. } => "simd shuffle",
+                    MastExprKind::SimdInsertHalf { .. } => "simd insert-half",
+                    MastExprKind::SimdLoad { .. } => "simd load",
+                    MastExprKind::SimdStore { .. } => "simd store",
+                    MastExprKind::SimdMaskedLoad { .. } => "simd masked load",
+                    MastExprKind::SimdMaskedStore { .. } => "simd masked store",
+                    MastExprKind::SimdGather { .. } => "simd gather",
+                    MastExprKind::SimdScatter { .. } => "simd scatter",
+                    MastExprKind::SimdMaskedGather { .. } => "simd masked gather",
+                    MastExprKind::SimdMaskedScatter { .. } => "simd masked scatter",
+                    MastExprKind::AtomicLoad { .. } => "atomic load",
+                    MastExprKind::AtomicStore { .. } => "atomic store",
+                    MastExprKind::AtomicCas { .. } => "atomic compare-exchange",
+                    MastExprKind::AtomicRmw { .. } => "atomic rmw",
+                    MastExprKind::Fence { .. } => "fence",
+                    MastExprKind::Memcpy { .. } => "memcpy",
+                    MastExprKind::Memmove { .. } => "memmove",
+                    MastExprKind::Memset { .. } => "memset",
+                    MastExprKind::SliceOp { .. } => "slice op",
+                    MastExprKind::Unreachable => "unreachable",
+                    MastExprKind::Trap => "trap",
+                    MastExprKind::Breakpoint => "breakpoint",
+                    MastExprKind::Undef => "undef",
+                    MastExprKind::Integer(_) => "integer literal",
+                    MastExprKind::Float(_) => "float literal",
+                    MastExprKind::Bool(_) => "bool literal",
+                    MastExprKind::StringLiteral(_) => "string literal",
+                    MastExprKind::GlobalRef(_) | MastExprKind::FuncRef(_) => unreachable!(),
+                    MastExprKind::ArrayInit(_) => "array init",
+                    MastExprKind::StructInit { .. } => "struct init",
+                    MastExprKind::UnionInit { .. } => "union init",
+                    MastExprKind::DataInit { .. } => "data init",
                     MastExprKind::FieldAccess { .. } => "field access",
                     MastExprKind::IndexAccess { .. } => "index access",
                 }
@@ -568,11 +655,7 @@ impl MirFunctionBuilder {
                 let Some(end_block) =
                     self.lower_expr_into_place(*block_id, expr, MirPlace::Local(temp))?
                 else {
-                    return if expr.ty == TypeId::NEVER {
-                        Ok(None)
-                    } else {
-                        self.unsupported_expr(expr, "rvalue position")
-                    };
+                    return Ok(None);
                 };
                 *block_id = end_block;
                 Ok(Some(MirRvalue::Use(MirOperand::Local(temp))))
@@ -988,6 +1071,7 @@ impl MirFunctionBuilder {
                 Ok(Some(MirRvalue::Load(place)))
             }
             MastExprKind::Return(_)
+            | MastExprKind::Loop { .. }
             | MastExprKind::Break
             | MastExprKind::Continue
             | MastExprKind::Unreachable
@@ -1069,18 +1153,15 @@ impl MirFunctionBuilder {
             let Some(end_block) =
                 self.lower_expr_into_place(*block_id, expr, MirPlace::Local(temp))?
             else {
-                return if expr.ty == TypeId::NEVER {
-                    Ok(None)
-                } else {
-                    self.unsupported_expr(expr, "operand position")
-                };
+                return Ok(None);
             };
             *block_id = end_block;
             return Ok(Some(MirOperand::Local(temp)));
         }
 
         match &expr.kind {
-            MastExprKind::Break
+            MastExprKind::Loop { .. }
+            | MastExprKind::Break
             | MastExprKind::Continue
             | MastExprKind::Return(_)
             | MastExprKind::Unreachable
@@ -1088,8 +1169,7 @@ impl MirFunctionBuilder {
                 let _ = self.lower_control_or_eval_stmt(*block_id, expr)?;
                 Ok(None)
             }
-            MastExprKind::Loop { .. }
-            | MastExprKind::Assign { .. }
+            MastExprKind::Assign { .. }
             | MastExprKind::Asm(_)
             | MastExprKind::SimdStore { .. }
             | MastExprKind::SimdMaskedStore { .. }
@@ -1341,7 +1421,10 @@ impl MirFunctionBuilder {
             MastExprKind::Return(_) | MastExprKind::Break | MastExprKind::Continue => {
                 self.lower_tail(block_id, Some(result), None)
             }
-            MastExprKind::Loop { .. } => self.unsupported_expr(result, "value tail position"),
+            MastExprKind::Loop { .. } => {
+                let _ = self.lower_control_or_eval_stmt(block_id, result)?;
+                Ok(None)
+            }
             MastExprKind::Unreachable => {
                 self.set_terminator(block_id, MirTerminator::Unreachable);
                 Ok(None)

@@ -44,6 +44,7 @@ pub struct MirFunctionSummary {
     pub linkage: MirLinkage,
     pub inline_hint: MirInlineHint,
     pub is_extern: bool,
+    pub contains_control_flow_asm: bool,
     pub body_role: MirItemBodyRole,
     pub can_import_body: bool,
     pub param_count: usize,
@@ -166,6 +167,7 @@ fn summarize_function(function: &MirFunction) -> MirFunctionSummary {
     let mut refs = RefCollector::default();
     let mut instruction_count = 0;
     let mut block_count = 0;
+    let mut contains_control_flow_asm = false;
 
     if let Some(body) = &function.body {
         block_count = body.blocks.len();
@@ -176,6 +178,10 @@ fn summarize_function(function: &MirFunction) -> MirFunctionSummary {
             .sum();
         for block in &body.blocks {
             for instruction in &block.instructions {
+                contains_control_flow_asm |= matches!(
+                    instruction,
+                    MirInstruction::InlineAsm(asm) if inline_asm_has_control_flow(asm)
+                );
                 refs.visit_instruction(instruction);
             }
             refs.visit_terminator(&block.terminator);
@@ -188,6 +194,7 @@ fn summarize_function(function: &MirFunction) -> MirFunctionSummary {
         linkage: function.linkage,
         inline_hint: function.inline_hint,
         is_extern: function.is_extern,
+        contains_control_flow_asm,
         body_role,
         can_import_body,
         param_count: function.params.len(),
@@ -233,6 +240,38 @@ fn summarize_body_role(has_body: bool, linkage: MirLinkage) -> (MirItemBodyRole,
         MirLinkage::External => (MirItemBodyRole::ExportRoot, true),
         MirLinkage::LinkOnceOdr | MirLinkage::Internal => (MirItemBodyRole::InternalBody, true),
     }
+}
+
+fn inline_asm_has_control_flow(asm: &MirInlineAsm) -> bool {
+    asm.asm_template
+        .lines()
+        .any(inline_asm_line_has_control_flow)
+}
+
+fn inline_asm_line_has_control_flow(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.ends_with(':') {
+        return true;
+    }
+    let Some(opcode) = trimmed
+        .split_whitespace()
+        .next()
+        .map(|token| token.trim_end_matches(','))
+    else {
+        return false;
+    };
+    opcode.eq_ignore_ascii_case("call")
+        || opcode.eq_ignore_ascii_case("ret")
+        || opcode.eq_ignore_ascii_case("loop")
+        || opcode.eq_ignore_ascii_case("loope")
+        || opcode.eq_ignore_ascii_case("loopne")
+        || opcode.eq_ignore_ascii_case("loopnz")
+        || opcode.eq_ignore_ascii_case("loopz")
+        || opcode.starts_with('j')
+        || opcode.starts_with('J')
 }
 
 #[derive(Default)]
@@ -282,6 +321,9 @@ impl RefCollector {
                     .iter()
                     .map(|elem| self.visit_static_init(elem))
                     .sum::<usize>()
+            }
+            MirStaticInit::FatPointer { data_ptr, meta, .. } => {
+                1 + self.visit_static_init(data_ptr) + self.visit_static_init(meta)
             }
             MirStaticInit::Struct { fields, .. } => {
                 1 + fields

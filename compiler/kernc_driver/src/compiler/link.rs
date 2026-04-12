@@ -112,7 +112,7 @@ impl CompilerDriver {
 
         if target.is_windows {
             eprintln!(
-                "Error: multi-object compile-only emission is not supported for Windows targets yet."
+                "Error: preserved linker-input directories are not supported for Windows targets yet."
             );
             return false;
         }
@@ -153,12 +153,12 @@ impl CompilerDriver {
         format!("{}.tmp.{}.o", self.options.output_file, unit_name)
     }
 
-    pub(super) fn make_multi_object_dir_path(&self) -> String {
+    pub(super) fn make_multi_linker_input_dir_path(&self) -> String {
         format!("{}.d", self.options.output_file)
     }
 
-    pub(super) fn make_multi_object_codegen_unit_path(&self, unit_name: &str) -> String {
-        PathBuf::from(self.make_multi_object_dir_path())
+    pub(super) fn make_multi_linker_input_codegen_unit_path(&self, unit_name: &str) -> String {
+        PathBuf::from(self.make_multi_linker_input_dir_path())
             .join(format!("{unit_name}.o"))
             .to_string_lossy()
             .to_string()
@@ -169,7 +169,12 @@ impl CompilerDriver {
     }
 
     fn resolve_linker_driver(&self, is_windows: bool) -> String {
-        if is_windows && self.options.linker_cmd == "cc" {
+        let requests_llvm_lto = self
+            .options
+            .linker_args
+            .iter()
+            .any(|arg| arg.starts_with("-flto"));
+        if self.options.linker_cmd == "cc" && (is_windows || requests_llvm_lto) {
             "clang".to_string()
         } else {
             self.options.linker_cmd.clone()

@@ -14,7 +14,7 @@ use crate::manifest::Manifest;
 use crate::plan::{PackagePlan, TargetKind};
 use crate::resolver::ExternalPackageId;
 use kernc_sema::checker::{ConstEvaluator, ConstValue, ScriptHost};
-use kernc_utils::config::CompileOptions;
+use kernc_utils::config::{CompileOptions, LtoMode};
 use kernc_utils::{Session, Span, SymbolId};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -162,6 +162,7 @@ pub struct ScriptProfile {
     pub opt: u8,
     pub debug: bool,
     pub codegen_units: usize,
+    pub lto_mode: LtoMode,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -249,6 +250,12 @@ pub fn manifest_profile(manifest: &Manifest, selection: ProfileSelection) -> Scr
                         .unwrap_or(1),
                 )
             }),
+        lto_mode: profile
+            .and_then(|profile| profile.lto.as_deref())
+            .map(LtoMode::parse)
+            .transpose()
+            .expect("manifest profile LTO should already be validated")
+            .unwrap_or_else(|| default_profile_lto_mode(selection, resolved_opt)),
     }
 }
 
@@ -263,6 +270,14 @@ fn default_profile_codegen_units(
             .max(1)
             .min(RELEASE_DEFAULT_MAX_CODEGEN_UNITS),
         ProfileSelection::Release => 1,
+    }
+}
+
+fn default_profile_lto_mode(selection: ProfileSelection, opt: u8) -> LtoMode {
+    match selection {
+        ProfileSelection::Dev => LtoMode::None,
+        ProfileSelection::Release if opt >= 2 => LtoMode::Thin,
+        ProfileSelection::Release => LtoMode::None,
     }
 }
 
@@ -665,6 +680,10 @@ fn plan_argument_value(
         field("codegen_units", ctx),
         ConstValue::Int(script_context.profile.codegen_units as i128),
     );
+    profile.insert(
+        field("lto", ctx),
+        ConstValue::String(script_context.profile.lto_mode.as_str().to_string()),
+    );
 
     let mut plan = HashMap::new();
     plan.insert(field("package", ctx), ConstValue::Struct(package));
@@ -748,9 +767,10 @@ impl ScriptOs {
 #[cfg(test)]
 mod tests {
     use super::{
-        Manifest, ProfileSelection, default_profile_codegen_units, manifest_profile,
-        validate_build_script, validate_craft_script,
+        Manifest, ProfileSelection, default_profile_codegen_units, default_profile_lto_mode,
+        manifest_profile, validate_build_script, validate_craft_script,
     };
+    use kernc_utils::config::LtoMode;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -866,6 +886,30 @@ mod tests {
     }
 
     #[test]
+    fn release_profile_defaults_to_thin_lto_for_optimized_builds() {
+        assert_eq!(
+            default_profile_lto_mode(ProfileSelection::Release, 2),
+            LtoMode::Thin
+        );
+        assert_eq!(
+            default_profile_lto_mode(ProfileSelection::Release, 3),
+            LtoMode::Thin
+        );
+    }
+
+    #[test]
+    fn low_opt_release_and_dev_profiles_default_to_no_lto() {
+        assert_eq!(
+            default_profile_lto_mode(ProfileSelection::Release, 1),
+            LtoMode::None
+        );
+        assert_eq!(
+            default_profile_lto_mode(ProfileSelection::Dev, 3),
+            LtoMode::None
+        );
+    }
+
+    #[test]
     fn manifest_profile_uses_default_release_codegen_units_when_unspecified() {
         let manifest = Manifest::parse(
             r#"
@@ -907,5 +951,25 @@ codegen-units = 7
 
         let profile = manifest_profile(&manifest, ProfileSelection::Release);
         assert_eq!(profile.codegen_units, 7);
+    }
+
+    #[test]
+    fn manifest_profile_preserves_explicit_lto_mode() {
+        let manifest = Manifest::parse(
+            r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+lto = "full"
+"#,
+            std::path::Path::new("Craft.toml"),
+        )
+        .unwrap();
+
+        let profile = manifest_profile(&manifest, ProfileSelection::Release);
+        assert_eq!(profile.lto_mode, LtoMode::Full);
     }
 }

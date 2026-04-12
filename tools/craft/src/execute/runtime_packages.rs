@@ -1,9 +1,9 @@
-use super::options::apply_host_linker_env;
+use super::options::{apply_host_linker_env, profile_linker_input_flavor};
 use super::{
     ActionTimingKind, BuiltLibraryPackage, BuiltStdPackage, ExecutionSummary, Result,
     base_compile_action_label, build_fingerprint, compile_with_shared_driver, ensure_parent_dir,
-    rt_compile_action_label, rt_entry_compile_action_label, runtime_profile_key,
-    std_compile_action_label, sys_compile_action_label,
+    rt_compile_action_label, rt_entry_compile_action_label, runtime_compile_detail_tags,
+    runtime_profile_key, std_compile_action_label, sys_compile_action_label,
 };
 use crate::build_plan::CompileAction;
 use crate::build_state;
@@ -11,7 +11,7 @@ use crate::error::Error;
 use crate::operation_lock::WorkspaceOperationLock;
 use kernc_driver::{CompilerDriver, IncrementalDriverKey, KMETA_MANIFEST_FILE};
 use kernc_utils::config::{
-    CompileOptions, DriverMode, LibraryBundle, OptLevel, inject_driver_condition_defines,
+    CompileOptions, DriverMode, LibraryBundle, LtoMode, OptLevel, inject_driver_condition_defines,
     resolve_base_path, resolve_rt_path, resolve_std_path, resolve_sys_path,
 };
 use std::collections::{BTreeMap, HashMap};
@@ -79,16 +79,24 @@ fn runtime_profile_root(
 
 fn runtime_profile_label(profile: &crate::script::ScriptProfile) -> String {
     format!(
-        "{} (opt={}, debug={}, cgu={})",
-        profile.name, profile.opt, profile.debug, profile.codegen_units
+        "{} (opt={}, debug={}, cgu={}, lto={})",
+        profile.name,
+        profile.opt,
+        profile.debug,
+        profile.codegen_units,
+        profile.lto_mode.as_str()
     )
+}
+
+fn runtime_emit_multi_linker_input_dir(profile: &crate::script::ScriptProfile) -> bool {
+    profile.codegen_units > 1 && profile.lto_mode != LtoMode::Full
 }
 
 fn runtime_compile_outputs(object_path: &Path, metadata_root_path: Option<&Path>) -> Vec<PathBuf> {
     let mut outputs = vec![object_path.to_path_buf()];
-    let multi_object_dir = super::multi_object_output_dir(object_path);
-    if multi_object_dir.is_dir() {
-        outputs.push(multi_object_dir);
+    let multi_linker_input_dir = super::multi_linker_input_dir(object_path);
+    if multi_linker_input_dir.is_dir() {
+        outputs.push(multi_linker_input_dir);
     }
     if let Some(metadata_root_path) = metadata_root_path {
         outputs.push(metadata_root_path.to_path_buf());
@@ -229,7 +237,9 @@ pub(super) fn build_std_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
-    let emit_multi_object_dir = profile.codegen_units > 1;
+    let emit_multi_linker_input_dir = runtime_emit_multi_linker_input_dir(profile);
+    let linker_input_flavor =
+        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target);
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -241,7 +251,9 @@ pub(super) fn build_std_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
-        emit_multi_object_dir,
+        lto_mode: profile.lto_mode,
+        linker_input_flavor,
+        emit_multi_linker_input_dir,
         library_bundle: LibraryBundle::Std,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -265,7 +277,9 @@ pub(super) fn build_std_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
-        format!("emit_multi_object_dir={emit_multi_object_dir}"),
+        format!("lto={}", profile.lto_mode.as_str()),
+        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
+        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -283,6 +297,8 @@ pub(super) fn build_std_package(
         ),
         "split_sections_for_gc=true".to_string(),
     ]);
+    let std_label = std_compile_action_label(&runtime_profile_label(profile), &options);
+    let std_tags = runtime_compile_detail_tags(&options);
 
     if !build_state::action_state_is_current(&object_path, &std_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -300,7 +316,8 @@ pub(super) fn build_std_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            std_compile_action_label(&runtime_profile_label(profile)),
+            std_label,
+            std_tags,
             report.phase_timings,
             report.cache_stats,
             report.codegen_plan,
@@ -357,7 +374,9 @@ pub(super) fn build_rt_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
-    let emit_multi_object_dir = profile.codegen_units > 1;
+    let emit_multi_linker_input_dir = runtime_emit_multi_linker_input_dir(profile);
+    let linker_input_flavor =
+        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target);
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -369,7 +388,9 @@ pub(super) fn build_rt_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
-        emit_multi_object_dir,
+        lto_mode: profile.lto_mode,
+        linker_input_flavor,
+        emit_multi_linker_input_dir,
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
@@ -387,12 +408,16 @@ pub(super) fn build_rt_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
-        format!("emit_multi_object_dir={emit_multi_object_dir}"),
+        format!("lto={}", profile.lto_mode.as_str()),
+        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
+        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
+    let rt_label = rt_compile_action_label(&runtime_profile_label(profile), &options);
+    let rt_tags = runtime_compile_detail_tags(&options);
 
     if !build_state::action_state_is_current(&object_path, &rt_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -410,7 +435,8 @@ pub(super) fn build_rt_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            rt_compile_action_label(&runtime_profile_label(profile)),
+            rt_label,
+            rt_tags,
             report.phase_timings,
             report.cache_stats,
             report.codegen_plan,
@@ -452,7 +478,9 @@ pub(super) fn build_base_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
-    let emit_multi_object_dir = profile.codegen_units > 1;
+    let emit_multi_linker_input_dir = runtime_emit_multi_linker_input_dir(profile);
+    let linker_input_flavor =
+        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target);
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -464,7 +492,9 @@ pub(super) fn build_base_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
-        emit_multi_object_dir,
+        lto_mode: profile.lto_mode,
+        linker_input_flavor,
+        emit_multi_linker_input_dir,
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -483,12 +513,16 @@ pub(super) fn build_base_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
-        format!("emit_multi_object_dir={emit_multi_object_dir}"),
+        format!("lto={}", profile.lto_mode.as_str()),
+        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
+        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
+    let base_label = base_compile_action_label(&runtime_profile_label(profile), &options);
+    let base_tags = runtime_compile_detail_tags(&options);
 
     if !build_state::action_state_is_current(&object_path, &base_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -506,7 +540,8 @@ pub(super) fn build_base_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            base_compile_action_label(&runtime_profile_label(profile)),
+            base_label,
+            base_tags,
             report.phase_timings,
             report.cache_stats,
             report.codegen_plan,
@@ -550,7 +585,9 @@ pub(super) fn build_sys_package(
     ensure_parent_dir(&object_path)?;
     ensure_parent_dir(&metadata_root_path.join(KMETA_MANIFEST_FILE))?;
 
-    let emit_multi_object_dir = profile.codegen_units > 1;
+    let emit_multi_linker_input_dir = runtime_emit_multi_linker_input_dir(profile);
+    let linker_input_flavor =
+        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target);
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -562,7 +599,9 @@ pub(super) fn build_sys_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
-        emit_multi_object_dir,
+        lto_mode: profile.lto_mode,
+        linker_input_flavor,
+        emit_multi_linker_input_dir,
         library_bundle: LibraryBundle::Base,
         split_sections_for_gc: true,
         ..CompileOptions::default()
@@ -586,7 +625,9 @@ pub(super) fn build_sys_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
-        format!("emit_multi_object_dir={emit_multi_object_dir}"),
+        format!("lto={}", profile.lto_mode.as_str()),
+        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
+        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -594,6 +635,8 @@ pub(super) fn build_sys_package(
         format!("base_obj={}", built_base.object_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
+    let sys_label = sys_compile_action_label(&runtime_profile_label(profile), &options);
+    let sys_tags = runtime_compile_detail_tags(&options);
 
     if !build_state::action_state_is_current(&object_path, &sys_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -611,7 +654,8 @@ pub(super) fn build_sys_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            sys_compile_action_label(&runtime_profile_label(profile)),
+            sys_label,
+            sys_tags,
             report.phase_timings,
             report.cache_stats,
             report.codegen_plan,
@@ -654,7 +698,9 @@ pub(super) fn build_rt_entry_package(
 
     ensure_parent_dir(&object_path)?;
 
-    let emit_multi_object_dir = profile.codegen_units > 1;
+    let emit_multi_linker_input_dir = runtime_emit_multi_linker_input_dir(profile);
+    let linker_input_flavor =
+        profile_linker_input_flavor(profile, crate::graph::BuildDomain::Target);
     let mut options = CompileOptions {
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
@@ -663,7 +709,9 @@ pub(super) fn build_rt_entry_package(
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
-        emit_multi_object_dir,
+        lto_mode: profile.lto_mode,
+        linker_input_flavor,
+        emit_multi_linker_input_dir,
         split_sections_for_gc: true,
         ..CompileOptions::default()
     };
@@ -701,12 +749,20 @@ pub(super) fn build_rt_entry_package(
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
         format!("codegen_units={}", profile.codegen_units),
-        format!("emit_multi_object_dir={emit_multi_object_dir}"),
+        format!("lto={}", profile.lto_mode.as_str()),
+        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
+        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
         "split_sections_for_gc=true".to_string(),
     ]);
+    let entry_label = format!(
+        "{} [{}]",
+        rt_entry_compile_action_label(&runtime_profile_label(profile), &options),
+        flavor.action_label_suffix()
+    );
+    let entry_tags = runtime_compile_detail_tags(&options);
 
     if !build_state::action_state_is_current(&object_path, &entry_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -724,11 +780,8 @@ pub(super) fn build_rt_entry_package(
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
             ActionTimingKind::Compile,
-            format!(
-                "{} [{}]",
-                rt_entry_compile_action_label(&runtime_profile_label(profile)),
-                flavor.action_label_suffix()
-            ),
+            entry_label,
+            entry_tags,
             report.phase_timings,
             report.cache_stats,
             report.codegen_plan,

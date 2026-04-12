@@ -1,6 +1,20 @@
 use super::*;
 use crate::CodegenPlanFallback;
 
+fn manifest_object_paths(manifest: &std::path::Path) -> Vec<String> {
+    fs::read_to_string(manifest)
+        .unwrap()
+        .lines()
+        .filter_map(|line| line.strip_prefix("linker_input=").map(ToOwned::to_owned))
+        .collect()
+}
+
+fn has_llvm_bitcode_magic(path: &std::path::Path) -> bool {
+    fs::read(path)
+        .map(|bytes| bytes.starts_with(b"BC\xc0\xde"))
+        .unwrap_or(false)
+}
+
 #[test]
 fn structure_cache_reuses_loaded_frontend_modules_until_input_changes() {
     let root = std::env::temp_dir().join(format!(
@@ -709,6 +723,71 @@ extern fn right(seed: i32) i32 {
 }
 
 #[test]
+fn compile_only_thin_lto_bitcode_preserves_prelink_inputs() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_thinlto_bitcode_compile_only_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(
+        &main,
+        "\
+#[inline]
+fn shared(seed: i32) i32 {
+    if (seed > 0) {
+        return seed;
+    }
+    if (seed < 0) {
+        return -seed;
+    }
+    return 0;
+}
+
+extern fn left(seed: i32) i32 {
+    return shared(seed);
+}
+
+extern fn right(seed: i32) i32 {
+    return shared(seed);
+}
+",
+    )
+    .unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        codegen_units: 2,
+        lto_mode: LtoMode::Thin,
+        linker_input_flavor: kernc_utils::config::LinkerInputFlavor::ThinLtoBitcode,
+        emit_multi_linker_input_dir: true,
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    driver
+        .compile_with_report()
+        .expect("ThinLTO bitcode compile-only emission should succeed");
+
+    let linker_inputs = manifest_object_paths(&object);
+    assert_eq!(linker_inputs.len(), 2);
+    assert!(
+        linker_inputs
+            .iter()
+            .all(|path| has_llvm_bitcode_magic(std::path::Path::new(path))),
+        "expected preserved linker inputs to stay serialized as LLVM bitcode"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_only_preserve_objects_falls_back_when_program_has_single_external_root() {
     let root = std::env::temp_dir().join(format!(
         "kern_multi_cgu_preserve_objects_{}_{}",
@@ -746,7 +825,7 @@ fn bar() i32 {
         output_file: object.to_string_lossy().to_string(),
         driver_mode: DriverMode::CompileOnly,
         codegen_units: 2,
-        emit_multi_object_dir: true,
+        emit_multi_linker_input_dir: true,
         report_progress: false,
         ..CompileOptions::default()
     });
@@ -780,6 +859,80 @@ fn bar() i32 {
 
     let status = Command::new(&executable).status().unwrap();
     assert_eq!(status.code(), Some(3));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_only_preserve_objects_keeps_base_runtime_generic_definitions() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_base_multi_object_defs_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let object = root.join("base.o");
+    let metadata = root.join("base-meta");
+    let base_root = kernc_utils::config::resolve_base_path();
+    let source = base_root.join("init.rn");
+
+    let mut options = CompileOptions {
+        input_file: Some(source.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        metadata_output: Some(metadata.to_string_lossy().to_string()),
+        metadata_package_name: Some("base".to_string()),
+        root_module_name: Some("base".to_string()),
+        driver_mode: DriverMode::CompileOnly,
+        opt_level: kernc_utils::config::OptLevel::O3,
+        codegen_units: 4,
+        lto_mode: LtoMode::Thin,
+        emit_multi_linker_input_dir: true,
+        library_bundle: kernc_utils::config::LibraryBundle::Base,
+        split_sections_for_gc: true,
+        report_progress: false,
+        ..CompileOptions::default()
+    };
+    options
+        .module_aliases
+        .insert("base".to_string(), base_root.to_string_lossy().to_string());
+    let driver = CompilerDriver::new(options);
+    driver
+        .compile_with_report()
+        .expect("base compile-only with preserved objects should succeed");
+
+    let object_paths = manifest_object_paths(&object);
+    assert!(
+        !object_paths.is_empty(),
+        "expected ThinLTO to preserve at least one object in the manifest"
+    );
+
+    let nm_output = Command::new("nm")
+        .arg("-A")
+        .args(&object_paths)
+        .output()
+        .expect("nm should inspect preserved CGU objects");
+    assert!(
+        nm_output.status.success(),
+        "nm failed: {}",
+        String::from_utf8_lossy(&nm_output.stderr)
+    );
+    let stdout = String::from_utf8(nm_output.stdout).unwrap();
+
+    for symbol in [
+        "_K4base4coll4list36PmutQ4base4coll4list4ListEI7unknownE15ensure_capacityI2u8E",
+        "_K4base4coll5slice5query8Sunknown2eqI2u8E",
+        "_K4base3mem6layout9layout_ofI2u8E",
+    ] {
+        assert!(
+            stdout
+                .lines()
+                .any(|line| !line.contains(":                 U ") && line.contains(symbol)),
+            "expected preserved CGU objects to define `{symbol}`, nm output was:\n{stdout}"
+        );
+    }
 
     let _ = fs::remove_dir_all(&root);
 }

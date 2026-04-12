@@ -17,13 +17,16 @@ static mut WINDOWS_ARGV_PTRS = [65]mut *u8.{undef};
 #[export_name("_start")]
 #[naked]
 extern fn _start_linux() void {
+    // Keep the target as an explicit input operand so ThinLTO never depends on
+    // a raw symbol name embedded inside the asm template.
     @asm(.{
         asm: .{
             "mov rdi, [rsp]",
             "lea rsi, [rsp + 8]",
             "and rsp, -16",
-            "call kern_entry_linux",
+            "call rax",
         },
+        inputs: .{ rax: kern_entry_linux },
         clobbers: .{ "memory", "rdi", "rsi" },
         volatile: true
     });

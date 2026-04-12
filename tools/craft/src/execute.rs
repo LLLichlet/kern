@@ -28,10 +28,11 @@ use self::external::{
     link_actions_by_artifact_path, local_library_actions, requested_external_dependencies,
 };
 use self::fingerprint::{
-    base_compile_action_label, build_fingerprint, compile_action_fingerprint, compile_action_label,
+    base_compile_action_label, build_fingerprint, compile_action_detail_tags,
+    compile_action_fingerprint, compile_action_label, link_action_detail_tags,
     link_action_fingerprint, link_action_label, rt_compile_action_label,
-    rt_entry_compile_action_label, std_compile_action_label, sys_compile_action_label,
-    write_compile_action_state,
+    rt_entry_compile_action_label, runtime_compile_detail_tags, std_compile_action_label,
+    sys_compile_action_label, write_compile_action_state,
 };
 use self::options::{compile_action_options, link_action_options};
 use self::parallel::{
@@ -76,6 +77,7 @@ pub enum ActionTimingKind {
 pub struct ActionTiming {
     pub kind: ActionTimingKind,
     pub label: String,
+    pub detail_tags: Vec<String>,
     pub phase_timings: Vec<PhaseTiming>,
     pub cache_stats: CompileCacheStats,
     pub codegen_plan: Option<CodegenPlanReport>,
@@ -129,6 +131,7 @@ impl ExecutionSummary {
         &mut self,
         kind: ActionTimingKind,
         label: impl Into<String>,
+        detail_tags: Vec<String>,
         phase_timings: Vec<PhaseTiming>,
         cache_stats: CompileCacheStats,
         codegen_plan: Option<CodegenPlanReport>,
@@ -152,6 +155,7 @@ impl ExecutionSummary {
         self.action_timings.push(ActionTiming {
             kind,
             label: label.into(),
+            detail_tags,
             phase_timings,
             cache_stats,
             codegen_plan,
@@ -384,8 +388,12 @@ struct ExecutionSession<'a> {
 
 pub(super) fn runtime_profile_key(profile: &crate::script::ScriptProfile) -> String {
     format!(
-        "{}-opt{}-debug{}-cgu{}",
-        profile.name, profile.opt, profile.debug, profile.codegen_units
+        "{}-opt{}-debug{}-cgu{}-lto{}",
+        profile.name,
+        profile.opt,
+        profile.debug,
+        profile.codegen_units,
+        profile.lto_mode.as_str()
     )
 }
 
@@ -722,12 +730,14 @@ fn build_compile_action_if_needed(
     }
 
     ensure_parent_dir(&action.object_path)?;
-    prepare_output_path(&multi_object_output_dir(&action.object_path), true)?;
+    prepare_output_path(&multi_linker_input_dir(&action.object_path), true)?;
     if let Some(metadata_path) = &action.metadata_path {
         ensure_parent_dir(&metadata_path.join(KMETA_MANIFEST_FILE))?;
     }
 
-    let emit_multi_object_dir = options.emit_multi_object_dir;
+    let emit_multi_linker_input_dir = options.emit_multi_linker_input_dir;
+    let compile_label = compile_action_label(action, &options);
+    let compile_tags = compile_action_detail_tags(&options);
     let Some(report) = compile_with_shared_driver(driver_families, options) else {
         return Err(Error::Execution(format!(
             "compile failed for `{}`",
@@ -735,13 +745,14 @@ fn build_compile_action_if_needed(
         )));
     };
 
-    write_compile_action_state(action, emit_multi_object_dir, &report, fingerprint)?;
+    write_compile_action_state(action, emit_multi_linker_input_dir, &report, fingerprint)?;
 
     execution_summary.record_compile_cache_miss();
     execution_summary.compile_actions += 1;
     execution_summary.record_action(
         ActionTimingKind::Compile,
-        compile_action_label(action),
+        compile_label,
+        compile_tags,
         report.phase_timings,
         report.cache_stats,
         report.codegen_plan,
@@ -763,6 +774,8 @@ fn build_link_action_if_needed(
         return Ok(false);
     }
 
+    let link_label = link_action_label(action, &options);
+    let link_tags = link_action_detail_tags(action, &options, linker_inputs);
     let driver = CompilerDriver::new(options);
     let Some(report) = driver.compile_with_report() else {
         return Err(Error::Execution(format!(
@@ -780,7 +793,8 @@ fn build_link_action_if_needed(
     execution_summary.link_actions += 1;
     execution_summary.record_action(
         ActionTimingKind::Link,
-        link_action_label(action),
+        link_label,
+        link_tags,
         report.phase_timings,
         report.cache_stats,
         report.codegen_plan,
@@ -1082,29 +1096,48 @@ fn push_link_object(objects: &mut Vec<PathBuf>, seen: &mut BTreeSet<PathBuf>, pa
     }
 }
 
-pub(super) fn multi_object_output_dir(primary_output: &Path) -> PathBuf {
+pub(super) fn multi_linker_input_dir(primary_output: &Path) -> PathBuf {
     let mut path = primary_output.as_os_str().to_os_string();
     path.push(".d");
     PathBuf::from(path)
 }
 
 pub(super) fn linker_input_paths_for_primary_output(primary_output: &Path) -> Result<Vec<PathBuf>> {
-    let multi_object_dir = multi_object_output_dir(primary_output);
-    if !multi_object_dir.is_dir() {
+    let multi_linker_input_dir = multi_linker_input_dir(primary_output);
+    if !multi_linker_input_dir.is_dir() {
         return Ok(vec![primary_output.to_path_buf()]);
     }
 
-    let mut paths = fs::read_dir(&multi_object_dir)
-        .map_err(|err| Error::from_io(&multi_object_dir, err))?
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("o"))
-        .collect::<Vec<_>>();
-    paths.sort();
+    let manifest =
+        fs::read_to_string(primary_output).map_err(|err| Error::from_io(primary_output, err))?;
+    let mut paths = Vec::new();
+    for line in manifest.lines() {
+        if line == "version=1" || line.is_empty() {
+            continue;
+        }
+        if let Some(path) = line.strip_prefix("linker_input=") {
+            let path = PathBuf::from(path);
+            if !path.exists() {
+                return Err(Error::Execution(format!(
+                    "linker-input manifest `{}` references missing path `{}`",
+                    primary_output.display(),
+                    path.display()
+                )));
+            }
+            paths.push(path);
+            continue;
+        }
+        return Err(Error::Execution(format!(
+            "linker-input manifest `{}` contains an unsupported entry `{}`",
+            primary_output.display(),
+            line
+        )));
+    }
 
     if paths.is_empty() {
         return Err(Error::Execution(format!(
-            "multi-object directory `{}` is empty",
-            multi_object_dir.display()
+            "linker-input manifest `{}` does not list any preserved linker inputs",
+            primary_output.display()
         )));
     }
 

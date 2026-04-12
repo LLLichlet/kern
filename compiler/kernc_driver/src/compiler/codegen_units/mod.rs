@@ -48,6 +48,9 @@ pub struct CodegenImportPlanReport {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CodegenPlanFallback {
     RequestedSingleUnit,
+    ContainsControlFlowAsm {
+        function_name: String,
+    },
     NameCollision {
         item_kind: &'static str,
         name: String,

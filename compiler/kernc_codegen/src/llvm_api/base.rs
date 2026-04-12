@@ -189,6 +189,7 @@ impl From<AtomicRMWBinOp> for LLVMAtomicRMWBinOp {
 pub enum Linkage {
     External,
     LinkOnceOdr,
+    WeakOdr,
     Internal,
 }
 
@@ -197,6 +198,7 @@ impl From<Linkage> for LLVMLinkage {
         match value {
             Linkage::External => LLVMLinkage::LLVMExternalLinkage,
             Linkage::LinkOnceOdr => LLVMLinkage::LLVMLinkOnceODRLinkage,
+            Linkage::WeakOdr => LLVMLinkage::LLVMWeakODRLinkage,
             Linkage::Internal => LLVMLinkage::LLVMInternalLinkage,
         }
     }

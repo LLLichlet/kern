@@ -347,6 +347,30 @@ codegen-units = 4
 }
 
 #[test]
+fn profile_section_parses_lto_mode() {
+    let manifest = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+lto = "thin"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap();
+
+    let profile = manifest
+        .profile
+        .as_ref()
+        .and_then(|profiles| profiles.release.as_ref())
+        .expect("expected release profile");
+    assert_eq!(profile.lto.as_deref(), Some("thin"));
+}
+
+#[test]
 fn rejects_zero_profile_codegen_units() {
     let manifest = Manifest::parse(
         r#"
@@ -366,6 +390,24 @@ codegen-units = 0
         .validate(std::path::Path::new("Craft.toml"))
         .unwrap_err();
     assert!(format!("{err}").contains("[profile.dev].codegen-units must be greater than zero"));
+}
+
+#[test]
+fn rejects_invalid_profile_lto_mode() {
+    let err = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+lto = "turbo"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap_err();
+    assert!(format!("{err}").contains("invalid LTO mode `turbo`"));
 }
 
 #[test]

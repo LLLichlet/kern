@@ -78,6 +78,22 @@ impl LtoMode {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LinkerInputFlavor {
+    #[default]
+    Object,
+    ThinLtoBitcode,
+}
+
+impl LinkerInputFlavor {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Object => "object",
+            Self::ThinLtoBitcode => "thinlto-bitcode",
+        }
+    }
+}
+
 impl DriverMode {
     pub fn needs_source_input(self) -> bool {
         !matches!(self, DriverMode::LinkOnly)
@@ -265,8 +281,9 @@ pub struct CompileOptions {
     pub library_bundle: LibraryBundle,
     pub codegen_units: usize,
     pub lto_mode: LtoMode,
+    pub linker_input_flavor: LinkerInputFlavor,
     pub emit_llvm_stage: LlvmIrStage,
-    pub emit_multi_object_dir: bool,
+    pub emit_multi_linker_input_dir: bool,
     pub split_sections_for_gc: bool,
     pub dead_strip_sections: bool,
     pub print_link_command: bool,
@@ -303,8 +320,9 @@ impl Default for CompileOptions {
             library_bundle: LibraryBundle::None,
             codegen_units: 1,
             lto_mode: LtoMode::default(),
+            linker_input_flavor: LinkerInputFlavor::default(),
             emit_llvm_stage: LlvmIrStage::default(),
-            emit_multi_object_dir: false,
+            emit_multi_linker_input_dir: false,
             split_sections_for_gc: false,
             dead_strip_sections: false,
             print_link_command: false,
@@ -461,11 +479,37 @@ pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> 
         );
     }
 
-    if options.emit_multi_object_dir && matches!(options.lto_mode, LtoMode::Full) {
+    if options.emit_multi_linker_input_dir && matches!(options.lto_mode, LtoMode::Full) {
         return Err(
             "invalid compile configuration: preserving per-CGU object directories is incompatible with `--lto full`"
                 .to_string(),
         );
+    }
+
+    if matches!(
+        options.linker_input_flavor,
+        LinkerInputFlavor::ThinLtoBitcode
+    ) {
+        if !options.driver_mode.emits_linker_input() {
+            return Err(
+                "invalid compile configuration: `thinlto-bitcode` linker-input emission requires `--compile-only`"
+                    .to_string(),
+            );
+        }
+
+        if !matches!(options.lto_mode, LtoMode::Thin) {
+            return Err(
+                "invalid compile configuration: `thinlto-bitcode` linker-input emission requires `--lto thin`"
+                    .to_string(),
+            );
+        }
+
+        if options.codegen_units > 1 && !options.emit_multi_linker_input_dir {
+            return Err(
+                "invalid compile configuration: multi-CGU `thinlto-bitcode` emission requires preserving a per-CGU linker-input directory"
+                    .to_string(),
+            );
+        }
     }
 
     Ok(())

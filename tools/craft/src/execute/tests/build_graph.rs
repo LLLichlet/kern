@@ -411,6 +411,95 @@ let _ = b.copy_package_file_to_artifact("assets/data.txt", "bundle/data.txt");
 }
 
 #[test]
+fn parallel_target_link_jobs_exclude_thinlto_final_links() {
+    let root = temp_dir("craft-exec-parallel-link-thinlto");
+    let native_dir = root.join("native");
+    let thin_dir = root.join("thin");
+    fs::create_dir_all(native_dir.join("src")).unwrap();
+    fs::create_dir_all(thin_dir.join("src")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[workspace]
+members = ["native", "thin"]
+"#,
+    )
+    .unwrap();
+    fs::write(
+        native_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "native"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+lto = "none"
+
+[[bin]]
+name = "native"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        native_dir.join("src/main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        thin_dir.join("Craft.toml"),
+        r#"
+[package]
+name = "thin"
+version = "0.1.0"
+kern = "0.6.7"
+
+[profile.release]
+lto = "thin"
+
+[[bin]]
+name = "thin"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        thin_dir.join("src/main.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let members = workspace::load_members(&manifest_path, &manifest).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &members,
+        true,
+        crate::script::ScriptCommand::Build,
+        &FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        },
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Build).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+    let compile_action_index = super::external::compile_actions_index(&action_plan.compile_actions);
+    let jobs = parallel_target_link_jobs(&action_plan, &compile_action_index, &Default::default())
+        .unwrap();
+
+    assert_eq!(action_plan.link_actions.len(), 2);
+    assert_eq!(jobs.len(), 1);
+    assert_eq!(jobs[0].link_action.package_id.name, "native");
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn parallel_target_compile_jobs_only_include_ready_local_libraries() {
     let root = temp_dir("craft-exec-parallel-compile-jobs");
     let util_dir = root.join("util");
@@ -664,7 +753,7 @@ fn main() i32 {
 }
 
 #[test]
-fn release_build_links_against_preserved_multi_object_local_library() {
+fn release_build_links_against_thinlto_local_library_inputs() {
     let root = temp_dir("craft-exec-multi-object-local-lib");
     let app_dir = root.join("app");
     let util_dir = root.join("util");
@@ -770,15 +859,21 @@ fn bar() i32 {
         .iter()
         .find(|action| action.package_id.name == "util")
         .unwrap();
-    let object_dir = super::multi_object_output_dir(&util_action.object_path);
+    let object_dir = super::multi_linker_input_dir(&util_action.object_path);
     assert!(util_action.object_path.is_file());
-    assert!(object_dir.is_dir());
-    assert!(
-        fs::read_dir(&object_dir)
-            .unwrap()
-            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-            .any(|path| path.extension().and_then(|ext| ext.to_str()) == Some("o"))
-    );
+    if object_dir.is_dir() {
+        assert!(
+            fs::read_dir(&object_dir)
+                .unwrap()
+                .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+                .any(|path| {
+                    path.extension().and_then(|ext| ext.to_str()) == Some("o")
+                        && super::has_llvm_bitcode_magic(&path)
+                })
+        );
+    } else {
+        assert!(super::has_llvm_bitcode_magic(&util_action.object_path));
+    }
 
     let _ = fs::remove_dir_all(root);
 }

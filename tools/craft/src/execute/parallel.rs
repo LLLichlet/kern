@@ -9,6 +9,7 @@ use crate::error::Error;
 use crate::graph::BuildDomain;
 use crate::resolver::ExternalPackageId;
 use kernc_driver::{CompilerDriver, IncrementalDriverKey};
+use kernc_utils::config::LtoMode;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -68,12 +69,20 @@ pub(super) fn parallel_target_link_jobs<'a>(
         {
             continue;
         }
+        let compile_action = compile_action_for_link_action(action, compile_action_index)?;
+        if link_job_prefers_serial_execution(compile_action) {
+            continue;
+        }
         jobs.push(ParallelTargetLinkJob {
-            compile_action: compile_action_for_link_action(action, compile_action_index)?,
+            compile_action,
             link_action: action,
         });
     }
     Ok(jobs)
+}
+
+fn link_job_prefers_serial_execution(compile_action: &CompileAction) -> bool {
+    compile_action.domain == BuildDomain::Target && compile_action.profile.lto_mode == LtoMode::Thin
 }
 
 fn compile_action_local_dependencies_ready(

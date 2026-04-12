@@ -1,5 +1,5 @@
 use super::{
-    build, external, linker_input_paths_for_primary_output, multi_object_output_dir,
+    build, external, linker_input_paths_for_primary_output, multi_linker_input_dir,
     parallel_target_compile_jobs, parallel_target_link_jobs, run, runtime_packages,
     runtime_profile_key, test, validate_package_metadata_root,
 };
@@ -30,6 +30,41 @@ fn temp_dir(prefix: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("{prefix}-{nanos}"));
     fs::create_dir_all(&dir).unwrap();
     dir
+}
+
+fn has_llvm_bitcode_magic(path: &Path) -> bool {
+    fs::read(path)
+        .map(|bytes| bytes.starts_with(b"BC\xc0\xde"))
+        .unwrap_or(false)
+}
+
+#[test]
+fn linker_input_manifest_controls_primary_output_resolution() {
+    let root = temp_dir("craft-linker-input-manifest");
+    let primary_output = root.join("libfoo.o");
+    let linker_input_dir = multi_linker_input_dir(&primary_output);
+    fs::create_dir_all(&linker_input_dir).unwrap();
+
+    let first = linker_input_dir.join("thin1.o");
+    let second = linker_input_dir.join("thin0.o");
+    let stray = linker_input_dir.join("stray.o");
+    fs::write(&first, b"BC\xc0\xdeone").unwrap();
+    fs::write(&second, b"BC\xc0\xdetwo").unwrap();
+    fs::write(&stray, b"BC\xc0\xdestray").unwrap();
+    fs::write(
+        &primary_output,
+        format!(
+            "version=1\nlinker_input={}\nlinker_input={}\n",
+            first.display(),
+            second.display()
+        ),
+    )
+    .unwrap();
+
+    let resolved = linker_input_paths_for_primary_output(&primary_output).unwrap();
+    assert_eq!(resolved, vec![first, second]);
+
+    let _ = fs::remove_dir_all(root);
 }
 
 fn build_release_hello_workspace(root: &Path, profile_body: &str) -> super::ExecutionSummary {

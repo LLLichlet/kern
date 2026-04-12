@@ -3,7 +3,7 @@ use super::{
     Profile, Profiles, ReleaseSourcePolicy, RuntimeConfig, Section, Workspace, WorkspacePackage,
 };
 use crate::error::{Error, Result};
-use kernc_utils::config::{LibraryBundle, RuntimeEntry};
+use kernc_utils::config::{LibraryBundle, LtoMode, RuntimeEntry};
 use std::path::Path;
 
 impl Manifest {
@@ -307,9 +307,14 @@ fn assign_profile(
         "opt" => profile.opt = Some(parse_u8(raw_value)?),
         "debug" => profile.debug = Some(parse_bool(raw_value)?),
         "codegen-units" => profile.codegen_units = Some(parse_usize(raw_value)?),
+        "lto" => profile.lto = Some(parse_lto_mode(raw_value)?.as_str().to_string()),
         _ => return Err(format!("unsupported {section} key `{key}`")),
     }
     Ok(())
+}
+
+fn parse_lto_mode(raw_value: &str) -> std::result::Result<LtoMode, String> {
+    LtoMode::parse(&parse_string(raw_value)?)
 }
 
 fn logical_lines(source: &str) -> std::result::Result<Vec<String>, String> {

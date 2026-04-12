@@ -1,6 +1,7 @@
 mod codegen;
 mod llvm_api;
 mod llvm_facade;
+mod thinlto;
 
 pub use codegen::{
     AllocaNameStat, CodeGenerator, CodegenAllocaStats, CodegenReport, CodegenTiming,
@@ -11,3 +12,4 @@ pub use llvm_facade::{
     AddressSpace, AtomicOrdering, AtomicRMWBinOp, FloatPredicate, IntPredicate, OptimizationLevel,
     attributes, basic_block, builder, context, intrinsics, llvm_sys, module, types, values,
 };
+pub use thinlto::{ThinLtoModule, run_thin_lto};

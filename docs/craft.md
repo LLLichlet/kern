@@ -210,6 +210,7 @@ debug = true
 [profile.release]
 opt = 3
 debug = false
+lto = "thin"
 ```
 
 Manifest rules:
@@ -228,6 +229,8 @@ Manifest rules:
 - `build-dependencies` belong to the host build domain rather than the final target domain
 - features are additive
 - profile behavior is deterministic
+- profile optimization policy is explicit: `opt`, `debug`, `codegen-units`, and `lto` are separate knobs
+- target-domain `lto = "thin"` keeps compile actions in ThinLTO linker-input form until the final link step, so cross-package optimization is preserved instead of being collapsed inside each package
 - target-specific or feature-specific elaboration belongs in either explicit manifest tables or `craft.rn`
 
 ## Publish Readiness

@@ -409,6 +409,9 @@ pub(super) fn render_execution_timings(render: &Renderer, summary: &execute::Exe
         render.summary("time", format_duration(summary.total_duration()));
         render.summary("phases", format_phase_timings(&summary.phase_timings));
     }
+    if let Some(thinlto_summary) = format_thinlto_link_summary(summary) {
+        render.summary("thinlto", thinlto_summary);
+    }
     if !summary.cache_stats.is_empty() {
         render.summary("cache", format_compile_cache_stats(summary.cache_stats));
     }
@@ -434,6 +437,7 @@ pub(super) fn render_execution_timings(render: &Renderer, summary: &execute::Exe
             "time",
             &action.label,
             format_action_timing_detail(
+                &action.detail_tags,
                 &action.phase_timings,
                 action.cache_stats,
                 action.codegen_plan.as_ref(),
@@ -499,11 +503,15 @@ fn format_action_cache_stats(stats: execute::ActionCacheStats) -> String {
 }
 
 fn format_action_timing_detail(
+    detail_tags: &[String],
     phases: &[PhaseTiming],
     cache_stats: CompileCacheStats,
     codegen_plan: Option<&CodegenPlanReport>,
 ) -> String {
     let mut parts = Vec::new();
+    if !detail_tags.is_empty() {
+        parts.push(detail_tags.join(", "));
+    }
     if !phases.is_empty() {
         parts.push(format_phase_timings(phases));
     }
@@ -516,9 +524,53 @@ fn format_action_timing_detail(
     parts.join("; ")
 }
 
+fn format_thinlto_link_summary(summary: &execute::ExecutionSummary) -> Option<String> {
+    let mut final_link_count = 0usize;
+    let mut cross_package_count = 0usize;
+    let mut total_inputs = 0usize;
+    let mut max_inputs = 0usize;
+
+    for action in &summary.action_timings {
+        if !has_detail_tag(&action.detail_tags, "pipeline=thinlto-final-link") {
+            continue;
+        }
+
+        final_link_count += 1;
+        if has_detail_tag(&action.detail_tags, "cross-package=true") {
+            cross_package_count += 1;
+        }
+        if let Some(inputs) = parse_usize_detail_tag(&action.detail_tags, "inputs=") {
+            total_inputs += inputs;
+            max_inputs = max_inputs.max(inputs);
+        }
+    }
+
+    if final_link_count == 0 {
+        return None;
+    }
+
+    Some(format!(
+        "final-links {}, cross-package {}, total-inputs {}, max-inputs {}",
+        final_link_count, cross_package_count, total_inputs, max_inputs
+    ))
+}
+
+fn has_detail_tag(detail_tags: &[String], needle: &str) -> bool {
+    detail_tags.iter().any(|tag| tag == needle)
+}
+
+fn parse_usize_detail_tag(detail_tags: &[String], prefix: &str) -> Option<usize> {
+    detail_tags
+        .iter()
+        .find_map(|tag| tag.strip_prefix(prefix)?.parse().ok())
+}
+
 fn format_codegen_plan(report: &CodegenPlanReport) -> String {
     let fallback = match &report.fallback_reason {
         Some(CodegenPlanFallback::RequestedSingleUnit) => "requested_single_unit".to_string(),
+        Some(CodegenPlanFallback::ContainsControlFlowAsm { function_name }) => {
+            format!("contains_control_flow_asm({function_name})")
+        }
         Some(CodegenPlanFallback::NameCollision { item_kind, name }) => {
             format!("name_collision({item_kind}:{name})")
         }
@@ -556,5 +608,70 @@ fn format_duration(duration: std::time::Duration) -> String {
         format!("{:.3}us", duration.as_secs_f64() * 1_000_000.0)
     } else {
         format!("{}ns", duration.as_nanos())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_action_timing_detail, format_thinlto_link_summary};
+    use crate::execute::{ActionTiming, ActionTimingKind, ExecutionSummary};
+    use kernc_driver::{CompileCacheStats, PhaseTiming};
+    use std::time::Duration;
+
+    #[test]
+    fn action_timing_detail_starts_with_tags() {
+        let detail = format_action_timing_detail(
+            &[
+                "pipeline=thinlto-final-link".to_string(),
+                "inputs=6".to_string(),
+            ],
+            &[PhaseTiming {
+                name: "link",
+                duration: Duration::from_millis(12),
+            }],
+            CompileCacheStats::default(),
+            None,
+        );
+
+        assert!(detail.starts_with("pipeline=thinlto-final-link, inputs=6; "));
+        assert!(detail.contains("link 12.000ms"));
+    }
+
+    #[test]
+    fn thinlto_link_summary_aggregates_link_actions() {
+        let summary = ExecutionSummary {
+            action_timings: vec![
+                ActionTiming {
+                    kind: ActionTimingKind::Link,
+                    label: "a".to_string(),
+                    detail_tags: vec![
+                        "pipeline=thinlto-final-link".to_string(),
+                        "inputs=6".to_string(),
+                        "cross-package=true".to_string(),
+                    ],
+                    phase_timings: Vec::new(),
+                    cache_stats: CompileCacheStats::default(),
+                    codegen_plan: None,
+                },
+                ActionTiming {
+                    kind: ActionTimingKind::Link,
+                    label: "b".to_string(),
+                    detail_tags: vec![
+                        "pipeline=thinlto-final-link".to_string(),
+                        "inputs=4".to_string(),
+                        "cross-package=false".to_string(),
+                    ],
+                    phase_timings: Vec::new(),
+                    cache_stats: CompileCacheStats::default(),
+                    codegen_plan: None,
+                },
+            ],
+            ..ExecutionSummary::default()
+        };
+
+        assert_eq!(
+            format_thinlto_link_summary(&summary).as_deref(),
+            Some("final-links 2, cross-package 1, total-inputs 10, max-inputs 6")
+        );
     }
 }

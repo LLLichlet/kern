@@ -9,8 +9,9 @@ use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use crate::target_defaults::apply_target_runtime_defaults;
 use kernc_utils::config::{
-    CompileOptions, DriverMode, OptLevel, inject_driver_condition_defines, maybe_add_base_alias,
-    maybe_add_std_alias, maybe_add_sys_alias,
+    CompileOptions, DriverMode, LinkerInputFlavor, LtoMode, OptLevel,
+    inject_driver_condition_defines, maybe_add_base_alias, maybe_add_std_alias,
+    maybe_add_sys_alias,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -99,6 +100,31 @@ fn profile_opt_level(profile: &crate::script::ScriptProfile) -> OptLevel {
     }
 }
 
+fn profile_emit_multi_linker_input_dir(
+    profile: &crate::script::ScriptProfile,
+    domain: BuildDomain,
+) -> bool {
+    domain == BuildDomain::Target && profile.codegen_units > 1 && profile.lto_mode != LtoMode::Full
+}
+
+pub(super) fn profile_linker_input_flavor(
+    profile: &crate::script::ScriptProfile,
+    domain: BuildDomain,
+) -> LinkerInputFlavor {
+    if domain == BuildDomain::Target && profile.lto_mode == LtoMode::Thin {
+        LinkerInputFlavor::ThinLtoBitcode
+    } else {
+        LinkerInputFlavor::Object
+    }
+}
+
+pub(super) fn profile_uses_cross_package_thin_lto(
+    profile: &crate::script::ScriptProfile,
+    domain: BuildDomain,
+) -> bool {
+    domain == BuildDomain::Target && profile.lto_mode == LtoMode::Thin
+}
+
 pub(super) fn compile_action_options(
     action: &CompileAction,
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
@@ -123,8 +149,12 @@ pub(super) fn compile_action_options(
         report_progress: false,
         opt_level: profile_opt_level(&action.profile),
         codegen_units: action.profile.codegen_units,
-        emit_multi_object_dir: action.domain == BuildDomain::Target
-            && action.profile.codegen_units > 1,
+        lto_mode: action.profile.lto_mode,
+        linker_input_flavor: profile_linker_input_flavor(&action.profile, action.domain),
+        emit_multi_linker_input_dir: profile_emit_multi_linker_input_dir(
+            &action.profile,
+            action.domain,
+        ),
         split_sections_for_gc: true,
         ..default_target_compile_options(action.target_kind)
     };
@@ -187,6 +217,11 @@ pub(super) fn link_action_options(
     options.linker_libraries = action.link.system_libs.clone();
     options.linker_search_paths = action.link.search_paths.clone();
     options.linker_args = action.link.args.clone();
+    if profile_uses_cross_package_thin_lto(&compile_action.profile, compile_action.domain)
+        && !options.linker_args.iter().any(|arg| arg == "-flto=thin")
+    {
+        options.linker_args.push("-flto=thin".to_string());
+    }
     for framework in &action.link.frameworks {
         options.linker_args.push("-framework".to_string());
         options.linker_args.push(framework.clone());
@@ -197,5 +232,67 @@ pub(super) fn link_action_options(
 pub(super) fn apply_host_linker_env(options: &mut CompileOptions) {
     if let Ok(cc_env) = std::env::var("CC") {
         options.linker_cmd = cc_env;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{profile_emit_multi_linker_input_dir, profile_linker_input_flavor};
+    use crate::graph::BuildDomain;
+    use crate::script::ScriptProfile;
+    use kernc_utils::config::{LinkerInputFlavor, LtoMode};
+
+    fn profile(codegen_units: usize, lto_mode: LtoMode) -> ScriptProfile {
+        ScriptProfile {
+            name: "release".to_string(),
+            opt: 3,
+            debug: false,
+            codegen_units,
+            lto_mode,
+        }
+    }
+
+    #[test]
+    fn target_builds_keep_multi_object_outputs_without_full_lto() {
+        assert!(profile_emit_multi_linker_input_dir(
+            &profile(2, LtoMode::None),
+            BuildDomain::Target,
+        ));
+        assert!(profile_emit_multi_linker_input_dir(
+            &profile(2, LtoMode::Thin),
+            BuildDomain::Target,
+        ));
+    }
+
+    #[test]
+    fn full_lto_or_non_target_domains_disable_multi_object_outputs() {
+        assert!(!profile_emit_multi_linker_input_dir(
+            &profile(2, LtoMode::Full),
+            BuildDomain::Target,
+        ));
+        assert!(!profile_emit_multi_linker_input_dir(
+            &profile(2, LtoMode::Thin),
+            BuildDomain::Host,
+        ));
+        assert!(!profile_emit_multi_linker_input_dir(
+            &profile(1, LtoMode::Thin),
+            BuildDomain::Target,
+        ));
+    }
+
+    #[test]
+    fn target_thin_profiles_emit_thinlto_bitcode_linker_inputs() {
+        assert_eq!(
+            profile_linker_input_flavor(&profile(2, LtoMode::Thin), BuildDomain::Target),
+            LinkerInputFlavor::ThinLtoBitcode,
+        );
+        assert_eq!(
+            profile_linker_input_flavor(&profile(1, LtoMode::None), BuildDomain::Target),
+            LinkerInputFlavor::Object,
+        );
+        assert_eq!(
+            profile_linker_input_flavor(&profile(2, LtoMode::Thin), BuildDomain::Host),
+            LinkerInputFlavor::Object,
+        );
     }
 }

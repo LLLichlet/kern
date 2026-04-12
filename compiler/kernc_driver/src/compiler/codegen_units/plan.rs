@@ -76,6 +76,24 @@ fn plan_codegen_units_impl(
             report,
         };
     }
+    if enable_imports
+        && let Some(summary) = summary
+        && let Some(function) = summary
+            .functions
+            .iter()
+            .find(|function| function.contains_control_flow_asm)
+    {
+        // Raw control-flow asm can hide symbol edges from the MIR summary
+        // planner. Fall back to a single preserved linker input instead of
+        // risking a split that only fails later during ThinLTO/link.
+        report.fallback_reason = Some(CodegenPlanFallback::ContainsControlFlowAsm {
+            function_name: function.name.clone(),
+        });
+        return CodegenPlanOutcome {
+            units: Vec::new(),
+            report,
+        };
+    }
 
     let functions_by_id = module
         .functions
@@ -161,7 +179,7 @@ fn plan_codegen_units_impl(
         }
     }
 
-    let shared_internal_functions = internal_to_roots
+    let shared_partitioned_functions = internal_to_roots
         .iter()
         .filter_map(|(item, owner_roots)| match item {
             ItemKey::Function(id) if owner_roots.len() > 1 => Some((*id, owner_roots.clone())),
@@ -179,7 +197,8 @@ fn plan_codegen_units_impl(
             &mut owner_cluster.function_ids,
             &mut owner_cluster.global_ids,
         );
-        if owner_roots.len() > 1 {
+        if owner_roots.len() > 1 && item_requires_promotion(item, &functions_by_id, &globals_by_id)
+        {
             mark_promoted_item(
                 item,
                 &mut owner_cluster.promoted_function_ids,
@@ -279,7 +298,7 @@ fn plan_codegen_units_impl(
             report.import_plan = Some(assign_imported_inline_functions(
                 &mut units,
                 &roots,
-                &shared_internal_functions,
+                &shared_partitioned_functions,
                 summary,
                 &functions_by_id,
                 &workloads,
@@ -622,14 +641,16 @@ fn reachable_internal_items(
 
         for function_id in &item_refs.functions {
             let target = ItemKey::Function(*function_id);
-            if is_internal_item(target, functions_by_id, globals_by_id) && reachable.insert(target)
+            if is_partition_local_item(target, functions_by_id, globals_by_id)
+                && reachable.insert(target)
             {
                 stack.push(target);
             }
         }
         for global_id in &item_refs.globals {
             let target = ItemKey::Global(*global_id);
-            if is_internal_item(target, functions_by_id, globals_by_id) && reachable.insert(target)
+            if is_partition_local_item(target, functions_by_id, globals_by_id)
+                && reachable.insert(target)
             {
                 stack.push(target);
             }
@@ -639,7 +660,28 @@ fn reachable_internal_items(
     reachable
 }
 
-fn is_internal_item(
+fn is_partition_local_item(
+    key: ItemKey,
+    functions_by_id: &HashMap<MonoId, &MastFunction>,
+    globals_by_id: &HashMap<MonoId, &MastGlobal>,
+) -> bool {
+    match key {
+        ItemKey::Function(id) => functions_by_id.get(&id).is_some_and(|function| {
+            matches!(
+                function.linkage,
+                MastLinkage::Internal | MastLinkage::LinkOnceOdr
+            )
+        }),
+        ItemKey::Global(id) => globals_by_id.get(&id).is_some_and(|global| {
+            matches!(
+                global.linkage,
+                MastLinkage::Internal | MastLinkage::LinkOnceOdr
+            )
+        }),
+    }
+}
+
+fn item_requires_promotion(
     key: ItemKey,
     functions_by_id: &HashMap<MonoId, &MastFunction>,
     globals_by_id: &HashMap<MonoId, &MastGlobal>,

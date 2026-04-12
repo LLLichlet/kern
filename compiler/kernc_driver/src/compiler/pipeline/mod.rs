@@ -17,7 +17,8 @@ use std::time::{Duration, Instant};
 
 use kernc_codegen::{
     AllocaNameStat, CodeGenerator, CodegenAllocaStats, CodegenReport, Context, EmitObjectReport,
-    InlineAsmDialect, IrCleanupStats, IrFunctionStats, IrInstructionStats,
+    InlineAsmDialect, IrCleanupStats, IrFunctionStats, IrInstructionStats, ThinLtoModule,
+    run_thin_lto,
 };
 use kernc_db::Memo;
 use kernc_flow::FlowLoweringHints;

@@ -160,6 +160,11 @@ pub enum MirStaticInit {
         ty: TypeId,
         elems: Vec<MirStaticInit>,
     },
+    FatPointer {
+        ty: TypeId,
+        data_ptr: Box<MirStaticInit>,
+        meta: Box<MirStaticInit>,
+    },
     Struct {
         ty: TypeId,
         struct_id: MonoId,
@@ -184,6 +189,7 @@ impl MirStaticInit {
         match self {
             Self::Const(value) => value.ty(),
             Self::Array { ty, .. }
+            | Self::FatPointer { ty, .. }
             | Self::Struct { ty, .. }
             | Self::Union { ty, .. }
             | Self::Data { ty, .. } => *ty,

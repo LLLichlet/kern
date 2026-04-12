@@ -7,7 +7,7 @@ use kernc_mast::{
 use kernc_mir::{
     MirAggregateKind, MirBitIntrinsicKind, MirCallTarget, MirCastKind, MirConst, MirInlineHint,
     MirInstruction, MirLocalKind, MirMemoryIntrinsic, MirOperand, MirPlace, MirProjectionKind,
-    MirRvalue, MirSimdBinaryIntrinsicKind, MirSliceBase, MirTerminator,
+    MirRvalue, MirSimdBinaryIntrinsicKind, MirSliceBase, MirStaticInit, MirTerminator,
 };
 use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::ty::TypeId;
@@ -32,6 +32,79 @@ fn module_with_function(function: MastFunction) -> MastModule {
         globals: vec![],
         functions: vec![function],
         mono: MonoModuleMetadata::default(),
+    }
+}
+
+#[test]
+fn mir_builder_lowers_static_slice_literal_via_fat_pointer_init() {
+    let backing = MastGlobal {
+        id: MonoId(10),
+        name: "backing".to_string(),
+        linkage: MastLinkage::Internal,
+        ty: TypeId::USIZE,
+        is_mut: false,
+        init: Some(MastExpr::new(
+            TypeId::USIZE,
+            MastExprKind::Integer(7),
+            Span::default(),
+        )),
+        is_extern: false,
+        attributes: vec![],
+    };
+    let slice = MastGlobal {
+        id: MonoId(11),
+        name: "slice".to_string(),
+        linkage: MastLinkage::Internal,
+        ty: TypeId::USIZE,
+        is_mut: false,
+        init: Some(MastExpr::new(
+            TypeId::USIZE,
+            MastExprKind::ConstructFatPointer {
+                data_ptr: Box::new(MastExpr::new(
+                    TypeId::USIZE,
+                    MastExprKind::AddressOf(Box::new(MastExpr::new(
+                        TypeId::USIZE,
+                        MastExprKind::GlobalRef(MonoId(10)),
+                        Span::default(),
+                    ))),
+                    Span::default(),
+                )),
+                meta: Box::new(MastExpr::new(
+                    TypeId::USIZE,
+                    MastExprKind::Integer(3),
+                    Span::default(),
+                )),
+            },
+            Span::default(),
+        )),
+        is_extern: false,
+        attributes: vec![],
+    };
+    let module = MastModule {
+        name: "demo".to_string(),
+        structs: vec![],
+        globals: vec![backing, slice],
+        functions: vec![],
+        mono: MonoModuleMetadata::default(),
+    };
+
+    let report = build_from_mast_unoptimized(&module);
+    let init = report.module.globals[1]
+        .init
+        .as_ref()
+        .expect("slice global should keep a static init");
+    match init {
+        MirStaticInit::FatPointer { data_ptr, meta, .. } => {
+            assert!(matches!(
+                data_ptr.as_ref(),
+                MirStaticInit::Const(MirConst::GlobalRef { id, .. }) if *id == MonoId(10)
+            ));
+            assert!(matches!(
+                meta.as_ref(),
+                MirStaticInit::Const(MirConst::Integer { value: 3, .. })
+            ));
+        }
+        other => panic!("expected fat-pointer static init, got {other:?}"),
     }
 }
 
@@ -197,6 +270,110 @@ fn mir_builder_records_defers_and_loop_edges() {
         body.blocks
             .iter()
             .any(|block| matches!(block.terminator, MirTerminator::Goto(_)))
+    );
+}
+
+#[test]
+fn mir_builder_accepts_nonvoid_loop_tail_as_diverging_control() {
+    let function = MastFunction {
+        id: MonoId(93),
+        name: "loop_tail_value".to_string(),
+        linkage: MastLinkage::External,
+        params: vec![],
+        ret_ty: TypeId::I32,
+        body: Some(MastBlock {
+            stmts: vec![],
+            result: Some(Box::new(MastExpr::new(
+                TypeId::I32,
+                MastExprKind::Loop {
+                    body: MastBlock {
+                        stmts: vec![MastStmt::Expr(MastExpr::new(
+                            TypeId::NEVER,
+                            MastExprKind::Return(Some(Box::new(expr(MastExprKind::Integer(7))))),
+                            Span::default(),
+                        ))],
+                        result: None,
+                        defers: vec![],
+                    },
+                    latch: None,
+                },
+                Span::default(),
+            ))),
+            defers: vec![],
+        }),
+        is_extern: false,
+        is_variadic: false,
+        inline_hint: MastInlineHint::None,
+        attributes: vec![],
+    };
+
+    let report = build_from_mast_unoptimized(&module_with_function(function));
+    let body = report.module.functions[0].body.as_ref().unwrap();
+
+    assert!(
+        body.blocks
+            .iter()
+            .any(|block| matches!(block.terminator, MirTerminator::Return(Some(_))))
+    );
+}
+
+#[test]
+fn mir_builder_accepts_diverging_block_rvalue_with_loop_tail() {
+    let local = SymbolId(40);
+    let function = MastFunction {
+        id: MonoId(94),
+        name: "loop_in_rvalue_block".to_string(),
+        linkage: MastLinkage::External,
+        params: vec![],
+        ret_ty: TypeId::I32,
+        body: Some(MastBlock {
+            stmts: vec![MastStmt::Let {
+                name: local,
+                ty: TypeId::I32,
+                is_mut: false,
+                init: MastExpr::new(
+                    TypeId::I32,
+                    MastExprKind::Block(MastBlock {
+                        stmts: vec![],
+                        result: Some(Box::new(MastExpr::new(
+                            TypeId::I32,
+                            MastExprKind::Loop {
+                                body: MastBlock {
+                                    stmts: vec![MastStmt::Expr(MastExpr::new(
+                                        TypeId::NEVER,
+                                        MastExprKind::Return(Some(Box::new(expr(
+                                            MastExprKind::Integer(9),
+                                        )))),
+                                        Span::default(),
+                                    ))],
+                                    result: None,
+                                    defers: vec![],
+                                },
+                                latch: None,
+                            },
+                            Span::default(),
+                        ))),
+                        defers: vec![],
+                    }),
+                    Span::default(),
+                ),
+            }],
+            result: None,
+            defers: vec![],
+        }),
+        is_extern: false,
+        is_variadic: false,
+        inline_hint: MastInlineHint::None,
+        attributes: vec![],
+    };
+
+    let report = build_from_mast_unoptimized(&module_with_function(function));
+    let body = report.module.functions[0].body.as_ref().unwrap();
+
+    assert!(
+        body.blocks
+            .iter()
+            .any(|block| matches!(block.terminator, MirTerminator::Return(Some(_))))
     );
 }
 

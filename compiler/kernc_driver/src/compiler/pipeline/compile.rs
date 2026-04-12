@@ -1,6 +1,7 @@
 use super::*;
 use crate::compiler::codegen_units;
 use crate::compiler::{LinkTarget, TempFileGuard};
+use kernc_utils::config::LinkerInputFlavor;
 use std::fs;
 
 impl CompilerDriver {
@@ -216,6 +217,17 @@ impl CompilerDriver {
                         collect_codegen_diagnostics,
                     )
                 })
+            } else if self.emit_thin_lto_bitcode_linker_input() {
+                Self::measure_phase(phase_timings, "emit_bitcode", || {
+                    let (bitcode, report) = codegen.emit_thin_lto_bitcode(
+                        &target.triple,
+                        self.options.opt_level,
+                        collect_codegen_diagnostics,
+                    )?;
+                    fs::write(&link_input_path, bitcode)
+                        .map_err(|err| format!("failed to stage ThinLTO linker input: {err}"))?;
+                    Ok(report)
+                })
             } else {
                 Self::measure_phase(phase_timings, "emit_object", || {
                     codegen.emit_to_file(
@@ -343,13 +355,30 @@ impl CompilerDriver {
                 collect_codegen_diagnostics,
             );
         }
+        if self.options.lto_mode == LtoMode::Thin {
+            return self.compile_partitioned_units_thin_lto(
+                ctx,
+                loaded_sources,
+                phase_timings,
+                target,
+                module_name,
+                mast_module,
+                codegen_unit_plans,
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+            );
+        }
 
-        let emit_multi_object_dir =
-            self.options.driver_mode.emits_linker_input() && self.options.emit_multi_object_dir;
-        if emit_multi_object_dir && !self.prepare_multi_object_output_dir() {
+        let emit_multi_linker_input_dir = self.options.driver_mode.emits_linker_input()
+            && self.options.emit_multi_linker_input_dir;
+        if emit_multi_linker_input_dir && !self.prepare_multi_linker_input_output_dir() {
             return None;
         }
-        let object_guards = if emit_multi_object_dir {
+        let object_guards = if emit_multi_linker_input_dir {
             Vec::new()
         } else {
             codegen_unit_plans
@@ -398,12 +427,312 @@ impl CompilerDriver {
         }));
 
         if self.options.driver_mode.emits_linker_input() {
-            if emit_multi_object_dir {
-                if let Err(err) = self.write_multi_object_manifest(&object_paths) {
+            if emit_multi_linker_input_dir {
+                if let Err(err) = self.write_multi_linker_input_manifest(&object_paths) {
                     eprintln!(
-                        "Error: Failed to record multi-object linker inputs `{}`: {}",
+                        "Error: Failed to record preserved linker inputs `{}`: {}",
                         self.options.output_file, err
                     );
+                    return None;
+                }
+                Self::print_buffered_diagnostics(ctx.sess);
+                return Some(Self::build_compile_report(
+                    loaded_sources.to_vec(),
+                    std::mem::take(phase_timings),
+                    cache_stats,
+                    lower_cache_stats,
+                    mast_workload,
+                    mir_workload,
+                    codegen_plan_report,
+                    collect_codegen_diagnostics,
+                    codegen_report,
+                    Some(emit_report),
+                ));
+            }
+
+            let merged_output_path = self.make_temp_relocatable_merge_path();
+            let merged_output_guard = TempFileGuard {
+                path: merged_output_path.clone(),
+            };
+            let merged = Self::measure_phase(phase_timings, "merge_object", || {
+                self.run_relocatable_link_command(
+                    &object_paths,
+                    target,
+                    &merged_output_path,
+                    &self.options.output_file,
+                    "Successfully emitted linker input",
+                )
+            });
+            drop(object_guards);
+            if !merged {
+                drop(merged_output_guard);
+                return None;
+            }
+            if let Err(err) = std::fs::rename(&merged_output_path, &self.options.output_file) {
+                eprintln!(
+                    "Error: Failed to stage merged linker input `{}`: {}",
+                    self.options.output_file, err
+                );
+                drop(merged_output_guard);
+                return None;
+            }
+            drop(merged_output_guard);
+            Self::print_buffered_diagnostics(ctx.sess);
+            return Some(Self::build_compile_report(
+                loaded_sources.to_vec(),
+                std::mem::take(phase_timings),
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        let linked = Self::measure_phase(phase_timings, "link", || {
+            self.run_link_command_with_inputs(&object_paths, target, "Successfully compiled")
+        });
+        drop(object_guards);
+        if linked {
+            Self::print_buffered_diagnostics(ctx.sess);
+        }
+        linked.then_some(Self::build_compile_report(
+            loaded_sources.to_vec(),
+            std::mem::take(phase_timings),
+            cache_stats,
+            lower_cache_stats,
+            mast_workload,
+            mir_workload,
+            codegen_plan_report,
+            collect_codegen_diagnostics,
+            codegen_report,
+            Some(emit_report),
+        ))
+    }
+
+    fn compile_partitioned_units_thin_lto(
+        &self,
+        ctx: &mut SemaContext<'_>,
+        loaded_sources: &[PathBuf],
+        phase_timings: &mut Vec<PhaseTiming>,
+        target: &LinkTarget,
+        module_name: &str,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
+        cache_stats: CompileCacheStats,
+        lower_cache_stats: kernc_lower::LowerCacheStats,
+        mast_workload: kernc_mast::MastWorkloadStats,
+        mir_workload: kernc_mir::MirWorkloadStats,
+        codegen_plan_report: Option<CodegenPlanReport>,
+        collect_codegen_diagnostics: bool,
+    ) -> Option<CompileReport> {
+        type CompletedThinLtoUnit = (usize, String, Vec<u8>, CodegenReport, EmitObjectReport);
+
+        let started = Instant::now();
+        let mir_unit_batch =
+            match self.partitioned_mir_unit_reports(mast_module, codegen_unit_plans) {
+                Ok(batch) => batch,
+                Err(err) => {
+                    eprintln!("Error: failed to build partitioned MIR units for ThinLTO: {err}");
+                    return None;
+                }
+            };
+        let asm_dialect = self.codegen_asm_dialect();
+        let worker_count = Self::codegen_worker_count(mir_unit_batch.reports.len());
+        let mut pending = mir_unit_batch.reports.iter().collect::<Vec<_>>();
+        let mut completed = Vec::<CompletedThinLtoUnit>::with_capacity(pending.len());
+        while !pending.is_empty() {
+            let take = worker_count.min(pending.len());
+            let chunk = pending.drain(..take).collect::<Vec<_>>();
+            let mut chunk_results = match std::thread::scope(|scope| {
+                let mut handles = Vec::<
+                    std::thread::ScopedJoinHandle<'_, Result<CompletedThinLtoUnit, String>>,
+                >::with_capacity(chunk.len());
+                for unit in chunk {
+                    let mut worker_session = ctx.sess.clone();
+                    let worker_registry = ctx.type_registry.clone();
+                    let module_name = format!("{}_{}", module_name, unit.unit_name);
+                    let target_triple = target.triple.clone();
+                    let split_sections_for_gc = self.options.split_sections_for_gc;
+                    let opt_level = self.options.opt_level;
+                    let collect_diagnostics = collect_codegen_diagnostics;
+                    handles.push(scope.spawn(move || {
+                        let codegen_ctx = Context::create();
+                        let mut codegen = CodeGenerator::new(
+                            &codegen_ctx,
+                            &module_name,
+                            &mut worker_session,
+                            &worker_registry,
+                            split_sections_for_gc,
+                        );
+                        codegen.set_asm_dialect(asm_dialect);
+                        let codegen_report =
+                            codegen.compile_mir(&unit.mir_report.module, collect_diagnostics);
+                        let (bitcode, emit_report) = codegen.emit_thin_lto_bitcode(
+                            &target_triple,
+                            opt_level,
+                            collect_diagnostics,
+                        )?;
+                        Ok::<_, String>((
+                            unit.index,
+                            unit.unit_name.clone(),
+                            bitcode,
+                            codegen_report,
+                            emit_report,
+                        ))
+                    }));
+                }
+
+                let mut results = Vec::with_capacity(handles.len());
+                for handle in handles {
+                    let result = handle
+                        .join()
+                        .map_err(|_| "parallel ThinLTO LLVM worker panicked".to_string())??;
+                    results.push(result);
+                }
+                Ok::<_, String>(results)
+            }) {
+                Ok(results) => results,
+                Err(err) => {
+                    eprintln!("Error: LLVM failed to build a ThinLTO codegen unit: {err}");
+                    return None;
+                }
+            };
+            completed.append(&mut chunk_results);
+        }
+        completed.sort_by_key(|(index, _, _, _, _)| *index);
+
+        let mut codegen_report = CodegenReport::default();
+        let mut emit_report = EmitObjectReport::default();
+        let thin_modules = completed
+            .into_iter()
+            .map(|(_, unit_name, bitcode, unit_report, unit_emit_report)| {
+                Self::absorb_codegen_report(&mut codegen_report, unit_report);
+                Self::absorb_emit_report(&mut emit_report, unit_emit_report);
+                ThinLtoModule {
+                    identifier: format!("{}_{}", module_name, unit_name),
+                    bitcode,
+                }
+            })
+            .collect::<Vec<_>>();
+
+        phase_timings.push(PhaseTiming {
+            name: "codegen_units",
+            duration: started.elapsed(),
+        });
+        phase_timings.push(PhaseTiming {
+            name: "  mir_units",
+            duration: mir_unit_batch.wall_duration,
+        });
+        phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
+        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
+
+        let thin_lto_started = Instant::now();
+        let emit_multi_linker_input_dir = self.options.driver_mode.emits_linker_input()
+            && self.options.emit_multi_linker_input_dir;
+        if self.emit_thin_lto_bitcode_linker_input() {
+            if emit_multi_linker_input_dir && !self.prepare_multi_linker_input_output_dir() {
+                return None;
+            }
+            let mut link_input_paths = Vec::with_capacity(thin_modules.len());
+            for (index, module) in thin_modules.iter().enumerate() {
+                let link_input_path = if emit_multi_linker_input_dir {
+                    self.make_multi_linker_input_codegen_unit_path(&format!("thin{index}"))
+                } else {
+                    self.options.output_file.clone()
+                };
+                if let Err(err) = fs::write(&link_input_path, &module.bitcode) {
+                    eprintln!(
+                        "Error: Failed to materialize ThinLTO linker input `{}`: {}",
+                        link_input_path, err
+                    );
+                    return None;
+                }
+                link_input_paths.push(link_input_path);
+            }
+            if emit_multi_linker_input_dir {
+                if let Err(err) = self.write_multi_linker_input_manifest(&link_input_paths) {
+                    eprintln!(
+                        "Error: Failed to record preserved linker inputs `{}`: {}",
+                        self.options.output_file, err
+                    );
+                    return None;
+                }
+            }
+            Self::print_buffered_diagnostics(ctx.sess);
+            return Some(Self::build_compile_report(
+                loaded_sources.to_vec(),
+                std::mem::take(phase_timings),
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        let object_buffers = match run_thin_lto(&thin_modules) {
+            Ok(objects) => objects,
+            Err(err) => {
+                eprintln!("Error: LLVM ThinLTO failed during post-link processing: {err}");
+                return None;
+            }
+        };
+        phase_timings.push(PhaseTiming {
+            name: "thin_lto",
+            duration: thin_lto_started.elapsed(),
+        });
+
+        if emit_multi_linker_input_dir && !self.prepare_multi_linker_input_output_dir() {
+            return None;
+        }
+        let object_guards = if emit_multi_linker_input_dir {
+            Vec::new()
+        } else {
+            (0..object_buffers.len())
+                .map(|index| TempFileGuard {
+                    path: self.make_temp_codegen_unit_path(&format!("thin{index}")),
+                })
+                .collect::<Vec<_>>()
+        };
+        let mut object_paths = Vec::with_capacity(object_buffers.len());
+        for (index, object) in object_buffers.iter().enumerate() {
+            let object_path = if emit_multi_linker_input_dir {
+                self.make_multi_linker_input_codegen_unit_path(&format!("thin{index}"))
+            } else {
+                self.make_temp_codegen_unit_path(&format!("thin{index}"))
+            };
+            if let Err(err) = fs::write(&object_path, object) {
+                eprintln!(
+                    "Error: Failed to materialize ThinLTO object `{}`: {}",
+                    object_path, err
+                );
+                drop(object_guards);
+                return None;
+            }
+            object_paths.push(object_path);
+        }
+
+        if self.options.driver_mode.emits_linker_input() {
+            if emit_multi_linker_input_dir {
+                if let Err(err) = self.write_multi_linker_input_manifest(&object_paths) {
+                    eprintln!(
+                        "Error: Failed to record preserved linker inputs `{}`: {}",
+                        self.options.output_file, err
+                    );
+                    drop(object_guards);
                     return None;
                 }
                 Self::print_buffered_diagnostics(ctx.sess);
@@ -837,9 +1166,9 @@ impl CompilerDriver {
             .enumerate()
             .map(|(index, unit)| {
                 let object_path = if self.options.driver_mode.emits_linker_input()
-                    && self.options.emit_multi_object_dir
+                    && self.options.emit_multi_linker_input_dir
                 {
-                    self.make_multi_object_codegen_unit_path(&unit.name)
+                    self.make_multi_linker_input_codegen_unit_path(&unit.name)
                 } else {
                     self.make_temp_codegen_unit_path(&unit.name)
                 };
@@ -955,9 +1284,9 @@ impl CompilerDriver {
             let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
             let codegen_report = codegen.compile_mir(&mir_report.module, collect_diagnostics);
             let object_path = if self.options.driver_mode.emits_linker_input()
-                && self.options.emit_multi_object_dir
+                && self.options.emit_multi_linker_input_dir
             {
-                self.make_multi_object_codegen_unit_path(&unit.name)
+                self.make_multi_linker_input_codegen_unit_path(&unit.name)
             } else {
                 self.make_temp_codegen_unit_path(&unit.name)
             };
@@ -990,26 +1319,34 @@ impl CompilerDriver {
             .min(unit_count)
     }
 
-    fn prepare_multi_object_output_dir(&self) -> bool {
-        let dir = self.make_multi_object_dir_path();
+    fn emit_thin_lto_bitcode_linker_input(&self) -> bool {
+        self.options.driver_mode.emits_linker_input()
+            && matches!(
+                self.options.linker_input_flavor,
+                LinkerInputFlavor::ThinLtoBitcode
+            )
+    }
+
+    fn prepare_multi_linker_input_output_dir(&self) -> bool {
+        let dir = self.make_multi_linker_input_dir_path();
         let dir_path = Path::new(&dir);
         if dir_path.is_file() && fs::remove_file(dir_path).is_err() {
             eprintln!(
-                "Error: Failed to remove stale multi-object file `{}`.",
+                "Error: Failed to remove stale linker-input file `{}`.",
                 dir_path.display()
             );
             return false;
         }
         if dir_path.is_dir() && fs::remove_dir_all(dir_path).is_err() {
             eprintln!(
-                "Error: Failed to remove stale multi-object directory `{}`.",
+                "Error: Failed to remove stale linker-input directory `{}`.",
                 dir_path.display()
             );
             return false;
         }
         if let Err(err) = fs::create_dir_all(dir_path) {
             eprintln!(
-                "Error: Failed to create multi-object directory `{}`: {}",
+                "Error: Failed to create linker-input directory `{}`: {}",
                 dir_path.display(),
                 err
             );
@@ -1018,10 +1355,10 @@ impl CompilerDriver {
         true
     }
 
-    fn write_multi_object_manifest(&self, object_paths: &[String]) -> std::io::Result<()> {
+    fn write_multi_linker_input_manifest(&self, object_paths: &[String]) -> std::io::Result<()> {
         let mut contents = String::from("version=1\n");
         for object_path in object_paths {
-            contents.push_str("object=");
+            contents.push_str("linker_input=");
             contents.push_str(object_path);
             contents.push('\n');
         }

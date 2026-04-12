@@ -1,4 +1,5 @@
 use super::*;
+use kernc_utils::config::LtoMode;
 
 #[test]
 fn runtime_packages_are_reused_across_fresh_workspaces() {
@@ -214,6 +215,7 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
         opt: 3,
         debug: false,
         codegen_units: 2,
+        lto_mode: LtoMode::Thin,
     };
 
     let summary = super::runtime_packages::with_test_runtime_cache_root(cache_root.clone(), || {
@@ -229,14 +231,16 @@ fn runtime_packages_preserve_multi_object_outputs_for_release_codegen_units() {
         .join("std")
         .join("lib")
         .join("std.o");
-    let std_object_dir = super::multi_object_output_dir(&std_object);
+    let std_object_dir = super::multi_linker_input_dir(&std_object);
     assert!(std_object.is_file());
     assert!(std_object_dir.is_dir());
+    let linker_inputs = super::linker_input_paths_for_primary_output(&std_object).unwrap();
+    assert!(linker_inputs.len() > 1);
     assert!(
-        super::linker_input_paths_for_primary_output(&std_object)
-            .unwrap()
-            .len()
-            > 1
+        linker_inputs
+            .iter()
+            .all(|path| super::has_llvm_bitcode_magic(path)),
+        "expected preserved runtime linker inputs to stay as ThinLTO bitcode"
     );
 
     let _ = fs::remove_dir_all(cache_root);

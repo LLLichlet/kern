@@ -242,6 +242,14 @@ fn validate_profile(path: &Path, section: &str, profile: &Profile) -> Result<()>
             message: format!("{section}.codegen-units must be greater than zero"),
         });
     }
+    if let Some(lto) = profile.lto.as_deref()
+        && let Err(message) = kernc_utils::config::LtoMode::parse(lto)
+    {
+        return Err(Error::Validation {
+            path: path.to_path_buf(),
+            message: format!("{section}.lto {message}"),
+        });
+    }
     let _ = profile.debug;
     Ok(())
 }

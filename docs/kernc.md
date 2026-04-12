@@ -10,7 +10,7 @@ This document describes how to use `kernc`, the Kern compiler driver.
 
 - Parsing, analyzing, lowering, and code generating a single Kern source entry point.
 - Emitting LLVM IR for inspection at explicit pipeline stages.
-- Emitting a linker input artifact such as an object file.
+- Emitting a linker input artifact such as a native object file or ThinLTO prelink bitcode.
 - Invoking a system linker driver with explicit inputs and link configuration.
 
 `kernc` is not responsible for:
@@ -190,13 +190,13 @@ Use `--lto <none|full|thin>` to control cross-CGU optimization:
 - `none`: keep the ordinary multi-object path
 - `full`: merge partitioned LLVM modules back into one whole-program module and
   run the LLVM module pipeline once
-- `thin`: reserved for future summary/import-export work; `kernc` rejects it
-  explicitly today
+- `thin`: keep partitioned codegen, but enable the compiler-owned summary and
+  cross-CGU import/export planning path
 
 Current explicit boundary:
 
 - `--emit-llvm` with `--codegen-units > 1` requires `--lto full`
-- `--emit-multi-object-dir` is incompatible with `--lto full`
+- preserved per-CGU linker-input directories are incompatible with `--lto full`
 - `--link-only` cannot perform LTO
 
 ### Target Triple

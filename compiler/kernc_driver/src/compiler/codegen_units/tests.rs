@@ -1,9 +1,10 @@
 use super::materialize_codegen_unit;
 use super::plan::{plan_codegen_units, plan_codegen_units_with_report};
 use super::plan_codegen_units_with_mir_summary;
+use crate::CodegenPlanFallback;
 use kernc_mast::{
-    MastBlock, MastExpr, MastExprKind, MastFunction, MastGlobal, MastInlineHint, MastLinkage,
-    MastModule, MastParam, MastStmt,
+    MastAsmBlock, MastBlock, MastExpr, MastExprKind, MastFunction, MastGlobal, MastInlineHint,
+    MastLinkage, MastModule, MastParam, MastStmt,
 };
 use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::ty::TypeId;
@@ -45,10 +46,18 @@ fn inline_function(id: u32, name: &str, linkage: MastLinkage, body: Vec<MastExpr
 }
 
 fn internal_global(id: u32, name: &str) -> MastGlobal {
+    global(id, name, MastLinkage::Internal)
+}
+
+fn link_once_global(id: u32, name: &str) -> MastGlobal {
+    global(id, name, MastLinkage::LinkOnceOdr)
+}
+
+fn global(id: u32, name: &str, linkage: MastLinkage) -> MastGlobal {
     MastGlobal {
         id: MonoId(id),
         name: name.to_string(),
-        linkage: MastLinkage::Internal,
+        linkage,
         ty: TypeId::U32,
         is_mut: false,
         init: Some(MastExpr::new(
@@ -279,6 +288,89 @@ fn link_once_odr_items_do_not_become_partition_roots() {
 }
 
 #[test]
+fn shared_link_once_odr_functions_are_owned_without_internal_promotion() {
+    let shared = function(10, "generic_helper", MastLinkage::LinkOnceOdr, Vec::new());
+    let root_a = function(1, "a", MastLinkage::External, vec![call(10)]);
+    let root_b = function(2, "b", MastLinkage::External, vec![call(10)]);
+    let module = MastModule {
+        name: "demo".to_string(),
+        structs: Vec::new(),
+        globals: Vec::new(),
+        functions: vec![root_a, root_b, shared],
+        mono: MonoModuleMetadata::default(),
+    };
+
+    let units = plan_codegen_units(&module, 2);
+    assert_eq!(units.len(), 2);
+
+    let owner = units
+        .iter()
+        .find(|unit| unit.function_ids.contains(&MonoId(10)))
+        .expect("shared linkonce helper must be owned by one unit");
+    assert!(!owner.promoted_function_ids.contains(&MonoId(10)));
+
+    let owner_materialized = materialize_codegen_unit(&module, owner);
+    let owned_shared = owner_materialized
+        .functions
+        .iter()
+        .find(|function| function.id == MonoId(10))
+        .expect("owner must keep the shared linkonce helper body");
+    assert!(owned_shared.body.is_some());
+    assert_eq!(owned_shared.linkage, MastLinkage::LinkOnceOdr);
+
+    let importer = units
+        .iter()
+        .find(|unit| !unit.function_ids.contains(&MonoId(10)))
+        .expect("other unit must reference the shared linkonce helper");
+    let importer_materialized = materialize_codegen_unit(&module, importer);
+    let imported_shared = importer_materialized
+        .functions
+        .iter()
+        .find(|function| function.id == MonoId(10))
+        .expect("importer must see a declaration for the shared linkonce helper");
+    assert!(imported_shared.body.is_none());
+    assert!(imported_shared.is_extern);
+    assert_eq!(imported_shared.linkage, MastLinkage::External);
+}
+
+#[test]
+fn owned_link_once_odr_globals_materialize_as_exported_definitions() {
+    let root_a = function(
+        1,
+        "a",
+        MastLinkage::External,
+        vec![void_expr(MastExprKind::GlobalRef(MonoId(10)))],
+    );
+    let root_b = function(
+        2,
+        "b",
+        MastLinkage::External,
+        vec![void_expr(MastExprKind::GlobalRef(MonoId(10)))],
+    );
+    let shared = link_once_global(10, "GENERIC");
+    let module = MastModule {
+        name: "demo".to_string(),
+        structs: Vec::new(),
+        globals: vec![shared],
+        functions: vec![root_a, root_b],
+        mono: MonoModuleMetadata::default(),
+    };
+
+    let units = plan_codegen_units(&module, 2);
+    let owner = units
+        .iter()
+        .find(|unit| unit.global_ids.contains(&MonoId(10)))
+        .expect("shared linkonce global must be owned by one unit");
+    let owned_shared = materialize_codegen_unit(&module, owner)
+        .globals
+        .into_iter()
+        .find(|global| global.id == MonoId(10))
+        .expect("owner must keep the shared linkonce global init");
+    assert!(owned_shared.init.is_some());
+    assert_eq!(owned_shared.linkage, MastLinkage::LinkOnceOdr);
+}
+
+#[test]
 fn mir_summary_can_drive_codegen_unit_workload_estimates() {
     let root_a = function(1, "a", MastLinkage::External, vec![call(2), call(2)]);
     let root_b = function(2, "b", MastLinkage::External, Vec::new());
@@ -357,6 +449,38 @@ fn summary_planner_imports_small_inline_shared_helpers_across_units() {
         .into_iter()
         .find(|function| function.id == MonoId(10))
         .expect("imported helper should be materialized");
+    assert!(imported.body.is_some());
+    assert_eq!(imported.linkage, MastLinkage::Internal);
+    assert!(!imported.is_extern);
+}
+
+#[test]
+fn summary_planner_can_import_small_inline_link_once_odr_helpers() {
+    let shared = inline_function(10, "shared", MastLinkage::LinkOnceOdr, Vec::new());
+    let root_a = function(1, "a", MastLinkage::External, vec![call(10)]);
+    let root_b = function(2, "b", MastLinkage::External, vec![call(10)]);
+    let module = MastModule {
+        name: "demo".to_string(),
+        structs: Vec::new(),
+        globals: Vec::new(),
+        functions: vec![root_a, root_b, shared],
+        mono: MonoModuleMetadata::default(),
+    };
+
+    let mir_report = kernc_mir_lower::build_from_mast(&module);
+    let outcome = plan_codegen_units_with_mir_summary(&module, &mir_report.summary, 2);
+
+    assert_eq!(outcome.report.imported_function_count, 1);
+    let importer = outcome
+        .units
+        .iter()
+        .find(|unit| unit.imported_function_ids.contains(&MonoId(10)))
+        .expect("one unit should import the shared linkonce helper body");
+    let imported = materialize_codegen_unit(&module, importer)
+        .functions
+        .into_iter()
+        .find(|function| function.id == MonoId(10))
+        .expect("imported linkonce helper should be materialized");
     assert!(imported.body.is_some());
     assert_eq!(imported.linkage, MastLinkage::Internal);
     assert!(!imported.is_extern);
@@ -465,5 +589,41 @@ fn summary_planner_skips_inline_imports_that_exceed_unit_budget() {
             .units
             .iter()
             .all(|unit| unit.imported_function_ids.is_empty())
+    );
+}
+
+#[test]
+fn summary_planner_disables_thin_partitioning_for_control_flow_asm_bodies() {
+    let asm_root = function(
+        1,
+        "_start",
+        MastLinkage::External,
+        vec![void_expr(MastExprKind::Asm(MastAsmBlock {
+            asm_template: "call kern_entry_linux".to_string(),
+            constraints: "~{memory}".to_string(),
+            input_args: Vec::new(),
+            output_ptrs: Vec::new(),
+            output_tys: Vec::new(),
+            is_volatile: true,
+        }))],
+    );
+    let helper = function(2, "kern_entry_linux", MastLinkage::External, Vec::new());
+    let module = MastModule {
+        name: "demo".to_string(),
+        structs: Vec::new(),
+        globals: Vec::new(),
+        functions: vec![asm_root, helper],
+        mono: MonoModuleMetadata::default(),
+    };
+
+    let mir_report = kernc_mir_lower::build_from_mast(&module);
+    let outcome = plan_codegen_units_with_mir_summary(&module, &mir_report.summary, 2);
+
+    assert!(outcome.units.is_empty());
+    assert_eq!(
+        outcome.report.fallback_reason,
+        Some(CodegenPlanFallback::ContainsControlFlowAsm {
+            function_name: "_start".to_string(),
+        })
     );
 }

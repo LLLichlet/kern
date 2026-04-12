@@ -130,6 +130,16 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     _ => Some(array_ty.const_zero().into()),
                 }
             }
+            MirStaticInit::FatPointer { ty, data_ptr, meta } => {
+                let struct_ty = self.get_llvm_type(*ty).into_struct_type();
+                let data_ptr_const = self.compile_mir_static_init(data_ptr)?;
+                let meta_const = self.compile_mir_static_init(meta)?;
+                Some(
+                    struct_ty
+                        .const_named_struct(&[data_ptr_const, meta_const])
+                        .into(),
+                )
+            }
             MirStaticInit::Struct {
                 struct_id, fields, ..
             } => {
@@ -356,7 +366,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     if cfg!(windows) {
                         global_val.set_linkage(Linkage::Internal);
                     } else {
-                        global_val.set_linkage(Linkage::LinkOnceOdr);
+                        global_val.set_linkage(Linkage::WeakOdr);
                     }
                 }
                 MirLinkage::Internal => global_val.set_linkage(Linkage::Internal),
@@ -475,9 +485,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     if cfg!(windows) {
                         llvm_func.as_global_value().set_linkage(Linkage::Internal);
                     } else {
-                        llvm_func
-                            .as_global_value()
-                            .set_linkage(Linkage::LinkOnceOdr);
+                        llvm_func.as_global_value().set_linkage(Linkage::WeakOdr);
                     }
                 }
                 MirLinkage::Internal => llvm_func.as_global_value().set_linkage(Linkage::Internal),

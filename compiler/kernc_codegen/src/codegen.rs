@@ -25,6 +25,7 @@ use llvm_sys::transforms::pass_builder::{
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ptr;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use kernc_mir::{MirLocalId, MirModule};
@@ -44,6 +45,12 @@ mod mir;
 mod refs;
 mod simd_shared;
 mod types;
+
+// LLVM's ThinLTO prelink bitcode emission is not robust under concurrent
+// execution in the current in-process pipeline. Keep the rest of multi-CGU
+// lowering/codegen parallel, but serialize the prelink/bitcode handoff itself
+// so release-thin stays stable until LLVM-side concurrency is proven sound.
+static THIN_LTO_BITCODE_EMIT_LOCK: Mutex<()> = Mutex::new(());
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CodegenTiming {
@@ -685,6 +692,85 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         Ok(report)
     }
 
+    pub fn emit_thin_lto_bitcode(
+        &self,
+        target_triple_str: &str,
+        opt_level: OptLevel,
+        collect_diagnostics: bool,
+    ) -> Result<(Vec<u8>, EmitObjectReport), String> {
+        let _thin_lto_emit_guard = THIN_LTO_BITCODE_EMIT_LOCK
+            .lock()
+            .map_err(|_| "ThinLTO bitcode emit lock was poisoned".to_string())?;
+        let mut report = EmitObjectReport::default();
+        let init_started = Instant::now();
+        initialize_llvm_targets();
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_init_llvm",
+            duration: init_started.elapsed(),
+        });
+        let triple = CString::new(target_triple_str).map_err(|_| {
+            format!("Target triple contains an interior NUL byte: {target_triple_str:?}")
+        })?;
+        let setup_started = Instant::now();
+        let target_machine = create_target_machine(&triple, opt_level)?;
+        let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
+        unsafe {
+            LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
+            LLVMSetTarget(self.module.as_mut_ptr(), triple.as_ptr());
+        }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_setup",
+            duration: setup_started.elapsed(),
+        });
+
+        let verify_started = Instant::now();
+        if let Err(err) = self.module.verify() {
+            eprintln!("LLVM IR Verification Failed:\n{}", err);
+            let _ = self.print_ir();
+            unsafe {
+                LLVMDisposeTargetData(target_data);
+                LLVMDisposeTargetMachine(target_machine);
+            }
+            return Err("Invalid LLVM IR generated".to_string());
+        }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_verify",
+            duration: verify_started.elapsed(),
+        });
+
+        let cleanup_before_stats =
+            collect_diagnostics.then(|| self.collect_ir_instruction_stats().0);
+        let optimize_started = Instant::now();
+        self.run_llvm_thin_lto_prelink_pipeline(target_machine, opt_level)?;
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_thinlto_prelink",
+            duration: optimize_started.elapsed(),
+        });
+        if let Some(cleanup_before_stats) = cleanup_before_stats {
+            let cleanup_after_stats = self.collect_ir_instruction_stats().0;
+            report.ir_cleanup_stats = Some(IrCleanupStats {
+                before: cleanup_before_stats,
+                after: cleanup_after_stats,
+            });
+            report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
+            report.remaining_alloca_names = self.collect_remaining_alloca_names();
+        }
+
+        let serialize_started = Instant::now();
+        let bitcode = self.module.bitcode();
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_bitcode",
+            duration: serialize_started.elapsed(),
+        });
+
+        unsafe {
+            LLVMDisposeTargetData(target_data);
+            LLVMDisposeTargetMachine(target_machine);
+        }
+
+        bitcode.map(|bitcode| (bitcode, report))
+    }
+
     fn emit_to_file_windows(
         &self,
         target_triple_str: &str,
@@ -862,6 +948,23 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let Some(pass_pipeline) = llvm_module_pass_pipeline(opt_level) else {
             return Ok(());
         };
+        self.run_llvm_pipeline(target_machine, &pass_pipeline)
+    }
+
+    fn run_llvm_thin_lto_prelink_pipeline(
+        &self,
+        target_machine: LLVMTargetMachineRef,
+        opt_level: OptLevel,
+    ) -> Result<(), String> {
+        let pass_pipeline = llvm_thin_lto_prelink_pipeline(opt_level);
+        self.run_llvm_pipeline(target_machine, &pass_pipeline)
+    }
+
+    fn run_llvm_pipeline(
+        &self,
+        target_machine: LLVMTargetMachineRef,
+        pass_pipeline: &CString,
+    ) -> Result<(), String> {
         let options = unsafe { LLVMCreatePassBuilderOptions() };
         let err = unsafe {
             LLVMRunPasses(
@@ -919,6 +1022,16 @@ fn llvm_module_pass_pipeline(opt_level: OptLevel) -> Option<CString> {
         OptLevel::O3 => "always-inline,default<O3>",
     };
     Some(CString::new(pipeline).unwrap())
+}
+
+fn llvm_thin_lto_prelink_pipeline(opt_level: OptLevel) -> CString {
+    let pipeline = match opt_level {
+        OptLevel::O0 => "thinlto-pre-link<O0>",
+        OptLevel::O1 => "thinlto-pre-link<O1>",
+        OptLevel::O2 => "thinlto-pre-link<O2>",
+        OptLevel::O3 => "thinlto-pre-link<O3>",
+    };
+    CString::new(pipeline).unwrap()
 }
 
 fn initialize_llvm_targets() {

@@ -191,6 +191,10 @@ pub fn build(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<Executi
     build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Build)
 }
 
+pub fn check(build_plan: &BuildPlan, action_plan: &ActionPlan) -> Result<ExecutionSummary> {
+    build_with_command(build_plan, action_plan, crate::script::ScriptCommand::Check)
+}
+
 pub(crate) fn materialize_analysis_inputs(
     build_plan: &BuildPlan,
     action_plan: &ActionPlan,
@@ -203,6 +207,7 @@ pub(crate) fn materialize_analysis_inputs(
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
+        crate::script::ScriptCommand::Build,
         &mut built_std_packages,
         &mut driver_families,
         &mut summary,
@@ -428,6 +433,7 @@ fn build_with_command(
     ensure_std_packages_for_actions(
         &build_plan.workspace_root,
         &action_plan.compile_actions,
+        command,
         &mut built_std_packages,
         &mut driver_families,
         &mut external_summary,
@@ -509,6 +515,7 @@ fn build_with_command(
             break;
         }
         for result in build_parallel_target_compile_jobs(
+            command,
             &jobs,
             &local_library_actions,
             &built_std_packages,
@@ -547,10 +554,25 @@ fn build_with_command(
             }
             ensure_compile_action_built(action, &mut session)?;
         }
+
+        if command == crate::script::ScriptCommand::Check {
+            for action in &action_plan.compile_actions {
+                if action.domain != BuildDomain::Target {
+                    continue;
+                }
+                ensure_compile_action_built(action, &mut session)?;
+            }
+        }
+    }
+
+    if command == crate::script::ScriptCommand::Check {
+        external_summary.absorb(local_summary);
+        return Ok(external_summary);
     }
 
     let parallel_jobs = parallel_target_link_jobs(action_plan, &compile_action_index, &linked)?;
     for result in build_parallel_target_link_jobs(
+        command,
         &parallel_jobs,
         &local_library_actions,
         &built_std_packages,
@@ -736,6 +758,7 @@ fn build_compile_action_if_needed(
     }
 
     let emit_multi_linker_input_dir = options.emit_multi_linker_input_dir;
+    let emits_linker_input = options.driver_mode.emits_linker_input();
     let compile_label = compile_action_label(action, &options);
     let compile_tags = compile_action_detail_tags(&options);
     let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -745,7 +768,13 @@ fn build_compile_action_if_needed(
         )));
     };
 
-    write_compile_action_state(action, emit_multi_linker_input_dir, &report, fingerprint)?;
+    write_compile_action_state(
+        action,
+        emits_linker_input,
+        emit_multi_linker_input_dir,
+        &report,
+        fingerprint,
+    )?;
 
     execution_summary.record_compile_cache_miss();
     execution_summary.compile_actions += 1;
@@ -833,6 +862,7 @@ fn ensure_compile_action_built(
     ensure_parent_dir(&action.artifact_path)?;
 
     let options = compile_action_options(
+        session.config.command,
         action,
         session.indexes.local_library_actions,
         session.external.built_std_packages,

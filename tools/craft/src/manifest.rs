@@ -150,7 +150,7 @@ pub(super) enum Section {
     Lib,
     Bin(usize),
     Test,
-    Example(usize),
+    Example,
     Dependencies,
     DevDependencies,
     BuildDependencies,

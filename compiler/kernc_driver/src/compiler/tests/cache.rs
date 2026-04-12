@@ -374,6 +374,108 @@ fn compile_report_exposes_cache_hits_and_frontend_parse_deltas() {
 }
 
 #[test]
+fn analyze_only_skips_object_emission() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analyze_only_no_object_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(&source, "fn main() i32 { return 1; }").unwrap();
+
+    let report = CompilerDriver::new(CompileOptions {
+        input_file: Some(source.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::AnalyzeOnly,
+        report_progress: false,
+        ..CompileOptions::default()
+    })
+    .compile_with_report()
+    .expect("analyze-only should succeed");
+
+    assert!(report.lower_cache_stats.is_none());
+    assert!(!object.exists(), "analyze-only must not emit linker input");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analyze_only_still_emits_metadata() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analyze_only_metadata_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("lib.rn");
+    let object = root.join("lib.o");
+    let metadata = root.join("meta");
+    fs::write(&source, "pub fn answer() i32 { return 42; }").unwrap();
+
+    CompilerDriver::new(CompileOptions {
+        input_file: Some(source.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        metadata_output: Some(metadata.to_string_lossy().to_string()),
+        metadata_package_name: Some("demo".to_string()),
+        metadata_package_version: Some("0.1.0".to_string()),
+        root_module_name: Some("demo".to_string()),
+        driver_mode: DriverMode::AnalyzeOnly,
+        report_progress: false,
+        ..CompileOptions::default()
+    })
+    .compile_with_report()
+    .expect("analyze-only metadata emission should succeed");
+
+    assert!(
+        metadata.join(crate::KMETA_MANIFEST_FILE).is_file(),
+        "analyze-only library compile should emit kmeta"
+    );
+    assert!(!object.exists(), "analyze-only must not emit linker input");
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn analyze_only_reports_semantic_errors() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_analyze_only_semantic_error_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let source = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(&source, "fn main() i32 { return missing_symbol; }").unwrap();
+
+    let report = CompilerDriver::new(CompileOptions {
+        input_file: Some(source.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::AnalyzeOnly,
+        report_progress: false,
+        ..CompileOptions::default()
+    })
+    .compile_with_report();
+
+    assert!(
+        report.is_none(),
+        "analyze-only must still reject semantic errors"
+    );
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_report_exposes_mir_workload_stats() {
     let root = std::env::temp_dir().join(format!(
         "kern_compile_mir_workload_{}_{}",

@@ -1,6 +1,6 @@
 use super::{
-    ColorChoice, Command, UiOptions, parse_args, run_command, summarize_check_sources,
-    summarize_source_security, validate_check_source_policy,
+    ColorChoice, Command, RunSelection, UiOptions, parse_args, run_command,
+    summarize_check_sources, summarize_source_security, validate_check_source_policy,
 };
 use crate::elaborate::FeatureSelection;
 use crate::graph::SourceId;
@@ -81,9 +81,8 @@ kern = "0.6.7"
 name = "demo"
 root = "src/main.rn"
 
-[[example]]
-name = "sample"
-root = "examples/sample.rn"
+[example]
+roots = ["examples/sample.rn"]
 "#,
     )
     .unwrap();
@@ -153,6 +152,24 @@ fn parses_check_with_path_and_feature_options() {
             assert_eq!(ui, UiOptions::default());
         }
         other => panic!("expected check command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_init_with_project_path() {
+    let cmd = parse_args([
+        "init".to_string(),
+        "--project-path".to_string(),
+        "demo".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Init { path, ui } => {
+            assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
+            assert_eq!(ui, UiOptions::default());
+        }
+        other => panic!("expected init command, got {other:?}"),
     }
 }
 
@@ -340,11 +357,30 @@ fn parses_run_with_path() {
             path,
             feature_selection,
             ui,
+            selection,
         } => {
             assert_eq!(path.as_deref(), Some(std::path::Path::new("demo")));
             assert!(feature_selection.enable_default);
             assert!(feature_selection.explicit.is_empty());
             assert_eq!(ui, UiOptions::default());
+            assert_eq!(selection, RunSelection::DefaultBin);
+        }
+        other => panic!("expected run command, got {other:?}"),
+    }
+}
+
+#[test]
+fn parses_run_example_selector() {
+    let cmd = parse_args([
+        "run".to_string(),
+        "--example".to_string(),
+        "sample".to_string(),
+    ])
+    .unwrap();
+
+    match cmd {
+        Command::Run { selection, .. } => {
+            assert_eq!(selection, RunSelection::Example("sample".to_string()));
         }
         other => panic!("expected run command, got {other:?}"),
     }
@@ -469,6 +505,19 @@ fn parses_build_examples_flag() {
 fn rejects_examples_flag_for_non_build_commands() {
     let err = parse_args(["test".to_string(), "--examples".to_string()]).unwrap_err();
     assert!(err.to_string().contains("unsupported option `--examples`"));
+}
+
+#[test]
+fn rejects_multiple_run_target_selectors() {
+    let err = parse_args([
+        "run".to_string(),
+        "--bin".to_string(),
+        "demo".to_string(),
+        "--example".to_string(),
+        "sample".to_string(),
+    ])
+    .unwrap_err();
+    assert!(err.to_string().contains("accepts at most one"));
 }
 
 #[test]
@@ -777,6 +826,91 @@ fn build_command_can_include_examples() {
             .join(format!("sample{}", std::env::consts::EXE_SUFFIX))
             .is_file()
     );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn run_command_can_execute_selected_example() {
+    let root = temp_dir("craft-cli-run-example");
+    write_bin_and_example_package(&root);
+
+    run_command(Command::Run {
+        path: Some(root.clone()),
+        feature_selection: FeatureSelection::default(),
+        ui: UiOptions::default(),
+        selection: RunSelection::Example("sample".to_string()),
+    })
+    .unwrap();
+
+    assert!(
+        root.join(".craft/build/dev/target/out/demo-0.1.0/example")
+            .join(format!("sample{}", std::env::consts::EXE_SUFFIX))
+            .is_file()
+    );
+    assert!(
+        !root
+            .join(".craft/build/dev/target/out/demo-0.1.0/bin")
+            .join(format!("demo{}", std::env::consts::EXE_SUFFIX))
+            .exists()
+    );
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn init_command_scaffolds_minimal_bin_package() {
+    let root = temp_dir("craft-cli-init-minimal");
+
+    run_command(Command::Init {
+        path: Some(root.clone()),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+
+    let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
+    assert!(manifest.contains("[[bin]]"));
+    assert!(manifest.contains("root = \"src/main.rn\""));
+    assert_eq!(
+        fs::read_to_string(root.join(".gitignore")).unwrap(),
+        ".craft/\n"
+    );
+    assert!(root.join("src/main.rn").is_file());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn init_command_collects_existing_test_and_example_roots() {
+    let root = temp_dir("craft-cli-init-existing-layout");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("tests/nested")).unwrap();
+    fs::create_dir_all(root.join("examples")).unwrap();
+    fs::write(root.join("src/lib.rn"), "pub fn demo() void {}\n").unwrap();
+    fs::write(
+        root.join("tests/nested/smoke.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+    fs::write(
+        root.join("examples/sample.rn"),
+        "fn main() i32 { return 0; }\n",
+    )
+    .unwrap();
+
+    run_command(Command::Init {
+        path: Some(root.clone()),
+        ui: UiOptions::default(),
+    })
+    .unwrap();
+
+    let manifest = fs::read_to_string(root.join("Craft.toml")).unwrap();
+    assert!(manifest.contains("[lib]"));
+    assert!(manifest.contains("[test]"));
+    assert!(manifest.contains("\"tests/nested/smoke.rn\""));
+    assert!(manifest.contains("[example]"));
+    assert!(manifest.contains("\"examples/sample.rn\""));
+    assert!(!root.join("src/main.rn").exists());
 
     let _ = fs::remove_dir_all(root);
 }

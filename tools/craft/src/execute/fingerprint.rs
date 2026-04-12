@@ -34,6 +34,7 @@ pub(super) fn compile_action_fingerprint(
         format!("profile={}", action.profile.name),
         format!("opt={}", action.profile.opt),
         format!("debug={}", action.profile.debug),
+        format!("driver_mode={}", options.driver_mode.as_str()),
         format!("codegen_units={}", options.codegen_units),
         format!("lto={}", options.lto_mode.as_str()),
         format!(
@@ -103,6 +104,7 @@ pub(super) fn link_action_fingerprint(
 
 pub(super) fn write_compile_action_state(
     action: &CompileAction,
+    emits_linker_input: bool,
     emit_multi_linker_input_dir: bool,
     report: &CompileReport,
     fingerprint: String,
@@ -111,8 +113,11 @@ pub(super) fn write_compile_action_state(
     inputs.sort();
     inputs.dedup();
 
-    let mut outputs = vec![action.object_path.clone()];
-    if emit_multi_linker_input_dir {
+    let mut outputs = Vec::new();
+    if emits_linker_input {
+        outputs.push(action.object_path.clone());
+    }
+    if emits_linker_input && emit_multi_linker_input_dir {
         let multi_linker_input_dir = super::multi_linker_input_dir(&action.object_path);
         if multi_linker_input_dir.is_dir() {
             outputs.push(multi_linker_input_dir);
@@ -204,6 +209,10 @@ pub(super) fn rt_entry_compile_action_label(profile: &str, options: &CompileOpti
 }
 
 fn compile_pipeline_label(options: &CompileOptions) -> &'static str {
+    if options.driver_mode == kernc_utils::config::DriverMode::AnalyzeOnly {
+        return "semantic-check";
+    }
+
     match (
         options.linker_input_flavor.as_str(),
         options.lto_mode.as_str(),

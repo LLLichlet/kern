@@ -62,6 +62,7 @@ fn main() i32 {
         super::super::ensure_std_packages_for_actions(
             &root,
             &action_plan.compile_actions,
+            crate::script::ScriptCommand::Build,
             &mut built_std_packages,
             &mut driver_families,
             &mut execution_summary,
@@ -69,6 +70,7 @@ fn main() i32 {
         .unwrap();
 
         let options = super::super::compile_action_options(
+            crate::script::ScriptCommand::Build,
             action,
             &local_library_actions,
             &built_std_packages,

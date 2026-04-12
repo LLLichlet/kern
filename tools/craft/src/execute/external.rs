@@ -157,6 +157,7 @@ pub(super) fn build_external_package(
     ensure_std_packages_for_actions(
         config.std_workspace_root,
         &required_library_actions,
+        config.command,
         external.built_std_packages,
         external.driver_families,
         external_summary,
@@ -201,17 +202,21 @@ pub(super) fn build_external_package(
             .get(&runtime_profile_key(&root_library_action.profile)),
         external.built_external_packages,
     )?;
-    let link_objects = link_objects_for_compile_action(
-        root_library_action,
-        &{
-            let mut options = CompileOptions::default();
-            apply_target_runtime_defaults(&mut options, root_library_action.target_kind);
-            options
-        },
-        &loaded.local_library_actions,
-        external.built_std_packages,
-        external.built_external_packages,
-    )?;
+    let link_objects = if config.command == crate::script::ScriptCommand::Check {
+        Vec::new()
+    } else {
+        link_objects_for_compile_action(
+            root_library_action,
+            &{
+                let mut options = CompileOptions::default();
+                apply_target_runtime_defaults(&mut options, root_library_action.target_kind);
+                options
+            },
+            &loaded.local_library_actions,
+            external.built_std_packages,
+            external.built_external_packages,
+        )?
+    };
     external.built_external_packages.insert(
         dep.clone(),
         BuiltExternalPackage {
@@ -314,6 +319,7 @@ pub(super) fn ensure_external_tool_built(
     ensure_std_packages_for_actions(
         config.std_workspace_root,
         &required_compile_actions,
+        config.command,
         external.built_std_packages,
         external.driver_families,
         &mut external_summary,

@@ -49,7 +49,7 @@ impl Manifest {
 
         validate_named_targets(path, "[[bin]]", &self.bin)?;
         validate_test_targets(path, &self.test)?;
-        validate_named_targets(path, "[[example]]", &self.example)?;
+        validate_root_targets(path, "[example].roots", &self.example)?;
 
         validate_dependencies(path, "[dependencies]", &self.dependencies)?;
         validate_dependencies(path, "[dev-dependencies]", &self.dev_dependencies)?;
@@ -105,13 +105,17 @@ fn validate_named_targets(
 }
 
 fn validate_test_targets(path: &Path, targets: &[super::NamedTarget]) -> Result<()> {
+    validate_root_targets(path, "[test].roots", targets)
+}
+
+fn validate_root_targets(path: &Path, section: &str, targets: &[super::NamedTarget]) -> Result<()> {
     let mut names = BTreeSet::new();
     for target in targets {
-        validate_non_empty(path, "[test].roots[]", &target.root)?;
+        validate_non_empty(path, &format!("{section}[]"), &target.root)?;
         if !names.insert(target.name.as_str()) {
             return Err(Error::Validation {
                 path: path.to_path_buf(),
-                message: format!("duplicate test file stem `{}` in [test].roots", target.name),
+                message: format!("duplicate file stem `{}` in {section}", target.name),
             });
         }
     }

@@ -92,11 +92,36 @@ fn runtime_emit_multi_linker_input_dir(profile: &crate::script::ScriptProfile) -
     profile.codegen_units > 1 && profile.lto_mode != LtoMode::Full
 }
 
-fn runtime_compile_outputs(object_path: &Path, metadata_root_path: Option<&Path>) -> Vec<PathBuf> {
-    let mut outputs = vec![object_path.to_path_buf()];
-    let multi_linker_input_dir = super::multi_linker_input_dir(object_path);
-    if multi_linker_input_dir.is_dir() {
-        outputs.push(multi_linker_input_dir);
+fn runtime_driver_mode(command: crate::script::ScriptCommand) -> DriverMode {
+    match command {
+        crate::script::ScriptCommand::Check => DriverMode::AnalyzeOnly,
+        _ => DriverMode::CompileOnly,
+    }
+}
+
+fn normalize_runtime_codegen_options_for_driver_mode(options: &mut CompileOptions) {
+    if options.driver_mode != DriverMode::AnalyzeOnly {
+        return;
+    }
+
+    options.codegen_units = 1;
+    options.lto_mode = LtoMode::None;
+    options.linker_input_flavor = kernc_utils::config::LinkerInputFlavor::Object;
+    options.emit_multi_linker_input_dir = false;
+}
+
+fn runtime_compile_outputs(
+    object_path: &Path,
+    metadata_root_path: Option<&Path>,
+    emits_linker_input: bool,
+) -> Vec<PathBuf> {
+    let mut outputs = Vec::new();
+    if emits_linker_input {
+        outputs.push(object_path.to_path_buf());
+        let multi_linker_input_dir = super::multi_linker_input_dir(object_path);
+        if multi_linker_input_dir.is_dir() {
+            outputs.push(multi_linker_input_dir);
+        }
     }
     if let Some(metadata_root_path) = metadata_root_path {
         outputs.push(metadata_root_path.to_path_buf());
@@ -163,6 +188,7 @@ pub(super) fn extend_interface_aliases(
 pub(super) fn ensure_std_packages_for_actions(
     workspace_root: &Path,
     actions: &[CompileAction],
+    command: crate::script::ScriptCommand,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
@@ -177,6 +203,7 @@ pub(super) fn ensure_std_packages_for_actions(
         build_std_package(
             workspace_root,
             profile,
+            command,
             built_std_packages,
             driver_families,
             execution_summary,
@@ -188,6 +215,7 @@ pub(super) fn ensure_std_packages_for_actions(
 pub(super) fn build_std_package(
     workspace_root: &Path,
     profile: &crate::script::ScriptProfile,
+    command: crate::script::ScriptCommand,
     built_std_packages: &mut BTreeMap<String, BuiltStdPackage>,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
@@ -208,24 +236,50 @@ pub(super) fn build_std_package(
             source_path.display()
         )));
     }
-    let built_rt = build_rt_package(workspace_root, profile, driver_families, execution_summary)?;
-    let built_sys = build_sys_package(workspace_root, profile, driver_families, execution_summary)?;
-    let hosted_rt_entry_object_path = build_rt_entry_package(
+    let built_sys = build_sys_package(
         workspace_root,
         profile,
+        command,
         driver_families,
         execution_summary,
-        &built_sys,
-        RtEntryFlavor::Hosted,
     )?;
-    let freestanding_rt_entry_object_path = build_rt_entry_package(
-        workspace_root,
-        profile,
-        driver_families,
-        execution_summary,
-        &built_sys,
-        RtEntryFlavor::Freestanding,
-    )?;
+    let built_rt = if command == crate::script::ScriptCommand::Check {
+        None
+    } else {
+        Some(build_rt_package(
+            workspace_root,
+            profile,
+            command,
+            driver_families,
+            execution_summary,
+        )?)
+    };
+    let hosted_rt_entry_object_path = if command == crate::script::ScriptCommand::Check {
+        PathBuf::new()
+    } else {
+        build_rt_entry_package(
+            workspace_root,
+            profile,
+            command,
+            driver_families,
+            execution_summary,
+            &built_sys,
+            RtEntryFlavor::Hosted,
+        )?
+    };
+    let freestanding_rt_entry_object_path = if command == crate::script::ScriptCommand::Check {
+        PathBuf::new()
+    } else {
+        build_rt_entry_package(
+            workspace_root,
+            profile,
+            command,
+            driver_families,
+            execution_summary,
+            &built_sys,
+            RtEntryFlavor::Freestanding,
+        )?
+    };
 
     let object_path = profile_root
         .join("obj")
@@ -247,7 +301,7 @@ pub(super) fn build_std_package(
         metadata_package_name: Some("std".to_string()),
         metadata_package_version: None,
         root_module_name: Some("std".to_string()),
-        driver_mode: DriverMode::CompileOnly,
+        driver_mode: runtime_driver_mode(command),
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
@@ -268,37 +322,49 @@ pub(super) fn build_std_package(
         built_sys.metadata_root_path.to_string_lossy().to_string(),
     );
     inject_driver_condition_defines(&mut options);
+    normalize_runtime_codegen_options_for_driver_mode(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
-    let std_fingerprint = build_fingerprint(&[
+    let mut std_fingerprint_lines = vec![
         "std_runtime_layout=v6".to_string(),
         "kind=compile-std".to_string(),
         format!("toolchain={toolchain_digest}"),
+        format!("driver_mode={}", options.driver_mode.as_str()),
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
-        format!("codegen_units={}", profile.codegen_units),
-        format!("lto={}", profile.lto_mode.as_str()),
-        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
-        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
+        format!("codegen_units={}", options.codegen_units),
+        format!("lto={}", options.lto_mode.as_str()),
+        format!(
+            "linker_input_flavor={}",
+            options.linker_input_flavor.as_str()
+        ),
+        format!(
+            "emit_multi_linker_input_dir={}",
+            options.emit_multi_linker_input_dir
+        ),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
-        format!("rt_meta={}", built_rt.metadata_root_path.display()),
-        format!("rt_obj={}", built_rt.object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
         format!("sys_obj={}", built_sys.object_path.display()),
-        format!(
+        "split_sections_for_gc=true".to_string(),
+    ];
+    if let Some(built_rt) = &built_rt {
+        std_fingerprint_lines.push(format!("rt_meta={}", built_rt.metadata_root_path.display()));
+        std_fingerprint_lines.push(format!("rt_obj={}", built_rt.object_path.display()));
+        std_fingerprint_lines.push(format!(
             "rt_entry_hosted_obj={}",
             hosted_rt_entry_object_path.display()
-        ),
-        format!(
+        ));
+        std_fingerprint_lines.push(format!(
             "rt_entry_freestanding_obj={}",
             freestanding_rt_entry_object_path.display()
-        ),
-        "split_sections_for_gc=true".to_string(),
-    ]);
+        ));
+    }
+    let std_fingerprint = build_fingerprint(&std_fingerprint_lines);
     let std_label = std_compile_action_label(&runtime_profile_label(profile), &options);
     let std_tags = runtime_compile_detail_tags(&options);
+    let emits_linker_input = options.driver_mode.emits_linker_input();
 
     if !build_state::action_state_is_current(&object_path, &std_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -311,7 +377,8 @@ pub(super) fn build_std_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        let outputs =
+            runtime_compile_outputs(&object_path, Some(&metadata_root_path), emits_linker_input);
         build_state::record_action_state(&object_path, std_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
@@ -330,16 +397,20 @@ pub(super) fn build_std_package(
         profile_key,
         BuiltStdPackage {
             metadata_root_path,
-            common_link_objects: vec![
-                object_path,
-                built_rt.object_path.clone(),
-                built_sys.object_path.clone(),
-                profile_root
-                    .join("obj")
-                    .join("base")
-                    .join("lib")
-                    .join("base.o"),
-            ],
+            common_link_objects: if let Some(built_rt) = &built_rt {
+                vec![
+                    object_path,
+                    built_rt.object_path.clone(),
+                    built_sys.object_path.clone(),
+                    profile_root
+                        .join("obj")
+                        .join("base")
+                        .join("lib")
+                        .join("base.o"),
+                ]
+            } else {
+                Vec::new()
+            },
             hosted_entry_object_path: hosted_rt_entry_object_path,
             freestanding_entry_object_path: freestanding_rt_entry_object_path,
             interface_aliases: {
@@ -355,6 +426,7 @@ pub(super) fn build_std_package(
 pub(super) fn build_rt_package(
     workspace_root: &Path,
     profile: &crate::script::ScriptProfile,
+    command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
@@ -384,7 +456,7 @@ pub(super) fn build_rt_package(
         metadata_package_name: Some("rt".to_string()),
         metadata_package_version: None,
         root_module_name: Some("rt".to_string()),
-        driver_mode: DriverMode::CompileOnly,
+        driver_mode: runtime_driver_mode(command),
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
@@ -399,18 +471,26 @@ pub(super) fn build_rt_package(
         .module_aliases
         .insert("rt".to_string(), rt_root.to_string_lossy().to_string());
     inject_driver_condition_defines(&mut options);
+    normalize_runtime_codegen_options_for_driver_mode(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let rt_fingerprint = build_fingerprint(&[
         "rt_runtime_layout=v1".to_string(),
         "kind=compile-rt".to_string(),
         format!("toolchain={toolchain_digest}"),
+        format!("driver_mode={}", options.driver_mode.as_str()),
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
-        format!("codegen_units={}", profile.codegen_units),
-        format!("lto={}", profile.lto_mode.as_str()),
-        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
-        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
+        format!("codegen_units={}", options.codegen_units),
+        format!("lto={}", options.lto_mode.as_str()),
+        format!(
+            "linker_input_flavor={}",
+            options.linker_input_flavor.as_str()
+        ),
+        format!(
+            "emit_multi_linker_input_dir={}",
+            options.emit_multi_linker_input_dir
+        ),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -418,6 +498,7 @@ pub(super) fn build_rt_package(
     ]);
     let rt_label = rt_compile_action_label(&runtime_profile_label(profile), &options);
     let rt_tags = runtime_compile_detail_tags(&options);
+    let emits_linker_input = options.driver_mode.emits_linker_input();
 
     if !build_state::action_state_is_current(&object_path, &rt_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -430,7 +511,8 @@ pub(super) fn build_rt_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        let outputs =
+            runtime_compile_outputs(&object_path, Some(&metadata_root_path), emits_linker_input);
         build_state::record_action_state(&object_path, rt_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
@@ -455,6 +537,7 @@ pub(super) fn build_rt_package(
 pub(super) fn build_base_package(
     workspace_root: &Path,
     profile: &crate::script::ScriptProfile,
+    command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
@@ -488,7 +571,7 @@ pub(super) fn build_base_package(
         metadata_package_name: Some("base".to_string()),
         metadata_package_version: None,
         root_module_name: Some("base".to_string()),
-        driver_mode: DriverMode::CompileOnly,
+        driver_mode: runtime_driver_mode(command),
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
@@ -504,18 +587,26 @@ pub(super) fn build_base_package(
         .module_aliases
         .insert("base".to_string(), base_root.to_string_lossy().to_string());
     inject_driver_condition_defines(&mut options);
+    normalize_runtime_codegen_options_for_driver_mode(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let base_fingerprint = build_fingerprint(&[
         "base_runtime_layout=v1".to_string(),
         "kind=compile-base".to_string(),
         format!("toolchain={toolchain_digest}"),
+        format!("driver_mode={}", options.driver_mode.as_str()),
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
-        format!("codegen_units={}", profile.codegen_units),
-        format!("lto={}", profile.lto_mode.as_str()),
-        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
-        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
+        format!("codegen_units={}", options.codegen_units),
+        format!("lto={}", options.lto_mode.as_str()),
+        format!(
+            "linker_input_flavor={}",
+            options.linker_input_flavor.as_str()
+        ),
+        format!(
+            "emit_multi_linker_input_dir={}",
+            options.emit_multi_linker_input_dir
+        ),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -523,6 +614,7 @@ pub(super) fn build_base_package(
     ]);
     let base_label = base_compile_action_label(&runtime_profile_label(profile), &options);
     let base_tags = runtime_compile_detail_tags(&options);
+    let emits_linker_input = options.driver_mode.emits_linker_input();
 
     if !build_state::action_state_is_current(&object_path, &base_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -535,7 +627,8 @@ pub(super) fn build_base_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        let outputs =
+            runtime_compile_outputs(&object_path, Some(&metadata_root_path), emits_linker_input);
         build_state::record_action_state(&object_path, base_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
@@ -560,6 +653,7 @@ pub(super) fn build_base_package(
 pub(super) fn build_sys_package(
     workspace_root: &Path,
     profile: &crate::script::ScriptProfile,
+    command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
 ) -> Result<BuiltLibraryPackage> {
@@ -571,8 +665,13 @@ pub(super) fn build_sys_package(
             source_path.display()
         )));
     }
-    let built_base =
-        build_base_package(workspace_root, profile, driver_families, execution_summary)?;
+    let built_base = build_base_package(
+        workspace_root,
+        profile,
+        command,
+        driver_families,
+        execution_summary,
+    )?;
 
     let profile_root = runtime_profile_root(workspace_root, profile)?;
     let object_path = profile_root
@@ -595,7 +694,7 @@ pub(super) fn build_sys_package(
         metadata_package_name: Some("sys".to_string()),
         metadata_package_version: None,
         root_module_name: Some("sys".to_string()),
-        driver_mode: DriverMode::CompileOnly,
+        driver_mode: runtime_driver_mode(command),
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
@@ -616,18 +715,26 @@ pub(super) fn build_sys_package(
         built_base.metadata_root_path.to_string_lossy().to_string(),
     );
     inject_driver_condition_defines(&mut options);
+    normalize_runtime_codegen_options_for_driver_mode(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let sys_fingerprint = build_fingerprint(&[
         "sys_runtime_layout=v1".to_string(),
         "kind=compile-sys".to_string(),
         format!("toolchain={toolchain_digest}"),
+        format!("driver_mode={}", options.driver_mode.as_str()),
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
-        format!("codegen_units={}", profile.codegen_units),
-        format!("lto={}", profile.lto_mode.as_str()),
-        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
-        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
+        format!("codegen_units={}", options.codegen_units),
+        format!("lto={}", options.lto_mode.as_str()),
+        format!(
+            "linker_input_flavor={}",
+            options.linker_input_flavor.as_str()
+        ),
+        format!(
+            "emit_multi_linker_input_dir={}",
+            options.emit_multi_linker_input_dir
+        ),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("metadata={}", metadata_root_path.display()),
@@ -637,6 +744,7 @@ pub(super) fn build_sys_package(
     ]);
     let sys_label = sys_compile_action_label(&runtime_profile_label(profile), &options);
     let sys_tags = runtime_compile_detail_tags(&options);
+    let emits_linker_input = options.driver_mode.emits_linker_input();
 
     if !build_state::action_state_is_current(&object_path, &sys_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -649,7 +757,8 @@ pub(super) fn build_sys_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        let outputs = runtime_compile_outputs(&object_path, Some(&metadata_root_path));
+        let outputs =
+            runtime_compile_outputs(&object_path, Some(&metadata_root_path), emits_linker_input);
         build_state::record_action_state(&object_path, sys_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(
@@ -676,6 +785,7 @@ pub(super) fn build_sys_package(
 pub(super) fn build_rt_entry_package(
     workspace_root: &Path,
     profile: &crate::script::ScriptProfile,
+    command: crate::script::ScriptCommand,
     driver_families: &mut BTreeMap<IncrementalDriverKey, CompilerDriver>,
     execution_summary: &mut ExecutionSummary,
     built_sys: &BuiltLibraryPackage,
@@ -705,7 +815,7 @@ pub(super) fn build_rt_entry_package(
         input_file: Some(source_path.to_string_lossy().to_string()),
         output_file: object_path.to_string_lossy().to_string(),
         root_module_name: Some("rt_entry".to_string()),
-        driver_mode: DriverMode::CompileOnly,
+        driver_mode: runtime_driver_mode(command),
         report_progress: false,
         opt_level: runtime_opt_level(profile),
         codegen_units: profile.codegen_units,
@@ -739,19 +849,27 @@ pub(super) fn build_rt_entry_package(
                 .insert("crt_startup".to_string(), "false".to_string());
         }
     }
+    normalize_runtime_codegen_options_for_driver_mode(&mut options);
     let toolchain_digest = build_state::current_process_digest()?;
     let entry_fingerprint = build_fingerprint(&[
         "rt_runtime_layout=v1".to_string(),
         "kind=compile-rt-entry".to_string(),
         format!("flavor={}", flavor.fingerprint_tag()),
         format!("toolchain={toolchain_digest}"),
+        format!("driver_mode={}", options.driver_mode.as_str()),
         format!("profile={}", profile.name),
         format!("opt={}", profile.opt),
         format!("debug={}", profile.debug),
-        format!("codegen_units={}", profile.codegen_units),
-        format!("lto={}", profile.lto_mode.as_str()),
-        format!("linker_input_flavor={}", linker_input_flavor.as_str()),
-        format!("emit_multi_linker_input_dir={emit_multi_linker_input_dir}"),
+        format!("codegen_units={}", options.codegen_units),
+        format!("lto={}", options.lto_mode.as_str()),
+        format!(
+            "linker_input_flavor={}",
+            options.linker_input_flavor.as_str()
+        ),
+        format!(
+            "emit_multi_linker_input_dir={}",
+            options.emit_multi_linker_input_dir
+        ),
         format!("source={}", source_path.display()),
         format!("object={}", object_path.display()),
         format!("sys_meta={}", built_sys.metadata_root_path.display()),
@@ -763,6 +881,7 @@ pub(super) fn build_rt_entry_package(
         flavor.action_label_suffix()
     );
     let entry_tags = runtime_compile_detail_tags(&options);
+    let emits_linker_input = options.driver_mode.emits_linker_input();
 
     if !build_state::action_state_is_current(&object_path, &entry_fingerprint)? {
         let Some(report) = compile_with_shared_driver(driver_families, options) else {
@@ -775,7 +894,7 @@ pub(super) fn build_rt_entry_package(
         let mut inputs = report.loaded_sources;
         inputs.sort();
         inputs.dedup();
-        let outputs = runtime_compile_outputs(&object_path, None);
+        let outputs = runtime_compile_outputs(&object_path, None, emits_linker_input);
         build_state::record_action_state(&object_path, entry_fingerprint, &inputs, &outputs)?;
         execution_summary.record_compile_cache_miss();
         execution_summary.record_action(

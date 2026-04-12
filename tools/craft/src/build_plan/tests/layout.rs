@@ -206,9 +206,8 @@ root = "src/main.rn"
 [test]
 roots = ["tests/smoke.rn"]
 
-[[example]]
-name = "sample"
-root = "examples/sample.rn"
+[example]
+roots = ["examples/sample.rn"]
 "#,
     )
     .unwrap();
@@ -287,9 +286,8 @@ kern = "0.6.7"
 [lib]
 root = "src/lib.rn"
 
-[[example]]
-name = "sample"
-root = "examples/sample.rn"
+[example]
+roots = ["examples/sample.rn"]
 "#,
     )
     .unwrap();
@@ -320,6 +318,63 @@ root = "examples/sample.rn"
         .map(|unit| unit.target_kind)
         .collect::<Vec<_>>();
     assert_eq!(build_kinds, vec![TargetKind::Lib, TargetKind::Example]);
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn run_can_select_examples_without_building_bins() {
+    let root = temp_dir("craft-build-plan-run-examples");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::create_dir_all(root.join("examples")).unwrap();
+
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+
+[example]
+roots = ["examples/sample.rn"]
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Run,
+        &crate::elaborate::FeatureSelection::default(),
+    )
+    .unwrap();
+
+    let run_plan = derive_with_options(
+        &elaboration,
+        crate::script::ScriptCommand::Run,
+        DeriveOptions {
+            include_examples: true,
+        },
+    )
+    .unwrap();
+    let run_kinds = run_plan.packages[0]
+        .units
+        .iter()
+        .map(|unit| unit.target_kind)
+        .collect::<Vec<_>>();
+    assert_eq!(run_kinds, vec![TargetKind::Lib, TargetKind::Example]);
 
     let _ = fs::remove_dir_all(root);
 }

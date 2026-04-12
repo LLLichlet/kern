@@ -133,6 +133,7 @@ fn target_parallel_worker_count(job_count: usize) -> usize {
 }
 
 fn build_parallel_target_link_job(
+    command: crate::script::ScriptCommand,
     job: &ParallelTargetLinkJob<'_>,
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
@@ -143,6 +144,7 @@ fn build_parallel_target_link_job(
     ensure_parent_dir(&job.compile_action.object_path)?;
     ensure_parent_dir(&job.compile_action.artifact_path)?;
     let compile_options = compile_action_options(
+        command,
         job.compile_action,
         local_library_actions,
         built_std_packages,
@@ -177,6 +179,7 @@ fn build_parallel_target_link_job(
 }
 
 fn build_parallel_target_compile_job(
+    command: crate::script::ScriptCommand,
     job: &ParallelTargetCompileJob<'_>,
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
@@ -187,6 +190,7 @@ fn build_parallel_target_compile_job(
     ensure_parent_dir(&job.compile_action.object_path)?;
     ensure_parent_dir(&job.compile_action.artifact_path)?;
     let compile_options = compile_action_options(
+        command,
         job.compile_action,
         local_library_actions,
         built_std_packages,
@@ -208,6 +212,7 @@ fn build_parallel_target_compile_job(
 }
 
 pub(super) fn build_parallel_target_compile_jobs(
+    command: crate::script::ScriptCommand,
     jobs: &[ParallelTargetCompileJob<'_>],
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
@@ -232,6 +237,7 @@ pub(super) fn build_parallel_target_compile_jobs(
                         break;
                     }
                     results.push(build_parallel_target_compile_job(
+                        command,
                         &jobs[index],
                         local_library_actions,
                         built_std_packages,
@@ -261,6 +267,7 @@ pub(super) fn build_parallel_target_compile_jobs(
 }
 
 pub(super) fn build_parallel_target_link_jobs(
+    command: crate::script::ScriptCommand,
     jobs: &[ParallelTargetLinkJob<'_>],
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
@@ -285,6 +292,7 @@ pub(super) fn build_parallel_target_link_jobs(
                         break;
                     }
                     results.push(build_parallel_target_link_job(
+                        command,
                         &jobs[index],
                         local_library_actions,
                         built_std_packages,

@@ -325,18 +325,20 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 exp_base,
                 span,
             }),
-            (TypeKind::AnonymousStruct(is_extern, anon_fields), TypeKind::Def(def_id, gen_args), value_kind) => {
-                self.rewrite_named_struct_value_to_anon(NamedStructValueAnonRewrite {
-                    def_id,
-                    gen_args: &gen_args,
-                    anon_is_extern: is_extern,
-                    anon_fields: &anon_fields,
-                    value_kind,
-                    concrete_ty,
-                    exp_base,
-                    span,
-                })
-            }
+            (
+                TypeKind::AnonymousStruct(is_extern, anon_fields),
+                TypeKind::Def(def_id, gen_args),
+                value_kind,
+            ) => self.rewrite_named_struct_value_to_anon(NamedStructValueAnonRewrite {
+                def_id,
+                gen_args: &gen_args,
+                anon_is_extern: is_extern,
+                anon_fields: &anon_fields,
+                value_kind,
+                concrete_ty,
+                exp_base,
+                span,
+            }),
             (
                 TypeKind::AnonymousUnion(is_extern, anon_fields),
                 TypeKind::Def(def_id, gen_args),
@@ -355,14 +357,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                     span,
                 })
             }
-            (TypeKind::AnonymousUnion(..), TypeKind::Def(..), value_kind) => {
-                self.rewrite_named_value_reinterpret_to_anonymous(
+            (TypeKind::AnonymousUnion(..), TypeKind::Def(..), value_kind) => self
+                .rewrite_named_value_reinterpret_to_anonymous(
                     value_kind,
                     concrete_ty,
                     exp_base,
                     span,
-                )
-            }
+                ),
             (
                 TypeKind::AnonymousEnum(anon_enum),
                 TypeKind::Enum(def_id, gen_args),
@@ -391,14 +392,13 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             {
                 Some(MastExpr::new(exp_base, MastExprKind::Integer(tag), span))
             }
-            (TypeKind::AnonymousEnum(..), TypeKind::Enum(..), value_kind) => {
-                self.rewrite_named_value_reinterpret_to_anonymous(
+            (TypeKind::AnonymousEnum(..), TypeKind::Enum(..), value_kind) => self
+                .rewrite_named_value_reinterpret_to_anonymous(
                     value_kind,
                     concrete_ty,
                     exp_base,
                     span,
-                )
-            }
+                ),
             _ => None,
         }
     }
@@ -546,7 +546,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
         let mut subst_map = HashMap::new();
         for (index, param) in struct_def.generics.iter().enumerate() {
-            let arg = rewrite.gen_args.get(index).copied().unwrap_or(TypeId::ERROR);
+            let arg = rewrite
+                .gen_args
+                .get(index)
+                .copied()
+                .unwrap_or(TypeId::ERROR);
             subst_map.insert(param.name, arg);
         }
 

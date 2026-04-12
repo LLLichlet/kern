@@ -416,11 +416,16 @@ fn include_target_in_domain(
 ) -> bool {
     match domain {
         BuildDomain::Target => match command {
-            crate::script::ScriptCommand::Build | crate::script::ScriptCommand::Run => {
+            crate::script::ScriptCommand::Build => {
                 matches!(kind, TargetKind::Lib | TargetKind::Bin)
-                    || (matches!(command, crate::script::ScriptCommand::Build)
-                        && options.include_examples
-                        && kind == TargetKind::Example)
+                    || (options.include_examples && kind == TargetKind::Example)
+            }
+            crate::script::ScriptCommand::Run => {
+                if options.include_examples {
+                    matches!(kind, TargetKind::Lib | TargetKind::Example)
+                } else {
+                    matches!(kind, TargetKind::Lib | TargetKind::Bin)
+                }
             }
             crate::script::ScriptCommand::Test => {
                 matches!(kind, TargetKind::Lib | TargetKind::Test)

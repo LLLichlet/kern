@@ -6,15 +6,16 @@ use crate::elaborate;
 use crate::error::{Error, Result};
 use crate::execute;
 use crate::graph;
+use crate::local_state;
 use crate::lockfile;
 use crate::manifest::Manifest;
 use crate::operation_lock::WorkspaceOperationLock;
 use crate::plan::TargetKind;
 use crate::source;
 use crate::workspace;
+use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::Command;
 use super::policy::{
     publish_summary, summarize_check_sources, summarize_source_security,
     validate_check_source_policy, validate_publish_lock_status, validate_publish_metadata,
@@ -25,6 +26,7 @@ use super::render::{
     print_generated_files_for_unit, print_link_actions, print_link_actions_for_unit,
     render_execution_timings,
 };
+use super::{Command, RunSelection};
 
 pub(super) fn run_command(command: Command) -> Result<()> {
     match command {
@@ -36,6 +38,7 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             println!("{}", super::version_text());
             Ok(())
         }
+        Command::Init { path, ui } => run_init(path, ui),
         Command::Check {
             path,
             feature_selection,
@@ -71,13 +74,41 @@ pub(super) fn run_command(command: Command) -> Result<()> {
             path,
             feature_selection,
             ui,
-        } => run_target(path, feature_selection, ui),
+            selection,
+        } => run_target(path, feature_selection, ui, selection),
         Command::Test {
             path,
             feature_selection,
             ui,
         } => run_tests(path, feature_selection, ui),
     }
+}
+
+fn run_init(path: Option<PathBuf>, ui: super::UiOptions) -> Result<()> {
+    let render = Renderer::new(ui);
+    let root = resolve_init_root(path.as_deref())?;
+    let _workspace_lock = WorkspaceOperationLock::acquire(&root, "init")?;
+    let init = plan_init(&root)?;
+    let created = apply_init_plan(&root, &init)?;
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path)?;
+    let feature_selection = elaborate::FeatureSelection::default();
+
+    render.header_with_path("init", &manifest, &manifest_path, &feature_selection);
+    render.summary("root", root.display());
+    render.summary("targets", init.target_summary());
+    render.summary("created", created.len());
+    for path in &created {
+        render.action(
+            Tone::Generate,
+            "create",
+            display_path_from_root(&root, path),
+            "",
+        );
+    }
+    render.ok("package initialized");
+
+    Ok(())
 }
 
 fn run_check(
@@ -224,6 +255,8 @@ fn run_check(
         render.section("generated");
     }
     print_generated_files(&render, &build_plan);
+    let execution = execute::check(&build_plan, &action_plan)?;
+    render_execution_timings(&render, &execution);
     render.ok("check completed");
 
     Ok(())
@@ -536,6 +569,7 @@ fn run_target(
     path: Option<PathBuf>,
     feature_selection: elaborate::FeatureSelection,
     ui: super::UiOptions,
+    selection: RunSelection,
 ) -> Result<()> {
     let render = Renderer::new(ui);
     let (loaded, _workspace_lock) = load_locked_package_graph(
@@ -544,7 +578,13 @@ fn run_target(
         &feature_selection,
         "run",
     )?;
-    let build_plan = build_plan::derive(&loaded.elaboration, crate::script::ScriptCommand::Run)?;
+    let build_plan = build_plan::derive_with_options(
+        &loaded.elaboration,
+        crate::script::ScriptCommand::Run,
+        build_plan::DeriveOptions {
+            include_examples: matches!(selection, RunSelection::Example(_)),
+        },
+    )?;
     let build_plan = filter_selected_package(build_plan, loaded.selected_package_id.as_ref());
     let _ = analysis_context::sync_analysis_context(
         &loaded.manifest_path,
@@ -553,29 +593,7 @@ fn run_target(
         &feature_selection,
     );
     let action_plan = build_plan.derive_actions(&crate::script::host_target());
-    let runnable = units_of_kind(&build_plan, TargetKind::Bin);
-
-    let run_unit = match runnable.as_slice() {
-        [] => {
-            return Err(Error::Usage(
-                "`craft run` requires exactly one runnable `bin` target, but none were found"
-                    .to_string(),
-            ));
-        }
-        [unit] => *unit,
-        units => {
-            let candidates = units
-                .iter()
-                .map(|unit| format_unit_label(unit))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(Error::Usage(format!(
-                "`craft run` requires exactly one runnable `bin` target, but found {}: {}",
-                units.len(),
-                candidates
-            )));
-        }
-    };
+    let run_unit = select_run_unit(&build_plan, &selection)?;
 
     render.header_with_path(
         "run",
@@ -684,6 +702,304 @@ fn run_tests(
     ));
 
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct InitPlan {
+    package_name: String,
+    lib_root: Option<String>,
+    bin_root: Option<String>,
+    test_roots: Vec<String>,
+    example_roots: Vec<String>,
+    create_main_stub: bool,
+}
+
+impl InitPlan {
+    fn target_summary(&self) -> String {
+        format!(
+            "lib {}, bin {}, test {}, example {}",
+            format_yes_no(self.lib_root.is_some()),
+            format_yes_no(self.bin_root.is_some()),
+            self.test_roots.len(),
+            self.example_roots.len()
+        )
+    }
+}
+
+fn resolve_init_root(path: Option<&Path>) -> Result<PathBuf> {
+    let root = match path {
+        Some(path) if path.file_name().and_then(|name| name.to_str()) == Some("Craft.toml") => path
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf(),
+        Some(path) if path.is_dir() => path.to_path_buf(),
+        Some(path) if path.exists() => {
+            return Err(Error::Usage(format!(
+                "`craft init` requires a directory or `Craft.toml` path, found `{}`",
+                path.display()
+            )));
+        }
+        Some(path) => {
+            return Err(Error::Usage(format!(
+                "path `{}` does not exist; create the directory first, then run `craft init`",
+                path.display()
+            )));
+        }
+        None => std::env::current_dir().map_err(Error::from_io_plain)?,
+    };
+
+    fs::canonicalize(&root).map_err(|err| Error::from_io(&root, err))
+}
+
+fn plan_init(root: &Path) -> Result<InitPlan> {
+    let manifest_path = root.join("Craft.toml");
+    if manifest_path.exists() {
+        match Manifest::load(&manifest_path).and_then(|manifest| manifest.validate(&manifest_path))
+        {
+            Ok(()) => {
+                return Err(Error::Usage(format!(
+                    "directory `{}` already contains `Craft.toml`",
+                    root.display()
+                )));
+            }
+            Err(err) => {
+                return Err(Error::Usage(format!(
+                    "directory `{}` already contains a broken `Craft.toml`; repair or remove it before `craft init` ({err})",
+                    root.display()
+                )));
+            }
+        }
+    }
+
+    let lib_root = root
+        .join("src/lib.rn")
+        .is_file()
+        .then(|| "src/lib.rn".to_string());
+    let mut bin_root = root
+        .join("src/main.rn")
+        .is_file()
+        .then(|| "src/main.rn".to_string());
+    let create_main_stub = lib_root.is_none() && bin_root.is_none();
+    if create_main_stub {
+        bin_root = Some("src/main.rn".to_string());
+    }
+
+    Ok(InitPlan {
+        package_name: infer_package_name(root),
+        lib_root,
+        bin_root,
+        test_roots: collect_kern_roots(root, "tests")?,
+        example_roots: collect_kern_roots(root, "examples")?,
+        create_main_stub,
+    })
+}
+
+fn apply_init_plan(root: &Path, init: &InitPlan) -> Result<Vec<PathBuf>> {
+    let mut created = Vec::new();
+    let manifest_path = root.join("Craft.toml");
+    write_if_missing(&manifest_path, render_init_manifest(init), &mut created)?;
+
+    if init.create_main_stub {
+        write_if_missing(
+            &root.join("src/main.rn"),
+            "fn main() i32 {\n    return 0;\n}\n",
+            &mut created,
+        )?;
+    }
+
+    if local_state::ensure_workspace_gitignore_entry(root)? {
+        created.push(root.join(".gitignore"));
+    }
+
+    Ok(created)
+}
+
+fn write_if_missing(
+    path: &Path,
+    contents: impl AsRef<[u8]>,
+    created: &mut Vec<PathBuf>,
+) -> Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|err| Error::from_io(parent, err))?;
+    }
+    fs::write(path, contents).map_err(|err| Error::from_io(path, err))?;
+    created.push(path.to_path_buf());
+    Ok(())
+}
+
+fn render_init_manifest(init: &InitPlan) -> String {
+    let mut out = format!(
+        "[package]\nname = \"{}\"\nversion = \"0.1.0\"\nkern = \"{}\"\n",
+        init.package_name,
+        env!("CARGO_PKG_VERSION")
+    );
+
+    if let Some(root) = &init.lib_root {
+        out.push_str(&format!("\n[lib]\nroot = \"{root}\"\n"));
+    }
+    if let Some(root) = &init.bin_root {
+        out.push_str(&format!(
+            "\n[[bin]]\nname = \"{}\"\nroot = \"{root}\"\n",
+            init.package_name
+        ));
+    }
+    if !init.example_roots.is_empty() {
+        out.push_str("\n[example]\nroots = [\n");
+        for root in &init.example_roots {
+            out.push_str(&format!("    \"{root}\",\n"));
+        }
+        out.push_str("]\n");
+    }
+    if !init.test_roots.is_empty() {
+        out.push_str("\n[test]\nroots = [\n");
+        for root in &init.test_roots {
+            out.push_str(&format!("    \"{root}\",\n"));
+        }
+        out.push_str("]\n");
+    }
+
+    out
+}
+
+fn infer_package_name(root: &Path) -> String {
+    let raw = root
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("app");
+    let mut out = String::new();
+    for ch in raw.chars() {
+        if ch.is_ascii_alphanumeric() {
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('_') {
+            out.push('_');
+        }
+    }
+    let trimmed = out.trim_matches('_');
+    if trimmed.is_empty() {
+        "app".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn collect_kern_roots(root: &Path, dir_name: &str) -> Result<Vec<String>> {
+    let dir = root.join(dir_name);
+    let mut found = Vec::new();
+    collect_kern_roots_recursive(root, &dir, &mut found)?;
+    found.sort();
+    Ok(found)
+}
+
+fn collect_kern_roots_recursive(root: &Path, dir: &Path, found: &mut Vec<String>) -> Result<()> {
+    if !dir.exists() {
+        return Ok(());
+    }
+    if !dir.is_dir() {
+        return Err(Error::Usage(format!(
+            "`{}` must be a directory when present",
+            dir.display()
+        )));
+    }
+
+    let mut entries = fs::read_dir(dir)
+        .map_err(|err| Error::from_io(dir, err))?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(Error::from_io_plain)?;
+    entries.sort_by_key(|entry| entry.path());
+
+    for entry in entries {
+        let path = entry.path();
+        if path.is_dir() {
+            collect_kern_roots_recursive(root, &path, found)?;
+            continue;
+        }
+        if path.extension().and_then(|ext| ext.to_str()) != Some("rn") {
+            continue;
+        }
+        let relative = path
+            .strip_prefix(root)
+            .map_err(|_| {
+                Error::Execution(format!(
+                    "failed to compute relative init path for `{}`",
+                    path.display()
+                ))
+            })?
+            .to_string_lossy()
+            .replace('\\', "/");
+        found.push(relative);
+    }
+
+    Ok(())
+}
+
+fn select_run_unit<'a>(
+    build_plan: &'a build_plan::BuildPlan,
+    selection: &RunSelection,
+) -> Result<&'a build_plan::BuildUnit> {
+    match selection {
+        RunSelection::DefaultBin => select_unique_run_unit(build_plan, TargetKind::Bin, None),
+        RunSelection::Bin(name) => select_unique_run_unit(build_plan, TargetKind::Bin, Some(name)),
+        RunSelection::Example(name) => {
+            select_unique_run_unit(build_plan, TargetKind::Example, Some(name))
+        }
+    }
+}
+
+fn display_path_from_root(root: &Path, path: &Path) -> String {
+    path.strip_prefix(root)
+        .map(|relative| relative.to_string_lossy().replace('\\', "/"))
+        .unwrap_or_else(|_| path.display().to_string())
+}
+
+fn select_unique_run_unit<'a>(
+    build_plan: &'a build_plan::BuildPlan,
+    kind: TargetKind,
+    name: Option<&str>,
+) -> Result<&'a build_plan::BuildUnit> {
+    let runnable = build_plan
+        .packages
+        .iter()
+        .flat_map(|package| &package.units)
+        .filter(|unit| unit.target_kind == kind)
+        .filter(|unit| name.is_none_or(|name| unit.target_name.as_deref() == Some(name)))
+        .collect::<Vec<_>>();
+    let kind_label = kind.as_str();
+
+    match runnable.as_slice() {
+        [] => {
+            if let Some(name) = name {
+                Err(Error::Usage(format!(
+                    "`craft run` could not find {kind_label} target `{name}`"
+                )))
+            } else {
+                Err(Error::Usage(format!(
+                    "`craft run` requires exactly one runnable `{kind_label}` target, but none were found"
+                )))
+            }
+        }
+        [unit] => Ok(*unit),
+        units => {
+            let candidates = units
+                .iter()
+                .map(|unit| format_unit_label(unit))
+                .collect::<Vec<_>>()
+                .join(", ");
+            if let Some(name) = name {
+                Err(Error::Usage(format!(
+                    "`craft run` found multiple runnable `{kind_label}` targets named `{name}`: {candidates}"
+                )))
+            } else {
+                Err(Error::Usage(format!(
+                    "`craft run` requires exactly one runnable `{kind_label}` target, but found {}: {}",
+                    units.len(),
+                    candidates
+                )))
+            }
+        }
+    }
 }
 
 struct LoadedPackageGraph {

@@ -1,6 +1,94 @@
 use super::*;
 
 #[test]
+fn check_runs_semantic_pipeline_without_object_outputs() {
+    let root = temp_dir("craft-exec-check-sema-only");
+    fs::create_dir_all(root.join("src")).unwrap();
+    fs::write(
+        root.join("Craft.toml"),
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[lib]
+root = "src/lib.rn"
+
+[[bin]]
+name = "demo"
+root = "src/main.rn"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/lib.rn"),
+        r#"
+pub fn answer() i32 {
+return 42;
+}
+"#,
+    )
+    .unwrap();
+    fs::write(
+        root.join("src/main.rn"),
+        r#"
+use demo.answer;
+
+fn main() i32 {
+return answer();
+}
+"#,
+    )
+    .unwrap();
+
+    let manifest_path = root.join("Craft.toml");
+    let manifest = Manifest::load(&manifest_path).unwrap();
+    let elaboration = plan(
+        &manifest_path,
+        &manifest,
+        &[],
+        false,
+        crate::script::ScriptCommand::Check,
+        &FeatureSelection {
+            profile: crate::script::ProfileSelection::Release,
+            ..FeatureSelection::default()
+        },
+    )
+    .unwrap();
+    let build_plan = build_plan::derive(&elaboration, crate::script::ScriptCommand::Check).unwrap();
+    let action_plan = build_plan.derive_actions(&crate::script::host_target());
+
+    let summary = super::super::check(&build_plan, &action_plan).unwrap();
+    assert_eq!(summary.compile_actions, 2);
+    assert_eq!(summary.link_actions, 0);
+
+    let lib_action = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| action.target_kind == crate::plan::TargetKind::Lib)
+        .unwrap();
+    let bin_action = action_plan
+        .compile_actions
+        .iter()
+        .find(|action| action.target_kind == crate::plan::TargetKind::Bin)
+        .unwrap();
+
+    assert!(
+        lib_action
+            .metadata_path
+            .as_ref()
+            .unwrap()
+            .join(kernc_driver::KMETA_MANIFEST_FILE)
+            .is_file()
+    );
+    assert!(!lib_action.object_path.exists());
+    assert!(!bin_action.object_path.exists());
+
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
 fn builds_compile_and_link_actions() {
     let root = temp_dir("craft-exec-build");
     fs::create_dir_all(root.join("src")).unwrap();

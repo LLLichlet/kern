@@ -159,7 +159,7 @@ The current schema direction includes:
 - `[lib]`
 - `[[bin]]`
 - `[test]`
-- `[[example]]`
+- `[example]`
 - `[dependencies]`
 - `[dev-dependencies]`
 - `[build-dependencies]`
@@ -225,6 +225,7 @@ Manifest rules:
 - `[runtime].bundle` is alias wiring, not a scope prelude; ordinary `use` still applies
 - `sys`/`rt` implementation choice belongs to normal package/module wiring, not a manifest runtime-provider selector
 - test targets are listed under `[test].roots`, and each test name is derived from its file stem
+- example targets are listed under `[example].roots`, and each example name is derived from its file stem
 - external dependencies must be explicit `path` or `git` entries; plain version strings are not a source model
 - `build-dependencies` belong to the host build domain rather than the final target domain
 - features are additive
@@ -626,7 +627,7 @@ The current command surface is intentionally narrow:
 
 Current behavior:
 
-- `check` loads the package graph, evaluates scripts, derives the build plan, and prints audit data
+- `check` loads the package graph, evaluates scripts, derives the build plan, materializes staged inputs, and runs semantic analysis for every selected compile unit without codegen or final linking
 - `lock` writes a deterministic `Craft.lock`
 - `fetch` materializes external package sources into the local cache
   - source backends are explicit package paths or git repositories

@@ -16,6 +16,7 @@ pub enum OptLevel {
 pub enum DriverMode {
     CompileAndLink,
     CompileOnly,
+    AnalyzeOnly,
     LinkOnly,
     EmitLlvmIr,
 }
@@ -95,12 +96,22 @@ impl LinkerInputFlavor {
 }
 
 impl DriverMode {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CompileAndLink => "compile-and-link",
+            Self::CompileOnly => "compile-only",
+            Self::AnalyzeOnly => "analyze-only",
+            Self::LinkOnly => "link-only",
+            Self::EmitLlvmIr => "emit-llvm-ir",
+        }
+    }
+
     pub fn needs_source_input(self) -> bool {
         !matches!(self, DriverMode::LinkOnly)
     }
 
     pub fn performs_codegen(self) -> bool {
-        !matches!(self, DriverMode::LinkOnly)
+        !matches!(self, DriverMode::LinkOnly | DriverMode::AnalyzeOnly)
     }
 
     pub fn performs_link(self) -> bool {

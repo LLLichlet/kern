@@ -48,8 +48,7 @@ return 0;
 
     let summary = test(&build_plan, &action_plan, &test_units).unwrap();
     assert_eq!(summary.executed, 1);
-    let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
-    assert!(gitignore.contains(".craft/"));
+    assert!(!root.join(".gitignore").exists());
 
     let _ = fs::remove_dir_all(root);
 }

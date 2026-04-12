@@ -18,6 +18,10 @@ use self::policy::{
 pub enum Command {
     Help,
     Version,
+    Init {
+        path: Option<PathBuf>,
+        ui: UiOptions,
+    },
     Check {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
@@ -53,12 +57,20 @@ pub enum Command {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
+        selection: RunSelection,
     },
     Test {
         path: Option<PathBuf>,
         feature_selection: elaborate::FeatureSelection,
         ui: UiOptions,
     },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RunSelection {
+    DefaultBin,
+    Bin(String),
+    Example(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -105,54 +117,82 @@ where
         return Ok(Command::Help);
     }
 
-    let (path, feature_selection, ui, include_examples) =
-        parse_command_options(rest, cmd == "build")?;
     match cmd.as_str() {
-        "check" => Ok(Command::Check {
-            path,
-            feature_selection,
-            ui,
-        }),
-        "lock" => Ok(Command::Lock {
-            path,
-            feature_selection,
-            ui,
-        }),
-        "fetch" => Ok(Command::Fetch {
-            path,
-            feature_selection,
-            ui,
-        }),
-        "publish" => {
-            let mut feature_selection = feature_selection;
-            feature_selection.profile = crate::script::ProfileSelection::Release;
-            Ok(Command::Publish {
-                path,
-                feature_selection,
-                ui,
+        "init" => {
+            let options = parse_command_options(rest, init_option_mode())?;
+            Ok(Command::Init {
+                path: options.path,
+                ui: options.ui,
             })
         }
-        "doc" => Ok(Command::Doc {
-            path,
-            feature_selection,
-            ui,
-        }),
-        "build" => Ok(Command::Build {
-            path,
-            feature_selection,
-            ui,
-            include_examples,
-        }),
-        "run" => Ok(Command::Run {
-            path,
-            feature_selection,
-            ui,
-        }),
-        "test" => Ok(Command::Test {
-            path,
-            feature_selection,
-            ui,
-        }),
+        "check" => {
+            let options = parse_command_options(rest, default_option_mode())?;
+            Ok(Command::Check {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+            })
+        }
+        "lock" => {
+            let options = parse_command_options(rest, default_option_mode())?;
+            Ok(Command::Lock {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+            })
+        }
+        "fetch" => {
+            let options = parse_command_options(rest, default_option_mode())?;
+            Ok(Command::Fetch {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+            })
+        }
+        "publish" => {
+            let options = parse_command_options(rest, default_option_mode())?;
+            let mut feature_selection = options.feature_selection;
+            feature_selection.profile = crate::script::ProfileSelection::Release;
+            Ok(Command::Publish {
+                path: options.path,
+                feature_selection,
+                ui: options.ui,
+            })
+        }
+        "doc" => {
+            let options = parse_command_options(rest, default_option_mode())?;
+            Ok(Command::Doc {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+            })
+        }
+        "build" => {
+            let options = parse_command_options(rest, build_option_mode())?;
+            Ok(Command::Build {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+                include_examples: options.include_examples,
+            })
+        }
+        "run" => {
+            let options = parse_command_options(rest, run_option_mode())?;
+            Ok(Command::Run {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+                selection: options.run_selection,
+            })
+        }
+        "test" => {
+            let options = parse_command_options(rest, default_option_mode())?;
+            Ok(Command::Test {
+                path: options.path,
+                feature_selection: options.feature_selection,
+                ui: options.ui,
+            })
+        }
         _ => Err(Error::Usage(format!(
             "unsupported command line: {}\n\n{}",
             args.join(" "),
@@ -161,19 +201,59 @@ where
     }
 }
 
-fn parse_command_options(
-    args: &[String],
+#[derive(Clone, Copy)]
+struct CommandOptionMode {
+    allow_feature_selection: bool,
     allow_examples: bool,
-) -> Result<(
-    Option<PathBuf>,
-    elaborate::FeatureSelection,
-    UiOptions,
-    bool,
-)> {
+    allow_run_selection: bool,
+}
+
+struct ParsedCommandOptions {
+    path: Option<PathBuf>,
+    feature_selection: elaborate::FeatureSelection,
+    ui: UiOptions,
+    include_examples: bool,
+    run_selection: RunSelection,
+}
+
+fn init_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        allow_feature_selection: false,
+        allow_examples: false,
+        allow_run_selection: false,
+    }
+}
+
+fn default_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        allow_feature_selection: true,
+        allow_examples: false,
+        allow_run_selection: false,
+    }
+}
+
+fn build_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        allow_feature_selection: true,
+        allow_examples: true,
+        allow_run_selection: false,
+    }
+}
+
+fn run_option_mode() -> CommandOptionMode {
+    CommandOptionMode {
+        allow_feature_selection: true,
+        allow_examples: false,
+        allow_run_selection: true,
+    }
+}
+
+fn parse_command_options(args: &[String], mode: CommandOptionMode) -> Result<ParsedCommandOptions> {
     let mut path: Option<PathBuf> = None;
     let mut feature_selection = elaborate::FeatureSelection::default();
     let mut ui = UiOptions::default();
     let mut include_examples = false;
+    let mut run_selection = RunSelection::DefaultBin;
     let mut idx = 0;
 
     while idx < args.len() {
@@ -189,13 +269,68 @@ fn parse_command_options(
             continue;
         }
         if arg == "--examples" {
-            if !allow_examples {
+            if !mode.allow_examples {
                 return Err(Error::Usage(format!(
                     "unsupported option `{arg}`\n\n{}",
                     usage()
                 )));
             }
             include_examples = true;
+            idx += 1;
+            continue;
+        }
+        if arg == "--bin" {
+            if !mode.allow_run_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage("`--bin` requires a target name".to_string()));
+            };
+            run_selection = parse_run_selection(&run_selection, RunSelection::Bin(value.clone()))?;
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--bin=") {
+            if !mode.allow_run_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `--bin`\n\n{}",
+                    usage()
+                )));
+            }
+            run_selection =
+                parse_run_selection(&run_selection, RunSelection::Bin(value.to_string()))?;
+            idx += 1;
+            continue;
+        }
+        if arg == "--example" {
+            if !mode.allow_run_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
+            let Some(value) = args.get(idx + 1) else {
+                return Err(Error::Usage(
+                    "`--example` requires a target name".to_string(),
+                ));
+            };
+            run_selection =
+                parse_run_selection(&run_selection, RunSelection::Example(value.clone()))?;
+            idx += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--example=") {
+            if !mode.allow_run_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `--example`\n\n{}",
+                    usage()
+                )));
+            }
+            run_selection =
+                parse_run_selection(&run_selection, RunSelection::Example(value.to_string()))?;
             idx += 1;
             continue;
         }
@@ -220,6 +355,12 @@ fn parse_command_options(
             continue;
         }
         if arg == "--no-default-features" {
+            if !mode.allow_feature_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
             feature_selection.enable_default = false;
             idx += 1;
             continue;
@@ -240,6 +381,12 @@ fn parse_command_options(
             continue;
         }
         if arg == "--profile" {
+            if !mode.allow_feature_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
             let Some(value) = args.get(idx + 1) else {
                 return Err(Error::Usage(
                     "`--profile` requires one of: dev, release".to_string(),
@@ -250,11 +397,23 @@ fn parse_command_options(
             continue;
         }
         if let Some(value) = arg.strip_prefix("--profile=") {
+            if !mode.allow_feature_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `--profile`\n\n{}",
+                    usage()
+                )));
+            }
             feature_selection.profile = parse_profile_selection(value)?;
             idx += 1;
             continue;
         }
         if arg == "--features" {
+            if !mode.allow_feature_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `{arg}`\n\n{}",
+                    usage()
+                )));
+            }
             let Some(value) = args.get(idx + 1) else {
                 return Err(Error::Usage(
                     "`--features` requires a comma-separated feature list".to_string(),
@@ -265,6 +424,12 @@ fn parse_command_options(
             continue;
         }
         if let Some(value) = arg.strip_prefix("--features=") {
+            if !mode.allow_feature_selection {
+                return Err(Error::Usage(format!(
+                    "unsupported option `--features`\n\n{}",
+                    usage()
+                )));
+            }
             extend_feature_selection(&mut feature_selection, value)?;
             idx += 1;
             continue;
@@ -281,7 +446,32 @@ fn parse_command_options(
         )));
     }
 
-    Ok((path, feature_selection, ui, include_examples))
+    Ok(ParsedCommandOptions {
+        path,
+        feature_selection,
+        ui,
+        include_examples,
+        run_selection,
+    })
+}
+
+fn parse_run_selection(current: &RunSelection, next: RunSelection) -> Result<RunSelection> {
+    match current {
+        RunSelection::DefaultBin => {}
+        RunSelection::Bin(_) | RunSelection::Example(_) => {
+            return Err(Error::Usage(
+                "`craft run` accepts at most one of `--bin <NAME>` or `--example <NAME>`"
+                    .to_string(),
+            ));
+        }
+    }
+
+    match &next {
+        RunSelection::Bin(name) | RunSelection::Example(name) if name.trim().is_empty() => Err(
+            Error::Usage("run target names must not be empty".to_string()),
+        ),
+        _ => Ok(next),
+    }
 }
 
 fn parse_color_choice(raw: &str) -> Result<ColorChoice> {
@@ -345,19 +535,22 @@ fn usage() -> &'static str {
         "\n",
         "Commands:\n",
         "  help     Show this help text\n",
+        "  init     Initialize a package in the selected directory without creating a new parent dir\n",
         "  check    Validate `Craft.toml`, scripts, sources, and derived analysis inputs\n",
         "  lock     Write a deterministic `Craft.lock` for the current package graph\n",
         "  fetch    Materialize external package sources into the local `.craft` cache\n",
         "  publish  Run release-oriented publish readiness checks without uploading anywhere\n",
         "  doc      Build library metadata and render native package docs to Markdown\n",
         "  build    Build the selected package graph and print the derived action plan\n",
-        "  run      Build and run the single runnable `bin` target in the package graph\n",
+        "  run      Build and run a selected `bin` or `example` target\n",
         "  test     Build and run all discovered `test` targets\n",
         "\n",
-        "Global Options:\n",
+        "Options:\n",
         "  --project-path <PATH>    Select the package or workspace root (or `Craft.toml` path)\n",
         "  --profile <NAME>         Profile selection: dev (default) or release\n",
-        "  --examples               Include `[[example]]` targets when running `craft build`\n",
+        "  --examples               Include `[example].roots` targets when running `craft build`\n",
+        "  --bin <NAME>             Select a named `bin` target when running `craft run`\n",
+        "  --example <NAME>         Select a named `example` target when running `craft run`\n",
         "  --no-default-features    Disable the implicit `default` feature\n",
         "  --features <FEATURES>    Enable a comma-separated feature list\n",
         "  --verbose, -v            Print detailed action logs instead of the default compact summary\n",
@@ -370,11 +563,13 @@ fn usage() -> &'static str {
         "  -h, --help              Print this help text and exit\n",
         "\n",
         "Examples:\n",
+        "  craft init\n",
         "  craft check\n",
         "  craft build --project-path path/to/pkg --profile release\n",
         "  craft doc --verbose\n",
         "  craft build --timings\n",
         "  craft run --features tls,simd\n",
+        "  craft run --example hello_compact\n",
         "  craft build --verbose --color always\n",
     )
 }

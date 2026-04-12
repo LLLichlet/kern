@@ -397,9 +397,8 @@ root = "src/main.rn"
 [test]
 roots = ["tests/smoke.rn"]
 
-[[example]]
-name = "hello"
-root = "examples/hello.rn"
+[example]
+roots = ["examples/hello.rn"]
 "#,
             Path::new("Craft.toml"),
         )
@@ -426,6 +425,11 @@ root = "examples/hello.rn"
             target.kind == TargetKind::Test
                 && target.name.as_deref() == Some("smoke")
                 && target.root == "tests/smoke.rn"
+        }));
+        assert!(plan.targets.iter().any(|target| {
+            target.kind == TargetKind::Example
+                && target.name.as_deref() == Some("hello")
+                && target.root == "examples/hello.rn"
         }));
     }
 

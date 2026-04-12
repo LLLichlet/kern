@@ -1,18 +1,15 @@
 use crate::error::{Error, Result};
-use std::ffi::OsStr;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-const CRAFT_GITIGNORE_BLOCK: &str =
-    "# Managed by craft. Keep local derived state out of git.\n.craft/\n";
+const CRAFT_GITIGNORE_ENTRY: &str = ".craft/\n";
 static ATOMIC_WRITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 pub(crate) fn ensure_dir(path: &Path) -> Result<()> {
-    fs::create_dir_all(path).map_err(|err| Error::from_io(path, err))?;
-    ensure_craft_gitignore(path)
+    fs::create_dir_all(path).map_err(|err| Error::from_io(path, err))
 }
 
 pub(crate) fn ensure_parent_dir(path: &Path) -> Result<()> {
@@ -52,20 +49,12 @@ pub(crate) fn write_file_atomic(path: &Path, contents: impl AsRef<[u8]>) -> Resu
     Ok(())
 }
 
-fn ensure_craft_gitignore(path: &Path) -> Result<()> {
-    let Some(workspace_root) = path
-        .ancestors()
-        .find(|ancestor| ancestor.file_name() == Some(OsStr::new(".craft")))
-        .and_then(Path::parent)
-    else {
-        return Ok(());
-    };
-
+pub(crate) fn ensure_workspace_gitignore_entry(workspace_root: &Path) -> Result<bool> {
     let gitignore_path = workspace_root.join(".gitignore");
     match fs::read_to_string(&gitignore_path) {
         Ok(contents) => {
             if ignores_all_craft_outputs(&contents) {
-                return Ok(());
+                return Ok(false);
             }
 
             let mut updated = contents;
@@ -75,12 +64,15 @@ fn ensure_craft_gitignore(path: &Path) -> Result<()> {
             if !updated.is_empty() {
                 updated.push('\n');
             }
-            updated.push_str(CRAFT_GITIGNORE_BLOCK);
-            fs::write(&gitignore_path, updated).map_err(|err| Error::from_io(&gitignore_path, err))
+            updated.push_str(CRAFT_GITIGNORE_ENTRY);
+            fs::write(&gitignore_path, updated)
+                .map_err(|err| Error::from_io(&gitignore_path, err))?;
+            Ok(true)
         }
         Err(err) if err.kind() == ErrorKind::NotFound => {
-            fs::write(&gitignore_path, CRAFT_GITIGNORE_BLOCK)
-                .map_err(|err| Error::from_io(&gitignore_path, err))
+            fs::write(&gitignore_path, CRAFT_GITIGNORE_ENTRY)
+                .map_err(|err| Error::from_io(&gitignore_path, err))?;
+            Ok(true)
         }
         Err(err) => Err(Error::from_io(&gitignore_path, err)),
     }
@@ -115,7 +107,7 @@ fn atomic_temp_path(path: &Path) -> PathBuf {
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_dir, ensure_parent_dir, write_file_atomic};
+    use super::{ensure_dir, ensure_workspace_gitignore_entry, write_file_atomic};
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -131,14 +123,25 @@ mod tests {
     }
 
     #[test]
-    fn creates_gitignore_for_craft_subtrees() {
+    fn ensure_dir_does_not_touch_workspace_gitignore() {
         let root = temp_dir("craft-local-state");
         let path = root.join(".craft").join("build").join("dev");
 
         ensure_dir(&path).unwrap();
 
+        assert!(!root.join(".gitignore").exists());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn creates_gitignore_entry_when_requested() {
+        let root = temp_dir("craft-local-state");
+
+        assert!(ensure_workspace_gitignore_entry(&root).unwrap());
+
         let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
-        assert!(gitignore.contains(".craft/"));
+        assert_eq!(gitignore, ".craft/\n");
 
         let _ = fs::remove_dir_all(root);
     }
@@ -151,7 +154,7 @@ mod tests {
         let gitignore_path = root.join(".gitignore");
         fs::write(&gitignore_path, "# keep custom rule\n!README.md\n").unwrap();
 
-        ensure_parent_dir(&craft_root.join("build").join("dev").join("artifact.o")).unwrap();
+        assert!(ensure_workspace_gitignore_entry(&root).unwrap());
 
         let gitignore = fs::read_to_string(gitignore_path).unwrap();
         assert!(gitignore.contains("!README.md"));

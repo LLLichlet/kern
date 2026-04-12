@@ -26,6 +26,9 @@ root = "src/main.rn"
 [test]
 roots = ["tests/smoke.rn", "tests/env.rn"]
 
+[example]
+roots = ["examples/hello.rn"]
+
 [dependencies]
 alloc = { path = "../alloc", features = ["arena"] }
 toml = { git = "https://example.com/toml.git", tag = "v0.1.0" }
@@ -43,8 +46,10 @@ default = []
     assert!(manifest.lib.is_some());
     assert_eq!(manifest.bin.len(), 1);
     assert_eq!(manifest.test.len(), 2);
+    assert_eq!(manifest.example.len(), 1);
     assert_eq!(manifest.test[0].name, "smoke");
     assert_eq!(manifest.test[1].name, "env");
+    assert_eq!(manifest.example[0].name, "hello");
     assert_eq!(manifest.dependencies.len(), 2);
 }
 
@@ -491,7 +496,10 @@ roots = ["tests/smoke.rn", "alt/smoke.rn"]
     let err = manifest
         .validate(std::path::Path::new("Craft.toml"))
         .unwrap_err();
-    assert!(err.to_string().contains("duplicate test file stem `smoke`"));
+    assert!(
+        err.to_string()
+            .contains("duplicate file stem `smoke` in [test].roots")
+    );
 }
 
 #[test]
@@ -533,5 +541,28 @@ root = "tests/smoke.rn"
     assert!(
         err.to_string()
             .contains("unsupported array table `[[test]]`")
+    );
+}
+
+#[test]
+fn rejects_legacy_array_style_example_targets() {
+    let err = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[[example]]
+name = "hello"
+root = "examples/hello.rn"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("unsupported array table `[[example]]`")
     );
 }

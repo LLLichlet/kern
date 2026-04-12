@@ -132,8 +132,7 @@ if (p.env(\"{env_name}\") != .None) {{
         values.get("GREETING_MSG").map(String::as_str),
         Some("Hello from craft")
     );
-    let gitignore = fs::read_to_string(root.join(".gitignore")).unwrap();
-    assert!(gitignore.contains(".craft/"));
+    assert!(!root.join(".gitignore").exists());
 }
 
 #[test]

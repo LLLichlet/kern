@@ -57,10 +57,6 @@ impl Manifest {
                 self.bin.push(NamedTarget::default());
                 Ok(Section::Bin(self.bin.len() - 1))
             }
-            "[[example]]" => {
-                self.example.push(NamedTarget::default());
-                Ok(Section::Example(self.example.len() - 1))
-            }
             _ => Err(format!("unsupported array table `{line}`")),
         }
     }
@@ -88,6 +84,7 @@ fn enter_table_section(
             Ok(Section::Lib)
         }
         "[test]" => Ok(Section::Test),
+        "[example]" => Ok(Section::Example),
         "[dependencies]" => Ok(Section::Dependencies),
         "[dev-dependencies]" => Ok(Section::DevDependencies),
         "[build-dependencies]" => Ok(Section::BuildDependencies),
@@ -190,9 +187,7 @@ fn assign_key_value(
             assign_named_target(&mut manifest.bin[*index], "[[bin]]", key, raw_value)
         }
         Section::Test => assign_test_targets(manifest, key, raw_value),
-        Section::Example(index) => {
-            assign_named_target(&mut manifest.example[*index], "[[example]]", key, raw_value)
-        }
+        Section::Example => assign_example_targets(manifest, key, raw_value),
         Section::Dependencies => {
             manifest
                 .dependencies
@@ -291,8 +286,20 @@ fn assign_test_targets(
     raw_value: &str,
 ) -> std::result::Result<(), String> {
     match key {
-        "roots" => manifest.test = parse_test_roots(raw_value)?,
+        "roots" => manifest.test = parse_target_roots("[test].roots", raw_value)?,
         _ => return Err(format!("unsupported [test] key `{key}`")),
+    }
+    Ok(())
+}
+
+fn assign_example_targets(
+    manifest: &mut Manifest,
+    key: &str,
+    raw_value: &str,
+) -> std::result::Result<(), String> {
+    match key {
+        "roots" => manifest.example = parse_target_roots("[example].roots", raw_value)?,
+        _ => return Err(format!("unsupported [example] key `{key}`")),
     }
     Ok(())
 }
@@ -641,24 +648,27 @@ fn split_top_level(input: &str, separator: char) -> Vec<&str> {
     parts
 }
 
-fn parse_test_roots(raw_value: &str) -> std::result::Result<Vec<NamedTarget>, String> {
+fn parse_target_roots(
+    section: &str,
+    raw_value: &str,
+) -> std::result::Result<Vec<NamedTarget>, String> {
     let roots = parse_string_array(raw_value)?;
     let mut targets = Vec::new();
     for root in roots {
         if contains_glob_pattern(&root) {
             return Err(format!(
-                "[test].roots does not support glob patterns, list files explicitly: `{root}`"
+                "{section} does not support glob patterns, list files explicitly: `{root}`"
             ));
         }
         let path = Path::new(&root);
         let Some(name) = path.file_stem().and_then(|stem| stem.to_str()) else {
             return Err(format!(
-                "[test].roots entries must end in a UTF-8 file name, found `{root}`"
+                "{section} entries must end in a UTF-8 file name, found `{root}`"
             ));
         };
         if name.is_empty() {
             return Err(format!(
-                "[test].roots entries must provide a non-empty file stem, found `{root}`"
+                "{section} entries must provide a non-empty file stem, found `{root}`"
             ));
         }
         targets.push(NamedTarget {

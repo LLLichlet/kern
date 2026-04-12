@@ -107,6 +107,24 @@ fn profile_emit_multi_linker_input_dir(
     domain == BuildDomain::Target && profile.codegen_units > 1 && profile.lto_mode != LtoMode::Full
 }
 
+fn compile_action_driver_mode(command: crate::script::ScriptCommand) -> DriverMode {
+    match command {
+        crate::script::ScriptCommand::Check => DriverMode::AnalyzeOnly,
+        _ => DriverMode::CompileOnly,
+    }
+}
+
+fn normalize_codegen_options_for_driver_mode(options: &mut CompileOptions) {
+    if options.driver_mode != DriverMode::AnalyzeOnly {
+        return;
+    }
+
+    options.codegen_units = 1;
+    options.lto_mode = LtoMode::None;
+    options.linker_input_flavor = LinkerInputFlavor::Object;
+    options.emit_multi_linker_input_dir = false;
+}
+
 pub(super) fn profile_linker_input_flavor(
     profile: &crate::script::ScriptProfile,
     domain: BuildDomain,
@@ -126,6 +144,7 @@ pub(super) fn profile_uses_cross_package_thin_lto(
 }
 
 pub(super) fn compile_action_options(
+    command: crate::script::ScriptCommand,
     action: &CompileAction,
     local_library_actions: &BTreeMap<PackageInstanceKey, CompileAction>,
     built_std_packages: &BTreeMap<String, BuiltStdPackage>,
@@ -145,7 +164,7 @@ pub(super) fn compile_action_options(
             .then(|| action.package_id.version.clone()),
         root_module_name: (action.target_kind == crate::plan::TargetKind::Lib)
             .then(|| action.package_id.name.clone()),
-        driver_mode: DriverMode::CompileOnly,
+        driver_mode: compile_action_driver_mode(command),
         report_progress: false,
         opt_level: profile_opt_level(&action.profile),
         codegen_units: action.profile.codegen_units,
@@ -178,6 +197,7 @@ pub(super) fn compile_action_options(
         &action.define,
         action.source_path(),
     )?);
+    normalize_codegen_options_for_driver_mode(&mut options);
     Ok(options)
 }
 

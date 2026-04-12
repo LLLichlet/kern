@@ -5,6 +5,51 @@ use kernc_utils::config::LinkerInputFlavor;
 use std::fs;
 
 impl CompilerDriver {
+    fn empty_compile_report(
+        loaded_sources: Vec<PathBuf>,
+        phase_timings: Vec<PhaseTiming>,
+        cache_stats: CompileCacheStats,
+    ) -> CompileReport {
+        CompileReport {
+            loaded_sources,
+            phase_timings,
+            cache_stats,
+            lower_cache_stats: None,
+            mast_workload: None,
+            mir_workload: None,
+            codegen_plan: None,
+            ir_instruction_stats: None,
+            ir_cleanup_stats: None,
+            remaining_alloca_stats: None,
+            remaining_alloca_names: Vec::new(),
+            ir_hot_functions: Vec::new(),
+            codegen_alloca_stats: Default::default(),
+        }
+    }
+
+    fn emit_metadata_snapshot(
+        &self,
+        ctx: &SemaContext<'_>,
+        phase_timings: &mut Vec<PhaseTiming>,
+    ) -> Result<(), String> {
+        let Some(metadata_output) = self.options.metadata_output.as_deref() else {
+            return Ok(());
+        };
+
+        Self::measure_phase(phase_timings, "emit_kmeta", || {
+            metadata::emit_package_metadata(
+                ctx,
+                Path::new(metadata_output),
+                self.options
+                    .metadata_package_name
+                    .as_deref()
+                    .or(self.options.root_module_name.as_deref())
+                    .unwrap_or("root"),
+                self.options.metadata_package_version.as_deref(),
+            )
+        })
+    }
+
     pub fn compile(&self) -> bool {
         match self.compile_with_report() {
             Some(report) => {
@@ -38,20 +83,12 @@ impl CompilerDriver {
         let mut phase_timings = Vec::new();
         if self.options.driver_mode == DriverMode::LinkOnly {
             let linked = Self::measure_phase(&mut phase_timings, "link", || self.link_only());
-            return linked.then(|| CompileReport {
-                loaded_sources: Vec::new(),
-                phase_timings,
-                cache_stats: self.cache_stats_since(cache_snapshot),
-                lower_cache_stats: None,
-                mast_workload: None,
-                mir_workload: None,
-                codegen_plan: None,
-                ir_instruction_stats: None,
-                ir_cleanup_stats: None,
-                remaining_alloca_stats: None,
-                remaining_alloca_names: Vec::new(),
-                ir_hot_functions: Vec::new(),
-                codegen_alloca_stats: Default::default(),
+            return linked.then(|| {
+                Self::empty_compile_report(
+                    Vec::new(),
+                    phase_timings,
+                    self.cache_stats_since(cache_snapshot),
+                )
             });
         }
 
@@ -78,6 +115,20 @@ impl CompilerDriver {
             .map(|file| file.path.clone())
             .collect::<Vec<_>>();
 
+        if let Err(err) = self.emit_metadata_snapshot(&ctx, &mut phase_timings) {
+            eprintln!("Error: Failed to emit kmeta snapshot: {}", err);
+            return None;
+        }
+
+        if self.options.driver_mode == DriverMode::AnalyzeOnly {
+            Self::print_buffered_diagnostics(ctx.sess);
+            return Some(Self::empty_compile_report(
+                loaded_sources,
+                phase_timings,
+                self.cache_stats_since(cache_snapshot),
+            ));
+        }
+
         let lowered = Self::measure_phase(&mut phase_timings, "lower", || {
             self.lower_module_with_flow_report(
                 &mut ctx,
@@ -95,24 +146,6 @@ impl CompilerDriver {
             name: "  mir_build",
             duration: mir_started.elapsed(),
         });
-
-        if let Some(metadata_output) = self.options.metadata_output.as_deref()
-            && let Err(err) = Self::measure_phase(&mut phase_timings, "emit_kmeta", || {
-                metadata::emit_package_metadata(
-                    &ctx,
-                    Path::new(metadata_output),
-                    self.options
-                        .metadata_package_name
-                        .as_deref()
-                        .or(self.options.root_module_name.as_deref())
-                        .unwrap_or("root"),
-                    self.options.metadata_package_version.as_deref(),
-                )
-            })
-        {
-            eprintln!("Error: Failed to emit kmeta snapshot: {}", err);
-            return None;
-        }
 
         let target = self.normalized_target();
         let module_name = self.module_name_for_codegen(input_file);

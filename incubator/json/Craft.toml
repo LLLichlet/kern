@@ -10,13 +10,11 @@ license = "MIT"
 [lib]
 root = "src/lib.rn"
 
-[[example]]
-name = "hello_compact"
-root = "examples/hello_compact.rn"
-
-[[example]]
-name = "bench_json"
-root = "examples/bench_json.rn"
+[example]
+roots = [
+    "examples/hello_compact.rn",
+    "examples/bench_json.rn",
+]
 
 [test]
 roots = ["tests/smoke.rn"]

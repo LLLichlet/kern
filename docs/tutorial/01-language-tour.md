@@ -135,6 +135,7 @@ out.[2] = 9.0;
 if (@simdAny(mask)) {
     out = @simdSelect(mask, b, out);
 }
+let mask_bits = @simdBitmask(mask);
 
 let mixed = @simdShuffle(a, b, [4]u32.{ 0, 5, 2, 7 });
 let swizzled = @simdSwizzle(a, [4]u32.{ 3, 0, 2, 1 });
@@ -179,7 +180,7 @@ The important split is:
 - SIMD integer primitives cover the full builtin integer family, including `isizexN`, `usizexN`, `i128xN`, and `u128xN`.
 - `.[]` on SIMD means lane access.
 - SIMD comparisons return `boolxN`, not scalar `bool`.
-- `@simdAny`, `@simdAll`, and `@simdSelect` are compiler intrinsics for mask reduction and lane-wise selection.
+- `@simdAny`, `@simdAll`, `@simdBitmask`, and `@simdSelect` are compiler intrinsics for mask reduction, mask extraction, and lane-wise selection.
 - `@simdShuffle` is the general two-input lane permutation primitive, while `@simdSwizzle` is the single-input shorthand.
 - `@simdReverse`, `@simdRotateLeft`, `@simdRotateRight`, `@simdInterleaveLo`, `@simdInterleaveHi`, `@simdZipLo`, `@simdZipHi`, `@simdConcatLo`, `@simdConcatHi`, `@simdDeinterleaveLo`, `@simdDeinterleaveHi`, `@simdUnzipLo`, and `@simdUnzipHi` are higher-level rearrangement helpers built on top of explicit shuffle semantics.
 - `@simdLowHalf`, `@simdHighHalf`, `@simdWithLowHalf`, and `@simdWithHighHalf` let you split and stitch vectors without treating SIMD as arrays.

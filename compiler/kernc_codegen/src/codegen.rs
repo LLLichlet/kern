@@ -1,5 +1,5 @@
 use crate::llvm_api::{
-    AsValueRef, Builder, Context as LlvmContext, FunctionValue, GlobalValue, InlineAsmDialect,
+    Builder, Context as LlvmContext, FunctionValue, GlobalValue, InlineAsmDialect,
     Module as LlvmModule, PointerValue, StructType,
 };
 use llvm_sys::core::{
@@ -20,23 +20,29 @@ use llvm_sys::target_machine::{
     LLVMTargetRef,
 };
 use llvm_sys::transforms::pass_builder::{
-    LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPassesOnFunction,
+    LLVMCreatePassBuilderOptions, LLVMDisposePassBuilderOptions, LLVMRunPasses,
 };
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::ptr;
 use std::time::{Duration, Instant};
 
-use kernc_mast::*;
+use kernc_mir::{MirLocalId, MirModule};
+use kernc_mono::MonoId;
 use kernc_sema::def::DefId;
 use kernc_sema::ty::{TypeId, TypeRegistry};
-use kernc_utils::config::OptLevel;
+use kernc_utils::config::{LlvmIrStage, OptLevel};
 use kernc_utils::{Session, SymbolId};
 use llvm_sys::LLVMOpcode;
 
-mod block;
+mod abi;
+mod aggregate;
+mod alloca;
 mod decl;
-mod expr;
+mod math;
+mod mir;
+mod refs;
+mod simd_shared;
 mod types;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,11 +143,13 @@ pub struct CodeGenerator<'ctx, 'a> {
     struct_fields: HashMap<MonoId, Vec<SymbolId>>,
     union_ids: std::collections::HashSet<MonoId>,
     globals: HashMap<MonoId, GlobalValue<'ctx>>,
+    global_tys: HashMap<MonoId, TypeId>,
     functions: HashMap<MonoId, FunctionValue<'ctx>>,
     function_ret_tys: HashMap<MonoId, TypeId>,
     alloca_stats: CodegenAllocaStats,
 
     locals: HashMap<kernc_utils::SymbolId, PointerValue<'ctx>>,
+    mir_locals: HashMap<MirLocalId, PointerValue<'ctx>>,
     loop_targets: Vec<(
         crate::llvm_api::BasicBlock<'ctx>,
         crate::llvm_api::BasicBlock<'ctx>,
@@ -158,6 +166,25 @@ pub struct CodeGenerator<'ctx, 'a> {
 }
 
 impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    fn prepare_from_mir(&mut self, module: &MirModule) {
+        self.def_mono_map = module.mono.def_mono_map.clone();
+        self.pure_enum_tag_map = module.mono.pure_enum_tag_map.clone();
+        self.adt_union_map = module.mono.adt_union_map.clone();
+        self.anon_struct_map = module.mono.anon_struct_map.clone();
+        self.anon_union_map = module.mono.anon_union_map.clone();
+        self.anon_enum_map = module.mono.anon_enum_map.clone();
+        self.function_ret_tys = module
+            .functions
+            .iter()
+            .map(|function| (function.id, function.ret_ty))
+            .collect();
+        self.global_tys = module
+            .globals
+            .iter()
+            .map(|global| (global.id, global.ty))
+            .collect();
+    }
+
     fn collect_ir_instruction_stats(&self) -> (IrInstructionStats, Vec<IrFunctionStats>) {
         let mut stats = IrInstructionStats::default();
         let mut hot_functions = Vec::new();
@@ -305,10 +332,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             struct_fields: HashMap::new(),
             union_ids: std::collections::HashSet::new(),
             globals: HashMap::new(),
+            global_tys: HashMap::new(),
             functions: HashMap::new(),
             function_ret_tys: HashMap::new(),
             alloca_stats: CodegenAllocaStats::default(),
             locals: HashMap::new(),
+            mir_locals: HashMap::new(),
             loop_targets: Vec::new(),
             asm_dialect: InlineAsmDialect::Intel,
             def_mono_map: HashMap::new(),
@@ -375,50 +404,42 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         })
     }
 
-    pub fn compile(&mut self, module: &MastModule, collect_diagnostics: bool) -> CodegenReport {
+    pub fn compile_mir(&mut self, module: &MirModule, collect_diagnostics: bool) -> CodegenReport {
         let mut report = CodegenReport::default();
 
         let prepare_started = Instant::now();
-        self.def_mono_map = module.def_mono_map.clone();
-        self.pure_enum_tag_map = module.pure_enum_tag_map.clone();
-        self.adt_union_map = module.adt_union_map.clone();
-        self.anon_struct_map = module.anon_struct_map.clone();
-        self.anon_union_map = module.anon_union_map.clone();
-        self.anon_enum_map = module.anon_enum_map.clone();
-        self.function_ret_tys = module
-            .functions
-            .iter()
-            .map(|function| (function.id, function.ret_ty))
-            .collect();
+        self.prepare_from_mir(module);
         report.timings.push(CodegenTiming {
             name: "  codegen_prepare",
             duration: prepare_started.elapsed(),
         });
 
         let declare_structs_started = Instant::now();
-        self.declare_structs(&module.structs);
+        self.declare_mir_structs(&module.structs);
         report.timings.push(CodegenTiming {
             name: "  codegen_declare_structs",
             duration: declare_structs_started.elapsed(),
         });
 
         let declare_globals_started = Instant::now();
-        self.declare_globals(&module.globals);
+        self.declare_mir_globals(&module.globals);
         report.timings.push(CodegenTiming {
             name: "  codegen_declare_globals",
             duration: declare_globals_started.elapsed(),
         });
 
         let declare_functions_started = Instant::now();
-        self.declare_functions(&module.functions);
+        self.declare_mir_functions(&module.functions);
         report.timings.push(CodegenTiming {
             name: "  codegen_declare_functions",
             duration: declare_functions_started.elapsed(),
         });
-
         let compile_globals_started = Instant::now();
         for global in &module.globals {
-            self.compile_global(global);
+            if global.is_extern || global.init.is_none() {
+                continue;
+            }
+            self.compile_mir_global(global);
         }
         report.timings.push(CodegenTiming {
             name: "  codegen_compile_globals",
@@ -427,9 +448,10 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
         let compile_functions_started = Instant::now();
         for function in &module.functions {
-            if function.body.is_some() {
-                self.compile_function(function);
+            if function.body.is_none() {
+                continue;
             }
+            self.compile_mir_function(function);
         }
         report.timings.push(CodegenTiming {
             name: "  codegen_compile_functions",
@@ -449,6 +471,18 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.asm_dialect = dialect;
     }
 
+    pub fn into_module(self) -> LlvmModule<'ctx> {
+        self.module
+    }
+
+    pub fn link_module(&mut self, module: LlvmModule<'ctx>) -> Result<(), String> {
+        self.module.link_in(module)
+    }
+
+    pub fn session(&self) -> &Session {
+        self.sess
+    }
+
     fn current_block_is_terminated(&self) -> bool {
         self.builder
             .get_insert_block()
@@ -456,21 +490,99 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             .is_some()
     }
 
-    fn expr_terminated_fallback(
-        &mut self,
-        llvm_ty: crate::types::BasicTypeEnum<'ctx>,
-    ) -> Option<crate::values::BasicValueEnum<'ctx>> {
-        if self.current_block_is_terminated() {
-            Some(self.get_undef_val(llvm_ty))
-        } else {
-            None
-        }
-    }
-
     pub fn print_ir(&self) -> Result<(), String> {
         let ir = self.module.ir_string()?;
         print!("{}", ir);
         Ok(())
+    }
+
+    pub fn emit_llvm_ir(
+        &self,
+        target_triple_str: &str,
+        opt_level: OptLevel,
+        stage: LlvmIrStage,
+        collect_diagnostics: bool,
+    ) -> Result<EmitObjectReport, String> {
+        let mut report = EmitObjectReport::default();
+        if stage == LlvmIrStage::Raw {
+            let print_started = Instant::now();
+            self.print_ir()?;
+            report.timings.push(EmitObjectTiming {
+                name: "  emit_print_ir",
+                duration: print_started.elapsed(),
+            });
+            return Ok(report);
+        }
+
+        let init_started = Instant::now();
+        initialize_llvm_targets();
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_init_llvm",
+            duration: init_started.elapsed(),
+        });
+        let triple = CString::new(target_triple_str).map_err(|_| {
+            format!("Target triple contains an interior NUL byte: {target_triple_str:?}")
+        })?;
+        let setup_started = Instant::now();
+        let target_machine = create_target_machine(&triple, opt_level)?;
+        let target_data = unsafe { LLVMCreateTargetDataLayout(target_machine) };
+        unsafe {
+            LLVMSetModuleDataLayout(self.module.as_mut_ptr(), target_data);
+            LLVMSetTarget(self.module.as_mut_ptr(), triple.as_ptr());
+        }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_setup",
+            duration: setup_started.elapsed(),
+        });
+
+        let verify_started = Instant::now();
+        if let Err(err) = self.module.verify() {
+            eprintln!("LLVM IR Verification Failed:\n{}", err);
+            let _ = self.print_ir();
+            unsafe {
+                LLVMDisposeTargetData(target_data);
+                LLVMDisposeTargetMachine(target_machine);
+            }
+            return Err("Invalid LLVM IR generated".to_string());
+        }
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_verify",
+            duration: verify_started.elapsed(),
+        });
+
+        if stage == LlvmIrStage::Optimized {
+            let cleanup_before_stats =
+                collect_diagnostics.then(|| self.collect_ir_instruction_stats().0);
+            let optimize_started = Instant::now();
+            self.run_llvm_pass_pipeline(target_machine, opt_level)?;
+            report.timings.push(EmitObjectTiming {
+                name: "  emit_opt_ir",
+                duration: optimize_started.elapsed(),
+            });
+            if let Some(cleanup_before_stats) = cleanup_before_stats {
+                let cleanup_after_stats = self.collect_ir_instruction_stats().0;
+                report.ir_cleanup_stats = Some(IrCleanupStats {
+                    before: cleanup_before_stats,
+                    after: cleanup_after_stats,
+                });
+                report.remaining_alloca_stats = Some(self.collect_remaining_alloca_stats());
+                report.remaining_alloca_names = self.collect_remaining_alloca_names();
+            }
+        }
+
+        let print_started = Instant::now();
+        let print_result = self.print_ir();
+        report.timings.push(EmitObjectTiming {
+            name: "  emit_print_ir",
+            duration: print_started.elapsed(),
+        });
+
+        unsafe {
+            LLVMDisposeTargetData(target_data);
+            LLVMDisposeTargetMachine(target_machine);
+        }
+
+        print_result.map(|_| report)
     }
 
     pub fn emit_to_file(
@@ -529,7 +641,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let cleanup_before_stats =
             collect_diagnostics.then(|| self.collect_ir_instruction_stats().0);
         let optimize_started = Instant::now();
-        self.run_ir_cleanup_passes(target_machine, opt_level)?;
+        self.run_llvm_pass_pipeline(target_machine, opt_level)?;
         report.timings.push(EmitObjectTiming {
             name: "  emit_opt_ir",
             duration: optimize_started.elapsed(),
@@ -641,7 +753,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         let cleanup_before_stats =
             collect_diagnostics.then(|| self.collect_ir_instruction_stats().0);
         let optimize_started = Instant::now();
-        self.run_ir_cleanup_passes(target_machine, opt_level)?;
+        self.run_llvm_pass_pipeline(target_machine, opt_level)?;
         report.timings.push(EmitObjectTiming {
             name: "  emit_opt_ir",
             duration: optimize_started.elapsed(),
@@ -742,80 +854,29 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         self.sess.interner.resolve(sym).unwrap_or("<unknown>")
     }
 
-    fn run_ir_cleanup_passes(
+    fn run_llvm_pass_pipeline(
         &self,
         target_machine: LLVMTargetMachineRef,
         opt_level: OptLevel,
     ) -> Result<(), String> {
-        if matches!(opt_level, OptLevel::O0) {
+        let Some(pass_pipeline) = llvm_module_pass_pipeline(opt_level) else {
             return Ok(());
-        }
-
-        let mem2reg_passes = CString::new("mem2reg").unwrap();
-        let aggregate_cleanup_passes = CString::new("sroa,mem2reg").unwrap();
+        };
         let options = unsafe { LLVMCreatePassBuilderOptions() };
-        let mut current_function = self.module.get_first_function();
-        while let Some(function) = current_function {
-            if let Some(profile) = function_alloca_profile(function) {
-                let passes = match profile {
-                    FunctionAllocaProfile::ScalarOnly => mem2reg_passes.as_ptr(),
-                    FunctionAllocaProfile::AggregatePresent => aggregate_cleanup_passes.as_ptr(),
-                };
-                let err = unsafe {
-                    LLVMRunPassesOnFunction(
-                        function.as_value_ref(),
-                        passes,
-                        target_machine,
-                        options,
-                    )
-                };
-                if !err.is_null() {
-                    unsafe { LLVMDisposePassBuilderOptions(options) };
-                    return Err(take_llvm_error(err));
-                }
-            }
-            current_function = function.get_next_function();
+        let err = unsafe {
+            LLVMRunPasses(
+                self.module.as_mut_ptr(),
+                pass_pipeline.as_ptr(),
+                target_machine,
+                options,
+            )
+        };
+        if !err.is_null() {
+            unsafe { LLVMDisposePassBuilderOptions(options) };
+            return Err(take_llvm_error(err));
         }
         unsafe { LLVMDisposePassBuilderOptions(options) };
         Ok(())
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FunctionAllocaProfile {
-    ScalarOnly,
-    AggregatePresent,
-}
-
-fn function_alloca_profile(function: FunctionValue<'_>) -> Option<FunctionAllocaProfile> {
-    let mut saw_alloca = false;
-    let mut saw_aggregate = false;
-    let mut current_block = function.get_first_basic_block();
-    while let Some(block) = current_block {
-        let mut current_instruction = block.get_first_instruction();
-        while let Some(instruction) = current_instruction {
-            if instruction.get_opcode() == LLVMOpcode::LLVMAlloca {
-                saw_alloca = true;
-                let allocated_ty = instruction.get_allocated_type();
-                if matches!(
-                    allocated_ty,
-                    crate::types::BasicTypeEnum::ArrayType(_)
-                        | crate::types::BasicTypeEnum::StructType(_)
-                ) {
-                    saw_aggregate = true;
-                }
-            }
-            current_instruction = instruction.get_next_instruction();
-        }
-        current_block = block.get_next_basic_block();
-    }
-
-    if !saw_alloca {
-        None
-    } else if saw_aggregate {
-        Some(FunctionAllocaProfile::AggregatePresent)
-    } else {
-        Some(FunctionAllocaProfile::ScalarOnly)
     }
 }
 
@@ -848,6 +909,16 @@ fn llvm_raw_opt_level(opt_level: OptLevel) -> LLVMCodeGenOptLevel {
         OptLevel::O2 => LLVMCodeGenOptLevel::LLVMCodeGenLevelDefault,
         OptLevel::O3 => LLVMCodeGenOptLevel::LLVMCodeGenLevelAggressive,
     }
+}
+
+fn llvm_module_pass_pipeline(opt_level: OptLevel) -> Option<CString> {
+    let pipeline = match opt_level {
+        OptLevel::O0 => return None,
+        OptLevel::O1 => "always-inline,default<O1>",
+        OptLevel::O2 => "always-inline,default<O2>",
+        OptLevel::O3 => "always-inline,default<O3>",
+    };
+    Some(CString::new(pipeline).unwrap())
 }
 
 fn initialize_llvm_targets() {

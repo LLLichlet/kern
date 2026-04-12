@@ -457,6 +457,9 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             "@simdAll" => Some(MastExprKind::SimdAll {
                 operand: Box::new(arg_masts.remove(0)),
             }),
+            "@simdBitmask" => Some(MastExprKind::SimdBitmask {
+                operand: Box::new(arg_masts.remove(0)),
+            }),
             "@simdSplat" => Some(MastExprKind::SimdSplat {
                 value: Box::new(arg_masts.remove(0)),
             }),

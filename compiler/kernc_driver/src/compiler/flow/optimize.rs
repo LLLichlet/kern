@@ -1,7 +1,7 @@
 use super::*;
 use crate::compiler::{AnalysisFlowBindingSummary, AnalysisFlowDefinitionKind};
 use kernc_ast as ast;
-use kernc_lower::{FlowLoweringElisionHints, FlowLoweringForwardingHints, FlowLoweringOwnerHints};
+use kernc_flow::{FlowLoweringElisionHints, FlowLoweringForwardingHints, FlowLoweringOwnerHints};
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::ty::{TypeId, TypeKind};

@@ -6,25 +6,25 @@ use ..String;
 
 impl *String {
     /// Compares the string contents against a byte slice.
-    #[inline(always)]
+    #[inline]
     pub fn eq(other: []u8) bool {
         return bytes_eq(self.as_str(), other);
     }
 
     /// Returns `true` when the string begins with `prefix`.
-    #[inline(always)]
+    #[inline]
     pub fn starts_with(prefix: []u8) bool {
         return self.as_str().starts_with(prefix);
     }
 
     /// Returns `true` when the string ends with `suffix`.
-    #[inline(always)]
+    #[inline]
     pub fn ends_with(suffix: []u8) bool {
         return self.as_str().ends_with(suffix);
     }
 
     /// Returns the first position of `needle`.
-    #[inline(always)]
+    #[inline]
     pub fn find(needle: []u8) Option[usize] {
         return self.as_str().find(needle);
     }

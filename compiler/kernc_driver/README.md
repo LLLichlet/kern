@@ -128,9 +128,10 @@ analysis stays explicit, close to the incremental engine, and easy to evolve.
 
 The long-term expectation is:
 
-- keep strengthening `Flow` as Kern's analysis IR
-- keep MAST focused on lowering and code generation
-- let lowering consume explicit `Flow`-derived optimization hints instead of
-  rebuilding dataflow logic locally
-- add more dataflow queries on top of `Flow` instead of introducing MIR only to
-  imitate another compiler architecture
+- keep strengthening `Flow` as Kern's source-near analysis IR
+- keep MIR as Kern's transform-oriented mid-level IR
+- keep MAST focused on backend-oriented lowering and code generation
+- let lowering and MIR construction consume explicit `Flow`-derived facts instead
+  of rebuilding dataflow logic locally
+- move serious mid-level optimization ownership into MIR without collapsing
+  `Flow` and `MAST` into one compromise layer

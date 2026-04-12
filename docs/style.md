@@ -31,25 +31,21 @@ let .{ Ok: span } = parse_value_span(text, index)
 Use `match` when both branches do substantial work, when you need more than one
 success arm, or when the shape is no longer a simple unwrap-and-return.
 
-### 2. Use `;` for intentionally empty loop bodies
+### 2. Use `{}` for intentionally empty loop bodies
 
-In scanner-style code, an empty loop body is clearer as an explicit empty
-statement than as an empty block.
+In scanner-style code, an empty loop body should still use a real Kern block.
+Keep the body explicit, but empty:
 
 ```kern
-for (; index < #text and is_ws(text.[index]); index += 1);
+for (; index < #text and is_ws(text.[index]); index += 1) {}
 ```
 
-This is not treated as a C leftover. In Kern, `;` directly states that the loop
-body is a no-op.
-
 Reserve this mainly for loops whose whole job is to advance until a condition
-fails. Do not generalize the same style to `if (...) ;` by default, because
-that form is much easier to write accidentally.
+fails. Do not generalize the same style to `if (...) {}` by default when a more
+direct expression shape would be clearer.
 
-Current implementation note: this is the intended source style, but the current
-frontend still rejects `for (...);` in loop position. Until that parser gap is
-closed, repository code should keep the equivalent `for (...) {}` form.
+`for (...);` is not valid Kern syntax and should not appear in repository code
+or documentation.
 
 ### 3. Be explicit when width is part of the meaning
 

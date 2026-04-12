@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
+use kernc_mono::MonoId;
 use kernc_sema::def::Def;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
@@ -1135,6 +1136,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             body: Some(body_block),
             is_extern: false,
             is_variadic: false,
+            inline_hint: MastInlineHint::None,
             attributes: vec![],
         });
 

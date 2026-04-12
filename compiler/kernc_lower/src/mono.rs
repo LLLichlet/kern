@@ -1,6 +1,7 @@
 use super::Lowerer;
 use kernc_ast as ast;
 use kernc_mast::*;
+use kernc_mono::MonoId;
 use kernc_sema::LayoutEngine;
 use kernc_sema::checker::{ConstEvaluator, ConstValue};
 use kernc_sema::def::{Def, DefId, GlobalDef};
@@ -90,6 +91,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }),
             is_extern: false,
             is_variadic: false,
+            inline_hint: MastInlineHint::None,
             attributes: vec![],
         });
     }
@@ -310,16 +312,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             let mast_fn = MastFunction {
                 id,
                 name: mangled_name,
-                linkage: if uses_odr_linkage {
-                    MastLinkage::LinkOnceOdr
-                } else {
-                    MastLinkage::External
-                },
+                linkage: this.lowered_function_linkage(
+                    def.vis,
+                    def.is_extern,
+                    &def.attributes,
+                    uses_odr_linkage,
+                ),
                 params: mast_params,
                 ret_ty: conc_ret,
                 body,
                 is_extern: def.is_extern,
                 is_variadic: def.is_variadic,
+                inline_hint: this.lowered_inline_hint(&def.attributes),
                 attributes: this.extract_meta_items(&def.attributes),
             };
 
@@ -881,7 +885,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.module.globals.push(MastGlobal {
             id,
             name: self.ctx.get_export_name(g.id, &[]),
-            linkage: MastLinkage::External,
+            linkage: self.lowered_global_linkage(g.vis, g.is_extern, &g.attributes),
             ty,
             is_mut,
             init,

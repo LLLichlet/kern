@@ -4,7 +4,7 @@ use base.Option;
 
 const USIZE_BYTES = @sizeOf[usize]();
 
-#[inline(always)]
+#[inline]
 fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
     for (let mut i = 0; i < len; i += 1) {
         if ((lhs + i).* != (rhs + i).*) {
@@ -14,7 +14,7 @@ fn eq_byte_range(lhs: *u8, rhs: *u8, len: usize) bool {
     return true;
 }
 
-#[inline(always)]
+#[inline]
 fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
     for (let mut i = 0; i < len; i += 1) {
         if ((lhs + i).* != (rhs + i).*) {
@@ -24,7 +24,7 @@ fn eq_usize_range(lhs: *usize, rhs: *usize, len: usize) bool {
     return true;
 }
 
-#[inline(always)]
+#[inline]
 pub fn bytes_eq(lhs: []u8, rhs: []u8) bool {
     if (#lhs != #rhs) {
         return false;
@@ -74,6 +74,12 @@ pub fn bytes_eq(lhs: []u8, rhs: []u8) bool {
 
     let tail_start = prefix + word_len * USIZE_BYTES;
     return eq_byte_range(lhs_ptr + tail_start, rhs_ptr + tail_start, len - tail_start);
+}
+
+impl []u8 : Eq[[]u8] {
+    pub fn eq(other: []u8) bool {
+        return bytes_eq(self, other);
+    }
 }
 
 impl []u8 {

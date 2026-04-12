@@ -701,6 +701,51 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 }
                 Some(default_ret)
             }
+            "@simdBitmask" => {
+                let mask_ty = self.check_expr(&args[0], Some(params[0]));
+                self.check_coercion(&args[0], params[0], mask_ty);
+                let norm_mask = self.resolve_tv(mask_ty);
+                let Some((elem_ty, lanes)) = self.ctx.type_registry.simd_info(norm_mask) else {
+                    if norm_mask != TypeId::ERROR {
+                        self.ctx
+                            .struct_error(
+                                args[0].span,
+                                "`@simdBitmask` expects a SIMD mask (`boolxN`)",
+                            )
+                            .emit();
+                    }
+                    return Some(TypeId::ERROR);
+                };
+                if elem_ty != TypeId::BOOL {
+                    self.ctx
+                        .struct_error(
+                            args[0].span,
+                            "`@simdBitmask` expects a SIMD mask (`boolxN`)",
+                        )
+                        .emit();
+                    return Some(TypeId::ERROR);
+                }
+
+                let usize_bits = (self.ctx.sess.target.pointer_size as u16) * 8;
+                if lanes > usize_bits {
+                    self.ctx
+                        .struct_error(
+                            args[0].span,
+                            format!(
+                                "`@simdBitmask` requires the mask lane count to fit in `usize` on target `{}`",
+                                self.ctx.sess.target.triple
+                            ),
+                        )
+                        .with_hint(format!(
+                            "found {} lanes, but `usize` on this target only has {} bits",
+                            lanes, usize_bits
+                        ))
+                        .emit();
+                    return Some(TypeId::ERROR);
+                }
+
+                Some(default_ret)
+            }
             "@simdSplat" => {
                 let Some((norm_value, elem_ty, _)) = self.resolve_simd_intrinsic_result_type(
                     intrinsic_name,

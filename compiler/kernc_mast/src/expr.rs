@@ -1,5 +1,6 @@
-use super::{MastBlock, MonoId};
+use super::MastBlock;
 use kernc_ast::{AssignmentOperator, BinaryOperator, UnaryOperator};
+use kernc_mono::MonoId;
 use kernc_sema::ty::TypeId;
 use kernc_utils::{AtomicOrdering, AtomicRmwOp, Span, SymbolId};
 
@@ -181,6 +182,9 @@ pub enum MastExprKind {
         operand: Box<MastExpr>,
     },
     SimdAll {
+        operand: Box<MastExpr>,
+    },
+    SimdBitmask {
         operand: Box<MastExpr>,
     },
     SimdSplat {

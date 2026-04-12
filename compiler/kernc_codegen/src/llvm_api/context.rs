@@ -1,11 +1,12 @@
+use llvm_sys::bit_reader::LLVMParseBitcodeInContext2;
 use llvm_sys::core::{
     LLVMAppendBasicBlockInContext, LLVMConstStringInContext2, LLVMContextCreate,
     LLVMContextDispose, LLVMCreateBuilderInContext, LLVMCreateEnumAttribute,
-    LLVMCreateStringAttribute, LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm,
-    LLVMInt1TypeInContext, LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext,
-    LLVMInt64TypeInContext, LLVMIntTypeInContext, LLVMModuleCreateWithNameInContext,
-    LLVMPointerTypeInContext, LLVMStructCreateNamed, LLVMStructTypeInContext,
-    LLVMVoidTypeInContext,
+    LLVMCreateMemoryBufferWithMemoryRangeCopy, LLVMCreateStringAttribute, LLVMDisposeMemoryBuffer,
+    LLVMDoubleTypeInContext, LLVMFloatTypeInContext, LLVMGetInlineAsm, LLVMInt1TypeInContext,
+    LLVMInt8TypeInContext, LLVMInt16TypeInContext, LLVMInt32TypeInContext, LLVMInt64TypeInContext,
+    LLVMIntTypeInContext, LLVMModuleCreateWithNameInContext, LLVMPointerTypeInContext,
+    LLVMStructCreateNamed, LLVMStructTypeInContext, LLVMVoidTypeInContext,
 };
 use llvm_sys::prelude::LLVMContextRef;
 
@@ -46,6 +47,33 @@ impl Context {
         let raw = unsafe { LLVMModuleCreateWithNameInContext(name.as_ptr(), self.raw) };
         assert!(!raw.is_null());
         Module::new(raw)
+    }
+
+    pub fn parse_bitcode_module<'ctx>(
+        &'ctx self,
+        name: &str,
+        bitcode: &[u8],
+    ) -> Result<Module<'ctx>, String> {
+        let name = to_c_string(name);
+        let buffer = unsafe {
+            LLVMCreateMemoryBufferWithMemoryRangeCopy(
+                bitcode.as_ptr() as *const _,
+                bitcode.len(),
+                name.as_ptr(),
+            )
+        };
+        if buffer.is_null() {
+            return Err("LLVM failed to create a bitcode memory buffer".to_string());
+        }
+
+        let mut raw_module = std::ptr::null_mut();
+        let failed = unsafe { LLVMParseBitcodeInContext2(self.raw, buffer, &mut raw_module) } != 0;
+        unsafe { LLVMDisposeMemoryBuffer(buffer) };
+        if failed || raw_module.is_null() {
+            return Err("LLVM failed to parse a serialized bitcode module".to_string());
+        }
+
+        Ok(Module::new(raw_module))
     }
 
     pub fn create_inline_asm<'ctx>(

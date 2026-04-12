@@ -20,7 +20,7 @@ The CLI exposes four mutually exclusive modes:
 
 1. default compile-and-link mode
 2. `-c` for compile only
-3. `--emit-llvm` for LLVM IR output
+3. `--emit-llvm[=stage]` for LLVM IR output
 4. `--link-only` for a pure link step
 
 Examples:
@@ -38,6 +38,10 @@ kernc --emit-llvm --library-bundle std --runtime-entry crt --runtime-libc yes ex
 ```
 
 ```bash
+kernc --emit-llvm=optimized -O2 --library-bundle std --runtime-entry crt --runtime-libc yes examples/hello_world.rn
+```
+
+```bash
 kernc --link-only --link-input hello.o -o hello
 ```
 
@@ -49,10 +53,10 @@ The main knobs are:
 
 - `--library-bundle <none|base|std>`
 - `--runtime-entry <none|rt|crt>`
-- `--runtime-provider <none|toolchain|libc>`
 - `--runtime-libc <yes|no>`
 
-`--library-bundle std` injects the `std` module alias if one is not already provided manually.
+`--library-bundle std` maps the official `std` root alias if one is not already
+provided manually.
 
 The official shipped library roots are:
 
@@ -61,7 +65,10 @@ The official shipped library roots are:
 - `rt`: startup/runtime glue
 - `std`: high-level user-facing facilities
 
-`kernc` auto-injects `base`, `sys`, and `std` as needed for normal builds. `rt` is not injected by bundle selection alone; it is injected only when a runtime entry contract is active.
+`kernc` adds official library aliases only when you ask for a library bundle.
+This is alias wiring, not a prelude. `rt` is not added by bundle selection
+alone; it is added only when a runtime entry contract is active. That `rt`
+companion-root wiring does not also add `base` or `sys`.
 
 The official library lookup order is:
 
@@ -72,7 +79,7 @@ The official library lookup order is:
 
 Each root then falls back to a path relative to the current executable and finally to `library/<name>` in the repository layout.
 
-These flags are orthogonal. Library availability, program-entry semantics, runtime-provider selection, and libc linkage are configured independently.
+These flags are orthogonal. Library availability, program-entry semantics, and libc linkage are configured independently. `sys`/`rt` implementation choice is handled through ordinary module paths or packages.
 
 ### `--module-path name=path`
 
@@ -118,7 +125,7 @@ entry-point, or linker-argument issues.
 
 ### 3. Inspecting Codegen
 
-When you are unsure how a feature lowers, emit LLVM IR first:
+When you are unsure how a feature lowers, emit raw LLVM IR first:
 
 ```bash
 kernc --emit-llvm feature_probe.rn
@@ -126,6 +133,12 @@ kernc --emit-llvm feature_probe.rn
 
 That is often the fastest way to answer "is the front end wrong, or is lowering
 / codegen wrong?"
+
+When you need to inspect LLVM's own pass effects instead, ask for a later stage:
+
+```bash
+kernc --emit-llvm=optimized -O2 feature_probe.rn
+```
 
 ## Conditional Compilation Inputs
 
@@ -138,7 +151,6 @@ kernc --define board=qemu --define debug_mode=true app.rn
 The driver also injects some condition values itself, including:
 
 - `runtime_entry`
-- `runtime_provider`
 - `library_bundle`
 - `libc`
 - `crt_startup`

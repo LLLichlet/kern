@@ -4,15 +4,18 @@ use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use kernc_ast as ast;
+use kernc_flow::{FlowLoweringHints, FlowLoweringOwnerHints};
 use kernc_mast::*;
+use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::SemaContext;
 use kernc_sema::checker::Substituter;
-use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef};
+use kernc_sema::def::{Def, DefId, EnumDef, FunctionDef, Visibility};
 use kernc_sema::scope::ScopeId;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 pub(crate) mod expr;
+mod inline;
 pub(crate) mod mono;
 pub(crate) mod vtable;
 
@@ -49,41 +52,6 @@ pub struct LowerReport {
     pub module: MastModule,
     pub phase_timings: Vec<LowerTiming>,
     pub cache_stats: LowerCacheStats,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FlowLoweringHints {
-    owners: HashMap<DefId, FlowLoweringOwnerHints>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FlowLoweringOwnerHints {
-    pub elision: FlowLoweringElisionHints,
-    pub forwarding: FlowLoweringForwardingHints,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FlowLoweringElisionHints {
-    pub pure_dead_initializer_expr_ids: HashSet<NodeId>,
-    pub pure_dead_assignment_expr_ids: HashSet<NodeId>,
-    pub elidable_binding_expr_ids: HashSet<NodeId>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct FlowLoweringForwardingHints {
-    pub identifier_copy_sources: HashMap<NodeId, String>,
-    pub forwardable_binding_sources: HashMap<NodeId, String>,
-    pub forwardable_value_expr_ids: HashSet<NodeId>,
-}
-
-impl FlowLoweringHints {
-    pub fn insert_owner(&mut self, def_id: DefId, hints: FlowLoweringOwnerHints) {
-        self.owners.insert(def_id, hints);
-    }
-
-    pub fn owner(&self, def_id: DefId) -> Option<&FlowLoweringOwnerHints> {
-        self.owners.get(&def_id)
-    }
 }
 
 pub struct Lowerer<'a, 'ctx> {
@@ -136,12 +104,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 structs: Vec::new(),
                 globals: Vec::new(),
                 functions: Vec::new(),
-                def_mono_map: HashMap::new(),
-                pure_enum_tag_map: HashMap::new(),
-                adt_union_map: HashMap::new(),
-                anon_struct_map: HashMap::new(),
-                anon_union_map: HashMap::new(),
-                anon_enum_map: HashMap::new(),
+                mono: MonoModuleMetadata::default(),
             },
             mono_cache: HashMap::new(),
             pure_enum_tag_map: HashMap::new(),
@@ -534,25 +497,25 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         }
 
         self.drain_pending_function_instantiations();
+        self.measure_phase("  lower_inline_always", |this| {
+            this.run_always_inline_pass();
+        });
 
-        self.module.def_mono_map = self.mono_cache.clone();
-        self.module.pure_enum_tag_map = self.pure_enum_tag_map.clone();
-        self.module.adt_union_map = self.adt_union_map.clone();
-        self.module.anon_struct_map = self.anon_struct_cache.clone();
-        self.module.anon_union_map = self.anon_union_cache.clone();
-        self.module.anon_enum_map = self.anon_enum_cache.clone();
+        self.module.mono = MonoModuleMetadata {
+            def_mono_map: self.mono_cache.clone(),
+            pure_enum_tag_map: self.pure_enum_tag_map.clone(),
+            adt_union_map: self.adt_union_map.clone(),
+            anon_struct_map: self.anon_struct_cache.clone(),
+            anon_union_map: self.anon_union_cache.clone(),
+            anon_enum_map: self.anon_enum_cache.clone(),
+        };
 
         let module = MastModule {
             name: std::mem::take(&mut self.module.name),
             structs: std::mem::take(&mut self.module.structs),
             globals: std::mem::take(&mut self.module.globals),
             functions: std::mem::take(&mut self.module.functions),
-            def_mono_map: std::mem::take(&mut self.module.def_mono_map),
-            pure_enum_tag_map: std::mem::take(&mut self.module.pure_enum_tag_map),
-            adt_union_map: std::mem::take(&mut self.module.adt_union_map),
-            anon_struct_map: std::mem::take(&mut self.module.anon_struct_map),
-            anon_union_map: std::mem::take(&mut self.module.anon_union_map),
-            anon_enum_map: std::mem::take(&mut self.module.anon_enum_map),
+            mono: std::mem::take(&mut self.module.mono),
         };
         let mut phase_timings = self
             .phase_totals
@@ -579,6 +542,67 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             }
         }
         meta
+    }
+
+    pub(crate) fn has_export_name_attr(&self, attrs: &[ast::Attribute]) -> bool {
+        attrs.iter().any(|attr| {
+            let ast::AttributeKind::Meta(items) = &attr.kind else {
+                return false;
+            };
+            items.iter().any(|item| {
+                matches!(item, ast::MetaItem::Call(name, _) if self.ctx.resolve(*name) == "export_name")
+            })
+        })
+    }
+
+    pub(crate) fn lowered_inline_hint(&self, attrs: &[ast::Attribute]) -> MastInlineHint {
+        for attr in attrs {
+            let ast::AttributeKind::Meta(items) = &attr.kind else {
+                continue;
+            };
+            for item in items {
+                match item {
+                    ast::MetaItem::Marker(name) => match self.ctx.resolve(*name) {
+                        "inline_always" => return MastInlineHint::Always,
+                        "inline" => return MastInlineHint::Inline,
+                        "noinline" => return MastInlineHint::NoInline,
+                        _ => {}
+                    },
+                    ast::MetaItem::Call(_, _) => {}
+                }
+            }
+        }
+        MastInlineHint::None
+    }
+
+    pub(crate) fn lowered_function_linkage(
+        &self,
+        vis: Visibility,
+        is_extern: bool,
+        attrs: &[ast::Attribute],
+        uses_odr_linkage: bool,
+    ) -> MastLinkage {
+        if uses_odr_linkage {
+            return MastLinkage::LinkOnceOdr;
+        }
+        if is_extern || vis == Visibility::Public || self.has_export_name_attr(attrs) {
+            MastLinkage::External
+        } else {
+            MastLinkage::Internal
+        }
+    }
+
+    pub(crate) fn lowered_global_linkage(
+        &self,
+        vis: Visibility,
+        is_extern: bool,
+        attrs: &[ast::Attribute],
+    ) -> MastLinkage {
+        if is_extern || vis == Visibility::Public || self.has_export_name_attr(attrs) {
+            MastLinkage::External
+        } else {
+            MastLinkage::Internal
+        }
     }
 
     /// Detect pure-data enums whose payload-free layout is equivalent to an integer.

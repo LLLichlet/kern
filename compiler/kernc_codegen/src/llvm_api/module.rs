@@ -1,18 +1,21 @@
 use llvm_sys::analysis::{LLVMVerifierFailureAction, LLVMVerifyModule};
+use llvm_sys::bit_writer::LLVMWriteBitcodeToMemoryBuffer;
 #[cfg(windows)]
 use llvm_sys::core::LLVMPrintModuleToFile;
 #[cfg(not(windows))]
 use llvm_sys::core::LLVMPrintModuleToString;
 use llvm_sys::core::{
-    LLVMAddFunction, LLVMAddGlobal, LLVMDisposeMessage, LLVMDisposeModule, LLVMGetFirstFunction,
-    LLVMGetIntrinsicDeclaration, LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetNextFunction,
-    LLVMSetLinkage,
+    LLVMAddFunction, LLVMAddGlobal, LLVMDisposeMemoryBuffer, LLVMDisposeMessage, LLVMDisposeModule,
+    LLVMGetBufferSize, LLVMGetBufferStart, LLVMGetFirstFunction, LLVMGetIntrinsicDeclaration,
+    LLVMGetNamedFunction, LLVMGetNamedGlobal, LLVMGetNextFunction, LLVMSetLinkage,
 };
+use llvm_sys::linker::LLVMLinkModules2;
 use llvm_sys::prelude::LLVMModuleRef;
 use llvm_sys::target::LLVMSetModuleDataLayout;
 use std::ffi::CStr;
 use std::marker::PhantomData;
 use std::ptr;
+use std::slice;
 
 use super::{
     AddressSpace, AsTypeRef, BasicTypeEnum, Context, FunctionType, FunctionValue, GlobalValue,
@@ -36,6 +39,27 @@ impl<'ctx> Module<'ctx> {
 
     pub fn as_mut_ptr(&self) -> LLVMModuleRef {
         self.raw
+    }
+
+    pub fn into_raw(mut self) -> LLVMModuleRef {
+        let raw = self.raw;
+        self.raw = ptr::null_mut();
+        raw
+    }
+
+    pub fn bitcode(&self) -> Result<Vec<u8>, String> {
+        let buffer = unsafe { LLVMWriteBitcodeToMemoryBuffer(self.raw) };
+        if buffer.is_null() {
+            return Err("LLVM failed to serialize a module to bitcode".to_string());
+        }
+
+        let bytes = unsafe {
+            let start = LLVMGetBufferStart(buffer);
+            let len = LLVMGetBufferSize(buffer);
+            slice::from_raw_parts(start as *const u8, len).to_vec()
+        };
+        unsafe { LLVMDisposeMemoryBuffer(buffer) };
+        Ok(bytes)
     }
 
     pub fn add_function(
@@ -96,6 +120,15 @@ impl<'ctx> Module<'ctx> {
     pub fn set_triple(&self, triple: &str) {
         let triple = to_c_string(triple);
         unsafe { llvm_sys::core::LLVMSetTarget(self.raw, triple.as_ptr()) };
+    }
+
+    pub fn link_in(&mut self, source: Module<'ctx>) -> Result<(), String> {
+        let source = source.into_raw();
+        let failed = unsafe { LLVMLinkModules2(self.raw, source) } != 0;
+        if failed {
+            return Err("LLVM failed to link modules".to_string());
+        }
+        Ok(())
     }
 
     /// # Safety
@@ -229,6 +262,8 @@ impl<'ctx> FunctionValue<'ctx> {
 
 impl<'ctx> Drop for Module<'ctx> {
     fn drop(&mut self) {
-        unsafe { LLVMDisposeModule(self.raw) };
+        if !self.raw.is_null() {
+            unsafe { LLVMDisposeModule(self.raw) };
+        }
     }
 }

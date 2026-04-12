@@ -79,9 +79,9 @@ fn main() i32 {
 }
 
 #[test]
-fn runtime_entry_injects_rt_companion_root() {
+fn runtime_entry_does_not_expose_rt_mem_module() {
     let output = compile_source_with_args(
-        "kernc_rt_companion_root",
+        "kernc_rt_hidden_mem_module",
         r#"
 use rt.mem.memmove;
 
@@ -90,16 +90,72 @@ fn main() i32 {
     return 0;
 }
 "#,
-        &[
-            "--library-bundle",
-            "std",
-            "--runtime-entry",
-            "rt",
-            "--runtime-provider",
-            "toolchain",
-        ],
+        &["--library-bundle", "std", "--runtime-entry", "rt"],
     );
-    assert_success(&output, "kernc rt companion root");
+    assert!(
+        !output.status.success(),
+        "expected rt.mem to stay hidden even when runtime entry is enabled:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("mem") || stderr.contains("rt") || stderr.contains("module"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
+fn runtime_entry_does_not_auto_inject_base_or_sys_modules() {
+    let temp_dir = unique_temp_path("kernc_rt_without_bundle", "dir");
+    let rt_dir = temp_dir.join("rt");
+    let source_path = temp_dir.join("main.rn");
+    let object_path = temp_dir.join("main.o");
+
+    fs::create_dir_all(&rt_dir).unwrap();
+    fs::write(rt_dir.join("init.rn"), "").unwrap();
+    fs::write(
+        &source_path,
+        r#"
+use base.mem.alloc.Page;
+
+fn main() i32 {
+    let _ = Page.{};
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let rt_arg = format!("rt={}", rt_dir.display());
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let output = run_kernc([
+        "-c",
+        "--runtime-entry",
+        "rt",
+        "--module-path",
+        rt_arg.as_str(),
+        source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ]);
+
+    assert!(
+        !output.status.success(),
+        "expected base/sys to remain unresolved without an explicit bundle or module path:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("cannot find module `base`"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let _ = fs::remove_dir_all(&temp_dir);
 }
 
 #[test]
@@ -223,8 +279,6 @@ fn main() i32 {
         "std",
         "--runtime-entry",
         "crt",
-        "--runtime-provider",
-        "toolchain",
         "--runtime-libc",
         "yes",
         source_arg.as_str(),
@@ -245,8 +299,6 @@ fn main() i32 {
         "std",
         "--runtime-entry",
         "crt",
-        "--runtime-provider",
-        "toolchain",
         "--runtime-libc",
         "yes",
         "--link-input",
@@ -311,8 +363,6 @@ fn main() i32 {    let value = run_cb(.[]() i32 {
         "std",
         "--runtime-entry",
         "crt",
-        "--runtime-provider",
-        "toolchain",
         "--runtime-libc",
         "yes",
         source_arg.as_str(),

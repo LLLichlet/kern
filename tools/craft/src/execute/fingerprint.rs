@@ -40,7 +40,6 @@ pub(super) fn compile_action_fingerprint(
             options.root_module_name.as_deref().unwrap_or_default()
         ),
         format!("runtime_entry={}", options.runtime_entry.as_str()),
-        format!("runtime_provider={}", options.runtime_provider.as_str()),
         format!("runtime_libc={}", options.runtime_libc),
         format!("library_bundle={}", options.library_bundle.as_str()),
         format!("split_sections_for_gc={}", options.split_sections_for_gc),
@@ -69,7 +68,6 @@ pub(super) fn link_action_fingerprint(
         format!("artifact={}", action.artifact_path.display()),
         format!("linker={}", options.linker_cmd),
         format!("runtime_entry={}", options.runtime_entry.as_str()),
-        format!("runtime_provider={}", options.runtime_provider.as_str()),
         format!("runtime_libc={}", options.runtime_libc),
         format!("library_bundle={}", options.library_bundle.as_str()),
         format!("dead_strip_sections={}", options.dead_strip_sections),

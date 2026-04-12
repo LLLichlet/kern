@@ -4,7 +4,10 @@ use crate::module::Linkage;
 use crate::types::{BasicTypeEnum, StructType};
 use crate::values::{BasicValueEnum, GlobalValue};
 use kernc_ast as ast;
-use kernc_mast::{MastExpr, MastExprKind, MastFunction, MastGlobal, MastLinkage, MastStruct};
+use kernc_mir::{
+    MirConst, MirFunction, MirGlobal, MirInlineHint, MirLinkage, MirStaticInit, MirStruct,
+};
+use kernc_mono::MonoId;
 use kernc_sema::ty::{TypeId, TypeKind};
 use kernc_utils::Span;
 
@@ -56,38 +59,22 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         chunk_ty.array_type((size / chunk_size) as u32).into()
     }
 
-    fn compile_const_expr(&mut self, expr: &MastExpr) -> Option<BasicValueEnum<'ctx>> {
-        match &expr.kind {
-            MastExprKind::Integer(val) => {
-                let int_type = self.get_llvm_type(expr.ty).into_int_type();
-                Some(int_type.const_int(*val as u64, false).into())
-            }
-            MastExprKind::Float(val) => {
-                let float_type = self.get_llvm_type(expr.ty).into_float_type();
-                Some(float_type.const_float(*val).into())
-            }
-            MastExprKind::Bool(val) => Some(
-                self.context
-                    .bool_type()
-                    .const_int(if *val { 1 } else { 0 }, false)
-                    .into(),
-            ),
-            MastExprKind::StringLiteral(s) => {
-                Some(self.context.const_string(s.as_bytes(), true).into())
-            }
-            MastExprKind::ArrayInit(elems) => {
-                let array_ty = self.get_llvm_type(expr.ty).into_array_type();
+    pub(crate) fn compile_mir_static_init(
+        &mut self,
+        init: &MirStaticInit,
+    ) -> Option<BasicValueEnum<'ctx>> {
+        match init {
+            MirStaticInit::Const(value) => self.compile_mir_static_const(value),
+            MirStaticInit::Array { ty, elems } => {
+                let array_ty = self.get_llvm_type(*ty).into_array_type();
                 let elem_ty = self
                     .type_registry
-                    .get_elem_type(expr.ty)
-                    .map(|ty| self.get_llvm_type(ty));
-                let elem_consts: Vec<_> = elems
+                    .get_elem_type(*ty)
+                    .map(|elem| self.get_llvm_type(elem));
+                let elem_consts = elems
                     .iter()
-                    .filter_map(|elem| self.compile_const_expr(elem))
-                    .collect();
-                if elem_consts.len() != elems.len() {
-                    return None;
-                }
+                    .map(|elem| self.compile_mir_static_init(elem))
+                    .collect::<Option<Vec<_>>>()?;
 
                 match elem_ty {
                     Some(BasicTypeEnum::IntType(int_ty)) => Some(
@@ -95,7 +82,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .const_array(
                                 &elem_consts
                                     .iter()
-                                    .map(|v| v.into_int_value())
+                                    .map(|value| value.into_int_value())
                                     .collect::<Vec<_>>(),
                             )
                             .into(),
@@ -105,7 +92,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .const_array(
                                 &elem_consts
                                     .iter()
-                                    .map(|v| v.into_float_value())
+                                    .map(|value| value.into_float_value())
                                     .collect::<Vec<_>>(),
                             )
                             .into(),
@@ -115,7 +102,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .const_array(
                                 &elem_consts
                                     .iter()
-                                    .map(|v| v.into_pointer_value())
+                                    .map(|value| value.into_pointer_value())
                                     .collect::<Vec<_>>(),
                             )
                             .into(),
@@ -125,7 +112,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .const_array(
                                 &elem_consts
                                     .iter()
-                                    .map(|v| v.into_struct_value())
+                                    .map(|value| value.into_struct_value())
                                     .collect::<Vec<_>>(),
                             )
                             .into(),
@@ -135,7 +122,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .const_array(
                                 &elem_consts
                                     .iter()
-                                    .map(|v| v.into_array_value())
+                                    .map(|value| value.into_array_value())
                                     .collect::<Vec<_>>(),
                             )
                             .into(),
@@ -143,22 +130,24 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     _ => Some(array_ty.const_zero().into()),
                 }
             }
-            MastExprKind::StructInit { struct_id, fields } => {
+            MirStaticInit::Struct {
+                struct_id, fields, ..
+            } => {
                 let struct_ty = *self.structs.get(struct_id)?;
-                let field_consts: Vec<_> = fields
+                let field_consts = fields
                     .iter()
-                    .filter_map(|field| self.compile_const_expr(field))
-                    .collect();
-                if field_consts.len() != fields.len() {
-                    return None;
-                }
+                    .map(|field| self.compile_mir_static_init(field))
+                    .collect::<Option<Vec<_>>>()?;
                 Some(struct_ty.const_named_struct(&field_consts).into())
             }
-            MastExprKind::UnionInit {
-                union_id, value, ..
+            MirStaticInit::Union {
+                union_id,
+                field_idx: _,
+                value,
+                ..
             } => {
                 let union_ty = *self.structs.get(union_id)?;
-                let value_const = self.compile_const_expr(value)?;
+                let value_const = self.compile_mir_static_init(value)?;
                 if union_ty.count_fields() == 1
                     && union_ty.get_field_type_at_index(0) == Some(value_const.get_type())
                 {
@@ -167,20 +156,19 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     Some(union_ty.const_zero().into())
                 }
             }
-            MastExprKind::DataInit {
+            MirStaticInit::Data {
                 data_struct_id,
                 tag_value,
                 payload,
+                ..
             } => {
                 let struct_ty = *self.structs.get(data_struct_id)?;
                 let tag_ty = struct_ty.get_field_type_at_index(0)?.into_int_type();
                 let tag_val = tag_ty.const_int(*tag_value as u64, false);
 
                 let union_ty = struct_ty.get_field_type_at_index(1)?.into_struct_type();
-                let union_val = if payload.ty == TypeId::VOID || payload.ty == TypeId::ERROR {
-                    union_ty.const_zero()
-                } else {
-                    let payload_const = self.compile_const_expr(payload)?;
+                let union_val = if let Some(payload) = payload {
+                    let payload_const = self.compile_mir_static_init(payload)?;
                     if union_ty.count_fields() == 1
                         && union_ty.get_field_type_at_index(0) == Some(payload_const.get_type())
                     {
@@ -188,6 +176,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                     } else {
                         union_ty.const_zero()
                     }
+                } else {
+                    union_ty.const_zero()
                 };
 
                 Some(
@@ -196,22 +186,54 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                         .into(),
                 )
             }
-            MastExprKind::FuncRef(mono_id) => self
-                .functions
-                .get(mono_id)
-                .map(|func| func.as_global_value().as_pointer_value().into()),
-            MastExprKind::GlobalRef(mono_id) => self
-                .globals
-                .get(mono_id)
-                .map(|global| global.as_pointer_value().into()),
-            MastExprKind::Undef => Some(self.get_llvm_type(expr.ty).const_zero()),
-            _ => None,
         }
     }
 
-    fn lookup_declared_global(
+    fn compile_mir_static_const(&mut self, value: &MirConst) -> Option<BasicValueEnum<'ctx>> {
+        match value {
+            MirConst::Undef { ty } => Some(self.get_llvm_type(*ty).const_zero()),
+            MirConst::Integer { ty, value } => {
+                let llvm_ty = self.get_llvm_type(*ty);
+                if llvm_ty.is_pointer_type() {
+                    (*value == 0).then(|| llvm_ty.into_pointer_type().const_null().into())
+                } else {
+                    Some(
+                        llvm_ty
+                            .into_int_type()
+                            .const_int(*value as u64, false)
+                            .into(),
+                    )
+                }
+            }
+            MirConst::Float { ty, value } => Some(
+                self.get_llvm_type(*ty)
+                    .into_float_type()
+                    .const_float(*value)
+                    .into(),
+            ),
+            MirConst::Bool { value } => Some(
+                self.context
+                    .bool_type()
+                    .const_int(u64::from(*value), false)
+                    .into(),
+            ),
+            MirConst::StringLiteral { value, .. } => {
+                Some(self.context.const_string(value.as_bytes(), true).into())
+            }
+            MirConst::GlobalRef { id, .. } => self
+                .globals
+                .get(id)
+                .map(|global| global.as_pointer_value().into()),
+            MirConst::FuncRef { id, .. } => self
+                .functions
+                .get(id)
+                .map(|func| func.as_global_value().as_pointer_value().into()),
+        }
+    }
+
+    pub(crate) fn lookup_declared_global(
         &mut self,
-        global_id: kernc_mast::MonoId,
+        global_id: MonoId,
         span: Span,
         name: &str,
     ) -> Option<GlobalValue<'ctx>> {
@@ -221,7 +243,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 self.sess.emit_ice(
                     span,
                     format!(
-                        "Kern ICE (Codegen): global `{}` is in MAST but missing from LLVM globals map.",
+                        "Kern ICE (Codegen): global `{}` was declared but missing from LLVM globals map.",
                         name
                     ),
                 );
@@ -232,7 +254,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     fn lookup_declared_struct(
         &mut self,
-        struct_id: kernc_mast::MonoId,
+        struct_id: MonoId,
         span: Span,
         name: &str,
     ) -> Option<StructType<'ctx>> {
@@ -251,29 +273,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub(crate) fn compile_global(&mut self, global: &MastGlobal) {
-        if global.is_extern {
-            return;
-        }
-        let Some(global_val) =
-            self.lookup_declared_global(global.id, kernc_utils::Span::default(), &global.name)
-        else {
-            return;
-        };
-
-        if let Some(init) = &global.init {
-            let const_val = self
-                .compile_const_expr(init)
-                .unwrap_or_else(|| self.get_llvm_type(global.ty).const_zero());
-
-            global_val.set_initializer(&const_val);
-        } else if !global.is_extern {
-            let llvm_ty = self.get_llvm_type(global.ty);
-            global_val.set_initializer(&llvm_ty.const_zero());
-        }
-    }
-
-    pub(crate) fn declare_structs(&mut self, structs: &[MastStruct]) {
+    pub(crate) fn declare_mir_structs(&mut self, structs: &[MirStruct]) {
         for s in structs {
             let llvm_struct = self.context.opaque_struct_type(&s.name);
             self.structs.insert(s.id, llvm_struct);
@@ -309,7 +309,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub(crate) fn declare_globals(&mut self, globals: &[MastGlobal]) {
+    pub(crate) fn declare_mir_globals(&mut self, globals: &[MirGlobal]) {
         for g in globals {
             let mut llvm_symbol_name = g.name.clone();
             let mut link_section = None;
@@ -346,21 +346,20 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let llvm_ty = self.get_llvm_type(g.ty);
             let global_val = self.module.add_global(llvm_ty, None, &llvm_symbol_name);
 
-            // A global is physically constant only when both the binding and its storage semantics are immutable.
             let is_binding_mut = g.is_mut;
             let is_memory_mut = self.requires_mutable_memory(g.ty);
             global_val.set_constant(!(is_binding_mut || is_memory_mut));
 
             match g.linkage {
-                MastLinkage::External => global_val.set_linkage(Linkage::External),
-                MastLinkage::LinkOnceOdr => {
+                MirLinkage::External => global_val.set_linkage(Linkage::External),
+                MirLinkage::LinkOnceOdr => {
                     if cfg!(windows) {
                         global_val.set_linkage(Linkage::Internal);
                     } else {
                         global_val.set_linkage(Linkage::LinkOnceOdr);
                     }
                 }
-                MastLinkage::Internal => global_val.set_linkage(Linkage::Internal),
+                MirLinkage::Internal => global_val.set_linkage(Linkage::Internal),
             }
 
             if !g.is_extern {
@@ -387,7 +386,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
         }
     }
 
-    pub(crate) fn declare_functions(&mut self, functions: &[MastFunction]) {
+    pub(crate) fn declare_mir_functions(&mut self, functions: &[MirFunction]) {
         for f in functions {
             let ret_ty = self.get_llvm_type(f.ret_ty);
 
@@ -415,7 +414,12 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
             let mut llvm_symbol_name = f.name.clone();
             let mut is_cold = false;
             let mut is_naked = false;
-            let mut inline_kind = None;
+            let inline_kind = match f.inline_hint {
+                MirInlineHint::None => None,
+                MirInlineHint::Inline => Some("inlinehint"),
+                MirInlineHint::Always => Some("alwaysinline"),
+                MirInlineHint::NoInline => Some("noinline"),
+            };
             let mut link_section = None;
             let mut has_export_name = false;
             let mut target_features = Vec::new();
@@ -433,15 +437,6 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             && let ast::ExprKind::String(s) = &expr.kind
                         {
                             link_section = Some(s.clone());
-                        } else if name_str == "inline"
-                            && let ast::ExprKind::Identifier(mode) = &expr.kind
-                        {
-                            let mode_name = self.resolve_symbol(*mode);
-                            if mode_name == "always" {
-                                inline_kind = Some("alwaysinline");
-                            } else if mode_name == "never" {
-                                inline_kind = Some("noinline");
-                            }
                         } else if name_str == "target_feature"
                             && let ast::ExprKind::String(spec) = &expr.kind
                         {
@@ -475,8 +470,8 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
             let llvm_func = self.module.add_function(&llvm_symbol_name, fn_type, None);
             match f.linkage {
-                MastLinkage::External => llvm_func.as_global_value().set_linkage(Linkage::External),
-                MastLinkage::LinkOnceOdr => {
+                MirLinkage::External => llvm_func.as_global_value().set_linkage(Linkage::External),
+                MirLinkage::LinkOnceOdr => {
                     if cfg!(windows) {
                         llvm_func.as_global_value().set_linkage(Linkage::Internal);
                     } else {
@@ -485,7 +480,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                             .set_linkage(Linkage::LinkOnceOdr);
                     }
                 }
-                MastLinkage::Internal => llvm_func.as_global_value().set_linkage(Linkage::Internal),
+                MirLinkage::Internal => llvm_func.as_global_value().set_linkage(Linkage::Internal),
             }
 
             if is_cold {
@@ -497,8 +492,14 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
                 let kind_id = Attribute::get_named_enum_kind_id("naked");
                 let naked_attr = self.context.create_enum_attribute(kind_id, 0);
                 llvm_func.add_attribute(AttributeLoc::Function, naked_attr);
+
+                let noinline_kind_id = Attribute::get_named_enum_kind_id("noinline");
+                let noinline_attr = self.context.create_enum_attribute(noinline_kind_id, 0);
+                llvm_func.add_attribute(AttributeLoc::Function, noinline_attr);
             }
-            if let Some(attr_name) = inline_kind {
+            if let Some(attr_name) = inline_kind
+                && !(is_naked && attr_name == "alwaysinline")
+            {
                 let kind_id = Attribute::get_named_enum_kind_id(attr_name);
                 let inline_attr = self.context.create_enum_attribute(kind_id, 0);
                 llvm_func.add_attribute(AttributeLoc::Function, inline_attr);

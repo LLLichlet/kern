@@ -8,7 +8,7 @@ The goal is to keep Kern freestanding by default while making hosted startup, to
 
 - keep the language itself freestanding
 - make startup ownership explicit
-- separate runtime provider choice from library choice
+- separate system-layer implementation choice from compiler runtime flags
 - keep hosted OS interaction separate from libc linkage
 - keep `kernc` as a low-level executor
 - move package-level defaults and presets into `craft`
@@ -26,7 +26,7 @@ The intended dependency graph is:
 - `sys` is the operating-system and provider boundary
 - `rt` is startup and minimal runtime glue
 - `std` is ordinary Kern library code built on `base` plus `sys`
-- `libc` is an optional external package/provider choice
+- `libc` is an optional external package choice
 
 The important rule is that `std` does not become "real" by depending on libc.
 `std` is already complete as a Kern library layer because its hosted capabilities
@@ -43,13 +43,13 @@ This is why Kern treats libc as optional even for hosted programs. A project may
 
 - stay fully freestanding with no libc at all
 - use `std` while still remaining libc-free
-- select libc explicitly as one provider/runtime choice for performance, ABI, or ecosystem reasons
+- select libc explicitly for performance, ABI, or ecosystem reasons
 
 That makes `kern` a genuine alternative foundation rather than a thin front-end over C.
 
-## The Four Current Axes
+## The Current Axes
 
-The current toolchain model uses four explicit axes.
+The current toolchain model uses three explicit compiler axes plus ordinary module selection.
 
 ### Runtime Entry
 
@@ -60,16 +60,6 @@ The current toolchain model uses four explicit axes.
 - `crt`: the platform C runtime owns initial process startup
 
 This axis decides whether the root module must provide a program `main`.
-
-### Runtime Provider
-
-`runtime_provider` selects who provides the low-level runtime and platform shims.
-
-- `none`: no provider is assumed
-- `toolchain`: use the toolchain-owned runtime/provider implementation
-- `libc`: use the platform libc and CRT environment
-
-This is intentionally separate from `runtime_entry`. A program may use the `rt` entry shim without making libc the provider, or may use CRT startup while still importing normal Kern libraries.
 
 ### Runtime Libc
 
@@ -84,13 +74,31 @@ library layer and remains valid without libc.
 
 ### Library Bundle
 
-`library_bundle` selects which official library bundle is injected automatically.
+`library_bundle` selects which official library root aliases are added from the
+shipped toolchain libraries.
 
 - `none`
 - `base`
 - `std`
 
-Today this is still coarse-grained. That is acceptable for the current migration, but the architecture is deliberately shaped so future bundles or presets can be added without redefining startup semantics.
+This is alias wiring only. It is not a prelude and it does not put names into
+scope without `use`.
+
+Today this is still coarse-grained. That is acceptable for the current
+migration, but the architecture is deliberately shaped so future bundles or
+presets can be added without redefining startup semantics.
+
+### `sys` / `rt` Implementation Choice
+
+The implementation behind `sys` or `rt` is not selected by a dedicated compiler runtime flag.
+
+That choice belongs to ordinary module/package resolution:
+
+- official toolchain roots may be selected explicitly through `--module-path`
+- package tooling such as `craft` may wire `sys` or `rt` to project-provided packages
+- custom kernels and embedded targets may provide their own `sys`, their own `rt`, or neither
+
+This keeps `kernc` low-level and explicit while avoiding a privileged compiler-side "provider" model.
 
 ## Main Contract
 
@@ -121,6 +129,7 @@ That behavior is intentionally narrow:
 
 - it exists only so the selected startup shim can contribute `_start`, `main`, and related entry glue
 - it is not a general visibility shortcut for runtime APIs
+- it does not imply automatic `base` or `sys` injection
 - explicit module imports remain mandatory for ordinary `rt.*`, `base.*`, `sys.*`, or `std.*` symbols
 
 ## Library Organization
@@ -162,7 +171,6 @@ Kern should not grow a Rust-style semantic split where the compiler secretly rel
 `kernc` should expose the raw axes directly:
 
 - `--runtime-entry`
-- `--runtime-provider`
 - `--runtime-libc`
 - `--library-bundle`
 - `--entry-symbol` for raw linker entry selection when needed
@@ -176,7 +184,6 @@ Kern should not grow a Rust-style semantic split where the compiler secretly rel
 ```toml
 [runtime]
 entry = "rt"
-provider = "toolchain"
 libc = false
 bundle = "std"
 ```
@@ -196,6 +203,7 @@ Done in this refactor:
 - `sys` owns platform/provider boundaries
 - `std` is layered on top of `base` and `sys` without mirroring their namespaces
 - `rt` is treated as a runtime companion layer injected only when a runtime entry contract is selected
+- official `base`/`sys` aliases are injected only by explicit library-bundle selection, not implicitly by runtime flags
 
 ## Next Steps
 
@@ -225,6 +233,7 @@ The intended steady state is simple:
 - `hosted` means "running with an OS process environment", not "depends on C".
 - `std` stays libc-free and reaches hosted services through `sys`.
 - `rt` owns low-level startup/runtime glue.
+- `sys` and `rt` implementation choice is resolved through normal module/package wiring, not a dedicated compiler runtime flag.
 - `std` owns public reusable facilities.
 - `craft` owns package policy.
 - `kernc` executes explicit compile and link actions.

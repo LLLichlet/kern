@@ -9,8 +9,8 @@ use crate::manifest::Manifest;
 use crate::resolver::ExternalPackageId;
 use crate::target_defaults::apply_target_runtime_defaults;
 use kernc_utils::config::{
-    CompileOptions, DriverMode, OptLevel, inject_driver_condition_defines, maybe_inject_base_alias,
-    maybe_inject_std_alias, maybe_inject_sys_alias,
+    CompileOptions, DriverMode, OptLevel, inject_driver_condition_defines, maybe_add_base_alias,
+    maybe_add_std_alias, maybe_add_sys_alias,
 };
 use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
@@ -27,10 +27,10 @@ fn inject_target_library_aliases(options: &mut CompileOptions) {
     if options.module_interface_aliases.contains_key("std") {
         return;
     }
-    maybe_inject_base_alias(options);
-    maybe_inject_sys_alias(options);
+    maybe_add_base_alias(options);
+    maybe_add_sys_alias(options);
     if !options.module_interface_aliases.contains_key("std") {
-        maybe_inject_std_alias(options);
+        maybe_add_std_alias(options);
     }
 }
 
@@ -75,10 +75,6 @@ fn apply_manifest_runtime_options(
     manifest.validate(manifest_path)?;
     let cached = ManifestRuntimeOptions {
         entry: manifest.runtime.as_ref().and_then(|runtime| runtime.entry),
-        provider: manifest
-            .runtime
-            .as_ref()
-            .and_then(|runtime| runtime.provider),
         libc: manifest.runtime.as_ref().and_then(|runtime| runtime.libc),
         bundle: manifest.runtime.as_ref().and_then(|runtime| runtime.bundle),
     };

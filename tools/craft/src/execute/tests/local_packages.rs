@@ -322,7 +322,6 @@ kern = "0.6.7"
 
 [runtime]
 entry = "rt"
-provider = "toolchain"
 libc = false
 bundle = "std"
 

@@ -6,7 +6,7 @@ use crate::elaborate::{FeatureSelection, plan};
 use crate::manifest::Manifest;
 use crate::plan::TargetKind;
 use crate::workspace::load_members;
-use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
@@ -206,7 +206,6 @@ kern = \"0.6.7\"
 
 [runtime]
 entry = \"rt\"
-provider = \"toolchain\"
 libc = false
 bundle = \"base\"
 
@@ -225,10 +224,6 @@ root = \"src/lib.rn\"
     let resolved = project.resolve_for_file(&root.join("src/lib.rn"), &CompileOptions::default());
 
     assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::None);
-    assert_eq!(
-        resolved.compile_options.runtime_provider,
-        RuntimeProvider::None
-    );
     assert!(!resolved.compile_options.runtime_libc);
     assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Base);
 }
@@ -248,7 +243,6 @@ kern = \"0.6.7\"
 
 [runtime]
 entry = \"rt\"
-provider = \"toolchain\"
 libc = false
 bundle = \"base\"
 
@@ -264,10 +258,6 @@ roots = [\"tests/smoke.rn\"]
         project.resolve_for_file(&root.join("tests/smoke.rn"), &CompileOptions::default());
 
     assert_eq!(resolved.compile_options.runtime_entry, RuntimeEntry::Rt);
-    assert_eq!(
-        resolved.compile_options.runtime_provider,
-        RuntimeProvider::Toolchain
-    );
     assert!(!resolved.compile_options.runtime_libc);
     assert_eq!(resolved.compile_options.library_bundle, LibraryBundle::Base);
 }

@@ -669,9 +669,9 @@ Startup ownership still belongs to the surrounding runtime/link environment:
   * a hosted C runtime may own initial process startup and call `main`
   * a freestanding object build may choose `runtime_entry = none`, in which case no special program entry is required
 
-When `runtime_entry != none`, the toolchain also loads `rt` as the startup companion root even if the program never imports `rt` explicitly. This is startup assembly only. It does **not** make ordinary `rt.*` APIs visible without `use`.
+When `runtime_entry != none`, the toolchain also loads `rt` as the startup companion root even if the program never imports `rt` explicitly. This is startup assembly only. It does **not** make ordinary `rt.*` APIs visible without `use`, and it does **not** implicitly inject `base` or `sys`.
 
-Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through the ordinary `sys` OS/provider boundary, while libc remains an optional external provider choice rather than a semantic prerequisite for the language or standard library.
+Hosted does not imply libc. In Kern, "hosted" means an OS process environment exists. Libraries such as `std` reach hosted services through the ordinary `sys` OS/provider boundary, while libc remains an optional external package choice rather than a semantic prerequisite for the language or standard library.
 
 When a runtime entry contract is enabled, the root `main` definition looks like:
 
@@ -887,7 +887,7 @@ A comma-separated list of tags attached to the AST for compiler side-effects. Me
 
   * `cold`: Marks a function as rarely executed, moving it out of the hot instruction cache and optimizing branching.
   * `naked`: Instructs the compiler to omit the standard function prologue and epilogue. Strictly used for hardware interrupt handlers and contextual context-switching alongside `@asm`.
-  * `inline(always)` / `inline(never)`: Overrides the LLVM inliner's heuristic for a specific function.
+  * `inline` / `noinline`: Overrides the LLVM inliner's heuristic for a specific function.
   * `target_feature("...")`: Attaches explicit backend CPU feature requirements to a function. The payload is a comma-separated feature list such as `#[target_feature("avx2,fma")]`.
 
 -----
@@ -999,6 +999,8 @@ Kern keeps SIMD as a builtin type family first, and reserves `@...` intrinsics o
     Returns `true` when any lane in `mask` is `true`.
   * `@simdAll(mask: boolxN) -> bool`
     Returns `true` only when every lane in `mask` is `true`.
+  * `@simdBitmask(mask: boolxN) -> usize`
+    Packs the mask into scalar bits so that lane `i` becomes bit `i` of the returned `usize`. This requires `N <= bit_width(usize)` on the current target.
   * `@simdSelect(mask: boolxN, on_true: TxN, on_false: TxN) -> TxN`
     Performs lane-wise selection. Lane `i` comes from `on_true.[i]` when `mask.[i]` is `true`, otherwise from `on_false.[i]`.
   * `@simdShuffle(lhs: TxN, rhs: TxN, indices: [N]u32) -> TxN`

@@ -9,7 +9,7 @@ This document describes how to use `kernc`, the Kern compiler driver.
 `kernc` is responsible for:
 
 - Parsing, analyzing, lowering, and code generating a single Kern source entry point.
-- Emitting LLVM IR for inspection.
+- Emitting LLVM IR for inspection at explicit pipeline stages.
 - Emitting a linker input artifact such as an object file.
 - Invoking a system linker driver with explicit inputs and link configuration.
 
@@ -37,7 +37,7 @@ The positional source input is required for compile modes and forbidden in link-
 
 - Default mode: compile the source input and then link the final binary.
 - `-c`: compile only. Emit a linker input artifact and stop before the final system link step.
-- `--emit-llvm`: compile only and print LLVM IR to stdout.
+- `--emit-llvm[=raw|verified|optimized]`: compile only and print LLVM IR to stdout.
 - `--link-only`: skip the frontend and code generation stages and invoke the linker driver using explicit linker inputs.
 
 These modes are mutually exclusive.
@@ -56,10 +56,16 @@ Compile only and keep the object file:
 kernc -c --runtime-entry rt --library-bundle std examples/hello_world.rn -o hello.o
 ```
 
-Inspect generated LLVM IR:
+Inspect raw generated LLVM IR:
 
 ```bash
 kernc --emit-llvm --runtime-entry rt --library-bundle std examples/hello_world.rn
+```
+
+Inspect LLVM IR after target setup and LLVM optimization passes:
+
+```bash
+kernc --emit-llvm=optimized -O2 --runtime-entry rt --library-bundle std examples/hello_world.rn
 ```
 
 Link an existing object file:
@@ -71,7 +77,7 @@ kernc --link-only --link-input hello.o -o hello
 Split compile and link explicitly:
 
 ```bash
-kernc -c --runtime-entry rt --runtime-provider toolchain --library-bundle std app.rn -o app.o
+kernc -c --runtime-entry rt --library-bundle std app.rn -o app.o
 kernc --link-only --link-input app.o --entry-symbol _start -o app
 ```
 
@@ -102,11 +108,12 @@ This is the core mechanism for wiring module roots into the compiler. It is inte
 Prefer the structured runtime/library flags:
 
 - `--runtime-entry <none|rt|crt>`
-- `--runtime-provider <none|toolchain|libc>`
 - `--runtime-libc <yes|no>`
 - `--library-bundle <none|base|std>`
 
-`--library-bundle std` enables the Kern standard library bundle and automatically maps `std` if no manual `--module-path std=...` mapping is provided.
+`--library-bundle std` enables the Kern standard library bundle and maps the
+official `std` root alias if no manual `--module-path std=...` mapping is
+provided.
 
 The official library roots are:
 
@@ -115,10 +122,10 @@ The official library roots are:
 - `rt`: startup and minimal runtime glue
 - `std`: high-level user-facing facilities
 
-Automatic alias injection intentionally exposes only the public library surface:
+Configured alias wiring intentionally exposes only the public library surface:
 
-- `base` is injected when the selected bundle or runtime contract needs foundation facilities
-- `sys` is injected when the selected bundle or runtime/provider contract needs provider-facing facilities
+- `base` is injected only for explicit `--library-bundle base` or `--library-bundle std`
+- `sys` is injected only for explicit `--library-bundle std`
 - `std` is injected only for `--library-bundle std`
 - `rt` is not injected by library bundle selection alone; `kernc` injects it only as the companion runtime root when `runtime_entry != none`
 
@@ -126,6 +133,7 @@ The `rt` companion-root rule is startup wiring, not ordinary name injection:
 
 - it makes the `library/rt` root available so hosted startup symbols such as `_start` or `main` can be linked
 - it does not auto-import `rt.*` APIs into user scope
+- it does not auto-inject `base` or `sys`
 - ordinary runtime/library APIs still require explicit `use` like any other module
 
 `kernc` resolves the official library paths through these environment variables first:
@@ -137,15 +145,16 @@ The `rt` companion-root rule is startup wiring, not ordinary name injection:
 
 Each root then falls back to a path relative to the current executable and finally to `library/<name>` in the repository layout.
 
-When the selected runtime or provider needs the official library layers, `kernc` injects `base` and `sys` as needed unless the user already mapped them explicitly.
-
 The intended model is:
 
 - library choice is independent from startup ownership
 - libc linkage is independent from whether `std` is available
 - hosted process access is provided through `sys`, not implied by libc linkage
 - startup shims live under `rt`, not under `std`
+- `sys` and `rt` implementation choice is handled through ordinary module paths or packages, not a dedicated runtime-provider flag
 - low-level APIs stay in their owning layer instead of being mirrored through `std`
+
+If you select `--runtime-entry` without selecting an official library bundle, `kernc` only wires `rt` itself. If that `rt` implementation depends on `base` or `sys`, map them explicitly with `--module-path` or choose a bundle.
 
 When `--runtime-entry rt` or `--runtime-entry crt` is active, the root `main` must match the program-entry contract: `fn main() i32` or `fn main(argc: i32, argv: **u8) i32`.
 
@@ -170,6 +179,25 @@ Use one of:
 - `-O1`
 - `-O2`
 - `-O3`
+
+### Codegen Units And LTO
+
+Use `--codegen-units <N>` to partition lowering/codegen into multiple codegen
+units.
+
+Use `--lto <none|full|thin>` to control cross-CGU optimization:
+
+- `none`: keep the ordinary multi-object path
+- `full`: merge partitioned LLVM modules back into one whole-program module and
+  run the LLVM module pipeline once
+- `thin`: reserved for future summary/import-export work; `kernc` rejects it
+  explicitly today
+
+Current explicit boundary:
+
+- `--emit-llvm` with `--codegen-units > 1` requires `--lto full`
+- `--emit-multi-object-dir` is incompatible with `--lto full`
+- `--link-only` cannot perform LTO
 
 ### Target Triple
 
@@ -203,7 +231,6 @@ These values are available to `#[if(...)]` and `#![if(...)]` conditions handled 
 In addition to user-provided `--define` values, `kernc` injects a small set of driver-controlled condition variables:
 
 - `runtime_entry`: one of `"none"`, `"rt"`, or `"crt"`
-- `runtime_provider`: one of `"none"`, `"toolchain"`, or `"libc"`
 - `library_bundle`: one of `"none"`, `"base"`, or `"std"`
 - `libc`: `true` when libc linkage is enabled
 - `crt_startup`: `true` when CRT startup owns initial process entry
@@ -348,13 +375,12 @@ That separation keeps policy in the package manager and keeps `kernc` determinis
 
 - `--target <T>`: set the target triple
 - `--asm-dialect <D>`: set the inline assembly dialect
-- `--emit-llvm`: print LLVM IR to stdout
+- `--emit-llvm[=raw|verified|optimized]`: print LLVM IR to stdout
 
 ### Linking
 
 - `--link-driver <cmd>`: set the linker driver command
 - `--runtime-entry <m>`: select `none`, `rt`, or `crt`
-- `--runtime-provider <p>`: select `none`, `toolchain`, or `libc`
 - `--runtime-libc <yes|no>`: control whether libc is linked
 - `--library-bundle <b>`: select `none`, `base`, or `std`
 - `--link-input <path>`: add an extra linker input

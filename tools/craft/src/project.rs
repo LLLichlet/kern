@@ -21,7 +21,7 @@ use crate::plan::TargetKind;
 use crate::script::{ProfileSelection, ScriptCommand};
 use crate::target_defaults::apply_target_runtime_defaults;
 use crate::workspace::{self};
-use kernc_utils::config::{CompileOptions, inject_default_library_aliases};
+use kernc_utils::config::{CompileOptions, apply_configured_library_aliases};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -135,7 +135,7 @@ impl AnalysisProject {
             }
         }
 
-        inject_default_library_aliases(&mut compile_options);
+        apply_configured_library_aliases(&mut compile_options);
         if let Some(values) = matched_values {
             for (name, value) in values {
                 compile_options.custom_defines.entry(name).or_insert(value);

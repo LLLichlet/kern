@@ -2,6 +2,7 @@ use super::CodeGenerator;
 use crate::AddressSpace;
 use crate::types::BasicTypeEnum;
 use crate::values::BasicValueEnum;
+use kernc_mono::MonoId;
 use kernc_sema::ty::{PrimitiveType, TypeId, TypeKind};
 use kernc_utils::Span;
 
@@ -13,7 +14,7 @@ impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
 
     fn lookup_instantiated_struct(
         &mut self,
-        mono_id: kernc_mast::MonoId,
+        mono_id: MonoId,
         span: Span,
         context: &str,
     ) -> Option<BasicTypeEnum<'ctx>> {

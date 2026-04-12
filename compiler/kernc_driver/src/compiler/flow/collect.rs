@@ -8,7 +8,7 @@ use super::dataflow::{
 use super::optimize::collect_owner_optimization_facts;
 use super::*;
 use crate::compiler::{AnalysisFlowOwner, AnalysisFlowRegion};
-use kernc_lower::FlowLoweringHints;
+use kernc_flow::FlowLoweringHints;
 use kernc_sema::SemaContext;
 use kernc_sema::def::{Def, DefId};
 use kernc_sema::semantic::SemanticSymbolKind;

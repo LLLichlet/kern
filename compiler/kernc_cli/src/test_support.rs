@@ -5,6 +5,8 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use kernc_utils::config::{resolve_base_path, resolve_sys_path};
+
 static UNIQUE_TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 fn kernc_binary() -> PathBuf {
@@ -72,10 +74,11 @@ fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
     }
 
     if args.iter().any(|arg| {
-        matches!(
-            arg.as_str(),
-            "-c" | "--emit-llvm" | "--link-only" | "--entry-symbol"
-        )
+        arg == "-c"
+            || arg == "--link-only"
+            || arg == "--entry-symbol"
+            || arg == "--emit-llvm"
+            || arg.starts_with("--emit-llvm=")
     }) {
         return;
     }
@@ -84,13 +87,29 @@ fn maybe_add_default_runtime_contract(args: &mut Vec<String>) {
         window[0] == "--runtime-libc" && matches!(window[1].as_str(), "yes" | "true" | "on")
     });
     let entry = if links_libc { "crt" } else { "rt" };
+    let has_bundle = args.iter().any(|arg| arg == "--library-bundle");
+    let has_base_alias = has_module_alias(args, "base");
+    let has_sys_alias = has_module_alias(args, "sys");
     args.push("--runtime-entry".to_string());
     args.push(entry.to_string());
 
-    if !args.iter().any(|arg| arg == "--runtime-provider") {
-        args.push("--runtime-provider".to_string());
-        args.push("toolchain".to_string());
+    if !has_bundle && !has_base_alias {
+        args.push("--module-path".to_string());
+        args.push(format!("base={}", resolve_base_path().display()));
     }
+    if !has_bundle && !has_sys_alias {
+        args.push("--module-path".to_string());
+        args.push(format!("sys={}", resolve_sys_path().display()));
+    }
+}
+
+fn has_module_alias(args: &[String], name: &str) -> bool {
+    args.windows(2).any(|window| {
+        window[0] == "--module-path"
+            && window[1]
+                .split_once('=')
+                .is_some_and(|(alias, _)| alias == name)
+    })
 }
 
 pub fn assert_success(output: &Output, context: &str) {
@@ -145,6 +164,27 @@ pub fn emit_llvm_ir_with_args(prefix: &str, source: &str, extra_args: &[&str]) -
     let source_arg = source_path.to_string_lossy().into_owned();
 
     let mut args: Vec<String> = vec!["--emit-llvm".to_string()];
+    args.extend(extra_args.iter().map(|arg| (*arg).to_string()));
+    args.push(source_arg);
+
+    let output = run_kernc(&args);
+
+    let _ = fs::remove_file(&source_path);
+    output
+}
+
+pub fn emit_llvm_ir_stage_with_args(
+    prefix: &str,
+    stage: &str,
+    source: &str,
+    extra_args: &[&str],
+) -> Output {
+    let source_path = unique_temp_path(prefix, "rn");
+    fs::write(&source_path, source).unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+
+    let mut args: Vec<String> = vec![format!("--emit-llvm={stage}")];
     args.extend(extra_args.iter().map(|arg| (*arg).to_string()));
     args.push(source_arg);
 

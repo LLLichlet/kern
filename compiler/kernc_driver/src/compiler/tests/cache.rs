@@ -1,4 +1,5 @@
 use super::*;
+use crate::CodegenPlanFallback;
 
 #[test]
 fn structure_cache_reuses_loaded_frontend_modules_until_input_changes() {
@@ -359,6 +360,56 @@ fn compile_report_exposes_cache_hits_and_frontend_parse_deltas() {
 }
 
 #[test]
+fn compile_report_exposes_mir_workload_stats() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_compile_mir_workload_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(
+        &main,
+        concat!(
+            "extern fn main(seed: i32) i32 {\n",
+            "    let mut value = seed;\n",
+            "    value = value + 1;\n",
+            "    return value;\n",
+            "}\n",
+        ),
+    )
+    .unwrap();
+
+    let report = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        report_progress: false,
+        ..CompileOptions::default()
+    })
+    .compile_with_report()
+    .expect("compile should succeed");
+
+    let mir = report
+        .mir_workload
+        .expect("compile report should include MIR workload");
+    assert!(mir.functions >= 1);
+    assert!(mir.function_bodies >= 1);
+    assert!(mir.locals >= 1);
+    assert!(mir.let_locals >= 1);
+    assert!(mir.assign_instructions >= 1);
+    assert!(mir.use_rvalues >= 1);
+    assert!(mir.binary_rvalues >= 1);
+    assert!(mir.returns >= 1);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn compile_report_only_collects_codegen_diagnostics_when_requested() {
     let root = std::env::temp_dir().join(format!(
         "kern_compile_codegen_diag_toggle_{}_{}",
@@ -425,11 +476,11 @@ extern fn main() i32 {
     return foo() + bar();
 }
 
-fn foo() i32 {
+extern fn foo() i32 {
     return 1;
 }
 
-fn bar() i32 {
+extern fn bar() i32 {
     return 2;
 }
 ",
@@ -466,7 +517,199 @@ fn bar() i32 {
 }
 
 #[test]
-fn compile_only_can_preserve_multiple_codegen_unit_objects() {
+fn compile_only_full_lto_merges_multiple_codegen_units_into_a_linkable_object() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_multi_cgu_full_lto_compile_only_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    let executable = root.join("main.out");
+    fs::write(
+        &main,
+        "\
+extern fn main() i32 {
+    return foo() + bar();
+}
+
+extern fn foo() i32 {
+    return 1;
+}
+
+extern fn bar() i32 {
+    return 2;
+}
+",
+    )
+    .unwrap();
+
+    let compile_driver = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        codegen_units: 2,
+        lto_mode: LtoMode::Full,
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    compile_driver
+        .compile_with_report()
+        .expect("multi-CGU full-LTO compile-only should succeed");
+    assert!(object.is_file());
+    assert!(fs::metadata(&object).unwrap().len() > 0);
+
+    let link_driver = CompilerDriver::new(CompileOptions {
+        output_file: executable.to_string_lossy().to_string(),
+        driver_mode: DriverMode::LinkOnly,
+        linker_inputs: vec![object.to_string_lossy().to_string()],
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    assert!(link_driver.compile());
+
+    let status = Command::new(&executable).status().unwrap();
+    assert_eq!(status.code(), Some(3));
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_report_does_not_enable_summary_imports_without_thin_lto() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_compile_no_thin_import_plan_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(
+        &main,
+        "\
+#[inline]
+fn shared(seed: i32) i32 {
+    if (seed > 0) {
+        return seed;
+    }
+    if (seed < 0) {
+        return -seed;
+    }
+    return 0;
+}
+
+extern fn left(seed: i32) i32 {
+    return shared(seed);
+}
+
+extern fn right(seed: i32) i32 {
+    return shared(seed);
+}
+",
+    )
+    .unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        codegen_units: 2,
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    let report = driver
+        .compile_with_report()
+        .expect("multi-CGU compile-only without thin LTO should succeed");
+    let codegen_plan = report
+        .codegen_plan
+        .expect("compile-only should record a codegen plan");
+
+    assert_eq!(codegen_plan.root_count, 2);
+    assert_eq!(codegen_plan.planned_units, 2);
+    assert_eq!(codegen_plan.imported_function_count, 0);
+    assert!(codegen_plan.import_plan.is_none());
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_report_exposes_import_plan_stats_for_thin_lto_summary_imports() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_compile_thin_import_plan_stats_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let object = root.join("main.o");
+    fs::write(
+        &main,
+        "\
+#[inline]
+fn shared(seed: i32) i32 {
+    if (seed > 0) {
+        return seed;
+    }
+    if (seed < 0) {
+        return -seed;
+    }
+    return 0;
+}
+
+extern fn left(seed: i32) i32 {
+    return shared(seed);
+}
+
+extern fn right(seed: i32) i32 {
+    return shared(seed);
+}
+",
+    )
+    .unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions {
+        input_file: Some(main.to_string_lossy().to_string()),
+        output_file: object.to_string_lossy().to_string(),
+        driver_mode: DriverMode::CompileOnly,
+        codegen_units: 2,
+        lto_mode: LtoMode::Thin,
+        report_progress: false,
+        ..CompileOptions::default()
+    });
+    let report = driver
+        .compile_with_report()
+        .expect("multi-CGU thin-LTO compile-only with summary import should succeed");
+    let codegen_plan = report
+        .codegen_plan
+        .expect("compile-only should record a codegen plan");
+    let import_plan = codegen_plan
+        .import_plan
+        .as_ref()
+        .expect("summary-driven multi-CGU plan should record import stats");
+
+    assert_eq!(codegen_plan.root_count, 2);
+    assert_eq!(codegen_plan.planned_units, 2);
+    assert!(codegen_plan.fallback_reason.is_none());
+    assert!(import_plan.total_budget > 0);
+    assert!(import_plan.candidate_function_count >= import_plan.accepted_candidate_count);
+    assert!(import_plan.total_candidate_score >= import_plan.imported_score);
+    assert!(import_plan.imported_workload >= codegen_plan.imported_function_count);
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
+fn compile_only_preserve_objects_falls_back_when_program_has_single_external_root() {
     let root = std::env::temp_dir().join(format!(
         "kern_multi_cgu_preserve_objects_{}_{}",
         std::process::id(),
@@ -507,35 +750,29 @@ fn bar() i32 {
         report_progress: false,
         ..CompileOptions::default()
     });
-    compile_driver
+    let report = compile_driver
         .compile_with_report()
-        .expect("multi-CGU compile-only with preserved objects should succeed");
+        .expect("compile-only with requested preserved objects should succeed");
+    let codegen_plan = report
+        .codegen_plan
+        .expect("compile-only should record a codegen plan");
+    assert_eq!(codegen_plan.root_count, 1);
+    assert_eq!(codegen_plan.planned_units, 0);
+    assert!(
+        matches!(
+            codegen_plan.fallback_reason,
+            Some(CodegenPlanFallback::TooFewRoots)
+        ),
+        "expected single-root fallback, got report: {codegen_plan:#?}"
+    );
 
     assert!(object.is_file());
-    let manifest = fs::read_to_string(&object).unwrap();
-    assert!(manifest.contains("version=1"));
-    assert!(manifest.contains("object="));
-
-    assert!(object_dir.is_dir());
-    let mut object_inputs = fs::read_dir(&object_dir)
-        .unwrap()
-        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
-        .filter(|path| path.extension().and_then(|ext| ext.to_str()) == Some("o"))
-        .collect::<Vec<_>>();
-    object_inputs.sort();
-    assert!(
-        object_inputs.len() >= 2,
-        "expected at least two preserved codegen unit objects, got {}",
-        object_inputs.len()
-    );
+    assert!(!object_dir.exists());
 
     let link_driver = CompilerDriver::new(CompileOptions {
         output_file: executable.to_string_lossy().to_string(),
         driver_mode: DriverMode::LinkOnly,
-        linker_inputs: object_inputs
-            .iter()
-            .map(|path| path.to_string_lossy().to_string())
-            .collect(),
+        linker_inputs: vec![object.to_string_lossy().to_string()],
         report_progress: false,
         ..CompileOptions::default()
     });

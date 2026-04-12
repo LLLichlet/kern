@@ -5,7 +5,18 @@
 //! validate, slice, and normalize JSON payloads before deciding whether to own
 //! or decode them further.
 
-use base.{Option, Result};
+use base.Option;
+use base.Result;
+
+mod decoder;
+mod document;
+mod indexed;
+mod number;
+mod owned;
+mod packed;
+mod parser;
+mod renderer;
+mod value;
 
 pub type Kind = enum {
     Null,
@@ -30,6 +41,15 @@ pub type ParsedPrefix = struct {
 
 pub type ParsedValue = ParsedPrefix;
 
+pub type ArrayCursor = value.ArrayCursor;
+pub type ObjectCursor = value.ObjectCursor;
+
+pub type ObjectEntry = struct {
+    pub key_raw: []u8,
+    pub key_text: []u8,
+    pub value: Value,
+};
+
 pub type ParseError = enum {
     EmptyInput,
     UnexpectedByte: usize,
@@ -48,661 +68,250 @@ pub type RenderError = enum {
     BufferTooSmall,
 };
 
+pub type OwnedRenderError = enum {
+    BufferTooSmall,
+};
+
+pub type StringDecodeError = enum {
+    Parse: ParseError,
+    InvalidUnicodeEscape: usize,
+    BufferTooSmall,
+    OutOfMemory,
+};
+
+pub type NumberDecodeError = enum {
+    Parse: ParseError,
+    NotInteger,
+    NegativeUnsigned,
+    Overflow,
+};
+
+pub type FloatDecodeError = enum {
+    Parse: ParseError,
+    Overflow,
+};
+
+pub type MaterializeError = enum {
+    Parse: ParseError,
+    String: StringDecodeError,
+    OutOfMemory,
+};
+
+pub type IndexBuildError = enum {
+    OutOfMemory,
+};
+
+pub type IndexedObjectDocumentError = enum {
+    Materialize: MaterializeError,
+    RootNotObject,
+};
+
+pub type PackedIndexedObjectDocumentError = enum {
+    Materialize: MaterializeError,
+    RootNotObject,
+};
+
+pub type OwnedBuildError = enum {
+    OutOfMemory,
+};
+
+pub type FieldDecodeError = enum {
+    Missing,
+    Duplicate: usize,
+    UnexpectedKind: Kind,
+    Number: NumberDecodeError,
+    Float: FloatDecodeError,
+};
+
+pub type BorrowedFieldDecodeError = enum {
+    Parse: ParseError,
+    Missing,
+    Duplicate: usize,
+    UnexpectedKind: Kind,
+    String: StringDecodeError,
+    Number: NumberDecodeError,
+    Float: FloatDecodeError,
+};
+
+pub type IndexDecodeError = enum {
+    Parse: ParseError,
+    OutOfRange,
+    UnexpectedKind: Kind,
+    String: StringDecodeError,
+    Number: NumberDecodeError,
+    Float: FloatDecodeError,
+};
+
+pub type OwnedValue = owned.OwnedValue;
+pub type OwnedArray = owned.OwnedArray;
+pub type OwnedObject = owned.OwnedObject;
+pub type OwnedObjectEntry = owned.OwnedObjectEntry;
+pub type DocumentValue = document.DocumentValue;
+pub type DocumentObjectEntryRef = document.DocumentObjectEntryRef;
+pub type IndexedDocumentView = document.IndexedDocumentView;
+pub type DocumentValueMut = document.DocumentValueMut;
+pub type DocumentObjectEntry = document.DocumentObjectEntry;
+pub type OwnedDocument = document.OwnedDocument;
+pub type IndexedObjectDocument = document.IndexedObjectDocument;
+pub type PackedDocument = packed.PackedDocument;
+pub type PackedValue = packed.PackedValue;
+pub type PackedObjectEntry = packed.PackedObjectEntry;
+pub type PackedIndexedObjectDocument = packed.PackedIndexedObjectDocument;
+pub type PackedIndexedObjectView = packed.PackedIndexedObjectView;
+pub type IndexedObjectView = indexed.IndexedObjectView;
+
 pub type ErrorLocation = struct {
     pub offset: usize,
     pub line: usize,
     pub column: usize,
 };
 
-type ParsedSpan = struct {
-    kind: Kind,
-    next: usize,
-};
-
-type CompactProgress = struct {
-    next: usize,
-    written: usize,
-};
-
-fn is_ws(byte: u8) bool {
-    return byte == b' ' or byte == b'\n' or byte == b'\r' or byte == b'\t';
+pub fn clone_decoded_string_raw(
+    alloc: *mut base.mem.alloc.Allocator,
+    raw: []u8,
+) Result[base.coll.String, StringDecodeError] {
+    return decoder.clone_decoded_string_raw(alloc, raw);
 }
 
-fn skip_ws(text: []u8, start: usize) usize {
-    let mut index = start;
-    for (; index < #text and is_ws(text.[index]); index += 1) {}
-    return index;
+pub fn decoded_string_size_raw(raw: []u8) Result[usize, StringDecodeError] {
+    return decoder.decoded_string_size_raw(raw);
 }
 
-fn is_digit(byte: u8) bool {
-    return byte >= b'0' and byte <= b'9';
+pub fn write_decoded_string_raw(raw: []u8, out: []mut u8) Result[usize, StringDecodeError] {
+    return decoder.write_decoded_string_raw(raw, out);
 }
 
-fn is_hex_digit(byte: u8) bool {
-    return (
-        (byte >= b'0' and byte <= b'9') or
-        (byte >= b'a' and byte <= b'f') or
-        (byte >= b'A' and byte <= b'F')
-    );
+pub fn parse_u64_raw(raw: []u8) Result[u64, NumberDecodeError] {
+    return number.parse_u64_raw(raw);
 }
 
-fn write_byte_unchecked(out: []mut u8, offset: usize, value: u8) usize {
-    out.[offset] = value;
-    return offset + 1;
+pub fn parse_u32_raw(raw: []u8) Result[u32, NumberDecodeError] {
+    return number.parse_u32_raw(raw);
 }
 
-fn write_bytes_unchecked(out: []mut u8, offset: usize, text: []u8) usize {
-    let end = offset + #text;
-    let _ = out..[offset .. end].copy_from(text);
-    return end;
+pub fn parse_i64_raw(raw: []u8) Result[i64, NumberDecodeError] {
+    return number.parse_i64_raw(raw);
 }
 
-fn parse_literal(
-    text: []u8,
-    start: usize,
-    literal: []u8,
-    kind: Kind,
-) Result[ParsedSpan, ParseError] {
-    if (start + #literal > #text) {
-        return .{ Err: ParseError.UnexpectedEof };
-    }
-    if (!text.[start .. start + #literal].eq(literal)) {
-        return .{ Err: .{ InvalidLiteral: start } };
-    }
-    return .{ Ok: ParsedSpan.{
-        kind: kind,
-        next: start + #literal,
-    } };
+pub fn parse_i32_raw(raw: []u8) Result[i32, NumberDecodeError] {
+    return number.parse_i32_raw(raw);
 }
 
-fn parse_string_end(text: []u8, start: usize) Result[usize, ParseError] {
-    let mut index = start + 1;
-    for (; index < #text; ) {
-        let byte = text.[index];
-        if (byte == b'"') {
-            return .{ Ok: index + 1 };
-        }
-        if (byte == b'\\') {
-            index += 1;
-            if (index >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            let esc = text.[index];
-            if (
-                esc == b'"' or
-                esc == b'\\' or
-                esc == b'/' or
-                esc == b'b' or
-                esc == b'f' or
-                esc == b'n' or
-                esc == b'r' or
-                esc == b't'
-            ) {
-                index += 1;
-                continue;
-            }
-            if (esc == b'u') {
-                if (index + 4 >= #text) {
-                    return .{ Err: ParseError.UnexpectedEof };
-                }
-                for (let mut i = index + 1; i < index + 5; i += 1) {
-                    if (!is_hex_digit(text.[i])) {
-                        return .{ Err: .{ InvalidEscape: index - 1 } };
-                    }
-                }
-                index += 5;
-                continue;
-            }
-            return .{ Err: .{ InvalidEscape: index - 1 } };
-        }
-        if (byte < u8.{0x20}) {
-            return .{ Err: .{ InvalidEscape: index } };
-        }
-        index += 1;
-    }
-    return .{ Err: .{ UnterminatedString: start } };
+pub fn parse_u16_raw(raw: []u8) Result[u16, NumberDecodeError] {
+    return number.parse_u16_raw(raw);
 }
 
-fn parse_number_end(text: []u8, start: usize) Result[usize, ParseError] {
-    let mut index = start;
-    if (text.[index] == b'-') {
-        index += 1;
-        if (index >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-    }
-
-    if (text.[index] == b'0') {
-        index += 1;
-        if (index < #text and is_digit(text.[index])) {
-            return .{ Err: .{ InvalidNumber: index } };
-        }
-    } else {
-        if (!is_digit(text.[index])) {
-            return .{ Err: .{ InvalidNumber: index } };
-        }
-        for (; index < #text and is_digit(text.[index]); index += 1) {}
-    }
-
-    if (index < #text and text.[index] == b'.') {
-        index += 1;
-        if (index >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (!is_digit(text.[index])) {
-            return .{ Err: .{ InvalidNumber: index } };
-        }
-        for (; index < #text and is_digit(text.[index]); index += 1) {}
-    }
-
-    if (index < #text and (text.[index] == b'e' or text.[index] == b'E')) {
-        index += 1;
-        if (index >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index] == b'+' or text.[index] == b'-') {
-            index += 1;
-            if (index >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-        }
-        if (!is_digit(text.[index])) {
-            return .{ Err: .{ InvalidNumber: index } };
-        }
-        for (; index < #text and is_digit(text.[index]); index += 1) {}
-    }
-
-    return .{ Ok: index };
+pub fn parse_i16_raw(raw: []u8) Result[i16, NumberDecodeError] {
+    return number.parse_i16_raw(raw);
 }
 
-fn parse_array_end(text: []u8, start: usize) Result[usize, ParseError] {
-    let mut index = skip_ws(text, start + 1);
-    if (index >= #text) {
-        return .{ Err: ParseError.UnexpectedEof };
-    }
-    if (text.[index] == b']') {
-        return .{ Ok: index + 1 };
-    }
-
-    for (;;) {
-        let .{ Ok: span } = parse_value_span(text, index)
-            else .{ Err: err } => return .{ Err: err };
-        index = skip_ws(text, span.next);
-        if (index >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index] == b',') {
-            index = skip_ws(text, index + 1);
-            if (index >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            continue;
-        }
-        if (text.[index] == b']') {
-            return .{ Ok: index + 1 };
-        }
-        return .{ Err: .{ MissingCommaOrEnd: index } };
-    }
+pub fn parse_u8_raw(raw: []u8) Result[u8, NumberDecodeError] {
+    return number.parse_u8_raw(raw);
 }
 
-fn parse_object_end(text: []u8, start: usize) Result[usize, ParseError] {
-    let mut index = skip_ws(text, start + 1);
-    if (index >= #text) {
-        return .{ Err: ParseError.UnexpectedEof };
-    }
-    if (text.[index] == b'}') {
-        return .{ Ok: index + 1 };
-    }
-
-    for (;;) {
-        if (text.[index] != b'"') {
-            return .{ Err: .{ UnexpectedByte: index } };
-        }
-        let .{ Ok: next } = parse_string_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
-        index = next;
-        index = skip_ws(text, index);
-        if (index >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index] != b':') {
-            return .{ Err: .{ MissingColon: index } };
-        }
-        index = skip_ws(text, index + 1);
-        if (index >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        let .{ Ok: value } = parse_value_span(text, index)
-            else .{ Err: err } => return .{ Err: err };
-        index = skip_ws(text, value.next);
-        if (index >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index] == b',') {
-            index = skip_ws(text, index + 1);
-            if (index >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            continue;
-        }
-        if (text.[index] == b'}') {
-            return .{ Ok: index + 1 };
-        }
-        return .{ Err: .{ MissingCommaOrEnd: index } };
-    }
+pub fn parse_i8_raw(raw: []u8) Result[i8, NumberDecodeError] {
+    return number.parse_i8_raw(raw);
 }
 
-fn parse_value_span(text: []u8, start: usize) Result[ParsedSpan, ParseError] {
-    let index = skip_ws(text, start);
-    if (index >= #text) {
-        return if (start == 0) {
-            .{ Err: .EmptyInput }
-        } else {
-            .{ Err: ParseError.UnexpectedEof }
-        };
-    }
-
-    return match (text.[index]) {
-        b'n' => parse_literal(text, index, "null", Kind.Null),
-        b't' => parse_literal(text, index, "true", Kind.Bool),
-        b'f' => parse_literal(text, index, "false", Kind.Bool),
-        b'"' => match (parse_string_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.String, next: next } },
-            .{ Err: err } => .{ Err: err },
-        },
-        b'[' => match (parse_array_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Array, next: next } },
-            .{ Err: err } => .{ Err: err },
-        },
-        b'{' => match (parse_object_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Object, next: next } },
-            .{ Err: err } => .{ Err: err },
-        },
-        b'-' => match (parse_number_end(text, index)) {
-            .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } },
-            .{ Err: err } => .{ Err: err },
-        },
-        _ => {
-            if (is_digit(text.[index])) {
-                return match (parse_number_end(text, index)) {
-                    .{ Ok: next } => .{ Ok: ParsedSpan.{ kind: Kind.Number, next: next } },
-                    .{ Err: err } => .{ Err: err },
-                };
-            }
-            return .{ Err: .{ UnexpectedByte: index } };
-        },
-    };
+pub fn parse_usize_raw(raw: []u8) Result[usize, NumberDecodeError] {
+    return number.parse_usize_raw(raw);
 }
 
-fn measure_compact_inner(text: []u8, start: usize) Result[CompactProgress, ParseError] {
-    let index = skip_ws(text, start);
-    if (index >= #text) {
-        return .{ Err: ParseError.UnexpectedEof };
-    }
-
-    let byte = text.[index];
-    if (byte == b'n') {
-        let .{ Ok: span } = parse_literal(text, index, "null", Kind.Null)
-            else .{ Err: err } => return .{ Err: err };
-        return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
-    }
-    if (byte == b't') {
-        let .{ Ok: span } = parse_literal(text, index, "true", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
-        return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
-    }
-    if (byte == b'f') {
-        let .{ Ok: span } = parse_literal(text, index, "false", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
-        return .{ Ok: CompactProgress.{ next: span.next, written: span.next - index } };
-    }
-    if (byte == b'"') {
-        let .{ Ok: next } = parse_string_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
-        return .{ Ok: CompactProgress.{ next: next, written: next - index } };
-    }
-    if (byte == b'[') {
-        let mut written = usize.{1};
-        let mut index2 = skip_ws(text, index + 1);
-        if (index2 >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index2] == b']') {
-            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
-        }
-
-        for (;;) {
-            let .{ Ok: progress } = measure_compact_inner(text, index2)
-                else .{ Err: err } => return .{ Err: err };
-            written += progress.written;
-            index2 = skip_ws(text, progress.next);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            if (text.[index2] == b',') {
-                written += 1;
-                index2 = skip_ws(text, index2 + 1);
-                if (index2 >= #text) {
-                    return .{ Err: ParseError.UnexpectedEof };
-                }
-                continue;
-            }
-            if (text.[index2] == b']') {
-                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
-            }
-            return .{ Err: .{ MissingCommaOrEnd: index2 } };
-        }
-    }
-    if (byte == b'{') {
-        let mut written = usize.{1};
-        let mut index2 = skip_ws(text, index + 1);
-        if (index2 >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index2] == b'}') {
-            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
-        }
-
-        for (;;) {
-            if (text.[index2] != b'"') {
-                return .{ Err: .{ UnexpectedByte: index2 } };
-            }
-            let .{ Ok: key_end } = parse_string_end(text, index2)
-                else .{ Err: err } => return .{ Err: err };
-            written += key_end - index2;
-            index2 = skip_ws(text, key_end);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            if (text.[index2] != b':') {
-                return .{ Err: .{ MissingColon: index2 } };
-            }
-            written += 1;
-            index2 = skip_ws(text, index2 + 1);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            let .{ Ok: value } = measure_compact_inner(text, index2)
-                else .{ Err: err } => return .{ Err: err };
-            written += value.written;
-            index2 = skip_ws(text, value.next);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            if (text.[index2] == b',') {
-                written += 1;
-                index2 = skip_ws(text, index2 + 1);
-                if (index2 >= #text) {
-                    return .{ Err: ParseError.UnexpectedEof };
-                }
-                continue;
-            }
-            if (text.[index2] == b'}') {
-                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written + 1 } };
-            }
-            return .{ Err: .{ MissingCommaOrEnd: index2 } };
-        }
-    }
-
-    if (byte == b'-' or is_digit(byte)) {
-        let .{ Ok: next } = parse_number_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
-        return .{ Ok: CompactProgress.{ next: next, written: next - index } };
-    }
-
-    return .{ Err: .{ UnexpectedByte: index } };
+pub fn parse_isize_raw(raw: []u8) Result[isize, NumberDecodeError] {
+    return number.parse_isize_raw(raw);
 }
 
-fn render_compact_inner_unchecked(
-    text: []u8,
-    start: usize,
-    out: []mut u8,
-    offset: usize,
-) Result[CompactProgress, ParseError] {
-    let index = skip_ws(text, start);
-    if (index >= #text) {
-        return .{ Err: ParseError.UnexpectedEof };
-    }
-
-    let byte = text.[index];
-    if (byte == b'n') {
-        let .{ Ok: span } = parse_literal(text, index, "null", Kind.Null)
-            else .{ Err: err } => return .{ Err: err };
-        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
-        return .{ Ok: CompactProgress.{ next: span.next, written: written } };
-    }
-    if (byte == b't') {
-        let .{ Ok: span } = parse_literal(text, index, "true", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
-        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
-        return .{ Ok: CompactProgress.{ next: span.next, written: written } };
-    }
-    if (byte == b'f') {
-        let .{ Ok: span } = parse_literal(text, index, "false", Kind.Bool)
-            else .{ Err: err } => return .{ Err: err };
-        let written = write_bytes_unchecked(out, offset, text.[index .. span.next]);
-        return .{ Ok: CompactProgress.{ next: span.next, written: written } };
-    }
-    if (byte == b'"') {
-        let .{ Ok: next } = parse_string_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
-        let written = write_bytes_unchecked(out, offset, text.[index .. next]);
-        return .{ Ok: CompactProgress.{ next: next, written: written } };
-    }
-    if (byte == b'[') {
-        let mut written = write_byte_unchecked(out, offset, b'[');
-        let mut index2 = skip_ws(text, index + 1);
-        if (index2 >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index2] == b']') {
-            written = write_byte_unchecked(out, written, b']');
-            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
-        }
-
-        for (;;) {
-            let .{ Ok: progress } = render_compact_inner_unchecked(text, index2, out, written)
-                else .{ Err: err } => return .{ Err: err };
-            written = progress.written;
-            index2 = skip_ws(text, progress.next);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            if (text.[index2] == b',') {
-                written = write_byte_unchecked(out, written, b',');
-                index2 = skip_ws(text, index2 + 1);
-                if (index2 >= #text) {
-                    return .{ Err: ParseError.UnexpectedEof };
-                }
-                continue;
-            }
-            if (text.[index2] == b']') {
-                written = write_byte_unchecked(out, written, b']');
-                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
-            }
-            return .{ Err: .{ MissingCommaOrEnd: index2 } };
-        }
-    }
-    if (byte == b'{') {
-        let mut written = write_byte_unchecked(out, offset, b'{');
-        let mut index2 = skip_ws(text, index + 1);
-        if (index2 >= #text) {
-            return .{ Err: ParseError.UnexpectedEof };
-        }
-        if (text.[index2] == b'}') {
-            written = write_byte_unchecked(out, written, b'}');
-            return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
-        }
-
-        for (;;) {
-            if (text.[index2] != b'"') {
-                return .{ Err: .{ UnexpectedByte: index2 } };
-            }
-            let .{ Ok: key_end } = parse_string_end(text, index2)
-                else .{ Err: err } => return .{ Err: err };
-            written = write_bytes_unchecked(out, written, text.[index2 .. key_end]);
-            index2 = skip_ws(text, key_end);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            if (text.[index2] != b':') {
-                return .{ Err: .{ MissingColon: index2 } };
-            }
-            written = write_byte_unchecked(out, written, b':');
-            index2 = skip_ws(text, index2 + 1);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            let .{ Ok: value } = render_compact_inner_unchecked(text, index2, out, written)
-                else .{ Err: err } => return .{ Err: err };
-            written = value.written;
-            index2 = skip_ws(text, value.next);
-            if (index2 >= #text) {
-                return .{ Err: ParseError.UnexpectedEof };
-            }
-            if (text.[index2] == b',') {
-                written = write_byte_unchecked(out, written, b',');
-                index2 = skip_ws(text, index2 + 1);
-                if (index2 >= #text) {
-                    return .{ Err: ParseError.UnexpectedEof };
-                }
-                continue;
-            }
-            if (text.[index2] == b'}') {
-                written = write_byte_unchecked(out, written, b'}');
-                return .{ Ok: CompactProgress.{ next: index2 + 1, written: written } };
-            }
-            return .{ Err: .{ MissingCommaOrEnd: index2 } };
-        }
-    }
-
-    if (byte == b'-' or is_digit(byte)) {
-        let .{ Ok: next } = parse_number_end(text, index)
-            else .{ Err: err } => return .{ Err: err };
-        let written = write_bytes_unchecked(out, offset, text.[index .. next]);
-        return .{ Ok: CompactProgress.{ next: next, written: written } };
-    }
-
-    return .{ Err: .{ UnexpectedByte: index } };
+pub fn parse_f64_raw(raw: []u8) Result[f64, FloatDecodeError] {
+    return number.parse_f64_raw(raw);
 }
 
-pub fn validate(text: []u8) Result[void, ParseError] {
-    let .{ Ok: _ } = parse(text) else .{ Err: err } => return .{ Err: err };
-    return .{ Ok: {} };
+pub fn parse_f32_raw(raw: []u8) Result[f32, FloatDecodeError] {
+    return number.parse_f32_raw(raw);
 }
 
-pub fn parse_prefix(text: []u8) Result[ParsedPrefix, ParseError] {
-    let start = skip_ws(text, 0);
-    if (start >= #text) {
-        return .{ Err: .EmptyInput };
-    }
-    let .{ Ok: span } = parse_value_span(text, start)
-        else .{ Err: err } => return .{ Err: err };
-    return .{ Ok: ParsedPrefix.{
-        value: Value.{
-            kind: span.kind,
-            raw: text.[start .. span.next],
-        },
-        remaining: text.[span.next .. #text],
-    } };
+pub fn clone_owned(
+    alloc: *mut base.mem.alloc.Allocator,
+    value: Value,
+) Result[OwnedValue, MaterializeError] {
+    return owned.clone_owned_value(alloc, value);
 }
 
-pub fn parse_value(text: []u8) Result[ParsedValue, ParseError] {
-    return parse_prefix(text);
+pub fn clone_owned_document(
+    value: Value,
+) Result[OwnedDocument, MaterializeError] {
+    return document.clone_owned_document(value);
 }
 
-pub fn parse(text: []u8) Result[Value, ParseError] {
-    let .{ Ok: parsed } = parse_prefix(text)
-        else .{ Err: err } => return .{ Err: err };
-    let trailing = skip_ws(text, #text - #parsed.remaining);
-    if (trailing != #text) {
-        return .{ Err: .{ TrailingData: trailing } };
-    }
-    return .{ Ok: parsed.value };
-}
-
-pub fn compact_size(value: Value) Result[usize, ParseError] {
-    let raw = value.raw;
-    let .{ Ok: progress } = measure_compact_inner(raw, 0)
-        else .{ Err: err } => return .{ Err: err };
-    let trailing = skip_ws(raw, progress.next);
-    if (trailing != #raw) {
-        return .{ Err: .{ TrailingData: trailing } };
-    }
-    return .{ Ok: progress.written };
-}
-
-pub fn render_compact(value: Value, out: []mut u8) Result[usize, RenderError] {
-    let .{ Ok: needed } = compact_size(value)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
-    if (needed > #out) {
-        return .{ Err: RenderError.BufferTooSmall };
-    }
-    let .{ Ok: progress } = render_compact_inner_unchecked(value.raw, 0, out, 0)
-        else .{ Err: err } => return .{ Err: .{ Parse: err } };
-    return .{ Ok: progress.written };
+pub fn clone_indexed_object_document(
+    value: Value,
+) Result[IndexedObjectDocument, IndexedObjectDocumentError] {
+    return document.clone_indexed_object_document(value);
 }
 
 pub fn error_offset(err: ParseError) Option[usize] {
-    return match (err) {
-        .EmptyInput => .{ Some: 0 },
-        .{ UnexpectedByte: offset } => .{ Some: offset },
-        .UnexpectedEof => .{ None },
-        .{ InvalidLiteral: offset } => .{ Some: offset },
-        .{ InvalidNumber: offset } => .{ Some: offset },
-        .{ InvalidEscape: offset } => .{ Some: offset },
-        .{ UnterminatedString: offset } => .{ Some: offset },
-        .{ MissingColon: offset } => .{ Some: offset },
-        .{ MissingCommaOrEnd: offset } => .{ Some: offset },
-        .{ TrailingData: offset } => .{ Some: offset },
-    };
+    return parser.error_offset(err);
 }
 
 pub fn locate_error(text: []u8, err: ParseError) Option[ErrorLocation] {
-    let offset =
-        match (err) {
-            .UnexpectedEof => #text,
-            _ => match (error_offset(err)) {
-                .{ Some: value } => value,
-                .None => return .{ None },
-            },
-        };
-    if (offset > #text) {
-        return .{ None };
-    }
-
-    let mut line = usize.{1};
-    let mut column = usize.{1};
-    for (let mut i = usize.{0}; i < offset; i += 1) {
-        if (text.[i] == b'\n') {
-            line += 1;
-            column = 1;
-        } else {
-            column += 1;
-        }
-    }
-    return .{ Some: ErrorLocation.{
-        offset: offset,
-        line: line,
-        column: column,
-    } };
+    return parser.locate_error(text, err);
 }
 
-impl Value {
-    pub fn as_slice() []u8 {
-        return self.raw;
-    }
+pub fn parse(text: []u8) Result[Value, ParseError] {
+    return parser.parse(text);
+}
 
-    pub fn as_bytes() []u8 {
-        return self.raw;
-    }
+pub fn parse_owned_document(
+    text: []u8,
+) Result[OwnedDocument, MaterializeError] {
+    let .{ Ok: value } = parse(text)
+        else .{ Err: err } => return .{ Err: .{ Parse: err } };
+    return clone_owned_document(value);
+}
 
-    pub fn is_scalar() bool {
-        return (
-            self.kind == Kind.Null or
-            self.kind == Kind.Bool or
-            self.kind == Kind.Number or
-            self.kind == Kind.String
-        );
-    }
+pub fn parse_indexed_object_document(
+    text: []u8,
+) Result[IndexedObjectDocument, IndexedObjectDocumentError] {
+    let .{ Ok: value } = parse(text)
+        else .{ Err: err } => return .{ Err: .{ Materialize: .{ Parse: err } } };
+    return clone_indexed_object_document(value);
+}
+
+pub fn parse_packed_document(
+    text: []u8,
+) Result[PackedDocument, MaterializeError] {
+    return packed.parse_packed_document(text);
+}
+
+pub fn parse_packed_indexed_object_document(
+    text: []u8,
+) Result[PackedIndexedObjectDocument, PackedIndexedObjectDocumentError] {
+    return packed.parse_packed_indexed_object_document(text);
+}
+
+pub fn parse_prefix(text: []u8) Result[ParsedPrefix, ParseError] {
+    return parser.parse_prefix(text);
+}
+
+pub fn parse_value(text: []u8) Result[ParsedValue, ParseError] {
+    return parser.parse_value(text);
+}
+
+pub fn validate(text: []u8) Result[void, ParseError] {
+    return parser.validate(text);
+}
+
+pub fn compact_size(value: Value) Result[usize, ParseError] {
+    return renderer.compact_size(value);
+}
+
+pub fn render_compact(value: Value, out: []mut u8) Result[usize, RenderError] {
+    return renderer.render_compact(value, out);
+}
+
+pub fn compact_size_owned(value: *mut OwnedValue) usize {
+    return renderer.compact_size_owned(value);
+}
+
+pub fn render_compact_owned(value: *mut OwnedValue, out: []mut u8) Result[usize, OwnedRenderError] {
+    return renderer.render_compact_owned(value, out);
 }

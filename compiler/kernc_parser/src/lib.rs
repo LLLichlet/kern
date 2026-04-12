@@ -418,4 +418,85 @@ fn unwrap_or(err: Result[i32, i32]) i32 {
             panic!("expected identifier return payload");
         };
     }
+
+    #[test]
+    fn parses_nested_let_else_inside_explicit_else_pattern_block() {
+        let source = r#"
+type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};
+
+fn pick(value: Result[Result[i32, i32], i32]) i32 {
+    let .{ Ok: inner } = value else .{ Err: outer_err } => {
+        let .{ Ok: fallback } = Result[i32, i32].{ Ok: 9 } else .{ Err: inner_err } => return inner_err;
+        return fallback;
+    };
+    return 0;
+}
+"#;
+
+        let (_session, module) = parse_module(source);
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[1].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block {
+            stmts,
+            result: None,
+        } = &body.kind
+        else {
+            panic!("expected block body");
+        };
+        let ast::StmtKind::ExprStmt(expr) = &stmts[0].kind else {
+            panic!("expected outer let statement");
+        };
+        let ast::ExprKind::Let {
+            else_pattern,
+            else_branch,
+            ..
+        } = &expr.kind
+        else {
+            panic!("expected outer let expression");
+        };
+
+        assert!(
+            else_pattern.is_some(),
+            "expected explicit outer else pattern"
+        );
+        let Some(else_branch) = else_branch.as_ref() else {
+            panic!("expected outer else branch");
+        };
+        let ast::ExprKind::Block {
+            stmts,
+            result: None,
+        } = &else_branch.kind
+        else {
+            panic!("expected block else branch");
+        };
+        let ast::StmtKind::ExprStmt(nested) = &stmts[0].kind else {
+            panic!("expected nested let statement");
+        };
+        let ast::ExprKind::Let {
+            else_pattern,
+            else_branch,
+            ..
+        } = &nested.kind
+        else {
+            panic!("expected nested let expression");
+        };
+
+        assert!(
+            else_pattern.is_some(),
+            "expected explicit nested else pattern"
+        );
+        let Some(else_branch) = else_branch.as_ref() else {
+            panic!("expected nested else branch");
+        };
+        let ast::ExprKind::Return(Some(_)) = &else_branch.kind else {
+            panic!("expected nested return branch");
+        };
+    }
 }

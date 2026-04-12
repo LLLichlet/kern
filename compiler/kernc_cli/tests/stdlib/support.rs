@@ -250,6 +250,62 @@ fn main() i32 {
 }
 
 #[test]
+fn hosted_std_io_prints_base_string_and_list_values() {
+    let (source_path, executable_path) = build_temp_program(
+        "kernc_std_printable_collections",
+        r#"
+use std.io;
+use base.coll.{List, String};
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut text = String.{};
+    defer text..&.deinit(gpa);
+    if (!text..&.push_str(gpa, "kern")) {
+        return 1;
+    }
+
+    let mut items = List[usize].{};
+    defer items..&.deinit(gpa);
+    if (!items..&.push(gpa, usize.{1})) {
+        return 2;
+    }
+    if (!items..&.push(gpa, usize.{2})) {
+        return 3;
+    }
+
+    io.println("{} {}", .{ text, items, });
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-libc", "yes"],
+    );
+
+    let run_output = Command::new(&executable_path).output().unwrap();
+    assert!(
+        run_output.status.success(),
+        "expected std io printable collections program to succeed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+
+    let stdout = String::from_utf8_lossy(&run_output.stdout);
+    assert!(stdout.contains("kern"), "unexpected stdout:\n{}", stdout);
+    assert!(
+        stdout.contains("<List len=2, cap=8, items: [1, 2]>"),
+        "unexpected stdout:\n{}",
+        stdout
+    );
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
 fn test_expect_err_failure_aborts_with_message() {
     let (source_path, executable_path) = build_temp_program(
         "kernc_std_test_expect_err_fail",

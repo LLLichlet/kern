@@ -5,7 +5,7 @@ mod validate;
 
 use crate::error::{Error, Result};
 use crate::plan::TargetKind;
-use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
@@ -70,7 +70,6 @@ impl ReleaseSourcePolicy {
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct RuntimeConfig {
     pub entry: Option<RuntimeEntry>,
-    pub provider: Option<RuntimeProvider>,
     pub libc: Option<bool>,
     pub bundle: Option<LibraryBundle>,
 }
@@ -183,9 +182,6 @@ impl Manifest {
         if let Some(entry) = runtime.entry {
             options.runtime_entry = entry;
         }
-        if let Some(provider) = runtime.provider {
-            options.runtime_provider = provider;
-        }
         if let Some(libc) = runtime.libc {
             options.runtime_libc = libc;
         }
@@ -206,9 +202,6 @@ impl Manifest {
         if target_kind != TargetKind::Lib {
             if let Some(entry) = runtime.entry {
                 options.runtime_entry = entry;
-            }
-            if let Some(provider) = runtime.provider {
-                options.runtime_provider = provider;
             }
             if let Some(libc) = runtime.libc {
                 options.runtime_libc = libc;

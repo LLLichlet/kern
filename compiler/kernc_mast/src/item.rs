@@ -1,9 +1,8 @@
-use crate::{MastBlock, MastExpr, MonoId};
+use crate::{MastBlock, MastExpr};
 use kernc_ast::MetaItem;
-use kernc_sema::def::DefId;
+use kernc_mono::{MonoId, MonoModuleMetadata};
 use kernc_sema::ty::TypeId;
 use kernc_utils::SymbolId;
-use std::collections::HashMap;
 
 /// Final flattened compilation unit produced by lowering.
 /// At this stage there are no nested modules, impl blocks, or unresolved generics.
@@ -14,13 +13,7 @@ pub struct MastModule {
     /// All statics, including lowered local statics.
     pub globals: Vec<MastGlobal>,
     pub functions: Vec<MastFunction>,
-    /// Maps frontend abstract entities to concrete backend monomorphizations.
-    pub def_mono_map: HashMap<(DefId, Vec<TypeId>), MonoId>,
-    pub pure_enum_tag_map: HashMap<(DefId, Vec<TypeId>), TypeId>,
-    pub adt_union_map: HashMap<MonoId, MonoId>,
-    pub anon_struct_map: HashMap<TypeId, MonoId>,
-    pub anon_union_map: HashMap<TypeId, MonoId>,
-    pub anon_enum_map: HashMap<TypeId, MonoId>,
+    pub mono: MonoModuleMetadata,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -92,6 +85,15 @@ pub enum MastLinkage {
     Internal,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum MastInlineHint {
+    #[default]
+    None,
+    Inline,
+    Always,
+    NoInline,
+}
+
 #[derive(Debug, Clone)]
 pub struct MastStruct {
     pub id: MonoId,
@@ -141,6 +143,7 @@ pub struct MastFunction {
     pub body: Option<MastBlock>,
     pub is_extern: bool,
     pub is_variadic: bool,
+    pub inline_hint: MastInlineHint,
     pub attributes: Vec<MetaItem>,
 }
 
@@ -208,6 +211,7 @@ fn visit_expr(expr: &MastExpr, stats: &mut MastWorkloadStats) {
         | crate::MastExprKind::SimdReduce { operand: inner, .. }
         | crate::MastExprKind::SimdAny { operand: inner, .. }
         | crate::MastExprKind::SimdAll { operand: inner, .. }
+        | crate::MastExprKind::SimdBitmask { operand: inner, .. }
         | crate::MastExprKind::SimdSplat { value: inner, .. }
         | crate::MastExprKind::SimdCast { value: inner, .. }
         | crate::MastExprKind::SimdBitcast { value: inner, .. } => visit_expr(inner, stats),

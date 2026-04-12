@@ -24,6 +24,7 @@ use super::{
 use crate::doc::{lint_docs, render_hover_markdown};
 use crate::loader::ModuleLoader;
 use kernc_ast as ast;
+use kernc_flow::FlowLoweringHints;
 use kernc_sema::checker::TypeckDriver;
 use kernc_sema::def::{Def, DefId, FunctionDef, Visibility};
 use kernc_sema::passes::{Collector, ImportResolver, LinkageChecker, TypeResolver};
@@ -46,7 +47,7 @@ pub(super) struct LoadedAstArtifact {
 }
 
 pub(super) struct BodyPipelineReport {
-    pub(super) flow_lowering_hints: kernc_lower::FlowLoweringHints,
+    pub(super) flow_lowering_hints: FlowLoweringHints,
     pub(super) lowered_module_items: std::collections::HashSet<DefId>,
     pub(super) phase_timings: Vec<PhaseTiming>,
 }

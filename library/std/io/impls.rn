@@ -1,5 +1,6 @@
 use ..traits.Writer;
 use ..traits.Printable;
+use base.coll.{List, String};
 
 /// Built-in `Printable` implementations.
 
@@ -117,5 +118,41 @@ impl *bool : Printable {
         } else {
             let _ = writer.write("false");
         }
+    }
+}
+
+impl *String : Printable {
+    pub fn fmt(writer: *mut Writer) void {
+        let _ = writer.write(self.as_str());
+    }
+}
+
+impl[T] *List[T] : Printable
+    where *T: Printable,
+{
+    pub fn fmt(writer: *mut Writer) void {
+        let _ = writer.write("<List len=");
+
+        let len = self.len;
+        len.&.fmt(writer);
+
+        let _ = writer.write(", cap=");
+
+        let capacity = self.capacity();
+        capacity.&.fmt(writer);
+
+        let _ = writer.write(", items: [");
+
+        let items = self.as_slice();
+        for (let mut i = 0; i < self.len; i += 1) {
+            let item = items.[i];
+            item.&.fmt(writer);
+
+            if (i < self.len - 1) {
+                let _ = writer.write(", ");
+            }
+        }
+
+        let _ = writer.write("]>");
     }
 }

@@ -5,7 +5,7 @@
 
 use base.Option;
 use base.hash.Hash;
-use base.mem.array_layout_of;
+use base.mem.{Layout, array_layout_of};
 use base.mem.alloc.Allocator;
 use base.num.USIZE_MAX;
 use ..base.{
@@ -28,6 +28,23 @@ use ..base.{
 impl[K, V] *mut Map[K, V]
     where K: Eq[K] + Hash[K],
 {
+    fn max_usize(lhs: usize, rhs: usize) usize {
+        return if (lhs > rhs) lhs else rhs;
+    }
+
+    fn align_up(value: usize, align: usize) Option[usize] {
+        let align = if (align == 0) usize.{1} else align;
+        let remainder = value % align;
+        if (remainder == 0) {
+            return .{ Some: value };
+        }
+        let padding = align - remainder;
+        if (value > USIZE_MAX - padding) {
+            return .{ None };
+        }
+        return .{ Some: value + padding };
+    }
+
     fn next_capacity(current: usize) Option[usize] {
         if (current == 0) {
             return .{ Some: MIN_CAPACITY };
@@ -60,32 +77,38 @@ impl[K, V] *mut Map[K, V]
             .None => return .{ None },
         };
 
-        let ctrl = match (alloc.alloc(ctrl_layout)) {
+        let entries_offset = match (self.align_up(ctrl_layout.size, entries_layout.align)) {
+            .{ Some: offset } => offset,
+            .None => return .{ None },
+        };
+        if (entries_layout.size > USIZE_MAX - entries_offset) {
+            return .{ None };
+        }
+        let total_size = entries_offset + entries_layout.size;
+        let layout = Layout.{
+            size: total_size,
+            align: self.max_usize(ctrl_layout.align, entries_layout.align),
+        };
+
+        let storage = match (alloc.alloc(layout)) {
             .{ Some: ptr } => ptr,
             .None => return .{ None },
         };
+        let ctrl = storage;
+        let entries = (storage as usize + entries_offset) as *mut Entry[K, V];
         @memset(ctrl, EMPTY, capacity);
-
-        let entries_raw = match (alloc.alloc(entries_layout)) {
-            .{ Some: ptr } => ptr,
-            .None => *mut u8.{0},
-        };
-        if ((entries_raw as usize) == 0) {
-            alloc.free(ctrl, ctrl_layout);
-            return .{ None };
-        }
 
         return .{
             Some: Table[K, V].{
                 ctrl: ctrl,
-                entries: entries_raw as *mut Entry[K, V],
+                entries: entries,
                 capacity: capacity,
             },
         };
     }
 
     /// Releases one raw table allocation.
-    fn free_table(alloc: *mut Allocator, ctrl: *mut u8, entries: *mut Entry[K, V], capacity: usize) void {
+    fn free_table(alloc: *mut Allocator, storage: *mut u8, capacity: usize) void {
         if (capacity == 0) return;
 
         let ctrl_layout = match (array_layout_of[u8](capacity)) {
@@ -96,9 +119,20 @@ impl[K, V] *mut Map[K, V]
             .{ Some: layout } => layout,
             .None => return,
         };
-
-        alloc.free(ctrl, ctrl_layout);
-        alloc.free(entries as *mut u8, entries_layout);
+        let entries_offset = match (self.align_up(ctrl_layout.size, entries_layout.align)) {
+            .{ Some: offset } => offset,
+            .None => return,
+        };
+        if (entries_layout.size > USIZE_MAX - entries_offset) {
+            return;
+        }
+        alloc.free(
+            storage,
+            Layout.{
+                size: entries_offset + entries_layout.size,
+                align: self.max_usize(ctrl_layout.align, entries_layout.align),
+            }
+        );
     }
 
     /// Inserts directly into a raw table during rebuild.
@@ -145,12 +179,12 @@ impl[K, V] *mut Map[K, V]
 
             let entry = entry_ptr[K, V](self.entries, i);
             if (!self.insert_into_raw(table.ctrl, table.entries, table.capacity, entry.hash64, entry.key, entry.value)) {
-                self.free_table(alloc, table.ctrl, table.entries, table.capacity);
+                self.free_table(alloc, table.ctrl, table.capacity);
                 return false;
             }
         }
 
-        self.free_table(alloc, self.ctrl, self.entries, self.capacity);
+        self.free_table(alloc, self.ctrl, self.capacity);
         self.ctrl = table.ctrl;
         self.entries = table.entries;
         self.capacity = table.capacity;
@@ -439,7 +473,7 @@ impl[K, V] *mut Map[K, V]
 
     /// Releases the backing table allocation.
     pub fn deinit(alloc: *mut Allocator) void {
-        self.free_table(alloc, self.ctrl, self.entries, self.capacity);
+        self.free_table(alloc, self.ctrl, self.capacity);
         self.ctrl = 0;
         self.entries = 0;
         self.capacity = 0;

@@ -216,6 +216,70 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_byte_slice_keys() {
+    let output = build_and_run_hosted(
+        r#"
+use base.coll.Map;
+use base.mem.alloc.GPA;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let map = Map[[]u8, i32].{}..&;
+    defer map.deinit(gpa);
+
+    let alpha = [5]u8.{ b'a', b'l', b'p', b'h', b'a' };
+    let alpha_probe = [5]u8.{ b'a', b'l', b'p', b'h', b'a' };
+    let beta = [4]u8.{ b'b', b'e', b't', b'a' };
+
+    if (!map.insert(gpa, alpha.[0 .. 5], 7)) {
+        return 1;
+    }
+    if (!map.insert(gpa, beta.[0 .. 4], 9)) {
+        return 2;
+    }
+
+    if (!map.contains(alpha_probe.[0 .. 5])) {
+        return 3;
+    }
+
+    let alpha_value = match (map.get(alpha_probe.[0 .. 5])) {
+        .{ Some: value } => value,
+        .None => return 4,
+    };
+    if (alpha_value != 7) {
+        return 5;
+    }
+
+    let removed = match (map.remove(alpha_probe.[0 .. 5])) {
+        .{ Some: value } => value,
+        .None => return 6,
+    };
+    if (removed != 7) {
+        return 7;
+    }
+    if (map.contains(alpha.[0 .. 5])) {
+        return 8;
+    }
+    if (!map.get(beta.[0 .. 4]).is_some_and(.[](value: i32) bool { return value == 9; })) {
+        return 9;
+    }
+
+    return 0;
+}
+"#,
+    );
+
+    assert!(
+        output.status.success(),
+        "hosted std binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn runs_hosted_program_using_string_traits_for_ordering_and_hashing() {
     let output = build_and_run_hosted(
         r#"

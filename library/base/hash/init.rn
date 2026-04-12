@@ -121,3 +121,9 @@ impl bool : Hash[bool] {
         return mix_u64(bits);
     }
 }
+
+impl []u8 : Hash[[]u8] {
+    pub fn hash() u64 {
+        return hash_bytes(self);
+    }
+}

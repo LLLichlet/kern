@@ -1,0 +1,581 @@
+use super::*;
+
+impl<'ctx, 'a> CodeGenerator<'ctx, 'a> {
+    pub(super) fn compile_mir_simd_load(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        result_ty: TypeId,
+        align: u32,
+    ) -> BasicValueEnum<'ctx> {
+        let result_llvm_ty = self.get_llvm_type(result_ty);
+        let ptr_val = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let loaded = self
+            .builder
+            .build_load(
+                result_llvm_ty,
+                ptr_val.into_pointer_value(),
+                "mir_simd_load",
+            )
+            .unwrap();
+        if let Some(inst) = loaded.as_instruction_value() {
+            inst.set_alignment(align);
+        }
+        loaded
+    }
+
+    pub(super) fn compile_mir_simd_store(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        value: &MirOperand,
+        align: u32,
+    ) {
+        let ptr_val = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let value_val = self.compile_mir_operand(body, value);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let store = self
+            .builder
+            .build_store(ptr_val.into_pointer_value(), value_val)
+            .unwrap();
+        store.set_alignment(align);
+    }
+
+    pub(super) fn compile_mir_simd_masked_load(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        mask: &MirOperand,
+        or_else: &MirOperand,
+        result_ty: TypeId,
+        _align: u32,
+    ) -> BasicValueEnum<'ctx> {
+        let result_llvm_ty = self.get_llvm_type(result_ty);
+        let ptr_val = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let mask_val = self.compile_mir_operand(body, mask);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let fallback_val = self.compile_mir_operand(body, or_else);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+
+        let Some((elem_ty, lanes)) = self.simd_elem_and_lanes(result_ty) else {
+            self.sess.emit_ice(
+                Span::default(),
+                "Kern ICE (Codegen): MIR SIMD masked load expected a SIMD result type.",
+            );
+            return self.get_undef_val(result_llvm_ty);
+        };
+        let Some(func) = self.current_function_for_simd_memory("MIR SIMD masked load") else {
+            return self.get_undef_val(result_llvm_ty);
+        };
+
+        let result_ptr = self.create_entry_block_alloca(result_llvm_ty, "mir_simd_masked_load_tmp");
+        self.builder.build_store(result_ptr, fallback_val).unwrap();
+
+        let base_ptr = ptr_val.into_pointer_value();
+        let mask_vec = mask_val.into_vector_value();
+        let elem_llvm_ty = self.get_llvm_type(elem_ty);
+        for lane in 0..lanes {
+            let lane_idx = self.context.i32_type().const_int(lane as u64, false);
+            let lane_mask = self
+                .builder
+                .build_extract_element(mask_vec, lane_idx, "mir_simd_masked_load_mask")
+                .unwrap()
+                .into_int_value();
+            let then_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_load.then");
+            let cont_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_load.cont");
+            self.builder
+                .build_conditional_branch(lane_mask, then_bb, cont_bb)
+                .unwrap();
+            self.builder.position_at_end(then_bb);
+            let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            let lane_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        elem_llvm_ty,
+                        base_ptr,
+                        &[lane_offset],
+                        "mir_simd_masked_load_ptr",
+                    )
+                    .unwrap()
+            };
+            let lane_val = self
+                .builder
+                .build_load(elem_llvm_ty, lane_ptr, "mir_simd_masked_load_lane")
+                .unwrap();
+            let current_vector = self
+                .builder
+                .build_load(result_llvm_ty, result_ptr, "mir_simd_masked_load_cur")
+                .unwrap();
+            let updated_vector = self
+                .builder
+                .build_insert_element(
+                    current_vector.into_vector_value(),
+                    lane_val,
+                    lane_idx,
+                    "mir_simd_masked_load_insert",
+                )
+                .unwrap();
+            self.builder
+                .build_store(result_ptr, updated_vector)
+                .unwrap();
+            self.builder.build_unconditional_branch(cont_bb).unwrap();
+            self.builder.position_at_end(cont_bb);
+        }
+
+        self.builder
+            .build_load(result_llvm_ty, result_ptr, "mir_simd_masked_load_result")
+            .unwrap()
+    }
+
+    pub(super) fn compile_mir_simd_masked_store(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        mask: &MirOperand,
+        value: &MirOperand,
+        _align: u32,
+    ) {
+        let ptr_val = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let mask_val = self.compile_mir_operand(body, mask);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let vector_val = self.compile_mir_operand(body, value);
+        if self.current_block_is_terminated() {
+            return;
+        }
+
+        let value_ty = self.mir_operand_ty(body, value).unwrap_or(TypeId::ERROR);
+        let Some((elem_ty, lanes)) = self.simd_elem_and_lanes(value_ty) else {
+            self.sess.emit_ice(
+                Span::default(),
+                "Kern ICE (Codegen): MIR SIMD masked store expected a SIMD value operand.",
+            );
+            return;
+        };
+        let Some(func) = self.current_function_for_simd_memory("MIR SIMD masked store") else {
+            return;
+        };
+
+        let base_ptr = ptr_val.into_pointer_value();
+        let mask_vec = mask_val.into_vector_value();
+        let value_vec = vector_val.into_vector_value();
+        let elem_llvm_ty = self.get_llvm_type(elem_ty);
+        for lane in 0..lanes {
+            let lane_idx = self.context.i32_type().const_int(lane as u64, false);
+            let lane_mask = self
+                .builder
+                .build_extract_element(mask_vec, lane_idx, "mir_simd_masked_store_mask")
+                .unwrap()
+                .into_int_value();
+            let then_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_store.then");
+            let cont_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_store.cont");
+            self.builder
+                .build_conditional_branch(lane_mask, then_bb, cont_bb)
+                .unwrap();
+            self.builder.position_at_end(then_bb);
+            let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            let lane_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        elem_llvm_ty,
+                        base_ptr,
+                        &[lane_offset],
+                        "mir_simd_masked_store_ptr",
+                    )
+                    .unwrap()
+            };
+            let lane_val = self
+                .builder
+                .build_extract_element(value_vec, lane_idx, "mir_simd_masked_store_lane")
+                .unwrap();
+            self.builder.build_store(lane_ptr, lane_val).unwrap();
+            self.builder.build_unconditional_branch(cont_bb).unwrap();
+            self.builder.position_at_end(cont_bb);
+        }
+    }
+
+    pub(super) fn compile_mir_simd_gather(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        indices: &MirOperand,
+        result_ty: TypeId,
+    ) -> BasicValueEnum<'ctx> {
+        let result_llvm_ty = self.get_llvm_type(result_ty);
+        let base_ptr = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let indices_ptr = self.compile_mir_operand(body, indices);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let Some((elem_ty, lanes)) = self.simd_elem_and_lanes(result_ty) else {
+            self.sess.emit_ice(
+                Span::default(),
+                "Kern ICE (Codegen): MIR SIMD gather expected a SIMD result type.",
+            );
+            return self.get_undef_val(result_llvm_ty);
+        };
+        let mut result = match result_llvm_ty {
+            BasicTypeEnum::VectorType(vector_ty) => vector_ty.const_zero().into_vector_value(),
+            other => {
+                self.sess.emit_ice(
+                    Span::default(),
+                    format!(
+                        "Kern ICE (Codegen): MIR SIMD gather expected a vector LLVM type, found `{:?}`.",
+                        other
+                    ),
+                );
+                return self.get_undef_val(result_llvm_ty);
+            }
+        };
+        let elem_llvm_ty = self.get_llvm_type(elem_ty);
+        let usize_llvm_ty = self.get_llvm_type(TypeId::USIZE);
+        let indices_ptr = indices_ptr.into_pointer_value();
+        let base_ptr = base_ptr.into_pointer_value();
+        for lane in 0..lanes {
+            let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            let lane_index_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        usize_llvm_ty,
+                        indices_ptr,
+                        &[lane_offset],
+                        "mir_simd_gather_idx_ptr",
+                    )
+                    .unwrap()
+            };
+            let gathered_index = self
+                .builder
+                .build_load(usize_llvm_ty, lane_index_ptr, "mir_simd_gather_idx")
+                .unwrap()
+                .into_int_value();
+            let lane_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        elem_llvm_ty,
+                        base_ptr,
+                        &[gathered_index],
+                        "mir_simd_gather_lane_ptr",
+                    )
+                    .unwrap()
+            };
+            let lane_val = self
+                .builder
+                .build_load(elem_llvm_ty, lane_ptr, "mir_simd_gather_lane")
+                .unwrap();
+            let lane_index = self.context.i32_type().const_int(lane as u64, false);
+            result = self
+                .builder
+                .build_insert_element(result, lane_val, lane_index, "mir_simd_gather_insert")
+                .unwrap()
+                .into_vector_value();
+        }
+        result.into()
+    }
+
+    pub(super) fn compile_mir_simd_scatter(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        indices: &MirOperand,
+        value: &MirOperand,
+    ) {
+        let base_ptr = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let indices_ptr = self.compile_mir_operand(body, indices);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let vector_val = self.compile_mir_operand(body, value);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let value_ty = self.mir_operand_ty(body, value).unwrap_or(TypeId::ERROR);
+        let Some((elem_ty, lanes)) = self.simd_elem_and_lanes(value_ty) else {
+            self.sess.emit_ice(
+                Span::default(),
+                "Kern ICE (Codegen): MIR SIMD scatter expected a SIMD value operand.",
+            );
+            return;
+        };
+        let elem_llvm_ty = self.get_llvm_type(elem_ty);
+        let usize_llvm_ty = self.get_llvm_type(TypeId::USIZE);
+        let indices_ptr = indices_ptr.into_pointer_value();
+        let base_ptr = base_ptr.into_pointer_value();
+        let vector_val = vector_val.into_vector_value();
+        for lane in 0..lanes {
+            let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            let lane_index_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        usize_llvm_ty,
+                        indices_ptr,
+                        &[lane_offset],
+                        "mir_simd_scatter_idx_ptr",
+                    )
+                    .unwrap()
+            };
+            let scattered_index = self
+                .builder
+                .build_load(usize_llvm_ty, lane_index_ptr, "mir_simd_scatter_idx")
+                .unwrap()
+                .into_int_value();
+            let lane_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        elem_llvm_ty,
+                        base_ptr,
+                        &[scattered_index],
+                        "mir_simd_scatter_lane_ptr",
+                    )
+                    .unwrap()
+            };
+            let lane_index = self.context.i32_type().const_int(lane as u64, false);
+            let lane_val = self
+                .builder
+                .build_extract_element(vector_val, lane_index, "mir_simd_scatter_lane")
+                .unwrap();
+            self.builder.build_store(lane_ptr, lane_val).unwrap();
+        }
+    }
+
+    pub(super) fn compile_mir_simd_masked_gather(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        indices: &MirOperand,
+        mask: &MirOperand,
+        or_else: &MirOperand,
+        result_ty: TypeId,
+    ) -> BasicValueEnum<'ctx> {
+        let result_llvm_ty = self.get_llvm_type(result_ty);
+        let base_ptr = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let indices_ptr = self.compile_mir_operand(body, indices);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let mask_val = self.compile_mir_operand(body, mask);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let fallback_val = self.compile_mir_operand(body, or_else);
+        if self.current_block_is_terminated() {
+            return self.get_undef_val(result_llvm_ty);
+        }
+        let Some((elem_ty, lanes)) = self.simd_elem_and_lanes(result_ty) else {
+            self.sess.emit_ice(
+                Span::default(),
+                "Kern ICE (Codegen): MIR SIMD masked gather expected a SIMD result type.",
+            );
+            return self.get_undef_val(result_llvm_ty);
+        };
+        let Some(func) = self.current_function_for_simd_memory("MIR SIMD masked gather") else {
+            return self.get_undef_val(result_llvm_ty);
+        };
+        let result_ptr =
+            self.create_entry_block_alloca(result_llvm_ty, "mir_simd_masked_gather_tmp");
+        self.builder.build_store(result_ptr, fallback_val).unwrap();
+        let elem_llvm_ty = self.get_llvm_type(elem_ty);
+        let usize_llvm_ty = self.get_llvm_type(TypeId::USIZE);
+        let base_ptr = base_ptr.into_pointer_value();
+        let indices_ptr = indices_ptr.into_pointer_value();
+        let mask_vec = mask_val.into_vector_value();
+        for lane in 0..lanes {
+            let lane_idx = self.context.i32_type().const_int(lane as u64, false);
+            let lane_mask = self
+                .builder
+                .build_extract_element(mask_vec, lane_idx, "mir_simd_masked_gather_mask")
+                .unwrap()
+                .into_int_value();
+            let then_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_gather.then");
+            let cont_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_gather.cont");
+            self.builder
+                .build_conditional_branch(lane_mask, then_bb, cont_bb)
+                .unwrap();
+            self.builder.position_at_end(then_bb);
+            let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            let lane_index_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        usize_llvm_ty,
+                        indices_ptr,
+                        &[lane_offset],
+                        "mir_simd_masked_gather_idx_ptr",
+                    )
+                    .unwrap()
+            };
+            let gathered_index = self
+                .builder
+                .build_load(usize_llvm_ty, lane_index_ptr, "mir_simd_masked_gather_idx")
+                .unwrap()
+                .into_int_value();
+            let lane_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        elem_llvm_ty,
+                        base_ptr,
+                        &[gathered_index],
+                        "mir_simd_masked_gather_lane_ptr",
+                    )
+                    .unwrap()
+            };
+            let lane_val = self
+                .builder
+                .build_load(elem_llvm_ty, lane_ptr, "mir_simd_masked_gather_lane")
+                .unwrap();
+            let current_vector = self
+                .builder
+                .build_load(result_llvm_ty, result_ptr, "mir_simd_masked_gather_cur")
+                .unwrap();
+            let updated_vector = self
+                .builder
+                .build_insert_element(
+                    current_vector.into_vector_value(),
+                    lane_val,
+                    lane_idx,
+                    "mir_simd_masked_gather_insert",
+                )
+                .unwrap();
+            self.builder
+                .build_store(result_ptr, updated_vector)
+                .unwrap();
+            self.builder.build_unconditional_branch(cont_bb).unwrap();
+            self.builder.position_at_end(cont_bb);
+        }
+        self.builder
+            .build_load(result_llvm_ty, result_ptr, "mir_simd_masked_gather_result")
+            .unwrap()
+    }
+
+    pub(super) fn compile_mir_simd_masked_scatter(
+        &mut self,
+        body: &MirBody,
+        ptr: &MirOperand,
+        indices: &MirOperand,
+        mask: &MirOperand,
+        value: &MirOperand,
+    ) {
+        let base_ptr = self.compile_mir_operand(body, ptr);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let indices_ptr = self.compile_mir_operand(body, indices);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let mask_val = self.compile_mir_operand(body, mask);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let vector_val = self.compile_mir_operand(body, value);
+        if self.current_block_is_terminated() {
+            return;
+        }
+        let value_ty = self.mir_operand_ty(body, value).unwrap_or(TypeId::ERROR);
+        let Some((elem_ty, lanes)) = self.simd_elem_and_lanes(value_ty) else {
+            self.sess.emit_ice(
+                Span::default(),
+                "Kern ICE (Codegen): MIR SIMD masked scatter expected a SIMD value operand.",
+            );
+            return;
+        };
+        let Some(func) = self.current_function_for_simd_memory("MIR SIMD masked scatter") else {
+            return;
+        };
+        let elem_llvm_ty = self.get_llvm_type(elem_ty);
+        let usize_llvm_ty = self.get_llvm_type(TypeId::USIZE);
+        let indices_ptr = indices_ptr.into_pointer_value();
+        let base_ptr = base_ptr.into_pointer_value();
+        let mask_vec = mask_val.into_vector_value();
+        let vector_val = vector_val.into_vector_value();
+        for lane in 0..lanes {
+            let lane_idx = self.context.i32_type().const_int(lane as u64, false);
+            let lane_mask = self
+                .builder
+                .build_extract_element(mask_vec, lane_idx, "mir_simd_masked_scatter_mask")
+                .unwrap()
+                .into_int_value();
+            let then_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_scatter.then");
+            let cont_bb = self
+                .context
+                .append_basic_block(func, "mir_simd_masked_scatter.cont");
+            self.builder
+                .build_conditional_branch(lane_mask, then_bb, cont_bb)
+                .unwrap();
+            self.builder.position_at_end(then_bb);
+            let lane_offset = self.context.i64_type().const_int(lane as u64, false);
+            let lane_index_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        usize_llvm_ty,
+                        indices_ptr,
+                        &[lane_offset],
+                        "mir_simd_masked_scatter_idx_ptr",
+                    )
+                    .unwrap()
+            };
+            let scattered_index = self
+                .builder
+                .build_load(usize_llvm_ty, lane_index_ptr, "mir_simd_masked_scatter_idx")
+                .unwrap()
+                .into_int_value();
+            let lane_ptr = unsafe {
+                self.builder
+                    .build_gep(
+                        elem_llvm_ty,
+                        base_ptr,
+                        &[scattered_index],
+                        "mir_simd_masked_scatter_lane_ptr",
+                    )
+                    .unwrap()
+            };
+            let lane_val = self
+                .builder
+                .build_extract_element(vector_val, lane_idx, "mir_simd_masked_scatter_lane")
+                .unwrap();
+            self.builder.build_store(lane_ptr, lane_val).unwrap();
+            self.builder.build_unconditional_branch(cont_bb).unwrap();
+            self.builder.position_at_end(cont_bb);
+        }
+    }
+}

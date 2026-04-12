@@ -10,7 +10,7 @@ use kernc_driver::{
     CodegenPlanReport, CompileCacheStats, CompileReport, CompilerDriver, IncrementalDriverKey,
     KMETA_MANIFEST_FILE, PhaseTiming, load_kmeta_manifest,
 };
-use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -301,7 +301,6 @@ struct SourceConfigContext {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 struct ManifestRuntimeOptions {
     entry: Option<RuntimeEntry>,
-    provider: Option<RuntimeProvider>,
     libc: Option<bool>,
     bundle: Option<LibraryBundle>,
 }
@@ -311,9 +310,6 @@ impl ManifestRuntimeOptions {
         if target_kind != crate::plan::TargetKind::Lib {
             if let Some(entry) = self.entry {
                 options.runtime_entry = entry;
-            }
-            if let Some(provider) = self.provider {
-                options.runtime_provider = provider;
             }
             if let Some(libc) = self.libc {
                 options.runtime_libc = libc;

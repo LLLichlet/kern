@@ -1,0 +1,110 @@
+const F32_SIGN_MASK = 0x80000000 as u32;
+const U32_MASK_ALL = 0xFFFFFFFF as u32;
+const F64_SIGN_MASK = 0x8000000000000000 as u64;
+const U64_MASK_ALL = 0xFFFFFFFFFFFFFFFF as u64;
+
+#[inline]
+fn f32_to_bits(x: f32) u32 {
+    let value = x;
+    return (value.& as *u32).*;
+}
+
+#[inline]
+fn f32_from_bits(bits: u32) f32 {
+    let value = bits;
+    return (value.& as *f32).*;
+}
+
+#[inline]
+fn f64_to_bits(x: f64) u64 {
+    let value = x;
+    return (value.& as *u64).*;
+}
+
+#[inline]
+fn f64_from_bits(bits: u64) f64 {
+    let value = bits;
+    return (value.& as *f64).*;
+}
+
+#[inline]
+fn truncf_impl(x: f32) f32 {
+    let bits = f32_to_bits(x);
+    let exp = (((bits >> 23) & 0xFF) as i32) - 127;
+    if (exp < 0) {
+        return f32_from_bits(bits & F32_SIGN_MASK);
+    }
+    if (exp >= 23) {
+        return x;
+    }
+
+    let mask = U32_MASK_ALL >> ((exp as u32) + u32.{9});
+    if ((bits & mask) == u32.{0}) {
+        return x;
+    }
+    return f32_from_bits(bits & ~mask);
+}
+
+#[inline]
+fn trunc_impl(x: f64) f64 {
+    let bits = f64_to_bits(x);
+    let exp = (((bits >> 52) & 0x7FF) as i32) - 1023;
+    if (exp < 0) {
+        return f64_from_bits(bits & F64_SIGN_MASK);
+    }
+    if (exp >= 52) {
+        return x;
+    }
+
+    let mask = U64_MASK_ALL >> ((exp as u64) + u64.{12});
+    if ((bits & mask) == u64.{0}) {
+        return x;
+    }
+    return f64_from_bits(bits & ~mask);
+}
+
+#[export_name("truncf")]
+extern fn truncf(x: f32) f32 {
+    return truncf_impl(x);
+}
+
+#[export_name("trunc")]
+extern fn trunc(x: f64) f64 {
+    return trunc_impl(x);
+}
+
+#[export_name("floorf")]
+extern fn floorf(x: f32) f32 {
+    let truncated = truncf_impl(x);
+    if (x < truncated) {
+        return truncated - 1.0;
+    }
+    return truncated;
+}
+
+#[export_name("floor")]
+extern fn floor(x: f64) f64 {
+    let truncated = trunc_impl(x);
+    if (x < truncated) {
+        return truncated - 1.0;
+    }
+    return truncated;
+}
+
+#[export_name("ceilf")]
+extern fn ceilf(x: f32) f32 {
+    let truncated = truncf_impl(x);
+    if (x > truncated) {
+        return truncated + 1.0;
+    }
+    return truncated;
+}
+
+#[export_name("ceil")]
+extern fn ceil(x: f64) f64 {
+    let truncated = trunc_impl(x);
+    if (x > truncated) {
+        return truncated + 1.0;
+    }
+    return truncated;
+}

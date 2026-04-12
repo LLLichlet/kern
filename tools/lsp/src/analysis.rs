@@ -42,7 +42,7 @@ use kernc_driver::{
     ParsedModuleArtifact, SourceOverrides, StructureArtifact,
 };
 use kernc_utils::config::{
-    CompileOptions, inject_default_library_aliases, inject_driver_condition_defines,
+    CompileOptions, apply_configured_library_aliases, inject_driver_condition_defines,
 };
 use kernc_utils::{Session, SourceFile, Span};
 use std::cell::RefCell;
@@ -930,13 +930,12 @@ impl AnalysisEngine {
         if let Some(project) = self.project_for_path(&target_doc.path) {
             let mut resolved =
                 project.resolve_for_file(&target_doc.path, &self.settings.compile_options);
-            inject_default_library_aliases(&mut resolved.compile_options);
             inject_driver_condition_defines(&mut resolved.compile_options);
             return Ok(resolved);
         }
 
         let mut compile_options = self.settings.compile_options.clone();
-        inject_default_library_aliases(&mut compile_options);
+        apply_configured_library_aliases(&mut compile_options);
         inject_driver_condition_defines(&mut compile_options);
         Ok(ResolvedAnalysis {
             input_file: self.infer_standalone_analysis_root(&target_doc.path),

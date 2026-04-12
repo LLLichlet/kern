@@ -1,8 +1,8 @@
 use kernc_driver::CompilerDriver;
 use kernc_utils::config::{
-    AsmDialect, CompileOptions, DriverMode, LibraryBundle, OptLevel, RuntimeEntry, RuntimeProvider,
-    TargetMachine, inject_default_library_aliases, inject_driver_condition_defines,
-    validate_runtime_options,
+    AsmDialect, CompileOptions, DriverMode, LibraryBundle, LlvmIrStage, LtoMode, OptLevel,
+    RuntimeEntry, TargetMachine, apply_configured_library_aliases, inject_driver_condition_defines,
+    validate_compile_options,
 };
 use std::env;
 use std::path::Path;
@@ -46,10 +46,9 @@ fn print_usage(program_name: &str) {
     println!("  --target <T>         Set target triple (e.g. x86_64-unknown-linux-gnu)");
     println!("  --asm-dialect <D>    Set assembly dialect: intel (default) or att");
     println!("  --codegen-units <N>  Split code generation into N lowered codegen units");
+    println!("  --lto <M>            Cross-CGU optimization mode: none, full, thin");
     println!("  --link-driver <cmd>  Set the linker driver command (default: $CC or cc)");
     println!("  --runtime-entry <m>  Runtime entry contract: none, rt, crt");
-    println!("  --runtime-provider <p>");
-    println!("                       Runtime/platform provider: none, toolchain, libc");
     println!("  --runtime-libc <b>   Whether libc is linked: yes, no");
     println!("  --library-bundle <b> Library bundle: none, base, std");
     println!("  --link-input <path>  Add an extra linker input (.o/.a/.so/response file)");
@@ -60,7 +59,8 @@ fn print_usage(program_name: &str) {
     println!("  --link-arg <arg>     Pass a raw argument through to the linker driver");
     println!("  --entry-symbol <s>   Override the default entry symbol used by kernc");
     println!("  --print-link-command Print the resolved linker command before execution");
-    println!("  --emit-llvm          Print LLVM IR to stdout");
+    println!("  --emit-llvm[=S]      Print LLVM IR stage S to stdout (raw by default)");
+    println!("                       S: raw, verified, optimized");
     println!("  --timings            Print compiler phase timings and cache stats");
 
     println!("\nInformation:");
@@ -97,12 +97,16 @@ fn parse_runtime_entry(value: &str) -> RuntimeEntry {
     RuntimeEntry::parse(value).unwrap_or_else(|err| cli_error(err))
 }
 
-fn parse_runtime_provider(value: &str) -> RuntimeProvider {
-    RuntimeProvider::parse(value).unwrap_or_else(|err| cli_error(err))
-}
-
 fn parse_library_bundle(value: &str) -> LibraryBundle {
     LibraryBundle::parse(value).unwrap_or_else(|err| cli_error(err))
+}
+
+fn parse_llvm_ir_stage(value: &str) -> LlvmIrStage {
+    LlvmIrStage::parse(value).unwrap_or_else(|err| cli_error(err))
+}
+
+fn parse_lto_mode(value: &str) -> LtoMode {
+    LtoMode::parse(value).unwrap_or_else(|err| cli_error(err))
 }
 
 fn parse_yes_no(value: &str, flag: &str) -> bool {
@@ -205,7 +209,7 @@ fn validate_mode_inputs(
         process::exit(1);
     }
 
-    validate_runtime_options(options).unwrap_or_else(|err| cli_error(err));
+    validate_compile_options(options).unwrap_or_else(|err| cli_error(err));
 }
 
 fn parse_args() -> CompileOptions {
@@ -249,20 +253,28 @@ fn parse_args() -> CompileOptions {
             options.codegen_units = parse_nonzero_usize(&value, "--codegen-units");
             continue;
         }
+        if let Some(value) = consume_long_option_value(&arg, "--lto", &mut args, "mode") {
+            options.lto_mode = parse_lto_mode(&value);
+            continue;
+        }
         if let Some(value) = consume_long_option_value(&arg, "--link-driver", &mut args, "command")
         {
             options.linker_cmd = value;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--emit-llvm=") {
+            set_driver_mode(&mut options, DriverMode::EmitLlvmIr, "--emit-llvm");
+            options.emit_llvm_stage = parse_llvm_ir_stage(value);
             continue;
         }
         if let Some(value) = consume_long_option_value(&arg, "--runtime-entry", &mut args, "mode") {
             options.runtime_entry = parse_runtime_entry(&value);
             continue;
         }
-        if let Some(value) =
-            consume_long_option_value(&arg, "--runtime-provider", &mut args, "provider")
-        {
-            options.runtime_provider = parse_runtime_provider(&value);
-            continue;
+        if consume_long_option_value(&arg, "--runtime-provider", &mut args, "provider").is_some() {
+            cli_error(
+                "`--runtime-provider` has been removed; select `sys`/`rt` implementations via module paths or packages, and use `--runtime-libc` only for libc linkage",
+            );
         }
         if let Some(value) = consume_long_option_value(&arg, "--runtime-libc", &mut args, "yes|no")
         {
@@ -365,7 +377,7 @@ fn parse_args() -> CompileOptions {
     options.input_file = positional_source;
     set_default_output_file(&mut options);
     inject_driver_condition_defines(&mut options);
-    inject_default_library_aliases(&mut options);
+    apply_configured_library_aliases(&mut options);
 
     options
 }

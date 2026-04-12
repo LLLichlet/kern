@@ -20,6 +20,64 @@ pub enum DriverMode {
     EmitLlvmIr,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LlvmIrStage {
+    #[default]
+    Raw,
+    Verified,
+    Optimized,
+}
+
+impl LlvmIrStage {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "raw" => Ok(Self::Raw),
+            "verified" => Ok(Self::Verified),
+            "optimized" => Ok(Self::Optimized),
+            _ => Err(format!(
+                "invalid LLVM IR stage `{value}`; expected one of: raw, verified, optimized"
+            )),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Raw => "raw",
+            Self::Verified => "verified",
+            Self::Optimized => "optimized",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LtoMode {
+    #[default]
+    None,
+    Full,
+    Thin,
+}
+
+impl LtoMode {
+    pub fn parse(value: &str) -> Result<Self, String> {
+        match value {
+            "none" => Ok(Self::None),
+            "full" => Ok(Self::Full),
+            "thin" => Ok(Self::Thin),
+            _ => Err(format!(
+                "invalid LTO mode `{value}`; expected one of: none, full, thin"
+            )),
+        }
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Full => "full",
+            Self::Thin => "thin",
+        }
+    }
+}
+
 impl DriverMode {
     pub fn needs_source_input(self) -> bool {
         !matches!(self, DriverMode::LinkOnly)
@@ -62,34 +120,6 @@ impl RuntimeEntry {
             Self::None => "none",
             Self::Rt => "rt",
             Self::Crt => "crt",
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuntimeProvider {
-    None,
-    Toolchain,
-    Libc,
-}
-
-impl RuntimeProvider {
-    pub fn parse(value: &str) -> Result<Self, String> {
-        match value {
-            "none" => Ok(Self::None),
-            "toolchain" => Ok(Self::Toolchain),
-            "libc" => Ok(Self::Libc),
-            _ => Err(format!(
-                "invalid runtime provider `{value}`; expected one of: none, toolchain, libc"
-            )),
-        }
-    }
-
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::None => "none",
-            Self::Toolchain => "toolchain",
-            Self::Libc => "libc",
         }
     }
 }
@@ -231,10 +261,11 @@ pub struct CompileOptions {
     pub linker_args: Vec<String>,
     pub entry_symbol: Option<String>,
     pub runtime_entry: RuntimeEntry,
-    pub runtime_provider: RuntimeProvider,
     pub runtime_libc: bool,
     pub library_bundle: LibraryBundle,
     pub codegen_units: usize,
+    pub lto_mode: LtoMode,
+    pub emit_llvm_stage: LlvmIrStage,
     pub emit_multi_object_dir: bool,
     pub split_sections_for_gc: bool,
     pub dead_strip_sections: bool,
@@ -268,10 +299,11 @@ impl Default for CompileOptions {
             linker_args: Vec::new(),
             entry_symbol: None,
             runtime_entry: RuntimeEntry::None,
-            runtime_provider: RuntimeProvider::None,
             runtime_libc: false,
             library_bundle: LibraryBundle::None,
             codegen_units: 1,
+            lto_mode: LtoMode::default(),
+            emit_llvm_stage: LlvmIrStage::default(),
             emit_multi_object_dir: false,
             split_sections_for_gc: false,
             dead_strip_sections: false,
@@ -340,13 +372,11 @@ fn ensure_official_library_alias(options: &mut CompileOptions, library: Official
     );
 }
 
-pub fn maybe_inject_base_alias(options: &mut CompileOptions) {
+pub fn maybe_add_base_alias(options: &mut CompileOptions) {
     let wants_base = matches!(
         options.library_bundle,
         LibraryBundle::Base | LibraryBundle::Std
-    ) || !matches!(options.runtime_entry, RuntimeEntry::None)
-        || !matches!(options.runtime_provider, RuntimeProvider::None)
-        || runtime_links_libc(options);
+    );
     if !wants_base || options.module_aliases.contains_key("base") {
         return;
     }
@@ -354,7 +384,7 @@ pub fn maybe_inject_base_alias(options: &mut CompileOptions) {
     ensure_official_library_alias(options, OfficialLibrary::Base);
 }
 
-pub fn maybe_inject_rt_alias(options: &mut CompileOptions) {
+pub fn maybe_add_rt_alias(options: &mut CompileOptions) {
     if matches!(options.runtime_entry, RuntimeEntry::None)
         || options.module_aliases.contains_key("rt")
     {
@@ -364,11 +394,8 @@ pub fn maybe_inject_rt_alias(options: &mut CompileOptions) {
     ensure_official_library_alias(options, OfficialLibrary::Rt);
 }
 
-pub fn maybe_inject_sys_alias(options: &mut CompileOptions) {
-    let wants_sys = matches!(options.library_bundle, LibraryBundle::Std)
-        || !matches!(options.runtime_entry, RuntimeEntry::None)
-        || !matches!(options.runtime_provider, RuntimeProvider::None)
-        || runtime_links_libc(options);
+pub fn maybe_add_sys_alias(options: &mut CompileOptions) {
+    let wants_sys = matches!(options.library_bundle, LibraryBundle::Std);
     if !wants_sys || options.module_aliases.contains_key("sys") {
         return;
     }
@@ -376,7 +403,7 @@ pub fn maybe_inject_sys_alias(options: &mut CompileOptions) {
     ensure_official_library_alias(options, OfficialLibrary::Sys);
 }
 
-pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
+pub fn maybe_add_std_alias(options: &mut CompileOptions) {
     if !matches!(options.library_bundle, LibraryBundle::Std)
         || options.module_aliases.contains_key("std")
     {
@@ -386,15 +413,15 @@ pub fn maybe_inject_std_alias(options: &mut CompileOptions) {
     ensure_official_library_alias(options, OfficialLibrary::Std);
 }
 
-pub fn inject_default_library_aliases(options: &mut CompileOptions) {
-    maybe_inject_base_alias(options);
-    maybe_inject_rt_alias(options);
-    maybe_inject_sys_alias(options);
-    maybe_inject_std_alias(options);
+pub fn apply_configured_library_aliases(options: &mut CompileOptions) {
+    maybe_add_base_alias(options);
+    maybe_add_rt_alias(options);
+    maybe_add_sys_alias(options);
+    maybe_add_std_alias(options);
 }
 
 pub fn runtime_links_libc(options: &CompileOptions) -> bool {
-    options.runtime_libc || matches!(options.runtime_provider, RuntimeProvider::Libc)
+    options.runtime_libc
 }
 
 pub fn runtime_uses_crt_startup(options: &CompileOptions) -> bool {
@@ -402,15 +429,6 @@ pub fn runtime_uses_crt_startup(options: &CompileOptions) -> bool {
 }
 
 pub fn validate_runtime_options(options: &CompileOptions) -> Result<(), String> {
-    if matches!(options.runtime_entry, RuntimeEntry::Rt)
-        && !matches!(options.runtime_provider, RuntimeProvider::Toolchain)
-    {
-        return Err(
-            "invalid runtime configuration: `runtime_entry = rt` requires `runtime_provider = toolchain`"
-                .to_string(),
-        );
-    }
-
     if matches!(options.runtime_entry, RuntimeEntry::Crt) && !runtime_links_libc(options) {
         return Err(
             "invalid runtime configuration: `runtime_entry = crt` requires libc linkage"
@@ -418,9 +436,34 @@ pub fn validate_runtime_options(options: &CompileOptions) -> Result<(), String> 
         );
     }
 
-    if matches!(options.runtime_provider, RuntimeProvider::Libc) && !runtime_links_libc(options) {
+    Ok(())
+}
+
+pub fn validate_compile_options(options: &CompileOptions) -> Result<(), String> {
+    validate_runtime_options(options)?;
+
+    if matches!(options.driver_mode, DriverMode::LinkOnly)
+        && !matches!(options.lto_mode, LtoMode::None)
+    {
         return Err(
-            "invalid runtime configuration: `runtime_provider = libc` requires libc linkage"
+            "invalid compile configuration: `--lto` requires frontend/codegen; `--link-only` cannot perform LTO"
+                .to_string(),
+        );
+    }
+
+    if matches!(options.driver_mode, DriverMode::EmitLlvmIr)
+        && options.codegen_units > 1
+        && !matches!(options.lto_mode, LtoMode::Full)
+    {
+        return Err(
+            "invalid compile configuration: `--emit-llvm` with multiple codegen units requires `--lto full`"
+                .to_string(),
+        );
+    }
+
+    if options.emit_multi_object_dir && matches!(options.lto_mode, LtoMode::Full) {
+        return Err(
+            "invalid compile configuration: preserving per-CGU object directories is incompatible with `--lto full`"
                 .to_string(),
         );
     }
@@ -432,10 +475,6 @@ pub fn inject_driver_condition_defines(options: &mut CompileOptions) {
     options.custom_defines.insert(
         "runtime_entry".to_string(),
         options.runtime_entry.as_str().to_string(),
-    );
-    options.custom_defines.insert(
-        "runtime_provider".to_string(),
-        options.runtime_provider.as_str().to_string(),
     );
     options.custom_defines.insert(
         "library_bundle".to_string(),

@@ -23,6 +23,39 @@ struct ResolvedPatternField {
 }
 
 impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
+    fn define_local_symbol(
+        &mut self,
+        name: SymbolId,
+        info: SymbolInfo,
+        semantic_kind: SemanticSymbolKind,
+    ) {
+        if self.is_discard_name(name) {
+            return;
+        }
+
+        if let Err(old_info) = self.ctx.scopes.define(name, info.clone()) {
+            let name_str = self.ctx.resolve(name).to_string();
+            self.ctx
+                .struct_error(
+                    info.span,
+                    format!("the name `{}` is defined multiple times", name_str),
+                )
+                .with_hint(format!(
+                    "`{}` must be defined only once in the same binding scope",
+                    name_str
+                ))
+                .with_span_label(
+                    old_info.span,
+                    format!("previous definition of `{}` was here", name_str),
+                )
+                .emit();
+            return;
+        }
+
+        self.ctx
+            .record_symbol_definition(info.span, semantic_kind, info.is_mut, info.is_pub);
+    }
+
     fn build_generic_arg_map(
         &self,
         generics: &[ast::GenericParam],
@@ -64,10 +97,6 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         binding: &ast::BindingPattern,
         ty: TypeId,
     ) {
-        if self.is_discard_name(binding.name) {
-            return;
-        }
-
         let info = SymbolInfo {
             kind: SymbolKind::Var,
             node_id,
@@ -77,14 +106,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             is_pub: false,
             is_mut: binding.is_mut,
         };
-        if self.ctx.scopes.define(binding.name, info.clone()).is_ok() {
-            self.ctx.record_symbol_definition(
-                info.span,
-                SemanticSymbolKind::Variable,
-                info.is_mut,
-                info.is_pub,
-            );
-        }
+        self.define_local_symbol(binding.name, info, SemanticSymbolKind::Variable);
     }
 
     fn check_pattern_explicit_type(
@@ -797,14 +819,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             is_pub: false,
             is_mut: pattern.is_mut,
         };
-        if self.ctx.scopes.define(pattern.name, info.clone()).is_ok() {
-            self.ctx.record_symbol_definition(
-                info.span,
-                SemanticSymbolKind::Static,
-                info.is_mut,
-                info.is_pub,
-            );
-        }
+        self.define_local_symbol(pattern.name, info, SemanticSymbolKind::Static);
 
         TypeId::VOID
     }

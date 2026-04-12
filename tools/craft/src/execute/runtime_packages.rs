@@ -685,9 +685,6 @@ pub(super) fn build_rt_entry_package(
                 .insert("runtime_entry".to_string(), "rt".to_string());
             options
                 .custom_defines
-                .insert("runtime_provider".to_string(), "toolchain".to_string());
-            options
-                .custom_defines
                 .insert("libc".to_string(), "false".to_string());
             options
                 .custom_defines

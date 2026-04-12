@@ -71,10 +71,12 @@ name = "kernc_codegen"
 version = "0.6.7"
 dependencies = [
  "kernc_ast",
- "kernc_mast",
+ "kernc_mir",
+ "kernc_mono",
  "kernc_sema",
  "kernc_utils",
  "llvm-sys",
+ "target-lexicon",
 ]
 
 [[package]]
@@ -88,9 +90,21 @@ dependencies = [
  "kernc_ast",
  "kernc_codegen",
  "kernc_db",
+ "kernc_flow",
  "kernc_lower",
  "kernc_mast",
+ "kernc_mir",
+ "kernc_mir_lower",
+ "kernc_mono",
  "kernc_parser",
+ "kernc_sema",
+ "kernc_utils",
+]
+
+[[package]]
+name = "kernc_flow"
+version = "0.6.7"
+dependencies = [
  "kernc_sema",
  "kernc_utils",
 ]
@@ -107,7 +121,9 @@ name = "kernc_lower"
 version = "0.6.7"
 dependencies = [
  "kernc_ast",
+ "kernc_flow",
  "kernc_mast",
+ "kernc_mono",
  "kernc_sema",
  "kernc_utils",
 ]
@@ -117,8 +133,38 @@ name = "kernc_mast"
 version = "0.6.7"
 dependencies = [
  "kernc_ast",
+ "kernc_mono",
  "kernc_sema",
  "kernc_utils",
+]
+
+[[package]]
+name = "kernc_mir"
+version = "0.6.7"
+dependencies = [
+ "kernc_ast",
+ "kernc_mono",
+ "kernc_sema",
+ "kernc_utils",
+]
+
+[[package]]
+name = "kernc_mir_lower"
+version = "0.6.7"
+dependencies = [
+ "kernc_ast",
+ "kernc_mast",
+ "kernc_mir",
+ "kernc_mono",
+ "kernc_sema",
+ "kernc_utils",
+]
+
+[[package]]
+name = "kernc_mono"
+version = "0.6.7"
+dependencies = [
+ "kernc_sema",
 ]
 
 [[package]]

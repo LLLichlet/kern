@@ -3,6 +3,7 @@ use std::collections::HashMap;
 
 use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
+use kernc_mono::MonoId;
 use kernc_sema::checker::ConstEvaluator;
 use kernc_sema::def::{Def, DefId, StructDef, UnionDef};
 use kernc_sema::ty::{TypeId, TypeKind};
@@ -355,6 +356,18 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         concrete_ty: TypeId,
     ) -> MastExprKind {
         let norm = self.ctx.type_registry.get(concrete_ty).clone();
+
+        // Sema accepts `void.{}` and contextual `.{}` as zero-sized initializers.
+        // Lower them directly to a zero-sized value instead of routing them
+        // through the ordinary aggregate machinery.
+        if self.ctx.type_registry.is_void(concrete_ty) {
+            debug_assert!(
+                fields.is_empty(),
+                "void aggregate initialization should not carry fields after sema"
+            );
+            let _ = subst_map;
+            return MastExprKind::Undef;
+        }
 
         match norm {
             TypeKind::Enum(def_id, gen_args) => {

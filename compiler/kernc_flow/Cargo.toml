@@ -1,0 +1,11 @@
+[package]
+name = "kernc_flow"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+readme = "README.md"
+
+[dependencies]
+kernc_sema = { workspace = true }
+kernc_utils = { workspace = true }

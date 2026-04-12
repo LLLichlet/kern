@@ -1,6 +1,6 @@
 use super::{DependencySpec, Manifest, ReleaseSourcePolicy};
 use crate::plan::TargetKind;
-use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry, RuntimeProvider};
+use kernc_utils::config::{CompileOptions, LibraryBundle, RuntimeEntry};
 
 #[test]
 fn parses_package_manifest() {
@@ -199,7 +199,6 @@ kern = "0.6.7"
 
 [runtime]
 entry = "crt"
-provider = "libc"
 libc = true
 bundle = "std"
 "#,
@@ -209,9 +208,30 @@ bundle = "std"
 
     let runtime = manifest.runtime.as_ref().expect("expected runtime section");
     assert_eq!(runtime.entry, Some(RuntimeEntry::Crt));
-    assert_eq!(runtime.provider, Some(RuntimeProvider::Libc));
     assert_eq!(runtime.libc, Some(true));
     assert_eq!(runtime.bundle, Some(LibraryBundle::Std));
+}
+
+#[test]
+fn rejects_removed_runtime_provider_key() {
+    let err = Manifest::parse(
+        r#"
+[package]
+name = "demo"
+version = "0.1.0"
+kern = "0.6.7"
+
+[runtime]
+provider = "toolchain"
+"#,
+        std::path::Path::new("Craft.toml"),
+    )
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("`[runtime].provider` has been removed")
+    );
 }
 
 #[test]
@@ -225,7 +245,6 @@ kern = "0.6.7"
 
 [runtime]
 entry = "rt"
-provider = "toolchain"
 libc = false
 bundle = "std"
 "#,
@@ -237,7 +256,6 @@ bundle = "std"
     manifest.apply_runtime_options(&mut options);
 
     assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
-    assert_eq!(options.runtime_provider, RuntimeProvider::Toolchain);
     assert!(!options.runtime_libc);
     assert_eq!(options.library_bundle, LibraryBundle::Std);
 }
@@ -253,7 +271,6 @@ kern = "0.6.7"
 
 [runtime]
 entry = "rt"
-provider = "toolchain"
 libc = false
 bundle = "base"
 "#,
@@ -263,14 +280,12 @@ bundle = "base"
 
     let mut options = CompileOptions::default();
     options.runtime_entry = RuntimeEntry::None;
-    options.runtime_provider = RuntimeProvider::None;
     options.runtime_libc = false;
     options.library_bundle = LibraryBundle::Std;
 
     manifest.apply_runtime_options_for_target(TargetKind::Lib, &mut options);
 
     assert_eq!(options.runtime_entry, RuntimeEntry::None);
-    assert_eq!(options.runtime_provider, RuntimeProvider::None);
     assert!(!options.runtime_libc);
     assert_eq!(options.library_bundle, LibraryBundle::Base);
 }
@@ -286,7 +301,6 @@ kern = "0.6.7"
 
 [runtime]
 entry = "rt"
-provider = "toolchain"
 libc = false
 bundle = "base"
 "#,
@@ -296,14 +310,12 @@ bundle = "base"
 
     let mut options = CompileOptions::default();
     options.runtime_entry = RuntimeEntry::Rt;
-    options.runtime_provider = RuntimeProvider::Toolchain;
     options.runtime_libc = false;
     options.library_bundle = LibraryBundle::Std;
 
     manifest.apply_runtime_options_for_target(TargetKind::Test, &mut options);
 
     assert_eq!(options.runtime_entry, RuntimeEntry::Rt);
-    assert_eq!(options.runtime_provider, RuntimeProvider::Toolchain);
     assert!(!options.runtime_libc);
     assert_eq!(options.library_bundle, LibraryBundle::Base);
 }

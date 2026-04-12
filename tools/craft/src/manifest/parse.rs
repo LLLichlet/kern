@@ -3,7 +3,7 @@ use super::{
     Profile, Profiles, ReleaseSourcePolicy, RuntimeConfig, Section, Workspace, WorkspacePackage,
 };
 use crate::error::{Error, Result};
-use kernc_utils::config::{LibraryBundle, RuntimeEntry, RuntimeProvider};
+use kernc_utils::config::{LibraryBundle, RuntimeEntry};
 use std::path::Path;
 
 impl Manifest {
@@ -166,7 +166,12 @@ fn assign_key_value(
             let runtime = manifest.runtime.get_or_insert_with(RuntimeConfig::default);
             match key {
                 "entry" => runtime.entry = Some(parse_runtime_entry(raw_value)?),
-                "provider" => runtime.provider = Some(parse_runtime_provider(raw_value)?),
+                "provider" => {
+                    return Err(
+                        "`[runtime].provider` has been removed; select `sys`/`rt` implementations via module paths or packages, and use `[runtime].libc` only for libc linkage"
+                            .to_string(),
+                    )
+                }
                 "libc" => runtime.libc = Some(parse_bool(raw_value)?),
                 "bundle" => runtime.bundle = Some(parse_library_bundle(raw_value)?),
                 _ => return Err(format!("unsupported [runtime] key `{key}`")),
@@ -515,10 +520,6 @@ fn parse_bool(raw: &str) -> std::result::Result<bool, String> {
 
 fn parse_runtime_entry(raw: &str) -> std::result::Result<RuntimeEntry, String> {
     RuntimeEntry::parse(&parse_string(raw)?)
-}
-
-fn parse_runtime_provider(raw: &str) -> std::result::Result<RuntimeProvider, String> {
-    RuntimeProvider::parse(&parse_string(raw)?)
 }
 
 fn parse_library_bundle(raw: &str) -> std::result::Result<LibraryBundle, String> {

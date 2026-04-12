@@ -61,11 +61,8 @@ fn gpa_normalize_align(align: usize) usize {
 
 fn gpa_align_up(value: usize, align: usize) usize {
     let align = gpa_normalize_align(align);
-    let remainder = value % align;
-    if (remainder == 0) {
-        return value;
-    }
-    return value + (align - remainder);
+    let mask = align - usize.{1};
+    return (value + mask) & ~mask;
 }
 
 fn gpa_dangling_ptr(align: usize) *mut u8 {

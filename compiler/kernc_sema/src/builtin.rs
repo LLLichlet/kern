@@ -236,6 +236,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
         self.inject_atomic_fence();
         self.inject_simd_any();
         self.inject_simd_all();
+        self.inject_simd_bitmask();
         self.inject_simd_select();
         self.inject_simd_shuffle();
         self.inject_simd_swizzle();
@@ -1347,6 +1348,23 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             vec![param_mask],
             vec![("mask", mask_ty)],
             TypeId::BOOL,
+        );
+    }
+
+    fn inject_simd_bitmask(&mut self) {
+        let param_mask = GenericParam {
+            name: self.ctx.intern("Mask"),
+            span: Default::default(),
+        };
+        let mask_ty = self
+            .ctx
+            .type_registry
+            .intern(TypeKind::Param(param_mask.name));
+        self.inject_builtin_function(
+            "@simdBitmask",
+            vec![param_mask],
+            vec![("mask", mask_ty)],
+            TypeId::USIZE,
         );
     }
 

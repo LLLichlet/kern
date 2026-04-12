@@ -248,7 +248,6 @@ kern = "0.6.7"
 
 [runtime]
 entry = "crt"
-provider = "toolchain"
 libc = true
 bundle = "std"
 
@@ -290,7 +289,6 @@ kern = "0.6.7"
 
 [runtime]
 entry = "rt"
-provider = "toolchain"
 libc = true
 bundle = "std"
 

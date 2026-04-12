@@ -181,7 +181,6 @@ publish = false
 
 [runtime]
 entry = "rt"
-provider = "toolchain"
 libc = false
 bundle = "std"
 
@@ -219,6 +218,11 @@ Manifest rules:
 - `[package].kern` must match the current installed Kern toolchain version exactly
 - `Craft.toml` does not expose an `edition` field before Kern 1.0
 - `[runtime]` is the package-level place to declare startup/library policy
+- `[runtime].entry` controls startup ownership only
+- `[runtime].libc` controls libc linkage only
+- `[runtime].bundle` controls which official library root aliases are added
+- `[runtime].bundle` is alias wiring, not a scope prelude; ordinary `use` still applies
+- `sys`/`rt` implementation choice belongs to normal package/module wiring, not a manifest runtime-provider selector
 - test targets are listed under `[test].roots`, and each test name is derived from its file stem
 - external dependencies must be explicit `path` or `git` entries; plain version strings are not a source model
 - `build-dependencies` belong to the host build domain rather than the final target domain

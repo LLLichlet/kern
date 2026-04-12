@@ -39,7 +39,6 @@ impl Manifest {
 
         if let Some(runtime) = &self.runtime {
             let _ = runtime.entry;
-            let _ = runtime.provider;
             let _ = runtime.libc;
             let _ = runtime.bundle;
         }

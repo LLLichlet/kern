@@ -1,7 +1,7 @@
 use super::*;
 
 #[test]
-fn links_hosted_program_with_std_using_toolchain_provider() {
+fn links_hosted_program_with_std_and_crt_startup() {
     let source_path = unique_temp_path("kernc_std_hosted", "rn");
     let exe_ext = if cfg!(windows) { "exe" } else { "out" };
     let executable_path = unique_temp_path("kernc_std_hosted", exe_ext);
@@ -26,8 +26,6 @@ fn main() i32 {
         "std",
         "--runtime-entry",
         "crt",
-        "--runtime-provider",
-        "toolchain",
         "--runtime-libc",
         "yes",
         "--print-link-command",
@@ -118,8 +116,6 @@ extern fn bridge_impl(args: [][]u8) i32 {
         "std",
         "--runtime-entry",
         "crt",
-        "--runtime-provider",
-        "toolchain",
         "--runtime-libc",
         "yes",
         source_arg.as_str(),
@@ -172,8 +168,6 @@ fn main() i32 {
         "std",
         "--runtime-entry",
         "crt",
-        "--runtime-provider",
-        "toolchain",
         "--runtime-libc",
         "yes",
         "--define",
@@ -203,7 +197,7 @@ fn main() i32 {
 }
 
 #[test]
-fn links_windows_rt_program_with_std_using_toolchain_provider() {
+fn links_windows_rt_program_with_std_bundle() {
     if !cfg!(windows) {
         return;
     }
@@ -218,8 +212,6 @@ fn links_windows_rt_program_with_std_using_toolchain_provider() {
         "std",
         "--runtime-entry",
         "rt",
-        "--runtime-provider",
-        "toolchain",
         source_arg.as_str(),
         "-o",
         exe_arg.as_str(),
@@ -391,6 +383,112 @@ fn main() i32 {
     );
 
     assert_success(&output, "kernc hosted std no-arg main");
+}
+
+#[test]
+fn hosted_minimal_program_does_not_export_rt_memory_symbols() {
+    if cfg!(windows) {
+        return;
+    }
+
+    let source_path = unique_temp_path("kernc_std_hosted_no_rt_mem", "rn");
+    let object_path = unique_temp_path("kernc_std_hosted_no_rt_mem", "o");
+    let exe_ext = if cfg!(windows) { "exe" } else { "out" };
+    let executable_path = unique_temp_path("kernc_std_hosted_no_rt_mem", exe_ext);
+
+    fs::write(
+        &source_path,
+        r#"
+fn main() i32 {
+    return 0;
+}
+"#,
+    )
+    .unwrap();
+
+    let source_arg = source_path.to_string_lossy().into_owned();
+    let object_arg = object_path.to_string_lossy().into_owned();
+    let compile_output = run_kernc([
+        "-c",
+        "--library-bundle",
+        "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        source_arg.as_str(),
+        "-o",
+        object_arg.as_str(),
+    ]);
+    assert_success(&compile_output, "kernc compile-only hosted minimal");
+
+    let object_nm = Command::new("nm")
+        .arg("-g")
+        .arg(&object_path)
+        .output()
+        .unwrap();
+    assert!(
+        object_nm.status.success(),
+        "nm failed for object:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&object_nm.stdout),
+        String::from_utf8_lossy(&object_nm.stderr)
+    );
+    let object_symbols = String::from_utf8_lossy(&object_nm.stdout);
+    for symbol in ["memcpy", "memmove", "memset"] {
+        assert!(
+            !object_symbols.lines().any(|line| {
+                line.split_whitespace()
+                    .last()
+                    .is_some_and(|name| name.trim_start_matches('_') == symbol)
+            }),
+            "unexpected rt memory symbol `{}` in object:\n{}",
+            symbol,
+            object_symbols
+        );
+    }
+
+    let exe_arg = executable_path.to_string_lossy().into_owned();
+    let link_output = run_kernc([
+        "--library-bundle",
+        "std",
+        "--runtime-entry",
+        "crt",
+        "--runtime-libc",
+        "yes",
+        source_arg.as_str(),
+        "-o",
+        exe_arg.as_str(),
+    ]);
+    assert_success(&link_output, "kernc linked hosted minimal");
+
+    let exe_nm = Command::new("nm")
+        .arg("-g")
+        .arg(&executable_path)
+        .output()
+        .unwrap();
+    assert!(
+        exe_nm.status.success(),
+        "nm failed for executable:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&exe_nm.stdout),
+        String::from_utf8_lossy(&exe_nm.stderr)
+    );
+    let exe_symbols = String::from_utf8_lossy(&exe_nm.stdout);
+    for symbol in ["memcpy", "memmove", "memset"] {
+        assert!(
+            !exe_symbols.lines().any(|line| {
+                line.split_whitespace()
+                    .last()
+                    .is_some_and(|name| name.trim_start_matches('_') == symbol)
+            }),
+            "unexpected rt memory symbol `{}` in executable:\n{}",
+            symbol,
+            exe_symbols
+        );
+    }
+
+    let _ = fs::remove_file(&source_path);
+    let _ = fs::remove_file(&object_path);
+    let _ = fs::remove_file(&executable_path);
 }
 
 #[test]
@@ -698,8 +796,6 @@ fn main() i32 {
         "std",
         "--runtime-entry",
         "crt",
-        "--runtime-provider",
-        "toolchain",
         "--runtime-libc",
         "yes",
         source_arg.as_str(),
@@ -728,4 +824,36 @@ fn main() i32 {
 
     let _ = fs::remove_file(&source_path);
     let _ = fs::remove_file(&executable_path);
+}
+
+#[test]
+fn rejects_removed_runtime_provider_flag() {
+    let output = compile_source_with_args(
+        "kernc_removed_runtime_provider",
+        r#"
+fn main() i32 {
+    return 0;
+}
+"#,
+        &[
+            "--runtime-entry",
+            "rt",
+            "--runtime-provider",
+            "toolchain",
+            "--library-bundle",
+            "std",
+        ],
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted removed runtime-provider flag:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("`--runtime-provider` has been removed"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

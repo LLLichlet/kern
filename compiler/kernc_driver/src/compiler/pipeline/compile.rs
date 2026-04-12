@@ -1,0 +1,1041 @@
+use super::*;
+use crate::compiler::codegen_units;
+use crate::compiler::{LinkTarget, TempFileGuard};
+use std::fs;
+
+impl CompilerDriver {
+    pub fn compile(&self) -> bool {
+        match self.compile_with_report() {
+            Some(report) => {
+                if self.options.report_timings {
+                    Self::print_phase_timings(&report.phase_timings);
+                    Self::print_cache_stats(report.cache_stats);
+                    Self::print_lower_cache_stats(report.lower_cache_stats);
+                    Self::print_mast_workload(report.mast_workload.as_ref());
+                    Self::print_mir_workload(report.mir_workload.as_ref());
+                    Self::print_codegen_plan(report.codegen_plan.as_ref());
+                    Self::print_ir_instruction_stats(report.ir_instruction_stats.as_ref());
+                    Self::print_ir_cleanup_stats(report.ir_cleanup_stats.as_ref());
+                    Self::print_codegen_alloca_stats(report.codegen_alloca_stats);
+                    Self::print_remaining_alloca_stats(report.remaining_alloca_stats);
+                    Self::print_remaining_alloca_names(report.remaining_alloca_names.as_slice());
+                    Self::print_ir_hot_functions(report.ir_hot_functions.as_slice());
+                }
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn compile_with_report(&self) -> Option<CompileReport> {
+        if let Err(err) = kernc_utils::config::validate_compile_options(&self.options) {
+            eprintln!("Error: {}", err);
+            return None;
+        }
+
+        let cache_snapshot = self.cache_counter_snapshot();
+        let mut phase_timings = Vec::new();
+        if self.options.driver_mode == DriverMode::LinkOnly {
+            let linked = Self::measure_phase(&mut phase_timings, "link", || self.link_only());
+            return linked.then(|| CompileReport {
+                loaded_sources: Vec::new(),
+                phase_timings,
+                cache_stats: self.cache_stats_since(cache_snapshot),
+                lower_cache_stats: None,
+                mast_workload: None,
+                mir_workload: None,
+                codegen_plan: None,
+                ir_instruction_stats: None,
+                ir_cleanup_stats: None,
+                remaining_alloca_stats: None,
+                remaining_alloca_names: Vec::new(),
+                ir_hot_functions: Vec::new(),
+                codegen_alloca_stats: Default::default(),
+            });
+        }
+
+        let Some(input_file) = self.options.input_file.as_deref() else {
+            eprintln!("Error: compile mode requires a source input.");
+            return None;
+        };
+
+        let structure = Self::measure_phase(&mut phase_timings, "analyze_structure", || {
+            self.analyze_compile_structure(input_file, &SourceOverrides::new())
+        })?;
+        phase_timings.extend(structure.phase_timings.iter().copied());
+        let mut session = structure.session.clone();
+
+        let mut ctx = self.build_sema_context(&mut session);
+        ctx.restore_structure(structure.snapshot.clone());
+        let body_pipeline = self.run_body_pipeline_with_report(&mut ctx)?;
+        phase_timings.extend(body_pipeline.phase_timings.iter().copied());
+        let loaded_sources = ctx
+            .sess
+            .source_manager
+            .files()
+            .iter()
+            .map(|file| file.path.clone())
+            .collect::<Vec<_>>();
+
+        let lowered = Self::measure_phase(&mut phase_timings, "lower", || {
+            self.lower_module_with_flow_report(
+                &mut ctx,
+                &body_pipeline.flow_lowering_hints,
+                &body_pipeline.lowered_module_items,
+            )
+        })?;
+        phase_timings.extend(lowered.phase_timings.iter().copied());
+        let mast_module = lowered.module;
+        let mast_workload = mast_module.workload_stats();
+        let mir_started = Instant::now();
+        let mir_report = kernc_mir_lower::build_from_mast(&mast_module);
+        let mir_workload = mir_report.workload;
+        phase_timings.push(PhaseTiming {
+            name: "  mir_build",
+            duration: mir_started.elapsed(),
+        });
+
+        if let Some(metadata_output) = self.options.metadata_output.as_deref()
+            && let Err(err) = Self::measure_phase(&mut phase_timings, "emit_kmeta", || {
+                metadata::emit_package_metadata(
+                    &ctx,
+                    Path::new(metadata_output),
+                    self.options
+                        .metadata_package_name
+                        .as_deref()
+                        .or(self.options.root_module_name.as_deref())
+                        .unwrap_or("root"),
+                    self.options.metadata_package_version.as_deref(),
+                )
+            })
+        {
+            eprintln!("Error: Failed to emit kmeta snapshot: {}", err);
+            return None;
+        }
+
+        let target = self.normalized_target();
+        let module_name = self.module_name_for_codegen(input_file);
+        let codegen_plan_started = Instant::now();
+        let codegen_plan = Some(match self.options.lto_mode {
+            LtoMode::Thin => plan_codegen_units_with_mir_summary(
+                &mast_module,
+                &mir_report.summary,
+                self.options.codegen_units,
+            ),
+            _ => plan_codegen_units_with_mir_workload(
+                &mast_module,
+                &mir_report.summary,
+                self.options.codegen_units,
+            ),
+        });
+        phase_timings.push(PhaseTiming {
+            name: "  codegen_plan",
+            duration: codegen_plan_started.elapsed(),
+        });
+        let codegen_plan_report = codegen_plan.as_ref().map(|plan| plan.report.clone());
+        let codegen_unit_plans = codegen_plan.map(|plan| plan.units).unwrap_or_default();
+        let collect_codegen_diagnostics = self.options.report_timings;
+
+        let lower_cache_stats = lowered.cache_stats;
+        let cache_stats = self.cache_stats_since(cache_snapshot);
+
+        if codegen_unit_plans.is_empty() {
+            return self.compile_single_unit(
+                &mut ctx,
+                &loaded_sources,
+                &mut phase_timings,
+                &target,
+                &module_name,
+                &mir_report.module,
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+            );
+        }
+
+        self.compile_partitioned_units(
+            &mut ctx,
+            &loaded_sources,
+            &mut phase_timings,
+            &target,
+            &module_name,
+            &mast_module,
+            &codegen_unit_plans,
+            cache_stats,
+            lower_cache_stats,
+            mast_workload,
+            mir_workload,
+            codegen_plan_report,
+            collect_codegen_diagnostics,
+        )
+    }
+
+    fn compile_single_unit(
+        &self,
+        ctx: &mut SemaContext<'_>,
+        loaded_sources: &[PathBuf],
+        phase_timings: &mut Vec<PhaseTiming>,
+        target: &LinkTarget,
+        module_name: &str,
+        mir_module: &kernc_mir::MirModule,
+        cache_stats: CompileCacheStats,
+        lower_cache_stats: kernc_lower::LowerCacheStats,
+        mast_workload: kernc_mast::MastWorkloadStats,
+        mir_workload: kernc_mir::MirWorkloadStats,
+        codegen_plan_report: Option<CodegenPlanReport>,
+        collect_codegen_diagnostics: bool,
+    ) -> Option<CompileReport> {
+        let link_input_path = self.prepare_link_input_path(target);
+        let _guard = self.temp_link_input_guard(&link_input_path);
+        let (codegen_report, emit_result) = {
+            let codegen_ctx = Context::create();
+            let mut codegen = CodeGenerator::new(
+                &codegen_ctx,
+                module_name,
+                &mut *ctx.sess,
+                &ctx.type_registry,
+                self.options.split_sections_for_gc,
+            );
+            codegen.set_asm_dialect(self.codegen_asm_dialect());
+            let codegen_report = Self::measure_phase(phase_timings, "codegen", || {
+                codegen.compile_mir(mir_module, collect_codegen_diagnostics)
+            });
+            phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+                name: timing.name,
+                duration: timing.duration,
+            }));
+            let emit_result = if self.options.driver_mode == DriverMode::EmitLlvmIr {
+                Self::measure_phase(phase_timings, "emit_llvm_ir", || {
+                    codegen.emit_llvm_ir(
+                        &target.triple,
+                        self.options.opt_level,
+                        self.options.emit_llvm_stage,
+                        collect_codegen_diagnostics,
+                    )
+                })
+            } else {
+                Self::measure_phase(phase_timings, "emit_object", || {
+                    codegen.emit_to_file(
+                        &target.triple,
+                        &link_input_path,
+                        self.options.opt_level,
+                        collect_codegen_diagnostics,
+                    )
+                })
+            };
+            (codegen_report, emit_result)
+        };
+
+        let emit_report = match emit_result {
+            Ok(report) => report,
+            Err(err) => {
+                if self.options.driver_mode == DriverMode::EmitLlvmIr {
+                    eprintln!("Error: Failed to print LLVM IR: {}", err);
+                } else {
+                    eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                }
+                return None;
+            }
+        };
+        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
+
+        if self.options.driver_mode == DriverMode::EmitLlvmIr {
+            Self::print_buffered_diagnostics(ctx.sess);
+            return Some(Self::build_compile_report(
+                loaded_sources.to_vec(),
+                std::mem::take(phase_timings),
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        if self.options.driver_mode.emits_linker_input() {
+            Self::print_buffered_diagnostics(ctx.sess);
+            if self.options.report_progress {
+                println!(
+                    "Successfully emitted linker input to `{}`",
+                    self.options.output_file
+                );
+            }
+            return Some(Self::build_compile_report(
+                loaded_sources.to_vec(),
+                std::mem::take(phase_timings),
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        let linked = Self::measure_phase(phase_timings, "link", || {
+            self.run_link_command(Some(&link_input_path), target, "Successfully compiled")
+        });
+        if linked {
+            Self::print_buffered_diagnostics(ctx.sess);
+        }
+        linked.then_some(Self::build_compile_report(
+            loaded_sources.to_vec(),
+            std::mem::take(phase_timings),
+            cache_stats,
+            lower_cache_stats,
+            mast_workload,
+            mir_workload,
+            codegen_plan_report,
+            collect_codegen_diagnostics,
+            codegen_report,
+            Some(emit_report),
+        ))
+    }
+
+    fn codegen_asm_dialect(&self) -> InlineAsmDialect {
+        match self.options.asm_dialect {
+            AsmDialect::Intel => InlineAsmDialect::Intel,
+            AsmDialect::Att => InlineAsmDialect::ATT,
+        }
+    }
+
+    fn compile_partitioned_units(
+        &self,
+        ctx: &mut SemaContext<'_>,
+        loaded_sources: &[PathBuf],
+        phase_timings: &mut Vec<PhaseTiming>,
+        target: &LinkTarget,
+        module_name: &str,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
+        cache_stats: CompileCacheStats,
+        lower_cache_stats: kernc_lower::LowerCacheStats,
+        mast_workload: kernc_mast::MastWorkloadStats,
+        mir_workload: kernc_mir::MirWorkloadStats,
+        codegen_plan_report: Option<CodegenPlanReport>,
+        collect_codegen_diagnostics: bool,
+    ) -> Option<CompileReport> {
+        if self.options.lto_mode == LtoMode::Full {
+            return self.compile_partitioned_units_full_lto(
+                ctx,
+                loaded_sources,
+                phase_timings,
+                target,
+                module_name,
+                mast_module,
+                codegen_unit_plans,
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+            );
+        }
+
+        let emit_multi_object_dir =
+            self.options.driver_mode.emits_linker_input() && self.options.emit_multi_object_dir;
+        if emit_multi_object_dir && !self.prepare_multi_object_output_dir() {
+            return None;
+        }
+        let object_guards = if emit_multi_object_dir {
+            Vec::new()
+        } else {
+            codegen_unit_plans
+                .iter()
+                .map(|unit| TempFileGuard {
+                    path: self.make_temp_codegen_unit_path(&unit.name),
+                })
+                .collect::<Vec<_>>()
+        };
+        let unit_batch = match self.codegen_unit_artifacts(
+            mast_module,
+            codegen_unit_plans,
+            module_name,
+            &target.triple,
+            ctx.sess,
+            &ctx.type_registry,
+            collect_codegen_diagnostics,
+        ) {
+            Ok(artifacts) => artifacts,
+            Err(err) => {
+                eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                drop(object_guards);
+                return None;
+            }
+        };
+        let mut codegen_report = CodegenReport::default();
+        let mut emit_report = EmitObjectReport::default();
+        let mut object_paths = vec![String::new(); unit_batch.artifacts.len()];
+        for artifact in unit_batch.artifacts {
+            Self::absorb_codegen_report(&mut codegen_report, artifact.codegen_report);
+            Self::absorb_emit_report(&mut emit_report, artifact.emit_report);
+            object_paths[artifact.index] = artifact.object_path;
+        }
+
+        phase_timings.push(PhaseTiming {
+            name: "codegen_units",
+            duration: unit_batch.wall_duration,
+        });
+        phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
+        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
+
+        if self.options.driver_mode.emits_linker_input() {
+            if emit_multi_object_dir {
+                if let Err(err) = self.write_multi_object_manifest(&object_paths) {
+                    eprintln!(
+                        "Error: Failed to record multi-object linker inputs `{}`: {}",
+                        self.options.output_file, err
+                    );
+                    return None;
+                }
+                Self::print_buffered_diagnostics(ctx.sess);
+                return Some(Self::build_compile_report(
+                    loaded_sources.to_vec(),
+                    std::mem::take(phase_timings),
+                    cache_stats,
+                    lower_cache_stats,
+                    mast_workload,
+                    mir_workload,
+                    codegen_plan_report,
+                    collect_codegen_diagnostics,
+                    codegen_report,
+                    Some(emit_report),
+                ));
+            }
+
+            let merged_output_path = self.make_temp_relocatable_merge_path();
+            let merged_output_guard = TempFileGuard {
+                path: merged_output_path.clone(),
+            };
+            let merged = Self::measure_phase(phase_timings, "merge_object", || {
+                self.run_relocatable_link_command(
+                    &object_paths,
+                    target,
+                    &merged_output_path,
+                    &self.options.output_file,
+                    "Successfully emitted linker input",
+                )
+            });
+            drop(object_guards);
+            if !merged {
+                drop(merged_output_guard);
+                return None;
+            }
+            if let Err(err) = std::fs::rename(&merged_output_path, &self.options.output_file) {
+                eprintln!(
+                    "Error: Failed to stage merged linker input `{}`: {}",
+                    self.options.output_file, err
+                );
+                drop(merged_output_guard);
+                return None;
+            }
+            drop(merged_output_guard);
+            Self::print_buffered_diagnostics(ctx.sess);
+            return Some(Self::build_compile_report(
+                loaded_sources.to_vec(),
+                std::mem::take(phase_timings),
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        let linked = Self::measure_phase(phase_timings, "link", || {
+            self.run_link_command_with_inputs(&object_paths, target, "Successfully compiled")
+        });
+        drop(object_guards);
+        if linked {
+            Self::print_buffered_diagnostics(ctx.sess);
+        }
+        linked.then_some(Self::build_compile_report(
+            loaded_sources.to_vec(),
+            std::mem::take(phase_timings),
+            cache_stats,
+            lower_cache_stats,
+            mast_workload,
+            mir_workload,
+            codegen_plan_report,
+            collect_codegen_diagnostics,
+            codegen_report,
+            Some(emit_report),
+        ))
+    }
+
+    fn compile_partitioned_units_full_lto(
+        &self,
+        ctx: &mut SemaContext<'_>,
+        loaded_sources: &[PathBuf],
+        phase_timings: &mut Vec<PhaseTiming>,
+        target: &LinkTarget,
+        module_name: &str,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
+        cache_stats: CompileCacheStats,
+        lower_cache_stats: kernc_lower::LowerCacheStats,
+        mast_workload: kernc_mast::MastWorkloadStats,
+        mir_workload: kernc_mir::MirWorkloadStats,
+        codegen_plan_report: Option<CodegenPlanReport>,
+        collect_codegen_diagnostics: bool,
+    ) -> Option<CompileReport> {
+        type CompletedFullLtoUnit = (usize, String, Vec<u8>, CodegenReport);
+
+        let started = Instant::now();
+        let mir_unit_batch =
+            match self.partitioned_mir_unit_reports(mast_module, codegen_unit_plans) {
+                Ok(batch) => batch,
+                Err(err) => {
+                    eprintln!("Error: failed to build partitioned MIR units for full LTO: {err}");
+                    return None;
+                }
+            };
+        let asm_dialect = self.codegen_asm_dialect();
+        let worker_count = Self::codegen_worker_count(mir_unit_batch.reports.len());
+        let mut pending = mir_unit_batch.reports.iter().collect::<Vec<_>>();
+        let mut completed = Vec::<CompletedFullLtoUnit>::with_capacity(pending.len());
+        while !pending.is_empty() {
+            let take = worker_count.min(pending.len());
+            let chunk = pending.drain(..take).collect::<Vec<_>>();
+            let mut chunk_results = match std::thread::scope(|scope| {
+                let mut handles = Vec::<
+                    std::thread::ScopedJoinHandle<'_, Result<CompletedFullLtoUnit, String>>,
+                >::with_capacity(chunk.len());
+                for unit in chunk {
+                    let mut worker_session = ctx.sess.clone();
+                    let worker_registry = ctx.type_registry.clone();
+                    let module_name = format!("{}_{}", module_name, unit.unit_name);
+                    let split_sections_for_gc = self.options.split_sections_for_gc;
+                    let collect_diagnostics = collect_codegen_diagnostics;
+                    handles.push(scope.spawn(move || {
+                        let codegen_ctx = Context::create();
+                        let mut codegen = CodeGenerator::new(
+                            &codegen_ctx,
+                            &module_name,
+                            &mut worker_session,
+                            &worker_registry,
+                            split_sections_for_gc,
+                        );
+                        codegen.set_asm_dialect(asm_dialect);
+                        let codegen_report =
+                            codegen.compile_mir(&unit.mir_report.module, collect_diagnostics);
+                        let bitcode = codegen.into_module().bitcode()?;
+                        Ok::<_, String>((
+                            unit.index,
+                            unit.unit_name.clone(),
+                            bitcode,
+                            codegen_report,
+                        ))
+                    }));
+                }
+
+                let mut results = Vec::with_capacity(handles.len());
+                for handle in handles {
+                    let result = handle
+                        .join()
+                        .map_err(|_| "parallel full-LTO LLVM worker panicked".to_string())??;
+                    results.push(result);
+                }
+                Ok::<_, String>(results)
+            }) {
+                Ok(results) => results,
+                Err(err) => {
+                    eprintln!("Error: LLVM failed to build a full-LTO codegen unit: {err}");
+                    return None;
+                }
+            };
+            completed.append(&mut chunk_results);
+        }
+        completed.sort_by_key(|(index, _, _, _)| *index);
+
+        let codegen_ctx = Context::create();
+        let mut codegen_report = CodegenReport::default();
+        let mut link_duration = Duration::default();
+        if completed.is_empty() {
+            eprintln!("Error: full LTO requires at least one materialized codegen unit.");
+            return None;
+        }
+        let mut merged_session = ctx.sess.clone();
+        let mut merged_codegen = CodeGenerator::new(
+            &codegen_ctx,
+            &format!("{}_full_lto", module_name),
+            &mut merged_session,
+            &ctx.type_registry,
+            self.options.split_sections_for_gc,
+        );
+        merged_codegen.set_asm_dialect(self.codegen_asm_dialect());
+        for (_, unit_name, bitcode, unit_report) in completed {
+            Self::absorb_codegen_report(&mut codegen_report, unit_report);
+            let unit_module = match codegen_ctx
+                .parse_bitcode_module(&format!("{}_{}", module_name, unit_name), &bitcode)
+            {
+                Ok(module) => module,
+                Err(err) => {
+                    eprintln!(
+                        "Error: LLVM failed to deserialize codegen unit `{}` for full LTO: {}",
+                        unit_name, err
+                    );
+                    return None;
+                }
+            };
+            let link_started = Instant::now();
+            if let Err(err) = merged_codegen.link_module(unit_module) {
+                eprintln!(
+                    "Error: LLVM failed to link codegen unit `{}` into the full-LTO module: {}",
+                    unit_name, err
+                );
+                return None;
+            }
+            link_duration += link_started.elapsed();
+        }
+
+        phase_timings.push(PhaseTiming {
+            name: "codegen_units",
+            duration: started.elapsed(),
+        });
+        phase_timings.push(PhaseTiming {
+            name: "  mir_units",
+            duration: mir_unit_batch.wall_duration,
+        });
+        if !link_duration.is_zero() {
+            phase_timings.push(PhaseTiming {
+                name: "lto_link",
+                duration: link_duration,
+            });
+        }
+        phase_timings.extend(codegen_report.timings.iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
+        let link_input_path = self.prepare_link_input_path(target);
+        let _guard = self.temp_link_input_guard(&link_input_path);
+        let emit_result = if self.options.driver_mode == DriverMode::EmitLlvmIr {
+            Self::measure_phase(phase_timings, "emit_llvm_ir", || {
+                merged_codegen.emit_llvm_ir(
+                    &target.triple,
+                    self.options.opt_level,
+                    self.options.emit_llvm_stage,
+                    collect_codegen_diagnostics,
+                )
+            })
+        } else {
+            Self::measure_phase(phase_timings, "emit_object", || {
+                merged_codegen.emit_to_file(
+                    &target.triple,
+                    &link_input_path,
+                    self.options.opt_level,
+                    collect_codegen_diagnostics,
+                )
+            })
+        };
+        drop(merged_codegen);
+
+        let emit_report = match emit_result {
+            Ok(report) => report,
+            Err(err) => {
+                if self.options.driver_mode == DriverMode::EmitLlvmIr {
+                    eprintln!("Error: Failed to print LLVM IR: {}", err);
+                } else {
+                    eprintln!("Error: LLVM failed to generate intermediate file: {}", err);
+                }
+                return None;
+            }
+        };
+        phase_timings.extend(emit_report.timings.iter().map(|timing| PhaseTiming {
+            name: timing.name,
+            duration: timing.duration,
+        }));
+
+        if self.options.driver_mode == DriverMode::EmitLlvmIr {
+            Self::print_buffered_diagnostics(&merged_session);
+            return Some(Self::build_compile_report(
+                loaded_sources.to_vec(),
+                std::mem::take(phase_timings),
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        if self.options.driver_mode.emits_linker_input() {
+            Self::print_buffered_diagnostics(&merged_session);
+            if self.options.report_progress {
+                println!(
+                    "Successfully emitted linker input to `{}`",
+                    self.options.output_file
+                );
+            }
+            return Some(Self::build_compile_report(
+                loaded_sources.to_vec(),
+                std::mem::take(phase_timings),
+                cache_stats,
+                lower_cache_stats,
+                mast_workload,
+                mir_workload,
+                codegen_plan_report,
+                collect_codegen_diagnostics,
+                codegen_report,
+                Some(emit_report),
+            ));
+        }
+
+        let linked = Self::measure_phase(phase_timings, "link", || {
+            self.run_link_command(Some(&link_input_path), target, "Successfully compiled")
+        });
+        if linked {
+            Self::print_buffered_diagnostics(&merged_session);
+        }
+        linked.then_some(Self::build_compile_report(
+            loaded_sources.to_vec(),
+            std::mem::take(phase_timings),
+            cache_stats,
+            lower_cache_stats,
+            mast_workload,
+            mir_workload,
+            codegen_plan_report,
+            collect_codegen_diagnostics,
+            codegen_report,
+            Some(emit_report),
+        ))
+    }
+
+    fn partitioned_mir_unit_reports(
+        &self,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
+    ) -> Result<MirUnitBatch, String> {
+        type CompletedMirUnit = (usize, String, kernc_mir_lower::MirBuildReport);
+
+        let started = Instant::now();
+        let worker_count = Self::codegen_worker_count(codegen_unit_plans.len());
+        if worker_count <= 1 {
+            let reports = codegen_unit_plans
+                .iter()
+                .enumerate()
+                .map(|(index, unit)| {
+                    let unit_module = materialize_codegen_unit(mast_module, unit);
+                    PartitionedMirUnitReport {
+                        index,
+                        unit_name: unit.name.clone(),
+                        mir_report: kernc_mir_lower::build_from_mast(&unit_module),
+                    }
+                })
+                .collect::<Vec<_>>();
+            return Ok(MirUnitBatch {
+                reports,
+                wall_duration: started.elapsed(),
+            });
+        }
+
+        let mut pending = codegen_unit_plans.iter().enumerate().collect::<Vec<_>>();
+        let mut completed = Vec::with_capacity(pending.len());
+
+        while !pending.is_empty() {
+            let take = worker_count.min(pending.len());
+            let chunk = pending.drain(..take).collect::<Vec<_>>();
+            let mut chunk_results = std::thread::scope(|scope| {
+                let mut handles = Vec::<
+                    std::thread::ScopedJoinHandle<'_, Result<CompletedMirUnit, String>>,
+                >::with_capacity(chunk.len());
+                for (index, unit) in chunk {
+                    handles.push(scope.spawn(move || {
+                        let unit_module = materialize_codegen_unit(mast_module, unit);
+                        Ok::<_, String>((
+                            index,
+                            unit.name.clone(),
+                            kernc_mir_lower::build_from_mast(&unit_module),
+                        ))
+                    }));
+                }
+
+                let mut results = Vec::with_capacity(handles.len());
+                for handle in handles {
+                    let result = handle
+                        .join()
+                        .map_err(|_| "parallel full-LTO MIR worker panicked".to_string())??;
+                    results.push(result);
+                }
+                Ok::<_, String>(results)
+            })?;
+            completed.extend(
+                chunk_results
+                    .drain(..)
+                    .map(|(index, unit_name, mir_report)| PartitionedMirUnitReport {
+                        index,
+                        unit_name,
+                        mir_report,
+                    }),
+            );
+        }
+
+        completed.sort_by_key(|report| report.index);
+        Ok(MirUnitBatch {
+            reports: completed,
+            wall_duration: started.elapsed(),
+        })
+    }
+
+    fn codegen_unit_artifacts(
+        &self,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
+        module_name: &str,
+        target_triple: &str,
+        session: &Session,
+        type_registry: &kernc_sema::ty::TypeRegistry,
+        collect_diagnostics: bool,
+    ) -> Result<CodegenUnitBatch, String> {
+        type PendingCodegenUnit = (usize, String, String, String, kernc_mast::MastModule);
+        type CompletedCodegenUnit = (usize, String, String, CodegenReport, EmitObjectReport);
+
+        let started = Instant::now();
+        let worker_count = Self::codegen_worker_count(codegen_unit_plans.len());
+        if worker_count <= 1 {
+            return self.codegen_unit_artifacts_serial(
+                mast_module,
+                codegen_unit_plans,
+                module_name,
+                target_triple,
+                session,
+                type_registry,
+                collect_diagnostics,
+            );
+        }
+
+        let asm_dialect = match self.options.asm_dialect {
+            AsmDialect::Intel => InlineAsmDialect::Intel,
+            AsmDialect::Att => InlineAsmDialect::ATT,
+        };
+        let mut pending: Vec<PendingCodegenUnit> = codegen_unit_plans
+            .iter()
+            .enumerate()
+            .map(|(index, unit)| {
+                let object_path = if self.options.driver_mode.emits_linker_input()
+                    && self.options.emit_multi_object_dir
+                {
+                    self.make_multi_object_codegen_unit_path(&unit.name)
+                } else {
+                    self.make_temp_codegen_unit_path(&unit.name)
+                };
+                (
+                    index,
+                    unit.name.clone(),
+                    format!("{}_{}", module_name, unit.name),
+                    object_path,
+                    materialize_codegen_unit(mast_module, unit),
+                )
+            })
+            .collect::<Vec<_>>();
+        let mut completed = Vec::with_capacity(pending.len());
+
+        while !pending.is_empty() {
+            let take = worker_count.min(pending.len());
+            let chunk: Vec<PendingCodegenUnit> = pending.drain(..take).collect();
+            let mut chunk_results: Vec<CompletedCodegenUnit> = std::thread::scope(|scope| {
+                let mut handles = Vec::<
+                    std::thread::ScopedJoinHandle<'_, Result<CompletedCodegenUnit, String>>,
+                >::with_capacity(chunk.len());
+                for (index, unit_name, llvm_module_name, object_path, unit_module) in chunk {
+                    let mut worker_session = session.clone();
+                    let worker_registry = type_registry.clone();
+                    let target_triple = target_triple.to_string();
+                    let split_sections_for_gc = self.options.split_sections_for_gc;
+                    let opt_level = self.options.opt_level;
+                    let collect_diagnostics = collect_diagnostics;
+                    handles.push(scope.spawn(move || {
+                        let codegen_ctx = Context::create();
+                        let mut codegen = CodeGenerator::new(
+                            &codegen_ctx,
+                            &llvm_module_name,
+                            &mut worker_session,
+                            &worker_registry,
+                            split_sections_for_gc,
+                        );
+                        codegen.set_asm_dialect(asm_dialect);
+                        let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
+                        let codegen_report =
+                            codegen.compile_mir(&mir_report.module, collect_diagnostics);
+                        let emit_report = codegen.emit_to_file(
+                            &target_triple,
+                            &object_path,
+                            opt_level,
+                            collect_diagnostics,
+                        )?;
+                        Ok::<_, String>((
+                            index,
+                            unit_name,
+                            object_path,
+                            codegen_report,
+                            emit_report,
+                        ))
+                    }));
+                }
+
+                let mut results: Vec<CompletedCodegenUnit> = Vec::with_capacity(handles.len());
+                for handle in handles {
+                    let result = handle
+                        .join()
+                        .map_err(|_| "parallel CGU worker panicked".to_string())??;
+                    results.push(result);
+                }
+                Ok::<_, String>(results)
+            })?;
+            completed.extend(chunk_results.drain(..).map(
+                |(index, _unit_name, object_path, codegen_report, emit_report)| {
+                    CodegenUnitArtifacts {
+                        index,
+                        object_path,
+                        codegen_report,
+                        emit_report,
+                    }
+                },
+            ));
+        }
+
+        completed.sort_by_key(|artifact| artifact.index);
+        Ok(CodegenUnitBatch {
+            artifacts: completed,
+            wall_duration: started.elapsed(),
+        })
+    }
+
+    fn codegen_unit_artifacts_serial(
+        &self,
+        mast_module: &kernc_mast::MastModule,
+        codegen_unit_plans: &[codegen_units::CodegenUnitPlan],
+        module_name: &str,
+        target_triple: &str,
+        session: &Session,
+        type_registry: &kernc_sema::ty::TypeRegistry,
+        collect_diagnostics: bool,
+    ) -> Result<CodegenUnitBatch, String> {
+        let started = Instant::now();
+        let mut artifacts = Vec::with_capacity(codegen_unit_plans.len());
+        for (index, unit) in codegen_unit_plans.iter().enumerate() {
+            let unit_module = materialize_codegen_unit(mast_module, unit);
+            let mut worker_session = session.clone();
+            let codegen_ctx = Context::create();
+            let mut codegen = CodeGenerator::new(
+                &codegen_ctx,
+                &format!("{}_{}", module_name, unit.name),
+                &mut worker_session,
+                type_registry,
+                self.options.split_sections_for_gc,
+            );
+            codegen.set_asm_dialect(match self.options.asm_dialect {
+                AsmDialect::Intel => InlineAsmDialect::Intel,
+                AsmDialect::Att => InlineAsmDialect::ATT,
+            });
+            let mir_report = kernc_mir_lower::build_from_mast(&unit_module);
+            let codegen_report = codegen.compile_mir(&mir_report.module, collect_diagnostics);
+            let object_path = if self.options.driver_mode.emits_linker_input()
+                && self.options.emit_multi_object_dir
+            {
+                self.make_multi_object_codegen_unit_path(&unit.name)
+            } else {
+                self.make_temp_codegen_unit_path(&unit.name)
+            };
+            let emit_report = codegen.emit_to_file(
+                target_triple,
+                &object_path,
+                self.options.opt_level,
+                collect_diagnostics,
+            )?;
+            artifacts.push(CodegenUnitArtifacts {
+                index,
+                object_path,
+                codegen_report,
+                emit_report,
+            });
+        }
+        Ok(CodegenUnitBatch {
+            artifacts,
+            wall_duration: started.elapsed(),
+        })
+    }
+
+    fn codegen_worker_count(unit_count: usize) -> usize {
+        if unit_count <= 1 {
+            return 1;
+        }
+        std::thread::available_parallelism()
+            .map(|count| count.get())
+            .unwrap_or(1)
+            .min(unit_count)
+    }
+
+    fn prepare_multi_object_output_dir(&self) -> bool {
+        let dir = self.make_multi_object_dir_path();
+        let dir_path = Path::new(&dir);
+        if dir_path.is_file() && fs::remove_file(dir_path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale multi-object file `{}`.",
+                dir_path.display()
+            );
+            return false;
+        }
+        if dir_path.is_dir() && fs::remove_dir_all(dir_path).is_err() {
+            eprintln!(
+                "Error: Failed to remove stale multi-object directory `{}`.",
+                dir_path.display()
+            );
+            return false;
+        }
+        if let Err(err) = fs::create_dir_all(dir_path) {
+            eprintln!(
+                "Error: Failed to create multi-object directory `{}`: {}",
+                dir_path.display(),
+                err
+            );
+            return false;
+        }
+        true
+    }
+
+    fn write_multi_object_manifest(&self, object_paths: &[String]) -> std::io::Result<()> {
+        let mut contents = String::from("version=1\n");
+        for object_path in object_paths {
+            contents.push_str("object=");
+            contents.push_str(object_path);
+            contents.push('\n');
+        }
+        fs::write(&self.options.output_file, contents)
+    }
+}
+
+struct PartitionedMirUnitReport {
+    index: usize,
+    unit_name: String,
+    mir_report: kernc_mir_lower::MirBuildReport,
+}
+
+struct MirUnitBatch {
+    reports: Vec<PartitionedMirUnitReport>,
+    wall_duration: Duration,
+}

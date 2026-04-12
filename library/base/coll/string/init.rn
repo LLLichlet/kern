@@ -2,7 +2,7 @@
 //!
 //! `String` is a growable UTF-8-oriented byte buffer built on top of `List[u8]`.
 
-use base.mem.alloc.Allocator;
+use base.mem.alloc.{Allocator, Arena};
 use base.coll.List;
 use base.Option;
 
@@ -55,6 +55,24 @@ impl *mut String {
         return self.push_str(alloc, text);
     }
 
+    /// Replaces the contents of the string with `text`, using exact growth when needed.
+    pub fn clone_from_exact(alloc: *mut Allocator, text: []u8) bool {
+        self.clear();
+        return self.raw..&.append_slice_exact(alloc, text);
+    }
+
+    /// Replaces the contents of the string with `text` using arena-specialized exact growth.
+    #[inline]
+    pub fn clone_from_exact_in_arena(arena: *mut Arena, text: []u8) bool {
+        self.clear();
+        let .{ Some: out } = self.raw..&.append_uninit_exact_in_arena(arena, #text)
+            else return false;
+        if (#text != usize.{0}) {
+            @memcpy(out.[0].& as *mut u8, text.[0].& as *u8, #text);
+        }
+        return true;
+    }
+
     /// Replaces the contents of the string with another string.
     pub fn clone_from_string(alloc: *mut Allocator, other: *String) bool {
         return self.clone_from(alloc, other.as_str());
@@ -68,6 +86,25 @@ impl *mut String {
     /// Reserves space for at least `additional` more bytes.
     pub fn reserve(alloc: *mut Allocator, additional: usize) bool {
         return self.raw..&.reserve(alloc, additional);
+    }
+
+    /// Grows the string by `count` bytes and returns the appended region.
+    ///
+    /// Design:
+    /// callers must write valid initialized bytes into the returned slice.
+    pub fn append_uninit(alloc: *mut Allocator, count: usize) Option[[]mut u8] {
+        return self.raw..&.append_uninit(alloc, count);
+    }
+
+    /// Grows the string by `count` bytes using exact growth when needed.
+    pub fn append_uninit_exact(alloc: *mut Allocator, count: usize) Option[[]mut u8] {
+        return self.raw..&.append_uninit_exact(alloc, count);
+    }
+
+    /// Grows the string by `count` bytes using arena-specialized exact growth.
+    #[inline]
+    pub fn append_uninit_exact_in_arena(arena: *mut Arena, count: usize) Option[[]mut u8] {
+        return self.raw..&.append_uninit_exact_in_arena(arena, count);
     }
 
     /// Removes and returns the final byte.

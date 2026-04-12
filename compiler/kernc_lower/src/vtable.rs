@@ -1,5 +1,6 @@
 use super::Lowerer;
 use kernc_mast::*;
+use kernc_mono::MonoId;
 use kernc_sema::checker::Substituter;
 use kernc_sema::def::{Def, DefId, ImplDef, TraitDef};
 use kernc_sema::ty::{TypeId, TypeKind};

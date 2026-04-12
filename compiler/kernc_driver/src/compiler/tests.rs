@@ -6,7 +6,7 @@ use super::{
 };
 use kernc_mast::{MastBlock, MastExpr, MastExprKind, MastStmt};
 use kernc_utils::Session;
-use kernc_utils::config::{CompileOptions, DriverMode};
+use kernc_utils::config::{CompileOptions, DriverMode, LtoMode};
 use std::fs;
 use std::process::Command;
 

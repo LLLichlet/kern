@@ -137,6 +137,89 @@ fn main() i32 {
 }
 
 #[test]
+fn allows_same_block_shadowing_to_create_a_mutable_working_copy() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let value = i32.{5};
+    let mut value = value;
+    value = 9;
+    return value;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(9),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn preserves_outer_binding_in_shadowing_initializer() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let value = i32.{5};
+    let value = value + 7;
+    return value;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(12),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn lowers_void_aggregate_initializers_without_ice() {
+    let output = build_and_run_source(
+        r#"
+type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};
+
+fn explicit_void() Result[void, i32] {
+    return .{ Ok: void.{} };
+}
+
+fn contextual_void() Result[void, i32] {
+    return .{ Ok: .{} };
+}
+
+fn main() i32 {
+    let first = match (explicit_void()) {
+        .{ Ok: _ } => i32.{0},
+        .{ Err: code } => code,
+    };
+    let second = match (contextual_void()) {
+        .{ Ok: _ } => i32.{0},
+        .{ Err: code } => code,
+    };
+    return first + second;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "hosted regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn rejects_type_qualified_payload_variant_without_braces() {
     let output = compile_source(
         r#"

@@ -436,3 +436,75 @@ fn main() i32 {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn compiles_nested_let_else_inside_failure_branch_block() {
+    let output = build_and_run_source(
+        r#"
+type Option[T] = enum {
+    None,
+    Some: T,
+};
+
+fn pick(value: Option[Option[i32]]) i32 {
+    let .{ Some: inner } = value else {
+        let .{ Some: fallback } = Option[i32].{ Some: 41 } else return 1;
+        return fallback;
+    };
+
+    let .{ Some: number } = inner else {
+        let .{ Some: fallback } = Option[i32].{ Some: 17 } else return 2;
+        return fallback;
+    };
+
+    return number;
+}
+
+fn main() i32 {
+    return pick(Option[Option[i32]].{ Some: Option[i32].{ None } });
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(17),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn compiles_nested_explicit_else_pattern_let_else() {
+    let output = build_and_run_source(
+        r#"
+type Result[T, E] = enum {
+    Ok: T,
+    Err: E,
+};
+
+fn pick(value: Result[Result[i32, i32], i32]) i32 {
+    let .{ Ok: inner } = value else .{ Err: outer_err } => return outer_err;
+    let .{ Ok: number } = inner else .{ Err: inner_err } => {
+        let .{ Ok: fallback } = Result[i32, i32].{ Ok: inner_err + 1 }
+            else .{ Err: fallback_err } => return fallback_err;
+        return fallback;
+    };
+    return number;
+}
+
+fn main() i32 {
+    return pick(Result[Result[i32, i32], i32].{ Ok: Result[i32, i32].{ Err: 8 } });
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(9),
+        "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}

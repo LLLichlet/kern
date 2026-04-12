@@ -152,7 +152,7 @@ fn usage() -> &'static str {
         "Usage: kern-lsp [OPTIONS]\n",
         "\n",
         "Analysis Options:\n",
-        "  --library-bundle <B>       Select the injected library bundle: none, base, std (default: std)\n",
+        "  --library-bundle <B>       Select official library root aliases for analysis: none, base, std (default: std)\n",
         "  --features <a,b>           Enable explicit `craft` features for project analysis\n",
         "  --no-default-features      Disable default `craft` features for project analysis\n",
         "  --module-path <name=path>  Add a source module alias for analysis\n",

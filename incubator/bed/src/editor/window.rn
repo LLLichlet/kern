@@ -1,0 +1,651 @@
+use base.mem.alloc.Allocator;
+use ..{Cursor, Editor, EditorView, TextBuffer};
+
+impl *mut Editor {
+    fn active_cursor() *mut Cursor {
+        if (self.active_window == 0) {
+            return self.cursor..&;
+        }
+        return self.split_cursor..&;
+    }
+
+    fn active_preferred_col() *mut usize {
+        if (self.active_window == 0) {
+            return self.preferred_col..&;
+        }
+        return self.split_preferred_col..&;
+    }
+
+    fn active_scroll_row() *mut usize {
+        if (self.active_window == 0) {
+            return self.scroll_row..&;
+        }
+        return self.split_scroll_row..&;
+    }
+
+    fn view(index: usize) EditorView {
+        if (index == 0) {
+            return .{
+                cursor: self.cursor,
+                preferred_col: self.preferred_col,
+                scroll_row: self.scroll_row,
+            };
+        }
+        return .{
+            cursor: self.split_cursor,
+            preferred_col: self.split_preferred_col,
+            scroll_row: self.split_scroll_row,
+        };
+    }
+
+    fn view_cursor(index: usize) Cursor {
+        return self.view(index).cursor;
+    }
+
+    fn view_scroll_row(index: usize) usize {
+        return self.view(index).scroll_row;
+    }
+
+    fn set_view(index: usize, view: EditorView) void {
+        if (index == 0) {
+            self.cursor = view.cursor;
+            self.preferred_col = view.preferred_col;
+            self.scroll_row = view.scroll_row;
+            return;
+        }
+        self.split_cursor = view.cursor;
+        self.split_preferred_col = view.preferred_col;
+        self.split_scroll_row = view.scroll_row;
+    }
+
+    fn active_window_label() []u8 {
+        if (self.window_count <= 1) {
+            return "W1/1";
+        }
+        if (self.active_window == 0) {
+            return "W1/2";
+        }
+        return "W2/2";
+    }
+
+    fn clamp_cursor() void {
+        let cursor = self.active_cursor();
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            cursor.* = .{ row: 0, col: 0 };
+            return;
+        }
+
+        if (cursor.row >= lines) {
+            cursor.row = lines - 1;
+        }
+        let line_len = self.buffer.&.line_len(cursor.row);
+        if (cursor.col > line_len) {
+            cursor.col = line_len;
+        }
+    }
+
+    fn main_rows(term_rows: usize) usize {
+        if (term_rows == 0) {
+            return 0;
+        }
+        return term_rows - 1;
+    }
+
+    fn output_split_rows(term_rows: usize) usize {
+        let main_rows = self.main_rows(term_rows);
+        if (!self.has_output or main_rows < 3) {
+            return 0;
+        }
+        return (main_rows - 1) / usize.{2};
+    }
+
+    fn output_rows() usize {
+        return self.output_split_rows(self.screen_rows);
+    }
+
+    fn editor_rows() usize {
+        let main_rows = self.main_rows(self.screen_rows);
+        let output_rows = self.output_rows();
+        if (output_rows == 0) {
+            return main_rows;
+        }
+        return main_rows - output_rows - 1;
+    }
+
+    fn window_rows(index: usize) usize {
+        let rows = self.editor_rows();
+        if (self.window_count <= 1 or rows == 0) {
+            return rows;
+        }
+        if (rows <= 2) {
+            return if (index == 0) rows else 0;
+        }
+        let upper = (rows - 1) / usize.{2};
+        let lower = rows - upper - 1;
+        if (index == 0) {
+            return upper;
+        }
+        return lower;
+    }
+
+    fn view_rows() usize {
+        return self.window_rows(self.active_window);
+    }
+
+    fn page_step() usize {
+        let rows = self.view_rows();
+        if (rows == 0) {
+            return 1;
+        }
+        return rows;
+    }
+
+    fn output_page_step() usize {
+        let rows = self.output_rows();
+        if (rows == 0) {
+            return 1;
+        }
+        return rows;
+    }
+
+    pub fn resize(rows: usize, cols: usize) bool {
+        let changed = self.screen_rows != rows or self.screen_cols != cols;
+        self.screen_rows = rows;
+        self.screen_cols = cols;
+        if (changed) {
+            self.ensure_cursor_visible(rows);
+        }
+        return changed;
+    }
+
+    fn ensure_cursor_visible(term_rows: usize) void {
+        let _ = term_rows;
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let view_rows = self.view_rows();
+        if (view_rows == 0) {
+            scroll_row.* = cursor.row;
+            return;
+        }
+
+        if (cursor.row < scroll_row.*) {
+            scroll_row.* = cursor.row;
+        }
+        if (cursor.row >= scroll_row.* + view_rows) {
+            scroll_row.* = cursor.row - view_rows + 1;
+        }
+    }
+
+    fn ensure_output_cursor_visible() void {
+        let view_rows = self.output_rows();
+        if (view_rows == 0) {
+            self.output_scroll_row = self.output_cursor.row;
+            return;
+        }
+
+        if (self.output_cursor.row < self.output_scroll_row) {
+            self.output_scroll_row = self.output_cursor.row;
+        }
+        if (self.output_cursor.row >= self.output_scroll_row + view_rows) {
+            self.output_scroll_row = self.output_cursor.row - view_rows + 1;
+        }
+    }
+
+    fn remember_preferred_col() void {
+        let cursor = self.active_cursor();
+        let preferred_col = self.active_preferred_col();
+        preferred_col.* = cursor.col;
+    }
+
+    fn remember_output_preferred_col() void {
+        self.output_preferred_col = self.output_cursor.col;
+    }
+
+    fn move_to_row(row: usize) void {
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let preferred_col = self.active_preferred_col();
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            cursor.* = .{ row: 0, col: 0 };
+            scroll_row.* = 0;
+            preferred_col.* = 0;
+            return;
+        }
+
+        cursor.row = if (row < lines) row else lines - 1;
+        let line_len = self.buffer.&.line_len(cursor.row);
+        cursor.col = if (preferred_col.* < line_len) preferred_col.* else line_len;
+    }
+
+    fn move_left() void {
+        let cursor = self.active_cursor();
+        if (cursor.col > 0) {
+            cursor.col -= 1;
+        }
+        self.remember_preferred_col();
+    }
+
+    fn move_right() void {
+        let cursor = self.active_cursor();
+        let line_len = self.buffer.&.line_len(cursor.row);
+        if (cursor.col < line_len) {
+            cursor.col += 1;
+        }
+        self.remember_preferred_col();
+    }
+
+    fn clamp_output_cursor() void {
+        let lines = self.output.&.line_count();
+        if (lines == 0) {
+            self.output_cursor = .{ row: 0, col: 0 };
+            return;
+        }
+
+        if (self.output_cursor.row >= lines) {
+            self.output_cursor.row = lines - 1;
+        }
+        let line_len = self.output.&.line_len(self.output_cursor.row);
+        if (self.output_cursor.col > line_len) {
+            self.output_cursor.col = line_len;
+        }
+    }
+
+    fn output_move_to_row(row: usize) void {
+        let lines = self.output.&.line_count();
+        if (lines == 0) {
+            self.output_cursor = .{ row: 0, col: 0 };
+            self.output_scroll_row = 0;
+            self.output_preferred_col = 0;
+            return;
+        }
+
+        self.output_cursor.row = if (row < lines) row else lines - 1;
+        let line_len = self.output.&.line_len(self.output_cursor.row);
+        self.output_cursor.col = if (self.output_preferred_col < line_len) self.output_preferred_col else line_len;
+    }
+
+    fn output_move_left() void {
+        if (self.output_cursor.col > 0) {
+            self.output_cursor.col -= 1;
+        }
+        self.remember_output_preferred_col();
+    }
+
+    fn output_move_right() void {
+        let line_len = self.output.&.line_len(self.output_cursor.row);
+        if (self.output_cursor.col < line_len) {
+            self.output_cursor.col += 1;
+        }
+        self.remember_output_preferred_col();
+    }
+
+    fn output_move_up() void {
+        if (self.output_cursor.row > 0) {
+            self.output_move_to_row(self.output_cursor.row - 1);
+        }
+        self.clamp_output_cursor();
+    }
+
+    fn output_move_down() void {
+        if (self.output_cursor.row + 1 < self.output.&.line_count()) {
+            self.output_move_to_row(self.output_cursor.row + 1);
+        }
+        self.clamp_output_cursor();
+    }
+
+    fn output_move_line_start() void {
+        self.output_cursor.col = 0;
+        self.remember_output_preferred_col();
+    }
+
+    fn output_move_line_end() void {
+        self.output_cursor.col = self.output.&.line_len(self.output_cursor.row);
+        self.remember_output_preferred_col();
+    }
+
+    fn output_goto_row(row: usize) void {
+        self.output_move_to_row(row);
+        self.ensure_output_cursor_visible();
+        self.clamp_output_cursor();
+    }
+
+    fn move_up() void {
+        let cursor = self.active_cursor();
+        if (cursor.row > 0) {
+            self.move_to_row(cursor.row - 1);
+        }
+        self.clamp_cursor();
+    }
+
+    fn move_down() void {
+        let cursor = self.active_cursor();
+        if (cursor.row + 1 < self.buffer.&.line_count()) {
+            self.move_to_row(cursor.row + 1);
+        }
+        self.clamp_cursor();
+    }
+
+    fn move_line_start() void {
+        let cursor = self.active_cursor();
+        cursor.col = 0;
+        self.remember_preferred_col();
+    }
+
+    fn first_non_blank_col(row: usize) usize {
+        let line = self.buffer.&.line(row);
+        for (let mut i = usize.{0}; i < #line; i += 1) {
+            let byte = line.[i];
+            if (byte != b' ' and byte != b'\t') {
+                return i;
+            }
+        }
+        return 0;
+    }
+
+    fn move_line_end() void {
+        let cursor = self.active_cursor();
+        cursor.col = self.buffer.&.line_len(cursor.row);
+        self.remember_preferred_col();
+    }
+
+    fn move_first_non_blank() void {
+        let cursor = self.active_cursor();
+        cursor.col = self.first_non_blank_col(cursor.row);
+        self.remember_preferred_col();
+    }
+
+    fn goto_row(row: usize) void {
+        self.move_to_row(row);
+        self.ensure_cursor_visible(self.screen_rows);
+        self.clamp_cursor();
+    }
+
+    fn page_up() void {
+        let cursor = self.active_cursor();
+        let step = self.page_step();
+        if (cursor.row > step) {
+            self.move_to_row(cursor.row - step);
+        } else {
+            self.move_to_row(0);
+        }
+        self.ensure_cursor_visible(self.screen_rows);
+        self.clamp_cursor();
+    }
+
+    fn page_down() void {
+        let cursor = self.active_cursor();
+        let step = self.page_step();
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            cursor.row = 0;
+            return;
+        }
+
+        let last_row = lines - 1;
+        if (cursor.row + step < last_row) {
+            self.move_to_row(cursor.row + step);
+        } else {
+            self.move_to_row(last_row);
+        }
+        self.ensure_cursor_visible(self.screen_rows);
+        self.clamp_cursor();
+    }
+
+    fn output_page_up() void {
+        let step = self.output_page_step();
+        if (self.output_cursor.row > step) {
+            self.output_move_to_row(self.output_cursor.row - step);
+        } else {
+            self.output_move_to_row(0);
+        }
+        self.ensure_output_cursor_visible();
+        self.clamp_output_cursor();
+    }
+
+    fn output_page_down() void {
+        let step = self.output_page_step();
+        let lines = self.output.&.line_count();
+        if (lines == 0) {
+            self.output_cursor = .{ row: 0, col: 0 };
+            return;
+        }
+
+        let last_row = lines - 1;
+        if (self.output_cursor.row + step < last_row) {
+            self.output_move_to_row(self.output_cursor.row + step);
+        } else {
+            self.output_move_to_row(last_row);
+        }
+        self.ensure_output_cursor_visible();
+        self.clamp_output_cursor();
+    }
+
+    fn half_page_step() usize {
+        let rows = self.view_rows();
+        if (rows <= 1) {
+            return 1;
+        }
+        return rows / usize.{2};
+    }
+
+    fn half_page_up() void {
+        let scroll_row = self.active_scroll_row();
+        let step = self.half_page_step();
+        if (scroll_row.* > step) {
+            scroll_row.* -= step;
+        } else {
+            scroll_row.* = 0;
+        }
+        self.move_to_row(scroll_row.*);
+        self.clamp_cursor();
+    }
+
+    fn half_page_down() void {
+        let cursor = self.active_cursor();
+        let scroll_row = self.active_scroll_row();
+        let preferred_col = self.active_preferred_col();
+        let step = self.half_page_step();
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            cursor.* = .{ row: 0, col: 0 };
+            preferred_col.* = 0;
+            return;
+        }
+
+        let last_row = lines - 1;
+        let next = if (scroll_row.* + step < last_row) scroll_row.* + step else last_row;
+        scroll_row.* = next;
+        self.move_to_row(next);
+        self.clamp_cursor();
+    }
+
+    fn output_half_page_up() void {
+        let step = self.half_page_step();
+        if (self.output_scroll_row > step) {
+            self.output_scroll_row -= step;
+        } else {
+            self.output_scroll_row = 0;
+        }
+        self.output_move_to_row(self.output_scroll_row);
+        self.clamp_output_cursor();
+    }
+
+    fn output_half_page_down() void {
+        let step = self.half_page_step();
+        let lines = self.output.&.line_count();
+        if (lines == 0) {
+            self.output_cursor = .{ row: 0, col: 0 };
+            self.output_preferred_col = 0;
+            return;
+        }
+
+        let last_row = lines - 1;
+        let next = if (self.output_scroll_row + step < last_row) self.output_scroll_row + step else last_row;
+        self.output_scroll_row = next;
+        self.output_move_to_row(next);
+        self.clamp_output_cursor();
+    }
+
+    fn goto_screen_row(screen_row: usize) void {
+        let cursor = self.active_cursor();
+        let preferred_col = self.active_preferred_col();
+        let scroll_row = self.active_scroll_row();
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            cursor.* = .{ row: 0, col: 0 };
+            preferred_col.* = 0;
+            scroll_row.* = 0;
+            return;
+        }
+
+        let target = scroll_row.* + screen_row;
+        self.move_to_row(target);
+        self.ensure_cursor_visible(self.screen_rows);
+        self.clamp_cursor();
+    }
+
+    fn goto_screen_top() void {
+        self.goto_screen_row(0);
+    }
+
+    fn goto_screen_middle() void {
+        let rows = self.view_rows();
+        if (rows == 0) {
+            self.goto_screen_row(0);
+            return;
+        }
+        self.goto_screen_row(rows / usize.{2});
+    }
+
+    fn goto_screen_bottom() void {
+        let rows = self.view_rows();
+        if (rows == 0) {
+            self.goto_screen_row(0);
+            return;
+        }
+        self.goto_screen_row(rows - 1);
+    }
+
+    fn output_goto_screen_row(screen_row: usize) void {
+        let lines = self.output.&.line_count();
+        if (lines == 0) {
+            self.output_cursor = .{ row: 0, col: 0 };
+            self.output_preferred_col = 0;
+            return;
+        }
+
+        let target = self.output_scroll_row + screen_row;
+        self.output_move_to_row(target);
+        self.ensure_output_cursor_visible();
+        self.clamp_output_cursor();
+    }
+
+    fn output_goto_screen_top() void {
+        self.output_goto_screen_row(0);
+    }
+
+    fn output_goto_screen_middle() void {
+        let rows = self.output_rows();
+        if (rows == 0) {
+            self.output_goto_screen_row(0);
+            return;
+        }
+        self.output_goto_screen_row(rows / usize.{2});
+    }
+
+    fn output_goto_screen_bottom() void {
+        let rows = self.output_rows();
+        if (rows == 0) {
+            self.output_goto_screen_row(0);
+            return;
+        }
+        self.output_goto_screen_row(rows - 1);
+    }
+
+    fn replace_buffer(alloc: *mut Allocator, next: TextBuffer) void {
+        self.buffer..&.deinit(alloc);
+        self.buffer = next;
+        self.cursor = .{ row: 0, col: 0 };
+        self.preferred_col = 0;
+        self.scroll_row = 0;
+        self.split_cursor = .{ row: 0, col: 0 };
+        self.split_preferred_col = 0;
+        self.split_scroll_row = 0;
+        self.active_window = 0;
+        self.window_count = 1;
+        self.active_pane = .Editor;
+    }
+
+    fn split_window(alloc: *mut Allocator) void {
+        let _ = alloc;
+        if (self.window_count >= 2) {
+            self.set_message(alloc, "window limit reached");
+            return;
+        }
+        self.set_view(1, self.view(self.active_window));
+        self.window_count = 2;
+        self.active_window = 1;
+        self.active_pane = .Editor;
+        self.set_message(alloc, "split window");
+    }
+
+    fn close_active_window(alloc: *mut Allocator) void {
+        if (self.window_count <= 1) {
+            self.set_message(alloc, "last window");
+            return;
+        }
+        if (self.active_window == 1) {
+            self.split_cursor = .{ row: 0, col: 0 };
+            self.split_preferred_col = 0;
+            self.split_scroll_row = 0;
+            self.active_window = 0;
+        } else {
+            self.cursor = self.split_cursor;
+            self.preferred_col = self.split_preferred_col;
+            self.scroll_row = self.split_scroll_row;
+            self.split_cursor = .{ row: 0, col: 0 };
+            self.split_preferred_col = 0;
+            self.split_scroll_row = 0;
+            self.active_window = 0;
+        }
+        self.window_count = 1;
+        self.active_pane = .Editor;
+        self.set_message(alloc, "closed window");
+    }
+
+    fn only_window(alloc: *mut Allocator) void {
+        if (self.window_count <= 1) {
+            self.set_message(alloc, "already only");
+            return;
+        }
+        if (self.active_window == 1) {
+            self.cursor = self.split_cursor;
+            self.preferred_col = self.split_preferred_col;
+            self.scroll_row = self.split_scroll_row;
+        }
+        self.split_cursor = .{ row: 0, col: 0 };
+        self.split_preferred_col = 0;
+        self.split_scroll_row = 0;
+        self.window_count = 1;
+        self.active_window = 0;
+        self.active_pane = .Editor;
+        self.set_message(alloc, "only window");
+    }
+
+    fn focus_next_window() void {
+        if (self.window_count <= 1) {
+            return;
+        }
+        self.active_window = if (self.active_window == 0) 1 else 0;
+    }
+
+    pub fn cursor_row() usize {
+        return self.active_cursor().row;
+    }
+
+    pub fn cursor_col() usize {
+        return self.active_cursor().col;
+    }
+}

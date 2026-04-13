@@ -205,6 +205,69 @@ fn render_editor_rows(
     return true;
 }
 
+fn render_editor_row_segment(
+    out: *mut String,
+    alloc: *mut Allocator,
+    text_buffer: *TextBuffer,
+    row: usize,
+    cursor_row: usize,
+    cols: usize,
+    fill_tilde: bool,
+    show_line_numbers: bool,
+    relative_line_numbers: bool,
+) bool {
+    let gutter = editor_gutter_width(text_buffer, show_line_numbers, relative_line_numbers);
+    let text_cols = if (cols > gutter) cols - gutter else 0;
+
+    if (row < text_buffer.line_count()) {
+        if (gutter > 0) {
+            let number = if (relative_line_numbers) {
+                if (row == cursor_row) {
+                    if (show_line_numbers) row + 1 else 0
+                } else {
+                    abs_diff_usize(row, cursor_row)
+                }
+            } else {
+                row + 1
+            };
+            let digits = decimal_width(number);
+            if (!push_spaces(out, alloc, gutter - digits - 1)) {
+                return false;
+            }
+            if (!ansi.push_usize(out, alloc, number)) {
+                return false;
+            }
+            if (!out.push_char(alloc, b' ')) {
+                return false;
+            }
+        }
+        if (!push_rendered_line(out, alloc, text_buffer.line(row), text_cols)) {
+            return false;
+        }
+    } else {
+        if (gutter > 0 and !push_spaces(out, alloc, gutter)) {
+            return false;
+        }
+        if (fill_tilde and !out.push_char(alloc, b'~')) {
+            return false;
+        }
+    }
+
+    let used = if (row < text_buffer.line_count()) {
+        let line = text_buffer.line(row);
+        let line_cols = if (#line < text_cols) #line else text_cols;
+        gutter + line_cols
+    } else if (fill_tilde) {
+        gutter + 1
+    } else {
+        gutter
+    };
+    if (cols > used and !push_spaces(out, alloc, cols - used)) {
+        return false;
+    }
+    return true;
+}
+
 impl *mut Editor {
     fn render_status_line(alloc: *mut Allocator, cols: usize, out: *mut String) bool {
         let mut remaining = cols;
@@ -322,6 +385,13 @@ impl *mut Editor {
         return push_truncated(out, alloc, "]", remaining..&);
     }
 
+    fn render_col_window_separator(alloc: *mut Allocator, out: *mut String, left_index: usize) bool {
+        let active = self.active_pane == .Editor
+            and (self.active_window == left_index or self.active_window == left_index + 1);
+        let byte = if (active) b'#' else b'|';
+        return out.push_char(alloc, byte);
+    }
+
     pub fn render_into(alloc: *mut Allocator, out: *mut String, full_redraw: bool) bool {
         out.clear();
         let rows = self.screen_rows;
@@ -346,41 +416,78 @@ impl *mut Editor {
         if (editor_rows > 0) {
             let first_window = self.first_visible_window();
             let visible_window_count = self.visible_window_count();
-            for (let mut offset = usize.{0}; offset < visible_window_count; offset += 1) {
-                let index = first_window + offset;
-                let rows_for_window = self.window_rows(index);
-                if (offset > 0) {
-                    if (wrote_editor_lines and !ansi.new_line(out, alloc)) {
-                        return false;
+            match (self.window_layout) {
+                .Rows => {
+                    for (let mut offset = usize.{0}; offset < visible_window_count; offset += 1) {
+                        let index = first_window + offset;
+                        let rows_for_window = self.window_rows(index);
+                        if (offset > 0) {
+                            if (wrote_editor_lines and !ansi.new_line(out, alloc)) {
+                                return false;
+                            }
+                            if (!self.render_window_separator(alloc, cols, out, index)) {
+                                return false;
+                            }
+                            if (!ansi.clear_line(out, alloc)) {
+                                return false;
+                            }
+                            wrote_editor_lines = true;
+                        }
+                        if (rows_for_window > 0) {
+                            if (wrote_editor_lines and !ansi.new_line(out, alloc)) {
+                                return false;
+                            }
+                            if (!render_editor_rows(
+                                out,
+                                alloc,
+                                self.buffer_for_window(index),
+                                self.view_scroll_row(index),
+                                self.view_cursor(index).row,
+                                rows_for_window,
+                                cols,
+                                true,
+                                self.show_line_numbers,
+                                self.relative_line_numbers,
+                            )) {
+                                return false;
+                            }
+                            wrote_editor_lines = true;
+                        }
                     }
-                    if (!self.render_window_separator(alloc, cols, out, index)) {
-                        return false;
+                },
+                .Cols => {
+                    for (let mut screen_row = usize.{0}; screen_row < editor_rows; screen_row += 1) {
+                        for (let mut offset = usize.{0}; offset < visible_window_count; offset += 1) {
+                            let index = first_window + offset;
+                            if (offset > 0 and !self.render_col_window_separator(alloc, out, index - 1)) {
+                                return false;
+                            }
+                            let window_cols = self.window_cols(index);
+                            let buffer = self.buffer_for_window(index);
+                            let row = self.view_scroll_row(index) + screen_row;
+                            if (!render_editor_row_segment(
+                                out,
+                                alloc,
+                                buffer,
+                                row,
+                                self.view_cursor(index).row,
+                                window_cols,
+                                true,
+                                self.show_line_numbers,
+                                self.relative_line_numbers,
+                            )) {
+                                return false;
+                            }
+                        }
+                        if (!ansi.clear_line(out, alloc)) {
+                            return false;
+                        }
+                        wrote_editor_lines = true;
+                        if (screen_row + 1 < editor_rows and !ansi.new_line(out, alloc)) {
+                            return false;
+                        }
                     }
-                    if (!ansi.clear_line(out, alloc)) {
-                        return false;
-                    }
-                    wrote_editor_lines = true;
-                }
-                if (rows_for_window > 0) {
-                    if (wrote_editor_lines and !ansi.new_line(out, alloc)) {
-                        return false;
-                    }
-                    if (!render_editor_rows(
-                        out,
-                        alloc,
-                        self.buffer_for_window(index),
-                        self.view_scroll_row(index),
-                        self.view_cursor(index).row,
-                        rows_for_window,
-                        cols,
-                        true,
-                        self.show_line_numbers,
-                        self.relative_line_numbers,
-                    )) {
-                        return false;
-                    }
-                    wrote_editor_lines = true;
-                }
+                },
             }
         }
 
@@ -440,7 +547,7 @@ impl *mut Editor {
             self.output_cursor.col + 1
         } else {
             let gutter = editor_gutter_width(self.active_buffer(), self.show_line_numbers, self.relative_line_numbers);
-            self.active_cursor().col + gutter + 1
+            self.window_left_col(self.active_window) + self.active_cursor().col + gutter
         };
         let cursor_col = if (raw_col > cols) cols else raw_col;
         let wants_bar_cursor = self.mode != .Normal;

@@ -27,6 +27,34 @@ fn contains(text: []u8, needle: []u8) bool {
     return false;
 }
 
+fn find_index(text: []u8, needle: []u8) usize {
+    if (#needle == 0 or #needle > #text) {
+        return #text;
+    }
+    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
+        let mut matched = true;
+        for (let mut j = usize.{0}; j < #needle; j += 1) {
+            if (text.[i + j] != needle.[j]) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
+            return i;
+        }
+    }
+    return #text;
+}
+
+fn find_byte(text: []u8, needle: u8) usize {
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        if (text.[i] == needle) {
+            return i;
+        }
+    }
+    return #text;
+}
+
 fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
     for (let mut i = usize.{0}; i < #text; i += 1) {
         state.handle_key(gpa, input.Key.{ Byte: text.[i] });
@@ -78,6 +106,11 @@ fn check_command_parse() void {
     match (command.parse("split")) {
         .Split => {}
         _ => test.fail("expected :split to parse as split", .{}),
+    }
+
+    match (command.parse("vsplit")) {
+        .VSplit => {}
+        _ => test.fail("expected :vsplit to parse as vertical split", .{}),
     }
 
     match (command.parse("close")) {
@@ -500,6 +533,75 @@ fn check_multi_window_cycle_and_close() void {
     test.assert(contains(frame.as_str(), "[window W2/2]") or contains(frame.as_str(), "[WINDOW W2/2]"), "expected two-window layout after closing one split", .{});
 }
 
+fn check_vsplit_layout_and_window_resize_commands() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let path_a = "/tmp/bed-vsplit-a.txt";
+    let path_b = "/tmp/bed-vsplit-b.txt";
+
+    let _ = fs.remove_file_if_exists(gpa, path_a);
+    let _ = fs.remove_file_if_exists(gpa, path_b);
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_a);
+    };
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_b);
+    };
+
+    let _ = test.expect_ok(fs.write_all(gpa, path_a, "left"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_b, "right"));
+
+    let mut state = test.expect_ok(editor.open(gpa, path_a));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{8}, usize.{48}), "expected resize for vsplit test", .{});
+    run_ex_command(state..&, gpa, "vsplit");
+    run_ex_command(state..&, gpa, "e /tmp/bed-vsplit-b.txt");
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+
+    test.assert(state..&.render_into(gpa, frame, true), "expected vsplit render to succeed", .{});
+    let text = frame.as_str();
+    let left_index = find_index(text, "left");
+    let right_index = find_index(text, "right");
+    let first_newline = find_byte(text, b'\n');
+    test.assert(left_index < first_newline and right_index < first_newline, "expected vertical layout to render both windows on the first row", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected status line to show the second active window in vsplit", .{});
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'h' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w h to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W1/2] --"), "expected ctrl-w h to focus the left window", .{});
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'l' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after ctrl-w l to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W2/2] --"), "expected ctrl-w l to focus the right window", .{});
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'>' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after growing vsplit window to succeed", .{});
+    let grown = frame.as_str();
+    let left_grown = find_index(grown, "left");
+    let right_grown = find_index(grown, "right");
+    let first_grown_newline = find_byte(grown, b'\n');
+    test.assert(left_grown < first_grown_newline and right_grown < first_grown_newline, "expected resize to preserve the vertical layout on the first row", .{});
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'=' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after equalizing windows to succeed", .{});
+    let equalized = frame.as_str();
+    let left_equalized = find_index(equalized, "left");
+    let right_equalized = find_index(equalized, "right");
+    let first_equalized_newline = find_byte(equalized, b'\n');
+    test.assert(left_equalized < first_equalized_newline and right_equalized < first_equalized_newline, "expected equalize to keep both vsplit windows on the first row", .{});
+}
+
 fn check_additional_jump_keys() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -664,6 +766,7 @@ fn main() i32 {
     check_split_window_and_window_commands();
     check_split_window_keeps_window_local_buffers();
     check_multi_window_cycle_and_close();
+    check_vsplit_layout_and_window_resize_commands();
     check_additional_jump_keys();
     check_prompt_history_navigation();
     check_cursor_shape_changes_with_mode();

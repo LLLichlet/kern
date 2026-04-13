@@ -10,6 +10,7 @@ pub type Command = enum {
     Edit: []u8,
     WriteAs: []u8,
     Split,
+    VSplit,
     CloseWindow,
     OnlyWindow,
     SetNumber: bool,
@@ -48,6 +49,9 @@ pub fn parse(line: []u8) Command {
     }
     if (text.eq("split")) {
         return .Split;
+    }
+    if (text.eq("vsplit") or text.eq("vs")) {
+        return .VSplit;
     }
     if (text.eq("close")) {
         return .CloseWindow;

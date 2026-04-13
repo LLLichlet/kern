@@ -69,9 +69,15 @@ pub type EditorView = struct {
     pub scroll_row: usize = 0,
 };
 
+pub type WindowLayout = enum {
+    Rows,
+    Cols,
+};
+
 pub type WindowState = struct {
     pub view: EditorView = EditorView.{},
     pub buffer_index: usize = 0,
+    pub size: usize = 1,
 };
 
 impl *mut ShellOutputEntry {
@@ -129,6 +135,7 @@ fn open_path(alloc: *mut Allocator, path: []u8) Result[TextBuffer, BufferError] 
 pub type Editor = struct {
     pub buffers: List[BufferSlot] = List[BufferSlot].{},
     pub windows: List[WindowState] = List[WindowState].{},
+    pub window_layout: WindowLayout = .Rows,
     pub active_window: usize = 0,
     pub window_count: usize = 1,
     pub screen_rows: usize = 24,
@@ -168,7 +175,7 @@ fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Result[Edi
     if (!editor.buffers..&.push(alloc, .{ text: text_buffer, ref_count: 1 })) {
         return .{ Err: .OutOfMemory };
     }
-    if (!editor.windows..&.push(alloc, .{ view: EditorView.{}, buffer_index: 0 })) {
+    if (!editor.windows..&.push(alloc, .{ view: EditorView.{}, buffer_index: 0, size: 1 })) {
         let buffers = editor.buffers..&.as_mut_slice();
         buffers.[0].text..&.deinit(alloc);
         editor.buffers..&.deinit(alloc);
@@ -1213,7 +1220,8 @@ impl *mut Editor {
                     let _ = self.save_current(alloc);
                 }
             },
-            .Split => self.split_window(alloc),
+            .Split => self.split_window(alloc, .Rows),
+            .VSplit => self.split_window(alloc, .Cols),
             .CloseWindow => self.close_active_window(alloc),
             .OnlyWindow => self.only_window(alloc),
             .{ SetNumber: enabled } => self.set_number_option(alloc, enabled),
@@ -1436,9 +1444,34 @@ impl *mut Editor {
                             self.focus_next_window();
                             return true;
                         },
+                        b'h' => {
+                            self.clear_pending_count();
+                            self.focus_left_window();
+                            return true;
+                        },
+                        b'j' => {
+                            self.clear_pending_count();
+                            self.focus_down_window();
+                            return true;
+                        },
+                        b'k' => {
+                            self.clear_pending_count();
+                            self.focus_up_window();
+                            return true;
+                        },
+                        b'l' => {
+                            self.clear_pending_count();
+                            self.focus_right_window();
+                            return true;
+                        },
                         b's' => {
                             self.clear_pending_count();
-                            self.split_window(alloc);
+                            self.split_window(alloc, .Rows);
+                            return true;
+                        },
+                        b'v' => {
+                            self.clear_pending_count();
+                            self.split_window(alloc, .Cols);
                             return true;
                         },
                         b'q' => {
@@ -1449,6 +1482,31 @@ impl *mut Editor {
                         b'o' => {
                             self.clear_pending_count();
                             self.only_window(alloc);
+                            return true;
+                        },
+                        b'=' => {
+                            self.clear_pending_count();
+                            self.equalize_windows();
+                            return true;
+                        },
+                        b'+' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_size(1);
+                            return true;
+                        },
+                        b'-' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_size(-1);
+                            return true;
+                        },
+                        b'>' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_size(1);
+                            return true;
+                        },
+                        b'<' => {
+                            self.clear_pending_count();
+                            self.adjust_active_window_size(-1);
                             return true;
                         },
                         _ => {

@@ -2,7 +2,7 @@ use crate::context::SemaContext;
 use crate::def::DefId;
 use crate::passes::TypeResolver;
 use crate::scope::ScopeId;
-use crate::ty::{TypeId, TypeKind};
+use crate::ty::{BuiltinAnonymousEnumKind, TypeId, TypeKind};
 use kernc_ast::{self as ast, Expr, ExprKind};
 use std::time::Instant;
 
@@ -58,6 +58,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.ctx.expr_timing_stats.access_identifier += elapsed;
                 ty
             }
+            ExprKind::TypeNode(type_node) => self.evaluate_dynamic_typeof(type_node),
             ExprKind::SelfValue => self.check_self_value(expr.span),
 
             // === 3. Declarations and bindings ===
@@ -114,6 +115,12 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 let started = Instant::now();
                 let actual_target_ty = self.evaluate_dynamic_typeof(target);
                 let ty = self.check_as_expr(lhs, actual_target_ty);
+                self.ctx.expr_timing_stats.ops += started.elapsed();
+                ty
+            }
+            ExprKind::Propagate { operand, kind } => {
+                let started = Instant::now();
+                let ty = self.check_propagate(operand, *kind, expr.span);
                 self.ctx.expr_timing_stats.ops += started.elapsed();
                 ty
             }
@@ -303,6 +310,57 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         let started = Instant::now();
         let ty_id = match &ty_node.kind {
             ast::TypeKind::TypeOf(inner_expr) => self.check_expr(inner_expr, None),
+            ast::TypeKind::Optional { inner } => {
+                let inner_ty = self.evaluate_dynamic_typeof(inner);
+                let some = self.ctx.intern("Some");
+                let none = self.ctx.intern("None");
+                self.ctx.type_registry.intern(TypeKind::AnonymousEnum(
+                    crate::ty::AnonymousEnum {
+                        backing_ty: None,
+                        builtin: Some(BuiltinAnonymousEnumKind::Optional),
+                        variants: vec![
+                            crate::ty::AnonymousVariant {
+                                name: some,
+                                name_span: kernc_utils::Span::default(),
+                                payload_ty: Some(inner_ty),
+                                explicit_value: None,
+                            },
+                            crate::ty::AnonymousVariant {
+                                name: none,
+                                name_span: kernc_utils::Span::default(),
+                                payload_ty: None,
+                                explicit_value: None,
+                            },
+                        ],
+                    },
+                ))
+            }
+            ast::TypeKind::Result { ok, err } => {
+                let ok_ty = self.evaluate_dynamic_typeof(ok);
+                let err_ty = self.evaluate_dynamic_typeof(err);
+                let ok_name = self.ctx.intern("Ok");
+                let err_name = self.ctx.intern("Err");
+                self.ctx.type_registry.intern(TypeKind::AnonymousEnum(
+                    crate::ty::AnonymousEnum {
+                        backing_ty: None,
+                        builtin: Some(BuiltinAnonymousEnumKind::Result),
+                        variants: vec![
+                            crate::ty::AnonymousVariant {
+                                name: ok_name,
+                                name_span: kernc_utils::Span::default(),
+                                payload_ty: Some(ok_ty),
+                                explicit_value: None,
+                            },
+                            crate::ty::AnonymousVariant {
+                                name: err_name,
+                                name_span: kernc_utils::Span::default(),
+                                payload_ty: Some(err_ty),
+                                explicit_value: None,
+                            },
+                        ],
+                    },
+                ))
+            }
             ast::TypeKind::Pointer { is_mut, elem } => {
                 let base = self.evaluate_dynamic_typeof(elem);
                 self.ctx.type_registry.intern(TypeKind::Pointer {
@@ -387,5 +445,98 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         self.ctx.node_types.insert(ty_node.id, ty_id);
         self.ctx.expr_timing_stats.dynamic_typeof += started.elapsed();
         ty_id
+    }
+
+    fn check_propagate(
+        &mut self,
+        operand: &Expr,
+        kind: ast::PropagateKind,
+        span: kernc_utils::Span,
+    ) -> TypeId {
+        let operand_ty = self.check_expr(operand, None);
+        let norm_operand = self.resolve_tv(operand_ty);
+
+        let Some(current_return_ty) = self.current_return_type else {
+            self.ctx
+                .struct_error(span, "propagation is only valid inside functions with a return type")
+                .emit();
+            return TypeId::ERROR;
+        };
+        let norm_return = self.resolve_tv(current_return_ty);
+
+        let TypeKind::AnonymousEnum(operand_enum) = self.ctx.type_registry.get(norm_operand).clone()
+        else {
+            let op = match kind {
+                ast::PropagateKind::Option => ".?",
+                ast::PropagateKind::Result => ".!",
+            };
+            let found = self.ctx.ty_to_string(operand_ty);
+            self.ctx
+                .struct_error(span, format!("`{}` requires a builtin optional or result value", op))
+                .with_hint(format!("found `{}`", found))
+                .emit();
+            return TypeId::ERROR;
+        };
+
+        let TypeKind::AnonymousEnum(return_enum) = self.ctx.type_registry.get(norm_return).clone()
+        else {
+            let ret_str = self.ctx.ty_to_string(current_return_ty);
+            self.ctx
+                .struct_error(
+                    span,
+                    format!("propagation target function must return a builtin optional/result, found `{}`", ret_str),
+                )
+                .emit();
+            return TypeId::ERROR;
+        };
+
+        match kind {
+            ast::PropagateKind::Option => {
+                let Some(inner_ty) = operand_enum.builtin_optional_payload() else {
+                    self.ctx
+                        .struct_error(span, "`.?` requires a builtin optional value")
+                        .emit();
+                    return TypeId::ERROR;
+                };
+                if return_enum.builtin != Some(BuiltinAnonymousEnumKind::Optional) {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "`.?` requires the enclosing function to return a builtin optional, found `{}`",
+                                self.ctx.ty_to_string(current_return_ty)
+                            ),
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                }
+                inner_ty
+            }
+            ast::PropagateKind::Result => {
+                let Some((ok_ty, err_ty)) = operand_enum.builtin_result_types() else {
+                    self.ctx
+                        .struct_error(span, "`.!` requires a builtin result value")
+                        .emit();
+                    return TypeId::ERROR;
+                };
+                let Some((_, ret_err_ty)) = return_enum.builtin_result_types() else {
+                    self.ctx
+                        .struct_error(
+                            span,
+                            format!(
+                                "`.!` requires the enclosing function to return a builtin result, found `{}`",
+                                self.ctx.ty_to_string(current_return_ty)
+                            ),
+                        )
+                        .emit();
+                    return TypeId::ERROR;
+                };
+                if err_ty != ret_err_ty && err_ty != TypeId::ERROR && ret_err_ty != TypeId::ERROR {
+                    self.emit_mismatch_error(span, err_ty, ret_err_ty);
+                    return TypeId::ERROR;
+                }
+                ok_ty
+            }
+        }
     }
 }

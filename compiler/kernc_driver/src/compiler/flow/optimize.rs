@@ -441,6 +441,7 @@ fn collect_owner_exprs<'a>(
             collect_owner_exprs(rhs, exprs);
         }
         ast::ExprKind::As { lhs, .. } => collect_owner_exprs(lhs, exprs),
+        ast::ExprKind::Propagate { operand, .. } => collect_owner_exprs(operand, exprs),
         ast::ExprKind::GenericInstantiation { target, .. } => collect_owner_exprs(target, exprs),
         ast::ExprKind::Closure { captures, body, .. } => {
             for capture in captures {
@@ -456,6 +457,7 @@ fn collect_owner_exprs<'a>(
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
         | ast::ExprKind::EnumLiteral { .. }
+        | ast::ExprKind::TypeNode(_)
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer
@@ -596,6 +598,9 @@ fn collect_simple_binding_let_expr_ids(
             collect_simple_binding_let_expr_ids(rhs, expr_ids);
         }
         ast::ExprKind::As { lhs, .. } => collect_simple_binding_let_expr_ids(lhs, expr_ids),
+        ast::ExprKind::Propagate { operand, .. } => {
+            collect_simple_binding_let_expr_ids(operand, expr_ids);
+        }
         ast::ExprKind::GenericInstantiation { target, .. } => {
             collect_simple_binding_let_expr_ids(target, expr_ids);
         }
@@ -613,6 +618,7 @@ fn collect_simple_binding_let_expr_ids(
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
         | ast::ExprKind::EnumLiteral { .. }
+        | ast::ExprKind::TypeNode(_)
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer
@@ -687,6 +693,7 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
             }
         }
         ast::ExprKind::As { lhs, .. } => expr_is_strictly_pure(ctx, lhs),
+        ast::ExprKind::Propagate { .. } => false,
         ast::ExprKind::GenericInstantiation { target, .. } => expr_is_strictly_pure(ctx, target),
         ast::ExprKind::Closure { captures, .. } => captures
             .iter()
@@ -706,6 +713,7 @@ fn expr_is_strictly_pure(ctx: &SemaContext<'_>, expr: &ast::Expr) -> bool {
         | ast::ExprKind::Static { .. }
         | ast::ExprKind::Break
         | ast::ExprKind::Continue => false,
+        ast::ExprKind::TypeNode(_) => true,
     }
 }
 

@@ -564,6 +564,7 @@ impl CachedAstRebinder<'_> {
             | ast::ExprKind::Infer
             | ast::ExprKind::SelfValue => {}
             ast::ExprKind::Identifier(symbol) => *symbol = self.rebind_symbol(*symbol),
+            ast::ExprKind::TypeNode(type_node) => self.rebind_type_node(type_node),
             ast::ExprKind::Binary { lhs, rhs, .. } => {
                 self.rebind_expr(lhs);
                 self.rebind_expr(rhs);
@@ -668,6 +669,7 @@ impl CachedAstRebinder<'_> {
                 self.rebind_expr(lhs);
                 self.rebind_type_node(target);
             }
+            ast::ExprKind::Propagate { operand, .. } => self.rebind_expr(operand),
             ast::ExprKind::GenericInstantiation { target, types } => {
                 self.rebind_expr(target);
                 for ty in types {
@@ -764,6 +766,11 @@ impl CachedAstRebinder<'_> {
                 for generic in generics {
                     self.rebind_type_node(generic);
                 }
+            }
+            ast::TypeKind::Optional { inner } => self.rebind_type_node(inner),
+            ast::TypeKind::Result { ok, err } => {
+                self.rebind_type_node(ok);
+                self.rebind_type_node(err);
             }
             ast::TypeKind::Pointer { elem, .. }
             | ast::TypeKind::VolatilePtr { elem, .. }
@@ -1164,6 +1171,10 @@ mod tests {
             | ast::ExprKind::GenericInstantiation { target: lhs, .. } => {
                 collect_identifier_symbols(lhs, visit);
             }
+            ast::ExprKind::TypeNode(type_node) => collect_type_identifier_symbols(type_node, visit),
+            ast::ExprKind::Propagate { operand, .. } => {
+                collect_identifier_symbols(operand, visit);
+            }
             ast::ExprKind::Closure { captures, body, .. } => {
                 for capture in captures {
                     collect_identifier_symbols(&capture.value, visit);
@@ -1182,6 +1193,70 @@ mod tests {
             | ast::ExprKind::Undef
             | ast::ExprKind::Infer
             | ast::ExprKind::SelfValue => {}
+        }
+    }
+
+    fn collect_type_identifier_symbols(
+        ty: &ast::TypeNode,
+        visit: &mut impl FnMut(kernc_utils::SymbolId),
+    ) {
+        match &ty.kind {
+            ast::TypeKind::Path {
+                segments, generics, ..
+            } => {
+                for segment in segments {
+                    visit(*segment);
+                }
+                for generic in generics {
+                    collect_type_identifier_symbols(generic, visit);
+                }
+            }
+            ast::TypeKind::Optional { inner } => collect_type_identifier_symbols(inner, visit),
+            ast::TypeKind::Result { ok, err } => {
+                collect_type_identifier_symbols(ok, visit);
+                collect_type_identifier_symbols(err, visit);
+            }
+            ast::TypeKind::Pointer { elem, .. }
+            | ast::TypeKind::VolatilePtr { elem, .. }
+            | ast::TypeKind::ArrayInfer { elem, .. }
+            | ast::TypeKind::Slice { elem, .. } => collect_type_identifier_symbols(elem, visit),
+            ast::TypeKind::Array { elem, .. } => {
+                collect_type_identifier_symbols(elem, visit);
+            }
+            ast::TypeKind::Function { params, ret, .. }
+            | ast::TypeKind::ClosureInterface { params, ret } => {
+                for param in params {
+                    collect_type_identifier_symbols(param, visit);
+                }
+                if let Some(ret) = ret {
+                    collect_type_identifier_symbols(ret, visit);
+                }
+            }
+            ast::TypeKind::Struct { fields, .. }
+            | ast::TypeKind::Union { fields, .. }
+            | ast::TypeKind::Trait { fields } => {
+                for field in fields {
+                    collect_type_identifier_symbols(&field.type_node, visit);
+                }
+            }
+            ast::TypeKind::Enum {
+                backing_type,
+                variants,
+            } => {
+                if let Some(backing_type) = backing_type {
+                    collect_type_identifier_symbols(backing_type, visit);
+                }
+                for variant in variants {
+                    if let Some(payload_type) = &variant.payload_type {
+                        collect_type_identifier_symbols(payload_type, visit);
+                    }
+                }
+            }
+            ast::TypeKind::TypeOf(_)
+            | ast::TypeKind::Infer
+            | ast::TypeKind::SelfType
+            | ast::TypeKind::Never
+            | ast::TypeKind::Void => {}
         }
     }
 }

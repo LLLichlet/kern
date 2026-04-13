@@ -601,6 +601,11 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
                 normalize_type_for_body_only_comparison(generic);
             }
         }
+        ast::TypeKind::Optional { inner } => normalize_type_for_body_only_comparison(inner),
+        ast::TypeKind::Result { ok, err } => {
+            normalize_type_for_body_only_comparison(ok);
+            normalize_type_for_body_only_comparison(err);
+        }
         ast::TypeKind::Pointer { elem, .. }
         | ast::TypeKind::VolatilePtr { elem, .. }
         | ast::TypeKind::ArrayInfer { elem, .. }
@@ -695,6 +700,9 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
         | ast::ExprKind::SelfValue => {}
         ast::ExprKind::EnumLiteral { variant_span, .. } => {
             *variant_span = Span::default();
+        }
+        ast::ExprKind::TypeNode(type_node) => {
+            normalize_type_for_body_only_comparison(type_node);
         }
         ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
             normalize_expr_for_body_only_comparison(lhs);
@@ -791,6 +799,9 @@ fn normalize_expr_for_body_only_comparison(expr: &mut ast::Expr) {
         ast::ExprKind::As { lhs, target } => {
             normalize_expr_for_body_only_comparison(lhs);
             normalize_type_for_body_only_comparison(target);
+        }
+        ast::ExprKind::Propagate { operand, .. } => {
+            normalize_expr_for_body_only_comparison(operand);
         }
         ast::ExprKind::GenericInstantiation { target, types } => {
             normalize_expr_for_body_only_comparison(target);

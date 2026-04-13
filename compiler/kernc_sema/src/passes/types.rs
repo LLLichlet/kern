@@ -2,7 +2,9 @@ use crate::SemaContext;
 use crate::checker::{ConstEvaluator, ExprChecker, Substituter};
 use crate::def::*;
 use crate::scope::{ScopeId, SymbolInfo, SymbolKind};
-use crate::ty::{AnonymousEnum, AnonymousField, AnonymousVariant, TypeId, TypeKind};
+use crate::ty::{
+    AnonymousEnum, AnonymousField, AnonymousVariant, BuiltinAnonymousEnumKind, TypeId, TypeKind,
+};
 use kernc_ast as ast;
 use kernc_utils::{Span, SymbolId};
 use std::collections::HashMap;
@@ -441,6 +443,15 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 segments, generics, ..
             } => self.resolve_path_type(segments, generics, env_scope, ty_node.span),
             ast::TypeKind::Void => TypeId::VOID,
+            ast::TypeKind::Optional { inner } => {
+                let inner_ty = self.resolve_type(inner, env_scope);
+                self.make_builtin_optional_type(inner_ty)
+            }
+            ast::TypeKind::Result { ok, err } => {
+                let ok_ty = self.resolve_type(ok, env_scope);
+                let err_ty = self.resolve_type(err, env_scope);
+                self.make_builtin_result_type(ok_ty, err_ty)
+            }
 
             // Inline anonymous struct.
             ast::TypeKind::Struct { is_extern, fields } => {
@@ -511,6 +522,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                     .type_registry
                     .intern(TypeKind::AnonymousEnum(AnonymousEnum {
                         backing_ty,
+                        builtin: None,
                         variants: anon_variants,
                     }))
             }
@@ -683,6 +695,56 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         anon_fields
     }
 
+    fn make_builtin_optional_type(&mut self, inner_ty: TypeId) -> TypeId {
+        let some = self.ctx.intern("Some");
+        let none = self.ctx.intern("None");
+        self.ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                backing_ty: None,
+                builtin: Some(BuiltinAnonymousEnumKind::Optional),
+                variants: vec![
+                    AnonymousVariant {
+                        name: some,
+                        name_span: Span::default(),
+                        payload_ty: Some(inner_ty),
+                        explicit_value: None,
+                    },
+                    AnonymousVariant {
+                        name: none,
+                        name_span: Span::default(),
+                        payload_ty: None,
+                        explicit_value: None,
+                    },
+                ],
+            }))
+    }
+
+    fn make_builtin_result_type(&mut self, ok_ty: TypeId, err_ty: TypeId) -> TypeId {
+        let ok = self.ctx.intern("Ok");
+        let err = self.ctx.intern("Err");
+        self.ctx
+            .type_registry
+            .intern(TypeKind::AnonymousEnum(AnonymousEnum {
+                backing_ty: None,
+                builtin: Some(BuiltinAnonymousEnumKind::Result),
+                variants: vec![
+                    AnonymousVariant {
+                        name: ok,
+                        name_span: Span::default(),
+                        payload_ty: Some(ok_ty),
+                        explicit_value: None,
+                    },
+                    AnonymousVariant {
+                        name: err,
+                        name_span: Span::default(),
+                        payload_ty: Some(err_ty),
+                        explicit_value: None,
+                    },
+                ],
+            }))
+    }
+
     fn check_duplicate_anon_fields(
         &mut self,
         fields: &[AnonymousField],
@@ -764,6 +826,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::ExprKind::As { lhs, target } => {
                 self.resolve_expr(lhs, scope);
                 self.resolve_type(target, scope); // Resolve captured type nodes.
+            }
+            ast::ExprKind::TypeNode(type_node) => {
+                self.resolve_type(type_node, scope);
             }
             ast::ExprKind::Block { stmts, result } => {
                 for stmt in stmts {
@@ -847,6 +912,9 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             }
             ast::ExprKind::FieldAccess { lhs, .. } => {
                 self.resolve_expr(lhs, scope);
+            }
+            ast::ExprKind::Propagate { operand, .. } => {
+                self.resolve_expr(operand, scope);
             }
             ast::ExprKind::IndexAccess { lhs, index, .. } => {
                 self.resolve_expr(lhs, scope);

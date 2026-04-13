@@ -1,6 +1,6 @@
 use crate::SemaContext;
 
-use super::{PrimitiveType, TypeId, TypeKind};
+use super::{BuiltinAnonymousEnumKind, PrimitiveType, TypeId, TypeKind};
 
 pub(crate) struct TypeFormatter<'a, 'ctx> {
     pub(crate) ctx: &'a SemaContext<'ctx>,
@@ -173,6 +173,20 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
             }
 
             TypeKind::AnonymousEnum(enum_def) => {
+                match enum_def.builtin {
+                    Some(BuiltinAnonymousEnumKind::Optional) => {
+                        if let Some(inner) = enum_def.builtin_optional_payload() {
+                            return format!("?{}", self.format(inner));
+                        }
+                    }
+                    Some(BuiltinAnonymousEnumKind::Result) => {
+                        if let Some((ok, err)) = enum_def.builtin_result_types() {
+                            return format!("{}!{}", self.format(ok), self.format(err));
+                        }
+                    }
+                    None => {}
+                }
+
                 let mut parts = Vec::new();
                 for variant in &enum_def.variants {
                     let mut part = self.ctx.resolve(variant.name).to_string();

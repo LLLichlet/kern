@@ -17,6 +17,15 @@ pub enum TypeKind {
         generics: Vec<TypeNode>,
     },
 
+    /// Builtin optional type `?T`.
+    Optional { inner: Box<TypeNode> },
+
+    /// Builtin result type `T!E`.
+    Result {
+        ok: Box<TypeNode>,
+        err: Box<TypeNode>,
+    },
+
     /// Pointer type: `*T` or `*mut T`.
     Pointer { is_mut: bool, elem: Box<TypeNode> },
 

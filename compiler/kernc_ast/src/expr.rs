@@ -49,6 +49,9 @@ pub enum ExprKind {
     String(String),
     Identifier(SymbolId),
 
+    /// Type namespace expression used by builtin type forms such as `?i32.None`.
+    TypeNode(Box<TypeNode>),
+
     // --- Ops ---
     Binary {
         lhs: Box<Expr>,
@@ -146,6 +149,12 @@ pub enum ExprKind {
         target: Box<TypeNode>,
     },
 
+    /// Builtin propagation operators `.?` and `.!`.
+    Propagate {
+        operand: Box<Expr>,
+        kind: PropagateKind,
+    },
+
     Undef,
     Infer,
 
@@ -167,6 +176,12 @@ pub enum ExprKind {
         /// Always a block expression.
         body: Box<Expr>,
     },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PropagateKind {
+    Option,
+    Result,
 }
 
 #[derive(Debug, Clone, PartialEq)]

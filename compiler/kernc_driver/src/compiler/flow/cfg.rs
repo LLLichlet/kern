@@ -535,6 +535,11 @@ impl<'a> FlowCfgBuilder<'a> {
                 let node = self.lower_eval(expr, lhs_out);
                 self.fallthrough(node)
             }
+            ast::ExprKind::Propagate { operand, .. } => {
+                let operand_out = self.lower_expr(operand, incoming, loop_ctx);
+                let node = self.lower_eval(expr, operand_out);
+                self.fallthrough(node)
+            }
             ast::ExprKind::GenericInstantiation { target, .. } => {
                 let target_out = self.lower_expr(target, incoming, loop_ctx);
                 let node = self.lower_eval(expr, target_out);
@@ -556,6 +561,7 @@ impl<'a> FlowCfgBuilder<'a> {
             | ast::ExprKind::String(_)
             | ast::ExprKind::Identifier(_)
             | ast::ExprKind::EnumLiteral { .. }
+            | ast::ExprKind::TypeNode(_)
             | ast::ExprKind::SelfValue
             | ast::ExprKind::Undef
             | ast::ExprKind::Infer => {
@@ -744,6 +750,9 @@ fn collect_local_binding_uses_in_expr(
         ast::ExprKind::As { lhs, .. } => {
             collect_local_binding_uses_in_expr(lhs, reference_to_binding, uses);
         }
+        ast::ExprKind::Propagate { operand, .. } => {
+            collect_local_binding_uses_in_expr(operand, reference_to_binding, uses);
+        }
         ast::ExprKind::GenericInstantiation { target, .. } => {
             collect_local_binding_uses_in_expr(target, reference_to_binding, uses);
         }
@@ -759,6 +768,7 @@ fn collect_local_binding_uses_in_expr(
         | ast::ExprKind::Char(_)
         | ast::ExprKind::ByteChar(_)
         | ast::ExprKind::String(_)
+        | ast::ExprKind::TypeNode(_)
         | ast::ExprKind::EnumLiteral { .. }
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
@@ -795,6 +805,7 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
         | ast::ExprKind::ByteChar(_)
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
+        | ast::ExprKind::TypeNode(_)
         | ast::ExprKind::EnumLiteral { .. }
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
@@ -843,6 +854,10 @@ fn accumulate_expr_effects(expr: &ast::Expr, effects: &mut AnalysisFlowNodeEffec
             ast::DataLiteralKind::Scalar(value) => accumulate_expr_effects(value, effects),
         },
         ast::ExprKind::As { lhs, .. } => accumulate_expr_effects(lhs, effects),
+        ast::ExprKind::Propagate { operand, .. } => {
+            effects.has_control_flow = true;
+            accumulate_expr_effects(operand, effects);
+        }
         ast::ExprKind::GenericInstantiation { target, .. } => {
             accumulate_expr_effects(target, effects);
         }

@@ -179,7 +179,46 @@ pub struct AnonymousField {
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct AnonymousEnum {
     pub backing_ty: Option<TypeId>,
+    pub builtin: Option<BuiltinAnonymousEnumKind>,
     pub variants: Vec<AnonymousVariant>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BuiltinAnonymousEnumKind {
+    Optional,
+    Result,
+}
+
+impl AnonymousEnum {
+    pub fn builtin_optional_payload(&self) -> Option<TypeId> {
+        if self.builtin != Some(BuiltinAnonymousEnumKind::Optional) {
+            return None;
+        }
+
+        self.variants
+            .iter()
+            .find(|variant| variant.payload_ty.is_some())
+            .and_then(|variant| variant.payload_ty)
+    }
+
+    pub fn builtin_result_types(&self) -> Option<(TypeId, TypeId)> {
+        if self.builtin != Some(BuiltinAnonymousEnumKind::Result) {
+            return None;
+        }
+
+        let ok = self
+            .variants
+            .iter()
+            .find(|variant| variant.payload_ty.is_some())
+            .and_then(|variant| variant.payload_ty)?;
+        let err = self
+            .variants
+            .iter()
+            .rev()
+            .find(|variant| variant.payload_ty.is_some())
+            .and_then(|variant| variant.payload_ty)?;
+        Some((ok, err))
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -220,6 +259,7 @@ mod tests {
 
         let first = registry.intern(TypeKind::AnonymousEnum(AnonymousEnum {
             backing_ty: Some(TypeId::U32),
+            builtin: None,
             variants: vec![AnonymousVariant {
                 name: variant_name,
                 name_span: Span {
@@ -234,6 +274,7 @@ mod tests {
 
         let second = registry.intern(TypeKind::AnonymousEnum(AnonymousEnum {
             backing_ty: Some(TypeId::U32),
+            builtin: None,
             variants: vec![AnonymousVariant {
                 name: variant_name,
                 name_span: Span {

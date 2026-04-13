@@ -100,6 +100,9 @@ pub enum TokenType {
     /// `@intToFloat`-style intrinsic prefix.
     At,
 
+    /// `?` builtin optional type prefix.
+    Question,
+
     /// Volatile pointer syntax `^T` or bitwise XOR.
     Caret,
 
@@ -188,6 +191,12 @@ pub enum TokenType {
 
     /// `.&` immutable address-of.
     DotAmpersand,
+
+    /// `.?` builtin optional propagation.
+    DotQuestion,
+
+    /// `.!` builtin result propagation.
+    DotBang,
 
     /// `.*` pointer dereference.
     DotStar,

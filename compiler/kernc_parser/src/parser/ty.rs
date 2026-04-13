@@ -5,59 +5,87 @@ use kernc_lexer::TokenType;
 
 impl<'a> Parser<'a> {
     pub fn parse_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.peek();
+        let start_token = self.advance();
+        self.parse_type_after_consumed(start_token)
+    }
 
+    pub(super) fn parse_type_after_consumed(
+        &mut self,
+        start_token: kernc_lexer::Token,
+    ) -> ParseResult<TypeNode> {
+        if start_token.tag == TokenType::Question {
+            let inner = self.parse_type()?;
+            return Ok(TypeNode {
+                id: self.new_id(),
+                span: start_token.span.to(inner.span),
+                kind: TypeKind::Optional {
+                    inner: Box::new(inner),
+                },
+            });
+        }
+
+        let mut ty = self.parse_primary_type_after_consumed(start_token)?;
+        if self.match_token(&[TokenType::Bang]) {
+            let err = self.parse_type()?;
+            ty = TypeNode {
+                id: self.new_id(),
+                span: ty.span.to(err.span),
+                kind: TypeKind::Result {
+                    ok: Box::new(ty),
+                    err: Box::new(err),
+                },
+            };
+        }
+
+        Ok(ty)
+    }
+
+    fn parse_primary_type_after_consumed(
+        &mut self,
+        start_token: kernc_lexer::Token,
+    ) -> ParseResult<TypeNode> {
         match start_token.tag {
-            TokenType::Star => self.parse_pointer_type(),
-            TokenType::Caret => self.parse_volatile_pointer_type(),
-            TokenType::LBracket => self.parse_array_or_slice_type(),
-            TokenType::Fn => self.parse_fn_type(),
-            TokenType::CapitalFn => self.parse_closure_interface_type(),
-            TokenType::Identifier => self.parse_path_type(),
-            TokenType::At => self.parse_intrinsic_type(),
-            TokenType::Void => {
-                self.advance();
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_token.span,
-                    kind: TypeKind::Void,
-                })
+            TokenType::Star => self.parse_pointer_type_from_consumed(start_token.span),
+            TokenType::Caret => self.parse_volatile_pointer_type_from_consumed(start_token.span),
+            TokenType::LBracket => self.parse_array_or_slice_type_from_consumed(start_token.span),
+            TokenType::Fn => self.parse_fn_type_from_consumed(start_token.span),
+            TokenType::CapitalFn => {
+                self.parse_closure_interface_type_from_consumed(start_token.span)
             }
-            TokenType::Bang => {
-                self.advance();
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_token.span,
-                    kind: TypeKind::Never,
-                })
-            }
-            TokenType::Underscore => {
-                self.advance();
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_token.span,
-                    kind: TypeKind::Infer,
-                })
-            }
-            TokenType::SelfType => {
-                self.advance();
-                Ok(TypeNode {
-                    id: self.new_id(),
-                    span: start_token.span,
-                    kind: TypeKind::SelfType,
-                })
-            }
-
+            TokenType::Identifier => self.parse_path_type_from_consumed(start_token),
+            TokenType::At => self.parse_intrinsic_type_from_consumed(start_token.span),
+            TokenType::Void => Ok(TypeNode {
+                id: self.new_id(),
+                span: start_token.span,
+                kind: TypeKind::Void,
+            }),
+            TokenType::Bang => Ok(TypeNode {
+                id: self.new_id(),
+                span: start_token.span,
+                kind: TypeKind::Never,
+            }),
+            TokenType::Underscore => Ok(TypeNode {
+                id: self.new_id(),
+                span: start_token.span,
+                kind: TypeKind::Infer,
+            }),
+            TokenType::SelfType => Ok(TypeNode {
+                id: self.new_id(),
+                span: start_token.span,
+                kind: TypeKind::SelfType,
+            }),
             TokenType::Extern => {
-                let ext_span = self.advance().span; // Consume `extern`.
                 if self.check(TokenType::Struct) {
-                    // Parse an inline extern struct type.
-                    let mut struct_ty = self.parse_struct_type(false, true)?;
-                    struct_ty.span = ext_span.to(struct_ty.span);
+                    let struct_token = self.advance();
+                    let mut struct_ty =
+                        self.parse_struct_or_union_type_from_consumed(struct_token, false, true)?;
+                    struct_ty.span = start_token.span.to(struct_ty.span);
                     Ok(struct_ty)
                 } else if self.check(TokenType::Union) {
-                    let mut union_ty = self.parse_struct_type(true, true)?;
-                    union_ty.span = ext_span.to(union_ty.span);
+                    let union_token = self.advance();
+                    let mut union_ty =
+                        self.parse_struct_or_union_type_from_consumed(union_token, true, true)?;
+                    union_ty.span = start_token.span.to(union_ty.span);
                     Ok(union_ty)
                 } else {
                     let token = self.peek();
@@ -68,17 +96,18 @@ impl<'a> Parser<'a> {
                     Err(ParseError)
                 }
             }
-
-            TokenType::Struct => self.parse_struct_type(false, false),
-            TokenType::Union => self.parse_struct_type(true, false),
-            TokenType::Enum => self.parse_enum_type(),
-            TokenType::Trait => self.parse_trait_type(),
-
+            TokenType::Struct => {
+                self.parse_struct_or_union_type_from_consumed(start_token, false, false)
+            }
+            TokenType::Union => {
+                self.parse_struct_or_union_type_from_consumed(start_token, true, false)
+            }
+            TokenType::Enum => self.parse_enum_type_from_consumed(start_token),
+            TokenType::Trait => self.parse_trait_type_from_consumed(start_token),
             _ => {
-                let token = self.peek();
-                let found_text = self.source_slice(token.span).to_string();
+                let found_text = self.source_slice(start_token.span).to_string();
                 self.add_error(
-                    token.span,
+                    start_token.span,
                     format!("Expected type definition, found '{}'", found_text),
                 );
                 Err(ParseError)
@@ -88,8 +117,10 @@ impl<'a> Parser<'a> {
 
     // --- Type Parsing Sub-Routines ---
 
-    fn parse_pointer_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // Consume `*`.
+    fn parse_pointer_type_from_consumed(
+        &mut self,
+        start_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
         let is_mut = self.match_token(&[TokenType::Mut]);
         let elem = self.parse_type()?;
 
@@ -103,8 +134,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_volatile_pointer_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // Consume `^`.
+    fn parse_volatile_pointer_type_from_consumed(
+        &mut self,
+        start_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
         let is_mut = self.match_token(&[TokenType::Mut]);
         let elem = self.parse_type()?;
 
@@ -118,8 +151,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_array_or_slice_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // Consume `[`.
+    fn parse_array_or_slice_type_from_consumed(
+        &mut self,
+        start_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
 
         // Form A: slice types, `[]T` or `[]mut T`.
         if self.match_token(&[TokenType::RBracket]) {
@@ -167,8 +202,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_fn_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // Consume `fn`.
+    fn parse_fn_type_from_consumed(&mut self, start_span: kernc_utils::Span) -> ParseResult<TypeNode> {
         self.expect(TokenType::LParen)?;
 
         let mut params = Vec::new();
@@ -205,8 +239,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_path_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance(); // Consume the first identifier.
+    fn parse_path_type_from_consumed(
+        &mut self,
+        start_token: kernc_lexer::Token,
+    ) -> ParseResult<TypeNode> {
         let first_id = self.intern_token(start_token);
         let mut span = start_token.span;
 
@@ -253,8 +289,12 @@ impl<'a> Parser<'a> {
         Ok(args)
     }
 
-    fn parse_struct_type(&mut self, is_union: bool, is_extern: bool) -> ParseResult<TypeNode> {
-        let start_token = self.advance(); // Consume `struct` or `union`.
+    fn parse_struct_or_union_type_from_consumed(
+        &mut self,
+        start_token: kernc_lexer::Token,
+        is_union: bool,
+        is_extern: bool,
+    ) -> ParseResult<TypeNode> {
         self.expect(TokenType::LBrace)?;
 
         let mut fields = Vec::new();
@@ -306,8 +346,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    pub(super) fn parse_enum_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance(); // Consume `enum`.
+    fn parse_enum_type_from_consumed(
+        &mut self,
+        start_token: kernc_lexer::Token,
+    ) -> ParseResult<TypeNode> {
 
         // Parse an optional explicit backing type.
         let mut backing_type = None;
@@ -369,8 +411,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_trait_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance();
+    fn parse_trait_type_from_consumed(
+        &mut self,
+        start_token: kernc_lexer::Token,
+    ) -> ParseResult<TypeNode> {
         self.expect(TokenType::LBrace)?;
 
         let mut fields = Vec::new();
@@ -427,8 +471,10 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_intrinsic_type(&mut self) -> ParseResult<TypeNode> {
-        let at_span = self.advance().span; // Consume `@`.
+    fn parse_intrinsic_type_from_consumed(
+        &mut self,
+        at_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
         let id_token = self.expect(TokenType::Identifier)?;
         let sym = self.intern_token(id_token);
         let name = self.session.resolve(sym);
@@ -453,8 +499,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_closure_interface_type(&mut self) -> ParseResult<TypeNode> {
-        let start_span = self.advance().span; // Consume `Fn`.
+    fn parse_closure_interface_type_from_consumed(
+        &mut self,
+        start_span: kernc_utils::Span,
+    ) -> ParseResult<TypeNode> {
         self.expect(TokenType::LParen)?;
 
         let mut params = Vec::new();

@@ -190,6 +190,11 @@ fn collect_control_facts_expr(
             collect_control_facts_expr(rhs, regions, summary);
         }
         ast::ExprKind::As { lhs, .. } => collect_control_facts_expr(lhs, regions, summary),
+        ast::ExprKind::Propagate { operand, .. } => {
+            summary.branch_count += 1;
+            summary.return_count += 1;
+            collect_control_facts_expr(operand, regions, summary);
+        }
         ast::ExprKind::GenericInstantiation { target, .. } => {
             collect_control_facts_expr(target, regions, summary);
         }
@@ -211,6 +216,7 @@ fn collect_control_facts_expr(
         | ast::ExprKind::String(_)
         | ast::ExprKind::Identifier(_)
         | ast::ExprKind::EnumLiteral { .. }
+        | ast::ExprKind::TypeNode(_)
         | ast::ExprKind::SelfValue
         | ast::ExprKind::Undef
         | ast::ExprKind::Infer => {}

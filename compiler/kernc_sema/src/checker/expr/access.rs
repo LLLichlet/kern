@@ -898,6 +898,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
 
     fn expr_is_type_namespace(&mut self, expr: &Expr) -> bool {
         match &expr.kind {
+            ast::ExprKind::TypeNode(_) => true,
             ast::ExprKind::Identifier(name) => self
                 .ctx
                 .scopes

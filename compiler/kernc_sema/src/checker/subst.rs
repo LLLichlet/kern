@@ -197,6 +197,7 @@ where
                 self.registry
                     .intern(TypeKind::AnonymousEnum(crate::ty::AnonymousEnum {
                         backing_ty: new_backing_ty,
+                        builtin: enum_def.builtin,
                         variants: new_variants,
                     }))
             }

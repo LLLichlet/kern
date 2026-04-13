@@ -326,6 +326,13 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     Self::collect_type_alias_references(generic, alias_names, referenced);
                 }
             }
+            ast::TypeKind::Optional { inner } => {
+                Self::collect_type_alias_references(inner, alias_names, referenced);
+            }
+            ast::TypeKind::Result { ok, err } => {
+                Self::collect_type_alias_references(ok, alias_names, referenced);
+                Self::collect_type_alias_references(err, alias_names, referenced);
+            }
             ast::TypeKind::Pointer { elem, .. }
             | ast::TypeKind::VolatilePtr { elem, .. }
             | ast::TypeKind::ArrayInfer { elem, .. }
@@ -417,6 +424,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                 if alias_names.contains(name) {
                     referenced.insert(*name);
                 }
+            }
+            ast::ExprKind::TypeNode(type_node) => {
+                Self::collect_type_alias_references(type_node, alias_names, referenced);
             }
             ast::ExprKind::Binary { lhs, rhs, .. } | ast::ExprKind::Assign { lhs, rhs, .. } => {
                 Self::collect_expr_alias_references(lhs, alias_names, referenced);
@@ -526,6 +536,9 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
             ast::ExprKind::As { lhs, target } => {
                 Self::collect_expr_alias_references(lhs, alias_names, referenced);
                 Self::collect_type_alias_references(target, alias_names, referenced);
+            }
+            ast::ExprKind::Propagate { operand, .. } => {
+                Self::collect_expr_alias_references(operand, alias_names, referenced);
             }
             ast::ExprKind::GenericInstantiation { target, types } => {
                 Self::collect_expr_alias_references(target, alias_names, referenced);

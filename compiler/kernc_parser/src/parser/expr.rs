@@ -33,7 +33,9 @@ impl Precedence {
             | TokenType::LBracket
             | TokenType::DotAmpersand
             | TokenType::DotDotAmpersand
-            | TokenType::Bang => Self::Call,
+            | TokenType::Bang
+            | TokenType::DotQuestion
+            | TokenType::DotBang => Self::Call,
             TokenType::As => Self::Cast,
             TokenType::Star | TokenType::Slash | TokenType::Percent => Self::Factor,
             TokenType::Plus
@@ -150,6 +152,7 @@ impl<'a> Parser<'a> {
                 let is_type_prefix = matches!(
                     left.kind,
                     ExprKind::Identifier(_)
+                        | ExprKind::TypeNode(_)
                         | ExprKind::FieldAccess { .. }
                         | ExprKind::GenericInstantiation { .. }
                 );
@@ -240,10 +243,11 @@ impl<'a> Parser<'a> {
             TokenType::LBracket
             | TokenType::Star
             | TokenType::Caret
+            | TokenType::Question
             | TokenType::Struct
             | TokenType::Union
             | TokenType::Enum
-            | TokenType::Extern => self.parse_typed_data_init_prefix(token),
+            | TokenType::Extern => self.parse_type_namespace_expr(token),
             TokenType::Underscore => Ok(Expr {
                 id: self.new_id(),
                 span,
@@ -279,6 +283,38 @@ impl<'a> Parser<'a> {
             | TokenType::LShift
             | TokenType::RShift => self.parse_binary_expr(left, token),
             TokenType::Dot => self.parse_field_access_expr(left),
+            TokenType::DotQuestion => Ok(Expr {
+                id: self.new_id(),
+                span: left.span.to(token.span),
+                kind: ExprKind::Propagate {
+                    operand: Box::new(left),
+                    kind: PropagateKind::Option,
+                },
+            }),
+            TokenType::DotBang => Ok(Expr {
+                id: self.new_id(),
+                span: left.span.to(token.span),
+                kind: ExprKind::Propagate {
+                    operand: Box::new(left),
+                    kind: PropagateKind::Result,
+                },
+            }),
+            TokenType::Bang => {
+                let ok_type = self.expr_to_type(left)?;
+                let err_type = self.parse_type()?;
+                Ok(Expr {
+                    id: self.new_id(),
+                    span: ok_type.span.to(err_type.span),
+                    kind: ExprKind::TypeNode(Box::new(TypeNode {
+                        id: self.new_id(),
+                        span: ok_type.span.to(err_type.span),
+                        kind: TypeKind::Result {
+                            ok: Box::new(ok_type),
+                            err: Box::new(err_type),
+                        },
+                    })),
+                })
+            }
             TokenType::LParen => self.parse_call_expr(left),
             TokenType::DotStar => Ok(Expr {
                 id: self.new_id(),

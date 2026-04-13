@@ -499,4 +499,106 @@ fn pick(value: Result[Result[i32, i32], i32]) i32 {
             panic!("expected nested return branch");
         };
     }
+
+    #[test]
+    fn parses_builtin_optional_and_result_type_forms() {
+        let source = r#"
+fn main(value: ?i32, status: i32![]u8) ?i32![]u8 {
+    let a = ?i32.None;
+    let b = ?i32.{ Some: 7 };
+    let c = value.?;
+    let d = status.!;
+    return ?i32![]u8.{ Some: i32![]u8.{ Ok: c + d } };
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        let ast::DeclKind::Function {
+            params, ret_type, ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function");
+        };
+
+        match &params[0].type_node.kind {
+            ast::TypeKind::Optional { inner } => {
+                assert!(matches!(inner.kind, ast::TypeKind::Path { .. }));
+            }
+            _ => panic!("expected builtin optional parameter"),
+        }
+
+        match &params[1].type_node.kind {
+            ast::TypeKind::Result { ok, err } => {
+                assert!(matches!(ok.kind, ast::TypeKind::Path { .. }));
+                assert!(matches!(err.kind, ast::TypeKind::Slice { .. }));
+            }
+            _ => panic!("expected builtin result parameter"),
+        }
+
+        match &ret_type.kind {
+            ast::TypeKind::Optional { inner } => {
+                assert!(matches!(inner.kind, ast::TypeKind::Result { .. }));
+            }
+            _ => panic!("expected optional result return type"),
+        }
+    }
+
+    #[test]
+    fn parses_builtin_propagation_expressions() {
+        let source = r#"
+fn main(value: ?i32, status: i32![]u8) i32 {
+    return value.? + status.!;
+}
+"#;
+
+        let (session, module) = parse_module(source);
+        assert!(
+            session.diagnostics.is_empty(),
+            "unexpected diagnostics: {:?}",
+            session.diagnostics
+        );
+
+        let ast::DeclKind::Function {
+            body: Some(body), ..
+        } = &module.decls[0].kind
+        else {
+            panic!("expected function body");
+        };
+        let ast::ExprKind::Block {
+            stmts,
+            result: None,
+        } = &body.kind
+        else {
+            panic!("expected block body");
+        };
+        let ast::StmtKind::ExprStmt(expr) = &stmts[0].kind else {
+            panic!("expected return statement");
+        };
+        let ast::ExprKind::Return(Some(value)) = &expr.kind else {
+            panic!("expected return expression");
+        };
+        let ast::ExprKind::Binary { lhs, rhs, .. } = &value.kind else {
+            panic!("expected propagated sum");
+        };
+        assert!(matches!(
+            lhs.kind,
+            ast::ExprKind::Propagate {
+                kind: ast::PropagateKind::Option,
+                ..
+            }
+        ));
+        assert!(matches!(
+            rhs.kind,
+            ast::ExprKind::Propagate {
+                kind: ast::PropagateKind::Result,
+                ..
+            }
+        ));
+    }
 }

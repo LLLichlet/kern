@@ -73,6 +73,7 @@ impl<'a> Tokenizer<'a> {
             b':' => self.make_token(TokenType::Colon),
             b'#' => self.make_token(TokenType::Hash),
             b'@' => self.make_token(TokenType::At),
+            b'?' => self.make_token(TokenType::Question),
 
             b'.' => {
                 if self.match_char(b'.') {
@@ -93,6 +94,10 @@ impl<'a> Tokenizer<'a> {
                     self.make_token(TokenType::DotStar)
                 } else if self.match_char(b'&') {
                     self.make_token(TokenType::DotAmpersand)
+                } else if self.match_char(b'?') {
+                    self.make_token(TokenType::DotQuestion)
+                } else if self.match_char(b'!') {
+                    self.make_token(TokenType::DotBang)
                 } else if self.match_char(b'[') {
                     self.make_token(TokenType::DotLBracket)
                 } else if self.match_char(b'{') {

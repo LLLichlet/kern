@@ -94,7 +94,7 @@ extern {
 pub type Handle = i32;
 /// A Darwin OS error code.
 pub type Error = struct {
-    code: isize,
+    pub code: isize,
 };
 
 extern type Timespec = struct {

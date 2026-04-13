@@ -197,6 +197,45 @@ fn main() i32 {
 }
 
 #[test]
+fn runs_hosted_program_using_std_proc_shell_capture() {
+    let run_output = build_and_run(
+        "kernc_std_proc_shell_capture",
+        r#"
+use base.mem.alloc.GPA;
+use std.proc;
+use sys.mem.Page;
+
+fn main() i32 {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut capture = match (proc.shell_capture(gpa, "echo shell_capture")) {
+        .{ Ok: value } => value,
+        .{ Err: _ } => return 10,
+    };
+    defer capture.output..&.deinit(gpa);
+
+    if (capture.status != 0) {
+        return 20;
+    }
+    if (!capture.output.&.as_str().starts_with("shell_capture")) {
+        return 30;
+    }
+    return 0;
+}
+"#,
+        &["--library-bundle", "std", "--runtime-entry", "crt", "--runtime-libc", "yes"],
+    );
+
+    assert!(
+        run_output.status.success(),
+        "std.proc shell capture binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&run_output.stdout),
+        String::from_utf8_lossy(&run_output.stderr)
+    );
+}
+
+#[test]
 fn links_windows_rt_program_with_std_bundle() {
     if !cfg!(windows) {
         return;

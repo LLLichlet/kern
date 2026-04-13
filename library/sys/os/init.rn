@@ -71,6 +71,7 @@ pub use .linux.{
     terminal_size,
     enable_raw_mode,
     restore_terminal_mode,
+    shell_capture,
     open_file, 
     read_file, 
     write_file, 

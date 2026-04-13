@@ -6,12 +6,15 @@
 //! keep the syscall boundary direct and typed.
 
 use base.Result;
+use base.coll.String;
+use base.mem.alloc.Allocator;
+use base.abi;
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
 /// A Linux OS error code.
 pub type Error = struct {
-    code: isize,
+    pub code: isize,
 };
 
 /// A raw Linux file descriptor or handle-like integer.
@@ -30,10 +33,15 @@ const O_APPEND = usize.{1024};
 const DEFAULT_MODE = usize.{420};
 const MODE_DIR = usize.{493};
 const SYS_IOCTL = usize.{16};
+const SYS_DUP2 = usize.{33};
+const SYS_FORK = usize.{57};
+const SYS_EXECVE = usize.{59};
+const SYS_WAIT4 = usize.{61};
 const UNLINKAT = usize.{263};
 const MKDIRAT = usize.{258};
 const NEWFSTATAT = usize.{262};
 const RENAMEAT = usize.{264};
+const SYS_PIPE2 = usize.{293};
 const GETDENTS64 = usize.{217};
 const TCGETS = usize.{21505};
 const TCSETS = usize.{21506};
@@ -112,6 +120,12 @@ extern type WinSize = struct {
 /// Captured Linux termios state for later restoration.
 pub type TerminalState = Termios;
 
+/// Captured output and exit status from a hosted child process.
+pub type ProcessCapture = struct {
+    pub output: String,
+    pub status: i32,
+};
+
 fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     let mut ret = isize.{undef};
 
@@ -127,6 +141,18 @@ fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     });
 
     return ret;
+}
+
+fn alloc_c_string(alloc: *mut Allocator, text: []u8) *mut u8 {
+    let .{ Some: ptr } = abi.cstr.alloc_z(alloc, text) else return 0;
+    return ptr;
+}
+
+fn free_c_string(alloc: *mut Allocator, text: []u8, ptr: *mut u8) void {
+    if ((ptr as usize) == 0) {
+        return;
+    }
+    abi.cstr.free_z(alloc, text, ptr);
 }
 
 fn match_environment_name(entry: *u8, name: *u8) *u8 {
@@ -333,6 +359,104 @@ pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool,
         return error_result[bool](ret);
     }
     return .{ Ok: true };
+}
+
+/// Captures combined stdout/stderr from `/bin/sh -lc <command>`.
+pub fn shell_capture(alloc: *mut Allocator, command: []u8) Result[ProcessCapture, Error] {
+    let sh_path = alloc_c_string(alloc, "/bin/sh");
+    if ((sh_path as usize) == 0) {
+        return .{ Err: .{ code: 12 } };
+    }
+    defer free_c_string(alloc, "/bin/sh", sh_path);
+
+    let sh_arg = alloc_c_string(alloc, "sh");
+    if ((sh_arg as usize) == 0) {
+        return .{ Err: .{ code: 12 } };
+    }
+    defer free_c_string(alloc, "sh", sh_arg);
+
+    let dash_lc = alloc_c_string(alloc, "-lc");
+    if ((dash_lc as usize) == 0) {
+        return .{ Err: .{ code: 12 } };
+    }
+    defer free_c_string(alloc, "-lc", dash_lc);
+
+    let wrapped = String.{}..&;
+    defer wrapped.deinit(alloc);
+    if (!wrapped.push_str(alloc, "(")
+        or !wrapped.push_str(alloc, command)
+        or !wrapped.push_str(alloc, ") 2>&1"))
+    {
+        return .{ Err: .{ code: 12 } };
+    }
+
+    let command_c = alloc_c_string(alloc, wrapped.as_str());
+    if ((command_c as usize) == 0) {
+        return .{ Err: .{ code: 12 } };
+    }
+    defer free_c_string(alloc, wrapped.as_str(), command_c);
+
+    let fds = [2]mut i32.{undef};
+    let pipe_ret = syscall3_raw(SYS_PIPE2, fds.[0]..& as usize, 0, 0);
+    if (pipe_ret < 0) {
+        return error_result[ProcessCapture](pipe_ret);
+    }
+
+    let read_end = fds.[0] as usize;
+    let write_end = fds.[1] as usize;
+    let pid = syscall3_raw(SYS_FORK, 0, 0, 0);
+    if (pid < 0) {
+        let _ = close_file(read_end);
+        let _ = close_file(write_end);
+        return error_result[ProcessCapture](pid);
+    }
+
+    if (pid == 0) {
+        let argv = [4]mut *u8.{ sh_arg, dash_lc, command_c, 0 };
+        let envp = environment_entries();
+        let _ = close_file(read_end);
+        let _ = syscall3_raw(SYS_DUP2, write_end, 1, 0);
+        let _ = syscall3_raw(SYS_DUP2, write_end, 2, 0);
+        let _ = close_file(write_end);
+        let _ = syscall3_raw(SYS_EXECVE, sh_path as usize, argv.[0]..& as usize, envp as usize);
+        exit(127);
+    }
+
+    let _ = close_file(write_end);
+    let output = String.{}..&;
+    let chunk = [1024]mut u8.{undef};
+    for (;;) {
+        let read = match (read_file(read_end, chunk.[0]..&, 1024)) {
+            .{ Ok: count } => count,
+            .{ Err: err } => {
+                let _ = close_file(read_end);
+                output.deinit(alloc);
+                let mut raw_status = i32.{0};
+                let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+                return .{ Err: err };
+            },
+        };
+        if (read == 0) {
+            break;
+        }
+        if (!output.push_str(alloc, chunk.[0 .. read])) {
+            let _ = close_file(read_end);
+            output.deinit(alloc);
+            let mut raw_status = i32.{0};
+            let _ = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+            return .{ Err: .{ code: 12 } };
+        }
+    }
+    let _ = close_file(read_end);
+
+    let mut raw_status = i32.{0};
+    let wait_ret = syscall4_raw(SYS_WAIT4, pid as usize, raw_status..& as usize, 0, 0);
+    if (wait_ret < 0) {
+        output.deinit(alloc);
+        return error_result[ProcessCapture](wait_ret);
+    }
+
+    return .{ Ok: .{ output: output.*, status: (raw_status >> 8) & 255 } };
 }
 
 pub fn syscall6(sys_num: usize, arg1: usize, arg2: usize, arg3: usize, arg4: usize, arg5: usize, arg6: usize) usize {

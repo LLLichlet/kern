@@ -52,6 +52,11 @@ pub fn clear_screen(out: *mut String, alloc: *mut Allocator) bool {
     return out.push_str(alloc, "\x1b[2J\x1b[H");
 }
 
+/// Homes the cursor without clearing the full screen.
+pub fn home_cursor(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\x1b[H");
+}
+
 /// Clears from the cursor to the end of the current line.
 pub fn clear_line(out: *mut String, alloc: *mut Allocator) bool {
     return out.push_str(alloc, "\x1b[K");

@@ -19,7 +19,7 @@ fn enter_ui(alloc: *mut base.mem.alloc.Allocator, frame: *mut String, stdout: *m
     if (!ansi.enter_alt_screen(frame, alloc)) {
         return false;
     }
-    if (!ansi.hide_cursor(frame, alloc)) {
+    if (!ansi.show_cursor(frame, alloc)) {
         return false;
     }
     return flush_output(stdout, frame.as_str());
@@ -80,6 +80,7 @@ fn main(argc: i32, argv: **u8) i32 {
     let last_frame = String.{}..&;
     defer last_frame.deinit(gpa);
     let mut pending_render = true;
+    let mut full_redraw = true;
     let mut last_rows = usize.{0};
     let mut last_cols = usize.{0};
 
@@ -105,10 +106,11 @@ fn main(argc: i32, argv: **u8) i32 {
             last_rows = size.rows;
             last_cols = size.cols;
             pending_render = editor_state..&.resize(size.rows, size.cols) or pending_render;
+            full_redraw = true;
         }
 
         if (pending_render) {
-            if (!editor_state..&.render_into(gpa, frame)) {
+            if (!editor_state..&.render_into(gpa, frame, full_redraw)) {
                 io.println("bed: render failed", .{});
                 return 1;
             }
@@ -121,6 +123,7 @@ fn main(argc: i32, argv: **u8) i32 {
                 }
             }
             pending_render = false;
+            full_redraw = false;
         }
 
         let key = match (input.read_key(stdin..&)) {

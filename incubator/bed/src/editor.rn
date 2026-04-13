@@ -13,6 +13,11 @@ use ..mode.Mode;
 
 const NO_NAME = "[No Name]";
 
+type PendingNormal = enum {
+    None,
+    G,
+};
+
 fn open_path(alloc: *mut Allocator, path: []u8) Result[TextBuffer, BufferError] {
     let exists = match (fs.exists(alloc, path)) {
         .{ Ok: present } => present,
@@ -75,6 +80,7 @@ pub type Editor = struct {
     screen_rows: usize = 24,
     screen_cols: usize = 80,
     mode: Mode = .Normal,
+    pending_normal: PendingNormal = .None,
     command_line: String = String.{},
     command_col: usize = 0,
     message: String = String.{},
@@ -204,8 +210,162 @@ impl *mut Editor {
         self.cursor.col = 0;
     }
 
+    fn first_non_blank_col(row: usize) usize {
+        let line = self.buffer.&.line(row);
+        for (let mut i = usize.{0}; i < #line; i += 1) {
+            let byte = line.[i];
+            if (byte != b' ' and byte != b'\t') {
+                return i;
+            }
+        }
+        return 0;
+    }
+
     fn move_line_end() void {
         self.cursor.col = self.buffer.&.line_len(self.cursor.row);
+    }
+
+    fn move_first_non_blank() void {
+        self.cursor.col = self.first_non_blank_col(self.cursor.row);
+    }
+
+    fn goto_row(row: usize) void {
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            self.cursor = .{ row: 0, col: 0 };
+            self.scroll_row = 0;
+            return;
+        }
+
+        self.cursor.row = if (row < lines) row else lines - 1;
+        self.clamp_cursor();
+        self.ensure_cursor_visible(self.screen_rows);
+    }
+
+    fn is_space_byte(byte: u8) bool {
+        return byte == b' ' or byte == b'\t';
+    }
+
+    fn move_word_forward() void {
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            return;
+        }
+
+        let mut row = self.cursor.row;
+        let mut col = self.cursor.col;
+        let line = self.buffer.&.line(row);
+        if (col < #line and !self.is_space_byte(line.[col])) {
+            for (; col < #line and !self.is_space_byte(line.[col]); col += 1) {}
+        }
+
+        for (;;) {
+            let next_line = self.buffer.&.line(row);
+            for (; col < #next_line and self.is_space_byte(next_line.[col]); col += 1) {}
+            if (col < #next_line) {
+                self.cursor = .{ row: row, col: col };
+                return;
+            }
+            if (row + 1 >= lines) {
+                self.cursor.row = lines - 1;
+                self.cursor.col = self.buffer.&.line_len(lines - 1);
+                return;
+            }
+            row += 1;
+            col = 0;
+        }
+    }
+
+    fn move_word_backward() void {
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            return;
+        }
+
+        let mut row = self.cursor.row;
+        let mut col = self.cursor.col;
+
+        for (;;) {
+            if (col > 0) {
+                col -= 1;
+                break;
+            }
+            if (row == 0) {
+                self.cursor = .{ row: 0, col: 0 };
+                return;
+            }
+            row -= 1;
+            col = self.buffer.&.line_len(row);
+            if (col > 0) {
+                col -= 1;
+                break;
+            }
+        }
+
+        for (;;) {
+            let line = self.buffer.&.line(row);
+            if (!self.is_space_byte(line.[col])) {
+                break;
+            }
+            if (col > 0) {
+                col -= 1;
+                continue;
+            }
+            if (row == 0) {
+                self.cursor = .{ row: 0, col: 0 };
+                return;
+            }
+            row -= 1;
+            col = self.buffer.&.line_len(row);
+            if (col == 0) {
+                continue;
+            }
+            col -= 1;
+        }
+
+        for (;;) {
+            if (col == 0) {
+                self.cursor = .{ row: row, col: 0 };
+                return;
+            }
+            let line = self.buffer.&.line(row);
+            if (self.is_space_byte(line.[col - 1])) {
+                self.cursor = .{ row: row, col: col };
+                return;
+            }
+            col -= 1;
+        }
+    }
+
+    fn move_word_end() void {
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            return;
+        }
+
+        let mut row = self.cursor.row;
+        let mut col = self.cursor.col;
+        for (;;) {
+            let line = self.buffer.&.line(row);
+            if (col < #line and !self.is_space_byte(line.[col])) {
+                break;
+            }
+            for (; col < #line and self.is_space_byte(line.[col]); col += 1) {}
+            if (col < #line) {
+                break;
+            }
+            if (row + 1 >= lines) {
+                self.cursor.row = lines - 1;
+                self.cursor.col = self.buffer.&.line_len(lines - 1);
+                return;
+            }
+            row += 1;
+            col = 0;
+        }
+
+        let line = self.buffer.&.line(row);
+        for (; col + 1 < #line and !self.is_space_byte(line.[col + 1]); col += 1) {}
+        self.cursor = .{ row: row, col: col };
     }
 
     fn page_up() void {
@@ -238,12 +398,14 @@ impl *mut Editor {
     }
 
     fn enter_command() void {
+        self.pending_normal = .None;
         self.mode = .Command;
         self.command_line..&.clear();
         self.command_col = 0;
     }
 
     fn finish_command() void {
+        self.pending_normal = .None;
         self.command_col = 0;
         if (!self.wants_quit) {
             self.mode = .Normal;
@@ -374,7 +536,43 @@ impl *mut Editor {
         let _ = self.command_line..&.remove_char(self.command_col);
     }
 
+    fn command_view_col(cols: usize) usize {
+        if (cols <= 1) {
+            return 0;
+        }
+
+        let usable = cols - 1;
+        if (self.command_col < usable) {
+            return 0;
+        }
+        return self.command_col - usable + 1;
+    }
+
+    fn handle_pending_normal_key(key: Key) bool {
+        match (self.pending_normal) {
+            .None => return false,
+            .G => {
+                self.pending_normal = .None;
+                match (key) {
+                    .{ Byte: byte } => match (byte) {
+                        b'g' => {
+                            self.goto_row(0);
+                            return true;
+                        },
+                        _ => return false,
+                    },
+                    .Escape => return true,
+                    _ => return false,
+                }
+            },
+        }
+    }
+
     fn handle_normal_key(alloc: *mut Allocator, key: Key) void {
+        if (self.handle_pending_normal_key(key)) {
+            return;
+        }
+
         match (key) {
             .ArrowLeft => self.move_left(),
             .ArrowRight => self.move_right(),
@@ -388,6 +586,7 @@ impl *mut Editor {
             },
             .PageUp => self.page_up(),
             .PageDown => self.page_down(),
+            .Escape => self.pending_normal = .None,
             .NoInput => {}
             .CtrlC => self.wants_quit = true,
             .Eof => self.wants_quit = true,
@@ -397,8 +596,26 @@ impl *mut Editor {
                 b'k' => self.move_up(),
                 b'l' => self.move_right(),
                 b'0' => self.move_line_start(),
+                b'^' => self.move_first_non_blank(),
                 b'$' => self.move_line_end(),
+                b'g' => self.pending_normal = .G,
+                b'G' => self.goto_row(self.buffer.&.line_count()),
+                b'w' => self.move_word_forward(),
+                b'b' => self.move_word_backward(),
+                b'e' => self.move_word_end(),
                 b'i' => self.mode = .Insert,
+                b'a' => {
+                    self.move_right();
+                    self.mode = .Insert;
+                },
+                b'I' => {
+                    self.move_first_non_blank();
+                    self.mode = .Insert;
+                },
+                b'A' => {
+                    self.move_line_end();
+                    self.mode = .Insert;
+                },
                 b':' => self.enter_command(),
                 b'x' => {
                     let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
@@ -413,6 +630,14 @@ impl *mut Editor {
                         self.set_message(alloc, "insert failed");
                     }
                 },
+                b'O' => {
+                    if (self.buffer..&.insert_blank_line_above(alloc, self.cursor.row)) {
+                        self.cursor.col = 0;
+                        self.mode = .Insert;
+                    } else {
+                        self.set_message(alloc, "insert failed");
+                    }
+                },
                 _ => {}
             },
             _ => {}
@@ -421,7 +646,10 @@ impl *mut Editor {
 
     fn handle_insert_key(alloc: *mut Allocator, key: Key) void {
         match (key) {
-            .Escape => self.mode = .Normal,
+            .Escape => {
+                self.pending_normal = .None;
+                self.mode = .Normal;
+            },
             .NoInput => {}
             .ArrowLeft => self.move_left(),
             .ArrowRight => self.move_right(),
@@ -461,6 +689,7 @@ impl *mut Editor {
     fn handle_command_key(alloc: *mut Allocator, key: Key) void {
         match (key) {
             .Escape => {
+                self.pending_normal = .None;
                 self.command_line..&.clear();
                 self.command_col = 0;
                 self.mode = .Normal;
@@ -501,7 +730,10 @@ impl *mut Editor {
             if (!push_truncated(out, alloc, ":", remaining..&)) {
                 return false;
             }
-            return push_truncated(out, alloc, self.command_line.&.as_str(), remaining..&);
+            let view_col = self.command_view_col(cols);
+            let text = self.command_line.&.as_str();
+            let slice = if (view_col < #text) text.[view_col .. #text] else "";
+            return push_truncated(out, alloc, slice, remaining..&);
         }
 
         if (!push_truncated(out, alloc, "-- ", remaining..&)) {
@@ -531,7 +763,7 @@ impl *mut Editor {
     }
 
     /// Renders the full visible editor frame into `out`.
-    pub fn render_into(alloc: *mut Allocator, out: *mut String) bool {
+    pub fn render_into(alloc: *mut Allocator, out: *mut String, full_redraw: bool) bool {
         out.clear();
         let rows = self.screen_rows;
         let cols = self.screen_cols;
@@ -540,7 +772,11 @@ impl *mut Editor {
         }
 
         self.ensure_cursor_visible(rows);
-        if (!ansi.clear_screen(out, alloc)) {
+        if (full_redraw) {
+            if (!ansi.clear_screen(out, alloc)) {
+                return false;
+            }
+        } else if (!ansi.home_cursor(out, alloc)) {
             return false;
         }
 
@@ -580,16 +816,39 @@ impl *mut Editor {
         };
 
         let raw_col = if (self.mode == .Command) {
-            self.command_col + 2
+            if (cols == 0) {
+                1
+            } else {
+                let view_col = self.command_view_col(cols);
+                self.command_col - view_col + 2
+            }
         } else {
             self.cursor.col + 1
         };
         let cursor_col = if (raw_col > cols) cols else raw_col;
+        if (!ansi.show_cursor(out, alloc)) {
+            return false;
+        }
         return ansi.move_cursor(out, alloc, cursor_row, cursor_col);
     }
 
     /// Returns `true` once the main loop should stop.
     pub fn should_quit() bool {
         return self.wants_quit;
+    }
+
+    /// Returns the current cursor row.
+    pub fn cursor_row() usize {
+        return self.cursor.row;
+    }
+
+    /// Returns the current cursor column.
+    pub fn cursor_col() usize {
+        return self.cursor.col;
+    }
+
+    /// Returns one visible buffer line.
+    pub fn line(row: usize) []u8 {
+        return self.buffer.&.line(row);
     }
 }

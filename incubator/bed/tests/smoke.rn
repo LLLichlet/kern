@@ -1,7 +1,30 @@
+use base.coll.String;
 use base.mem.alloc.GPA;
 use std.test;
 use sys.mem.Page;
 use bed.{buffer, command, editor, input};
+
+fn contains(text: []u8, needle: []u8) bool {
+    if (#needle == 0) {
+        return true;
+    }
+    if (#needle > #text) {
+        return false;
+    }
+    for (let mut i = usize.{0}; i + #needle <= #text; i += 1) {
+        let mut matched = true;
+        for (let mut j = usize.{0}; j < #needle; j += 1) {
+            if (text.[i + j] != needle.[j]) {
+                matched = false;
+                break;
+            }
+        }
+        if (matched) {
+            return true;
+        }
+    }
+    return false;
+}
 
 fn check_command_parse() void {
     match (command.parse("q")) {
@@ -84,10 +107,74 @@ fn check_editor_resize_and_command_cursor() void {
     test.assert(!state..&.should_quit(), "expected command editing path not to quit editor", .{});
 }
 
+fn check_editor_normal_mode_subset() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    state..&.handle_key(gpa, .{ Byte: b'i' });
+    for (let mut i = usize.{0}; i < #"one two"; i += 1) {
+        state..&.handle_key(gpa, .{ Byte: "one two".[i] });
+    }
+    state..&.handle_key(gpa, .Escape);
+
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+    test.eq(state..&.cursor_row(), usize.{0});
+    test.eq(state..&.cursor_col(), usize.{4});
+
+    state..&.handle_key(gpa, .{ Byte: b'e' });
+    test.eq(state..&.cursor_col(), usize.{6});
+
+    state..&.handle_key(gpa, .{ Byte: b'b' });
+    test.eq(state..&.cursor_col(), usize.{4});
+
+    state..&.handle_key(gpa, .{ Byte: b'A' });
+    state..&.handle_key(gpa, .{ Byte: b'!' });
+    state..&.handle_key(gpa, .Escape);
+
+    state..&.handle_key(gpa, .{ Byte: b'O' });
+    state..&.handle_key(gpa, .{ Byte: b'X' });
+    state..&.handle_key(gpa, .Escape);
+
+    state..&.handle_key(gpa, .{ Byte: b'G' });
+    test.eq(state..&.cursor_row(), usize.{1});
+
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    test.eq(state..&.cursor_row(), usize.{0});
+    test.eq(state..&.line(0), "X");
+    test.eq(state..&.line(1), "one two!");
+}
+
+fn check_command_line_viewport_render() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{2}, usize.{8}), "expected resize for render viewport test", .{});
+    state..&.handle_key(gpa, .{ Byte: b':' });
+    for (let mut i = usize.{0}; i < #"abcdefghij"; i += 1) {
+        state..&.handle_key(gpa, .{ Byte: "abcdefghij".[i] });
+    }
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+    test.assert(state..&.render_into(gpa, frame, true), "expected command viewport render to succeed", .{});
+    test.assert(contains(frame.as_str(), ":efghij"), "expected long command render to scroll visible slice", .{});
+    test.assert(contains(frame.as_str(), "\x1b[2;8H"), "expected command cursor to remain visible at right edge", .{});
+}
+
 fn main() i32 {
     check_command_parse();
     check_buffer_editing();
     check_escape_decode();
     check_editor_resize_and_command_cursor();
+    check_editor_normal_mode_subset();
+    check_command_line_viewport_render();
     return 0;
 }

@@ -152,6 +152,18 @@ impl *mut TextBuffer {
         return true;
     }
 
+    /// Inserts a new blank line above `row`.
+    pub fn insert_blank_line_above(alloc: *mut Allocator, row: usize) bool {
+        if (row > self.lines.len) {
+            return false;
+        }
+        if (!self.lines..&.insert(alloc, row, String.{})) {
+            return false;
+        }
+        self.dirty = true;
+        return true;
+    }
+
     /// Deletes the byte before the cursor, joining lines at column zero.
     pub fn delete_backward(alloc: *mut Allocator, row: usize, col: usize) Cursor {
         if (row >= self.lines.len) {

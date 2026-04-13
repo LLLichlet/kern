@@ -1,5 +1,6 @@
 use base.coll.String;
 use base.mem.alloc.GPA;
+use std.fs;
 use std.test;
 use sys.mem.Page;
 use bed.{buffer, command, editor, input};
@@ -35,6 +36,12 @@ fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
 fn expect_cursor(state: *mut editor.Editor, row: usize, col: usize, label: []u8) void {
     test.assert(state.cursor_row() == row, label, .{});
     test.assert(state.cursor_col() == col, label, .{});
+}
+
+fn run_ex_command(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
+    state.handle_key(gpa, .{ Byte: b':' });
+    type_text(state, gpa, text);
+    state.handle_key(gpa, .Enter);
 }
 
 fn check_command_parse() void {
@@ -388,6 +395,59 @@ fn check_split_window_and_window_commands() void {
     test.assert(!contains(frame.as_str(), "[window W2/2]"), "expected only-window command to remove the second split", .{});
 }
 
+fn check_split_window_keeps_window_local_buffers() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let path_a = "/tmp/bed-window-a.txt";
+    let path_b = "/tmp/bed-window-b.txt";
+
+    let _ = fs.remove_file_if_exists(gpa, path_a);
+    let _ = fs.remove_file_if_exists(gpa, path_b);
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_a);
+    };
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_b);
+    };
+
+    let _ = test.expect_ok(fs.write_all(gpa, path_a, "alpha\none"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_b, "beta\ntwo"));
+
+    let mut state = test.expect_ok(editor.open(gpa, path_a));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{10}, usize.{48}), "expected resize for window-local buffer test", .{});
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b's' });
+    run_ex_command(state..&, gpa, "e /tmp/bed-window-b.txt");
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after split edit to succeed", .{});
+    test.assert(contains(frame.as_str(), path_b), "expected active lower window to track the edited file", .{});
+    test.eq(state..&.line(0), "beta");
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after switching back to upper window to succeed", .{});
+    test.assert(contains(frame.as_str(), path_a), "expected upper window to keep the original file", .{});
+    test.eq(state..&.line(0), "alpha");
+
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+    test.eq(state..&.line(0), "beta");
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b'q' });
+
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after closing lower window to succeed", .{});
+    test.assert(contains(frame.as_str(), path_a), "expected remaining window to keep the original file after closing the edited split", .{});
+    test.eq(state..&.line(0), "alpha");
+}
+
 fn check_additional_jump_keys() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -550,6 +610,7 @@ fn main() i32 {
     check_command_line_viewport_render();
     check_insert_tab_and_line_number_render();
     check_split_window_and_window_commands();
+    check_split_window_keeps_window_local_buffers();
     check_additional_jump_keys();
     check_prompt_history_navigation();
     check_cursor_shape_changes_with_mode();

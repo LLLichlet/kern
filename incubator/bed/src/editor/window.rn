@@ -1,41 +1,99 @@
 use base.mem.alloc.Allocator;
-use ..{Cursor, Editor, EditorView, TextBuffer};
+use ..{BufferSlot, Cursor, Editor, EditorView, TextBuffer, WindowState};
 
 impl *mut Editor {
-    fn active_cursor() *mut Cursor {
-        if (self.active_window == 0) {
-            return self.cursor..&;
+    fn window(index: usize) WindowState {
+        return self.windows.&.as_slice().[index];
+    }
+
+    fn window_mut(index: usize) *mut WindowState {
+        let windows = self.windows..&.as_mut_slice();
+        return windows.[index]..&;
+    }
+
+    fn buffer_slot(index: usize) BufferSlot {
+        return self.buffers.&.as_slice().[index];
+    }
+
+    fn buffer_slot_mut(index: usize) *mut BufferSlot {
+        let buffers = self.buffers..&.as_mut_slice();
+        return buffers.[index]..&;
+    }
+
+    fn buffer_for_window(index: usize) *TextBuffer {
+        let buffer_index = self.window(index).buffer_index;
+        return self.buffers.&.as_slice().[buffer_index].text.&;
+    }
+
+    fn buffer_for_window_mut(index: usize) *mut TextBuffer {
+        let buffer_index = self.window(index).buffer_index;
+        let buffers = self.buffers..&.as_mut_slice();
+        return buffers.[buffer_index].text..&;
+    }
+
+    fn active_buffer() *TextBuffer {
+        return self.buffer_for_window(self.active_window);
+    }
+
+    fn active_buffer_mut() *mut TextBuffer {
+        return self.buffer_for_window_mut(self.active_window);
+    }
+
+    fn retain_buffer_slot(index: usize) void {
+        let slot = self.buffer_slot_mut(index);
+        slot.ref_count += 1;
+    }
+
+    fn release_buffer_slot(alloc: *mut Allocator, index: usize) void {
+        let slot = self.buffer_slot_mut(index);
+        if (slot.ref_count == 0) {
+            return;
         }
-        return self.split_cursor..&;
+        slot.ref_count -= 1;
+        if (slot.ref_count == 0) {
+            slot.text..&.deinit(alloc);
+            slot.text = TextBuffer.{};
+        }
+    }
+
+    fn store_buffer_slot(alloc: *mut Allocator, text: TextBuffer, index_out: *mut usize) bool {
+        let slots = self.buffers..&.as_mut_slice();
+        for (let mut i = usize.{0}; i < #slots; i += 1) {
+            if (slots.[i].ref_count == 0) {
+                slots.[i] = .{ text: text, ref_count: 1 };
+                index_out.* = i;
+                return true;
+            }
+        }
+        if (!self.buffers..&.push(alloc, .{ text: text, ref_count: 1 })) {
+            return false;
+        }
+        index_out.* = self.buffers.len - 1;
+        return true;
+    }
+
+    fn active_view() *mut EditorView {
+        let window = self.window_mut(self.active_window);
+        return window.view..&;
+    }
+
+    fn active_cursor() *mut Cursor {
+        let mut view = self.active_view();
+        return view.cursor..&;
     }
 
     fn active_preferred_col() *mut usize {
-        if (self.active_window == 0) {
-            return self.preferred_col..&;
-        }
-        return self.split_preferred_col..&;
+        let mut view = self.active_view();
+        return view.preferred_col..&;
     }
 
     fn active_scroll_row() *mut usize {
-        if (self.active_window == 0) {
-            return self.scroll_row..&;
-        }
-        return self.split_scroll_row..&;
+        let mut view = self.active_view();
+        return view.scroll_row..&;
     }
 
     fn view(index: usize) EditorView {
-        if (index == 0) {
-            return .{
-                cursor: self.cursor,
-                preferred_col: self.preferred_col,
-                scroll_row: self.scroll_row,
-            };
-        }
-        return .{
-            cursor: self.split_cursor,
-            preferred_col: self.split_preferred_col,
-            scroll_row: self.split_scroll_row,
-        };
+        return self.window(index).view;
     }
 
     fn view_cursor(index: usize) Cursor {
@@ -47,15 +105,12 @@ impl *mut Editor {
     }
 
     fn set_view(index: usize, view: EditorView) void {
-        if (index == 0) {
-            self.cursor = view.cursor;
-            self.preferred_col = view.preferred_col;
-            self.scroll_row = view.scroll_row;
-            return;
-        }
-        self.split_cursor = view.cursor;
-        self.split_preferred_col = view.preferred_col;
-        self.split_scroll_row = view.scroll_row;
+        let window = self.window_mut(index);
+        window.view = view;
+    }
+
+    fn reset_view(index: usize) void {
+        self.set_view(index, EditorView.{});
     }
 
     fn active_window_label() []u8 {
@@ -70,7 +125,7 @@ impl *mut Editor {
 
     fn clamp_cursor() void {
         let cursor = self.active_cursor();
-        let lines = self.buffer.&.line_count();
+        let lines = self.active_buffer().line_count();
         if (lines == 0) {
             cursor.* = .{ row: 0, col: 0 };
             return;
@@ -79,7 +134,7 @@ impl *mut Editor {
         if (cursor.row >= lines) {
             cursor.row = lines - 1;
         }
-        let line_len = self.buffer.&.line_len(cursor.row);
+        let line_len = self.active_buffer().line_len(cursor.row);
         if (cursor.col > line_len) {
             cursor.col = line_len;
         }
@@ -206,7 +261,7 @@ impl *mut Editor {
         let cursor = self.active_cursor();
         let scroll_row = self.active_scroll_row();
         let preferred_col = self.active_preferred_col();
-        let lines = self.buffer.&.line_count();
+        let lines = self.active_buffer().line_count();
         if (lines == 0) {
             cursor.* = .{ row: 0, col: 0 };
             scroll_row.* = 0;
@@ -215,7 +270,7 @@ impl *mut Editor {
         }
 
         cursor.row = if (row < lines) row else lines - 1;
-        let line_len = self.buffer.&.line_len(cursor.row);
+        let line_len = self.active_buffer().line_len(cursor.row);
         cursor.col = if (preferred_col.* < line_len) preferred_col.* else line_len;
     }
 
@@ -229,7 +284,7 @@ impl *mut Editor {
 
     fn move_right() void {
         let cursor = self.active_cursor();
-        let line_len = self.buffer.&.line_len(cursor.row);
+        let line_len = self.active_buffer().line_len(cursor.row);
         if (cursor.col < line_len) {
             cursor.col += 1;
         }
@@ -321,7 +376,7 @@ impl *mut Editor {
 
     fn move_down() void {
         let cursor = self.active_cursor();
-        if (cursor.row + 1 < self.buffer.&.line_count()) {
+        if (cursor.row + 1 < self.active_buffer().line_count()) {
             self.move_to_row(cursor.row + 1);
         }
         self.clamp_cursor();
@@ -334,7 +389,7 @@ impl *mut Editor {
     }
 
     fn first_non_blank_col(row: usize) usize {
-        let line = self.buffer.&.line(row);
+        let line = self.active_buffer().line(row);
         for (let mut i = usize.{0}; i < #line; i += 1) {
             let byte = line.[i];
             if (byte != b' ' and byte != b'\t') {
@@ -346,7 +401,7 @@ impl *mut Editor {
 
     fn move_line_end() void {
         let cursor = self.active_cursor();
-        cursor.col = self.buffer.&.line_len(cursor.row);
+        cursor.col = self.active_buffer().line_len(cursor.row);
         self.remember_preferred_col();
     }
 
@@ -377,7 +432,7 @@ impl *mut Editor {
     fn page_down() void {
         let cursor = self.active_cursor();
         let step = self.page_step();
-        let lines = self.buffer.&.line_count();
+        let lines = self.active_buffer().line_count();
         if (lines == 0) {
             cursor.row = 0;
             return;
@@ -447,7 +502,7 @@ impl *mut Editor {
         let scroll_row = self.active_scroll_row();
         let preferred_col = self.active_preferred_col();
         let step = self.half_page_step();
-        let lines = self.buffer.&.line_count();
+        let lines = self.active_buffer().line_count();
         if (lines == 0) {
             cursor.* = .{ row: 0, col: 0 };
             preferred_col.* = 0;
@@ -492,7 +547,7 @@ impl *mut Editor {
         let cursor = self.active_cursor();
         let preferred_col = self.active_preferred_col();
         let scroll_row = self.active_scroll_row();
-        let lines = self.buffer.&.line_count();
+        let lines = self.active_buffer().line_count();
         if (lines == 0) {
             cursor.* = .{ row: 0, col: 0 };
             preferred_col.* = 0;
@@ -565,26 +620,41 @@ impl *mut Editor {
     }
 
     fn replace_buffer(alloc: *mut Allocator, next: TextBuffer) void {
-        self.buffer..&.deinit(alloc);
-        self.buffer = next;
-        self.cursor = .{ row: 0, col: 0 };
-        self.preferred_col = 0;
-        self.scroll_row = 0;
-        self.split_cursor = .{ row: 0, col: 0 };
-        self.split_preferred_col = 0;
-        self.split_scroll_row = 0;
-        self.active_window = 0;
-        self.window_count = 1;
+        let mut incoming = next;
+        let window_index = self.active_window;
+        let buffer_index = self.window(window_index).buffer_index;
+        if (self.buffer_slot(buffer_index).ref_count == 1) {
+            let slot = self.buffer_slot_mut(buffer_index);
+            slot.text..&.deinit(alloc);
+            slot.text = incoming;
+        } else {
+            let mut next_index = usize.{0};
+            if (!self.store_buffer_slot(alloc, incoming, next_index..&)) {
+                incoming..&.deinit(alloc);
+                self.set_message(alloc, "out of memory");
+                return;
+            }
+            self.release_buffer_slot(alloc, buffer_index);
+            let window = self.window_mut(window_index);
+            window.buffer_index = next_index;
+        }
+        self.reset_view(window_index);
+        self.active_window = window_index;
         self.active_pane = .Editor;
     }
 
     fn split_window(alloc: *mut Allocator) void {
-        let _ = alloc;
         if (self.window_count >= 2) {
             self.set_message(alloc, "window limit reached");
             return;
         }
-        self.set_view(1, self.view(self.active_window));
+        let buffer_index = self.window(self.active_window).buffer_index;
+        self.retain_buffer_slot(buffer_index);
+        if (!self.windows..&.push(alloc, .{ view: self.view(self.active_window), buffer_index: buffer_index })) {
+            self.release_buffer_slot(alloc, buffer_index);
+            self.set_message(alloc, "out of memory");
+            return;
+        }
         self.window_count = 2;
         self.active_window = 1;
         self.active_pane = .Editor;
@@ -596,21 +666,13 @@ impl *mut Editor {
             self.set_message(alloc, "last window");
             return;
         }
-        if (self.active_window == 1) {
-            self.split_cursor = .{ row: 0, col: 0 };
-            self.split_preferred_col = 0;
-            self.split_scroll_row = 0;
-            self.active_window = 0;
-        } else {
-            self.cursor = self.split_cursor;
-            self.preferred_col = self.split_preferred_col;
-            self.scroll_row = self.split_scroll_row;
-            self.split_cursor = .{ row: 0, col: 0 };
-            self.split_preferred_col = 0;
-            self.split_scroll_row = 0;
-            self.active_window = 0;
+        let buffer_index = self.window(self.active_window).buffer_index;
+        self.release_buffer_slot(alloc, buffer_index);
+        let _ = self.windows..&.remove(self.active_window);
+        self.window_count = self.windows.len;
+        if (self.active_window >= self.window_count) {
+            self.active_window = self.window_count - 1;
         }
-        self.window_count = 1;
         self.active_pane = .Editor;
         self.set_message(alloc, "closed window");
     }
@@ -620,16 +682,17 @@ impl *mut Editor {
             self.set_message(alloc, "already only");
             return;
         }
-        if (self.active_window == 1) {
-            self.cursor = self.split_cursor;
-            self.preferred_col = self.split_preferred_col;
-            self.scroll_row = self.split_scroll_row;
+        if (self.active_window == 0) {
+            let buffer_index = self.window(1).buffer_index;
+            self.release_buffer_slot(alloc, buffer_index);
+            let _ = self.windows..&.remove(1);
+        } else {
+            let buffer_index = self.window(0).buffer_index;
+            self.release_buffer_slot(alloc, buffer_index);
+            let _ = self.windows..&.remove(0);
         }
-        self.split_cursor = .{ row: 0, col: 0 };
-        self.split_preferred_col = 0;
-        self.split_scroll_row = 0;
-        self.window_count = 1;
         self.active_window = 0;
+        self.window_count = self.windows.len;
         self.active_pane = .Editor;
         self.set_message(alloc, "only window");
     }

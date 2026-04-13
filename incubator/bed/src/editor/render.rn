@@ -221,10 +221,10 @@ impl *mut Editor {
         if (!push_truncated(out, alloc, " -- ", remaining..&)) {
             return false;
         }
-        if (!push_truncated(out, alloc, self.buffer.&.path_or(NO_NAME), remaining..&)) {
+        if (!push_truncated(out, alloc, self.active_buffer().path_or(NO_NAME), remaining..&)) {
             return false;
         }
-        if (self.buffer.&.is_dirty() and !push_truncated(out, alloc, " [+]", remaining..&)) {
+        if (self.active_buffer().is_dirty() and !push_truncated(out, alloc, " [+]", remaining..&)) {
             return false;
         }
         if (!self.message.&.is_empty()) {
@@ -327,7 +327,7 @@ impl *mut Editor {
             if (!render_editor_rows(
                 out,
                 alloc,
-                self.buffer.&,
+                self.buffer_for_window(0),
                 self.view_scroll_row(0),
                 self.view_cursor(0).row,
                 editor_view_rows,
@@ -344,7 +344,7 @@ impl *mut Editor {
             if (!render_editor_rows(
                 out,
                 alloc,
-                self.buffer.&,
+                self.buffer_for_window(0),
                 self.view_scroll_row(0),
                 self.view_cursor(0).row,
                 top_rows,
@@ -372,7 +372,7 @@ impl *mut Editor {
             if (bottom_rows > 0 and !render_editor_rows(
                 out,
                 alloc,
-                self.buffer.&,
+                self.buffer_for_window(1),
                 self.view_scroll_row(1),
                 self.view_cursor(1).row,
                 bottom_rows,
@@ -444,7 +444,7 @@ impl *mut Editor {
         } else if (self.active_pane == .Output and output_rows > 0) {
             self.output_cursor.col + 1
         } else {
-            let gutter = editor_gutter_width(self.buffer.&, self.show_line_numbers, self.relative_line_numbers);
+            let gutter = editor_gutter_width(self.active_buffer(), self.show_line_numbers, self.relative_line_numbers);
             self.active_cursor().col + gutter + 1
         };
         let cursor_col = if (raw_col > cols) cols else raw_col;

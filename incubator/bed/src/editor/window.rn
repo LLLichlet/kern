@@ -1,6 +1,8 @@
+use base.coll.List;
 use base.mem.alloc.Allocator;
-use ..{BufferSlot, Cursor, Editor, EditorView, TextBuffer, WindowLayout, WindowState};
+use ..{BufferSlot, Cursor, Editor, EditorView, LayoutAxis, LayoutNode, TextBuffer, WindowRect, WindowState};
 
+const MIN_WINDOW_ROWS = usize.{3};
 const MIN_WINDOW_COLS = usize.{16};
 
 impl *mut Editor {
@@ -20,6 +22,15 @@ impl *mut Editor {
     fn buffer_slot_mut(index: usize) *mut BufferSlot {
         let buffers = self.buffers..&.as_mut_slice();
         return buffers.[index]..&;
+    }
+
+    fn layout_node(index: usize) LayoutNode {
+        return self.layout_nodes.&.as_slice().[index];
+    }
+
+    fn layout_node_mut(index: usize) *mut LayoutNode {
+        let nodes = self.layout_nodes..&.as_mut_slice();
+        return nodes.[index]..&;
     }
 
     fn buffer_for_window(index: usize) *TextBuffer {
@@ -79,6 +90,23 @@ impl *mut Editor {
         return window.view..&;
     }
 
+    fn set_window_layout_node(index: usize, layout_node: usize) void {
+        let window = self.window_mut(index);
+        window.layout_node = layout_node;
+    }
+
+    fn active_layout_node() usize {
+        return self.window(self.active_window).layout_node;
+    }
+
+    fn append_layout_node(alloc: *mut Allocator, node: LayoutNode) usize {
+        let index = self.layout_nodes.len;
+        if (!self.layout_nodes..&.push(alloc, node)) {
+            return usize.{0};
+        }
+        return index;
+    }
+
     fn active_cursor() *mut Cursor {
         let mut view = self.active_view();
         return view.cursor..&;
@@ -119,49 +147,119 @@ impl *mut Editor {
         self.window_count = self.windows.len;
     }
 
-    fn visible_weight_sum() usize {
-        let first = self.first_visible_window();
-        let visible = self.visible_window_count();
-        let mut sum = usize.{0};
-        for (let mut i = usize.{0}; i < visible; i += 1) {
-            sum += self.window(first + i).size;
-        }
-        return if (sum == 0) 1 else sum;
-    }
-
-    fn window_weight_prefix(index: usize) usize {
-        let first = self.first_visible_window();
-        let mut sum = usize.{0};
-        for (let mut i = first; i < index; i += 1) {
-            sum += self.window(i).size;
-        }
-        return sum;
-    }
-
-    fn reset_window_sizes() void {
-        let windows = self.windows..&.as_mut_slice();
-        for (let mut i = usize.{0}; i < #windows; i += 1) {
-            windows.[i].size = 1;
+    fn reset_layout_weights() void {
+        let nodes = self.layout_nodes..&.as_mut_slice();
+        for (let mut i = usize.{0}; i < #nodes; i += 1) {
+            if (nodes.[i].alive) {
+                nodes.[i].weight = 1;
+            }
         }
     }
 
-    fn active_window_size_mut() *mut usize {
-        let window = self.window_mut(self.active_window);
-        return window.size..&;
+    fn editor_area_rect() WindowRect {
+        return .{
+            row: 1,
+            col: 1,
+            rows: self.editor_rows(),
+            cols: self.screen_cols,
+        };
     }
 
-    fn adjust_active_window_size(delta: i32) void {
-        let size = self.active_window_size_mut();
-        if (delta > 0) {
-            size.* += delta as usize;
-            return;
+    fn split_rect(rect: WindowRect, axis: LayoutAxis, first_weight: usize, second_weight: usize, first: *mut WindowRect, second: *mut WindowRect) void {
+        let total = if (first_weight + second_weight > 0) first_weight + second_weight else 1;
+        match (axis) {
+            .Rows => {
+                if (rect.rows == 0) {
+                    first.* = .{ row: rect.row, col: rect.col, rows: 0, cols: rect.cols };
+                    second.* = .{ row: rect.row, col: rect.col, rows: 0, cols: rect.cols };
+                    return;
+                }
+                let content_rows = if (rect.rows > 0) rect.rows - 1 else 0;
+                let mut first_rows = content_rows * first_weight / total;
+                if (first_rows == 0 and content_rows > 0) {
+                    first_rows = 1;
+                }
+                if (first_rows >= rect.rows and rect.rows > 0) {
+                    first_rows = rect.rows - 1;
+                }
+                let second_rows = content_rows - first_rows;
+                first.* = .{ row: rect.row, col: rect.col, rows: first_rows, cols: rect.cols };
+                second.* = .{ row: rect.row + first_rows + 1, col: rect.col, rows: second_rows, cols: rect.cols };
+            },
+            .Cols => {
+                if (rect.cols == 0) {
+                    first.* = .{ row: rect.row, col: rect.col, rows: rect.rows, cols: 0 };
+                    second.* = .{ row: rect.row, col: rect.col, rows: rect.rows, cols: 0 };
+                    return;
+                }
+                let content_cols = if (rect.cols > 0) rect.cols - 1 else 0;
+                let mut first_cols = content_cols * first_weight / total;
+                if (first_cols == 0 and content_cols > 0) {
+                    first_cols = 1;
+                }
+                if (first_cols >= rect.cols and rect.cols > 0) {
+                    first_cols = rect.cols - 1;
+                }
+                let second_cols = content_cols - first_cols;
+                first.* = .{ row: rect.row, col: rect.col, rows: rect.rows, cols: first_cols };
+                second.* = .{ row: rect.row, col: rect.col + first_cols + 1, rows: rect.rows, cols: second_cols };
+            },
         }
-        let amount = (i32.{0} - delta) as usize;
-        if (size.* > amount) {
-            size.* -= amount;
-        } else {
-            size.* = 1;
+    }
+
+    fn first_window_in_node(node_index: usize) usize {
+        let node = self.layout_node(node_index);
+        if (node.is_leaf) {
+            return node.window_index;
         }
+        return self.first_window_in_node(node.first);
+    }
+
+    fn window_rect_in_node(node_index: usize, rect: WindowRect, target_window: usize, out: *mut WindowRect) bool {
+        let node = self.layout_node(node_index);
+        if (!node.alive) {
+            return false;
+        }
+        if (node.is_leaf) {
+            if (node.window_index == target_window) {
+                out.* = rect;
+                return true;
+            }
+            return false;
+        }
+        let mut first_rect = WindowRect.{};
+        let mut second_rect = WindowRect.{};
+        self.split_rect(rect, node.axis, self.layout_node(node.first).weight, self.layout_node(node.second).weight, first_rect..&, second_rect..&);
+        if (self.window_rect_in_node(node.first, first_rect, target_window, out)) {
+            return true;
+        }
+        return self.window_rect_in_node(node.second, second_rect, target_window, out);
+    }
+
+    fn window_rect(index: usize) WindowRect {
+        let mut rect = WindowRect.{};
+        let _ = self.window_rect_in_node(self.layout_root, self.editor_area_rect(), index, rect..&);
+        return rect;
+    }
+
+    fn active_window_rect() WindowRect {
+        return self.window_rect(self.active_window);
+    }
+
+    fn window_rows(index: usize) usize {
+        return self.window_rect(index).rows;
+    }
+
+    fn window_top_row(index: usize) usize {
+        return self.window_rect(index).row;
+    }
+
+    fn window_cols(index: usize) usize {
+        return self.window_rect(index).cols;
+    }
+
+    fn window_left_col(index: usize) usize {
+        return self.window_rect(index).col;
     }
 
     fn clamp_cursor() void {
@@ -209,159 +307,8 @@ impl *mut Editor {
         return main_rows - output_rows - 1;
     }
 
-    fn visible_window_count() usize {
-        match (self.window_layout) {
-            .Rows => {
-                let rows = self.editor_rows();
-                if (rows == 0 or self.window_count == 0) {
-                    return 0;
-                }
-                let max_visible = (rows + 1) / usize.{2};
-                if (max_visible == 0) {
-                    return 1;
-                }
-                if (self.window_count < max_visible) {
-                    return self.window_count;
-                }
-                return max_visible;
-            },
-            .Cols => {
-                let cols = self.screen_cols;
-                if (cols == 0 or self.window_count == 0) {
-                    return 0;
-                }
-                if (cols <= MIN_WINDOW_COLS) {
-                    return 1;
-                }
-                let max_visible = (cols + 1) / (MIN_WINDOW_COLS + 1);
-                if (max_visible == 0) {
-                    return 1;
-                }
-                if (self.window_count < max_visible) {
-                    return self.window_count;
-                }
-                return max_visible;
-            },
-        }
-    }
-
-    fn first_visible_window() usize {
-        let visible = self.visible_window_count();
-        if (visible == 0 or self.window_count <= visible or self.active_window + 1 <= visible) {
-            return 0;
-        }
-        return self.active_window + 1 - visible;
-    }
-
-    fn window_separator_rows() usize {
-        if (self.window_layout == .Cols) {
-            return 0;
-        }
-        let visible = self.visible_window_count();
-        if (visible <= 1) {
-            return 0;
-        }
-        return visible - 1;
-    }
-
-    fn window_content_rows() usize {
-        if (self.window_layout == .Cols) {
-            return self.editor_rows();
-        }
-        return self.editor_rows() - self.window_separator_rows();
-    }
-
-    fn window_rows(index: usize) usize {
-        if (self.window_layout == .Cols) {
-            let first = self.first_visible_window();
-            let visible = self.visible_window_count();
-            if (visible == 0 or index < first or index >= first + visible) {
-                return 0;
-            }
-            return self.window_content_rows();
-        }
-        let first = self.first_visible_window();
-        let visible = self.visible_window_count();
-        if (visible == 0 or index < first or index >= first + visible) {
-            return 0;
-        }
-        let rows = self.window_content_rows();
-        if (self.window_count <= 1) {
-            return rows;
-        }
-        if (rows == 0) {
-            return 0;
-        }
-        let weight_sum = self.visible_weight_sum();
-        let prefix = self.window_weight_prefix(index);
-        let size = self.window(index).size;
-        let start = rows * prefix / weight_sum;
-        let end = rows * (prefix + size) / weight_sum;
-        return end - start;
-    }
-
-    fn window_top_row(index: usize) usize {
-        if (self.window_layout == .Cols) {
-            return 1;
-        }
-        let first = self.first_visible_window();
-        let mut row = usize.{1};
-        for (let mut i = first; i < index; i += 1) {
-            row += self.window_rows(i) + 1;
-        }
-        return row;
-    }
-
-    fn window_separator_cols() usize {
-        if (self.window_layout == .Rows) {
-            return 0;
-        }
-        let visible = self.visible_window_count();
-        if (visible <= 1) {
-            return 0;
-        }
-        return visible - 1;
-    }
-
-    fn window_content_cols() usize {
-        if (self.window_layout == .Rows) {
-            return self.screen_cols;
-        }
-        return self.screen_cols - self.window_separator_cols();
-    }
-
-    fn window_cols(index: usize) usize {
-        if (self.window_layout == .Rows) {
-            return self.screen_cols;
-        }
-        let first = self.first_visible_window();
-        let visible = self.visible_window_count();
-        if (visible == 0 or index < first or index >= first + visible) {
-            return 0;
-        }
-        let cols = self.window_content_cols();
-        let weight_sum = self.visible_weight_sum();
-        let prefix = self.window_weight_prefix(index);
-        let size = self.window(index).size;
-        let start = cols * prefix / weight_sum;
-        let end = cols * (prefix + size) / weight_sum;
-        return end - start;
-    }
-
-    fn window_left_col(index: usize) usize {
-        if (self.window_layout == .Rows) {
-            return 1;
-        }
-        let first = self.first_visible_window();
-        let mut col = usize.{1};
-        for (let mut i = first; i < index; i += 1) {
-            col += self.window_cols(i) + 1;
-        }
-        return col;
-    }
-
     fn view_rows() usize {
-        return self.window_rows(self.active_window);
+        return self.active_window_rect().rows;
     }
 
     fn page_step() usize {
@@ -819,40 +766,105 @@ impl *mut Editor {
         self.active_pane = .Editor;
     }
 
-    fn can_split(layout: WindowLayout) bool {
-        let next_count = self.window_count + 1;
-        match (layout) {
-            .Rows => {
-                let rows = self.editor_rows();
-                return rows >= next_count * 2 - 1;
-            },
-            .Cols => {
-                let cols = self.screen_cols;
-                return cols >= next_count * MIN_WINDOW_COLS + (next_count - 1);
-            },
+    fn can_split(axis: LayoutAxis) bool {
+        let rect = self.active_window_rect();
+        match (axis) {
+            .Rows => return rect.rows >= MIN_WINDOW_ROWS,
+            .Cols => return rect.cols >= MIN_WINDOW_COLS * 2 + 1,
         }
     }
 
-    fn split_window(alloc: *mut Allocator, layout: WindowLayout) void {
-        if (!self.can_split(layout)) {
+    fn update_parent_child(parent_index: usize, old_child: usize, new_child: usize) void {
+        let parent = self.layout_node_mut(parent_index);
+        if (parent.first == old_child) {
+            parent.first = new_child;
+        } else {
+            parent.second = new_child;
+        }
+    }
+
+    fn reindex_window_nodes(removed_window: usize) void {
+        let nodes = self.layout_nodes..&.as_mut_slice();
+        for (let mut i = usize.{0}; i < #nodes; i += 1) {
+            if (!nodes.[i].alive or !nodes.[i].is_leaf) {
+                continue;
+            }
+            if (nodes.[i].window_index > removed_window) {
+                nodes.[i].window_index -= 1;
+            }
+        }
+    }
+
+    fn split_window(alloc: *mut Allocator, axis: LayoutAxis) void {
+        if (!self.can_split(axis)) {
             self.set_message(alloc, "window limit reached");
             return;
         }
+        let active_window = self.active_window;
         let buffer_index = self.window(self.active_window).buffer_index;
         self.retain_buffer_slot(buffer_index);
+        let new_window_index = self.windows.len;
         if (!self.windows..&.push(alloc, .{
-            view: self.view(self.active_window),
+            view: self.view(active_window),
             buffer_index: buffer_index,
-            size: self.window(self.active_window).size,
+            layout_node: 0,
         })) {
             self.release_buffer_slot(alloc, buffer_index);
             self.set_message(alloc, "out of memory");
             return;
         }
-        self.window_layout = layout;
+
+        let split_index = self.active_layout_node();
+        let inherited_weight = self.layout_node(split_index).weight;
+        let first_index = self.layout_nodes.len;
+        if (!self.layout_nodes..&.push(alloc, .{
+            alive: true,
+            has_parent: true,
+            parent: split_index,
+            is_leaf: true,
+            axis: .Rows,
+            first: 0,
+            second: 0,
+            weight: 1,
+            window_index: active_window,
+        })) {
+            let _ = self.windows..&.remove(new_window_index);
+            self.release_buffer_slot(alloc, buffer_index);
+            self.set_message(alloc, "out of memory");
+            return;
+        }
+        let second_index = self.layout_nodes.len;
+        if (!self.layout_nodes..&.push(alloc, .{
+            alive: true,
+            has_parent: true,
+            parent: split_index,
+            is_leaf: true,
+            axis: .Rows,
+            first: 0,
+            second: 0,
+            weight: 1,
+            window_index: new_window_index,
+        })) {
+            let _ = self.layout_nodes..&.remove(first_index);
+            let _ = self.windows..&.remove(new_window_index);
+            self.release_buffer_slot(alloc, buffer_index);
+            self.set_message(alloc, "out of memory");
+            return;
+        }
+
+        let split = self.layout_node_mut(split_index);
+        split.is_leaf = false;
+        split.axis = axis;
+        split.first = first_index;
+        split.second = second_index;
+        split.weight = inherited_weight;
+        split.window_index = 0;
+
+        self.set_window_layout_node(active_window, first_index);
+        self.set_window_layout_node(new_window_index, second_index);
         self.sync_window_count();
-        self.active_window = self.window_count - 1;
-        self.reset_window_sizes();
+        self.active_window = new_window_index;
+        self.reset_layout_weights();
         self.active_pane = .Editor;
         self.set_message(alloc, "split window");
     }
@@ -862,14 +874,46 @@ impl *mut Editor {
             self.set_message(alloc, "last window");
             return;
         }
+        let active_window = self.active_window;
+        let leaf_index = self.active_layout_node();
+        let leaf = self.layout_node(leaf_index);
+        if (!leaf.has_parent) {
+            self.set_message(alloc, "last window");
+            return;
+        }
+        let parent_index = leaf.parent;
+        let parent = self.layout_node(parent_index);
+        let sibling_index = if (parent.first == leaf_index) parent.second else parent.first;
+        let mut next_active = self.first_window_in_node(sibling_index);
+        if (next_active > active_window) {
+            next_active -= 1;
+        }
         let buffer_index = self.window(self.active_window).buffer_index;
         self.release_buffer_slot(alloc, buffer_index);
-        let _ = self.windows..&.remove(self.active_window);
-        self.sync_window_count();
-        if (self.active_window >= self.window_count) {
-            self.active_window = self.window_count - 1;
+        let promoted_weight = self.layout_node(parent_index).weight;
+        if (parent.has_parent) {
+            self.update_parent_child(parent.parent, parent_index, sibling_index);
+            let sibling = self.layout_node_mut(sibling_index);
+            sibling.parent = parent.parent;
+            sibling.has_parent = true;
+            sibling.weight = promoted_weight;
+        } else {
+            self.layout_root = sibling_index;
+            let sibling = self.layout_node_mut(sibling_index);
+            sibling.has_parent = false;
+            sibling.parent = 0;
+            sibling.weight = 1;
         }
-        self.reset_window_sizes();
+        let leaf_node = self.layout_node_mut(leaf_index);
+        leaf_node.alive = false;
+        let parent_node = self.layout_node_mut(parent_index);
+        parent_node.alive = false;
+
+        let _ = self.windows..&.remove(active_window);
+        self.reindex_window_nodes(active_window);
+        self.sync_window_count();
+        self.active_window = next_active;
+        self.reset_layout_weights();
         self.active_pane = .Editor;
         self.set_message(alloc, "closed window");
     }
@@ -879,28 +923,36 @@ impl *mut Editor {
             self.set_message(alloc, "already only");
             return;
         }
-        let mut keep_index = self.active_window;
-        let mut index = self.windows.len;
-        for (; index > 0; ) {
-            index -= 1;
+        let keep_index = self.active_window;
+        let keep = self.window(keep_index);
+        for (let mut index = usize.{0}; index < self.windows.len; index += 1) {
             if (index == keep_index) {
                 continue;
             }
             let buffer_index = self.window(index).buffer_index;
             self.release_buffer_slot(alloc, buffer_index);
-            let _ = self.windows..&.remove(index);
-            if (index < keep_index) {
-                keep_index -= 1;
-            }
         }
-        if (keep_index > 0) {
-            let keep = self.window(keep_index);
-            let _ = self.windows..&.remove(keep_index);
-            let _ = self.windows..&.insert(alloc, 0, keep);
+
+        self.windows..&.deinit(alloc);
+        self.windows = List[WindowState].{};
+        self.layout_nodes..&.deinit(alloc);
+        self.layout_nodes = List[LayoutNode].{};
+        if (!self.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
+            self.set_message(alloc, "out of memory");
+            return;
         }
+        if (!self.windows..&.push(alloc, .{
+            view: keep.view,
+            buffer_index: keep.buffer_index,
+            layout_node: 0,
+        })) {
+            self.set_message(alloc, "out of memory");
+            return;
+        }
+        self.layout_root = 0;
         self.active_window = 0;
         self.sync_window_count();
-        self.reset_window_sizes();
+        self.reset_layout_weights();
         self.active_pane = .Editor;
         self.set_message(alloc, "only window");
     }
@@ -923,24 +975,131 @@ impl *mut Editor {
         self.active_window = if (self.active_window + 1 < self.window_count) self.active_window + 1 else 0;
     }
 
+    fn rect_center2_row(rect: WindowRect) usize {
+        return rect.row * 2 + rect.rows - 1;
+    }
+
+    fn rect_center2_col(rect: WindowRect) usize {
+        return rect.col * 2 + rect.cols - 1;
+    }
+
+    fn focus_window_in_direction(axis: LayoutAxis, forward: bool) void {
+        let active_rect = self.active_window_rect();
+        let mut best_index = self.active_window;
+        let mut has_best = false;
+        let mut best_primary = usize.{0};
+        let mut best_secondary = usize.{0};
+
+        for (let mut index = usize.{0}; index < self.window_count; index += 1) {
+            if (index == self.active_window) {
+                continue;
+            }
+            let rect = self.window_rect(index);
+            let primary = match (axis) {
+                .Rows => {
+                    if (forward) {
+                        if (rect.row < active_rect.row + active_rect.rows) continue;
+                        rect.row - (active_rect.row + active_rect.rows)
+                    } else {
+                        if (rect.row + rect.rows > active_rect.row) continue;
+                        active_rect.row - (rect.row + rect.rows)
+                    }
+                },
+                .Cols => {
+                    if (forward) {
+                        if (rect.col < active_rect.col + active_rect.cols) continue;
+                        rect.col - (active_rect.col + active_rect.cols)
+                    } else {
+                        if (rect.col + rect.cols > active_rect.col) continue;
+                        active_rect.col - (rect.col + rect.cols)
+                    }
+                },
+            };
+            let secondary = match (axis) {
+                .Rows => {
+                    let left = if (rect.col > active_rect.col) rect.col - active_rect.col else active_rect.col - rect.col;
+                    let center = self.rect_center2_col(rect);
+                    let active_center = self.rect_center2_col(active_rect);
+                    left + if (center > active_center) center - active_center else active_center - center
+                },
+                .Cols => {
+                    let top = if (rect.row > active_rect.row) rect.row - active_rect.row else active_rect.row - rect.row;
+                    let center = self.rect_center2_row(rect);
+                    let active_center = self.rect_center2_row(active_rect);
+                    top + if (center > active_center) center - active_center else active_center - center
+                },
+            };
+
+            if (!has_best or primary < best_primary or (primary == best_primary and secondary < best_secondary)) {
+                has_best = true;
+                best_index = index;
+                best_primary = primary;
+                best_secondary = secondary;
+            }
+        }
+
+        if (has_best) {
+            self.active_window = best_index;
+        } else if (forward) {
+            self.focus_next_window();
+        } else {
+            self.focus_prev_window();
+        }
+    }
+
     fn focus_left_window() void {
-        self.focus_prev_window();
+        self.focus_window_in_direction(.Cols, false);
     }
 
     fn focus_up_window() void {
-        self.focus_prev_window();
+        self.focus_window_in_direction(.Rows, false);
     }
 
     fn focus_right_window() void {
-        self.focus_next_window();
+        self.focus_window_in_direction(.Cols, true);
     }
 
     fn focus_down_window() void {
-        self.focus_next_window();
+        self.focus_window_in_direction(.Rows, true);
+    }
+
+    fn adjust_active_window_axis(axis: LayoutAxis, delta: i32) void {
+        let mut node_index = self.active_layout_node();
+        for (;;) {
+            let node = self.layout_node(node_index);
+            if (!node.has_parent) {
+                return;
+            }
+            let parent_index = node.parent;
+            let parent = self.layout_node(parent_index);
+            if (parent.axis == axis) {
+                let child = self.layout_node_mut(node_index);
+                if (delta > 0) {
+                    child.weight += delta as usize;
+                } else {
+                    let amount = (i32.{0} - delta) as usize;
+                    if (child.weight > amount) {
+                        child.weight -= amount;
+                    } else {
+                        child.weight = 1;
+                    }
+                }
+                return;
+            }
+            node_index = parent_index;
+        }
+    }
+
+    fn adjust_active_window_height(delta: i32) void {
+        self.adjust_active_window_axis(.Rows, delta);
+    }
+
+    fn adjust_active_window_width(delta: i32) void {
+        self.adjust_active_window_axis(.Cols, delta);
     }
 
     fn equalize_windows() void {
-        self.reset_window_sizes();
+        self.reset_layout_weights();
     }
 
     pub fn cursor_row() usize {

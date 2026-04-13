@@ -69,15 +69,34 @@ pub type EditorView = struct {
     pub scroll_row: usize = 0,
 };
 
-pub type WindowLayout = enum {
+pub type LayoutAxis = enum {
     Rows,
     Cols,
+};
+
+pub type LayoutNode = struct {
+    pub alive: bool = true,
+    pub has_parent: bool = false,
+    pub parent: usize = 0,
+    pub is_leaf: bool = true,
+    pub axis: LayoutAxis = .Rows,
+    pub first: usize = 0,
+    pub second: usize = 0,
+    pub weight: usize = 1,
+    pub window_index: usize = 0,
+};
+
+pub type WindowRect = struct {
+    pub row: usize = 1,
+    pub col: usize = 1,
+    pub rows: usize = 0,
+    pub cols: usize = 0,
 };
 
 pub type WindowState = struct {
     pub view: EditorView = EditorView.{},
     pub buffer_index: usize = 0,
-    pub size: usize = 1,
+    pub layout_node: usize = 0,
 };
 
 impl *mut ShellOutputEntry {
@@ -135,7 +154,8 @@ fn open_path(alloc: *mut Allocator, path: []u8) Result[TextBuffer, BufferError] 
 pub type Editor = struct {
     pub buffers: List[BufferSlot] = List[BufferSlot].{},
     pub windows: List[WindowState] = List[WindowState].{},
-    pub window_layout: WindowLayout = .Rows,
+    pub layout_nodes: List[LayoutNode] = List[LayoutNode].{},
+    pub layout_root: usize = 0,
     pub active_window: usize = 0,
     pub window_count: usize = 1,
     pub screen_rows: usize = 24,
@@ -172,13 +192,18 @@ pub type Editor = struct {
 
 fn editor_with_buffer(alloc: *mut Allocator, text_buffer: TextBuffer) Result[Editor, BufferError] {
     let mut editor = Editor.{};
-    if (!editor.buffers..&.push(alloc, .{ text: text_buffer, ref_count: 1 })) {
+    if (!editor.layout_nodes..&.push(alloc, .{ window_index: 0 })) {
         return .{ Err: .OutOfMemory };
     }
-    if (!editor.windows..&.push(alloc, .{ view: EditorView.{}, buffer_index: 0, size: 1 })) {
+    if (!editor.buffers..&.push(alloc, .{ text: text_buffer, ref_count: 1 })) {
+        editor.layout_nodes..&.deinit(alloc);
+        return .{ Err: .OutOfMemory };
+    }
+    if (!editor.windows..&.push(alloc, .{ view: EditorView.{}, buffer_index: 0, layout_node: 0 })) {
         let buffers = editor.buffers..&.as_mut_slice();
         buffers.[0].text..&.deinit(alloc);
         editor.buffers..&.deinit(alloc);
+        editor.layout_nodes..&.deinit(alloc);
         return .{ Err: .OutOfMemory };
     }
     return .{ Ok: editor };
@@ -213,6 +238,7 @@ impl *mut Editor {
         }
         self.buffers..&.deinit(alloc);
         self.windows..&.deinit(alloc);
+        self.layout_nodes..&.deinit(alloc);
         if (self.has_output) {
             self.output..&.deinit(alloc);
         }
@@ -1491,22 +1517,22 @@ impl *mut Editor {
                         },
                         b'+' => {
                             self.clear_pending_count();
-                            self.adjust_active_window_size(1);
+                            self.adjust_active_window_height(1);
                             return true;
                         },
                         b'-' => {
                             self.clear_pending_count();
-                            self.adjust_active_window_size(-1);
+                            self.adjust_active_window_height(-1);
                             return true;
                         },
                         b'>' => {
                             self.clear_pending_count();
-                            self.adjust_active_window_size(1);
+                            self.adjust_active_window_width(1);
                             return true;
                         },
                         b'<' => {
                             self.clear_pending_count();
-                            self.adjust_active_window_size(-1);
+                            self.adjust_active_window_width(-1);
                             return true;
                         },
                         _ => {

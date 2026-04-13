@@ -55,6 +55,33 @@ fn find_byte(text: []u8, needle: u8) usize {
     return #text;
 }
 
+fn line_slice(text: []u8, line_index: usize) []u8 {
+    let mut start = usize.{0};
+    let mut current = usize.{0};
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        if (current == line_index and text.[i] == b'\n') {
+            return text.[start .. i];
+        }
+        if (text.[i] == b'\n') {
+            current += 1;
+            start = i + 1;
+        }
+    }
+    if (current == line_index and start <= #text) {
+        return text.[start .. #text];
+    }
+    return "";
+}
+
+fn find_line_with(text: []u8, needle: []u8, max_lines: usize) usize {
+    for (let mut line = usize.{0}; line < max_lines; line += 1) {
+        if (contains(line_slice(text, line), needle)) {
+            return line;
+        }
+    }
+    return max_lines;
+}
+
 fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
     for (let mut i = usize.{0}; i < #text; i += 1) {
         state.handle_key(gpa, input.Key.{ Byte: text.[i] });
@@ -602,6 +629,54 @@ fn check_vsplit_layout_and_window_resize_commands() void {
     test.assert(left_equalized < first_equalized_newline and right_equalized < first_equalized_newline, "expected equalize to keep both vsplit windows on the first row", .{});
 }
 
+fn check_nested_split_tree_layout() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+    let path_left = "/tmp/bed-tree-left.txt";
+    let path_top = "/tmp/bed-tree-top.txt";
+    let path_bottom = "/tmp/bed-tree-bottom.txt";
+
+    let _ = fs.remove_file_if_exists(gpa, path_left);
+    let _ = fs.remove_file_if_exists(gpa, path_top);
+    let _ = fs.remove_file_if_exists(gpa, path_bottom);
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_left);
+    };
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_top);
+    };
+    defer {
+        let _ = fs.remove_file_if_exists(gpa, path_bottom);
+    };
+
+    let _ = test.expect_ok(fs.write_all(gpa, path_left, "L0\nL1\nL2\nL3"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_top, "T0\nT1"));
+    let _ = test.expect_ok(fs.write_all(gpa, path_bottom, "B0\nB1"));
+
+    let mut state = test.expect_ok(editor.open(gpa, path_left));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{12}, usize.{52}), "expected resize for nested split tree test", .{});
+    run_ex_command(state..&, gpa, "vsplit");
+    run_ex_command(state..&, gpa, "e /tmp/bed-tree-top.txt");
+    state..&.handle_key(gpa, .{ Byte: 23 });
+    state..&.handle_key(gpa, .{ Byte: b's' });
+    run_ex_command(state..&, gpa, "e /tmp/bed-tree-bottom.txt");
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+
+    test.assert(state..&.render_into(gpa, frame, true), "expected nested split tree render to succeed", .{});
+    let first = line_slice(frame.as_str(), 0);
+    let bottom_line = find_line_with(frame.as_str(), "B0", usize.{10});
+    let nested_line = line_slice(frame.as_str(), bottom_line);
+    test.assert(contains(first, "L0") and contains(first, "T0"), "expected first row to show left pane with top-right pane", .{});
+    test.assert(find_line_with(frame.as_str(), "L2", usize.{10}) < usize.{10}, "expected left pane to remain visible below the nested right split", .{});
+    test.assert(bottom_line > 0 and bottom_line < usize.{10}, "expected bottom-right pane to render on a later editor row", .{});
+    test.assert(contains(nested_line, "B0") and !contains(nested_line, "T0"), "expected bottom-right pane to render independently under the top-right pane", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR W3/3] --"), "expected active window label to reflect the nested third window", .{});
+}
+
 fn check_additional_jump_keys() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -767,6 +842,7 @@ fn main() i32 {
     check_split_window_keeps_window_local_buffers();
     check_multi_window_cycle_and_close();
     check_vsplit_layout_and_window_resize_commands();
+    check_nested_split_tree_layout();
     check_additional_jump_keys();
     check_prompt_history_navigation();
     check_cursor_shape_changes_with_mode();

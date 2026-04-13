@@ -282,6 +282,44 @@ fn check_command_line_viewport_render() void {
     test.assert(contains(frame.as_str(), "\x1b[2;8H"), "expected command cursor to remain visible at right edge", .{});
 }
 
+fn check_prompt_history_navigation() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{8}, usize.{24}), "expected resize for prompt history test", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b':' });
+    type_text(state..&, gpa, "w");
+    state..&.handle_key(gpa, .Enter);
+
+    state..&.handle_key(gpa, .{ Byte: b':' });
+    type_text(state..&, gpa, "draft");
+    state..&.handle_key(gpa, .ArrowUp);
+
+    let frame = String.{}..&;
+    defer frame.deinit(gpa);
+    test.assert(state..&.render_into(gpa, frame, true), "expected ex history render to succeed", .{});
+    test.assert(contains(frame.as_str(), ":w"), "expected arrow-up to recall previous ex command", .{});
+
+    state..&.handle_key(gpa, .ArrowDown);
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected ex draft restore render to succeed", .{});
+    test.assert(contains(frame.as_str(), ":draft"), "expected arrow-down to restore prompt draft", .{});
+    state..&.handle_key(gpa, .Escape);
+
+    state..&.handle_key(gpa, .{ Byte: b'>' });
+    type_text(state..&, gpa, "echo prompt_history");
+    state..&.handle_key(gpa, .Enter);
+    state..&.handle_key(gpa, .{ Byte: b'>' });
+    state..&.handle_key(gpa, .ArrowUp);
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected shell history render to succeed", .{});
+    test.assert(contains(frame.as_str(), ">echo prompt_history"), "expected arrow-up to recall previous shell command", .{});
+}
+
 fn check_cursor_shape_changes_with_mode() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -316,29 +354,47 @@ fn check_shell_prompt_and_output_render() void {
     let mut state = test.expect_ok(editor.empty(gpa));
     defer state..&.deinit(gpa);
 
-    test.assert(state..&.resize(usize.{8}, usize.{32}), "expected resize for shell render test", .{});
+    test.assert(state..&.resize(usize.{8}, usize.{64}), "expected resize for shell render test", .{});
     state..&.handle_key(gpa, .{ Byte: b'>' });
     type_text(state..&, gpa, "echo hi");
+    state..&.handle_key(gpa, .Enter);
+    state..&.handle_key(gpa, .{ Byte: b'>' });
+    type_text(state..&, gpa, "echo two");
     state..&.handle_key(gpa, .Enter);
 
     let frame = String.{}..&;
     defer frame.deinit(gpa);
     test.assert(state..&.render_into(gpa, frame, true), "expected shell render to succeed", .{});
-    test.assert(contains(frame.as_str(), "[OUTPUT] > echo hi [exit 0]"), "expected output separator to include shell command and exit status", .{});
-    test.assert(contains(frame.as_str(), "hi"), "expected shell output to render in split pane", .{});
+    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 2/2] > echo two [exit 0]"), "expected output separator to include temp history position and shell command", .{});
+    test.assert(contains(frame.as_str(), "two"), "expected latest shell output to render in split pane", .{});
     test.assert(contains(frame.as_str(), "-- NORMAL [OUTPUT] --"), "expected status line to show output pane focus", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'[' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected previous-output render to succeed", .{});
+    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"), "expected output history recall to show earlier shell entry", .{});
+    test.assert(contains(frame.as_str(), "hi"), "expected recalled shell output to render in split pane", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'q' });
+
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after hiding shell output to succeed", .{});
+    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"), "expected hiding output to remove split separator", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"), "expected status line to return focus to editor pane", .{});
 
     state..&.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after switching back to editor to succeed", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"), "expected status line to show editor pane focus after tab", .{});
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after reopening shell output to succeed", .{});
+    test.assert(contains(frame.as_str(), "[OUTPUT TEMP 1/2] > echo hi [exit 0]"), "expected tab to reopen the selected temporary shell output", .{});
 
-    state..&.handle_key(gpa, .{ Byte: b'Q' });
-
+    state..&.handle_key(gpa, .{ Byte: b'\t' });
     frame.clear();
-    test.assert(state..&.render_into(gpa, frame, true), "expected render after closing shell output to succeed", .{});
-    test.assert(!contains(frame.as_str(), "[OUTPUT] >"), "expected closing output to remove split separator", .{});
-    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"), "expected status line to return focus to editor pane", .{});
+    test.assert(state..&.render_into(gpa, frame, true), "expected editor-focus render with visible shell output to succeed", .{});
+    test.assert(contains(frame.as_str(), "[output temp 1/2] > echo hi [exit 0]"), "expected inactive output separator to remain visible while editing", .{});
+    state..&.handle_key(gpa, .{ Byte: b'Q' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after closing shell output from editor to succeed", .{});
+    test.assert(!contains(frame.as_str(), "[OUTPUT TEMP"), "expected editor-side close to hide the temporary shell output", .{});
 }
 
 fn main() i32 {
@@ -349,6 +405,7 @@ fn main() i32 {
     check_editor_normal_mode_subset();
     check_editor_extended_normal_motions();
     check_command_line_viewport_render();
+    check_prompt_history_navigation();
     check_cursor_shape_changes_with_mode();
     check_shell_prompt_and_output_render();
     return 0;

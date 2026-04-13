@@ -11,6 +11,11 @@ pub type Key = enum {
     Escape,
     Enter,
     Backspace,
+    Home,
+    End,
+    Delete,
+    PageUp,
+    PageDown,
     ArrowUp,
     ArrowDown,
     ArrowLeft,
@@ -31,6 +36,100 @@ fn read_optional_byte(stdin: *mut fs.File) Result[Option[u8], fs.Error] {
     return .{ Ok: .{ Some: buf.[0] } };
 }
 
+pub fn map_csi_final(byte: u8) Key {
+    match (byte) {
+        b'A' => return .ArrowUp,
+        b'B' => return .ArrowDown,
+        b'C' => return .ArrowRight,
+        b'D' => return .ArrowLeft,
+        b'H' => return .Home,
+        b'F' => return .End,
+        _ => return .Escape,
+    }
+}
+
+pub fn map_csi_tilde(param: usize) Key {
+    match (param) {
+        1 => return .Home,
+        3 => return .Delete,
+        4 => return .End,
+        5 => return .PageUp,
+        6 => return .PageDown,
+        7 => return .Home,
+        8 => return .End,
+        _ => return .Escape,
+    }
+}
+
+fn read_escape_sequence(stdin: *mut fs.File) Result[Key, fs.Error] {
+    let second = match (read_optional_byte(stdin)) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    let .{ Some: second_byte } = second else return .{ Ok: .Escape };
+
+    if (second_byte == b'O') {
+        let third = match (read_optional_byte(stdin)) {
+            .{ Ok: value } => value,
+            .{ Err: err } => return .{ Err: err },
+        };
+        let .{ Some: third_byte } = third else return .{ Ok: .Escape };
+        return .{ Ok: map_csi_final(third_byte) };
+    }
+
+    if (second_byte != b'[') {
+        return .{ Ok: .Escape };
+    }
+
+    let third = match (read_optional_byte(stdin)) {
+        .{ Ok: value } => value,
+        .{ Err: err } => return .{ Err: err },
+    };
+    let .{ Some: third_byte } = third else return .{ Ok: .Escape };
+
+    if (third_byte >= b'A' and third_byte <= b'Z') {
+        return .{ Ok: map_csi_final(third_byte) };
+    }
+
+    if (third_byte < b'0' or third_byte > b'9') {
+        return .{ Ok: .Escape };
+    }
+
+    let mut param = (third_byte - b'0') as usize;
+    for (;;) {
+        let next = match (read_optional_byte(stdin)) {
+            .{ Ok: value } => value,
+            .{ Err: err } => return .{ Err: err },
+        };
+        let .{ Some: next_byte } = next else return .{ Ok: .Escape };
+
+        if (next_byte >= b'0' and next_byte <= b'9') {
+            param = param * usize.{10} + (next_byte - b'0') as usize;
+            continue;
+        }
+
+        if (next_byte == b';') {
+            for (;;) {
+                let tail = match (read_optional_byte(stdin)) {
+                    .{ Ok: value } => value,
+                    .{ Err: err } => return .{ Err: err },
+                };
+                let .{ Some: tail_byte } = tail else return .{ Ok: .Escape };
+                if (tail_byte >= b'0' and tail_byte <= b'9') {
+                    continue;
+                }
+                return .{ Ok: map_csi_final(tail_byte) };
+            }
+        }
+
+        if (next_byte == b'~') {
+            return .{ Ok: map_csi_tilde(param) };
+        }
+
+        return .{ Ok: map_csi_final(next_byte) };
+    }
+}
+
 /// Reads one normalized key from raw terminal input.
 pub fn read_key(stdin: *mut fs.File) Result[Key, fs.Error] {
     let first = match (read_optional_byte(stdin)) {
@@ -45,33 +144,11 @@ pub fn read_key(stdin: *mut fs.File) Result[Key, fs.Error] {
     if (byte == b'\r' or byte == b'\n') {
         return .{ Ok: .Enter };
     }
-    if (byte == u8.{127}) {
+    if (byte == u8.{127} or byte == u8.{8}) {
         return .{ Ok: .Backspace };
     }
     if (byte != u8.{27}) {
         return .{ Ok: .{ Byte: byte } };
     }
-
-    let second = match (read_optional_byte(stdin)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
-    let .{ Some: second_byte } = second else return .{ Ok: .Escape };
-    if (second_byte != b'[') {
-        return .{ Ok: .Escape };
-    }
-
-    let third = match (read_optional_byte(stdin)) {
-        .{ Ok: value } => value,
-        .{ Err: err } => return .{ Err: err },
-    };
-    let .{ Some: third_byte } = third else return .{ Ok: .Escape };
-
-    match (third_byte) {
-        b'A' => return .{ Ok: .ArrowUp },
-        b'B' => return .{ Ok: .ArrowDown },
-        b'C' => return .{ Ok: .ArrowRight },
-        b'D' => return .{ Ok: .ArrowLeft },
-        _ => return .{ Ok: .Escape },
-    }
+    return read_escape_sequence(stdin);
 }

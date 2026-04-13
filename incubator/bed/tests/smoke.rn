@@ -1,7 +1,7 @@
 use base.mem.alloc.GPA;
 use std.test;
 use sys.mem.Page;
-use bed.{buffer, command};
+use bed.{buffer, command, editor, input};
 
 fn check_command_parse() void {
     match (command.parse("q")) {
@@ -44,8 +44,50 @@ fn check_buffer_editing() void {
     test.eq(text.&.line(0), "a");
 }
 
+fn check_escape_decode() void {
+    match (input.map_csi_tilde(usize.{3})) {
+        .Delete => {}
+        _ => test.fail("expected CSI 3~ to decode as delete", .{}),
+    }
+    match (input.map_csi_tilde(usize.{5})) {
+        .PageUp => {}
+        _ => test.fail("expected CSI 5~ to decode as page up", .{}),
+    }
+    match (input.map_csi_final(b'H')) {
+        .Home => {}
+        _ => test.fail("expected CSI H to decode as home", .{}),
+    }
+    match (input.map_csi_final(b'F')) {
+        .End => {}
+        _ => test.fail("expected CSI F to decode as end", .{}),
+    }
+}
+
+fn check_editor_resize_and_command_cursor() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    test.assert(state..&.resize(usize.{40}, usize.{120}), "expected initial resize to report change", .{});
+    test.assert(!state..&.resize(usize.{40}, usize.{120}), "expected stable resize to report no change", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b':' });
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+    state..&.handle_key(gpa, .{ Byte: b'q' });
+    state..&.handle_key(gpa, .ArrowLeft);
+    state..&.handle_key(gpa, .{ Byte: b'!' });
+    state..&.handle_key(gpa, .End);
+    state..&.handle_key(gpa, .Backspace);
+    state..&.handle_key(gpa, .Escape);
+    test.assert(!state..&.should_quit(), "expected command editing path not to quit editor", .{});
+}
+
 fn main() i32 {
     check_command_parse();
     check_buffer_editing();
+    check_escape_decode();
+    check_editor_resize_and_command_cursor();
     return 0;
 }

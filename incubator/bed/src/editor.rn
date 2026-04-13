@@ -72,8 +72,11 @@ pub type Editor = struct {
     buffer: TextBuffer,
     cursor: Cursor = Cursor.{ row: 0, col: 0 },
     scroll_row: usize = 0,
+    screen_rows: usize = 24,
+    screen_cols: usize = 80,
     mode: Mode = .Normal,
     command_line: String = String.{},
+    command_col: usize = 0,
     message: String = String.{},
     wants_quit: bool = false,
 };
@@ -132,6 +135,29 @@ impl *mut Editor {
         return term_rows - 1;
     }
 
+    fn view_rows() usize {
+        return self.main_rows(self.screen_rows);
+    }
+
+    fn page_step() usize {
+        let rows = self.view_rows();
+        if (rows == 0) {
+            return 1;
+        }
+        return rows;
+    }
+
+    /// Updates the cached terminal viewport dimensions.
+    pub fn resize(rows: usize, cols: usize) bool {
+        let changed = self.screen_rows != rows or self.screen_cols != cols;
+        self.screen_rows = rows;
+        self.screen_cols = cols;
+        if (changed) {
+            self.ensure_cursor_visible(rows);
+        }
+        return changed;
+    }
+
     fn ensure_cursor_visible(term_rows: usize) void {
         let view_rows = self.main_rows(term_rows);
         if (view_rows == 0) {
@@ -182,12 +208,43 @@ impl *mut Editor {
         self.cursor.col = self.buffer.&.line_len(self.cursor.row);
     }
 
+    fn page_up() void {
+        let step = self.page_step();
+        if (self.cursor.row > step) {
+            self.cursor.row -= step;
+        } else {
+            self.cursor.row = 0;
+        }
+        self.ensure_cursor_visible(self.screen_rows);
+        self.clamp_cursor();
+    }
+
+    fn page_down() void {
+        let step = self.page_step();
+        let lines = self.buffer.&.line_count();
+        if (lines == 0) {
+            self.cursor.row = 0;
+            return;
+        }
+
+        let last_row = lines - 1;
+        if (self.cursor.row + step < last_row) {
+            self.cursor.row += step;
+        } else {
+            self.cursor.row = last_row;
+        }
+        self.ensure_cursor_visible(self.screen_rows);
+        self.clamp_cursor();
+    }
+
     fn enter_command() void {
         self.mode = .Command;
         self.command_line..&.clear();
+        self.command_col = 0;
     }
 
     fn finish_command() void {
+        self.command_col = 0;
         if (!self.wants_quit) {
             self.mode = .Normal;
         }
@@ -274,12 +331,63 @@ impl *mut Editor {
         self.finish_command();
     }
 
+    fn command_move_left() void {
+        if (self.command_col > 0) {
+            self.command_col -= 1;
+        }
+    }
+
+    fn command_move_right() void {
+        if (self.command_col < self.command_line.&.len()) {
+            self.command_col += 1;
+        }
+    }
+
+    fn command_move_home() void {
+        self.command_col = 0;
+    }
+
+    fn command_move_end() void {
+        self.command_col = self.command_line.&.len();
+    }
+
+    fn command_insert_byte(alloc: *mut Allocator, byte: u8) void {
+        if (self.command_line..&.insert_char(alloc, self.command_col, byte)) {
+            self.command_col += 1;
+        } else {
+            self.set_message(alloc, "command edit failed");
+        }
+    }
+
+    fn command_delete_backward() void {
+        if (self.command_col == 0) {
+            return;
+        }
+        let _ = self.command_line..&.remove_char(self.command_col - 1);
+        self.command_col -= 1;
+    }
+
+    fn command_delete_at() void {
+        if (self.command_col >= self.command_line.&.len()) {
+            return;
+        }
+        let _ = self.command_line..&.remove_char(self.command_col);
+    }
+
     fn handle_normal_key(alloc: *mut Allocator, key: Key) void {
         match (key) {
             .ArrowLeft => self.move_left(),
             .ArrowRight => self.move_right(),
             .ArrowUp => self.move_up(),
             .ArrowDown => self.move_down(),
+            .Home => self.move_line_start(),
+            .End => self.move_line_end(),
+            .Delete => {
+                let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                self.clamp_cursor();
+            },
+            .PageUp => self.page_up(),
+            .PageDown => self.page_down(),
             .NoInput => {}
             .CtrlC => self.wants_quit = true,
             .Eof => self.wants_quit = true,
@@ -319,6 +427,13 @@ impl *mut Editor {
             .ArrowRight => self.move_right(),
             .ArrowUp => self.move_up(),
             .ArrowDown => self.move_down(),
+            .Home => self.move_line_start(),
+            .End => self.move_line_end(),
+            .Delete => {
+                let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+            },
+            .PageUp => self.page_up(),
+            .PageDown => self.page_down(),
             .Backspace => {
                 self.cursor = self.buffer..&.delete_backward(alloc, self.cursor.row, self.cursor.col);
             },
@@ -347,16 +462,22 @@ impl *mut Editor {
         match (key) {
             .Escape => {
                 self.command_line..&.clear();
+                self.command_col = 0;
                 self.mode = .Normal;
             },
             .NoInput => {}
+            .ArrowLeft => self.command_move_left(),
+            .ArrowRight => self.command_move_right(),
+            .Home => self.command_move_home(),
+            .End => self.command_move_end(),
             .Backspace => {
-                let _ = self.command_line..&.pop_char();
+                self.command_delete_backward();
             },
+            .Delete => self.command_delete_at(),
             .Enter => self.run_command(alloc),
             .{ Byte: byte } => {
                 if (byte >= u8.{32} and byte != u8.{127}) {
-                    let _ = self.command_line..&.push_char(alloc, byte);
+                    self.command_insert_byte(alloc, byte);
                 }
             },
             _ => {}
@@ -410,8 +531,10 @@ impl *mut Editor {
     }
 
     /// Renders the full visible editor frame into `out`.
-    pub fn render_into(alloc: *mut Allocator, rows: usize, cols: usize, out: *mut String) bool {
+    pub fn render_into(alloc: *mut Allocator, out: *mut String) bool {
         out.clear();
+        let rows = self.screen_rows;
+        let cols = self.screen_cols;
         if (rows == 0 or cols == 0) {
             return true;
         }
@@ -457,7 +580,7 @@ impl *mut Editor {
         };
 
         let raw_col = if (self.mode == .Command) {
-            self.command_line.&.len() + 2
+            self.command_col + 2
         } else {
             self.cursor.col + 1
         };

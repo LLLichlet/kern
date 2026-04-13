@@ -137,6 +137,33 @@ fn main() i32 {
 }
 
 #[test]
+fn match_value_patterns_accept_type_qualified_scalar_literals() {
+    let output = build_and_run_source(
+        r#"
+fn classify(byte: u8) i32 {
+    return match (byte) {
+        u8.{4} => 40,
+        u8.{21} => 21,
+        _ => 0,
+    };
+}
+
+fn main() i32 {
+    return classify(u8.{4}) + classify(u8.{21}) + classify(u8.{9});
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(61),
+        "typed scalar match-pattern regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
 fn allows_same_block_shadowing_to_create_a_mutable_working_copy() {
     let output = build_and_run_source(
         r#"

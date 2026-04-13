@@ -113,14 +113,8 @@ impl *mut Editor {
         self.set_view(index, EditorView.{});
     }
 
-    fn active_window_label() []u8 {
-        if (self.window_count <= 1) {
-            return "W1/1";
-        }
-        if (self.active_window == 0) {
-            return "W1/2";
-        }
-        return "W2/2";
+    fn sync_window_count() void {
+        self.window_count = self.windows.len;
     }
 
     fn clamp_cursor() void {
@@ -168,20 +162,66 @@ impl *mut Editor {
         return main_rows - output_rows - 1;
     }
 
-    fn window_rows(index: usize) usize {
+    fn visible_window_count() usize {
         let rows = self.editor_rows();
-        if (self.window_count <= 1 or rows == 0) {
+        if (rows == 0 or self.window_count == 0) {
+            return 0;
+        }
+        let max_visible = (rows + 1) / usize.{2};
+        if (self.window_count < max_visible) {
+            return self.window_count;
+        }
+        return max_visible;
+    }
+
+    fn first_visible_window() usize {
+        let visible = self.visible_window_count();
+        if (visible == 0 or self.window_count <= visible or self.active_window + 1 <= visible) {
+            return 0;
+        }
+        return self.active_window + 1 - visible;
+    }
+
+    fn window_separator_rows() usize {
+        let visible = self.visible_window_count();
+        if (visible <= 1) {
+            return 0;
+        }
+        return visible - 1;
+    }
+
+    fn window_content_rows() usize {
+        let rows = self.editor_rows();
+        let separators = self.window_separator_rows();
+        return rows - separators;
+    }
+
+    fn window_rows(index: usize) usize {
+        let first = self.first_visible_window();
+        let visible = self.visible_window_count();
+        if (visible == 0 or index < first or index >= first + visible) {
+            return 0;
+        }
+        let rows = self.window_content_rows();
+        if (self.window_count <= 1) {
             return rows;
         }
-        if (rows <= 2) {
-            return if (index == 0) rows else 0;
+        if (rows == 0) {
+            return 0;
         }
-        let upper = (rows - 1) / usize.{2};
-        let lower = rows - upper - 1;
-        if (index == 0) {
-            return upper;
+        let local_index = index - first;
+        let base = rows / visible;
+        let remainder = rows % visible;
+        return base + if (local_index < remainder) 1 else 0;
+    }
+
+    fn window_top_row(index: usize) usize {
+        let first = self.first_visible_window();
+        let mut row = usize.{1};
+        for (let mut i = first; i < index; i += 1) {
+            row += self.window_rows(i) + 1;
         }
-        return lower;
+        return row;
     }
 
     fn view_rows() usize {
@@ -644,7 +684,8 @@ impl *mut Editor {
     }
 
     fn split_window(alloc: *mut Allocator) void {
-        if (self.window_count >= 2) {
+        let rows = self.editor_rows();
+        if (rows < self.window_count * 2 + 1) {
             self.set_message(alloc, "window limit reached");
             return;
         }
@@ -655,8 +696,8 @@ impl *mut Editor {
             self.set_message(alloc, "out of memory");
             return;
         }
-        self.window_count = 2;
-        self.active_window = 1;
+        self.sync_window_count();
+        self.active_window = self.window_count - 1;
         self.active_pane = .Editor;
         self.set_message(alloc, "split window");
     }
@@ -669,7 +710,7 @@ impl *mut Editor {
         let buffer_index = self.window(self.active_window).buffer_index;
         self.release_buffer_slot(alloc, buffer_index);
         let _ = self.windows..&.remove(self.active_window);
-        self.window_count = self.windows.len;
+        self.sync_window_count();
         if (self.active_window >= self.window_count) {
             self.active_window = self.window_count - 1;
         }
@@ -682,17 +723,27 @@ impl *mut Editor {
             self.set_message(alloc, "already only");
             return;
         }
-        if (self.active_window == 0) {
-            let buffer_index = self.window(1).buffer_index;
+        let mut keep_index = self.active_window;
+        let mut index = self.windows.len;
+        for (; index > 0; ) {
+            index -= 1;
+            if (index == keep_index) {
+                continue;
+            }
+            let buffer_index = self.window(index).buffer_index;
             self.release_buffer_slot(alloc, buffer_index);
-            let _ = self.windows..&.remove(1);
-        } else {
-            let buffer_index = self.window(0).buffer_index;
-            self.release_buffer_slot(alloc, buffer_index);
-            let _ = self.windows..&.remove(0);
+            let _ = self.windows..&.remove(index);
+            if (index < keep_index) {
+                keep_index -= 1;
+            }
+        }
+        if (keep_index > 0) {
+            let keep = self.window(keep_index);
+            let _ = self.windows..&.remove(keep_index);
+            let _ = self.windows..&.insert(alloc, 0, keep);
         }
         self.active_window = 0;
-        self.window_count = self.windows.len;
+        self.sync_window_count();
         self.active_pane = .Editor;
         self.set_message(alloc, "only window");
     }

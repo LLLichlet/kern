@@ -26,6 +26,17 @@ fn contains(text: []u8, needle: []u8) bool {
     return false;
 }
 
+fn type_text(state: *mut editor.Editor, gpa: *mut GPA, text: []u8) void {
+    for (let mut i = usize.{0}; i < #text; i += 1) {
+        state.handle_key(gpa, input.Key.{ Byte: text.[i] });
+    }
+}
+
+fn expect_cursor(state: *mut editor.Editor, row: usize, col: usize, label: []u8) void {
+    test.assert(state.cursor_row() == row, label, .{});
+    test.assert(state.cursor_col() == col, label, .{});
+}
+
 fn check_command_parse() void {
     match (command.parse("q")) {
         .Quit => {}
@@ -40,6 +51,16 @@ fn check_command_parse() void {
     match (command.parse("w tmp.txt")) {
         .{ WriteAs: path } => test.eq(path, "tmp.txt"),
         _ => test.fail("expected :w <path> to parse as write-as", .{}),
+    }
+
+    match (command.parse("w")) {
+        .Write => {}
+        _ => test.fail("expected :w to parse as write", .{}),
+    }
+
+    match (command.parse("wq")) {
+        .WriteQuit => {}
+        _ => test.fail("expected :wq to parse as write-quit", .{}),
     }
 }
 
@@ -115,9 +136,7 @@ fn check_editor_normal_mode_subset() void {
     defer state..&.deinit(gpa);
 
     state..&.handle_key(gpa, .{ Byte: b'i' });
-    for (let mut i = usize.{0}; i < #"one two"; i += 1) {
-        state..&.handle_key(gpa, .{ Byte: "one two".[i] });
-    }
+    type_text(state..&, gpa, "one two");
     state..&.handle_key(gpa, .Escape);
 
     state..&.handle_key(gpa, .{ Byte: b'0' });
@@ -149,6 +168,84 @@ fn check_editor_normal_mode_subset() void {
     test.eq(state..&.line(1), "one two!");
 }
 
+fn check_editor_extended_normal_motions() void {
+    let page = Page.{}..&;
+    let gpa = GPA.{ backing: page }..&;
+
+    let mut state = test.expect_ok(editor.empty(gpa));
+    defer state..&.deinit(gpa);
+
+    state..&.handle_key(gpa, .{ Byte: b'i' });
+    type_text(state..&, gpa, "foo, bar");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "abcdef");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "ab");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "abcdef");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "row4");
+    state..&.handle_key(gpa, .Enter);
+    type_text(state..&, gpa, "row5");
+    state..&.handle_key(gpa, .Escape);
+
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+    expect_cursor(state..&, usize.{0}, usize.{3}, "expected w to stop on punctuation word");
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+    expect_cursor(state..&, usize.{0}, usize.{5}, "expected second w to reach next word");
+    state..&.handle_key(gpa, .{ Byte: b'b' });
+    expect_cursor(state..&, usize.{0}, usize.{3}, "expected b to return to punctuation word");
+    state..&.handle_key(gpa, .{ Byte: b'W' });
+    expect_cursor(state..&, usize.{0}, usize.{5}, "expected W to skip punctuation inside WORD");
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'e' });
+    expect_cursor(state..&, usize.{0}, usize.{3}, "expected ge to move to previous word end");
+
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b'f' });
+    state..&.handle_key(gpa, .{ Byte: b'o' });
+    expect_cursor(state..&, usize.{0}, usize.{1}, "expected fo to find first o");
+    state..&.handle_key(gpa, .{ Byte: b';' });
+    expect_cursor(state..&, usize.{0}, usize.{2}, "expected ; to repeat forward find");
+    state..&.handle_key(gpa, .{ Byte: b',' });
+    expect_cursor(state..&, usize.{0}, usize.{1}, "expected , to repeat find in reverse");
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b't' });
+    state..&.handle_key(gpa, .{ Byte: b'b' });
+    expect_cursor(state..&, usize.{0}, usize.{4}, "expected tb to stop before target");
+    state..&.handle_key(gpa, .{ Byte: b';' });
+    expect_cursor(state..&, usize.{0}, usize.{4}, "expected repeated tb without another match to stay put");
+
+    state..&.handle_key(gpa, .{ Byte: b'G' });
+    state..&.handle_key(gpa, .{ Byte: b'k' });
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b'$' });
+    expect_cursor(state..&, usize.{4}, usize.{4}, "expected $ to set preferred column");
+    state..&.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state..&, usize.{3}, usize.{4}, "expected k to preserve preferred column on long line");
+    state..&.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state..&, usize.{2}, usize.{2}, "expected k to clamp on short line");
+    state..&.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state..&, usize.{1}, usize.{4}, "expected preferred column to restore on longer line");
+
+    test.assert(state..&.resize(usize.{5}, usize.{80}), "expected resize for screen motion test", .{});
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: b'g' });
+    state..&.handle_key(gpa, .{ Byte: 4 });
+    expect_cursor(state..&, usize.{2}, usize.{2}, "expected ctrl-d to move half a screen down");
+    state..&.handle_key(gpa, .{ Byte: b'L' });
+    expect_cursor(state..&, usize.{5}, usize.{4}, "expected L to jump to bottom visible row");
+    state..&.handle_key(gpa, .{ Byte: b'H' });
+    expect_cursor(state..&, usize.{2}, usize.{2}, "expected H to jump to top visible row");
+    state..&.handle_key(gpa, .{ Byte: b'M' });
+    expect_cursor(state..&, usize.{4}, usize.{4}, "expected M to jump to middle visible row");
+    state..&.handle_key(gpa, .{ Byte: 21 });
+    expect_cursor(state..&, usize.{0}, usize.{4}, "expected ctrl-u to move half a screen up");
+}
+
 fn check_command_line_viewport_render() void {
     let page = Page.{}..&;
     let gpa = GPA.{ backing: page }..&;
@@ -175,6 +272,7 @@ fn main() i32 {
     check_escape_decode();
     check_editor_resize_and_command_cursor();
     check_editor_normal_mode_subset();
+    check_editor_extended_normal_motions();
     check_command_line_viewport_render();
     return 0;
 }

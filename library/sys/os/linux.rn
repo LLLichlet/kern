@@ -5,8 +5,10 @@
 //! Design:
 //! keep the syscall boundary direct and typed.
 
+use base.Option;
 use base.Result;
 use base.coll.String;
+use base.mem.non_null_ptr_from_addr;
 use base.mem.alloc.Allocator;
 use base.abi;
 use sys.os.{FileType, Metadata, TerminalSize};
@@ -67,7 +69,7 @@ const S_IFREG = u32.{32768};
 const DT_DIR = u8.{4};
 const DT_REG = u8.{8};
 
-static mut PROCESS_ENV = 0 as **u8;
+static mut PROCESS_ENV = usize.{0};
 static mut PROCESS_ENV_READY = false;
 
 extern type Stat = struct {
@@ -143,19 +145,16 @@ fn syscall1_raw(sys_num: usize, arg1: usize) isize {
     return ret;
 }
 
-fn alloc_c_string(alloc: *mut Allocator, text: []u8) *mut u8 {
-    let .{ Some: ptr } = abi.cstr.alloc_z(alloc, text) else return 0 as *mut u8;
-    return ptr;
+fn alloc_c_string(alloc: *mut Allocator, text: []u8) Option[*mut u8] {
+    return abi.cstr.alloc_z(alloc, text);
 }
 
-fn free_c_string(alloc: *mut Allocator, text: []u8, ptr: *mut u8) void {
-    if ((ptr as usize) == 0) {
-        return;
-    }
+fn free_c_string(alloc: *mut Allocator, text: []u8, ptr: ?*mut u8) void {
+    let .{ Some: ptr } = ptr else return;
     abi.cstr.free_z(alloc, text, ptr);
 }
 
-fn match_environment_name(entry: *u8, name: *u8) *u8 {
+fn match_environment_name(entry: *u8, name: *u8) Option[*u8] {
     let mut i = 0;
     for (;;) {
         let entry_byte = (entry + i).*;
@@ -163,13 +162,13 @@ fn match_environment_name(entry: *u8, name: *u8) *u8 {
 
         if (name_byte == 0) {
             if (entry_byte == b'=') {
-                return entry + i + 1;
+                return .{ Some: entry + i + 1 };
             }
-            return 0 as *u8;
+            return .None;
         }
 
         if (entry_byte != name_byte or entry_byte == 0 or entry_byte == b'=') {
-            return 0 as *u8;
+            return .None;
         }
 
         i += 1;
@@ -253,30 +252,30 @@ pub fn is_already_exists(err: Error) bool {
 /// Records the process environment block from the hosted entry ABI.
 pub fn init_process_env(argc: i32, argv: **u8) void {
     let env_offset = if (argc <= 0) 1 else argc as usize + 1;
-    PROCESS_ENV = argv + env_offset;
+    PROCESS_ENV = (argv + env_offset) as usize;
     PROCESS_ENV_READY = true;
 }
 
 /// Returns the zero-terminated value for one environment variable.
-pub fn find_environment_value(name: *u8) *u8 {
+pub fn find_environment_value(name: *u8) Option[*u8] {
     if (!PROCESS_ENV_READY) {
-        return 0 as *u8;
+        return .None;
     }
 
-    let mut envp = PROCESS_ENV;
-    if ((envp as usize) == 0) {
-        return 0 as *u8;
-    }
+    let mut envp = match (environment_entries()) {
+        .{ Some: envp } => envp,
+        .None => return .None,
+    };
 
     for (;;) {
         let entry = envp.*;
         if ((entry as usize) == 0) {
-            return 0 as *u8;
+            return .None;
         }
 
-        let value = match_environment_name(entry, name);
-        if ((value as usize) != 0) {
-            return value;
+        match (match_environment_name(entry, name)) {
+            .{ Some: value } => return .{ Some: value },
+            .None => {},
         }
 
         envp = envp + 1;
@@ -284,11 +283,11 @@ pub fn find_environment_value(name: *u8) *u8 {
 }
 
 /// Returns the process environment block initialized by the runtime entry layer.
-pub fn environment_entries() **u8 {
-    if (!PROCESS_ENV_READY) {
-        return 0 as **u8;
+pub fn environment_entries() Option[**u8] {
+    if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
+        return .None;
     }
-    return PROCESS_ENV;
+    return .{ Some: non_null_ptr_from_addr[*u8](PROCESS_ENV) };
 }
 
 /// Returns the process handle for standard input.
@@ -363,23 +362,14 @@ pub fn restore_terminal_mode(handle: Handle, state: *TerminalState) Result[bool,
 
 /// Captures combined stdout/stderr from `/bin/sh -lc <command>`.
 pub fn shell_capture(alloc: *mut Allocator, command: []u8) Result[ProcessCapture, Error] {
-    let sh_path = alloc_c_string(alloc, "/bin/sh");
-    if ((sh_path as usize) == 0) {
-        return .{ Err: .{ code: 12 } };
-    }
-    defer free_c_string(alloc, "/bin/sh", sh_path);
+    let .{ Some: sh_path } = alloc_c_string(alloc, "/bin/sh") else return .{ Err: .{ code: 12 } };
+    defer free_c_string(alloc, "/bin/sh", .{ Some: sh_path });
 
-    let sh_arg = alloc_c_string(alloc, "sh");
-    if ((sh_arg as usize) == 0) {
-        return .{ Err: .{ code: 12 } };
-    }
-    defer free_c_string(alloc, "sh", sh_arg);
+    let .{ Some: sh_arg } = alloc_c_string(alloc, "sh") else return .{ Err: .{ code: 12 } };
+    defer free_c_string(alloc, "sh", .{ Some: sh_arg });
 
-    let dash_lc = alloc_c_string(alloc, "-lc");
-    if ((dash_lc as usize) == 0) {
-        return .{ Err: .{ code: 12 } };
-    }
-    defer free_c_string(alloc, "-lc", dash_lc);
+    let .{ Some: dash_lc } = alloc_c_string(alloc, "-lc") else return .{ Err: .{ code: 12 } };
+    defer free_c_string(alloc, "-lc", .{ Some: dash_lc });
 
     let wrapped = String.{}..&;
     defer wrapped.deinit(alloc);
@@ -390,11 +380,8 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) Result[ProcessCapture
         return .{ Err: .{ code: 12 } };
     }
 
-    let command_c = alloc_c_string(alloc, wrapped.as_str());
-    if ((command_c as usize) == 0) {
-        return .{ Err: .{ code: 12 } };
-    }
-    defer free_c_string(alloc, wrapped.as_str(), command_c);
+    let .{ Some: command_c } = alloc_c_string(alloc, wrapped.as_str()) else return .{ Err: .{ code: 12 } };
+    defer free_c_string(alloc, wrapped.as_str(), .{ Some: command_c });
 
     let fds = [2]mut i32.{undef};
     let pipe_ret = syscall3_raw(SYS_PIPE2, fds.[0]..& as usize, 0, 0);
@@ -412,13 +399,16 @@ pub fn shell_capture(alloc: *mut Allocator, command: []u8) Result[ProcessCapture
     }
 
     if (pid == 0) {
-        let argv = [4]mut *u8.{ sh_arg, dash_lc, command_c, 0 as *u8 };
-        let envp = environment_entries();
+        let argv = [4]mut usize.{ sh_arg as usize, dash_lc as usize, command_c as usize, 0 };
+        let envp = match (environment_entries()) {
+            .{ Some: envp } => envp as usize,
+            .None => 0,
+        };
         let _ = close_file(read_end);
         let _ = syscall3_raw(SYS_DUP2, write_end, 1, 0);
         let _ = syscall3_raw(SYS_DUP2, write_end, 2, 0);
         let _ = close_file(write_end);
-        let _ = syscall3_raw(SYS_EXECVE, sh_path as usize, argv.[0]..& as usize, envp as usize);
+        let _ = syscall3_raw(SYS_EXECVE, sh_path as usize, argv.[0]..& as usize, envp);
         exit(127);
     }
 

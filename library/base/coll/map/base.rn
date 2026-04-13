@@ -5,6 +5,7 @@
 
 use base.Option;
 use base.hash.Hash;
+use base.mem.non_null_mut_ptr_from_addr;
 
 /// Control byte for an unused slot.
 pub const EMPTY = u8.{0};
@@ -125,8 +126,8 @@ pub fn max_occupied(capacity: usize) usize {
 /// `Map` stores keys and values in parallel slot arrays and uses linear probing
 /// with tombstones for deletions.
 pub type Map[K, V] where K: Eq[K] + Hash[K] = struct {
-    pub ctrl: *mut u8 = 0 as *mut u8,
-    pub entries: *mut Entry[K, V] = 0 as *mut Entry[K, V],
+    pub ctrl: *mut u8 = non_null_mut_ptr_from_addr[u8](1),
+    pub entries: *mut Entry[K, V] = non_null_mut_ptr_from_addr[Entry[K, V]](1),
     /// The number of allocated slots.
     pub capacity: usize = 0,
     /// The number of live entries.

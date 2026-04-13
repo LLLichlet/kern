@@ -6,6 +6,7 @@ use ..base.{
     key_at,
     value_at,
     child_at,
+    some_node,
     first_hit,
     last_hit,
     ceil_hit,
@@ -19,40 +20,36 @@ impl[K, V] *Tree[K, V]
         return lhs.cmp(rhs);
     }
 
-    fn for_each_node(node: *mut Node[K, V], visitor: *Fn(K, V) void) void {
-        if ((node as usize) == 0) {
-            return;
-        }
+    fn for_each_node(node: ?*mut Node[K, V], visitor: *Fn(K, V) void) void {
+        let .{ Some: node } = node else return;
 
         let mut i = 0;
         for (; i < node.len; i += 1) {
             if (!node.is_leaf) {
-                self.for_each_node(child_at[K, V](node, i), visitor);
+                self.for_each_node(some_node[K, V](child_at[K, V](node, i)), visitor);
             }
             visitor(key_at[K, V](node, i), value_at[K, V](node, i));
         }
 
         if (!node.is_leaf) {
-            self.for_each_node(child_at[K, V](node, node.len), visitor);
+            self.for_each_node(some_node[K, V](child_at[K, V](node, node.len)), visitor);
         }
     }
 
-    fn fold_node[U](node: *mut Node[K, V], init: U, step: *Fn(U, K, V) U) U {
-        if ((node as usize) == 0) {
-            return init;
-        }
+    fn fold_node[U](node: ?*mut Node[K, V], init: U, step: *Fn(U, K, V) U) U {
+        let .{ Some: node } = node else return init;
 
         let mut accum = init;
         let mut i = 0;
         for (; i < node.len; i += 1) {
             if (!node.is_leaf) {
-                accum = self.fold_node(child_at[K, V](node, i), accum, step);
+                accum = self.fold_node(some_node[K, V](child_at[K, V](node, i)), accum, step);
             }
             accum = step(accum, key_at[K, V](node, i), value_at[K, V](node, i));
         }
 
         if (!node.is_leaf) {
-            accum = self.fold_node(child_at[K, V](node, node.len), accum, step);
+            accum = self.fold_node(some_node[K, V](child_at[K, V](node, node.len)), accum, step);
         }
 
         return accum;
@@ -128,9 +125,10 @@ impl[K, V] *Tree[K, V]
 
     /// Returns the value stored for `key`.
     pub fn get(key: K) Option[V] {
-        let mut node = self.root;
+        let .{ Some: root } = self.root else return .None;
+        let mut node = root;
 
-        for (; (node as usize) != 0; ) {
+        for (;;) {
             let mut index = 0;
             for (; index < node.len; index += 1) {
                 let cmp = self.compare(key_at[K, V](node, index), key);
@@ -148,7 +146,5 @@ impl[K, V] *Tree[K, V]
 
             node = child_at[K, V](node, index);
         }
-
-        return .None;
     }
 }

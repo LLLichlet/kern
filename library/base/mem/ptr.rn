@@ -1,0 +1,27 @@
+//! Pointer/address conversion helpers.
+//!
+//! Design:
+//! keep the `usize -> ?*T` null-filtering cast reusable inside the standard
+//! libraries without repeating match boilerplate at every call site.
+
+/// Converts a raw address into a nullable object pointer.
+pub fn ptr_from_addr[T](addr: usize) ?*T {
+    return addr as ?*T;
+}
+
+/// Converts a raw address into a nullable mutable object pointer.
+pub fn mut_ptr_from_addr[T](addr: usize) ?*mut T {
+    return addr as ?*mut T;
+}
+
+/// Converts a raw non-zero address into a non-null object pointer.
+pub fn non_null_ptr_from_addr[T](addr: usize) *T {
+    let .{ Some: ptr } = ptr_from_addr[T](addr) else @trap();
+    return ptr;
+}
+
+/// Converts a raw non-zero address into a non-null mutable object pointer.
+pub fn non_null_mut_ptr_from_addr[T](addr: usize) *mut T {
+    let .{ Some: ptr } = mut_ptr_from_addr[T](addr) else @trap();
+    return ptr;
+}

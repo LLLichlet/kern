@@ -5,7 +5,9 @@
 //! Design:
 //! keep libc-backed OS calls explicit and close to the platform ABI.
 
+use base.Option;
 use base.Result;
+use base.mem.non_null_ptr_from_addr;
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
@@ -45,10 +47,10 @@ extern {
     fn system_exit(code: i32) void;
 
     #[export_name("mmap")]
-    pub fn mmap(addr: *mut u8, len: usize, prot: i32, flags: i32, fd: i32, offset: isize) *mut u8;
+    pub fn mmap(addr: ?*mut u8, len: usize, prot: i32, flags: i32, fd: i32, offset: isize) ^mut u8;
 
     #[export_name("munmap")]
-    pub fn munmap(addr: *mut u8, len: usize) i32;
+    pub fn munmap(addr: ^mut u8, len: usize) i32;
 
     #[export_name("isatty")]
     fn system_isatty(fd: i32) i32;
@@ -184,7 +186,7 @@ const S_IFREG = u16.{32768};
 const DT_DIR = u8.{4};
 const DT_REG = u8.{8};
 
-static mut PROCESS_ENV = 0 as **u8;
+static mut PROCESS_ENV = usize.{0};
 static mut PROCESS_ENV_READY = false;
 
 /// Returns the sentinel value used for invalid Darwin handles.
@@ -192,7 +194,7 @@ pub fn invalid_handle() Handle {
     return INVALID_HANDLE;
 }
 
-fn match_environment_name(entry: *u8, name: *u8) *u8 {
+fn match_environment_name(entry: *u8, name: *u8) Option[*u8] {
     let mut i = 0;
     for (;;) {
         let entry_byte = (entry + i).*;
@@ -200,13 +202,13 @@ fn match_environment_name(entry: *u8, name: *u8) *u8 {
 
         if (name_byte == 0) {
             if (entry_byte == b'=') {
-                return entry + i + 1;
+                return .{ Some: entry + i + 1 };
             }
-            return 0 as *u8;
+            return .None;
         }
 
         if (entry_byte != name_byte or entry_byte == 0 or entry_byte == b'=') {
-            return 0 as *u8;
+            return .None;
         }
 
         i += 1;
@@ -230,30 +232,30 @@ pub fn is_already_exists(err: Error) bool {
 /// Records the process environment block from the hosted entry ABI.
 pub fn init_process_env(argc: i32, argv: **u8) void {
     let env_offset = if (argc <= 0) 1 else argc as usize + 1;
-    PROCESS_ENV = argv + env_offset;
+    PROCESS_ENV = (argv + env_offset) as usize;
     PROCESS_ENV_READY = true;
 }
 
 /// Returns the zero-terminated value for one environment variable.
-pub fn find_environment_value(name: *u8) *u8 {
+pub fn find_environment_value(name: *u8) Option[*u8] {
     if (!PROCESS_ENV_READY) {
-        return 0 as *u8;
+        return .None;
     }
 
-    let mut envp = PROCESS_ENV;
-    if ((envp as usize) == 0) {
-        return 0 as *u8;
-    }
+    let mut envp = match (environment_entries()) {
+        .{ Some: envp } => envp,
+        .None => return .None,
+    };
 
     for (;;) {
         let entry = envp.*;
         if ((entry as usize) == 0) {
-            return 0 as *u8;
+            return .None;
         }
 
-        let value = match_environment_name(entry, name);
-        if ((value as usize) != 0) {
-            return value;
+        match (match_environment_name(entry, name)) {
+            .{ Some: value } => return .{ Some: value },
+            .None => {},
         }
 
         envp = envp + 1;
@@ -261,11 +263,11 @@ pub fn find_environment_value(name: *u8) *u8 {
 }
 
 /// Returns the process environment block initialized by the runtime entry layer.
-pub fn environment_entries() **u8 {
-    if (!PROCESS_ENV_READY) {
-        return 0 as **u8;
+pub fn environment_entries() Option[**u8] {
+    if (!PROCESS_ENV_READY or PROCESS_ENV == 0) {
+        return .None;
     }
-    return PROCESS_ENV;
+    return .{ Some: non_null_ptr_from_addr[*u8](PROCESS_ENV) };
 }
 
 /// Returns the process handle for standard input.

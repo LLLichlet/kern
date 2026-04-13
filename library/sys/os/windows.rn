@@ -7,6 +7,7 @@
 
 use base.Result;
 use base.abi;
+use base.mem.non_null_mut_ptr_from_addr;
 use sys.os.{FileType, Metadata, TerminalSize};
 use sys.os.OpenOptions;
 
@@ -172,7 +173,7 @@ const ENABLE_VIRTUAL_TERMINAL_INPUT = u32.{512};
 
 /// Returns the sentinel value used for invalid Win32 handles.
 pub fn invalid_handle() Handle {
-    return (~usize.{0}) as *mut u8;
+    return non_null_mut_ptr_from_addr[u8](~usize.{0});
 }
 
 fn last_error() Error {
@@ -288,15 +289,15 @@ pub fn utf16_z_len(str: *u16) usize {
 fn alloc_wide_units(units: usize) Result[*mut u16, Error] {
     let bytes = units * 2;
     let ptr = VirtualAlloc(
-        0,
+        .None,
         bytes,
         (MEM_COMMIT | MEM_RESERVE) as u32,
         PAGE_READWRITE as u32
     );
-    if ((ptr as usize) == 0) {
+    let .{ Some: ptr_u8 } = (ptr as ?*mut u8) else {
         return .{ Err: last_error() };
-    }
-    return .{ Ok: ptr as *mut u16 };
+    };
+    return .{ Ok: ptr_u8 as *mut u16 };
 }
 
 /// Releases a page-backed UTF-16 buffer previously allocated by this module.
@@ -304,19 +305,19 @@ pub fn free_wide_units(ptr: *mut u16) void {
     if ((ptr as usize) == 0) {
         return;
     }
-    let _ = VirtualFree(ptr as *mut u8, 0, MEM_RELEASE as u32);
+    let _ = VirtualFree(ptr as ^mut u8, 0, MEM_RELEASE as u32);
 }
 
 fn alloc_utf8_units(bytes: usize) Result[*mut u8, Error] {
     let ptr = VirtualAlloc(
-        0,
+        .None,
         bytes,
         (MEM_COMMIT | MEM_RESERVE) as u32,
         PAGE_READWRITE as u32
     );
-    if ((ptr as usize) == 0) {
+    let .{ Some: ptr } = (ptr as ?*mut u8) else {
         return .{ Err: last_error() };
-    }
+    };
     return .{ Ok: ptr };
 }
 
@@ -325,7 +326,7 @@ pub fn free_utf8_units(ptr: *mut u8) void {
     if ((ptr as usize) == 0) {
         return;
     }
-    let _ = VirtualFree(ptr, 0, MEM_RELEASE as u32);
+    let _ = VirtualFree(ptr as ^mut u8, 0, MEM_RELEASE as u32);
 }
 
 /// Converts a zero-terminated UTF-8 path into an owned zero-terminated UTF-16 buffer.
@@ -667,9 +668,9 @@ pub fn write(handle: Handle, ptr: *u8, len: usize) usize {
 
 extern {
     /// Reserves or commits page-backed virtual memory.
-    pub fn VirtualAlloc(lpAddress: *mut u8, dwSize: usize, flAllocationType: u32, flProtect: u32) *mut u8;
+    pub fn VirtualAlloc(lpAddress: ?*mut u8, dwSize: usize, flAllocationType: u32, flProtect: u32) ^mut u8;
     /// Releases memory previously returned by `VirtualAlloc`.
-    pub fn VirtualFree(lpAddress: *mut u8, dwSize: usize, dwFreeType: u32) i32;
+    pub fn VirtualFree(lpAddress: ^mut u8, dwSize: usize, dwFreeType: u32) i32;
 }
 
 /// Allocation flag for committed pages.

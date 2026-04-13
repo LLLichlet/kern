@@ -211,7 +211,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                             "raw pointers cannot be initialized with `.{...}`",
                         )
                         .with_hint(
-                            "use a real pointer-producing operation or an explicit cast such as `addr as *T`",
+                            "use a real pointer-producing operation, or cast to `?*T` and handle `.None` / `.{ Some: ptr }` explicitly",
                         )
                         .emit();
                     return TypeId::ERROR;

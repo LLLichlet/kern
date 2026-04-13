@@ -5,7 +5,7 @@
 
 use base.Option;
 use base.cmp.Ord;
-use base.mem.layout_of;
+use base.mem.array_layout_of;
 use base.mem.alloc.Allocator;
 use ..base.{
     MIN_DEGREE,
@@ -17,6 +17,7 @@ use ..base.{
     set_key,
     set_value,
     set_child,
+    some_node,
     first_hit,
     last_hit,
 };
@@ -29,7 +30,8 @@ impl[K, V] *mut Tree[K, V]
 {
     /// Releases one node allocation.
     fn delete_free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
-        alloc.free(node as *mut u8, layout_of[Node[K, V]]());
+        let .{ Some: node_layout } = array_layout_of[Node[K, V]](1) else return;
+        alloc.free(node as *mut u8, node_layout);
     }
 
     /// Returns the first slot whose key is greater than or equal to `key`.
@@ -182,7 +184,7 @@ impl[K, V] *mut Tree[K, V]
         if (left.len >= MIN_DEGREE) {
             // Replace the removed key with the in-order predecessor so the
             // recursive delete stays inside the left subtree.
-            let pred = match (last_hit[K, V](left)) {
+            let pred = match (last_hit[K, V](some_node[K, V](left))) {
                 .{ Some: hit } => hit,
                 .None => return false,
             };
@@ -199,7 +201,7 @@ impl[K, V] *mut Tree[K, V]
         let right = child_at[K, V](node, index + 1);
         if (right.len >= MIN_DEGREE) {
             // Symmetric successor case when the right child has spare capacity.
-            let succ = match (first_hit[K, V](right)) {
+            let succ = match (first_hit[K, V](some_node[K, V](right))) {
                 .{ Some: hit } => hit,
                 .None => return false,
             };
@@ -269,13 +271,11 @@ impl[K, V] *mut Tree[K, V]
 
     /// Removes the value stored for `key`.
     pub fn remove(alloc: *mut Allocator, key: K) Option[V] {
-        if ((self.root as usize) == 0) {
-            return .None;
-        }
+        let .{ Some: root } = self.root else return .None;
 
         let mut removed_value = Option[V].None;
         let removed = removed_value..&;
-        if (!self.delete_remove_from_node(alloc, self.root, key, removed)) {
+        if (!self.delete_remove_from_node(alloc, root, key, removed)) {
             return .None;
         }
 
@@ -283,16 +283,17 @@ impl[K, V] *mut Tree[K, V]
 
         if (self.len == 0) {
             // The final delete can free the root outright.
-            self.delete_free_node(alloc, self.root);
-            self.root = 0 as *mut Node[K, V];
+            self.delete_free_node(alloc, root);
+            self.root = .None;
             return removed.*;
         }
 
-        if (self.root.len == 0) {
+        let .{ Some: root } = self.root else return removed.*;
+        if (root.len == 0) {
             // A non-leaf root may collapse after a merge; promote its only child
             // so the tree height shrinks by one.
-            let old_root = self.root;
-            self.root = child_at[K, V](old_root, 0);
+            let old_root = root;
+            self.root = .{ Some: child_at[K, V](old_root, 0) };
             self.delete_free_node(alloc, old_root);
         }
 

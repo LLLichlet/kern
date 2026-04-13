@@ -4,7 +4,7 @@
 //! contiguous buffer and grows geometrically.
 
 use base.mem.alloc.{Allocator, Arena};
-use base.mem.{Layout, memmove};
+use base.mem.{Layout, memmove, non_null_mut_ptr_from_addr};
 use base.Option;
 use base.num.USIZE_MAX;
 
@@ -12,7 +12,7 @@ mod query;
 
 /// A growable contiguous collection of `T`.
 pub type List[T] = struct {
-    ptr: *mut T = 0 as *mut T,
+    ptr: *mut T = non_null_mut_ptr_from_addr[T](1),
     /// The number of initialized elements in the list.
     pub len: usize = 0,
     cap: usize = 0,
@@ -36,7 +36,7 @@ impl[T] *mut List[T] {
 
     #[inline]
     fn zst_ptr() *mut T {
-        return 1 as *mut T;
+        return non_null_mut_ptr_from_addr[T](1);
     }
 
     #[inline]
@@ -329,7 +329,7 @@ impl[T] *mut List[T] {
 
         let elem_size = self.elem_size();
         let mut src_ptr = slice.[0].& as *T;
-        let mut temp_ptr = 0 as *mut u8;
+        let mut temp_ptr = non_null_mut_ptr_from_addr[u8](1);
         let mut temp_layout = Layout.{ size: 0, align: 1 };
 
         let base_addr = self.ptr as usize;
@@ -401,7 +401,7 @@ impl[T] *mut List[T] {
     /// Releases the backing allocation.
     pub fn deinit(alloc: *mut Allocator) void {
         if (self.is_zst()) {
-            self.ptr = 0 as *mut T;
+            self.ptr = self.zst_ptr();
             self.len = 0;
             self.cap = 0;
             return;
@@ -413,7 +413,7 @@ impl[T] *mut List[T] {
                 .None => return,
             };
             alloc.free(self.ptr as *mut u8, layout);
-            self.ptr = 0 as *mut T;
+            self.ptr = self.zst_ptr();
             self.len = 0;
             self.cap = 0;
         }
@@ -536,7 +536,7 @@ impl[T] *mut List[T] {
     /// through safe higher-level APIs.
     pub fn append_uninit(alloc: *mut Allocator, count: usize) Option[[]mut T] {
         if (count == 0) {
-            return .{ Some: (0 as *mut T)..[0 .. 0] };
+            return .{ Some: self.zst_ptr()..[0 .. 0] };
         }
 
         let old_len = self.len;
@@ -554,7 +554,7 @@ impl[T] *mut List[T] {
     /// Grows the list by `count` items using exact growth when reallocation is needed.
     pub fn append_uninit_exact(alloc: *mut Allocator, count: usize) Option[[]mut T] {
         if (count == 0) {
-            return .{ Some: (0 as *mut T)..[0 .. 0] };
+            return .{ Some: self.zst_ptr()..[0 .. 0] };
         }
 
         let old_len = self.len;
@@ -572,7 +572,7 @@ impl[T] *mut List[T] {
     #[inline]
     pub fn append_uninit_exact_in_arena(arena: *mut Arena, count: usize) Option[[]mut T] {
         if (count == 0) {
-            return .{ Some: (0 as *mut T)..[0 .. 0] };
+            return .{ Some: self.zst_ptr()..[0 .. 0] };
         }
 
         if (count > USIZE_MAX - self.len) {

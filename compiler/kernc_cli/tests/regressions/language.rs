@@ -137,7 +137,7 @@ fn main() i32 {
 }
 
 #[test]
-fn rejects_direct_raw_pointer_literals_but_accepts_explicit_casts() {
+fn rejects_direct_raw_pointer_literals_and_null_raw_pointer_casts() {
     let rejected = compile_source(
         r#"
 fn main() i32 {
@@ -160,7 +160,7 @@ fn main() i32 {
         String::from_utf8_lossy(&rejected.stderr)
     );
 
-    let accepted = build_and_run_source(
+    let null_cast = compile_source(
         r#"
 fn main() i32 {
     let ptr = 0 as *mut i32;
@@ -169,12 +169,68 @@ fn main() i32 {
 "#,
     );
 
+    assert!(
+        !null_cast.status.success(),
+        "kernc unexpectedly accepted a null raw-pointer cast:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&null_cast.stdout),
+        String::from_utf8_lossy(&null_cast.stderr)
+    );
     assert_eq!(
-        accepted.status.code(),
-        Some(0),
-        "explicit pointer cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&accepted.stdout),
-        String::from_utf8_lossy(&accepted.stderr)
+        String::from_utf8_lossy(&null_cast.stderr)
+            .contains("non-null raw pointers cannot be created from the constant address `0`"),
+        true,
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&null_cast.stderr)
+    );
+
+    let rejected_non_zero = compile_source(
+        r#"
+fn main() i32 {
+    let ptr = 1 as *mut i32;
+    return if ((ptr as usize) == 1) 0 else 1;
+}
+"#,
+    );
+
+    assert!(
+        !rejected_non_zero.status.success(),
+        "kernc unexpectedly accepted a non-zero integer-to-pointer cast:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&rejected_non_zero.stdout),
+        String::from_utf8_lossy(&rejected_non_zero.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&rejected_non_zero.stderr)
+            .contains("integer addresses cannot be cast directly to non-null object pointers"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&rejected_non_zero.stderr)
+    );
+
+    let optional = build_and_run_source(
+        r#"
+fn main() i32 {
+    let zero = 0 as ?*mut i32;
+    let one = 1 as ?*mut i32;
+
+    let zero_score = match (zero) {
+        .None => i32.{0},
+        .{ Some: _ } => i32.{10},
+    };
+    let one_score = match (one) {
+        .None => i32.{20},
+        .{ Some: ptr } => if ((ptr as usize) == 1) i32.{3} else i32.{30},
+    };
+
+    return zero_score + one_score;
+}
+"#,
+    );
+
+    assert_eq!(
+        optional.status.code(),
+        Some(3),
+        "direct optional pointer cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&optional.stdout),
+        String::from_utf8_lossy(&optional.stderr)
     );
 }
 
@@ -186,14 +242,19 @@ type Boxed[T] = struct {
     ptr: *mut T,
 };
 
+fn make_ptr[T](addr: usize) *mut T {
+    let .{ Some: ptr } = addr as ?*mut T else @trap();
+    return ptr;
+}
+
 fn clear[T](value: *mut Boxed[T]) void {
-    value.ptr = 0 as *mut T;
+    value.ptr = make_ptr[T](1);
 }
 
 fn main() i32 {
-    let mut boxed = Boxed[i32].{ ptr: 1 as *mut i32 };
+    let mut boxed = Boxed[i32].{ ptr: make_ptr[i32](2) };
     clear[i32](boxed..&);
-    return if ((boxed.ptr as usize) == 0) 0 else 1;
+    return if ((boxed.ptr as usize) == 1) 0 else 1;
 }
 "#,
     );
@@ -203,6 +264,93 @@ fn main() i32 {
         Some(0),
         "generic pointer cast regression binary failed:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_optional_volatile_pointer_types() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let ptr = ?^mut i32.None;
+    return match (ptr) {
+        .None => 0,
+        .{ Some: _ } => 1,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted `?^T`:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("`?^T` is not a valid type; `^T` already covers raw address `0`"),
+        "unexpected stderr:\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn supports_pointer_airlock_casts_through_volatile_pointers() {
+    let output = build_and_run_source(
+        r#"
+fn main() i32 {
+    let zero = 0 as ^mut i32;
+    let none = zero as ?*mut i32;
+    let one = 1 as ^mut i32;
+    let some = one as ?*mut i32;
+
+    let none_score = match (none) {
+        .None => i32.{0},
+        .{ Some: _ } => i32.{10},
+    };
+    let some_score = match (some) {
+        .None => i32.{20},
+        .{ Some: ptr } => if ((ptr as usize) == 1) i32.{3} else i32.{30},
+    };
+
+    return none_score + some_score;
+}
+"#,
+    );
+
+    assert_eq!(
+        output.status.code(),
+        Some(3),
+        "pointer airlock regression binary failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_direct_volatile_to_object_pointer_casts() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let raw = 1 as ^mut i32;
+    let ptr = raw as *mut i32;
+    return if ((ptr as usize) == 1) 0 else 1;
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly accepted `^T as *T`:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("cannot cast an address pointer directly to a non-null object pointer"),
+        "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }

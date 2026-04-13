@@ -5,7 +5,7 @@
 
 use base.Option;
 use base.hash.Hash;
-use base.mem.{Layout, array_layout_of};
+use base.mem.{Layout, array_layout_of, non_null_mut_ptr_from_addr};
 use base.mem.alloc.Allocator;
 use base.num.USIZE_MAX;
 use ..base.{
@@ -95,7 +95,7 @@ impl[K, V] *mut Map[K, V]
             .None => return .None,
         };
         let ctrl = storage;
-        let entries = (storage as usize + entries_offset) as *mut Entry[K, V];
+        let entries = non_null_mut_ptr_from_addr[Entry[K, V]](storage as usize + entries_offset);
         @memset(ctrl, EMPTY, capacity);
 
         return .{
@@ -474,8 +474,8 @@ impl[K, V] *mut Map[K, V]
     /// Releases the backing table allocation.
     pub fn deinit(alloc: *mut Allocator) void {
         self.free_table(alloc, self.ctrl, self.capacity);
-        self.ctrl = 0 as *mut u8;
-        self.entries = 0 as *mut Entry[K, V];
+        self.ctrl = non_null_mut_ptr_from_addr[u8](1);
+        self.entries = non_null_mut_ptr_from_addr[Entry[K, V]](1);
         self.capacity = 0;
         self.len = 0;
         self.tombstones = 0;

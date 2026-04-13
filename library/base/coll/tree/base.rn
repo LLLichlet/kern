@@ -5,6 +5,7 @@
 
 use base.Option;
 use base.cmp.Ord;
+use base.mem.non_null_mut_ptr_from_addr;
 
 /// The minimum branching factor of the tree.
 pub const MIN_DEGREE = usize.{8};
@@ -50,6 +51,19 @@ pub fn child_at[K, V](node: *mut Node[K, V], index: usize) *mut Node[K, V] {
     return node.children.[index];
 }
 
+/// Returns a non-null sentinel child pointer for unused leaf slots.
+///
+/// Leaf child slots are never dereferenced, so this only needs to stay outside
+/// the null space reserved for optional object pointers.
+pub fn dangling_child[K, V]() *mut Node[K, V] {
+    return non_null_mut_ptr_from_addr[Node[K, V]](1);
+}
+
+/// Wraps a node pointer in the tree's canonical optional-root form.
+pub fn some_node[K, V](node: *mut Node[K, V]) ?*mut Node[K, V] {
+    return .{ Some: node };
+}
+
 /// Writes the key at `index`.
 pub fn set_key[K, V](node: *mut Node[K, V], index: usize, key: K) void {
     node.keys.[index] = key;
@@ -69,10 +83,8 @@ pub fn set_child[K, V](node: *mut Node[K, V], index: usize, child: *mut Node[K, 
 ///
 /// Returns:
 /// `None` when the tree is empty.
-pub fn first_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
-    if ((root as usize) == 0) {
-        return .None;
-    }
+pub fn first_hit[K, V](root: ?*mut Node[K, V]) Option[SearchHit[K, V]] {
+    let .{ Some: root } = root else return .None;
 
     let mut node = root;
     for (; !node.is_leaf; ) {
@@ -85,10 +97,8 @@ pub fn first_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
 ///
 /// Returns:
 /// `None` when the tree is empty.
-pub fn last_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
-    if ((root as usize) == 0) {
-        return .None;
-    }
+pub fn last_hit[K, V](root: ?*mut Node[K, V]) Option[SearchHit[K, V]] {
+    let .{ Some: root } = root else return .None;
 
     let mut node = root;
     for (; !node.is_leaf; ) {
@@ -100,13 +110,14 @@ pub fn last_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
 /// Returns the first key position whose key is greater than or equal to `key`.
 ///
 /// This is the lower-bound search primitive used by ordered queries.
-pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
+pub fn ceil_hit[K, V](root: ?*mut Node[K, V], key: K) Option[SearchHit[K, V]]
     where K: Ord[K],
 {
+    let .{ Some: root } = root else return .None;
     let mut node = root;
     let mut found = Option[SearchHit[K, V]].None;
 
-    for (; (node as usize) != 0; ) {
+    for (;;) {
         let current = node;
         let mut index = 0;
         for (; index < current.len; index += 1) {
@@ -128,20 +139,19 @@ pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
             node = child_at[K, V](current, current.len);
         }
     }
-
-    return found;
 }
 
 /// Returns the last key position whose key is less than or equal to `key`.
 ///
 /// This is the upper-bound search primitive used by ordered queries.
-pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
+pub fn floor_hit[K, V](root: ?*mut Node[K, V], key: K) Option[SearchHit[K, V]]
     where K: Ord[K],
 {
+    let .{ Some: root } = root else return .None;
     let mut node = root;
     let mut found = Option[SearchHit[K, V]].None;
 
-    for (; (node as usize) != 0; ) {
+    for (;;) {
         let mut index = 0;
         for (; index < node.len; index += 1) {
             let cmp = key_at[K, V](node, index).cmp(key);
@@ -160,8 +170,6 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
 
         node = child_at[K, V](node, index);
     }
-
-    return found;
 }
 
 /// An ordered map backed by a B-tree.
@@ -169,8 +177,8 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
 /// The mutable layer owns balancing and node allocation; this base type only
 /// stores the root pointer and entry count.
 pub type Tree[K, V] where K: Ord[K] = struct {
-    /// The root node pointer, or null when the tree is empty.
-    pub root: *mut Node[K, V] = 0 as *mut Node[K, V],
+    /// The root node pointer when the tree is non-empty.
+    pub root: ?*mut Node[K, V] = .None,
     /// The number of key-value pairs stored in the tree.
     pub len: usize = 0,
 };

@@ -312,6 +312,19 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::TypeKind::TypeOf(inner_expr) => self.check_expr(inner_expr, None),
             ast::TypeKind::Optional { inner } => {
                 let inner_ty = self.evaluate_dynamic_typeof(inner);
+                let inner_norm = self.ctx.type_registry.normalize(inner_ty);
+                if matches!(
+                    self.ctx.type_registry.get(inner_norm),
+                    TypeKind::VolatilePtr { .. }
+                ) {
+                    self.ctx.struct_error(
+                        ty_node.span,
+                        "`?^T` is not a valid type; `^T` already covers raw address `0`",
+                    )
+                    .with_hint("use `^T` for raw addresses or `?*T` for nullable object pointers")
+                    .emit();
+                    return TypeId::ERROR;
+                }
                 let some = self.ctx.intern("Some");
                 let none = self.ctx.intern("None");
                 self.ctx.type_registry.intern(TypeKind::AnonymousEnum(

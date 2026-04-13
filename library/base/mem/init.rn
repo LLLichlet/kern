@@ -5,8 +5,10 @@
 
 mod layout;
 mod bytes;
+mod ptr;
 pub mod alloc;
 
 pub use .layout.{Layout, layout_of, array_layout_of};
 pub use .bytes.memmove;
+pub use .ptr.{ptr_from_addr, mut_ptr_from_addr, non_null_ptr_from_addr, non_null_mut_ptr_from_addr};
 pub use .alloc.Allocator;

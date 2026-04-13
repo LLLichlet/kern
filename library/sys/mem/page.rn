@@ -6,7 +6,7 @@
 
 use sys.os;
 use base.Option;
-use base.mem.Layout;
+use base.mem.{Layout, mut_ptr_from_addr, non_null_mut_ptr_from_addr};
 use base.mem.alloc.Allocator;
 
 /// An allocator that requests memory directly from the OS page system.
@@ -20,7 +20,7 @@ fn normalize_align(align: usize) usize {
 }
 
 fn dangling_ptr(align: usize) *mut u8 {
-    return normalize_align(align) as *mut u8;
+    return non_null_mut_ptr_from_addr[u8](normalize_align(align));
 }
 
 impl *mut Page : Allocator{
@@ -31,7 +31,7 @@ impl *mut Page : Allocator{
         }
 
         #[if(os == "linux")] {
-            let ptr = os.linux.mmap(
+            let raw = os.linux.mmap(
                 0,
                 layout.size,
                 os.linux.PROT_READ | os.linux.PROT_WRITE,
@@ -39,35 +39,50 @@ impl *mut Page : Allocator{
                 ~usize.{0},
                 0
             );
-            if (ptr == os.linux.MAP_FAILED) {
+            if (raw == os.linux.MAP_FAILED) {
                 return .None;
             }
-            return .{ Some: ptr as *mut u8 };
+            match (mut_ptr_from_addr[u8](raw)) {
+                .{ Some: ptr } => return .{ Some: ptr },
+                .None => {
+                    let _ = os.linux.munmap(raw, layout.size);
+                    return .None;
+                },
+            };
         };
 
         #[if(os == "darwin")] {
-            let ptr = os.darwin.mmap(
-                0 as *mut u8,
+            let raw = os.darwin.mmap(
+                .None,
                 layout.size,
                 (os.darwin.PROT_READ | os.darwin.PROT_WRITE) as i32,
                 (os.darwin.MAP_PRIVATE | os.darwin.MAP_ANONYMOUS) as i32,
                 -1,
                 0
             );
-            if (ptr as usize == ~usize.{0}) {
+            if (raw as usize == ~usize.{0}) {
                 return .None;
             }
-            return .{ Some: ptr };
+            match (raw as ?*mut u8) {
+                .{ Some: ptr } => return .{ Some: ptr },
+                .None => {
+                    let _ = os.darwin.munmap(raw, layout.size);
+                    return .None;
+                },
+            };
         };
 
         #[if(os == "windows")] {
-            let ptr = os.windows.VirtualAlloc(
-                0 as *mut u8,
+            let raw = os.windows.VirtualAlloc(
+                .None,
                 layout.size,
                 (os.windows.MEM_COMMIT | os.windows.MEM_RESERVE) as u32,
                 WINDOWS_PAGE_READWRITE
             );
-            return if (ptr == 0) .None else .{ Some: ptr };
+            return match (raw as ?*mut u8) {
+                .{ Some: ptr } => .{ Some: ptr },
+                .None => .None,
+            };
         };
     }
 
@@ -85,7 +100,7 @@ impl *mut Page : Allocator{
         };
 
         #[if(os == "darwin")] {
-            let _ = os.darwin.munmap(ptr, layout.size);
+            let _ = os.darwin.munmap(ptr as ^mut u8, layout.size);
         };
 
         #[if(os == "windows")] {

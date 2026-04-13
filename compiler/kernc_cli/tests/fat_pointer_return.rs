@@ -105,8 +105,13 @@ type Ref = struct {
     value: *mut i32,
 };
 
+fn dangling_ptr[T](addr: usize) *mut T {
+    let .{ Some: ptr } = addr as ?*mut T else @trap();
+    return ptr;
+}
+
 type Holder = struct {
-    slot: *mut i32 = 0 as *mut i32,
+    slot: *mut i32 = dangling_ptr[i32](1),
 };
 
 impl *mut Holder {

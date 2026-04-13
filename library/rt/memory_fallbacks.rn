@@ -2,6 +2,18 @@ const WORD_BYTES = @sizeOf[usize]();
 const WORD_MASK = WORD_BYTES - usize.{1};
 
 #[inline]
+fn word_ptr(addr: usize) *usize {
+    let .{ Some: ptr } = addr as ?*usize else @trap();
+    return ptr;
+}
+
+#[inline]
+fn word_mut_ptr(addr: usize) *mut usize {
+    let .{ Some: ptr } = addr as ?*mut usize else @trap();
+    return ptr;
+}
+
+#[inline]
 fn copy_forward_bytes(dest: *mut u8, src: *u8, len: usize) void {
     for (let mut i = usize.{0}; i < len; i += 1) {
         (dest + i).* = (src + i).*;
@@ -54,7 +66,7 @@ fn copy_backward_words(dest_addr: usize, src_addr: usize, len: usize) void {
     for (; copied < len; copied += WORD_BYTES) {
         d_word_addr -= WORD_BYTES;
         s_word_addr -= WORD_BYTES;
-        (d_word_addr as *mut usize).* = (s_word_addr as *usize).*;
+        word_mut_ptr(d_word_addr).* = word_ptr(s_word_addr).*;
     }
 }
 

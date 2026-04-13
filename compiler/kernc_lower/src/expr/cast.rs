@@ -67,6 +67,11 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .unwrap_or(concrete_ty);
         let target_ty = self.substitute_type_with_map(raw_target_ty, subst_map);
         let l = self.lower_expr(lhs, subst_map, None);
+
+        if self.is_optional_object_pointer_airlock_cast(l.ty, target_ty) {
+            return self.lower_optional_object_pointer_airlock_cast(l, target_ty, span);
+        }
+
         let cast_kind = self.determine_cast_kind(l.ty, target_ty);
 
         MastExpr::new(
@@ -969,5 +974,164 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             // Equal-width casts simply reinterpret the same bit width.
             MastCastKind::Bitcast
         }
+    }
+
+    fn is_optional_object_pointer_airlock_cast(&self, from: TypeId, to: TypeId) -> bool {
+        let from_norm = self.ctx.type_registry.normalize(from);
+        let to_norm = self.ctx.type_registry.normalize(to);
+
+        if !matches!(
+            self.ctx.type_registry.get(from_norm),
+            TypeKind::VolatilePtr { .. }
+        ) && from_norm != TypeId::USIZE
+            && from_norm != TypeId::ISIZE
+        {
+            return false;
+        }
+
+        let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(to_norm).clone() else {
+            return false;
+        };
+        let Some(payload_ty) = enum_def.builtin_optional_payload() else {
+            return false;
+        };
+
+        matches!(
+            self.ctx.type_registry.get(self.ctx.type_registry.normalize(payload_ty)),
+            TypeKind::Pointer { .. }
+        )
+    }
+
+    fn lower_optional_object_pointer_airlock_cast(
+        &mut self,
+        operand: MastExpr,
+        target_ty: TypeId,
+        span: Span,
+    ) -> MastExpr {
+        let target_norm = self.ctx.type_registry.normalize(target_ty);
+        let TypeKind::AnonymousEnum(enum_def) = self.ctx.type_registry.get(target_norm).clone()
+        else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): expected builtin optional target for integer/address to `?*T`.",
+            );
+            return MastExpr::new(target_ty, MastExprKind::Trap, span);
+        };
+        let Some(payload_ty) = enum_def.builtin_optional_payload() else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): missing optional payload type for integer/address to `?*T`.",
+            );
+            return MastExpr::new(target_ty, MastExprKind::Trap, span);
+        };
+
+        let some = self.ctx.intern("Some");
+        let none = self.ctx.intern("None");
+        let Some((_, some_tag)) = self.anon_enum_variant_info(&enum_def, some) else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): missing `Some` variant for builtin optional cast.",
+            );
+            return MastExpr::new(target_ty, MastExprKind::Trap, span);
+        };
+        let Some((_, none_tag)) = self.anon_enum_variant_info(&enum_def, none) else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): missing `None` variant for builtin optional cast.",
+            );
+            return MastExpr::new(target_ty, MastExprKind::Trap, span);
+        };
+
+        let optional_id = self.instantiate_anon_enum(target_norm);
+        let source_name = self.fresh_synth_symbol("ptr_airlock");
+        let source_ref = MastExpr::new(operand.ty, MastExprKind::Var(source_name), span);
+        let source_bits = if self.ctx.type_registry.normalize(operand.ty) == TypeId::USIZE {
+            MastExpr::new(TypeId::USIZE, MastExprKind::Var(source_name), span)
+        } else if self.ctx.type_registry.normalize(operand.ty) == TypeId::ISIZE {
+            MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::Cast {
+                    kind: self.determine_cast_kind(operand.ty, TypeId::USIZE),
+                    operand: Box::new(source_ref.clone()),
+                },
+                span,
+            )
+        } else {
+            MastExpr::new(
+                TypeId::USIZE,
+                MastExprKind::Cast {
+                    kind: MastCastKind::PtrToInt,
+                    operand: Box::new(source_ref.clone()),
+                },
+                span,
+            )
+        };
+        let is_zero = MastExpr::new(
+            TypeId::BOOL,
+            MastExprKind::Binary {
+                op: ast::BinaryOperator::Equal,
+                lhs: Box::new(source_bits.clone()),
+                rhs: Box::new(MastExpr::new(TypeId::USIZE, MastExprKind::Integer(0), span)),
+            },
+            span,
+        );
+
+        let none_expr = MastExpr::new(
+            target_ty,
+            MastExprKind::DataInit {
+                data_struct_id: optional_id,
+                tag_value: none_tag,
+                payload: Box::new(MastExpr::new(TypeId::VOID, MastExprKind::Undef, span)),
+            },
+            span,
+        );
+        let some_payload = MastExpr::new(
+            payload_ty,
+            MastExprKind::Cast {
+                kind: MastCastKind::IntToPtr,
+                operand: Box::new(source_bits.clone()),
+            },
+            span,
+        );
+        let some_expr = MastExpr::new(
+            target_ty,
+            MastExprKind::DataInit {
+                data_struct_id: optional_id,
+                tag_value: some_tag,
+                payload: Box::new(some_payload),
+            },
+            span,
+        );
+
+        MastExpr::new(
+            target_ty,
+            MastExprKind::Block(MastBlock {
+                stmts: vec![MastStmt::Let {
+                    name: source_name,
+                    ty: operand.ty,
+                    is_mut: false,
+                    init: operand,
+                }],
+                result: Some(Box::new(MastExpr::new(
+                    target_ty,
+                    MastExprKind::If {
+                        cond: Box::new(is_zero),
+                        then_branch: MastBlock {
+                            stmts: vec![],
+                            result: Some(Box::new(none_expr)),
+                            defers: vec![],
+                        },
+                        else_branch: Some(MastBlock {
+                            stmts: vec![],
+                            result: Some(Box::new(some_expr)),
+                            defers: vec![],
+                        }),
+                    },
+                    span,
+                ))),
+                defers: vec![],
+            }),
+            span,
+        )
     }
 }

@@ -5,7 +5,7 @@
 
 use base.Option;
 use base.cmp.Ord;
-use base.mem.layout_of;
+use base.mem.array_layout_of;
 use base.mem.alloc.Allocator;
 use ..base.{
     MIN_DEGREE,
@@ -18,6 +18,8 @@ use ..base.{
     set_key,
     set_value,
     set_child,
+    dangling_child,
+    some_node,
     first_hit,
     last_hit,
     ceil_hit,
@@ -33,7 +35,8 @@ impl[K, V] *mut Tree[K, V]
 
     /// Allocates an empty node and clears every child pointer slot.
     fn alloc_node(alloc: *mut Allocator, is_leaf: bool) Option[*mut Node[K, V]] {
-        let .{ Some: node_raw } = alloc.alloc(layout_of[Node[K, V]]()) else return .None;
+        let .{ Some: node_layout } = array_layout_of[Node[K, V]](1) else return .None;
+        let .{ Some: node_raw } = alloc.alloc(node_layout) else return .None;
 
         let node = node_raw as *mut Node[K, V];
         node.is_leaf = is_leaf;
@@ -41,7 +44,7 @@ impl[K, V] *mut Tree[K, V]
 
         let mut i = 0;
         for (; i < MAX_CHILDREN; i += 1) {
-            set_child[K, V](node, i, 0 as *mut Node[K, V]);
+            set_child[K, V](node, i, dangling_child[K, V]());
         }
 
         return .{ Some: node };
@@ -49,7 +52,8 @@ impl[K, V] *mut Tree[K, V]
 
     /// Releases one node allocation.
     fn free_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
-        alloc.free(node as *mut u8, layout_of[Node[K, V]]());
+        let .{ Some: node_layout } = array_layout_of[Node[K, V]](1) else return;
+        alloc.free(node as *mut u8, node_layout);
     }
 
     /// Returns the first slot whose key is greater than or equal to `key`.
@@ -150,13 +154,13 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Recursively releases a subtree.
-    fn deinit_node(alloc: *mut Allocator, node: *mut Node[K, V]) void {
-        if ((node as usize) == 0) return;
+    fn deinit_node(alloc: *mut Allocator, node: ?*mut Node[K, V]) void {
+        let .{ Some: node } = node else return;
 
         if (!node.is_leaf) {
             let mut i = 0;
             for (; i <= node.len; i += 1) {
-                self.deinit_node(alloc, child_at[K, V](node, i));
+                self.deinit_node(alloc, some_node[K, V](child_at[K, V](node, i)));
             }
         }
 
@@ -164,60 +168,62 @@ impl[K, V] *mut Tree[K, V]
     }
 
     /// Visits every key-value pair in sorted order with mutable value access.
-    fn for_each_mut_node(node: *mut Node[K, V], visitor: *Fn(K, *mut V) void) void {
-        if ((node as usize) == 0) {
-            return;
-        }
+    fn for_each_mut_node(node: ?*mut Node[K, V], visitor: *Fn(K, *mut V) void) void {
+        let .{ Some: node } = node else return;
 
         let mut i = 0;
         for (; i < node.len; i += 1) {
             if (!node.is_leaf) {
-                self.for_each_mut_node(child_at[K, V](node, i), visitor);
+                self.for_each_mut_node(some_node[K, V](child_at[K, V](node, i)), visitor);
             }
             visitor(key_at[K, V](node, i), node.values.[i]..&);
         }
 
         if (!node.is_leaf) {
-            self.for_each_mut_node(child_at[K, V](node, node.len), visitor);
+            self.for_each_mut_node(some_node[K, V](child_at[K, V](node, node.len)), visitor);
         }
     }
 
     /// Inserts or replaces a key-value pair.
     pub fn insert(alloc: *mut Allocator, key: K, value: V) bool {
-        if ((self.root as usize) == 0) {
-            let .{ Some: root } = self.alloc_node(alloc, true) else return false;
+        let root = match (self.root) {
+            .{ Some: root } => root,
+            .None => {
+                let .{ Some: root } = self.alloc_node(alloc, true) else return false;
 
-            set_key[K, V](root, 0, key);
-            set_value[K, V](root, 0, value);
-            root.len = 1;
-            self.root = root;
-            self.len = 1;
-            return true;
-        }
+                set_key[K, V](root, 0, key);
+                set_value[K, V](root, 0, value);
+                root.len = 1;
+                self.root = .{ Some: root };
+                self.len = 1;
+                return true;
+            }
+        };
 
-        if (self.root.len == MAX_KEYS) {
+        if (root.len == MAX_KEYS) {
             // Grow the tree height before descending so the recursive insert
             // still receives a non-full root.
-            let old_root = self.root;
+            let old_root = root;
             let .{ Some: new_root } = self.alloc_node(alloc, false) else return false;
 
             set_child[K, V](new_root, 0, old_root);
-            self.root = new_root;
+            self.root = .{ Some: new_root };
 
             if (!self.split_child(alloc, new_root, 0)) {
-                self.root = old_root;
+                self.root = .{ Some: old_root };
                 self.free_node(alloc, new_root);
                 return false;
             }
         }
 
-        return self.insert_non_full(alloc, self.root, key, value);
+        let .{ Some: root } = self.root else return false;
+        return self.insert_non_full(alloc, root, key, value);
     }
 
     /// Releases every node in the tree.
     pub fn deinit(alloc: *mut Allocator) void {
         self.deinit_node(alloc, self.root);
-        self.root = 0 as *mut Node[K, V];
+        self.root = .None;
         self.len = 0;
     }
 
@@ -228,9 +234,10 @@ impl[K, V] *mut Tree[K, V]
 
     /// Returns a mutable pointer to the value stored for `key`.
     pub fn get_ptr(key: K) Option[*mut V] {
-        let mut node = self.root;
+        let .{ Some: root } = self.root else return .None;
+        let mut node = root;
 
-        for (; (node as usize) != 0; ) {
+        for (;;) {
             let mut index = 0;
             for (; index < node.len; index += 1) {
                 let cmp = self.compare(key_at[K, V](node, index), key);
@@ -248,8 +255,6 @@ impl[K, V] *mut Tree[K, V]
 
             node = child_at[K, V](node, index);
         }
-
-        return .None;
     }
 
     /// Returns a mutable pointer to the existing value or inserts `value`.

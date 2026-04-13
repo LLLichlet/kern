@@ -643,7 +643,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             ast::TypeKind::Void => TypeId::VOID,
             ast::TypeKind::Optional { inner } => {
                 let inner_ty = self.resolve_type(inner, env_scope);
-                self.make_builtin_optional_type(inner_ty)
+                self.make_builtin_optional_type(inner_ty, ty_node.span)
             }
             ast::TypeKind::Result { ok, err } => {
                 let ok_ty = self.resolve_type(ok, env_scope);
@@ -893,7 +893,22 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         anon_fields
     }
 
-    fn make_builtin_optional_type(&mut self, inner_ty: TypeId) -> TypeId {
+    fn make_builtin_optional_type(&mut self, inner_ty: TypeId, span: Span) -> TypeId {
+        let inner_norm = self.ctx.type_registry.normalize(inner_ty);
+        if matches!(
+            self.ctx.type_registry.get(inner_norm),
+            TypeKind::VolatilePtr { .. }
+        ) {
+            self.ctx
+                .struct_error(
+                    span,
+                    "`?^T` is not a valid type; `^T` already covers raw address `0`",
+                )
+                .with_hint("use `^T` for raw addresses or `?*T` for nullable object pointers")
+                .emit();
+            return TypeId::ERROR;
+        }
+
         let some = self.ctx.intern("Some");
         let none = self.ctx.intern("None");
         self.ctx

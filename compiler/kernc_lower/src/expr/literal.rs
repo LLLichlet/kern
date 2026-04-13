@@ -499,9 +499,12 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             if let Some(init_f) = fields.iter().find(|f| f.name == f_def.name) {
                 ast_ordered_exprs.push(self.lower_expr(&init_f.value, subst_map, Some(conc_f_ty)));
             } else {
+                // Field defaults are type-checked in the data type's own generic
+                // scope, so they must be lowered with that substitution map
+                // rather than the caller's surrounding context.
                 ast_ordered_exprs.push(self.lower_expr(
                     f_def.default_value.as_ref().unwrap(),
-                    subst_map,
+                    &struct_subst_map,
                     Some(conc_f_ty),
                 ));
             }

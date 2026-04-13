@@ -61,10 +61,7 @@ fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .None;
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    let value_ptr = os.find_environment_value(c_name);
-    if ((value_ptr as usize) == 0) {
-        return .None;
-    }
+    let .{ Some: value_ptr } = os.find_environment_value(c_name) else return .None;
     return clone_c_value(alloc, value_ptr, abi.cstr.len(value_ptr));
 }
 
@@ -95,7 +92,7 @@ fn has_posix(alloc: *mut Allocator, name: []u8) bool {
     let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return false;
     defer abi.cstr.free_z(alloc, name, c_name);
 
-    return (os.find_environment_value(c_name) as usize) != 0;
+    return os.find_environment_value(c_name).is_some();
 }
 
 #[if(os == "windows")]
@@ -108,10 +105,8 @@ fn has_windows(alloc: *mut Allocator, name: []u8) bool {
 
 #[if(os == "linux" or os == "darwin")]
 fn visit_posix(visitor: *Fn(Var) bool) usize {
-    let mut envp = os.environment_entries();
-    if ((envp as usize) == 0) {
-        return 0;
-    }
+    let .{ Some: envp_start } = os.environment_entries() else return 0;
+    let mut envp = envp_start;
 
     let mut total = 0;
     for (;;) {

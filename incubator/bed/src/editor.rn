@@ -149,6 +149,8 @@ pub type Editor = struct {
     screen_cols: usize = 80,
     mode: Mode = .Normal,
     pending_normal: PendingNormal = .None,
+    pending_count: usize = 0,
+    has_pending_count: bool = false,
     has_last_find: bool = false,
     last_find: FindState = FindState.{},
     prompt_kind: PromptKind = .Ex,
@@ -199,6 +201,40 @@ impl *mut Editor {
 
     fn set_message(alloc: *mut Allocator, text: []u8) void {
         let _ = self.message..&.clone_from(alloc, text);
+    }
+
+    fn clear_pending_count() void {
+        self.pending_count = 0;
+        self.has_pending_count = false;
+    }
+
+    fn push_count_digit(byte: u8) void {
+        let digit = byte as usize - b'0' as usize;
+        if (!self.has_pending_count) {
+            self.pending_count = digit;
+            self.has_pending_count = true;
+            return;
+        }
+        self.pending_count = self.pending_count * 10 + digit;
+    }
+
+    fn consume_count_or_one() usize {
+        let count = if (self.has_pending_count and self.pending_count > 0) self.pending_count else 1;
+        self.clear_pending_count();
+        return count;
+    }
+
+    fn consume_count_or_zero() usize {
+        let count = if (self.has_pending_count) self.pending_count else 0;
+        self.clear_pending_count();
+        return count;
+    }
+
+    fn active_pane_label() []u8 {
+        match (self.active_pane) {
+            .Editor => return "EDITOR",
+            .Output => return "OUTPUT",
+        }
     }
 
     fn clamp_cursor() void {
@@ -1090,22 +1126,32 @@ impl *mut Editor {
     }
 
     fn repeat_find(reverse: bool) void {
+        self.repeat_find_count(reverse, 1);
+    }
+
+    fn repeat_find_count(reverse: bool, count: usize) void {
         if (!self.has_last_find) {
+            self.clear_pending_count();
             return;
         }
-        let direction = if (reverse) {
-            match (self.last_find.direction) {
-                .Forward => FindDirection.Backward,
-                .Backward => FindDirection.Forward,
+        for (let mut i = usize.{0}; i < count; i += 1) {
+            let direction = if (reverse) {
+                match (self.last_find.direction) {
+                    .Forward => FindDirection.Backward,
+                    .Backward => FindDirection.Forward,
+                }
+            } else {
+                self.last_find.direction
+            };
+            if (!self.run_find(direction, self.last_find.till, self.last_find.target, false)) {
+                break;
             }
-        } else {
-            self.last_find.direction
-        };
-        let _ = self.run_find(direction, self.last_find.till, self.last_find.target, false);
+        }
     }
 
     fn enter_prompt(kind: PromptKind) void {
         self.pending_normal = .None;
+        self.clear_pending_count();
         self.prompt_kind = kind;
         self.mode = .Command;
         self.command_line..&.clear();
@@ -1122,6 +1168,7 @@ impl *mut Editor {
 
     fn finish_command() void {
         self.pending_normal = .None;
+        self.clear_pending_count();
         self.command_col = 0;
         if (!self.wants_quit) {
             self.mode = .Normal;
@@ -1141,6 +1188,16 @@ impl *mut Editor {
         if (self.active_pane == .Output) {
             self.active_pane = .Editor;
         }
+    }
+
+    fn close_output(alloc: *mut Allocator) void {
+        if (!self.has_output) {
+            return;
+        }
+        self.clear_output(alloc);
+        self.pending_normal = .None;
+        self.clear_pending_count();
+        self.set_message(alloc, "closed shell output");
     }
 
     fn install_output(alloc: *mut Allocator, command_text: []u8, text: []u8, status: i32) bool {
@@ -1343,6 +1400,8 @@ impl *mut Editor {
     }
 
     fn toggle_pane() void {
+        self.pending_normal = .None;
+        self.clear_pending_count();
         if (!self.has_output) {
             self.active_pane = .Editor;
             return;
@@ -1361,68 +1420,134 @@ impl *mut Editor {
                 match (key) {
                     .{ Byte: byte } => match (byte) {
                         b'g' => {
+                            let count = self.consume_count_or_zero();
                             if (self.active_pane == .Output and self.has_output) {
-                                self.output_goto_row(0);
+                                if (count == 0) {
+                                    self.output_goto_row(0);
+                                } else {
+                                    self.output_goto_row(count - 1);
+                                }
                             } else {
-                                self.goto_row(0);
+                                if (count == 0) {
+                                    self.goto_row(0);
+                                } else {
+                                    self.goto_row(count - 1);
+                                }
                             }
                             return true;
                         },
                         b'e' => {
                             if (self.active_pane == .Output and self.has_output) {
+                                self.clear_pending_count();
                                 return false;
                             }
-                            self.move_word_end_backward();
+                            let count = self.consume_count_or_one();
+                            for (let mut i = usize.{0}; i < count; i += 1) {
+                                self.move_word_end_backward();
+                            }
                             return true;
                         },
-                        _ => return false,
+                        _ => {
+                            self.clear_pending_count();
+                            return false;
+                        },
                     },
-                    .Escape => return true,
-                    _ => return false,
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
                 }
             },
             .FindForward => {
                 self.pending_normal = .None;
                 match (key) {
                     .{ Byte: byte } => {
-                        let _ = self.run_find(.Forward, false, byte, true);
+                        let count = self.consume_count_or_one();
+                        for (let mut i = usize.{0}; i < count; i += 1) {
+                            if (!self.run_find(.Forward, false, byte, true)) {
+                                break;
+                            }
+                        }
                         return true;
                     },
-                    .Escape => return true,
-                    _ => return false,
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
                 }
             },
             .TillForward => {
                 self.pending_normal = .None;
                 match (key) {
                     .{ Byte: byte } => {
-                        let _ = self.run_find(.Forward, true, byte, true);
+                        let count = self.consume_count_or_one();
+                        for (let mut i = usize.{0}; i < count; i += 1) {
+                            if (!self.run_find(.Forward, true, byte, true)) {
+                                break;
+                            }
+                        }
                         return true;
                     },
-                    .Escape => return true,
-                    _ => return false,
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
                 }
             },
             .FindBackward => {
                 self.pending_normal = .None;
                 match (key) {
                     .{ Byte: byte } => {
-                        let _ = self.run_find(.Backward, false, byte, true);
+                        let count = self.consume_count_or_one();
+                        for (let mut i = usize.{0}; i < count; i += 1) {
+                            if (!self.run_find(.Backward, false, byte, true)) {
+                                break;
+                            }
+                        }
                         return true;
                     },
-                    .Escape => return true,
-                    _ => return false,
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
                 }
             },
             .TillBackward => {
                 self.pending_normal = .None;
                 match (key) {
                     .{ Byte: byte } => {
-                        let _ = self.run_find(.Backward, true, byte, true);
+                        let count = self.consume_count_or_one();
+                        for (let mut i = usize.{0}; i < count; i += 1) {
+                            if (!self.run_find(.Backward, true, byte, true)) {
+                                break;
+                            }
+                        }
                         return true;
                     },
-                    .Escape => return true,
-                    _ => return false,
+                    .Escape => {
+                        self.clear_pending_count();
+                        return true;
+                    },
+                    _ => {
+                        self.clear_pending_count();
+                        return false;
+                    },
                 }
             },
         }
@@ -1430,7 +1555,7 @@ impl *mut Editor {
 
     fn handle_normal_key(alloc: *mut Allocator, key: Key) void {
         if (self.active_pane == .Output and self.has_output) {
-            self.handle_output_key(key);
+            self.handle_output_key(alloc, key);
             return;
         }
 
@@ -1439,79 +1564,217 @@ impl *mut Editor {
         }
 
         match (key) {
-            .ArrowLeft => self.move_left(),
-            .ArrowRight => self.move_right(),
-            .ArrowUp => self.move_up(),
-            .ArrowDown => self.move_down(),
-            .Home => self.move_line_start(),
-            .End => self.move_line_end(),
+            .ArrowLeft => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.move_left();
+                }
+            },
+            .ArrowRight => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.move_right();
+                }
+            },
+            .ArrowUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.move_up();
+                }
+            },
+            .ArrowDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.move_down();
+                }
+            },
+            .Home => {
+                self.clear_pending_count();
+                self.move_line_start();
+            },
+            .End => {
+                self.clear_pending_count();
+                self.move_line_end();
+            },
             .Delete => {
-                let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                }
                 self.clamp_cursor();
                 self.remember_preferred_col();
             },
-            .PageUp => self.page_up(),
-            .PageDown => self.page_down(),
-            .Escape => self.pending_normal = .None,
+            .PageUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.page_up();
+                }
+            },
+            .PageDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.page_down();
+                }
+            },
+            .Escape => {
+                self.pending_normal = .None;
+                self.clear_pending_count();
+            },
             .NoInput => {}
             .CtrlC => self.wants_quit = true,
             .Eof => self.wants_quit = true,
-            .{ Byte: byte } => match (byte) {
-                b'h' => self.move_left(),
-                b'j' => self.move_down(),
-                b'k' => self.move_up(),
-                b'l' => self.move_right(),
-                b'0' => self.move_line_start(),
-                b'^' => self.move_first_non_blank(),
-                b'$' => self.move_line_end(),
+            .{ Byte: byte } => {
+                if (byte >= b'1' and byte <= b'9') {
+                    self.push_count_digit(byte);
+                    return;
+                }
+                if (byte == b'0' and self.has_pending_count) {
+                    self.push_count_digit(byte);
+                    return;
+                }
+
+                match (byte) {
+                b'h' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_left();
+                    }
+                },
+                b'j' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_down();
+                    }
+                },
+                b'k' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_up();
+                    }
+                },
+                b'l' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_right();
+                    }
+                },
+                b'0' => {
+                    self.clear_pending_count();
+                    self.move_line_start();
+                },
+                b'^' => {
+                    self.clear_pending_count();
+                    self.move_first_non_blank();
+                },
+                b'$' => {
+                    self.clear_pending_count();
+                    self.move_line_end();
+                },
                 b'g' => self.pending_normal = .G,
-                b'G' => self.goto_row(self.buffer.&.line_count()),
-                b'w' => self.move_word_forward(),
-                b'b' => self.move_word_backward(),
-                b'e' => self.move_word_end(),
+                b'G' => {
+                    let count = self.consume_count_or_zero();
+                    if (count == 0) {
+                        self.goto_row(self.buffer.&.line_count());
+                    } else {
+                        self.goto_row(count - 1);
+                    }
+                },
+                b'w' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_word_forward();
+                    }
+                },
+                b'b' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_word_backward();
+                    }
+                },
+                b'e' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_word_end();
+                    }
+                },
                 b'W' => {
-                    self.move_word_forward_blank();
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_word_forward_blank();
+                    }
                     self.remember_preferred_col();
                 },
                 b'B' => {
-                    self.move_word_backward_blank();
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_word_backward_blank();
+                    }
                     self.remember_preferred_col();
                 },
                 b'E' => {
-                    self.move_word_end_blank();
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.move_word_end_blank();
+                    }
                     self.remember_preferred_col();
                 },
-                b'H' => self.goto_screen_top(),
-                b'M' => self.goto_screen_middle(),
-                b'L' => self.goto_screen_bottom(),
+                b'H' => {
+                    self.clear_pending_count();
+                    self.goto_screen_top();
+                },
+                b'M' => {
+                    self.clear_pending_count();
+                    self.goto_screen_middle();
+                },
+                b'L' => {
+                    self.clear_pending_count();
+                    self.goto_screen_bottom();
+                },
                 b'f' => self.pending_normal = .FindForward,
                 b't' => self.pending_normal = .TillForward,
                 b'F' => self.pending_normal = .FindBackward,
                 b'T' => self.pending_normal = .TillBackward,
-                b';' => self.repeat_find(false),
-                b',' => self.repeat_find(true),
-                b'i' => self.mode = .Insert,
+                b';' => {
+                    let count = self.consume_count_or_one();
+                    self.repeat_find_count(false, count);
+                },
+                b',' => {
+                    let count = self.consume_count_or_one();
+                    self.repeat_find_count(true, count);
+                },
+                b'i' => {
+                    self.clear_pending_count();
+                    self.mode = .Insert;
+                },
                 b'a' => {
+                    self.clear_pending_count();
                     self.move_right();
                     self.mode = .Insert;
                 },
                 b'I' => {
+                    self.clear_pending_count();
                     self.move_first_non_blank();
                     self.mode = .Insert;
                 },
                 b'A' => {
+                    self.clear_pending_count();
                     self.move_line_end();
                     self.mode = .Insert;
                 },
                 b':' => self.enter_command(),
                 b'>' => self.enter_shell(),
                 b'\t' => self.toggle_pane(),
+                b'Q' => self.close_output(alloc),
                 b'x' => {
-                    let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        let _ = self.buffer..&.delete_at(alloc, self.cursor.row, self.cursor.col);
+                    }
                     self.clamp_cursor();
                     self.remember_preferred_col();
                 },
                 b'o' => {
+                    self.clear_pending_count();
                     if (self.buffer..&.insert_blank_line_below(alloc, self.cursor.row)) {
                         self.cursor.row += 1;
                         self.cursor.col = 0;
@@ -1522,6 +1785,7 @@ impl *mut Editor {
                     }
                 },
                 b'O' => {
+                    self.clear_pending_count();
                     if (self.buffer..&.insert_blank_line_above(alloc, self.cursor.row)) {
                         self.cursor.col = 0;
                         self.remember_preferred_col();
@@ -1530,50 +1794,165 @@ impl *mut Editor {
                         self.set_message(alloc, "insert failed");
                     }
                 },
-                4 => self.half_page_down(),
-                21 => self.half_page_up(),
-                _ => {}
+                4 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.half_page_down();
+                    }
+                },
+                21 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.half_page_up();
+                    }
+                },
+                _ => self.clear_pending_count(),
+            }
             },
             _ => {}
         }
     }
 
-    fn handle_output_key(key: Key) void {
+    fn handle_output_key(alloc: *mut Allocator, key: Key) void {
         if (self.handle_pending_normal_key(key)) {
             return;
         }
 
         match (key) {
-            .ArrowLeft => self.output_move_left(),
-            .ArrowRight => self.output_move_right(),
-            .ArrowUp => self.output_move_up(),
-            .ArrowDown => self.output_move_down(),
-            .Home => self.output_move_line_start(),
-            .End => self.output_move_line_end(),
-            .PageUp => self.output_page_up(),
-            .PageDown => self.output_page_down(),
-            .Escape => self.pending_normal = .None,
+            .ArrowLeft => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.output_move_left();
+                }
+            },
+            .ArrowRight => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.output_move_right();
+                }
+            },
+            .ArrowUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.output_move_up();
+                }
+            },
+            .ArrowDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.output_move_down();
+                }
+            },
+            .Home => {
+                self.clear_pending_count();
+                self.output_move_line_start();
+            },
+            .End => {
+                self.clear_pending_count();
+                self.output_move_line_end();
+            },
+            .PageUp => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.output_page_up();
+                }
+            },
+            .PageDown => {
+                let count = self.consume_count_or_one();
+                for (let mut i = usize.{0}; i < count; i += 1) {
+                    self.output_page_down();
+                }
+            },
+            .Escape => {
+                self.pending_normal = .None;
+                self.clear_pending_count();
+            },
             .NoInput => {}
             .CtrlC => self.wants_quit = true,
             .Eof => self.wants_quit = true,
-            .{ Byte: byte } => match (byte) {
-                b'h' => self.output_move_left(),
-                b'j' => self.output_move_down(),
-                b'k' => self.output_move_up(),
-                b'l' => self.output_move_right(),
-                b'0' => self.output_move_line_start(),
-                b'$' => self.output_move_line_end(),
+            .{ Byte: byte } => {
+                if (byte >= b'1' and byte <= b'9') {
+                    self.push_count_digit(byte);
+                    return;
+                }
+                if (byte == b'0' and self.has_pending_count) {
+                    self.push_count_digit(byte);
+                    return;
+                }
+
+                match (byte) {
+                b'h' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_move_left();
+                    }
+                },
+                b'j' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_move_down();
+                    }
+                },
+                b'k' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_move_up();
+                    }
+                },
+                b'l' => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_move_right();
+                    }
+                },
+                b'0' => {
+                    self.clear_pending_count();
+                    self.output_move_line_start();
+                },
+                b'$' => {
+                    self.clear_pending_count();
+                    self.output_move_line_end();
+                },
                 b'g' => self.pending_normal = .G,
-                b'G' => self.output_goto_row(self.output.&.line_count()),
-                b'H' => self.output_goto_screen_top(),
-                b'M' => self.output_goto_screen_middle(),
-                b'L' => self.output_goto_screen_bottom(),
+                b'G' => {
+                    let count = self.consume_count_or_zero();
+                    if (count == 0) {
+                        self.output_goto_row(self.output.&.line_count());
+                    } else {
+                        self.output_goto_row(count - 1);
+                    }
+                },
+                b'H' => {
+                    self.clear_pending_count();
+                    self.output_goto_screen_top();
+                },
+                b'M' => {
+                    self.clear_pending_count();
+                    self.output_goto_screen_middle();
+                },
+                b'L' => {
+                    self.clear_pending_count();
+                    self.output_goto_screen_bottom();
+                },
                 b':' => self.enter_command(),
                 b'>' => self.enter_shell(),
                 b'\t' => self.toggle_pane(),
-                4 => self.output_half_page_down(),
-                21 => self.output_half_page_up(),
-                _ => {}
+                b'q' => self.close_output(alloc),
+                b'Q' => self.close_output(alloc),
+                4 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_half_page_down();
+                    }
+                },
+                21 => {
+                    let count = self.consume_count_or_one();
+                    for (let mut i = usize.{0}; i < count; i += 1) {
+                        self.output_half_page_up();
+                    }
+                },
+                _ => self.clear_pending_count(),
+            }
             },
             _ => {}
         }
@@ -1583,6 +1962,7 @@ impl *mut Editor {
         match (key) {
             .Escape => {
                 self.pending_normal = .None;
+                self.clear_pending_count();
                 self.mode = .Normal;
             },
             .NoInput => {}
@@ -1629,6 +2009,7 @@ impl *mut Editor {
         match (key) {
             .Escape => {
                 self.pending_normal = .None;
+                self.clear_pending_count();
                 self.command_line..&.clear();
                 self.command_col = 0;
                 self.mode = .Normal;
@@ -1683,6 +2064,15 @@ impl *mut Editor {
         if (!push_truncated(out, alloc, self.mode.label(), remaining..&)) {
             return false;
         }
+        if (!push_truncated(out, alloc, " [", remaining..&)) {
+            return false;
+        }
+        if (!push_truncated(out, alloc, self.active_pane_label(), remaining..&)) {
+            return false;
+        }
+        if (!push_truncated(out, alloc, "]", remaining..&)) {
+            return false;
+        }
         if (!push_truncated(out, alloc, " -- ", remaining..&)) {
             return false;
         }
@@ -1705,7 +2095,8 @@ impl *mut Editor {
 
     fn render_output_separator(alloc: *mut Allocator, cols: usize, out: *mut String) bool {
         let mut remaining = cols;
-        if (!push_truncated(out, alloc, "> ", remaining..&)) {
+        let prefix = if (self.active_pane == .Output) "[OUTPUT] > " else "[output] > ";
+        if (!push_truncated(out, alloc, prefix, remaining..&)) {
             return false;
         }
         if (!push_truncated(out, alloc, self.output_command.&.as_str(), remaining..&)) {

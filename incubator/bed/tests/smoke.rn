@@ -249,6 +249,17 @@ fn check_editor_extended_normal_motions() void {
     expect_cursor(state..&, usize.{4}, usize.{4}, "expected M to jump to middle visible row");
     state..&.handle_key(gpa, .{ Byte: 21 });
     expect_cursor(state..&, usize.{0}, usize.{4}, "expected ctrl-u to move half a screen up");
+
+    state..&.handle_key(gpa, .{ Byte: b'0' });
+    state..&.handle_key(gpa, .{ Byte: b'2' });
+    state..&.handle_key(gpa, .{ Byte: b'w' });
+    expect_cursor(state..&, usize.{0}, usize.{5}, "expected count prefix to repeat w");
+    state..&.handle_key(gpa, .{ Byte: b'5' });
+    state..&.handle_key(gpa, .{ Byte: b'G' });
+    expect_cursor(state..&, usize.{4}, usize.{4}, "expected count prefix to target G line");
+    state..&.handle_key(gpa, .{ Byte: b'2' });
+    state..&.handle_key(gpa, .{ Byte: b'k' });
+    expect_cursor(state..&, usize.{2}, usize.{2}, "expected count prefix to repeat vertical motion");
 }
 
 fn check_command_line_viewport_render() void {
@@ -286,8 +297,21 @@ fn check_shell_prompt_and_output_render() void {
     let frame = String.{}..&;
     defer frame.deinit(gpa);
     test.assert(state..&.render_into(gpa, frame, true), "expected shell render to succeed", .{});
-    test.assert(contains(frame.as_str(), "> echo hi [exit 0]"), "expected output separator to include shell command and exit status", .{});
+    test.assert(contains(frame.as_str(), "[OUTPUT] > echo hi [exit 0]"), "expected output separator to include shell command and exit status", .{});
     test.assert(contains(frame.as_str(), "hi"), "expected shell output to render in split pane", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [OUTPUT] --"), "expected status line to show output pane focus", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'\t' });
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after switching back to editor to succeed", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"), "expected status line to show editor pane focus after tab", .{});
+
+    state..&.handle_key(gpa, .{ Byte: b'Q' });
+
+    frame.clear();
+    test.assert(state..&.render_into(gpa, frame, true), "expected render after closing shell output to succeed", .{});
+    test.assert(!contains(frame.as_str(), "[OUTPUT] >"), "expected closing output to remove split separator", .{});
+    test.assert(contains(frame.as_str(), "-- NORMAL [EDITOR] --"), "expected status line to return focus to editor pane", .{});
 }
 
 fn main() i32 {

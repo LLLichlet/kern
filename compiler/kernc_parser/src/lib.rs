@@ -203,7 +203,7 @@ impl Counter {
             session.diagnostics[0]
                 .hints
                 .iter()
-                .any(|hint| { hint.contains("use `///` to document this impl method") })
+                .any(|hint| { hint.contains("use `///` to document this impl item") })
         );
     }
 
@@ -280,11 +280,16 @@ fn main() i32 {
         let ast::DeclKind::TypeAlias { target, .. } = &module.decls[3].kind else {
             panic!("expected trait type alias");
         };
-        let ast::TypeKind::Trait { fields } = &target.kind else {
+        let ast::TypeKind::Trait {
+            assoc_types,
+            methods,
+        } = &target.kind
+        else {
             panic!("expected trait type");
         };
-        assert_eq!(fields.len(), 1);
-        let ast::TypeKind::Function { params, .. } = &fields[0].type_node.kind else {
+        assert!(assoc_types.is_empty());
+        assert_eq!(methods.len(), 1);
+        let ast::TypeKind::Function { params, .. } = &methods[0].type_node.kind else {
             panic!("expected trait method signature");
         };
         assert_eq!(params.len(), 3);
@@ -545,10 +550,11 @@ fn main(value: ?i32, status: i32![]u8) ?i32![]u8 {
         }
 
         match &ret_type.kind {
-            ast::TypeKind::Optional { inner } => {
-                assert!(matches!(inner.kind, ast::TypeKind::Result { .. }));
+            ast::TypeKind::Result { ok, err } => {
+                assert!(matches!(ok.kind, ast::TypeKind::Optional { .. }));
+                assert!(matches!(err.kind, ast::TypeKind::Slice { .. }));
             }
-            _ => panic!("expected optional result return type"),
+            _ => panic!("expected result with optional ok return type"),
         }
 
         let ast::ExprKind::Block { stmts, .. } = &body.kind else {
@@ -621,5 +627,69 @@ fn main(value: ?i32, status: i32![]u8) i32 {
                 ..
             }
         ));
+    }
+
+    #[test]
+    fn parses_associated_types_in_traits_and_impls() {
+        let source = r#"
+type Add[Rhs] = trait {
+    type Out;
+    add: fn(Rhs) Out,
+};
+
+impl Vec2: Add[i32] {
+    type Out = Vec2;
+    fn add(rhs: i32) Out { return self; }
+}
+"#;
+
+        let (_session, module) = parse_module(source);
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[0].kind else {
+            panic!("expected trait type alias");
+        };
+        let ast::TypeKind::Trait {
+            assoc_types,
+            methods,
+        } = &target.kind
+        else {
+            panic!("expected trait type");
+        };
+        assert_eq!(assoc_types.len(), 1);
+        assert_eq!(methods.len(), 1);
+        assert_eq!(assoc_types[0].generics.len(), 0);
+
+        let ast::DeclKind::Impl { decls, .. } = &module.decls[1].kind else {
+            panic!("expected impl block");
+        };
+        assert_eq!(decls.len(), 2);
+        assert!(matches!(decls[0].kind, ast::DeclKind::TypeAlias { .. }));
+        assert!(matches!(decls[1].kind, ast::DeclKind::Function { .. }));
+    }
+
+    #[test]
+    fn optional_binds_tighter_than_result_and_grouping_overrides_it() {
+        let source = r#"
+type A = ?i32![]u8;
+type B = ?(i32![]u8);
+"#;
+
+        let (_session, module) = parse_module(source);
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[0].kind else {
+            panic!("expected first type alias");
+        };
+        let ast::TypeKind::Result { ok, err } = &target.kind else {
+            panic!("expected result type");
+        };
+        assert!(matches!(ok.kind, ast::TypeKind::Optional { .. }));
+        assert!(matches!(err.kind, ast::TypeKind::Slice { .. }));
+
+        let ast::DeclKind::TypeAlias { target, .. } = &module.decls[1].kind else {
+            panic!("expected second type alias");
+        };
+        let ast::TypeKind::Optional { inner } = &target.kind else {
+            panic!("expected optional type");
+        };
+        assert!(matches!(inner.kind, ast::TypeKind::Result { .. }));
     }
 }

@@ -428,6 +428,7 @@ impl<'a> SemaContext<'a> {
                 | Some(Def::Union(_))
                 | Some(Def::Enum(_))
                 | Some(Def::Trait(_))
+                | Some(Def::AssociatedType(_))
                 | Some(Def::TypeAlias(_))
                 | Some(Def::Impl(_)) => self.def_parent_module(def_id).and_then(|module_id| {
                     match self.defs.get(module_id.0 as usize) {
@@ -485,7 +486,12 @@ impl<'a> SemaContext<'a> {
             Def::Function(function) => function.parent,
             Def::Global(global) => global.parent,
             Def::Impl(impl_def) => impl_def.parent_module,
-            Def::Struct(_) | Def::Union(_) | Def::Enum(_) | Def::Trait(_) | Def::TypeAlias(_) => {
+            Def::Struct(_)
+            | Def::Union(_)
+            | Def::Enum(_)
+            | Def::Trait(_)
+            | Def::AssociatedType(_)
+            | Def::TypeAlias(_) => {
                 self.def_parent_module(def_id)
             }
         }

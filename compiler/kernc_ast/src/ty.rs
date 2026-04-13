@@ -74,7 +74,10 @@ pub enum TypeKind {
     },
 
     /// Trait definition.
-    Trait { fields: Vec<StructFieldDef> },
+    Trait {
+        assoc_types: Vec<AssociatedTypeDecl>,
+        methods: Vec<StructFieldDef>,
+    },
 
     /// Inference placeholder `_`.
     Infer,
@@ -106,6 +109,17 @@ pub struct StructFieldDef {
     pub docs: Option<DocBlock>,
     pub type_node: TypeNode,
     pub default_value: Option<Box<Expr>>,
+    pub span: Span,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AssociatedTypeDecl {
+    pub name: SymbolId,
+    pub name_span: Span,
+    pub docs: Option<DocBlock>,
+    pub generics: Vec<super::GenericParam>,
+    pub bounds: Vec<TypeNode>,
+    pub where_clauses: Vec<super::WhereClause>,
     pub span: Span,
 }
 

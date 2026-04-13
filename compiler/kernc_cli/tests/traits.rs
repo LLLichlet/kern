@@ -272,6 +272,87 @@ fn main() i32 {
 }
 
 #[test]
+fn compiles_trait_impls_with_concrete_associated_types() {
+    let output = build_and_run(
+        "kernc_trait_assoc_concrete",
+        r#"
+type Add[Rhs] = trait {
+    type Out;
+    add: fn(Rhs) Out,
+};
+
+type Vec2 = struct {
+    x: i32,
+    y: i32,
+};
+
+impl Vec2: Add[i32] {
+    type Out = Vec2;
+
+    fn add(rhs: i32) Out {
+        return Vec2.{ x: self.x + rhs, y: self.y + rhs };
+    }
+}
+
+fn main() i32 {
+    let v = Vec2.{ x: 3, y: 4 };
+    let out = v.add(5);
+    if (out.x + out.y != 17) {
+        return 1;
+    }
+    return 0;
+}
+"#,
+        &[],
+    );
+
+    assert!(
+        output.status.success(),
+        "kernc failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "");
+}
+
+#[test]
+fn rejects_trait_impls_missing_required_associated_types() {
+    let output = compile_source(
+        r#"
+type Add[Rhs] = trait {
+    type Out;
+    add: fn(Rhs) Out,
+};
+
+type Vec2 = struct {
+    x: i32,
+    y: i32,
+};
+
+impl Vec2: Add[i32] {
+    fn add(rhs: i32) i32 {
+        return self.x + self.y + rhs;
+    }
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "kernc unexpectedly succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("missing associated type definition `Out` in impl"),
+        "unexpected stderr:\n{}",
+        stderr
+    );
+}
+
+#[test]
 fn compiles_std_cmp_ord_bound_for_custom_impls() {
     let output = build_and_run(
         "kernc_trait_custom_ord_value_bound",

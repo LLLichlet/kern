@@ -85,6 +85,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::EnumPayload(_, args)
+            | TypeKind::Associated(_, args)
             | TypeKind::TraitObject(_, args)
             | TypeKind::FnDef(_, args) => args
                 .into_iter()

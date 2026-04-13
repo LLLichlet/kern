@@ -5,7 +5,7 @@ use kernc_lexer::TokenType;
 use kernc_utils::Span;
 
 impl<'a> Parser<'a> {
-    fn parse_generic_params(&mut self) -> ParseResult<Vec<GenericParam>> {
+    pub(super) fn parse_generic_params(&mut self) -> ParseResult<Vec<GenericParam>> {
         if self.check(TokenType::LBracket) && self.stream.peek_tag_nth(1) == TokenType::RBracket {
             return Ok(Vec::new());
         }
@@ -30,7 +30,7 @@ impl<'a> Parser<'a> {
         self.expect(TokenType::RBracket)?;
         Ok(params)
     }
-    fn parse_where_clauses(&mut self) -> ParseResult<Vec<WhereClause>> {
+    pub(super) fn parse_where_clauses(&mut self) -> ParseResult<Vec<WhereClause>> {
         if !self.match_token(&[TokenType::Where]) {
             return Ok(Vec::new());
         }
@@ -377,15 +377,15 @@ impl<'a> Parser<'a> {
 
         let mut decls = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let (docs, attributes) = self.parse_item_leading_meta("impl method");
+            let (docs, attributes) = self.parse_item_leading_meta("impl item");
             if self.check(TokenType::RBrace) || self.check(TokenType::Eof) {
                 if let Some(docs) = &docs {
-                    self.emit_dangling_doc_error(docs, "impl method");
+                    self.emit_dangling_doc_error(docs, "impl item");
                 }
                 if !attributes.is_empty() {
                     self.add_error(
                         attributes[0].span,
-                        "Attributes inside `impl` blocks must apply to a following method"
+                        "Attributes inside `impl` blocks must apply to a following item"
                             .to_string(),
                     );
                 }
@@ -404,8 +404,16 @@ impl<'a> Parser<'a> {
                 d.docs = docs;
                 d.attributes = attributes;
                 decls.push(d);
+            } else if self.check(TokenType::Type) {
+                if is_pub {
+                    self.add_error(d_start, "Associated type definitions inside `impl` blocks cannot be `pub`".to_string());
+                }
+                let mut d = self.parse_type_alias_decl(d_start, false, false)?;
+                d.docs = docs;
+                d.attributes = attributes;
+                decls.push(d);
             } else {
-                self.error_at_current("Only fn allowed in impl".to_string());
+                self.error_at_current("Only fn and type allowed in impl".to_string());
                 self.synchronize();
             }
         }

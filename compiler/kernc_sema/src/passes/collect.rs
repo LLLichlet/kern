@@ -771,6 +771,64 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     }
 
     /// Lower `type Name = Target` into the corresponding semantic definition kind.
+    fn collect_trait_assoc_types(
+        &mut self,
+        trait_id: DefId,
+        assoc_types: &[ast::AssociatedTypeDecl],
+    ) -> Vec<DefId> {
+        let mut ids = Vec::with_capacity(assoc_types.len());
+        for assoc in assoc_types {
+            let def_id = DefId(self.ctx.defs.len() as u32);
+            self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+                id: def_id,
+                name: assoc.name,
+                parent_trait: Some(trait_id),
+                parent_impl: None,
+                is_imported: self.current_module_imported,
+                generics: assoc.generics.clone(),
+                bounds: assoc.bounds.clone(),
+                where_clauses: assoc.where_clauses.clone(),
+                target: None,
+                resolved_bounds: Vec::new(),
+                span: assoc.span,
+                docs: Self::clone_docs_if_present(&assoc.docs),
+            }));
+            self.ctx
+                .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+            ids.push(def_id);
+        }
+        ids
+    }
+
+    fn collect_trait_assoc_types_owned(
+        &mut self,
+        trait_id: DefId,
+        assoc_types: Vec<ast::AssociatedTypeDecl>,
+    ) -> Vec<DefId> {
+        let mut ids = Vec::with_capacity(assoc_types.len());
+        for assoc in assoc_types {
+            let def_id = DefId(self.ctx.defs.len() as u32);
+            self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+                id: def_id,
+                name: assoc.name,
+                parent_trait: Some(trait_id),
+                parent_impl: None,
+                is_imported: self.current_module_imported,
+                generics: assoc.generics,
+                bounds: assoc.bounds,
+                where_clauses: assoc.where_clauses,
+                target: None,
+                resolved_bounds: Vec::new(),
+                span: assoc.span,
+                docs: Self::take_docs_if_present(assoc.docs),
+            }));
+            self.ctx
+                .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+            ids.push(def_id);
+        }
+        ids
+    }
+
     fn collect_type_alias_or_struct(
         &mut self,
         decl: &Decl,
@@ -778,6 +836,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
     ) -> Option<DefId> {
         let def_id = DefId(self.ctx.defs.len() as u32);
         let mut sym_kind = SymbolKind::TypeAlias;
+        let mut pending_trait_assoc_types = None;
 
         let def = match &spec.target.kind {
             // TODO:
@@ -844,8 +903,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     docs: Self::clone_docs_if_present(&decl.docs),
                 })
             }
-            TypeKind::Trait { fields } => {
+            TypeKind::Trait {
+                assoc_types,
+                methods,
+            } => {
                 sym_kind = SymbolKind::Trait;
+                pending_trait_assoc_types = Some(assoc_types.clone());
                 Def::Trait(TraitDef {
                     id: def_id,
                     name: decl.name,
@@ -854,7 +917,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     generics: spec.generics.to_vec(),
                     where_clauses: spec.where_clauses.to_vec(),
                     supertraits: spec.bounds.to_vec(),
-                    methods: fields.clone(),
+                    assoc_types: Vec::new(),
+                    methods: methods.clone(),
                     resolved_methods: Vec::new(),
                     resolved_supertraits: Vec::new(),
                     is_builtin: false,
@@ -881,6 +945,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx.add_def(def);
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+        if let Some(assoc_types) = pending_trait_assoc_types {
+            let assoc_type_ids = self.collect_trait_assoc_types(def_id, &assoc_types);
+            if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
+                trait_def.assoc_types = assoc_type_ids;
+            }
+        }
         self.define_symbol(SymbolDefSpec {
             name: decl.name,
             kind: sym_kind,
@@ -914,6 +984,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         } = spec;
         let def_id = DefId(self.ctx.defs.len() as u32);
         let mut sym_kind = SymbolKind::TypeAlias;
+        let mut pending_trait_assoc_types = None;
 
         let ast::TypeNode {
             id: target_id,
@@ -985,8 +1056,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     docs: Self::take_docs_if_present(docs),
                 })
             }
-            TypeKind::Trait { fields } => {
+            TypeKind::Trait {
+                assoc_types,
+                methods,
+            } => {
                 sym_kind = SymbolKind::Trait;
+                pending_trait_assoc_types = Some(assoc_types);
                 Def::Trait(TraitDef {
                     id: def_id,
                     name,
@@ -995,7 +1070,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                     generics,
                     where_clauses,
                     supertraits: bounds,
-                    methods: fields,
+                    assoc_types: Vec::new(),
+                    methods,
                     resolved_methods: Vec::new(),
                     resolved_supertraits: Vec::new(),
                     is_builtin: false,
@@ -1023,6 +1099,12 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx.add_def(def);
         self.ctx
             .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+        if let Some(assoc_types) = pending_trait_assoc_types {
+            let assoc_type_ids = self.collect_trait_assoc_types_owned(def_id, assoc_types);
+            if let Def::Trait(trait_def) = &mut self.ctx.defs[def_id.0 as usize] {
+                trait_def.assoc_types = assoc_type_ids;
+            }
+        }
         self.define_symbol(SymbolDefSpec {
             name,
             kind: sym_kind,
@@ -1050,6 +1132,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         if trait_type.is_some() {
             self.ctx.trait_impls.push(impl_id);
         }
+        let mut assoc_type_ids = Vec::new();
         let mut method_ids = Vec::new();
         self.ctx.add_def(Def::Impl(ImplDef {
             id: impl_id,
@@ -1059,6 +1142,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             where_clauses: where_clauses.to_vec(),
             target_type: target_type.clone(),
             trait_type: trait_type.clone(),
+            assoc_types: Vec::new(),
             methods: Vec::new(),
             span: decl.span,
         }));
@@ -1073,10 +1157,43 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                 if let Some(m_id) = self.collect_decl(method_decl, Some(impl_id), false, generics) {
                     method_ids.push(m_id);
                 }
+            } else if let DeclKind::TypeAlias {
+                generics,
+                bounds,
+                where_clauses,
+                target,
+                is_extern: false,
+            } = &method_decl.kind
+            {
+                if trait_type.is_none() {
+                    self.ctx.emit_error(
+                        method_decl.span,
+                        "associated type definitions are only allowed in trait impls",
+                    );
+                    continue;
+                }
+                let def_id = DefId(self.ctx.defs.len() as u32);
+                self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+                    id: def_id,
+                    name: method_decl.name,
+                    parent_trait: None,
+                    parent_impl: Some(impl_id),
+                    is_imported: self.current_module_imported,
+                    generics: generics.clone(),
+                    bounds: bounds.clone(),
+                    where_clauses: where_clauses.clone(),
+                    target: Some(target.clone()),
+                    resolved_bounds: Vec::new(),
+                    span: method_decl.span,
+                    docs: Self::clone_docs_if_present(&method_decl.docs),
+                }));
+                self.ctx
+                    .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+                assoc_type_ids.push(def_id);
             } else {
                 self.ctx.emit_error(
                     method_decl.span,
-                    "Only functions are allowed inside `impl` blocks",
+                    "Only functions and associated type definitions are allowed inside `impl` blocks",
                 );
             }
         }
@@ -1084,6 +1201,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
 
         if let Def::Impl(i) = &mut self.ctx.defs[impl_id.0 as usize] {
+            i.assoc_types = assoc_type_ids;
             i.methods = method_ids.clone();
         }
 
@@ -1115,6 +1233,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         if trait_type.is_some() {
             self.ctx.trait_impls.push(impl_id);
         }
+        let mut assoc_type_ids = Vec::new();
         let mut method_ids = Vec::new();
         self.ctx.add_def(Def::Impl(ImplDef {
             id: impl_id,
@@ -1123,7 +1242,8 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
             generics: generics.clone(),
             where_clauses,
             target_type,
-            trait_type,
+            trait_type: trait_type.clone(),
+            assoc_types: Vec::new(),
             methods: Vec::new(),
             span,
         }));
@@ -1145,9 +1265,49 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
                         method_ids.push(m_id);
                     }
                 }
+                Decl {
+                    name,
+                    span,
+                    docs,
+                    kind:
+                        DeclKind::TypeAlias {
+                            generics,
+                            bounds,
+                            where_clauses,
+                            target,
+                            is_extern: false,
+                        },
+                    ..
+                } => {
+                    if trait_type.is_none() {
+                        self.ctx.emit_error(
+                            span,
+                            "associated type definitions are only allowed in trait impls",
+                        );
+                        continue;
+                    }
+                    let def_id = DefId(self.ctx.defs.len() as u32);
+                    self.ctx.add_def(Def::AssociatedType(AssociatedTypeDef {
+                        id: def_id,
+                        name,
+                        parent_trait: None,
+                        parent_impl: Some(impl_id),
+                        is_imported: self.current_module_imported,
+                        generics,
+                        bounds,
+                        where_clauses,
+                        target: Some(target),
+                        resolved_bounds: Vec::new(),
+                        span,
+                        docs: Self::take_docs_if_present(docs),
+                    }));
+                    self.ctx
+                        .register_def_owner(def_id, self.current_module, self.current_owner_scope());
+                    assoc_type_ids.push(def_id);
+                }
                 Decl { span, .. } => {
                     self.ctx
-                        .emit_error(span, "Only functions are allowed inside `impl` blocks");
+                        .emit_error(span, "Only functions and associated type definitions are allowed inside `impl` blocks");
                 }
             }
         }
@@ -1155,6 +1315,7 @@ impl<'a, 'ctx> Collector<'a, 'ctx> {
         self.ctx.scopes.exit_scope();
 
         if let Def::Impl(i) = &mut self.ctx.defs[impl_id.0 as usize] {
+            i.assoc_types = assoc_type_ids;
             i.methods = method_ids.clone();
         }
 

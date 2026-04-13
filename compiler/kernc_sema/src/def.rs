@@ -36,6 +36,7 @@ pub enum Def {
     Union(UnionDef),
     Enum(EnumDef),
     Trait(TraitDef),
+    AssociatedType(AssociatedTypeDef),
     Impl(ImplDef),
     Global(GlobalDef),
     TypeAlias(TypeAliasDef),
@@ -50,6 +51,7 @@ impl Def {
             Def::Union(d) => Some(d.name),
             Def::Enum(d) => Some(d.name),
             Def::Trait(d) => Some(d.name),
+            Def::AssociatedType(d) => Some(d.name),
             Def::Global(d) => Some(d.name),
             Def::TypeAlias(d) => Some(d.name),
             Def::Impl(_) => None, // Impl blocks are anonymous containers.
@@ -166,11 +168,28 @@ pub struct TraitDef {
     pub where_clauses: Vec<ast::WhereClause>,
     pub supertraits: Vec<ast::TypeNode>,
     pub resolved_supertraits: Vec<TypeId>,
+    pub assoc_types: Vec<DefId>,
     // Method contracts declared by the trait.
     pub methods: Vec<ast::StructFieldDef>,
     pub resolved_methods: Vec<(SymbolId, TypeId)>,
     pub span: Span,
     pub is_builtin: bool,
+    pub docs: Option<ast::DocBlock>,
+}
+
+#[derive(Debug, Clone)]
+pub struct AssociatedTypeDef {
+    pub id: DefId,
+    pub name: SymbolId,
+    pub parent_trait: Option<DefId>,
+    pub parent_impl: Option<DefId>,
+    pub is_imported: bool,
+    pub generics: Vec<ast::GenericParam>,
+    pub bounds: Vec<ast::TypeNode>,
+    pub where_clauses: Vec<ast::WhereClause>,
+    pub target: Option<ast::TypeNode>,
+    pub resolved_bounds: Vec<TypeId>,
+    pub span: Span,
     pub docs: Option<ast::DocBlock>,
 }
 
@@ -196,6 +215,7 @@ pub struct ImplDef {
     pub where_clauses: Vec<ast::WhereClause>,
     pub target_type: ast::TypeNode,
     pub trait_type: Option<ast::TypeNode>,
+    pub assoc_types: Vec<DefId>,
     // Methods collected under this impl block.
     pub methods: Vec<DefId>,
     pub span: Span,

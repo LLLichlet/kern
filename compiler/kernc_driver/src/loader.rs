@@ -352,11 +352,32 @@ impl<'a, 'ctx> ModuleLoader<'a, 'ctx> {
                     Self::collect_type_alias_references(ret, alias_names, referenced);
                 }
             }
-            ast::TypeKind::Struct { fields, .. }
-            | ast::TypeKind::Union { fields, .. }
-            | ast::TypeKind::Trait { fields } => {
+            ast::TypeKind::Struct { fields, .. } | ast::TypeKind::Union { fields, .. } => {
                 for field in fields {
                     Self::collect_struct_field_alias_references(field, alias_names, referenced);
+                }
+            }
+            ast::TypeKind::Trait {
+                assoc_types,
+                methods,
+            } => {
+                for assoc in assoc_types {
+                    for bound in &assoc.bounds {
+                        Self::collect_type_alias_references(bound, alias_names, referenced);
+                    }
+                    for clause in &assoc.where_clauses {
+                        Self::collect_type_alias_references(
+                            &clause.target_ty,
+                            alias_names,
+                            referenced,
+                        );
+                        for bound in &clause.bounds {
+                            Self::collect_type_alias_references(bound, alias_names, referenced);
+                        }
+                    }
+                }
+                for method in methods {
+                    Self::collect_struct_field_alias_references(method, alias_names, referenced);
                 }
             }
             ast::TypeKind::Enum {

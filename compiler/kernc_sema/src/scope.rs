@@ -19,6 +19,7 @@ pub enum SymbolKind {
     Trait,     // Trait definition.
     Module,    // Module namespace.
     TypeAlias, // Type alias.
+    AssociatedType,
     TypeParam,
 }
 

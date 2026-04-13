@@ -334,6 +334,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             where_clauses: vec![],
             supertraits: vec![],
             resolved_supertraits: spec.supertraits,
+            assoc_types: vec![],
             methods: vec![],
             resolved_methods,
             is_builtin: true,
@@ -491,6 +492,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             where_clauses: vec![],
             target_type: target_node,
             trait_type: Some(trait_node),
+            assoc_types: vec![],
             methods: vec![],
             span: Default::default(),
         };
@@ -591,6 +593,7 @@ impl<'a, 'ctx> BuiltinInjector<'a, 'ctx> {
             where_clauses: vec![],
             target_type: target_node,
             trait_type: Some(trait_node),
+            assoc_types: vec![],
             methods: vec![method_def_id],
             span: Span::default(),
         }));

@@ -35,6 +35,7 @@ struct TraitResolveSpec {
     generics: Vec<ast::GenericParam>,
     where_clauses: Vec<ast::WhereClause>,
     supertraits: Vec<ast::TypeNode>,
+    assoc_types: Vec<DefId>,
     methods: Vec<ast::StructFieldDef>,
     span: Span,
 }
@@ -51,6 +52,7 @@ struct ImplResolveSpec {
     where_clauses: Vec<ast::WhereClause>,
     target_type: ast::TypeNode,
     trait_type: Option<ast::TypeNode>,
+    assoc_types: Vec<DefId>,
     methods: Vec<DefId>,
     span: Span,
 }
@@ -166,6 +168,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 generics: t.generics.clone(),
                 where_clauses: t.where_clauses.clone(),
                 supertraits: t.supertraits.clone(),
+                assoc_types: t.assoc_types.clone(),
                 methods: t.methods.clone(),
                 span: t.span,
             }),
@@ -180,6 +183,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 where_clauses: i.where_clauses.clone(),
                 target_type: i.target_type.clone(),
                 trait_type: i.trait_type.clone(),
+                assoc_types: i.assoc_types.clone(),
                 methods: i.methods.clone(),
                 span: i.span,
             }),
@@ -190,7 +194,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 backing_type: a.backing_type.clone(),
                 variants: a.variants.clone(),
             }),
-            Def::Global(_) | Def::Module(_) => return,
+            Def::AssociatedType(_) | Def::Global(_) | Def::Module(_) => return,
         };
 
         match spec {
@@ -340,6 +344,8 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
 
         self.bind_generics(&t.generics, trait_scope);
         self.resolve_where_clauses(&t.where_clauses, trait_scope);
+        self.bind_trait_assoc_types(&t.assoc_types, trait_scope);
+        self.resolve_assoc_type_bounds(&t.assoc_types, trait_scope);
 
         let mut resolved_supertraits = Vec::new();
         for supertrait in &t.supertraits {
@@ -382,15 +388,207 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
         let target_ty_id = self.resolve_type(&i.target_type, impl_scope);
         self.bind_self_type(target_ty_id, impl_scope, i.span);
 
+        let mut resolved_trait_ty = None;
         if let Some(trait_ty) = &i.trait_type {
-            self.resolve_type(trait_ty, impl_scope);
+            resolved_trait_ty = Some(self.resolve_type(trait_ty, impl_scope));
         }
+
+        self.bind_impl_assoc_types(&i.assoc_types, resolved_trait_ty, impl_scope, i.span);
 
         for &method_id in &i.methods {
             self.resolve_item(method_id, impl_scope);
         }
 
         self.ctx.scopes.exit_scope();
+    }
+
+    fn bind_trait_assoc_types(&mut self, assoc_type_ids: &[DefId], scope: ScopeId) {
+        for &assoc_id in assoc_type_ids {
+            let Some(Def::AssociatedType(assoc_def)) =
+                self.ctx.defs.get(assoc_id.0 as usize).cloned()
+            else {
+                continue;
+            };
+            let info = SymbolInfo {
+                kind: SymbolKind::AssociatedType,
+                node_id: self.ctx.next_node_id(),
+                type_id: self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Associated(assoc_id, vec![])),
+                def_id: Some(assoc_id),
+                span: assoc_def.span,
+                is_pub: false,
+                is_mut: false,
+            };
+            self.ctx.scopes.set_current_scope(scope);
+            let _ = self.ctx.scopes.define(assoc_def.name, info);
+        }
+    }
+
+    fn resolve_assoc_type_bounds(&mut self, assoc_type_ids: &[DefId], parent_scope: ScopeId) {
+        for &assoc_id in assoc_type_ids {
+            let Some(Def::AssociatedType(assoc_def)) = self.ctx.defs.get(assoc_id.0 as usize).cloned() else {
+                continue;
+            };
+            self.ctx.scopes.set_current_scope(parent_scope);
+            let assoc_scope = self.ctx.scopes.enter_scope();
+            self.bind_generics(&assoc_def.generics, assoc_scope);
+            self.resolve_where_clauses(&assoc_def.where_clauses, assoc_scope);
+            let mut resolved_bounds = Vec::with_capacity(assoc_def.bounds.len());
+            for bound in &assoc_def.bounds {
+                resolved_bounds.push(self.resolve_type(bound, assoc_scope));
+            }
+            if let Some(target) = &assoc_def.target {
+                self.resolve_type(target, assoc_scope);
+            }
+            self.ctx.scopes.exit_scope();
+            if let Def::AssociatedType(updated) = &mut self.ctx.defs[assoc_id.0 as usize] {
+                updated.resolved_bounds = resolved_bounds;
+            }
+        }
+    }
+
+    fn bind_impl_assoc_types(
+        &mut self,
+        assoc_type_ids: &[DefId],
+        resolved_trait_ty: Option<TypeId>,
+        scope: ScopeId,
+        span: Span,
+    ) {
+        let mut impl_assoc_by_name = HashMap::new();
+        for &assoc_id in assoc_type_ids {
+            let Some(Def::AssociatedType(assoc_def)) =
+                self.ctx.defs.get(assoc_id.0 as usize).cloned()
+            else {
+                continue;
+            };
+            impl_assoc_by_name.insert(assoc_def.name, assoc_id);
+
+            let info = SymbolInfo {
+                kind: SymbolKind::AssociatedType,
+                node_id: self.ctx.next_node_id(),
+                type_id: self
+                    .ctx
+                    .type_registry
+                    .intern(TypeKind::Associated(assoc_id, vec![])),
+                def_id: Some(assoc_id),
+                span: assoc_def.span,
+                is_pub: false,
+                is_mut: false,
+            };
+            self.ctx.scopes.set_current_scope(scope);
+            let _ = self.ctx.scopes.define(assoc_def.name, info);
+        }
+
+        let Some(trait_ty) = resolved_trait_ty else {
+            for &assoc_id in assoc_type_ids {
+                if let Some(Def::AssociatedType(assoc_def)) =
+                    self.ctx.defs.get(assoc_id.0 as usize)
+                {
+                    self.ctx
+                        .struct_error(assoc_def.span, "associated type definitions require a trait impl")
+                        .with_hint("write `impl Type: Trait { ... }` when defining associated types")
+                        .emit();
+                }
+            }
+            return;
+        };
+
+        let trait_norm = self.ctx.type_registry.normalize(trait_ty);
+        let TypeKind::TraitObject(trait_def_id, _) = self.ctx.type_registry.get(trait_norm).clone() else {
+            self.ctx.emit_error(span, "impl trait target is not a trait");
+            return;
+        };
+
+        let trait_assoc_ids = match self.ctx.defs.get(trait_def_id.0 as usize) {
+            Some(Def::Trait(trait_def)) => trait_def.assoc_types.clone(),
+            _ => Vec::new(),
+        };
+
+        let mut trait_assoc_names = HashMap::new();
+        for trait_assoc_id in trait_assoc_ids {
+            let Some(Def::AssociatedType(trait_assoc)) =
+                self.ctx.defs.get(trait_assoc_id.0 as usize).cloned()
+            else {
+                continue;
+            };
+            trait_assoc_names.insert(trait_assoc.name, trait_assoc_id);
+
+            let Some(&impl_assoc_id) = impl_assoc_by_name.get(&trait_assoc.name) else {
+                self.ctx
+                    .struct_error(span, format!("missing associated type definition `{}` in impl", self.ctx.resolve(trait_assoc.name)))
+                    .emit();
+                continue;
+            };
+
+            let Some(Def::AssociatedType(impl_assoc)) =
+                self.ctx.defs.get(impl_assoc_id.0 as usize).cloned()
+            else {
+                continue;
+            };
+
+            if trait_assoc.generics.len() != impl_assoc.generics.len() {
+                self.ctx
+                    .struct_error(
+                        impl_assoc.span,
+                        format!(
+                            "associated type `{}` expects {} generic parameters, but impl provides {}",
+                            self.ctx.resolve(trait_assoc.name),
+                            trait_assoc.generics.len(),
+                            impl_assoc.generics.len()
+                        ),
+                    )
+                    .emit();
+            }
+
+            if let Def::AssociatedType(updated) = &mut self.ctx.defs[impl_assoc_id.0 as usize] {
+                updated.parent_trait = Some(trait_def_id);
+            }
+        }
+
+        for (&impl_assoc_name, &impl_assoc_id) in &impl_assoc_by_name {
+            if !trait_assoc_names.contains_key(&impl_assoc_name)
+                && let Some(Def::AssociatedType(impl_assoc)) =
+                    self.ctx.defs.get(impl_assoc_id.0 as usize)
+            {
+                self.ctx
+                    .struct_error(
+                        impl_assoc.span,
+                        format!(
+                            "associated type `{}` is not declared by the target trait",
+                            self.ctx.resolve(impl_assoc_name)
+                        ),
+                    )
+                    .emit();
+            }
+        }
+
+        for &assoc_id in assoc_type_ids {
+            let Some(Def::AssociatedType(assoc_def)) = self.ctx.defs.get(assoc_id.0 as usize).cloned() else {
+                continue;
+            };
+            self.ctx.scopes.set_current_scope(scope);
+            let assoc_scope = self.ctx.scopes.enter_scope();
+            self.bind_generics(&assoc_def.generics, assoc_scope);
+            self.resolve_where_clauses(&assoc_def.where_clauses, assoc_scope);
+            let mut resolved_bounds = Vec::with_capacity(assoc_def.bounds.len());
+            for bound in &assoc_def.bounds {
+                resolved_bounds.push(self.resolve_type(bound, assoc_scope));
+            }
+            let resolved_target = assoc_def
+                .target
+                .as_ref()
+                .map(|target| self.resolve_type(target, assoc_scope));
+            self.ctx.scopes.exit_scope();
+            if let Some(resolved_target) = resolved_target {
+                self.ctx.scopes.set_current_scope(scope);
+                self.ctx.scopes.update_type(assoc_def.name, resolved_target);
+            }
+            if let Def::AssociatedType(updated) = &mut self.ctx.defs[assoc_id.0 as usize] {
+                updated.resolved_bounds = resolved_bounds;
+            }
+        }
     }
 
     fn resolve_enum_item(&mut self, item_id: DefId, a: &EnumResolveSpec, parent_scope: ScopeId) {
@@ -1114,6 +1312,56 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
                 }
                 final_sym.type_id // Type parameters already carry their final `TypeId`.
             }
+            SymbolKind::AssociatedType => {
+                let Some(def_id) =
+                    self.required_def_id(&final_sym, span, "associated type", segments[0])
+                else {
+                    return TypeId::ERROR;
+                };
+
+                let Some(assoc_def) = self.ctx.defs.get(def_id.0 as usize).and_then(|def| match def {
+                    Def::AssociatedType(assoc) => Some(assoc.clone()),
+                    _ => None,
+                }) else {
+                    self.ctx.emit_ice(span, "associated type symbol does not point to an associated type def");
+                    return TypeId::ERROR;
+                };
+
+                if assoc_def.generics.len() != resolved_generics.len() {
+                    self.ctx.emit_error(
+                        span,
+                        format!(
+                            "associated type `{}` expects {} generic arguments, but {} were provided",
+                            self.last_segment_name(segments),
+                            assoc_def.generics.len(),
+                            resolved_generics.len()
+                        ),
+                    );
+                    return TypeId::ERROR;
+                }
+
+                if let Some(target) = assoc_def.target.as_ref() {
+                    let target_ty = self
+                        .ctx
+                        .node_types
+                        .get(&target.id)
+                        .copied()
+                        .unwrap_or(final_sym.type_id);
+                    if resolved_generics.is_empty() {
+                        return target_ty;
+                    }
+                    let mut map = std::collections::HashMap::new();
+                    for (param, arg) in assoc_def.generics.iter().zip(resolved_generics.iter()) {
+                        map.insert(param.name, *arg);
+                    }
+                    let mut subst = Substituter::new(&mut self.ctx.type_registry, &map);
+                    return subst.substitute(target_ty);
+                }
+
+                self.ctx
+                    .type_registry
+                    .intern(TypeKind::Associated(def_id, resolved_generics))
+            }
             SymbolKind::TypeAlias => {
                 // Compiler-injected `T` or `Self` entries have no physical def and already store the right type.
                 if final_sym.def_id.is_none() {
@@ -1507,6 +1755,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             TypeKind::Def(_, args)
             | TypeKind::Enum(_, args)
             | TypeKind::TraitObject(_, args)
+            | TypeKind::Associated(_, args)
             | TypeKind::FnDef(_, args) => {
                 args.into_iter().any(|arg| self.type_contains_params(arg))
             }
@@ -1651,6 +1900,7 @@ impl<'a, 'ctx> TypeResolver<'a, 'ctx> {
             SymbolKind::Enum => "algebraic data type",
             SymbolKind::Trait => "trait",
             SymbolKind::TypeAlias => "type alias",
+            SymbolKind::AssociatedType => "associated type",
             SymbolKind::TypeParam => "type parameter",
         }
     }

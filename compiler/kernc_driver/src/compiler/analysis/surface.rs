@@ -204,7 +204,8 @@ impl CompilerDriver {
             kernc_sema::scope::SymbolKind::Enum => AnalysisSemanticKind::Enum,
             kernc_sema::scope::SymbolKind::Trait => AnalysisSemanticKind::Interface,
             kernc_sema::scope::SymbolKind::Module => AnalysisSemanticKind::Module,
-            kernc_sema::scope::SymbolKind::TypeAlias => AnalysisSemanticKind::Type,
+            kernc_sema::scope::SymbolKind::TypeAlias
+            | kernc_sema::scope::SymbolKind::AssociatedType => AnalysisSemanticKind::Type,
             kernc_sema::scope::SymbolKind::TypeParam => AnalysisSemanticKind::TypeParameter,
         }
     }
@@ -382,12 +383,21 @@ impl CompilerDriver {
             kernc_sema::scope::SymbolKind::Enum => format!("enum {}", name),
             kernc_sema::scope::SymbolKind::Trait => format!("trait {}", name),
             kernc_sema::scope::SymbolKind::Module => format!("module {}", name),
-            kernc_sema::scope::SymbolKind::TypeAlias => {
+            kernc_sema::scope::SymbolKind::TypeAlias
+            | kernc_sema::scope::SymbolKind::AssociatedType => {
                 let detail = if let Some(def_id) = info.def_id
                     && let kernc_sema::def::Def::TypeAlias(alias) = &ctx.defs[def_id.0 as usize]
                 {
                     ctx.node_types
                         .get(&alias.target.id)
+                        .copied()
+                        .map(|target_ty| ctx.ty_to_string(target_ty))
+                } else if let Some(def_id) = info.def_id
+                    && let kernc_sema::def::Def::AssociatedType(assoc) = &ctx.defs[def_id.0 as usize]
+                    && let Some(target) = assoc.target.as_ref()
+                {
+                    ctx.node_types
+                        .get(&target.id)
                         .copied()
                         .map(|target_ty| ctx.ty_to_string(target_ty))
                 } else {
@@ -554,6 +564,7 @@ impl CompilerDriver {
             kernc_sema::def::Def::Enum(def) => def.docs.as_ref(),
             kernc_sema::def::Def::Trait(def) => def.docs.as_ref(),
             kernc_sema::def::Def::Global(def) => def.docs.as_ref(),
+            kernc_sema::def::Def::AssociatedType(def) => def.docs.as_ref(),
             kernc_sema::def::Def::TypeAlias(def) => def.docs.as_ref(),
             kernc_sema::def::Def::Impl(_) => None,
         }

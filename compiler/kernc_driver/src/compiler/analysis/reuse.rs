@@ -623,11 +623,31 @@ fn normalize_type_for_body_only_comparison(ty: &mut ast::TypeNode) {
                 normalize_type_for_body_only_comparison(ret);
             }
         }
-        ast::TypeKind::Struct { fields, .. }
-        | ast::TypeKind::Union { fields, .. }
-        | ast::TypeKind::Trait { fields } => {
+        ast::TypeKind::Struct { fields, .. } | ast::TypeKind::Union { fields, .. } => {
             for field in fields {
                 normalize_struct_field_for_body_only_comparison(field);
+            }
+        }
+        ast::TypeKind::Trait {
+            assoc_types,
+            methods,
+        } => {
+            for assoc in assoc_types {
+                assoc.name_span = Span::default();
+                assoc.span = Span::default();
+                for bound in &mut assoc.bounds {
+                    normalize_type_for_body_only_comparison(bound);
+                }
+                for clause in &mut assoc.where_clauses {
+                    clause.span = Span::default();
+                    normalize_type_for_body_only_comparison(&mut clause.target_ty);
+                    for bound in &mut clause.bounds {
+                        normalize_type_for_body_only_comparison(bound);
+                    }
+                }
+            }
+            for method in methods {
+                normalize_struct_field_for_body_only_comparison(method);
             }
         }
         ast::TypeKind::Enum {

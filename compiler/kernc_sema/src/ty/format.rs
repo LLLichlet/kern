@@ -85,6 +85,19 @@ impl<'a, 'ctx> TypeFormatter<'a, 'ctx> {
 
             TypeKind::Alias(sym, _) => self.ctx.resolve(*sym).to_string(),
             TypeKind::Param(sym) => self.ctx.resolve(*sym).to_string(),
+            TypeKind::Associated(def_id, generics) => {
+                let def = &self.ctx.defs[def_id.0 as usize];
+                let name = def
+                    .name()
+                    .map(|sym| self.ctx.resolve(sym))
+                    .unwrap_or("<associated>");
+                if generics.is_empty() {
+                    name.to_string()
+                } else {
+                    let gen_strs: Vec<String> = generics.iter().map(|g| self.format(*g)).collect();
+                    format!("{}[{}]", name, gen_strs.join(", "))
+                }
+            }
 
             TypeKind::Function {
                 params,

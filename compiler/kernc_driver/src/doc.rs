@@ -763,6 +763,9 @@ fn def_path(ctx: &SemaContext<'_>, def_id: DefId) -> String {
         Def::Trait(def) => {
             module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
         }
+        Def::AssociatedType(def) => {
+            module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
+        }
         Def::TypeAlias(def) => {
             module_owned_path(ctx, def.name, module_parent_for_named_def(ctx, def_id))
         }
@@ -1070,6 +1073,7 @@ mod tests {
             where_clauses: Vec::new(),
             target_type: target_type.clone(),
             trait_type: None,
+            assoc_types: Vec::new(),
             methods: Vec::new(),
             span: Span::default(),
         }));
@@ -1082,6 +1086,7 @@ mod tests {
             where_clauses: Vec::new(),
             target_type: target_type.clone(),
             trait_type: Some(trait_type),
+            assoc_types: Vec::new(),
             methods: Vec::new(),
             span: Span::default(),
         }));

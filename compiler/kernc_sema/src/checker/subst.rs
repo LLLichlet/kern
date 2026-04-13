@@ -56,6 +56,10 @@ where
                     ty
                 }
             }
+            TypeKind::Associated(def_id, args) => {
+                let new_args = args.into_iter().map(|a| self.substitute(a)).collect();
+                self.registry.intern(TypeKind::Associated(def_id, new_args))
+            }
 
             TypeKind::Pointer { is_mut, elem } => {
                 let new_elem = self.substitute(elem);

@@ -5,28 +5,13 @@ use kernc_lexer::TokenType;
 
 impl<'a> Parser<'a> {
     pub fn parse_type(&mut self) -> ParseResult<TypeNode> {
-        let start_token = self.advance();
-        self.parse_type_after_consumed(start_token)
+        self.parse_result_type()
     }
 
-    pub(super) fn parse_type_after_consumed(
-        &mut self,
-        start_token: kernc_lexer::Token,
-    ) -> ParseResult<TypeNode> {
-        if start_token.tag == TokenType::Question {
-            let inner = self.parse_type()?;
-            return Ok(TypeNode {
-                id: self.new_id(),
-                span: start_token.span.to(inner.span),
-                kind: TypeKind::Optional {
-                    inner: Box::new(inner),
-                },
-            });
-        }
-
-        let mut ty = self.parse_primary_type_after_consumed(start_token)?;
+    fn parse_result_type(&mut self) -> ParseResult<TypeNode> {
+        let mut ty = self.parse_prefixed_type()?;
         if self.match_token(&[TokenType::Bang]) {
-            let err = self.parse_type()?;
+            let err = self.parse_result_type()?;
             ty = TypeNode {
                 id: self.new_id(),
                 span: ty.span.to(err.span),
@@ -40,6 +25,29 @@ impl<'a> Parser<'a> {
         Ok(ty)
     }
 
+    fn parse_prefixed_type(&mut self) -> ParseResult<TypeNode> {
+        let start_token = self.advance();
+        self.parse_type_after_consumed(start_token)
+    }
+
+    pub(super) fn parse_type_after_consumed(
+        &mut self,
+        start_token: kernc_lexer::Token,
+    ) -> ParseResult<TypeNode> {
+        if start_token.tag == TokenType::Question {
+            let inner = self.parse_prefixed_type()?;
+            return Ok(TypeNode {
+                id: self.new_id(),
+                span: start_token.span.to(inner.span),
+                kind: TypeKind::Optional {
+                    inner: Box::new(inner),
+                },
+            });
+        }
+
+        self.parse_primary_type_after_consumed(start_token)
+    }
+
     fn parse_primary_type_after_consumed(
         &mut self,
         start_token: kernc_lexer::Token,
@@ -51,6 +59,12 @@ impl<'a> Parser<'a> {
             TokenType::Fn => self.parse_fn_type_from_consumed(start_token.span),
             TokenType::CapitalFn => {
                 self.parse_closure_interface_type_from_consumed(start_token.span)
+            }
+            TokenType::LParen => {
+                let mut inner = self.parse_type()?;
+                let end = self.expect(TokenType::RParen)?;
+                inner.span = start_token.span.to(end.span);
+                Ok(inner)
             }
             TokenType::Identifier => self.parse_path_type_from_consumed(start_token),
             TokenType::At => self.parse_intrinsic_type_from_consumed(start_token.span),
@@ -417,49 +431,75 @@ impl<'a> Parser<'a> {
     ) -> ParseResult<TypeNode> {
         self.expect(TokenType::LBrace)?;
 
-        let mut fields = Vec::new();
+        let mut assoc_types = Vec::new();
+        let mut methods = Vec::new();
         while !self.check(TokenType::RBrace) && !self.check(TokenType::Eof) {
-            let docs = self.parse_item_doc_block("trait method");
-            let name_token = self.expect(TokenType::Identifier)?;
-            let name_id = self.intern_token(name_token);
-            self.expect(TokenType::Colon)?;
-            // Trait members must parse as function signatures such as `fn() i32`.
-            let mut method_type = self.parse_type()?;
-            if let TypeKind::Function { ref mut params, .. } = method_type.kind {
-                // Traits implicitly prepend `Self` to the method parameter list.
-                let implicit_self = TypeNode {
-                    id: self.new_id(),
-                    span: name_token.span, // Reuse the method name span for the synthetic node.
-                    kind: TypeKind::SelfType,
-                };
-                params.insert(0, implicit_self);
+            let docs = self.parse_item_doc_block("trait item");
+            if self.match_token(&[TokenType::Type]) {
+                let name_token = self.expect(TokenType::Identifier)?;
+                let generics = self.parse_generic_params()?;
+                let mut bounds = Vec::new();
+                if self.match_token(&[TokenType::Colon]) {
+                    loop {
+                        bounds.push(self.parse_type()?);
+                        if !self.match_token(&[TokenType::Plus]) {
+                            break;
+                        }
+                    }
+                }
+                let where_clauses = self.parse_where_clauses()?;
+                let end_token = self.expect(TokenType::Semicolon)?;
+                assoc_types.push(AssociatedTypeDecl {
+                    name: self.intern_token(name_token),
+                    name_span: name_token.span,
+                    docs,
+                    generics,
+                    bounds,
+                    where_clauses,
+                    span: name_token.span.to(end_token.span),
+                });
             } else {
-                self.add_error(
-                    method_type.span,
-                    "Trait members must be function signatures (e.g., `fn() void`)".to_string(),
-                );
-            }
+                let name_token = self.expect(TokenType::Identifier)?;
+                let name_id = self.intern_token(name_token);
+                self.expect(TokenType::Colon)?;
+                // Trait members must parse as function signatures such as `fn() i32`.
+                let mut method_type = self.parse_type()?;
+                if let TypeKind::Function { ref mut params, .. } = method_type.kind {
+                    // Traits implicitly prepend `Self` to the method parameter list.
+                    let implicit_self = TypeNode {
+                        id: self.new_id(),
+                        span: name_token.span, // Reuse the method name span for the synthetic node.
+                        kind: TypeKind::SelfType,
+                    };
+                    params.insert(0, implicit_self);
+                } else {
+                    self.add_error(
+                        method_type.span,
+                        "Trait members must be function signatures (e.g., `fn() void`)".to_string(),
+                    );
+                }
 
-            if self.check(TokenType::Assign) {
-                self.error_at_current(
-                    "Trait methods cannot have default implementations here.".to_string(),
-                );
-                self.advance();
-                let _ = self.parse_expression(Precedence::Lowest)?; // Consume the rejected body.
-            }
+                if self.check(TokenType::Assign) {
+                    self.error_at_current(
+                        "Trait methods cannot have default implementations here.".to_string(),
+                    );
+                    self.advance();
+                    let _ = self.parse_expression(Precedence::Lowest)?; // Consume the rejected body.
+                }
 
-            fields.push(StructFieldDef {
-                name: name_id,
-                name_span: name_token.span,
-                is_pub: false,
-                docs,
-                default_value: None,
-                span: name_token.span.to(method_type.span),
-                type_node: method_type,
-            });
+                methods.push(StructFieldDef {
+                    name: name_id,
+                    name_span: name_token.span,
+                    is_pub: false,
+                    docs,
+                    default_value: None,
+                    span: name_token.span.to(method_type.span),
+                    type_node: method_type,
+                });
 
-            if !self.continue_after_comma(&[TokenType::RBrace]) {
-                break;
+                if !self.continue_after_comma(&[TokenType::RBrace]) {
+                    break;
+                }
             }
         }
         let end_token = self.expect(TokenType::RBrace)?;
@@ -467,7 +507,10 @@ impl<'a> Parser<'a> {
         Ok(TypeNode {
             id: self.new_id(),
             span: start_token.span.to(end_token.span),
-            kind: TypeKind::Trait { fields },
+            kind: TypeKind::Trait {
+                assoc_types,
+                methods,
+            },
         })
     }
 

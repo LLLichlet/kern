@@ -789,11 +789,33 @@ impl CachedAstRebinder<'_> {
                     self.rebind_type_node(ret);
                 }
             }
-            ast::TypeKind::Struct { fields, .. }
-            | ast::TypeKind::Union { fields, .. }
-            | ast::TypeKind::Trait { fields } => {
+            ast::TypeKind::Struct { fields, .. } | ast::TypeKind::Union { fields, .. } => {
                 for field in fields {
                     self.rebind_struct_field_def(field);
+                }
+            }
+            ast::TypeKind::Trait {
+                assoc_types,
+                methods,
+            } => {
+                for assoc in assoc_types {
+                    assoc.name = self.rebind_symbol(assoc.name);
+                    self.rebind_span(&mut assoc.name_span);
+                    self.rebind_doc_block(assoc.docs.as_mut());
+                    for bound in &mut assoc.bounds {
+                        self.rebind_type_node(bound);
+                    }
+                    for clause in &mut assoc.where_clauses {
+                        self.rebind_type_node(&mut clause.target_ty);
+                        for bound in &mut clause.bounds {
+                            self.rebind_type_node(bound);
+                        }
+                        self.rebind_span(&mut clause.span);
+                    }
+                    self.rebind_span(&mut assoc.span);
+                }
+                for method in methods {
+                    self.rebind_struct_field_def(method);
                 }
             }
             ast::TypeKind::Enum {
@@ -1232,11 +1254,28 @@ mod tests {
                     collect_type_identifier_symbols(ret, visit);
                 }
             }
-            ast::TypeKind::Struct { fields, .. }
-            | ast::TypeKind::Union { fields, .. }
-            | ast::TypeKind::Trait { fields } => {
+            ast::TypeKind::Struct { fields, .. } | ast::TypeKind::Union { fields, .. } => {
                 for field in fields {
                     collect_type_identifier_symbols(&field.type_node, visit);
+                }
+            }
+            ast::TypeKind::Trait {
+                assoc_types,
+                methods,
+            } => {
+                for assoc in assoc_types {
+                    for bound in &assoc.bounds {
+                        collect_type_identifier_symbols(bound, visit);
+                    }
+                    for clause in &assoc.where_clauses {
+                        collect_type_identifier_symbols(&clause.target_ty, visit);
+                        for bound in &clause.bounds {
+                            collect_type_identifier_symbols(bound, visit);
+                        }
+                    }
+                }
+                for method in methods {
+                    collect_type_identifier_symbols(&method.type_node, visit);
                 }
             }
             ast::TypeKind::Enum {

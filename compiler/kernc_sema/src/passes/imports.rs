@@ -348,6 +348,7 @@ impl<'a, 'ctx> ImportResolver<'a, 'ctx> {
             Def::Trait(d) => d.vis,
             Def::Global(d) => d.vis,
             Def::TypeAlias(d) => d.vis,
+            Def::AssociatedType(_) => return true,
             // Module visibility has already been handled by the scope entry itself.
             Def::Module(_) => Visibility::Public,
             Def::Impl(_) => return true,

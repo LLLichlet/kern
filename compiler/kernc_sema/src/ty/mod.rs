@@ -116,6 +116,9 @@ pub enum TypeKind {
     /// Generic parameter placeholder such as `T` in `impl[T]`.
     Param(SymbolId),
 
+    /// Associated type placeholder or instantiation such as `Out` or `Out[T]`.
+    Associated(DefId, Vec<TypeId>),
+
     Function {
         params: Vec<TypeId>,
         ret: TypeId,

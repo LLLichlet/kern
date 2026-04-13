@@ -46,7 +46,7 @@ impl[T] *mut List[T] {
             return .{ Some: Layout.{ size: 0, align: self.elem_align() } };
         }
         if (count > USIZE_MAX / elem_size) {
-            return .{ None };
+            return .None;
         }
         return .{ Some: Layout.{ size: count * elem_size, align: self.elem_align() } };
     }
@@ -280,7 +280,7 @@ impl[T] *mut List[T] {
 
     /// Removes and returns the last item.
     pub fn pop() Option[T] {
-        if (self.len == 0) return .{ None };
+        if (self.len == 0) return .None;
         self.len -= 1;
         return .{ Some: (self.ptr + self.len).* };
     }
@@ -370,7 +370,7 @@ impl[T] *mut List[T] {
 
     /// Removes and returns the item at `index`, shifting later items left.
     pub fn remove(index: usize) Option[T] {
-        if (index >= self.len) return .{ None };
+        if (index >= self.len) return .None;
 
         let removed_val = (self.ptr + index).*;
 
@@ -422,13 +422,13 @@ impl[T] *mut List[T] {
     /// Returns a mutable pointer to the element at `index`.
     #[inline]
     pub fn get_ptr(index: usize) Option[*mut T] {
-        if (index >= self.len) return .{ None };
+        if (index >= self.len) return .None;
         return .{ Some: self.ptr + index };
     }
 
     /// Removes an element by swapping in the last element.
     pub fn swap_remove(index: usize) Option[T] {
-        if (index >= self.len) return .{ None };
+        if (index >= self.len) return .None;
 
         let removed_val = (self.ptr + index).*;
 
@@ -541,7 +541,7 @@ impl[T] *mut List[T] {
 
         let old_len = self.len;
         if (!self.reserve(alloc, count)) {
-            return .{ None };
+            return .None;
         }
 
         self.len = old_len + count;
@@ -559,7 +559,7 @@ impl[T] *mut List[T] {
 
         let old_len = self.len;
         if (!self.reserve_exact(alloc, count)) {
-            return .{ None };
+            return .None;
         }
 
         self.len = old_len + count;
@@ -576,7 +576,7 @@ impl[T] *mut List[T] {
         }
 
         if (count > USIZE_MAX - self.len) {
-            return .{ None };
+            return .None;
         }
 
         let old_len = self.len;
@@ -585,11 +585,11 @@ impl[T] *mut List[T] {
         if (self.cap < new_len) {
             if (@sizeOf[T]() != 0 and old_len == 0 and self.cap == 0) {
                 let layout = self.fixed_layout(count, @sizeOf[T]());
-                let .{ Some: new_ptr_u8 } = arena.alloc(layout) else return .{ None };
+                let .{ Some: new_ptr_u8 } = arena.alloc(layout) else return .None;
                 self.ptr = new_ptr_u8 as *mut T;
                 self.cap = count;
             } else if (!self.ensure_capacity_exact_in_arena(arena, new_len)) {
-                return .{ None };
+                return .None;
             }
         }
 
@@ -794,19 +794,19 @@ impl[T] *List[T] {
 
     #[inline]
     pub fn get(index: usize) Option[T] {
-        if (index >= self.len) return .{ None };
+        if (index >= self.len) return .None;
         return .{ Some: (self.ptr + index).* };
     }
 
     #[inline]
     pub fn first() Option[T] {
-        if (self.len == 0) return .{ None };
+        if (self.len == 0) return .None;
         return .{ Some: self.ptr.* };
     }
 
     #[inline]
     pub fn last() Option[T] {
-        if (self.len == 0) return .{ None };
+        if (self.len == 0) return .None;
         return .{ Some: (self.ptr + self.len - 1).* };
     }
 }

@@ -575,7 +575,7 @@ use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
     p.cfg_bool("workspace_policy", true);
-    p.dep_git(plan.DependencyKind.{ normal }, "log", "https://example.com/workspace-log.git");
+    p.dep_git(plan.DependencyKind.normal, "log", "https://example.com/workspace-log.git");
 }
 "#,
         )
@@ -599,7 +599,7 @@ log = { git = "https://example.com/log.git", tag = "v1" }
 use craft.plan;
 
 pub fn craft(p: *mut plan.Plan) void {
-    p.dep_git(plan.DependencyKind.{ normal }, "log", "https://example.com/package-log.git");
+    p.dep_git(plan.DependencyKind.normal, "log", "https://example.com/package-log.git");
 }
 "#,
         )
@@ -1130,10 +1130,10 @@ pub fn craft(p: *mut plan.Plan) void {
     }
     p.set_lib_root("src/alt_lib.rn");
     p.add_bin("demo", "src/main.rn");
-    p.dep_git(plan.DependencyKind.{ normal }, "log", "https://example.com/corp-log.git");
-    p.dep_path(plan.DependencyKind.{ normal }, "trace", "vendor/trace");
-    p.dep_git(plan.DependencyKind.{ dev }, "insta", "https://example.com/insta.git");
-    p.dep_version(plan.DependencyKind.{ dev }, "insta", "2");
+    p.dep_git(plan.DependencyKind.normal, "log", "https://example.com/corp-log.git");
+    p.dep_path(plan.DependencyKind.normal, "trace", "vendor/trace");
+    p.dep_git(plan.DependencyKind.dev, "insta", "https://example.com/insta.git");
+    p.dep_version(plan.DependencyKind.dev, "insta", "2");
 }
 "#,
         )

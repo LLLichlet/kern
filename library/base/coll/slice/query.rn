@@ -14,19 +14,19 @@ impl[T] []T {
 
     /// Returns the element at `index`.
     pub fn get(index: usize) Option[T] {
-        if (index >= #self) return .{ None };
+        if (index >= #self) return .None;
         return .{ Some: self.[index] };
     }
 
     /// Returns the first element.
     pub fn first() Option[T] {
-        if (#self == 0) return .{ None };
+        if (#self == 0) return .None;
         return .{ Some: self.[0] };
     }
 
     /// Returns the last element.
     pub fn last() Option[T] {
-        if (#self == 0) return .{ None };
+        if (#self == 0) return .None;
         return .{ Some: self.[#self - 1] };
     }
 
@@ -37,7 +37,7 @@ impl[T] []T {
                 return .{ Some: i };
             }
         }
-        return .{ None };
+        return .None;
     }
 
     /// Returns the last index accepted by `pred`.
@@ -48,7 +48,7 @@ impl[T] []T {
                 return .{ Some: i };
             }
         }
-        return .{ None };
+        return .None;
     }
 
     /// Returns `true` when any element satisfies `pred`.
@@ -101,7 +101,7 @@ impl[T] []T {
                 .None => {}
             }
         }
-        return .{ None };
+        return .None;
     }
 
     /// Returns the partition point for a slice already partitioned by `pred`.
@@ -170,7 +170,7 @@ impl[T] []T
             return .{ Some: 0 };
         }
         if (needle_len > #self) {
-            return .{ None };
+            return .None;
         }
 
         let last_start = #self - needle_len;
@@ -193,7 +193,7 @@ impl[T] []T
             }
         }
 
-        return .{ None };
+        return .None;
     }
 
     /// Returns `true` when `needle` appears as a contiguous subsequence.
@@ -204,7 +204,7 @@ impl[T] []T
     /// Removes `prefix` from the front when present.
     pub fn strip_prefix(prefix: []T) Option[[]T] {
         if (!self.starts_with(prefix)) {
-            return .{ None };
+            return .None;
         }
         return .{ Some: self.[#prefix .. #self] };
     }
@@ -212,7 +212,7 @@ impl[T] []T
     /// Removes `suffix` from the end when present.
     pub fn strip_suffix(suffix: []T) Option[[]T] {
         if (!self.ends_with(suffix)) {
-            return .{ None };
+            return .None;
         }
         return .{ Some: self.[0 .. #self - #suffix] };
     }
@@ -255,6 +255,6 @@ impl[T] []T
             return .{ Some: left };
         }
 
-        return .{ None };
+        return .None;
     }
 }

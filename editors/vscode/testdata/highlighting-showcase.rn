@@ -6,7 +6,7 @@ extern fn start() ! {
     let device = SerialPort.{ port: 0x3F8 };
     let state = Option[i32].{ Some: 7 };
     let anon = struct { left: i32, right: i32 }.{ left: 1, right: 2 };
-    let flag = enum: u8 { Off = 0, On = 1 }.{ On };
+    let flag = enum: u8 { Off = 0, On = 1 }.On;
     let callback = .[ptr = counter..&](value: i32) i32 {
         ptr.* += value;
         return ptr.*;

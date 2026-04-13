@@ -148,7 +148,7 @@ type Option[T] = enum {
 };
 
 fn main() i32 {
-    return match (Option[i32].{ None }) {
+    return match (Option[i32].None) {
         .{ None } => 0,
         .{ Some: value } => value,
     };

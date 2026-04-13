@@ -85,7 +85,7 @@ impl *mut Arena : Allocator {
         let alloc_end = alloc_start + payload;
 
         if (alloc_end > start + chunk.size) {
-            return .{ None };
+            return .None;
         }
 
         chunk.used = alloc_end - start;
@@ -138,7 +138,7 @@ impl *mut Arena : Allocator {
         }
 
         if (!self.grow(layout)) {
-            return .{ None };
+            return .None;
         }
 
         return self.alloc_from_chunk(self.current, layout);

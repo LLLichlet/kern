@@ -47,7 +47,7 @@ fn rename_with_c_paths(old_c_path: *u8, new_c_path: *u8) Result[bool, Error] {
 /// returns `InvalidOptions` when neither reading nor writing is requested.
 pub fn open(alloc: *mut Allocator, path: []u8, options: *OpenOptions) Result[File, Error] {
     if (!options.read and !options.write) {
-        return .{ Err: .{ InvalidOptions } };
+        return .{ Err: .InvalidOptions };
     }
 
     let c_path = match (alloc_c_path(alloc, path)) {
@@ -329,7 +329,7 @@ impl *mut File {
                 .{ Err: err } => return .{ Err: err },
             };
             if (written == 0) {
-                return .{ Err: .{ WriteZero } };
+                return .{ Err: .WriteZero };
             }
             total += written;
         }
@@ -400,7 +400,7 @@ impl *mut File {
 
             if (!out..&.push_str(alloc, chunk.[0 .. read])) {
                 out..&.deinit(alloc);
-                return .{ Err: .{ OutOfMemory } };
+                return .{ Err: .OutOfMemory };
             }
         }
     }

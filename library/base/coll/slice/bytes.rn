@@ -90,7 +90,7 @@ impl []u8 {
                 return .{ Some: i };
             }
         }
-        return .{ None };
+        return .None;
     }
 
     /// Returns the last index of `byte`.
@@ -101,7 +101,7 @@ impl []u8 {
                 return .{ Some: i };
             }
         }
-        return .{ None };
+        return .None;
     }
 
     /// Returns `true` when the slice contains `byte`.

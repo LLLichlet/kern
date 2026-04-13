@@ -47,7 +47,7 @@ fn bump(value: ?i32) ?i32 {
 }
 
 fn main() i32 {
-    return match (bump(?i32.{ None })) {
+    return match (bump(?i32.None)) {
         .None => 0,
         .{ Some: _ } => 1,
     };
@@ -60,6 +60,34 @@ fn main() i32 {
         Some(0),
         "program exited unexpectedly:\nstdout:\n{}\nstderr:\n{}",
         String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+#[test]
+fn rejects_legacy_braced_payloadless_builtin_optional_constructor() {
+    let output = compile_source(
+        r#"
+fn main() i32 {
+    let value = ?i32.{ None };
+    return match (value) {
+        .None => 0,
+        .{ Some: _ } => 1,
+    };
+}
+"#,
+    );
+
+    assert!(
+        !output.status.success(),
+        "expected compilation failure, but kernc succeeded:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("payload-less enum variants must use direct variant syntax"),
+        "unexpected stderr:\n{}",
         String::from_utf8_lossy(&output.stderr)
     );
 }

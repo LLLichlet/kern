@@ -47,7 +47,7 @@ pub const fn array_layout_of[T](count: usize) Option[Layout] {
     }
 
     if (count > USIZE_MAX / elem.size) {
-        return .{ None };
+        return .None;
     }
 
     return .{

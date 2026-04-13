@@ -581,7 +581,7 @@ fn main() i32 {
         if (key == 4) {
             return .{ Some: value + 4 };
         }
-        return .{ None };
+        return .None;
     })) {
         .{ Some: value } => value,
         .None => return 9,

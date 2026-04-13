@@ -126,6 +126,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
             .get(&lhs.id)
             .copied()
             .unwrap_or(TypeId::ERROR);
+        let expr_ty = self.substitute_type_with_map(expr_ty, subst_map);
         let norm_expr = self.ctx.type_registry.normalize(expr_ty);
 
         if matches!(

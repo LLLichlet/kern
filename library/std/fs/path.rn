@@ -112,19 +112,19 @@ pub fn build_child_path(alloc: *mut Allocator, base: []u8, name: []u8) Result[St
     let mut out = String.{};
     let sep = preferred_separator_byte(base);
     if (!out..&.push_str(alloc, base)) {
-        return .{ Err: .{ OutOfMemory } };
+        return .{ Err: .OutOfMemory };
     }
 
     if (#base > 0 and !is_path_separator(base.[#base - 1])) {
         if (!out..&.push_char(alloc, sep)) {
             out..&.deinit(alloc);
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
     }
 
     if (!out..&.push_str(alloc, name)) {
         out..&.deinit(alloc);
-        return .{ Err: .{ OutOfMemory } };
+        return .{ Err: .OutOfMemory };
     }
 
     return .{ Ok: out };
@@ -159,7 +159,7 @@ fn last_separator(path: []u8) Option[usize] {
             return .{ Some: index };
         }
     }
-    return .{ None };
+    return .None;
 }
 
 /// Returns the final path component.
@@ -167,7 +167,7 @@ pub fn file_name(path: []u8) Option[[]u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
     if (#trimmed == 0 or #trimmed == prefix_len) {
-        return .{ None };
+        return .None;
     }
 
     match (last_separator(trimmed)) {
@@ -181,7 +181,7 @@ pub fn parent(path: []u8) Option[[]u8] {
     let trimmed = trim_trailing_separators(path);
     let prefix_len = root_prefix_len(trimmed);
     if (#trimmed == 0 or #trimmed == prefix_len) {
-        return .{ None };
+        return .None;
     }
 
     match (last_separator(trimmed)) {
@@ -190,7 +190,7 @@ pub fn parent(path: []u8) Option[[]u8] {
             if (prefix_len > 0) {
                 return .{ Some: trimmed.[0 .. prefix_len] };
             }
-            return .{ None };
+            return .None;
         },
     }
 }
@@ -199,7 +199,7 @@ pub fn parent(path: []u8) Option[[]u8] {
 pub fn extension(path: []u8) Option[[]u8] {
     let name = match (file_name(path)) {
         .{ Some: name } => name,
-        .None => return .{ None },
+        .None => return .None,
     };
 
     for (let mut index = #name; index > 0; ) {
@@ -208,19 +208,19 @@ pub fn extension(path: []u8) Option[[]u8] {
             continue;
         }
         if (index == 0 or index + 1 == #name) {
-            return .{ None };
+            return .None;
         }
         return .{ Some: name.[index + 1 .. #name] };
     }
 
-    return .{ None };
+    return .None;
 }
 
 /// Returns the final path component without its extension.
 pub fn file_stem(path: []u8) Option[[]u8] {
     let name = match (file_name(path)) {
         .{ Some: name } => name,
-        .None => return .{ None },
+        .None => return .None,
     };
 
     for (let mut index = #name; index > 0; ) {
@@ -245,7 +245,7 @@ pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) Result[String, Error
     if (root_prefix_len(child) > 0) {
         let mut out = String.{};
         if (!out..&.push_str(alloc, child)) {
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
         return .{ Ok: out };
     }
@@ -253,7 +253,7 @@ pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) Result[String, Error
     if (#base == 0) {
         let mut out = String.{};
         if (!out..&.push_str(alloc, child)) {
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
         return .{ Ok: out };
     }
@@ -261,7 +261,7 @@ pub fn join(alloc: *mut Allocator, base: []u8, child: []u8) Result[String, Error
     if (#child == 0) {
         let mut out = String.{};
         if (!out..&.push_str(alloc, base)) {
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
         return .{ Ok: out };
     }
@@ -305,21 +305,21 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
                 let _ = segments.pop();
             } else if (prefix_len == 0) {
                 if (!segments.push(alloc, segment)) {
-                    return .{ Err: .{ OutOfMemory } };
+                    return .{ Err: .OutOfMemory };
                 }
             }
             continue;
         }
 
         if (!segments.push(alloc, segment)) {
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
     }
 
     let mut out = String.{};
     if (prefix_len > 0) {
         if (!out..&.push_str(alloc, path.[0 .. prefix_len])) {
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
     }
 
@@ -328,7 +328,7 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
             return .{ Ok: out };
         }
         if (!out..&.push_str(alloc, ".")) {
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
         return .{ Ok: out };
     }
@@ -340,7 +340,7 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
         };
         if (!append_path_segment(out..&, alloc, prefix_len, sep, segment)) {
             out..&.deinit(alloc);
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
     }
 
@@ -353,7 +353,7 @@ pub fn normalize(alloc: *mut Allocator, path: []u8) Result[String, Error] {
 /// returns `InvalidPath` when `name` is empty.
 pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) Result[String, Error] {
     if (#name == 0) {
-        return .{ Err: .{ InvalidPath } };
+        return .{ Err: .InvalidPath };
     }
 
     let trimmed = trim_trailing_separators(path);
@@ -376,22 +376,22 @@ pub fn with_file_name(alloc: *mut Allocator, path: []u8, name: []u8) Result[Stri
 pub fn with_extension(alloc: *mut Allocator, path: []u8, ext: []u8) Result[String, Error] {
     let stem = match (file_stem(path)) {
         .{ Some: stem } => stem,
-        .None => return .{ Err: .{ InvalidPath } },
+        .None => return .{ Err: .InvalidPath },
     };
 
     let mut new_name = String.{};
     if (!new_name..&.push_str(alloc, stem)) {
-        return .{ Err: .{ OutOfMemory } };
+        return .{ Err: .OutOfMemory };
     }
 
     if (#ext > 0) {
         if (!new_name..&.push_char(alloc, b'.')) {
             new_name..&.deinit(alloc);
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
         if (!new_name..&.push_str(alloc, ext)) {
             new_name..&.deinit(alloc);
-            return .{ Err: .{ OutOfMemory } };
+            return .{ Err: .OutOfMemory };
         }
     }
 

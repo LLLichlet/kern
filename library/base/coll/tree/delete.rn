@@ -191,7 +191,8 @@ impl[K, V] *mut Tree[K, V]
             set_key[K, V](node, index, pred_key);
             set_value[K, V](node, index, pred_value);
 
-            let ignored = Option[V].{ None }..&;
+            let mut ignored_value = Option[V].None;
+            let ignored = ignored_value..&;
             return self.delete_remove_from_node(alloc, left, pred_key, ignored);
         }
 
@@ -207,12 +208,14 @@ impl[K, V] *mut Tree[K, V]
             set_key[K, V](node, index, succ_key);
             set_value[K, V](node, index, succ_value);
 
-            let ignored = Option[V].{ None }..&;
+            let mut ignored_value = Option[V].None;
+            let ignored = ignored_value..&;
             return self.delete_remove_from_node(alloc, right, succ_key, ignored);
         }
 
         let merged = self.delete_merge_children(alloc, node, index);
-        let ignored = Option[V].{ None }..&;
+        let mut ignored_value = Option[V].None;
+        let ignored = ignored_value..&;
         return self.delete_remove_from_node(alloc, merged, key, ignored);
     }
 
@@ -267,12 +270,13 @@ impl[K, V] *mut Tree[K, V]
     /// Removes the value stored for `key`.
     pub fn remove(alloc: *mut Allocator, key: K) Option[V] {
         if ((self.root as usize) == 0) {
-            return .{ None };
+            return .None;
         }
 
-        let removed = Option[V].{ None }..&;
+        let mut removed_value = Option[V].None;
+        let removed = removed_value..&;
         if (!self.delete_remove_from_node(alloc, self.root, key, removed)) {
-            return .{ None };
+            return .None;
         }
 
         self.len -= 1;

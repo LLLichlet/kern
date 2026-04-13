@@ -195,7 +195,7 @@ fn main() i32 {
         if (value > 3) {
             return .{ Some: value * 10 };
         }
-        return .{ None };
+        return .None;
     })) {
         .{ Some: value } => value,
         .None => return 37,
@@ -674,7 +674,7 @@ fn main() i32 {
         return 3;
     }
 
-    let none = Option[i32].{ None };
+    let none = Option[i32].None;
     let fallback_default = .[seen = seen..&]() i32 {
         seen.* += 10;
         return 99;

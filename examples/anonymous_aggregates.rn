@@ -44,8 +44,8 @@ fn main() i32 {
     let word = Word.{ int: 9 };
     let c_word = CWord.{ int: 11 };
     let anon_word = union { bytes: [4]u8, int: i32 }.{ int: 13 };
-    let state = Switch.{ On };
-    let anon_state = enum: u32 { Off = 0, On = 1, Error: i32 }.{ On };
+    let state = Switch.On;
+    let anon_state = enum: u32 { Off = 0, On = 1, Error: i32 }.On;
 
     let total = sum_pair(pair) + read_word(word) + read_word(anon_word) + read_c_word(c_word);
     if (is_on(state) and is_on(anon_state)) {

@@ -23,7 +23,7 @@ pub type Var = struct {
 #[if((os == "linux" or os == "darwin") or os == "windows")]
 fn split_var(entry: []u8) Option[Var] {
     if (#entry == 0) {
-        return .{ None };
+        return .None;
     }
 
     let mut start = 0;
@@ -43,7 +43,7 @@ fn split_var(entry: []u8) Option[Var] {
         };
     }
 
-    return .{ None };
+    return .None;
 }
 
 #[if((os == "linux" or os == "darwin") or os == "windows")]
@@ -51,40 +51,40 @@ fn clone_c_value(alloc: *mut Allocator, ptr: *u8, len: usize) Option[String] {
     let mut value = String.{};
     if (!value..&.push_str(alloc, ptr.[0 .. len])) {
         value..&.deinit(alloc);
-        return .{ None };
+        return .None;
     }
     return .{ Some: value };
 }
 
 #[if(os == "linux" or os == "darwin")]
 fn get_posix(alloc: *mut Allocator, name: []u8) Option[String] {
-    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .{ None };
+    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .None;
     defer abi.cstr.free_z(alloc, name, c_name);
 
     let value_ptr = os.find_environment_value(c_name);
     if ((value_ptr as usize) == 0) {
-        return .{ None };
+        return .None;
     }
     return clone_c_value(alloc, value_ptr, abi.cstr.len(value_ptr));
 }
 
 #[if(os == "windows")]
 fn get_windows(alloc: *mut Allocator, name: []u8) Option[String] {
-    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .{ None };
+    let .{ Some: c_name } = abi.cstr.alloc_z(alloc, name) else return .None;
     defer abi.cstr.free_z(alloc, name, c_name);
 
     let required = os.get_environment_variable(c_name, 0, 0) as usize;
     if (required == 0) {
-        return .{ None };
+        return .None;
     }
 
-    let .{ Some: layout } = array_layout_of[u8](required) else return .{ None };
-    let .{ Some: buffer } = alloc.alloc(layout) else return .{ None };
+    let .{ Some: layout } = array_layout_of[u8](required) else return .None;
+    let .{ Some: buffer } = alloc.alloc(layout) else return .None;
     defer alloc.free(buffer, layout);
 
     let written = os.get_environment_variable(c_name, buffer, required as u32) as usize;
     if (written == 0) {
-        return .{ None };
+        return .None;
     }
 
     return clone_c_value(alloc, buffer, written);
@@ -174,7 +174,7 @@ fn visit_windows(visitor: *Fn(Var) bool) usize {
 /// `None` when the variable does not exist or allocation fails.
 pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
     if (#name == 0) {
-        return .{ None };
+        return .None;
     }
 
     #[if(os == "linux" or os == "darwin")]
@@ -189,7 +189,7 @@ pub fn get(alloc: *mut Allocator, name: []u8) Option[String] {
 
     let _ = alloc;
     let _ = name;
-    return .{ None };
+    return .None;
 }
 
 /// Returns `true` when an environment variable exists.
@@ -226,7 +226,7 @@ pub fn get_or_clone(alloc: *mut Allocator, name: []u8, fallback: []u8) Option[St
             let mut value = String.{};
             if (!value..&.push_str(alloc, fallback)) {
                 value..&.deinit(alloc);
-                return .{ None };
+                return .None;
             }
             return .{ Some: value };
         },

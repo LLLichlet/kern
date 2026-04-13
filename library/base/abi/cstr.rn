@@ -25,7 +25,7 @@ pub fn len(str: *u8) usize {
 
 fn z_string_layout(bytes: []u8) Option[base.mem.Layout] {
     if (#bytes == base.num.USIZE_MAX) {
-        return .{ None };
+        return .None;
     }
     return array_layout_of[u8](#bytes + 1);
 }
@@ -37,11 +37,11 @@ fn z_string_layout(bytes: []u8) Option[base.mem.Layout] {
 pub fn alloc_z(alloc: *mut Allocator, bytes: []u8) Option[*mut u8] {
     let layout = match (z_string_layout(bytes)) {
         .{ Some: layout } => layout,
-        .None => return .{ None },
+        .None => return .None,
     };
     let ptr = match (alloc.alloc(layout)) {
         .{ Some: ptr } => ptr,
-        .None => return .{ None },
+        .None => return .None,
     };
 
     let bytes_len = #bytes;

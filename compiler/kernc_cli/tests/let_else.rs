@@ -196,7 +196,7 @@ type Option[T] = enum {
 };
 
 fn main() i32 {
-    let .{ Some: value } = Option[i32].{ None } else 0;
+    let .{ Some: value } = Option[i32].None else 0;
     return value;
 }
 "#,
@@ -231,7 +231,7 @@ fn pick(value: Option[i32], fallback: bool) i32 {
 }
 
 fn main() i32 {
-    return pick(Option[i32].{ None }, true);
+    return pick(Option[i32].None, true);
 }
 "#,
     );
@@ -288,7 +288,7 @@ const fn pick(value: Option[i32]) i32 {
     return inner;
 }
 
-const PICKED = pick(Option[i32].{ None });
+const PICKED = pick(Option[i32].None);
 
 fn main() i32 {
     return PICKED;
@@ -315,7 +315,7 @@ type Result[T, E] = enum {
 };
 
 fn main() i32 {
-    let .{ Ok: value } = Result[i32, i32].{ Pending } else .{ Err: err } => return err;
+    let .{ Ok: value } = Result[i32, i32].Pending else .{ Err: err } => return err;
     return value;
 }
 "#,
@@ -461,7 +461,7 @@ fn pick(value: Option[Option[i32]]) i32 {
 }
 
 fn main() i32 {
-    return pick(Option[Option[i32]].{ Some: Option[i32].{ None } });
+    return pick(Option[Option[i32]].{ Some: Option[i32].None });
 }
 "#,
     );

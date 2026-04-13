@@ -189,7 +189,7 @@ fn parse(flag: bool) Result[usize, i32] {
 fn main() i32 {
     let some = test.expect_some(Option[usize].{ Some: 9 });
     test.eq(some, usize.{9});
-    test.expect_none(Option[usize].{ None });
+    test.expect_none(Option[usize].None);
 
     let ok = test.expect_ok(parse(true));
     test.eq(ok, usize.{7});
@@ -223,7 +223,7 @@ use std.test;
 use base.Option;
 
 fn main() i32 {
-    let _ = test.expect_some(Option[usize].{ None });
+    let _ = test.expect_some(Option[usize].None);
     return 0;
 }
 "#,

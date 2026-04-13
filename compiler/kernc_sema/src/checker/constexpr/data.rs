@@ -416,7 +416,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             _ => {
                 self.ctx
                     .struct_error(span, "invalid enum constant initializer")
-                    .with_hint("use `Type.{ Variant }` or `Type.{ Variant: payload }`")
+                    .with_hint("use `Type.Variant` for payload-less cases or `Type.{ Variant: payload }` when a payload is required")
                     .emit();
                 Err(ConstEvalError)
             }
@@ -496,7 +496,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             _ => {
                 self.ctx
                     .struct_error(span, "invalid enum constant initializer")
-                    .with_hint("use `Type.{ Variant }` or `Type.{ Variant: payload }`")
+                    .with_hint("use `Type.Variant` for payload-less cases or `Type.{ Variant: payload }` when a payload is required")
                     .emit();
                 Err(ConstEvalError)
             }
@@ -510,7 +510,7 @@ impl<'a, 'ctx> ConstEvaluator<'a, 'ctx> {
             _ => {
                 self.ctx
                     .struct_error(span, "enum constant initialization expects a variant name")
-                    .with_hint("write `Type.{ Variant }` for payload-less variants")
+                    .with_hint("write `Type.Variant` for payload-less variants")
                     .emit();
                 None
             }

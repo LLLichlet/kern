@@ -212,14 +212,14 @@ impl Args {
     /// Returns the zero-terminated pointer for one argument.
     pub fn raw(index: usize) Option[*u8] {
         if (index >= self.len()) {
-            return .{ None };
+            return .None;
         }
         return .{ Some: (self.values + index).* };
     }
 
     /// Returns one argument as a borrowed UTF-8 byte slice.
     pub fn get(index: usize) Option[[]u8] {
-        let .{ Some: arg } = self.raw(index) else return .{ None };
+        let .{ Some: arg } = self.raw(index) else return .None;
         return .{ Some: arg.[0 .. abi.cstr.len(arg)] };
     }
 }

@@ -5,7 +5,92 @@ use kernc_lexer::{Token, TokenType};
 use kernc_utils::Span;
 
 impl<'a> Parser<'a> {
+    fn split_builtin_optional_none_constructor(
+        &mut self,
+        inner: TypeNode,
+    ) -> Option<(TypeNode, kernc_utils::SymbolId, kernc_utils::Span)> {
+        let TypeKind::Path {
+            mut segments,
+            mut segment_spans,
+            generics,
+        } = inner.kind
+        else {
+            return None;
+        };
+
+        if !generics.is_empty() || segments.len() < 2 {
+            return None;
+        }
+
+        let field = *segments.last()?;
+        if self.session.resolve(field) != "None" {
+            return None;
+        }
+
+        let field_span = *segment_spans.last()?;
+        segments.pop();
+        segment_spans.pop();
+
+        let span = segment_spans.first().copied()?.to(*segment_spans.last()?);
+        Some((
+            TypeNode {
+                id: self.new_id(),
+                span,
+                kind: TypeKind::Path {
+                    segments,
+                    segment_spans,
+                    generics,
+                },
+            },
+            field,
+            field_span,
+        ))
+    }
+
     pub(super) fn parse_type_namespace_expr(&mut self, start_token: Token) -> ParseResult<Expr> {
+        if start_token.tag == TokenType::Question {
+            let inner = self.parse_type()?;
+            let optional_span = start_token.span.to(inner.span);
+            if let Some((inner, field, field_span)) =
+                self.split_builtin_optional_none_constructor(inner.clone())
+            {
+                let optional = TypeNode {
+                    id: self.new_id(),
+                    span: start_token.span.to(inner.span),
+                    kind: TypeKind::Optional {
+                        inner: Box::new(inner),
+                    },
+                };
+                let lhs = Expr {
+                    id: self.new_id(),
+                    span: optional.span,
+                    kind: ExprKind::TypeNode(Box::new(optional)),
+                };
+                return Ok(Expr {
+                    id: self.new_id(),
+                    span: lhs.span.to(field_span),
+                    kind: ExprKind::FieldAccess {
+                        lhs: Box::new(lhs),
+                        field,
+                        field_span,
+                    },
+                });
+            }
+
+            let type_node = TypeNode {
+                id: self.new_id(),
+                span: optional_span,
+                kind: TypeKind::Optional {
+                    inner: Box::new(inner),
+                },
+            };
+            return Ok(Expr {
+                id: self.new_id(),
+                span: type_node.span,
+                kind: ExprKind::TypeNode(Box::new(type_node)),
+            });
+        }
+
         let type_node = self.parse_type_after_consumed(start_token)?;
         Ok(Expr {
             id: self.new_id(),

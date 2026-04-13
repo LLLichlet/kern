@@ -386,7 +386,7 @@ const fn choose(flag: bool) Switch {
     if (flag) {
         return Switch.{ Value: 7 };
     }
-    return Switch.{ On };
+    return Switch.On;
 }
 
 const fn unwrap_switch(v: Switch) i32 {

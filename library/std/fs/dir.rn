@@ -27,11 +27,11 @@ fn dir_search_path_layout(path: []u8) Option[base.mem.Layout] {
 fn alloc_dir_search_path(alloc: *mut Allocator, path: []u8) Result[*mut u8, Error] {
     let layout = match (dir_search_path_layout(path)) {
         .{ Some: layout } => layout,
-        .None => return .{ Err: .{ OutOfMemory } },
+        .None => return .{ Err: .OutOfMemory },
     };
     let ptr = match (alloc.alloc(layout)) {
         .{ Some: ptr } => ptr,
-        .None => return .{ Err: .{ OutOfMemory } },
+        .None => return .{ Err: .OutOfMemory },
     };
 
     let len = #path;
@@ -109,7 +109,7 @@ pub fn create_dir_if_missing(alloc: *mut Allocator, path: []u8) Result[bool, Err
 /// `Ok(true)` when the call succeeds, even if some or all components already existed.
 pub fn create_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     if (#path == 0) {
-        return .{ Err: .{ InvalidPath } };
+        return .{ Err: .InvalidPath };
     }
 
     let trimmed = trim_trailing_separators(path);
@@ -247,11 +247,11 @@ pub fn walk_dir(
     };
 
     if (!meta.is_dir()) {
-        return .{ Err: .{ NotDirectory } };
+        return .{ Err: .NotDirectory };
     }
 
     let mut total = usize.{0};
-    let mut walk_err = Option[Error].{ None };
+    let mut walk_err = Option[Error].None;
     let _ = walk_dir_inner(alloc, path, 1, visitor, total..&, walk_err..&);
 
     match (walk_err) {
@@ -346,10 +346,10 @@ pub fn remove_dir_all(alloc: *mut Allocator, path: []u8) Result[bool, Error] {
     };
 
     if (!meta.is_dir()) {
-        return .{ Err: .{ NotDirectory } };
+        return .{ Err: .NotDirectory };
     }
 
-    let mut walk_err = Option[Error].{ None };
+    let mut walk_err = Option[Error].None;
     let walk = .[alloc, base = path, walk_err = walk_err..&](entry: DirEntry) bool {
         let mut child = match (build_child_path(alloc, base, entry.name)) {
             .{ Ok: child } => child,

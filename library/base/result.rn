@@ -32,14 +32,14 @@ impl[T, E] Result[T, E] {
     pub fn ok() Option[T] {
         match (self) {
             .{ Ok: a } => .{Some: a},
-            .{ Err: _ } => .{None},
+            .{ Err: _ } => .None,
         }
     }
 
     /// Converts `Err(E)` into `Some(E)` and drops the success value.
     pub fn err() Option[E] {
         match (self) {
-            .{ Ok: _ } => .{None},
+            .{ Ok: _ } => .None,
             .{ Err: e } => .{Some: e},
         }
     }

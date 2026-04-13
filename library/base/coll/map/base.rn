@@ -97,7 +97,7 @@ pub fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity
     for (; probes < capacity; probes += 1) {
         let state = ctrl_at(ctrl, index);
         if (state == EMPTY) {
-            return .{ None };
+            return .None;
         }
 
         if (state == FULL) {
@@ -110,7 +110,7 @@ pub fn find_index_with_hash[K, V](ctrl: *u8, entries: *mut Entry[K, V], capacity
         index = (index + 1) & mask;
     }
 
-    return .{ None };
+    return .None;
 }
 
 /// Returns the maximum number of occupied slots allowed before growing.

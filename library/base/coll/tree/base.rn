@@ -71,7 +71,7 @@ pub fn set_child[K, V](node: *mut Node[K, V], index: usize, child: *mut Node[K, 
 /// `None` when the tree is empty.
 pub fn first_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
     if ((root as usize) == 0) {
-        return .{ None };
+        return .None;
     }
 
     let mut node = root;
@@ -87,7 +87,7 @@ pub fn first_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
 /// `None` when the tree is empty.
 pub fn last_hit[K, V](root: *mut Node[K, V]) Option[SearchHit[K, V]] {
     if ((root as usize) == 0) {
-        return .{ None };
+        return .None;
     }
 
     let mut node = root;
@@ -104,7 +104,7 @@ pub fn ceil_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
     where K: Ord[K],
 {
     let mut node = root;
-    let mut found = Option[SearchHit[K, V]].{ None };
+    let mut found = Option[SearchHit[K, V]].None;
 
     for (; (node as usize) != 0; ) {
         let current = node;
@@ -139,7 +139,7 @@ pub fn floor_hit[K, V](root: *mut Node[K, V], key: K) Option[SearchHit[K, V]]
     where K: Ord[K],
 {
     let mut node = root;
-    let mut found = Option[SearchHit[K, V]].{ None };
+    let mut found = Option[SearchHit[K, V]].None;
 
     for (; (node as usize) != 0; ) {
         let mut index = 0;

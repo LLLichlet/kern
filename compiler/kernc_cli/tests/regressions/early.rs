@@ -719,7 +719,7 @@ impl Holder {
         if (flag) {
             return .{ Some: Kind.Section };
         }
-        return .{ None };
+        return .None;
     }
 }
 

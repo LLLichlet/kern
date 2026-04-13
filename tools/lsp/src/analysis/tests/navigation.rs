@@ -705,7 +705,7 @@ fn hover_resolves_match_variant_pattern_from_reference() {
     let source = concat!(
         "type Result = enum { Ok: i32, Err };\n",
         "fn main() i32 {\n",
-        "    let value = Result.{ Err };\n",
+        "    let value = Result.Err;\n",
         "    return match (value) {\n",
         "        .Err => 0,\n",
         "        .{ Ok: payload } => payload,\n",

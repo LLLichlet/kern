@@ -76,12 +76,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.check_coercion(&init_f.value, payload_ty, val_ty);
             } else {
                 let v_str = self.ctx.resolve(v.name).to_string();
+                let expected_str = self.ctx.ty_to_string(expected);
                 self.ctx
                     .struct_error(
                         init_f.span,
                         format!("variant `{}` does not take a payload", v_str),
                     )
-                    .with_hint(format!("initialize it as `.{{ {} }}` instead", v_str))
+                    .with_hint(format!(
+                        "use direct variant syntax like `.{}` or `{}.{}`",
+                        v_str,
+                        expected_str,
+                        v_str
+                    ))
                     .emit();
             }
         } else {
@@ -265,21 +271,31 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
             ast::DataLiteralKind::Scalar(inner) => {
                 if is_data {
                     if let ExprKind::Identifier(variant_name) = &inner.kind {
-                        self.check_enum_literal(
-                            *variant_name,
-                            inner.span,
-                            Some(expected),
-                            inner.span,
-                        )
+                        let variant = self.ctx.resolve(*variant_name).to_string();
+                        let expected_name = self.ctx.ty_to_string(expected);
+                        self.ctx
+                            .struct_error(
+                                inner.span,
+                                format!(
+                                    "payload-less enum variants must use direct variant syntax, not `{{ {} }}`",
+                                    variant
+                                ),
+                            )
+                            .with_hint(format!(
+                                "write `.{}` or `{}.{}` instead",
+                                variant, expected_name, variant
+                            ))
+                            .emit();
                     } else {
                         self.ctx
                             .struct_error(
                                 inner.span,
-                                "expected a simple variant name for data literal",
+                                "enum initialization inside `{ ... }` requires a payload field like `{ Variant: value }`",
                             )
+                            .with_hint("payload-less variants must be written as `.Variant` or `Type.Variant`")
                             .emit();
-                        TypeId::ERROR
                     }
+                    TypeId::ERROR
                 } else {
                     self.check_scalar_literal(inner, expected, is_untyped_literal)
                 }
@@ -287,7 +303,7 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
         }
     }
 
-    /// Validate `.Variant` shorthand and payload-free `.{ Variant }` enum construction.
+    /// Validate `.Variant` shorthand and direct `Type.Variant` payload-less enum construction.
     pub(crate) fn check_enum_literal(
         &mut self,
         variant_name: SymbolId,
@@ -474,12 +490,18 @@ impl<'a, 'ctx> ExprChecker<'a, 'ctx> {
                 self.check_coercion(&init_f.value, payload_ty, val_ty);
             } else {
                 let v_str = self.ctx.resolve(v.name).to_string();
+                let expected_str = self.ctx.ty_to_string(expected);
                 self.ctx
                     .struct_error(
                         init_f.span,
                         format!("variant `{}` does not take a payload", v_str),
                     )
-                    .with_hint(format!("initialize it as `.{{ {} }}` instead", v_str))
+                    .with_hint(format!(
+                        "use direct variant syntax like `.{}` or `{}.{}`",
+                        v_str,
+                        expected_str,
+                        v_str
+                    ))
                     .emit();
             }
         } else {

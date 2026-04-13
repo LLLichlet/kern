@@ -164,7 +164,7 @@ fn semantic_tokens_classify_enum_variant_references() {
         "type Result = enum { Ok: i32, Err };\n",
         "fn main() i32 {\n",
         "    let value = Result.{ Ok: i32.{1} };\n",
-        "    let other = Result.{ Err };\n",
+        "    let other = Result.Err;\n",
         "    let _ = value;\n",
         "    let _ = other;\n",
         "    return 0;\n",

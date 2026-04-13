@@ -520,7 +520,10 @@ fn main(value: ?i32, status: i32![]u8) ?i32![]u8 {
         );
 
         let ast::DeclKind::Function {
-            params, ret_type, ..
+            params,
+            ret_type,
+            body: Some(body),
+            ..
         } = &module.decls[0].kind
         else {
             panic!("expected function");
@@ -547,6 +550,24 @@ fn main(value: ?i32, status: i32![]u8) ?i32![]u8 {
             }
             _ => panic!("expected optional result return type"),
         }
+
+        let ast::ExprKind::Block { stmts, .. } = &body.kind else {
+            panic!("expected block body");
+        };
+        let ast::StmtKind::ExprStmt(first_stmt) = &stmts[0].kind else {
+            panic!("expected let statement");
+        };
+        let ast::ExprKind::Let { init, .. } = &first_stmt.kind else {
+            panic!("expected let binding");
+        };
+        let ast::ExprKind::FieldAccess { lhs, field, .. } = &init.kind else {
+            panic!("expected builtin optional field access");
+        };
+        assert_eq!(session.resolve(*field), "None");
+        let ast::ExprKind::TypeNode(type_node) = &lhs.kind else {
+            panic!("expected type namespace lhs");
+        };
+        assert!(matches!(type_node.kind, ast::TypeKind::Optional { .. }));
     }
 
     #[test]

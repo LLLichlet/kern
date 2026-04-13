@@ -43,7 +43,7 @@ impl[T] Option[T] {
     pub fn map[U](call_back: *Fn(T) U) Option[U] {
         match (self) {
             .{ Some: a } => .{ Some: call_back(a) },
-            .None => .{ None },
+            .None => .None,
         }
     }
 
@@ -67,7 +67,7 @@ impl[T] Option[T] {
     pub fn and_then[U](call_back: *Fn(T) Option[U]) Option[U] {
         match (self) {
             .{ Some: a } => call_back(a),
-            .None => .{ None },
+            .None => .None,
         }
     }
 
@@ -86,9 +86,9 @@ impl[T] Option[T] {
                 if (pred(a)) {
                     return .{ Some: a };
                 }
-                return .{ None };
+                return .None;
             },
-            .None => .{ None },
+            .None => .None,
         }
     }
 

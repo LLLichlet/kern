@@ -40,7 +40,7 @@ impl *mut Page : Allocator{
                 0
             );
             if (ptr == os.linux.MAP_FAILED) {
-                return .{ None };
+                return .None;
             }
             return .{ Some: ptr as *mut u8 };
         };
@@ -55,7 +55,7 @@ impl *mut Page : Allocator{
                 0
             );
             if (ptr as usize == ~usize.{0}) {
-                return .{ None };
+                return .None;
             }
             return .{ Some: ptr };
         };
@@ -67,7 +67,7 @@ impl *mut Page : Allocator{
                 (os.windows.MEM_COMMIT | os.windows.MEM_RESERVE) as u32,
                 WINDOWS_PAGE_READWRITE
             );
-            return if (ptr == 0) .{ None } else .{ Some: ptr };
+            return if (ptr == 0) .None else .{ Some: ptr };
         };
     }
 

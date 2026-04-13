@@ -38,6 +38,9 @@ pub fn parse(line: []u8) Command {
     if (text.eq("wq")) {
         return .WriteQuit;
     }
+    if (text.eq("wq!")) {
+        return .WriteQuit;
+    }
     if (text.starts_with("e ")) {
         let path = tail_after(text, 1);
         if (#path == 0) {

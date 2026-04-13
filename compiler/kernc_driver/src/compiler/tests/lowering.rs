@@ -502,6 +502,105 @@ fn lowering_elides_unused_immutable_pure_binding() {
 }
 
 #[test]
+fn lowering_expands_optional_propagate_into_match_like_early_return() {
+    let root = std::env::temp_dir().join(format!(
+        "kern_lower_propagate_option_{}_{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    fs::create_dir_all(&root).unwrap();
+    let main = root.join("main.rn");
+    let source = concat!(
+        "fn helper(input: ?i32) ?i32 {\n",
+        "    let value = input.?;\n",
+        "    return ?i32.{ Some: value + 1 };\n",
+        "}\n",
+        "extern fn main() i32 {\n",
+        "    let _ = helper(?i32.{ Some: 1 });\n",
+        "    return 0;\n",
+        "}\n",
+    );
+    fs::write(&main, source).unwrap();
+
+    let driver = CompilerDriver::new(CompileOptions::default());
+    let mut session = Session::new();
+    let mut ctx = driver
+        .analyze(&mut session, main.to_str().unwrap())
+        .expect("expected sema context");
+    let module = driver
+        .lower_module(&mut ctx)
+        .expect("expected lowered module");
+    let helper = module
+        .functions
+        .iter()
+        .find(|function| function.name.contains("helper"))
+        .expect("expected helper function");
+    let body = helper.body.as_ref().expect("expected helper body");
+    let propagate_init = body
+        .stmts
+        .iter()
+        .find_map(|stmt| match stmt {
+            MastStmt::Let { name, init, .. } if ctx.resolve(*name) == "value" => Some(init),
+            _ => None,
+        })
+        .expect("expected lowered propagate binding");
+
+    let MastExprKind::Block(block) = &propagate_init.kind else {
+        panic!("expected propagate lowering block, got {:?}", propagate_init.kind);
+    };
+    assert_eq!(block.stmts.len(), 1, "unexpected propagate block stmts: {:?}", block.stmts);
+    let MastStmt::Let { name, .. } = &block.stmts[0] else {
+        panic!("expected hidden target binding in propagate block");
+    };
+    assert!(
+        ctx.resolve(*name).starts_with("__match_target_"),
+        "unexpected propagate temp binding name: {}",
+        ctx.resolve(*name)
+    );
+
+    let Some(result_expr) = &block.result else {
+        panic!("expected propagate block result");
+    };
+    let MastExprKind::If {
+        then_branch,
+        else_branch,
+        ..
+    } = &result_expr.kind
+    else {
+        panic!("expected propagate block to end in if, got {:?}", result_expr.kind);
+    };
+    assert!(
+        matches!(
+            then_branch.result.as_deref().map(|expr| &expr.kind),
+            Some(MastExprKind::FieldAccess { .. })
+        ),
+        "expected propagate success branch to extract enum payload, got {:?}",
+        then_branch.result
+    );
+
+    let else_branch = else_branch.as_ref().expect("expected propagate failure branch");
+    let else_result = else_branch
+        .result
+        .as_deref()
+        .expect("expected propagate failure result");
+    match &else_result.kind {
+        MastExprKind::Return(Some(returned)) => {
+            assert!(
+                matches!(returned.kind, MastExprKind::DataInit { .. }),
+                "expected optional propagate failure to return builtin optional constructor, got {:?}",
+                returned.kind
+            );
+        }
+        other => panic!("expected early return in propagate failure branch, got {:?}", other),
+    }
+
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn lowering_preserves_return_temp_when_scope_has_defer() {
     let root = std::env::temp_dir().join(format!(
         "kern_lower_return_defer_{}_{}",

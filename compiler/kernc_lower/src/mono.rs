@@ -276,12 +276,14 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
                 if let Some(owner_scope) = this.function_owner_scope(&def) {
                     this.ctx.scopes.set_current_scope(owner_scope);
                 }
+                this.current_return_types.push(conc_ret);
 
                 let body = def
                     .body
                     .as_ref()
                     .map(|body_expr| this.lower_block_as_body(body_expr, &subst_map, conc_ret));
 
+                this.current_return_types.pop();
                 if let Some(prev_scope) = prev_scope {
                     this.ctx.scopes.set_current_scope(prev_scope);
                 }

@@ -5,7 +5,7 @@ use kernc_ast::{self as ast, Expr, ExprKind};
 use kernc_mast::*;
 use kernc_mono::MonoId;
 use kernc_sema::def::Def;
-use kernc_sema::ty::{TypeId, TypeKind};
+use kernc_sema::ty::{BuiltinAnonymousEnumKind, TypeId, TypeKind};
 use kernc_utils::{NodeId, Span, SymbolId};
 
 #[derive(Clone)]
@@ -423,6 +423,343 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
 
     fn bool_expr(&self, span: Span, value: bool) -> MastExpr {
         MastExpr::new(TypeId::BOOL, MastExprKind::Bool(value), span)
+    }
+
+    fn current_return_type(&mut self, span: Span) -> Option<TypeId> {
+        if let Some(ty) = self.current_return_types.last().copied() {
+            Some(ty)
+        } else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): missing active return type while lowering propagation.",
+            );
+            None
+        }
+    }
+
+    fn lower_return_lowered_value(&mut self, value: Option<MastExpr>, span: Span) -> MastExprKind {
+        let mut defer_stmts = self.measure_phase("            lower_return_defers", |this| {
+            let capacity = this.defer_stack.iter().map(Vec::len).sum();
+            let mut defer_stmts = Vec::with_capacity(capacity);
+
+            for stack in this.defer_stack.iter().rev() {
+                for d in stack.iter().rev() {
+                    defer_stmts.push(MastStmt::Expr(d.clone()));
+                }
+            }
+
+            defer_stmts
+        });
+
+        if defer_stmts.is_empty() {
+            MastExprKind::Return(value.map(Box::new))
+        } else {
+            match value {
+                Some(ret_expr) if ret_expr.ty != TypeId::VOID && ret_expr.ty != TypeId::ERROR => {
+                    let temp_name = self.ctx.intern(&format!("__ret_tmp_{}", self.next_mono_id));
+                    self.next_mono_id += 1;
+                    let temp_ty = ret_expr.ty;
+
+                    defer_stmts.insert(
+                        0,
+                        MastStmt::Let {
+                            name: temp_name,
+                            ty: temp_ty,
+                            is_mut: false,
+                            init: ret_expr,
+                        },
+                    );
+                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
+                        TypeId::NEVER,
+                        MastExprKind::Return(Some(Box::new(MastExpr::new(
+                            temp_ty,
+                            MastExprKind::Var(temp_name),
+                            span,
+                        )))),
+                        span,
+                    )));
+                }
+                Some(ret_expr) => {
+                    defer_stmts.insert(0, MastStmt::Expr(ret_expr));
+                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
+                        TypeId::NEVER,
+                        MastExprKind::Return(None),
+                        span,
+                    )));
+                }
+                None => {
+                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
+                        TypeId::NEVER,
+                        MastExprKind::Return(None),
+                        span,
+                    )));
+                }
+            }
+            MastExprKind::Block(MastBlock {
+                stmts: defer_stmts,
+                result: None,
+                defers: vec![],
+            })
+        }
+    }
+
+    fn build_variant_value_expr(
+        &mut self,
+        enum_ty: TypeId,
+        variant_name: SymbolId,
+        payload: Option<MastExpr>,
+        span: Span,
+    ) -> Option<MastExpr> {
+        let adt_info = self.resolve_match_adt(enum_ty, span)?;
+        let (variant_idx, tag_value) = self.resolve_match_variant(&adt_info, variant_name, span)?;
+
+        match adt_info {
+            MatchAdtInfo::Named {
+                mono_id,
+                def,
+                is_pure,
+                ..
+            } => {
+                let expects_payload = def.variants[variant_idx].payload_type.is_some();
+                if is_pure {
+                    return Some(MastExpr::new(
+                        enum_ty,
+                        MastExprKind::Integer(tag_value),
+                        span,
+                    ));
+                }
+
+                let payload_expr = if expects_payload {
+                    payload?
+                } else {
+                    MastExpr::new(TypeId::VOID, MastExprKind::Undef, span)
+                };
+                Some(MastExpr::new(
+                    enum_ty,
+                    MastExprKind::DataInit {
+                        data_struct_id: mono_id,
+                        tag_value,
+                        payload: Box::new(payload_expr),
+                    },
+                    span,
+                ))
+            }
+            MatchAdtInfo::Anonymous {
+                mono_id,
+                def,
+                is_pure,
+                ..
+            } => {
+                let expects_payload = def
+                    .variants
+                    .get(variant_idx)
+                    .and_then(|variant| variant.payload_ty)
+                    .is_some();
+                if is_pure {
+                    return Some(MastExpr::new(
+                        enum_ty,
+                        MastExprKind::Integer(tag_value),
+                        span,
+                    ));
+                }
+
+                let payload_expr = if expects_payload {
+                    payload?
+                } else {
+                    MastExpr::new(TypeId::VOID, MastExprKind::Undef, span)
+                };
+                Some(MastExpr::new(
+                    enum_ty,
+                    MastExprKind::DataInit {
+                        data_struct_id: mono_id,
+                        tag_value,
+                        payload: Box::new(payload_expr),
+                    },
+                    span,
+                ))
+            }
+        }
+    }
+
+    pub(crate) fn lower_propagate(
+        &mut self,
+        operand: &Expr,
+        kind: ast::PropagateKind,
+        subst_map: &HashMap<SymbolId, TypeId>,
+        span: Span,
+    ) -> MastExprKind {
+        let lowered_operand = self.lower_expr(operand, subst_map, None);
+        let operand_ty = lowered_operand.ty;
+        let current_return_ty = match self.current_return_type(span) {
+            Some(ty) => ty,
+            None => return MastExprKind::Trap,
+        };
+
+        let (target_let, target_var_expr) =
+            self.build_match_target_binding(operand_ty, lowered_operand, operand.span);
+        let operand_info = match self.resolve_match_adt(operand_ty, span) {
+            Some(info) => info,
+            None => {
+                self.ctx.emit_ice(
+                    span,
+                    "Kern ICE (Lowering): propagation operand did not lower to an enum-like ADT.",
+                );
+                return MastExprKind::Trap;
+            }
+        };
+
+        let some_name = self.ctx.intern("Some");
+        let none_name = self.ctx.intern("None");
+        let ok_name = self.ctx.intern("Ok");
+        let err_name = self.ctx.intern("Err");
+
+        let (success_variant, failure_variant, success_payload_info, failure_payload_info) = match (
+            kind,
+            operand_info,
+        ) {
+            (ast::PropagateKind::Option, MatchAdtInfo::Anonymous { def, .. })
+                if def.builtin == Some(BuiltinAnonymousEnumKind::Optional) =>
+            {
+                let success = self.build_enum_variant_condition(
+                    span,
+                    &target_var_expr,
+                    operand_ty,
+                    some_name,
+                );
+                let failure = self.build_enum_variant_condition(
+                    span,
+                    &target_var_expr,
+                    operand_ty,
+                    none_name,
+                );
+                let (success_cond, success_payload_info) = match success {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                let (_, failure_payload_info) = match failure {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                (success_cond, none_name, success_payload_info, failure_payload_info)
+            }
+            (ast::PropagateKind::Result, MatchAdtInfo::Anonymous { def, .. })
+                if def.builtin == Some(BuiltinAnonymousEnumKind::Result) =>
+            {
+                let success = self.build_enum_variant_condition(
+                    span,
+                    &target_var_expr,
+                    operand_ty,
+                    ok_name,
+                );
+                let failure = self.build_enum_variant_condition(
+                    span,
+                    &target_var_expr,
+                    operand_ty,
+                    err_name,
+                );
+                let (success_cond, success_payload_info) = match success {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                let (_, failure_payload_info) = match failure {
+                    Some(value) => value,
+                    None => return MastExprKind::Trap,
+                };
+                (success_cond, err_name, success_payload_info, failure_payload_info)
+            }
+            _ => {
+                self.ctx.emit_ice(
+                    span,
+                    "Kern ICE (Lowering): propagation kind and operand builtin enum kind disagreed.",
+                );
+                return MastExprKind::Trap;
+            }
+        };
+
+        let Some((success_field_idx, success_payload_ty, success_mono_id)) = success_payload_info
+        else {
+            self.ctx.emit_ice(
+                span,
+                "Kern ICE (Lowering): propagation success branch is missing its payload.",
+            );
+            return MastExprKind::Trap;
+        };
+        let Some(success_value) = self.build_payload_extract_expr(
+            span,
+            &target_var_expr,
+            success_mono_id,
+            success_field_idx,
+            success_payload_ty,
+        ) else {
+            return MastExprKind::Trap;
+        };
+
+        let failure_value = match kind {
+            ast::PropagateKind::Option => {
+                match self.build_variant_value_expr(current_return_ty, failure_variant, None, span)
+                {
+                    Some(expr) => expr,
+                    None => return MastExprKind::Trap,
+                }
+            }
+            ast::PropagateKind::Result => {
+                let Some((failure_field_idx, failure_payload_ty, failure_mono_id)) =
+                    failure_payload_info
+                else {
+                    self.ctx.emit_ice(
+                        span,
+                        "Kern ICE (Lowering): result propagation error branch is missing its payload.",
+                    );
+                    return MastExprKind::Trap;
+                };
+                let Some(failure_payload) = self.build_payload_extract_expr(
+                    span,
+                    &target_var_expr,
+                    failure_mono_id,
+                    failure_field_idx,
+                    failure_payload_ty,
+                ) else {
+                    return MastExprKind::Trap;
+                };
+                match self.build_variant_value_expr(
+                    current_return_ty,
+                    failure_variant,
+                    Some(failure_payload),
+                    span,
+                ) {
+                    Some(expr) => expr,
+                    None => return MastExprKind::Trap,
+                }
+            }
+        };
+
+        let early_return = MastExpr::new(
+            TypeId::NEVER,
+            self.lower_return_lowered_value(Some(failure_value), span),
+            span,
+        );
+
+        MastExprKind::Block(MastBlock {
+            stmts: vec![target_let],
+            result: Some(Box::new(MastExpr::new(
+                success_payload_ty,
+                MastExprKind::If {
+                    cond: Box::new(success_variant),
+                    then_branch: MastBlock {
+                        stmts: vec![],
+                        result: Some(Box::new(success_value)),
+                        defers: vec![],
+                    },
+                    else_branch: Some(MastBlock {
+                        stmts: vec![],
+                        result: Some(Box::new(early_return)),
+                        defers: vec![],
+                    }),
+                },
+                span,
+            ))),
+            defers: vec![],
+        })
     }
 
     fn and_expr(&self, span: Span, lhs: MastExpr, rhs: MastExpr) -> MastExpr {
@@ -1070,6 +1407,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.local_types.push(HashMap::new());
         self.local_forwardings.push(HashMap::new());
         self.local_value_forwardings.push(HashMap::new());
+        self.current_return_types.push(ret_ty);
         for p in &mast_params {
             self.bind_local_type(spec.body.span, p.name, p.ty, p.is_mut, "closure parameter");
         }
@@ -1119,6 +1457,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         self.local_types.pop();
         self.local_forwardings.pop();
         self.local_value_forwardings.pop();
+        self.current_return_types.pop();
 
         self.local_types = saved_local_types;
         self.local_forwardings = saved_local_forwardings;
@@ -1560,70 +1899,7 @@ impl<'a, 'ctx> Lowerer<'a, 'ctx> {
         let v = self.measure_phase("            lower_return_value", |this| {
             val.map(|e| this.lower_expr(e, subst_map, None))
         });
-        let mut defer_stmts = self.measure_phase("            lower_return_defers", |this| {
-            let capacity = this.defer_stack.iter().map(Vec::len).sum();
-            let mut defer_stmts = Vec::with_capacity(capacity);
-
-            // Expand all defers in the current scope stack in reverse order.
-            for stack in this.defer_stack.iter().rev() {
-                for d in stack.iter().rev() {
-                    defer_stmts.push(MastStmt::Expr(d.clone()));
-                }
-            }
-
-            defer_stmts
-        });
-
-        if defer_stmts.is_empty() {
-            MastExprKind::Return(v.map(Box::new))
-        } else {
-            match v {
-                Some(ret_expr) if ret_expr.ty != TypeId::VOID && ret_expr.ty != TypeId::ERROR => {
-                    let temp_name = self.ctx.intern(&format!("__ret_tmp_{}", self.next_mono_id));
-                    self.next_mono_id += 1;
-                    let temp_ty = ret_expr.ty;
-
-                    defer_stmts.insert(
-                        0,
-                        MastStmt::Let {
-                            name: temp_name,
-                            ty: temp_ty,
-                            is_mut: false,
-                            init: ret_expr,
-                        },
-                    );
-                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
-                        TypeId::NEVER,
-                        MastExprKind::Return(Some(Box::new(MastExpr::new(
-                            temp_ty,
-                            MastExprKind::Var(temp_name),
-                            span,
-                        )))),
-                        span,
-                    )));
-                }
-                Some(ret_expr) => {
-                    defer_stmts.insert(0, MastStmt::Expr(ret_expr));
-                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
-                        TypeId::NEVER,
-                        MastExprKind::Return(None),
-                        span,
-                    )));
-                }
-                None => {
-                    defer_stmts.push(MastStmt::Expr(MastExpr::new(
-                        TypeId::NEVER,
-                        MastExprKind::Return(None),
-                        span,
-                    )));
-                }
-            }
-            MastExprKind::Block(MastBlock {
-                stmts: defer_stmts,
-                result: None,
-                defers: vec![],
-            })
-        }
+        self.lower_return_lowered_value(v, span)
     }
 
     /// Expand defers specifically for `break` and `continue`.

@@ -280,6 +280,7 @@ impl *mut Editor {
             .ArrowRight => self.move_right(),
             .ArrowUp => self.move_up(),
             .ArrowDown => self.move_down(),
+            .NoInput => {}
             .CtrlC => self.wants_quit = true,
             .Eof => self.wants_quit = true,
             .{ Byte: byte } => match (byte) {
@@ -313,6 +314,7 @@ impl *mut Editor {
     fn handle_insert_key(alloc: *mut Allocator, key: Key) void {
         match (key) {
             .Escape => self.mode = .Normal,
+            .NoInput => {}
             .ArrowLeft => self.move_left(),
             .ArrowRight => self.move_right(),
             .ArrowUp => self.move_up(),
@@ -347,6 +349,7 @@ impl *mut Editor {
                 self.command_line..&.clear();
                 self.mode = .Normal;
             },
+            .NoInput => {}
             .Backspace => {
                 let _ = self.command_line..&.pop_char();
             },
@@ -432,7 +435,7 @@ impl *mut Editor {
             if (!ansi.clear_line(out, alloc)) {
                 return false;
             }
-            if (screen_row + 1 < rows and !out.push_char(alloc, b'\n')) {
+            if (screen_row + 1 < rows and !ansi.new_line(out, alloc)) {
                 return false;
             }
         }

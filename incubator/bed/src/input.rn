@@ -6,6 +6,7 @@ use std.fs;
 
 /// The normalized key events used by `bed`.
 pub type Key = enum {
+    NoInput,
     Eof,
     Escape,
     Enter,
@@ -37,7 +38,7 @@ pub fn read_key(stdin: *mut fs.File) Result[Key, fs.Error] {
         .{ Err: err } => return .{ Err: err },
     };
 
-    let .{ Some: byte } = first else return .{ Ok: .Eof };
+    let .{ Some: byte } = first else return .{ Ok: .NoInput };
     if (byte == u8.{3}) {
         return .{ Ok: .CtrlC };
     }

@@ -57,6 +57,11 @@ pub fn clear_line(out: *mut String, alloc: *mut Allocator) bool {
     return out.push_str(alloc, "\x1b[K");
 }
 
+/// Advances to the next terminal row and returns to column one.
+pub fn new_line(out: *mut String, alloc: *mut Allocator) bool {
+    return out.push_str(alloc, "\r\n");
+}
+
 /// Moves the cursor to a 1-based row and column.
 pub fn move_cursor(out: *mut String, alloc: *mut Allocator, row: usize, col: usize) bool {
     if (!out.push_str(alloc, "\x1b[")) {

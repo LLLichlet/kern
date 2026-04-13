@@ -312,8 +312,8 @@ pub fn enable_raw_mode(handle: Handle) Result[TerminalState, Error] {
 
     let original = state;
     system_cfmakeraw(state..&);
-    state.c_cc.[VMIN] = 1;
-    state.c_cc.[VTIME] = 0;
+    state.c_cc.[VMIN] = 0;
+    state.c_cc.[VTIME] = 1;
     if (system_tcsetattr(handle, TCSAFLUSH, state..&) < 0) {
         return .{ Err: last_error() };
     }
